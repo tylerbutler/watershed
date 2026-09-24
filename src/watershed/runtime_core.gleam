@@ -62,6 +62,7 @@ import watershed/tree_kernel
 import watershed/two_p_set_kernel
 import watershed/wire
 import watershed/wire/fluid_container
+import watershed/wire/fluid_document
 import watershed/wire/fluid_summary
 import watershed/wire/op as wire_op
 import watershed/wire/socket
@@ -86,6 +87,7 @@ pub type Core {
     client_id: String,
     routing: Routing,
     compressor: Option(fluid_ids.Compressor),
+    persistence: Option(fluid_document.DocumentSummary),
     minimum_sequence_number: Int,
     channels: Dict(String, ChannelState),
     channel_order: List(String),
@@ -672,6 +674,14 @@ pub fn bootstrap_seeded(
   connected: ConnectedMessage,
   seed: BootstrapSeed,
 ) -> Result(Bootstrapped, CoreError) {
+  bootstrap_seeded_with_persistence(connected, seed, None)
+}
+
+fn bootstrap_seeded_with_persistence(
+  connected: ConnectedMessage,
+  seed: BootstrapSeed,
+  persistence: Option(fluid_document.DocumentSummary),
+) -> Result(Bootstrapped, CoreError) {
   let BootstrapSeed(input) = seed
   use entries <- result.try(
     list.try_map(input.channels, fn(entry) {
@@ -709,7 +719,83 @@ pub fn bootstrap_seeded(
     ),
     input.compressor,
     input.minimum_sequence_number,
+    persistence,
   )
+}
+
+pub fn bootstrap_document(
+  connected: ConnectedMessage,
+  summary: fluid_document.DocumentSummary,
+) -> Result(Bootstrapped, CoreError) {
+  use datastores <- result.try(
+    list.try_map(fluid_document.datastores(summary), fn(store) {
+      Ok(DatastoreSeed(store.id, store.package_path))
+    }),
+  )
+  let channels =
+    list.flat_map(fluid_document.datastores(summary), fn(store) {
+      list.map(store.channels, fn(item) {
+        ChannelSeed(
+          fluid_container.Route(store.id, item.id),
+          item.attributes,
+          item.snapshot,
+        )
+      })
+    })
+  let tree_views =
+    list.flat_map(fluid_document.datastores(summary), fn(store) {
+      list.flat_map(store.channels, fn(item) {
+        case item.snapshot {
+          channel.TreeSnapshot(snapshot) -> {
+            let #(stored, _, _) = tree_kernel.snapshot_parts(snapshot)
+            [#(fluid_container.Route(store.id, item.id), stored)]
+          }
+          _ -> []
+        }
+      })
+    })
+  use tree_views <- result.try(
+    list.try_map(tree_views, fn(entry) {
+      use view <- result.try(
+        tree_schema.view_from_json(tree_schema.stored_to_json(entry.1))
+        |> result.map_error(fn(error) {
+          BadBootstrapSeed(string.inspect(error))
+        }),
+      )
+      Ok(TreeViewSeed(entry.0, fluid_document.view_id(summary), view))
+    }),
+  )
+  use root_store <- result.try(
+    list.key_find(fluid_document.aliases(summary), "root")
+    |> result.replace_error(BadBootstrapSeed("root alias is missing")),
+  )
+  use root <- result.try(
+    list.find(channels, fn(entry) {
+      let ChannelSeed(fluid_container.Route(store, _), _, snapshot) = entry
+      store == root_store
+      && case snapshot {
+        channel.MapSnapshot(_) -> True
+        _ -> False
+      }
+    })
+    |> result.replace_error(BadBootstrapSeed("bootstrap map is missing")),
+  )
+  let ChannelSeed(root_route, _, _) = root
+  use seed <- result.try(
+    bootstrap_seed(BootstrapSeedInput(
+      profile: RoutedSeed,
+      sequence_number: fluid_document.sequence_number(summary),
+      minimum_sequence_number: fluid_document.minimum_sequence_number(summary),
+      members: fluid_document.members(summary),
+      datastores: datastores,
+      aliases: fluid_document.aliases(summary),
+      channels: channels,
+      bootstrap_map: root_route,
+      compressor: fluid_document.compressor(summary),
+      tree_views: tree_views,
+    )),
+  )
+  bootstrap_seeded_with_persistence(connected, seed, Some(summary))
 }
 
 fn start_core(
@@ -721,12 +807,14 @@ fn start_core(
   routing: Routing,
   compressor: Option(fluid_ids.Compressor),
   minimum_sequence_number: Int,
+  persistence: Option(fluid_document.DocumentSummary),
 ) -> Result(Bootstrapped, CoreError) {
   let core =
     Core(
       client_id: connected.client_id,
       routing: routing,
       compressor: compressor,
+      persistence: persistence,
       minimum_sequence_number: minimum_sequence_number,
       channels: channels,
       channel_order: channel_order,
@@ -956,6 +1044,32 @@ pub fn summary_channels(
   })
 }
 
+pub fn capture_summary(
+  core: Core,
+) -> Result(fluid_document.DocumentSummary, CoreError) {
+  use _ <- result.try(seed_requirement(
+    core.ingest == Live
+      && core.in_flight == []
+      && core.out_of_order == []
+      && dict.size(core.detached) == 0,
+    "summary requires a synchronized document",
+  ))
+  use channels <- result.try(summary_channels(core))
+  case core.persistence {
+    Some(previous) ->
+      fluid_document.capture(previous, channels, core.compressor)
+      |> result.map_error(fn(error) { BadBootstrapSeed(string.inspect(error)) })
+    None ->
+      fluid_document.native(
+        core.last_seen_sequence_number,
+        core.minimum_sequence_number,
+        set.to_list(core.members),
+        channels,
+      )
+      |> result.map_error(fn(error) { BadBootstrapSeed(string.inspect(error)) })
+  }
+}
+
 pub fn is_synced(core: Core) -> Bool {
   core.in_flight == []
 }
@@ -1024,6 +1138,7 @@ pub fn build_summarize(
   core: Core,
   handle handle: String,
   message message: String,
+  reference_sequence_number reference_sequence_number: Int,
 ) -> #(Core, wire.OutboundOperation) {
   let client_sequence_number = core.next_client_sequence_number
   let head = case core.summary_head {
@@ -1033,7 +1148,7 @@ pub fn build_summarize(
   let outbound =
     wire_op.outbound_summarize_operation(
       client_sequence_number: client_sequence_number,
-      reference_sequence_number: core.last_seen_sequence_number,
+      reference_sequence_number: reference_sequence_number,
       handle: handle,
       message: message,
       parents: case core.summary_head {
@@ -1725,6 +1840,15 @@ fn apply_one(
   CoreError,
 ) {
   let before = core
+  use _ <- result.try(
+    case
+      msg.minimum_sequence_number >= core.minimum_sequence_number
+      && msg.minimum_sequence_number <= msg.sequence_number
+    {
+      True -> Ok(Nil)
+      False -> Error(HistoryGap("minimum sequence number regresses"))
+    },
+  )
   let core = Core(..core, last_seen_sequence_number: msg.sequence_number)
   use #(core, events, resolutions, summary_events) <- result.try(
     case msg.message_type {
@@ -1746,18 +1870,80 @@ fn apply_one(
       _ -> Error(BadOperationContents(msg.sequence_number))
     },
   )
-  use #(core, tree_events) <- result.try(advance_trees(
-    before,
-    core,
-    msg.sequence_number,
-    msg.minimum_sequence_number,
-  ))
+  use core <- result.try(advance_tree_positions(core, msg.sequence_number))
+  use tree_events <- result.try(tree_change_events(before, core))
+  use persistence <- result.try(case core.persistence {
+    Some(summary) ->
+      fluid_document.advance(summary, msg)
+      |> result.map(Some)
+      |> result.map_error(fn(error) { BadBootstrapSeed(string.inspect(error)) })
+    None -> Ok(None)
+  })
   Ok(#(
-    Core(..core, minimum_sequence_number: msg.minimum_sequence_number),
+    Core(
+      ..core,
+      minimum_sequence_number: msg.minimum_sequence_number,
+      persistence:,
+    ),
     list.append(events, tree_events),
     resolutions,
     summary_events,
   ))
+}
+
+fn tree_change_events(
+  before: Core,
+  after: Core,
+) -> Result(List(#(String, ChannelEvent)), CoreError) {
+  list.try_fold(after.channel_order, [], fn(events, address) {
+    case dict.get(before.channels, address), dict.get(after.channels, address) {
+      Ok(channel.TreeState(previous)), Ok(channel.TreeState(current)) -> {
+        use old <- result.try(
+          tree_kernel.read(previous, [])
+          |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+        )
+        use new <- result.try(
+          tree_kernel.read(current, [])
+          |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+        )
+        Ok(case old == new {
+          True -> events
+          False ->
+            list.append(events, [
+              #(address, channel.TreeEvent(tree_kernel.TreeChanged(False))),
+            ])
+        })
+      }
+      _, _ -> Ok(events)
+    }
+  })
+}
+
+fn advance_tree_positions(
+  core: Core,
+  sequence_number: Int,
+) -> Result(Core, CoreError) {
+  list.try_fold(core.channel_order, core, fn(core, address) {
+    case dict.get(core.channels, address) {
+      Ok(channel.TreeState(state)) -> {
+        use state <- result.try(
+          tree_kernel.advance_processed(state, sequence_number)
+          |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+        )
+        Ok(
+          Core(
+            ..core,
+            channels: dict.insert(
+              core.channels,
+              address,
+              channel.TreeState(state),
+            ),
+          ),
+        )
+      }
+      _ -> Ok(core)
+    }
+  })
 }
 
 fn without_summary_events(
@@ -2378,68 +2564,6 @@ fn same_batch_items(
     }
     _, _ -> Ok(False)
   }
-}
-
-fn advance_trees(
-  before: Core,
-  core: Core,
-  sequence_number: Int,
-  minimum_sequence_number: Int,
-) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
-  list.try_fold(core.channel_order, #(core, []), fn(acc, address) {
-    let #(core, events) = acc
-    case dict.get(core.channels, address) {
-      Ok(channel.TreeState(state)) -> {
-        use compressor <- result.try(case core.compressor {
-          Some(value) -> Ok(value)
-          None ->
-            Error(BadBootstrapSeed("tree channel has no document compressor"))
-        })
-        use #(state, compressor) <- result.try(
-          tree_runtime.advance_document(
-            state,
-            sequence_number,
-            minimum_sequence_number,
-            compressor,
-          )
-          |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
-        )
-        use after <- result.try(
-          tree_kernel.read(state, [])
-          |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
-        )
-        use prior <- result.try(case dict.get(before.channels, address) {
-          Ok(channel.TreeState(original)) ->
-            tree_kernel.read(original, [])
-            |> result.map_error(fn(error) {
-              TreeOperationFailed(address, error)
-            })
-            |> result.map(Some)
-          _ -> Ok(None)
-        })
-        let events = case prior {
-          Some(data) if data != after ->
-            list.append(events, [
-              #(address, channel.TreeEvent(tree_kernel.TreeChanged(False))),
-            ])
-          _ -> events
-        }
-        Ok(#(
-          Core(
-            ..core,
-            compressor: Some(compressor),
-            channels: dict.insert(
-              core.channels,
-              address,
-              channel.TreeState(state),
-            ),
-          ),
-          events,
-        ))
-      }
-      _ -> Ok(acc)
-    }
-  })
 }
 
 fn handle_channel_operation(

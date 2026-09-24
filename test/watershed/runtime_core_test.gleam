@@ -28,6 +28,7 @@ import lattice_sequence/sequence.{After, Before}
 import watershed/channel
 import watershed/claims_kernel
 import watershed/counter_kernel
+import watershed/fluid_ids
 import watershed/handle
 import watershed/map_kernel.{Delete, Set, ValueChanged}
 import watershed/or_map_kernel
@@ -39,6 +40,7 @@ import watershed/summary_policy
 import watershed/text_kernel
 import watershed/wire
 import watershed/wire/fluid_container
+import watershed/wire/fluid_document
 import watershed/wire/op as wire_op
 import watershed/wire/summary_blob
 
@@ -3387,18 +3389,24 @@ pub fn mv_or_map_runtime_submit_ack_resubmit_and_summary_test() -> Nil {
   let core = ack_mv_or_map_outbound(core, resubmitted)
   runtime_core.or_map_values(core, "watershed/revisions", "gate")
   |> expect.to_equal(Ok(["local", "remote"]))
-  let assert Ok(blob) =
-    checked.value(summary_blob.encode_channels(
+  let assert Ok(document) =
+    fluid_document.native(
       core.last_seen_sequence_number,
+      core.minimum_sequence_number,
       runtime_core.summary_members(core),
       checked.value(runtime_core.summary_channels(core)),
-    ))
-    |> json.to_string
-    |> summary_blob.decode
+    )
+  let assert Ok(hierarchy) = fluid_document.encode(document)
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(view) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  let assert Ok(restored) =
+    fluid_document.decode(hierarchy, None, session, view)
   let assert Ok(runtime_core.Complete(loaded)) =
-    runtime_core.bootstrap(
+    runtime_core.bootstrap_document(
       connected_message([], core.last_seen_sequence_number),
-      summary: Some(runtime_core.summary_from_blob(blob)),
+      restored,
     )
   runtime_core.or_map_values(loaded, "watershed/revisions", "gate")
   |> expect.to_equal(Ok(["local", "remote"]))
@@ -4839,6 +4847,7 @@ pub fn building_a_first_summary_uses_no_parent_test() -> Nil {
       core,
       handle: "tree-1",
       message: "watershed summary",
+      reference_sequence_number: 12,
     )
   runtime_core.operations_since_summary(core) |> expect.to_equal(12)
   decode.run(
@@ -4864,6 +4873,7 @@ pub fn building_a_later_summary_uses_the_published_head_test() -> Nil {
       core,
       handle: "tree-2",
       message: "watershed summary",
+      reference_sequence_number: 12,
     )
   decode.run(
     json_to_dynamic(outbound.contents),
