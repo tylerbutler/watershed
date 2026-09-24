@@ -115,6 +115,8 @@ import watershed/task_manager_kernel
 @target(erlang)
 import watershed/text_kernel
 @target(erlang)
+import watershed/tree/schema as tree_schema
+@target(erlang)
 import watershed/tree/types as tree_types
 @target(erlang)
 import watershed/wire
@@ -420,6 +422,11 @@ pub type Msg {
   ResolveSequence(address: String, reply: Subject(Result(Nil, String)))
   ResolveText(address: String, reply: Subject(Result(Nil, String)))
   ResolveRoot(reply: Subject(Result(String, String)))
+  ResolveTree(
+    value: Json,
+    view: tree_schema.ViewSchema,
+    reply: Subject(Result(String, String)),
+  )
   TreeRead(
     address: String,
     path: tree_types.FieldPath,
@@ -877,6 +884,19 @@ pub fn resolve_root(runtime: Subject(Msg)) -> Result(String, String) {
     runtime,
     waiting: connect_timeout_milliseconds,
     sending: ResolveRoot,
+  )
+}
+
+@target(erlang)
+pub fn resolve_tree(
+  runtime: Subject(Msg),
+  value: Json,
+  view: tree_schema.ViewSchema,
+) -> Result(String, String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { ResolveTree(value, view, reply) },
   )
 }
 
@@ -1452,6 +1472,20 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
           Error("resolve_root requires a ready document connection"),
           fn(core) {
             runtime_core.root_channel_address(core)
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
+    ResolveTree(value, view, reply) -> {
+      process.send(
+        reply,
+        read(
+          state,
+          Error("resolve_tree requires a ready document connection"),
+          fn(core) {
+            runtime_core.resolve_tree(core, value, view)
             |> result.map_error(string.inspect)
           },
         ),

@@ -127,6 +127,9 @@ pub fn child_field(key: String) -> ChildField(schema, child) {
 /// An untyped nested `SharedMap`. Use `ChildField` for a typed one.
 pub type MapChannel
 
+/// A fixed-schema SharedTree channel.
+pub type TreeChannel
+
 pub type CounterChannel
 
 /// A string cell whose greatest timestamp and replica ID select one winner.

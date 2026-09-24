@@ -47,6 +47,12 @@ type Kind {
 fn kinds() -> List(Kind) {
   [
     Kind(
+      "tree",
+      ["resolve_tree", "tree_handle_of", "set_tree_field", "resolve_tree_field"],
+      ["tree_get", "tree_set", "tree_clear"],
+      ["subscribe_tree"],
+    ),
+    Kind(
       "map",
       [
         "create_map",
@@ -377,7 +383,7 @@ const js_only = [
 /// Empty is the invariant, and the test below is two-sided about it: a new kind
 /// that reaches the facades without Lustre bindings fails, and so does closing a
 /// gap without deleting its entry. Neither direction can rot into prose.
-const lustre_gaps: List(String) = []
+const lustre_gaps: List(String) = ["subscribe_tree"]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
@@ -441,6 +447,15 @@ pub fn extraction_actually_finds_exports_test() -> Nil {
   { set.size(exports_of("src/watershed.gleam")) > 100 }
   |> expect.to_be_true()
   { set.size(exports_of("watershed_lustre/src/watershed_lustre.gleam")) > 20 }
+  |> expect.to_be_true()
+}
+
+pub fn tree_creation_is_not_a_public_facade_test() -> Nil {
+  let beam = exports_of("src/watershed_beam.gleam")
+  let js = exports_of("src/watershed.gleam")
+  { !set.contains(beam, "create_tree") && !set.contains(js, "create_tree") }
+  |> expect.to_be_true()
+  { !set.contains(beam, "ensure_tree") && !set.contains(js, "ensure_tree") }
   |> expect.to_be_true()
 }
 

@@ -870,6 +870,21 @@ pub fn resolve_handle_address(
   resolve_routed_handle(core, handle.absolute_routed_address(value))
 }
 
+/// Resolve an attached tree only when its stored schema admits this view.
+pub fn resolve_tree(
+  core: Core,
+  value: Json,
+  view: tree_schema.ViewSchema,
+) -> Result(String, CoreError) {
+  use address <- result.try(resolve_handle_address(core, value))
+  use state <- result.try(tree_channel(core, address))
+  use _ <- result.try(
+    tree_schema.can_view(tree_kernel.stored_schema(state), view)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  Ok(address)
+}
+
 /// Bind a handle to the datastore of its source channel.
 pub fn bind_handle(
   core: Core,

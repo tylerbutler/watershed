@@ -130,6 +130,12 @@ import watershed/text_kernel
 @target(javascript)
 import watershed/transport_js
 @target(javascript)
+import watershed/tree/schema as tree_schema
+@target(javascript)
+import watershed/tree/types as tree_types
+@target(javascript)
+import watershed/tree_kernel
+@target(javascript)
 import watershed/two_p_set_kernel
 @target(javascript)
 import watershed/wire
@@ -172,6 +178,11 @@ pub opaque type SubscriptionToken {
 @target(javascript)
 pub opaque type SharedMap {
   SharedMap(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type SharedTree {
+  SharedTree(runtime: runtime.Runtime, address: String)
 }
 
 @target(javascript)
@@ -452,6 +463,53 @@ pub fn resolve_root(document: Document(root)) -> Result(SharedMap, String) {
   |> result.map(fn(address) {
     SharedMap(runtime: document.runtime, address: address)
   })
+}
+
+@target(javascript)
+/// Resolve an upstream-created tree with a compatible fixed view.
+pub fn resolve_tree(
+  document: Document(root),
+  value: Json,
+  view: tree_schema.ViewSchema,
+) -> Result(SharedTree, String) {
+  runtime.resolve_tree(document.runtime, value, view)
+  |> result.map(fn(address) {
+    SharedTree(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+pub fn tree_handle_of(tree: SharedTree) -> Json {
+  handle.encode_handle(tree.address)
+}
+
+@target(javascript)
+pub fn tree_get(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+) -> Result(Option(tree_types.TreeValue), String) {
+  runtime.tree_read(tree.runtime, tree.address, path)
+}
+
+@target(javascript)
+pub fn tree_set(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+  value: tree_types.TreeValue,
+) -> Result(Nil, String) {
+  runtime.tree_edit(
+    tree.runtime,
+    tree.address,
+    tree_types.SetField(path, value),
+  )
+}
+
+@target(javascript)
+pub fn tree_clear(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+) -> Result(Nil, String) {
+  runtime.tree_edit(tree.runtime, tree.address, tree_types.ClearField(path))
 }
 
 // docs:snippet-start watershed-create-map
@@ -784,6 +842,27 @@ pub fn resolve_map_field(
   field: ChannelField(s, schema.MapChannel),
 ) -> Result(Option(SharedMap), String) {
   get_channel_field(document, typed_map, field, resolve)
+}
+
+@target(javascript)
+pub fn set_tree_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TreeChannel),
+  tree: SharedTree,
+) -> Nil {
+  put_channel_field(typed_map, field, tree_handle_of(tree))
+}
+
+@target(javascript)
+pub fn resolve_tree_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TreeChannel),
+  view: tree_schema.ViewSchema,
+) -> Result(Option(SharedTree), String) {
+  get_channel_field(document, typed_map, field, fn(document, value) {
+    resolve_tree(document, value, view)
+  })
 }
 
 @target(javascript)
@@ -1766,6 +1845,18 @@ fn subscribe_narrowed(
       }
     }),
   )
+}
+
+@target(javascript)
+pub fn subscribe_tree(
+  tree: SharedTree,
+  handler: fn(tree_kernel.TreeEvent) -> Nil,
+) -> SubscriptionToken {
+  use event <- subscribe_narrowed(tree.runtime, tree.address, handler)
+  case event {
+    channel.TreeEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 @target(javascript)

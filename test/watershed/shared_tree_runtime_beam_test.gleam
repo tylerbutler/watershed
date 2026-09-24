@@ -258,6 +258,29 @@ pub fn routed_beam_facade_root_serializes_absolute_handle_test() {
   let actor = watershed_beam.runtime_subject(document)
   runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
   let assert Ok(root) = watershed_beam.resolve_root(document)
+  let assert [view] = input.tree_views
+  let assert Ok(marker) = watershed_beam.get(root, "tree")
+  let assert Ok(tree) = watershed_beam.resolve_tree(document, marker, view.view)
+  watershed_beam.tree_handle_of(tree)
+  |> expect.to_equal(handle.encode_handle("A/_C"))
+  let events = watershed_beam.subscribe_tree(tree)
+  runtime_beam.resolve_root(actor) |> expect.to_be_ok()
+  watershed_beam.tree_set(tree, ["unknown"], tree_types.StringValue("invalid"))
+  |> expect.to_be_error()
+  process.receive(events, 0) |> expect.to_equal(Error(Nil))
+  watershed_beam.tree_set(tree, ["title"], tree_types.StringValue("native"))
+  |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_get(tree, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("native"))))
+  process.receive(events, 1000)
+  |> expect.to_equal(Ok(tree_kernel.TreeChanged(True)))
+  watershed_beam.tree_clear(tree, ["title"]) |> expect.to_be_error()
+  watershed_beam.resolve_tree(
+    document,
+    watershed_beam.handle_of(root),
+    view.view,
+  )
+  |> expect.to_be_error()
   watershed_beam.handle_of(root)
   |> json.to_string
   |> expect.to_equal("{\"type\":\"__fluid_handle__\",\"url\":\"/A/root\"}")

@@ -47,6 +47,8 @@ import watershed/tree/runtime_fixture
 @target(javascript)
 import watershed/tree/types as tree_types
 @target(javascript)
+import watershed/tree_kernel
+@target(javascript)
 import watershed/wire/fluid_container
 @target(javascript)
 import watershed/wire/op as wire_op
@@ -357,6 +359,31 @@ pub fn routed_facade_root_serializes_its_absolute_handle_test() {
       |> json.to_string,
   )
   let assert Ok(root) = watershed.resolve_root(document)
+  let assert [view] = input.tree_views
+  let assert Ok(marker) = watershed.get(root, "tree")
+  let assert Ok(tree) = watershed.resolve_tree(document, marker, view.view)
+  watershed.tree_handle_of(tree)
+  |> expect.to_equal(handle.encode_handle("A/_C"))
+  let changed = transport_js.new_cell([])
+  let subscription =
+    watershed.subscribe_tree(tree, fn(event) {
+      transport_js.set_cell(changed, [event, ..transport_js.get_cell(changed)])
+    })
+  watershed.tree_set(tree, ["unknown"], tree_types.StringValue("invalid"))
+  |> expect.to_be_error()
+  transport_js.get_cell(changed) |> expect.to_equal([])
+  watershed.tree_set(tree, ["title"], tree_types.StringValue("native"))
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_get(tree, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("native"))))
+  transport_js.get_cell(changed)
+  |> expect.to_equal([
+    tree_kernel.TreeChanged(True),
+  ])
+  watershed.unsubscribe(subscription)
+  watershed.tree_clear(tree, ["title"]) |> expect.to_be_error()
+  watershed.resolve_tree(document, watershed.handle_of(root), view.view)
+  |> expect.to_be_error()
   watershed.handle_of(root)
   |> json.to_string
   |> expect.to_equal("{\"type\":\"__fluid_handle__\",\"url\":\"/A/root\"}")

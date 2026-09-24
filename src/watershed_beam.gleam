@@ -115,6 +115,12 @@ import watershed/task_manager_kernel
 @target(erlang)
 import watershed/text_kernel
 @target(erlang)
+import watershed/tree/schema as tree_schema
+@target(erlang)
+import watershed/tree/types as tree_types
+@target(erlang)
+import watershed/tree_kernel
+@target(erlang)
 import watershed/two_p_set_kernel
 @target(erlang)
 import watershed/wire
@@ -137,6 +143,11 @@ pub opaque type Document(root) {
 @target(erlang)
 pub opaque type SharedMap {
   SharedMap(runtime: Subject(runtime_beam.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type SharedTree {
+  SharedTree(runtime: Subject(runtime_beam.Msg), address: String)
 }
 
 @target(erlang)
@@ -568,6 +579,57 @@ pub fn resolve_root(document: Document(root)) -> Result(SharedMap, String) {
 }
 
 @target(erlang)
+/// Resolve an upstream-created tree with a compatible fixed view.
+pub fn resolve_tree(
+  document: Document(root),
+  value: Json,
+  view: tree_schema.ViewSchema,
+) -> Result(SharedTree, String) {
+  runtime_beam.resolve_tree(document.runtime, value, view)
+  |> result.map(fn(address) {
+    SharedTree(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn tree_handle_of(tree: SharedTree) -> Json {
+  handle.encode_handle(tree.address)
+}
+
+@target(erlang)
+pub fn tree_get(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+) -> Result(Option(tree_types.TreeValue), String) {
+  runtime_beam.tree_read(tree.runtime, tree.address, path)
+}
+
+@target(erlang)
+pub fn tree_set(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+  value: tree_types.TreeValue,
+) -> Result(Nil, String) {
+  runtime_beam.tree_edit(
+    tree.runtime,
+    tree.address,
+    tree_types.SetField(path, value),
+  )
+}
+
+@target(erlang)
+pub fn tree_clear(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+) -> Result(Nil, String) {
+  runtime_beam.tree_edit(
+    tree.runtime,
+    tree.address,
+    tree_types.ClearField(path),
+  )
+}
+
+@target(erlang)
 fn resolve_handle_address(
   document: Document(root),
   value: Json,
@@ -902,6 +964,27 @@ pub fn resolve_map_field(
   field: ChannelField(s, schema.MapChannel),
 ) -> Result(Option(SharedMap), String) {
   get_channel_field(document, typed_map, field, resolve)
+}
+
+@target(erlang)
+pub fn set_tree_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TreeChannel),
+  tree: SharedTree,
+) -> Nil {
+  put_channel_field(typed_map, field, tree_handle_of(tree))
+}
+
+@target(erlang)
+pub fn resolve_tree_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TreeChannel),
+  view: tree_schema.ViewSchema,
+) -> Result(Option(SharedTree), String) {
+  get_channel_field(document, typed_map, field, fn(document, value) {
+    resolve_tree(document, value, view)
+  })
 }
 
 @target(erlang)
@@ -1792,6 +1875,15 @@ fn subscribe_narrowed(
     }),
   )
   subject
+}
+
+@target(erlang)
+pub fn subscribe_tree(tree: SharedTree) -> Subject(tree_kernel.TreeEvent) {
+  use event <- subscribe_narrowed(tree.runtime, tree.address)
+  case event {
+    channel.TreeEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 @target(erlang)

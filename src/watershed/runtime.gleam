@@ -93,6 +93,8 @@ import watershed/text_kernel
 @target(javascript)
 import watershed/transport_js.{type Cell}
 @target(javascript)
+import watershed/tree/schema as tree_schema
+@target(javascript)
 import watershed/tree/types as tree_types
 @target(javascript)
 import watershed/wire
@@ -2020,6 +2022,22 @@ pub fn resolve_root(runtime: Runtime) -> Result(String, String) {
     Error("resolve_root requires a ready document connection"),
     fn(core) {
       runtime_core.root_channel_address(core)
+      |> result.map_error(string.inspect)
+    },
+  )
+}
+
+@target(javascript)
+pub fn resolve_tree(
+  runtime: Runtime,
+  value: Json,
+  view: tree_schema.ViewSchema,
+) -> Result(String, String) {
+  read(
+    runtime.cell,
+    Error("resolve_tree requires a ready document connection"),
+    fn(core) {
+      runtime_core.resolve_tree(core, value, view)
       |> result.map_error(string.inspect)
     },
   )

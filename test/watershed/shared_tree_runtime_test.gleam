@@ -24,6 +24,33 @@ import watershed/wire/socket
 
 const peer_session = "30000000-0000-4000-8000-000000000003"
 
+pub fn shared_tree_resolve_checks_handle_kind_and_view_test() -> Nil {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert [view] = input.tree_views
+  let assert Ok(root) = runtime_core.root_channel_address(core)
+  let assert Ok(marker) = runtime_core.get(core, root, "tree")
+  runtime_core.resolve_tree(core, marker, view.view)
+  |> expect.to_equal(Ok("A/_C"))
+  runtime_core.resolve_tree(core, handle.encode_handle(root), view.view)
+  |> expect.to_be_error()
+  let assert Ok(channel.TreeState(state)) = dict.get(core.channels, "A/_C")
+  let schema =
+    tree_kernel.stored_schema(state)
+    |> tree_schema.stored_to_json
+    |> json.to_string
+  let incompatible =
+    string.replace(
+      schema,
+      "\"root\":{\"kind\":\"Value\"",
+      "\"root\":{\"kind\":\"Optional\"",
+    )
+  let assert Ok(other_view) = tree_schema.view_from_string(incompatible)
+  runtime_core.resolve_tree(core, marker, other_view)
+  |> expect.to_be_error()
+  Nil
+}
+
 pub fn shared_tree_runtime_route_identity_test() -> Nil {
   fluid_container.route_key(fluid_container.Route("A", "root"))
   |> expect.to_equal(Ok("A/root"))
