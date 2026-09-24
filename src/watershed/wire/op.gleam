@@ -361,10 +361,38 @@ pub fn decode_map_header(
 pub fn decode_map_header_string(
   raw: String,
 ) -> Result(List(#(String, Json)), String) {
-  use #(blobs, entries) <- result.try(decode_map_header_parts(raw))
-  case blobs {
-    [] -> Ok(entries)
-    _ -> Error("SharedMap header requires external blobs")
+  decode_map_snapshot(raw, [])
+}
+
+pub fn decode_map_snapshot(
+  raw: String,
+  blobs: List(#(String, String)),
+) -> Result(List(#(String, Json)), String) {
+  use #(names, inline) <- result.try(decode_map_header_parts(raw))
+  use _ <- result.try(
+    case
+      list.sort(names, string.compare)
+      == list.sort(list.map(blobs, fn(blob) { blob.0 }), string.compare)
+    {
+      True -> Ok(Nil)
+      False if names != [] && blobs == [] ->
+        Error("SharedMap header requires external blobs")
+      False -> Error("SharedMap header references missing or extra blobs")
+    },
+  )
+  use entries <- result.try(
+    list.try_fold(names, inline, fn(entries, name) {
+      use raw <- result.try(
+        list.key_find(blobs, name)
+        |> result.replace_error("SharedMap header requires external blobs"),
+      )
+      use more <- result.try(decode_map_content(raw))
+      Ok(list.append(entries, more))
+    }),
+  )
+  case list.length(entries) == dict.size(dict.from_list(entries)) {
+    True -> Ok(entries)
+    False -> Error("duplicate SharedMap key across snapshot blobs")
   }
 }
 
@@ -2170,7 +2198,7 @@ fn decode_map_attach(
   blobs: dict.Dict(String, AttachEntry),
   header: String,
 ) -> Result(List(#(String, Json)), String) {
-  use #(names, inline) <- result.try(decode_map_header_parts(header))
+  use #(names, _) <- result.try(decode_map_header_parts(header))
   use _ <- result.try(
     case
       list.sort(dict.keys(blobs), string.compare)
@@ -2180,17 +2208,12 @@ fn decode_map_attach(
       False -> Error("SharedMap blob references do not match its snapshot")
     },
   )
-  use entries <- result.try(
-    list.try_fold(names, inline, fn(entries, name) {
-      use raw <- result.try(
-        attach_blob_contents(blobs, name) |> result.map_error(string.inspect),
-      )
-      use more <- result.try(decode_map_content(raw))
-      Ok(list.append(entries, more))
+  use external <- result.try(
+    list.try_map(names, fn(name) {
+      attach_blob_contents(blobs, name)
+      |> result.map(fn(raw) { #(name, raw) })
+      |> result.map_error(string.inspect)
     }),
   )
-  case list.length(entries) == dict.size(dict.from_list(entries)) {
-    True -> Ok(entries)
-    False -> Error("duplicate SharedMap key across snapshot blobs")
-  }
+  decode_map_snapshot(header, external)
 }

@@ -513,7 +513,33 @@ fn decode_datastore(
         }
         "https://graph.microsoft.com/types/map" -> {
           use raw <- result.try(blob(entry.1, ["header"]))
-          wire_op.decode_map_header_string(raw)
+          use entries <- result.try(tree_entries(entry.1, channel_path))
+          use external <- result.try(
+            list.try_map(
+              list.filter(entries, fn(entry) {
+                entry.0 != ".attributes" && entry.0 != "header"
+              }),
+              fn(entry) {
+                use bytes <- result.try(case entry.1 {
+                  SummaryBlob(bytes) -> Ok(bytes)
+                  _ ->
+                    Error(fluid_summary.WrongKind(
+                      channel_path <> "/" <> entry.0,
+                      fluid_summary.BlobHandle,
+                    ))
+                })
+                bit_array.to_string(bytes)
+                |> result.map(fn(raw) { #(entry.0, raw) })
+                |> result.map_error(fn(_) {
+                  fluid_summary.MalformedEntry(
+                    channel_path <> "/" <> entry.0,
+                    "invalid UTF-8",
+                  )
+                })
+              },
+            ),
+          )
+          wire_op.decode_map_snapshot(raw, external)
           |> result.map(channel.MapSnapshot)
           |> result.map_error(fn(detail) {
             fluid_summary.MalformedEntry(channel_path <> "/header", detail)

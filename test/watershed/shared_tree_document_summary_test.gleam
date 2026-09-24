@@ -447,6 +447,116 @@ pub fn shared_tree_document_summary_rejects_bad_tree_and_compressor_test() {
   })
 }
 
+pub fn shared_map_summary_loads_large_split_blob_test() {
+  let large = string.repeat("a", 9 * 1024)
+  let assert Ok(initial) =
+    fluid_document.native(1, 0, [], [
+      #("watershed/root", channel.MapSnapshot([])),
+    ])
+  let assert Ok(hierarchy) = fluid_document.encode(initial)
+  let header =
+    json.object([
+      #("blobs", json.array(["blob0"], json.string)),
+      #("content", json.object([])),
+    ])
+  let payload =
+    json.object([
+      #(
+        "large",
+        json.object([
+          #("type", json.string("Plain")),
+          #("value", json.string(large)),
+        ]),
+      ),
+    ])
+  let map_path = [".channels", "watershed", ".channels", "root"]
+  let hierarchy =
+    replace_entry(
+      hierarchy,
+      list.append(map_path, ["header"]),
+      fluid_summary.SummaryBlob(<<json.to_string(header):utf8>>),
+    )
+  let hierarchy =
+    insert_entry(
+      hierarchy,
+      map_path,
+      "blob0",
+      fluid_summary.SummaryBlob(<<json.to_string(payload):utf8>>),
+    )
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(view) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  let summary = case fluid_document.decode(hierarchy, None, session, view) {
+    Ok(summary) -> summary
+    Error(error) ->
+      panic as { "large map summary rejected: " <> string.inspect(error) }
+  }
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected("reader", [], 1),
+      summary,
+    )
+  runtime_core.get(core, "watershed/root", "large")
+  |> expect.to_equal(Ok(json.string(large)))
+  let missing =
+    replace_entry(
+      hierarchy,
+      list.append(map_path, ["header"]),
+      fluid_summary.SummaryBlob(<<
+        json.to_string(
+          json.object([
+            #("blobs", json.array(["blob1"], json.string)),
+            #("content", json.object([])),
+          ]),
+        ):utf8,
+      >>),
+    )
+  case fluid_document.decode(missing, None, session, view) {
+    Error(_) -> Nil
+    Ok(_) -> panic as "accepted missing map blob"
+  }
+  let extra =
+    replace_entry(
+      hierarchy,
+      list.append(map_path, ["header"]),
+      fluid_summary.SummaryBlob(<<
+        json.to_string(
+          json.object([
+            #("blobs", json.array([], json.string)),
+            #("content", json.object([])),
+          ]),
+        ):utf8,
+      >>),
+    )
+  case fluid_document.decode(extra, None, session, view) {
+    Error(_) -> Nil
+    Ok(_) -> panic as "accepted unlisted map blob"
+  }
+}
+
+fn insert_entry(
+  tree: fluid_summary.SummaryEntry,
+  path: List(String),
+  name: String,
+  value: fluid_summary.SummaryEntry,
+) -> fluid_summary.SummaryEntry {
+  case path, tree {
+    [], fluid_summary.SummaryTree(entries) ->
+      fluid_summary.SummaryTree(list.append(entries, [#(name, value)]))
+    [head, ..tail], fluid_summary.SummaryTree(entries) ->
+      fluid_summary.SummaryTree(
+        list.map(entries, fn(entry) {
+          case entry.0 == head {
+            True -> #(head, insert_entry(entry.1, tail, name, value))
+            False -> entry
+          }
+        }),
+      )
+    _, _ -> tree
+  }
+}
+
 pub fn shared_tree_summary_export_rejects_mismatched_continuation_test() {
   let assert Ok(fixture) = fixtures.load("summary-writer-matrix")
   let assert Ok(states) =

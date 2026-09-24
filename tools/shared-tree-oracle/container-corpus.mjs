@@ -368,7 +368,7 @@ async function captureRaw(environment, session) {
   return { messages, snapshot, snapshotPaths: snapshotPaths(snapshot.tree) };
 }
 
-async function publishSummary(environment, documentId, reason) {
+export async function publishSummary(environment, documentId, reason) {
   const summarizer = await environment.open(documentId, { summarizing: true });
   assert(summarizer.data.ISummarizer, "Summary entry point has no ISummarizer");
   const result = summarizer.data.ISummarizer.summarizeOnDemand({ reason, fullTree: true });

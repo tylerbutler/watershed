@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -11,6 +12,7 @@ import { parseArgs, promisify } from "node:util";
 import {
   openSession, preflight, serviceConfig, tokenProvider, withLocalFloodgate,
 } from "./service.mjs";
+import { makeEnvironment, publishSummary, readSnapshot } from "./container-corpus.mjs";
 import { captureSource, reference } from "./source.mjs";
 
 const directory = dirname(fileURLToPath(import.meta.url));
@@ -261,6 +263,46 @@ async function produceSummary(target, path, inputPath) {
   });
 }
 
+async function checkSplitMap(owned) {
+  const environment = makeEnvironment();
+  const document = `split-map-${randomUUID()}`;
+  const large = "a".repeat(9 * 1024);
+  try {
+    const writer = await environment.open(document, { create: true });
+    writer.data.bootstrap.set("large", large);
+    await observed(() => !writer.container.isDirty, "upstream large map acknowledgement");
+    await publishSummary(environment, document, "split SharedMap blob");
+    const snapshot = await readSnapshot(environment, writer.container.resolvedUrl);
+    const map = snapshot.tree.trees[".channels"]?.trees.A
+      ?.trees[".channels"]?.trees.root;
+    assert(map, "Upstream summary has no bootstrap SharedMap");
+    const header = JSON.parse(Buffer.from(
+      snapshot.blobs[map.blobs.header], "base64",
+    ).toString("utf8"));
+    assert(header.blobs.includes("blob0"), "Upstream did not split the 9KiB map value");
+    assert.equal(typeof snapshot.blobs[map.blobs.blob0], "string",
+      "Upstream split map value is missing");
+    const input = join(owned, "large-map.json");
+    await writeFile(input, JSON.stringify(snapshot));
+    for (const target of ["javascript", "erlang"]) {
+      await execute("gleam", [
+        "run", "--target", target, "-m", "watershed/tree/summary_map_probe",
+      ], {
+        cwd: repository,
+        timeout: 120_000,
+        env: {
+          ...process.env,
+          WATERSHED_TREE_MAP_SNAPSHOT: input,
+          WATERSHED_TREE_MAP_VALUE: large,
+        },
+      });
+    }
+    return { targets: ["javascript", "erlang"], size: large.length };
+  } finally {
+    await environment.close();
+  }
+}
+
 export async function runArtifactInterop({
   produce = produceSummary, cases = persistenceStates,
 } = {}) {
@@ -288,7 +330,8 @@ export async function runArtifactInterop({
         })),
       });
     }
-    return { reference: identity, targets: results };
+    const splitMap = await checkSplitMap(owned);
+    return { reference: identity, targets: results, splitMap };
   } finally {
     await rm(owned, { recursive: true, force: true });
   }
