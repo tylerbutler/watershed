@@ -216,7 +216,9 @@
       "summary-foundations",
       "history-reconciliation",
       "tree-codecs",
-      "tree-kernel"
+      "tree-kernel",
+      "bootstrap-map-handles",
+      "batched-commits"
     ],
     "erlang": [
       "id-ranges",
@@ -228,7 +230,9 @@
       "summary-foundations",
       "history-reconciliation",
       "tree-codecs",
-      "tree-kernel"
+      "tree-kernel",
+      "bootstrap-map-handles",
+      "batched-commits"
     ]
   },
   "cases": [

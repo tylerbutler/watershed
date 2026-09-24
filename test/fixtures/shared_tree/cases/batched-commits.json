@@ -264,7 +264,14 @@
             "y": 0
           }
         },
-        "pendingCount": 3
+        "pendingCount": 3,
+        "invalidated": true,
+        "outer": {
+          "clientId": "3966f62e-8d91-4c3a-9675-3b760f14be63",
+          "clientSequenceNumber": 1,
+          "referenceSequenceNumber": 2
+        },
+        "treePositions": []
       },
       {
         "checkpoint": "peer-after-delivery",
@@ -278,7 +285,29 @@
             "y": 0
           }
         },
-        "pendingCount": 0
+        "pendingCount": 0,
+        "invalidated": true,
+        "outer": {
+          "clientId": "3966f62e-8d91-4c3a-9675-3b760f14be63",
+          "clientSequenceNumber": 1,
+          "referenceSequenceNumber": 2,
+          "sequenceNumber": 3,
+          "minimumSequenceNumber": 0
+        },
+        "treePositions": [
+          {
+            "sequenceNumber": 3,
+            "indexInBatch": 0
+          },
+          {
+            "sequenceNumber": 3,
+            "indexInBatch": 1
+          },
+          {
+            "sequenceNumber": 3,
+            "indexInBatch": 2
+          }
+        ]
       }
     ]
   },

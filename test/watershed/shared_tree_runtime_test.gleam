@@ -865,6 +865,28 @@ pub fn shared_tree_runtime_socket_preserves_real_group_positions_test() -> Nil {
   group.sequence_number |> expect.to_equal(3)
 }
 
+pub fn shared_tree_runtime_bootstrap_corpus_test() {
+  fixtures.assert_case("bootstrap-map-handles", runtime_fixture.run_bootstrap)
+}
+
+pub fn shared_tree_runtime_batched_corpus_test() {
+  fixtures.assert_case("batched-commits", runtime_fixture.run_batched)
+}
+
+pub fn shared_tree_runtime_expected_values_do_not_drive_replay_test() {
+  let assert Ok(fixture) = fixtures.load("batched-commits")
+  let changed_expected =
+    json.object([
+      #("observations", json.array([json.string("wrong")], fn(x) { x })),
+    ])
+  let assert Ok(actual) = runtime_fixture.run_batched(fixture.input)
+  fixtures.first_difference(actual, fixture.expected)
+  |> expect.to_equal(Ok(Nil))
+  fixtures.first_difference(actual, changed_expected)
+  |> expect.to_be_error()
+  Nil
+}
+
 pub fn shared_tree_runtime_bridge_decodes_captured_group_with_allocation_test() {
   let assert Ok(core) = runtime_fixture.routed_core()
   let assert Ok(fixture) = fixtures.load("batched-commits")

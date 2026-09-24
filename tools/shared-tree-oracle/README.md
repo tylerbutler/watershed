@@ -1,8 +1,9 @@
 # SharedTree interoperability oracle
 
 This development-only package runs actual Fluid SharedTree code. It is not a
-production dependency, a native tree implementation, or evidence that Watershed
-can yet load a SharedTree document.
+production dependency. The runtime gate below tests DDS-level native outbound
+and replay with the local upstream container service; it does not establish
+complete native summary publication or real-service interoperability.
 
 The public collaboration test uses an in-memory service. The source capture uses
 upstream's deterministic DDS test runtimes. Container fixtures use complete
@@ -36,6 +37,7 @@ npm --prefix tools/shared-tree-oracle run source:prepare
 npm --prefix tools/shared-tree-oracle run source:verify
 npm --prefix tools/shared-tree-oracle run source:capture
 npm --prefix tools/shared-tree-oracle run codec:interop
+npm --prefix tools/shared-tree-oracle run runtime:interop
 ```
 
 The capture is written to `.output/source/source-smoke.json`. To choose an output
@@ -245,9 +247,27 @@ Task 6 adds the input-only `forest-delta` runner. The foundation wave adds
 `field-compose-invert-rebase`, `modular-nested-algebra`,
 `container-foundations`, and `summary-foundations`. Task 9 adds the input-only
 `history-reconciliation` runner. Task 10a adds the input-only `tree-codecs`
-runner. These nine complete cases are registered as native semantic runners on
-both targets. Document runtime replay and native writer-matrix results remain
+runner. The runtime fixture adds input-only `bootstrap-map-handles` and
+`batched-commits` runners. All twelve cases are registered on both targets.
+Native document summary publication and the complete writer matrix remain
 future work.
+
+### Native runtime interoperability
+
+`npm run runtime:interop` creates fresh pinned upstream containers and gives
+each native target the real initial snapshot, server delivery prefix, and its
+own connected transport identity. The native core emits a SharedMap handle set,
+a required-field edit, an optional set and clear, and a grouped three-edit
+batch with ID allocation. The upstream container consumes each outbound
+message unchanged at its own checkpoint, resolves the handle, and authors a
+continuation edit. The native core then replays the actual server messages,
+including its own echoes and the peer's allocation, and checks the final root,
+pending count, outer identities, and per-tree sequence positions. A second
+upstream container loads the native SharedMap header through its normal DDS
+loader and checks integer-key insertion order and handle resolution. The
+coordinator rejects missing, stale, incomplete, or divergent output and
+removes only its own temporary directory. This is a local-driver DDS/runtime
+test, not native publication of a full Fluid document summary.
 
 ### Native codec interoperability
 
@@ -352,9 +372,9 @@ additional operations do not change the earlier captures' deterministic IDs:
   binary content, prior-summary tree/blob handles, and reference refusals. It
   invokes the pinned `SummaryTreeUploadManager`.
 
-These cases do not close the existing `bootstrap-map-handles`,
-`batched-commits`, or `summary-tail` runtime scenarios. Native document loading,
-publication, and mixed-client editing still require the later integration tasks.
+The two runtime cases now have native replay comparisons and the local-driver
+interop gate above. `summary-tail`, native document publication, and real-service
+mixed-client acceptance remain separate work.
 
 The contextual `handle.resolve_path` and `handle.encode_path` APIs preserve full
 document paths. Existing single-segment helpers and their live callers retain

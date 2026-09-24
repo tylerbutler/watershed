@@ -17,6 +17,7 @@ import {
 } from "@fluidframework/local-driver/internal";
 import { makeCodeLoader, rootDataStoreId } from "@fluidframework/runtime-utils/internal";
 import { LocalDeltaConnectionServer } from "@fluidframework/server-local-server";
+import { Tree } from "@fluidframework/tree/internal";
 import {
   oldestSupportedClient,
   runtimeOptions,
@@ -150,7 +151,7 @@ function caseRecord(id, domain, schedules, observations, raw, extraInput = {}) {
   };
 }
 
-function makeEnvironment() {
+export function makeEnvironment() {
   const server = LocalDeltaConnectionServer.create();
   const documentServiceFactory = new LocalDocumentServiceFactory(server);
   const urlResolver = new LocalResolver();
@@ -257,7 +258,7 @@ async function synchronize(environment, sessions, stage) {
   }, stage);
 }
 
-async function readMessages(environment, resolvedUrl) {
+export async function readMessages(environment, resolvedUrl) {
   const service = await environment.documentServiceFactory.createDocumentService(resolvedUrl);
   try {
     const deltaStorage = await service.connectToDeltaStorage();
@@ -273,7 +274,7 @@ async function readMessages(environment, resolvedUrl) {
   }
 }
 
-async function readSnapshot(environment, resolvedUrl) {
+export async function readSnapshot(environment, resolvedUrl) {
   const service = await environment.documentServiceFactory.createDocumentService(resolvedUrl);
   try {
     const storage = await service.connectToStorage();
@@ -442,12 +443,24 @@ async function treeFromBootstrap(bootstrap, expectedType) {
   return tree;
 }
 
+function outerIdentity(message) {
+  return {
+    clientId: message.clientId,
+    clientSequenceNumber: message.clientSequenceNumber,
+    referenceSequenceNumber: message.referenceSequenceNumber,
+    sequenceNumber: message.sequenceNumber,
+    minimumSequenceNumber: message.minimumSequenceNumber,
+  };
+}
+
 async function captureBootstrap(environment) {
   const documentId = "bootstrap-map-handles";
   const writer = await environment.open(documentId, { create: true });
   const reader = await environment.open(documentId);
   try {
     await synchronize(environment, [writer, reader], "bootstrap initialization");
+    const mapEvents = [];
+    reader.data.bootstrap.on("valueChanged", (change) => mapEvents.push(change.key));
     const initialSnapshot = await readSnapshot(environment, writer.container.resolvedUrl);
     const originalHandle = writer.data.tree.handle;
     const valid = {
@@ -462,12 +475,14 @@ async function captureBootstrap(environment) {
 
     writer.data.bootstrap.delete("tree");
     await synchronize(environment, [writer, reader], "missing bootstrap delivery");
+    const missingRoot = rootState(reader);
     const missing = await rejection(() =>
       treeFromBootstrap(reader.data.bootstrap, reader.data.tree.attributes.type));
     assert.match(missing, /^Bootstrap tree handle is missing/);
 
     writer.data.bootstrap.set("tree", writer.data.bootstrap.handle);
     await synchronize(environment, [writer, reader], "wrong bootstrap delivery");
+    const wrongRoot = rootState(reader);
     const wrongKind = await rejection(() =>
       treeFromBootstrap(reader.data.bootstrap, reader.data.tree.attributes.type));
     assert.match(wrongKind, /^Bootstrap handle is not a tree/);
@@ -477,6 +492,8 @@ async function captureBootstrap(environment) {
     const summary = await publishSummary(environment, documentId, "bootstrap map handles");
     const raw = await captureRaw(environment, writer);
     raw.sharedMapMessages = messagesContaining(raw.messages, "tree");
+    const [deleted, wrong, restored] = raw.sharedMapMessages;
+    assert.deepEqual(mapEvents, ["tree", "tree", "tree"], "SharedMap invalidation order");
     raw.bootstrapRejections = { missing, wrongKind };
     raw.summary = {
       submitted: summary.submitted,
@@ -515,9 +532,17 @@ async function captureBootstrap(environment) {
         },
       ],
       [
-        { checkpoint: "valid-bootstrap", ...valid },
-        { checkpoint: "missing-tree-handle", rejection: "missing-tree-handle" },
-        { checkpoint: "wrong-tree-handle-kind", rejection: "wrong-tree-handle-kind" },
+        { checkpoint: "valid-bootstrap", ...valid, pendingCount: 0, treePositions: [],
+          invalidated: false },
+        { checkpoint: "missing-tree-handle", rejection: "missing-tree-handle",
+          root: missingRoot, pendingCount: 0, treePositions: [],
+          outer: outerIdentity(deleted), invalidated: true },
+        { checkpoint: "wrong-tree-handle-kind", rejection: "wrong-tree-handle-kind",
+          root: wrongRoot, pendingCount: 0, treePositions: [],
+          outer: outerIdentity(wrong), invalidated: true },
+        { checkpoint: "restored-tree-handle", root: rootState(reader), pendingCount: 0,
+          treePositions: [], outer: outerIdentity(restored), invalidated: true,
+          handleResolvedToTree: true },
       ],
       raw,
       {
@@ -547,6 +572,10 @@ async function captureBatchedCommits(environment) {
       sessionId: writer.runtime.idCompressor.localSessionId,
       compressor: writer.runtime.idCompressor.serialize(true),
     };
+    let localInvalidated = false;
+    let peerInvalidated = false;
+    Tree.on(writer.data.view.root, "treeChanged", () => { localInvalidated = true; });
+    Tree.on(reader.data.view.root, "treeChanged", () => { peerInvalidated = true; });
     writer.runtime.orderSequentially(() => {
       writer.data.view.root.title = "batched";
       writer.data.view.root.enabled = true;
@@ -567,7 +596,20 @@ async function captureBatchedCommits(environment) {
     const raw = await captureRaw(environment, writer);
     raw.groupedCommits = groupedCommits(raw.messages).filter(({ commits }) => commits.length >= 3);
     const groupedMessages = groupedWireMessages(raw.messages, 3);
+    const outer = outerIdentity(groupedMessages[0]);
     writerInput.clientId = writer.container.clientId;
+    const treePositions = [0, 1, 2].map((indexInBatch) =>
+      ({ sequenceNumber: outer.sequenceNumber, indexInBatch }));
+    localCheckpoint.invalidated = localInvalidated;
+    localCheckpoint.outer = {
+      clientId: writerInput.clientId,
+      clientSequenceNumber: outer.clientSequenceNumber,
+      referenceSequenceNumber: outer.referenceSequenceNumber,
+    };
+    localCheckpoint.treePositions = [];
+    peerCheckpoint.invalidated = peerInvalidated;
+    peerCheckpoint.outer = outer;
+    peerCheckpoint.treePositions = treePositions;
     assert.equal(groupedMessages.length, 1, "Expected one runtime batch");
     assert.equal(groupedMessages[0].clientId, writerInput.clientId,
       "Runtime batch author differs from connected writer");
@@ -614,6 +656,7 @@ async function captureBatchedCommits(environment) {
     environment.dispose(writer);
     environment.dispose(reader);
   }
+
 }
 
 async function captureReconnect(environment) {

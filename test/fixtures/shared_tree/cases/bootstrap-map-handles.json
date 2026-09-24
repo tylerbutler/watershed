@@ -282,15 +282,82 @@
             "x": 0,
             "y": 0
           }
-        }
+        },
+        "pendingCount": 0,
+        "treePositions": [],
+        "invalidated": false
       },
       {
         "checkpoint": "missing-tree-handle",
-        "rejection": "missing-tree-handle"
+        "rejection": "missing-tree-handle",
+        "root": {
+          "title": "",
+          "enabled": false,
+          "rating": 0,
+          "marker": null,
+          "point": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "pendingCount": 0,
+        "treePositions": [],
+        "outer": {
+          "clientId": "2aeace6c-8225-4d61-aa70-0d88d867038c",
+          "clientSequenceNumber": 1,
+          "referenceSequenceNumber": 2,
+          "sequenceNumber": 3,
+          "minimumSequenceNumber": 0
+        },
+        "invalidated": true
       },
       {
         "checkpoint": "wrong-tree-handle-kind",
-        "rejection": "wrong-tree-handle-kind"
+        "rejection": "wrong-tree-handle-kind",
+        "root": {
+          "title": "",
+          "enabled": false,
+          "rating": 0,
+          "marker": null,
+          "point": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "pendingCount": 0,
+        "treePositions": [],
+        "outer": {
+          "clientId": "2aeace6c-8225-4d61-aa70-0d88d867038c",
+          "clientSequenceNumber": 2,
+          "referenceSequenceNumber": 3,
+          "sequenceNumber": 4,
+          "minimumSequenceNumber": 0
+        },
+        "invalidated": true
+      },
+      {
+        "checkpoint": "restored-tree-handle",
+        "root": {
+          "title": "",
+          "enabled": false,
+          "rating": 0,
+          "marker": null,
+          "point": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "pendingCount": 0,
+        "treePositions": [],
+        "outer": {
+          "clientId": "2aeace6c-8225-4d61-aa70-0d88d867038c",
+          "clientSequenceNumber": 3,
+          "referenceSequenceNumber": 4,
+          "sequenceNumber": 5,
+          "minimumSequenceNumber": 0
+        },
+        "invalidated": true,
+        "handleResolvedToTree": true
       }
     ]
   },

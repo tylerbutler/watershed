@@ -111,8 +111,14 @@ test("runtime cases include replay prefixes and genuinely pending local edits", 
   assert.equal(batch.expected.observations[1].pendingCount, 0);
   assert.equal(batch.input.writer.clientId, batch.input.decoderInput.groupedWireMessages[0].clientId);
   assert.equal(typeof batch.input.writer.compressor, "string");
-  assert.deepEqual(bootstrap.expected.observations.slice(1).map(({ rejection }) => rejection),
+  assert.deepEqual(bootstrap.expected.observations.slice(1, 3).map(({ rejection }) => rejection),
     ["missing-tree-handle", "wrong-tree-handle-kind"]);
+  assert.equal(bootstrap.expected.observations[3].handleResolvedToTree, true);
+  for (const value of [bootstrap, batch]) {
+    assert(value.expected.observations.every(({ root, pendingCount, treePositions, invalidated }) =>
+      root && Number.isInteger(pendingCount) && Array.isArray(treePositions)
+      && typeof invalidated === "boolean"), `${value.id}: incomplete runtime projection`);
+  }
   assert.match(bootstrap.raw.bootstrapRejections.missing, /Bootstrap tree handle is missing/);
   assert.match(bootstrap.raw.bootstrapRejections.wrongKind, /Bootstrap handle is not a tree/);
   for (const value of [bootstrap, batch]) {

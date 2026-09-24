@@ -126,7 +126,10 @@ const schedules = {
   "unicode-and-numbers": ["unicode-and-finite-doubles"],
 };
 const observations = {
-  "bootstrap-map-handles": ["valid-bootstrap", "missing-tree-handle", "wrong-tree-handle-kind"],
+  "bootstrap-map-handles": [
+    "valid-bootstrap", "missing-tree-handle", "wrong-tree-handle-kind",
+    "restored-tree-handle",
+  ],
   "batched-commits": ["local-after-batch", "peer-after-delivery"],
   "reconnect-before-ack": ["server-accepted-before-ack", "never-submitted-before-reconnect"],
   "summary-tail": ["summary-captured", "replayed-through-publication", "later-edit-after-reload"],
@@ -1340,6 +1343,24 @@ export function validateRuntimeCase(value) {
     sequenceNumber > attributes.sequenceNumber
       && sequenceNumber <= operations.at(-1).sequenceNumber),
   `${label}: runtime delivery prefix differs from captured messages`);
+  const projected = value.expected.observations;
+  for (const observation of projected) {
+    assert(object(observation.root)
+      && object(observation.root.point)
+      && Number.isSafeInteger(observation.pendingCount)
+      && Array.isArray(observation.treePositions)
+      && typeof observation.invalidated === "boolean",
+    `${label}: incomplete runtime observation ${observation.checkpoint}`);
+  }
+  function assertOuter(observed, message, checkpoint) {
+    assert.deepEqual(observed, {
+      clientId: message.clientId,
+      clientSequenceNumber: message.clientSequenceNumber,
+      referenceSequenceNumber: message.referenceSequenceNumber,
+      sequenceNumber: message.sequenceNumber,
+      minimumSequenceNumber: message.minimumSequenceNumber,
+    }, `${label}: ${checkpoint} outer identity`);
+  }
   if (label === "batched-commits") {
     assert.equal(value.input.writer?.clientId, operations[0].clientId,
       `${label}: writer transport identity`);
@@ -1357,7 +1378,39 @@ export function validateRuntimeCase(value) {
       { checkpoint: "local-after-batch", pendingCount: 3 },
       { checkpoint: "peer-after-delivery", pendingCount: 0 },
     ], `${label}: pending checkpoint evidence`);
+    assert.deepEqual(projected[0].outer, {
+      clientId: operations[0].clientId,
+      clientSequenceNumber: operations[0].clientSequenceNumber,
+      referenceSequenceNumber: operations[0].referenceSequenceNumber,
+    }, `${label}: local outer identity`);
+    assertOuter(projected[1].outer, operations[0], "peer-after-delivery");
+    assert.deepEqual(projected[0].treePositions, [], `${label}: pending commits are not trunk`);
+    assert.deepEqual(projected[1].treePositions,
+      value.raw.groupedCommits[0].commits.slice(1).map(({ innerPosition }) => ({
+        sequenceNumber: operations[0].sequenceNumber,
+        indexInBatch: innerPosition - 1,
+      })), `${label}: tree commit positions`);
+    assert(projected[0].invalidated && projected[1].invalidated,
+      `${label}: missing tree invalidation`);
   } else {
+    assert.deepEqual(projected.map(({ checkpoint }) => checkpoint), [
+      "valid-bootstrap", "missing-tree-handle", "wrong-tree-handle-kind",
+      "restored-tree-handle",
+    ], `${label}: bootstrap checkpoint order`);
+    assert(projected[0].bootstrapPath === "/A/root"
+      && projected[0].treePath === "/A/_C"
+      && projected[0].handleResolvedToTree
+      && projected[3].handleResolvedToTree, `${label}: unresolved bootstrap routes`);
+    assert(projected.every(({ pendingCount, treePositions }) =>
+      pendingCount === 0 && treePositions.length === 0),
+    `${label}: bootstrap unexpectedly changed tree history`);
+    assert.deepEqual(projected.map(({ invalidated }) => invalidated),
+      [false, true, true, true], `${label}: SharedMap invalidations`);
+    for (const [index, operation] of operations.entries()) {
+      assertOuter(projected[index + 1].outer, operation, projected[index + 1].checkpoint);
+      assert.deepEqual(projected[index + 1].root, projected[0].root,
+        `${label}: map mutation changed tree root`);
+    }
     for (const category of ["missing-tree-handle", "wrong-tree-handle-kind"]) {
       assert.equal(value.expected.observations.find(({ checkpoint }) =>
         checkpoint === category)?.rejection, category, `${label}: ${category}`);
@@ -1642,12 +1695,14 @@ export async function writeCorpus(output, cases, smoke) {
         "field-compose-invert-rebase", "modular-nested-algebra",
         "container-foundations", "summary-foundations",
         "history-reconciliation", "tree-codecs", "tree-kernel",
+        "bootstrap-map-handles", "batched-commits",
       ],
       erlang: [
         "id-ranges", "schema-validation", "forest-delta",
         "field-compose-invert-rebase", "modular-nested-algebra",
         "container-foundations", "summary-foundations",
         "history-reconciliation", "tree-codecs", "tree-kernel",
+        "bootstrap-map-handles", "batched-commits",
       ],
     },
     cases: requiredCases.map(([id, domain]) => ({ id, domain, file: `cases/${id}.json` })),

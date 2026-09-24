@@ -11,6 +11,7 @@ import spillway/message
 import spillway/types.{type SequencedDocumentMessage}
 import watershed/channel
 import watershed/fluid_ids
+import watershed/map_kernel
 import watershed/runtime_core
 import watershed/sluice/frame
 import watershed/tree/codec
@@ -19,6 +20,7 @@ import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/schema
+import watershed/tree/types as tree_types
 import watershed/tree_kernel
 import watershed/wire
 import watershed/wire/fluid_container
@@ -207,10 +209,6 @@ pub fn read(
       "runtime fixture operations: " <> string.inspect(error)
     }),
   )
-  use Nil <- result.try(case operations {
-    [] -> Error("runtime fixture has no operations")
-    _ -> Ok(Nil)
-  })
   use _ <- result.try(
     list.try_fold(
       list.append(prefix, operations),
@@ -251,6 +249,13 @@ pub fn routed_seed_input() -> Result(
     |> result.map_error(string.inspect),
   )
   use input <- result.try(read(fixture.input, session))
+  use seed <- result.try(seed_input(input))
+  Ok(#(seed, input.prefix))
+}
+
+fn seed_input(
+  input: RuntimeInput,
+) -> Result(runtime_core.BootstrapSeedInput, String) {
   use component <- result.try(blob(input.document, "/.channels/A/.component"))
   use package_json <- result.try(read_field(component, "pkg", decode.string))
   use package_path <- result.try(
@@ -272,7 +277,7 @@ pub fn routed_seed_input() -> Result(
     input.minimum_sequence_number,
     view_id,
   ))
-  Ok(#(
+  Ok(
     runtime_core.BootstrapSeedInput(
       profile: runtime_core.RoutedSeed,
       sequence_number: input.sequence_number,
@@ -302,8 +307,479 @@ pub fn routed_seed_input() -> Result(
         ),
       ],
     ),
-    input.prefix,
+  )
+}
+
+fn checked_core(
+  input: RuntimeInput,
+  client_id: String,
+) -> Result(runtime_core.Core, String) {
+  use seed <- result.try(seed_input(input))
+  use seed <- result.try(
+    runtime_core.bootstrap_seed(seed) |> result.map_error(string.inspect),
+  )
+  use ready <- result.try(
+    runtime_core.bootstrap_seeded(
+      connected(
+        client_id,
+        input.prefix,
+        input.sequence_number + list.length(input.prefix),
+      ),
+      seed,
+    )
+    |> result.map_error(string.inspect),
+  )
+  case ready {
+    runtime_core.Complete(core) -> Ok(core)
+    runtime_core.MissingPrefix(_, _, _, _) ->
+      Error("runtime fixture did not replay the delivery prefix")
+  }
+}
+
+fn reader_input(input: Json) -> Result(RuntimeInput, String) {
+  use session <- result.try(
+    fluid_ids.session_id("30000000-0000-4000-8000-000000000003")
+    |> result.map_error(string.inspect),
+  )
+  read(input, session)
+}
+
+fn root(core: runtime_core.Core) -> Result(Json, String) {
+  use title <- result.try(read_tree(core, ["title"]))
+  use enabled <- result.try(read_tree(core, ["enabled"]))
+  use rating <- result.try(read_tree(core, ["rating"]))
+  use marker <- result.try(read_tree(core, ["marker"]))
+  use x <- result.try(read_tree(core, ["point", "x"]))
+  use y <- result.try(read_tree(core, ["point", "y"]))
+  use note <- result.try(case runtime_core.tree_read(core, "A/_C", ["note"]) {
+    Ok(Some(tree_types.StringValue(value))) ->
+      Ok([#("note", json.string(value))])
+    Ok(None) -> Ok([])
+    Ok(_) -> Error("runtime fixture note has the wrong kind")
+    Error(error) -> Error(string.inspect(error))
+  })
+  Ok(
+    json.object(list.append(
+      [
+        #("title", title),
+        #("enabled", enabled),
+        #("rating", rating),
+        #("marker", marker),
+        #("point", json.object([#("x", x), #("y", y)])),
+      ],
+      note,
+    )),
+  )
+}
+
+fn read_tree(
+  core: runtime_core.Core,
+  path: List(String),
+) -> Result(Json, String) {
+  use value <- result.try(
+    runtime_core.tree_read(core, "A/_C", path)
+    |> result.map_error(string.inspect),
+  )
+  case value {
+    Some(tree_types.StringValue(value)) -> Ok(json.string(value))
+    Some(tree_types.BooleanValue(value)) -> Ok(json.bool(value))
+    Some(tree_types.NumberValue(value)) -> Ok(json.float(value))
+    Some(tree_types.NullValue) -> Ok(json.null())
+    _ -> Error("runtime fixture has an absent or non-scalar tree field")
+  }
+}
+
+fn observe(
+  core: runtime_core.Core,
+  checkpoint: String,
+  extras: List(#(String, Json)),
+) -> Result(Json, String) {
+  use root <- result.try(root(core))
+  Ok(
+    json.object(list.append(
+      [#("checkpoint", json.string(checkpoint)), #("root", root)],
+      extras,
+    )),
+  )
+}
+
+fn tree_history(core: runtime_core.Core) -> Result(#(Int, Json), String) {
+  use state <- result.try(
+    dict.get(core.channels, "A/_C")
+    |> result.replace_error("runtime fixture tree channel is missing"),
+  )
+  case state {
+    channel.TreeState(tree) -> {
+      let history = tree_kernel.history_view(tree)
+      let points =
+        list.map(history.sequenced.trunk, fn(entry) {
+          let tree_types.SequencePoint(sequence_number, index_in_batch) =
+            entry.point
+          json.object([
+            #("sequenceNumber", json.int(sequence_number)),
+            #("indexInBatch", json.int(index_in_batch)),
+          ])
+        })
+      Ok(#(
+        list.length(history.pending),
+        json.array(points, fn(value) { value }),
+      ))
+    }
+    _ -> Error("runtime fixture channel has the wrong kind")
+  }
+}
+
+fn outer(operation: SequencedDocumentMessage) -> Result(Json, String) {
+  use client <- result.try(
+    operation.client_id
+    |> option.to_result("runtime fixture outer operation has no client"),
+  )
+  Ok(
+    json.object([
+      #("clientId", json.string(client)),
+      #("clientSequenceNumber", json.int(operation.client_sequence_number)),
+      #(
+        "referenceSequenceNumber",
+        json.int(operation.reference_sequence_number),
+      ),
+      #("sequenceNumber", json.int(operation.sequence_number)),
+      #("minimumSequenceNumber", json.int(operation.minimum_sequence_number)),
+    ]),
+  )
+}
+
+fn deliver_with_events(
+  core: runtime_core.Core,
+  operation: SequencedDocumentMessage,
+) -> Result(#(runtime_core.Core, runtime_core.Ingested), String) {
+  runtime_core.handle_sequenced(core, operation)
+  |> result.map_error(string.inspect)
+}
+
+fn tree_handle(core: runtime_core.Core) -> Result(String, String) {
+  use address <- result.try(
+    runtime_core.root_channel_address(core) |> result.map_error(string.inspect),
+  )
+  use value <- result.try(
+    runtime_core.get(core, address, "tree")
+    |> result.replace_error("missing-tree-handle"),
+  )
+  use tree <- result.try(
+    runtime_core.resolve_handle_address(core, value)
+    |> result.map_error(string.inspect),
+  )
+  case dict.get(core.channels, tree) {
+    Ok(channel.TreeState(_)) -> Ok(tree)
+    _ -> Error("wrong-tree-handle-kind")
+  }
+}
+
+pub fn run_bootstrap(input: Json) -> Result(Json, String) {
+  use input <- result.try(reader_input(input))
+  use _ <- result.try(case input.operations {
+    [_, _, _] -> Ok(Nil)
+    _ -> Error("runtime fixture requires three bootstrap operations")
+  })
+  use core <- result.try(checked_core(input, "reader"))
+  use map <- result.try(
+    runtime_core.root_channel_address(core) |> result.map_error(string.inspect),
+  )
+  use tree <- result.try(tree_handle(core))
+  use #(pending, positions) <- result.try(tree_history(core))
+  use first <- result.try(
+    observe(core, "valid-bootstrap", [
+      #("schedule", json.string("valid-bootstrap")),
+      #("bootstrapPath", json.string("/" <> map)),
+      #("treePath", json.string("/" <> tree)),
+      #(
+        "bootstrapType",
+        json.string(channel.fluid_type_to_string(channel.MapChannel)),
+      ),
+      #(
+        "treeType",
+        json.string(channel.fluid_type_to_string(channel.TreeChannel)),
+      ),
+      #("handleResolvedToTree", json.bool(True)),
+      #("pendingCount", json.int(pending)),
+      #("treePositions", positions),
+      #("invalidated", json.bool(False)),
+    ]),
+  )
+  use #(observations, _) <- result.try(
+    list.try_fold(input.operations, #([first], core), fn(acc, operation) {
+      let #(observations, core) = acc
+      use #(core, ingested) <- result.try(deliver_with_events(core, operation))
+      use #(pending, positions) <- result.try(tree_history(core))
+      use outer <- result.try(outer(operation))
+      use root <- result.try(root(core))
+      use _ <- result.try(case ingested.events {
+        [
+          #(
+            "A/root",
+            channel.MapEvent(map_kernel.ValueChanged("tree", _, _, False)),
+          ),
+        ] -> Ok(Nil)
+        _ ->
+          Error("runtime fixture map invalidation did not match the tree key")
+      })
+      use label <- result.try(case tree_handle(core) {
+        Error("missing-tree-handle") -> Ok("missing-tree-handle")
+        Error("wrong-tree-handle-kind") -> Ok("wrong-tree-handle-kind")
+        Ok(_) -> Ok("restored-tree-handle")
+        Error(detail) -> Error(detail)
+      })
+      let fields = [
+        #("checkpoint", json.string(label)),
+        #("root", root),
+        #("pendingCount", json.int(pending)),
+        #("treePositions", positions),
+        #("outer", outer),
+        #("invalidated", json.bool(True)),
+      ]
+      let fields = case label {
+        "restored-tree-handle" ->
+          list.append(fields, [#("handleResolvedToTree", json.bool(True))])
+        _ -> list.append(fields, [#("rejection", json.string(label))])
+      }
+      Ok(#(list.append(observations, [json.object(fields)]), core))
+    }),
+  )
+  case observations {
+    [valid, missing, wrong, restored] ->
+      Ok(
+        json.object([
+          #(
+            "observations",
+            json.array([valid, missing, wrong, restored], fn(value) { value }),
+          ),
+        ]),
+      )
+    _ -> Error("runtime fixture has an unexpected bootstrap operation count")
+  }
+}
+
+pub fn run_batched(input: Json) -> Result(Json, String) {
+  use writer <- result.try(field(input, "writer"))
+  use session_string <- result.try(read_field(
+    writer,
+    "sessionId",
+    decode.string,
   ))
+  use session <- result.try(
+    fluid_ids.session_id(session_string) |> result.map_error(string.inspect),
+  )
+  use writer_compressor <- result.try(read_field(
+    writer,
+    "compressor",
+    decode.string,
+  ))
+  use compressor <- result.try(
+    fluid_ids.deserialize(json.string(writer_compressor), session)
+    |> result.map_error(fn(error) {
+      "writer compressor: " <> string.inspect(error)
+    }),
+  )
+  use client <- result.try(read_field(writer, "clientId", decode.string))
+  use fixture <- result.try(reader_input(input))
+  use _ <- result.try(case fixture.operations {
+    [_] -> Ok(Nil)
+    _ -> Error("runtime fixture requires one grouped operation")
+  })
+  use core <- result.try(
+    checked_core(RuntimeInput(..fixture, compressor: compressor), client)
+    |> result.map_error(fn(error) { "writer core: " <> error }),
+  )
+  use edits <- result.try(read_field(
+    input,
+    "localEdits",
+    decode.list({
+      use path <- decode.field("path", decode.list(decode.string))
+      use value <- decode.field("value", fixtures.tree_value_decoder())
+      decode.success(tree_types.SetField(path, value))
+    }),
+  ))
+  use #(local, events, outbound) <- result.try(
+    runtime_core.submit_tree_edits(core, "A/_C", edits)
+    |> result.map_error(string.inspect),
+  )
+  use _ <- result.try(case events {
+    [#("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(True)))] -> Ok(Nil)
+    _ -> Error("runtime fixture local tree invalidation did not match")
+  })
+  use sent <- result.try(case outbound {
+    [sent] -> Ok(sent)
+    _ -> Error("runtime fixture did not emit one outer batch")
+  })
+  use #(pending, positions) <- result.try(tree_history(local))
+  use first <- result.try(
+    observe(local, "local-after-batch", [
+      #("pendingCount", json.int(pending)),
+      #("treePositions", positions),
+      #("invalidated", json.bool(events != [])),
+      #(
+        "outer",
+        json.object([
+          #("clientId", json.string(client)),
+          #("clientSequenceNumber", json.int(sent.client_sequence_number)),
+          #("referenceSequenceNumber", json.int(sent.reference_sequence_number)),
+        ]),
+      ),
+    ]),
+  )
+  use reader <- result.try(reader_input(input))
+  use reader <- result.try(checked_core(reader, "reader"))
+  use #(peer, peer_events) <- result.try(
+    list.try_fold(fixture.operations, #(reader, []), fn(acc, operation) {
+      use #(peer, ingested) <- result.try(deliver_with_events(acc.0, operation))
+      Ok(#(peer, list.append(acc.1, ingested.events)))
+    }),
+  )
+  use _ <- result.try(case peer_events {
+    [#("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False)))] -> Ok(Nil)
+    _ -> Error("runtime fixture peer tree invalidation did not match")
+  })
+  use #(pending, positions) <- result.try(tree_history(peer))
+  use operation <- result.try(
+    list.last(fixture.operations)
+    |> result.replace_error("runtime fixture has no grouped operation"),
+  )
+  use outer <- result.try(outer(operation))
+  use second <- result.try(
+    observe(peer, "peer-after-delivery", [
+      #("pendingCount", json.int(pending)),
+      #("treePositions", positions),
+      #("invalidated", json.bool(peer_events != [])),
+      #("outer", outer),
+    ]),
+  )
+  Ok(
+    json.object([
+      #("observations", json.array([first, second], fn(value) { value })),
+    ]),
+  )
+}
+
+fn native_outbound(id: String, operation: wire.OutboundOperation) -> Json {
+  json.object([
+    #("id", json.string(id)),
+    #("clientSequenceNumber", json.int(operation.client_sequence_number)),
+    #("referenceSequenceNumber", json.int(operation.reference_sequence_number)),
+    #("type", json.string(operation.operation_type)),
+    #("contents", operation.contents),
+    #("metadata", option.unwrap(operation.metadata, json.null())),
+  ])
+}
+
+fn native_edit(
+  core: runtime_core.Core,
+  id: String,
+  edits: List(tree_types.Edit),
+) -> Result(#(runtime_core.Core, Json), String) {
+  use #(core, _, operations) <- result.try(
+    runtime_core.submit_tree_edits(core, "A/_C", edits)
+    |> result.map_error(string.inspect),
+  )
+  case operations {
+    [operation] -> Ok(#(core, native_outbound(id, operation)))
+    _ -> Error("native tree edit did not produce one outer message")
+  }
+}
+
+pub fn export_runtime(input: Json) -> Result(Json, String) {
+  use session_string <- result.try(read_field(input, "sessionId", decode.string))
+  use session <- result.try(
+    fluid_ids.session_id(session_string) |> result.map_error(string.inspect),
+  )
+  use client <- result.try(read_field(input, "clientId", decode.string))
+  use fixture <- result.try(read(input, session))
+  use decoder_input <- result.try(field(input, "decoderInput"))
+  use initial_snapshot <- result.try(field(decoder_input, "initialSnapshot"))
+  use core <- result.try(checked_core(fixture, client))
+  use map <- result.try(
+    runtime_core.root_channel_address(core) |> result.map_error(string.inspect),
+  )
+  use handle <- result.try(
+    runtime_core.get(core, map, "tree")
+    |> result.replace_error("native bootstrap has no tree handle"),
+  )
+  let map_header =
+    wire_op.encode_map_header([
+      #("z", json.int(0)),
+      #("10", json.int(10)),
+      #("2", json.int(2)),
+      #("01", json.int(1)),
+      #("tree", handle),
+    ])
+  use #(core, _, map_outbound) <- result.try(
+    runtime_core.set(core, map, "tree", handle)
+    |> result.map_error(string.inspect),
+  )
+  use map_outbound <- result.try(case map_outbound {
+    [operation] -> Ok(native_outbound("bootstrap-map-handle", operation))
+    _ -> Error("native map set did not produce one outer message")
+  })
+  use #(core, required) <- result.try(
+    native_edit(core, "required-field", [
+      tree_types.SetField(["title"], tree_types.StringValue("native-required")),
+    ]),
+  )
+  use #(core, optional_set) <- result.try(
+    native_edit(core, "optional-set", [
+      tree_types.SetField(["note"], tree_types.StringValue("native-note")),
+    ]),
+  )
+  use #(core, optional_clear) <- result.try(
+    native_edit(core, "optional-clear", [
+      tree_types.ClearField(["note"]),
+    ]),
+  )
+  use #(core, grouped) <- result.try(
+    native_edit(core, "batched-commits", [
+      tree_types.SetField(["title"], tree_types.StringValue("native-batched")),
+      tree_types.SetField(["enabled"], tree_types.BooleanValue(True)),
+      tree_types.SetField(["rating"], tree_types.NumberValue(3.0)),
+    ]),
+  )
+  let outbound = [map_outbound, required, optional_set, optional_clear, grouped]
+  use replay <- result.try(read_field(
+    input,
+    "replayMessages",
+    decode.list(socket.sequenced_document_message_decoder()),
+  ))
+  use core <- result.try(
+    list.try_fold(replay, core, fn(core, message) {
+      deliver_with_events(core, message)
+      |> result.map(fn(outcome) { outcome.0 })
+    }),
+  )
+  use #(pending, positions) <- result.try(tree_history(core))
+  use visible <- result.try(root(core))
+  use path <- result.try(tree_handle(core))
+  Ok(
+    json.object([
+      #("formatVersion", json.int(1)),
+      #("clientId", json.string(client)),
+      #("sessionId", json.string(session_string)),
+      #("bootstrapPath", json.string("/" <> map)),
+      #("treePath", json.string("/" <> path)),
+      #(
+        "initialDocument",
+        json.object([
+          #("snapshot", initial_snapshot),
+          #("sequenceNumber", json.int(fixture.sequence_number)),
+          #("minimumSequenceNumber", json.int(fixture.minimum_sequence_number)),
+          #("bootstrapPath", json.string("/" <> map)),
+          #("treePath", json.string("/" <> path)),
+        ]),
+      ),
+      #("mapHeader", map_header),
+      #("outbound", json.array(outbound, fn(value) { value })),
+      #("root", visible),
+      #("pendingCount", json.int(pending)),
+      #("treePositions", positions),
+      #("sequenceNumber", json.int(core.last_seen_sequence_number)),
+    ]),
+  )
 }
 
 pub fn routed_core() -> Result(runtime_core.Core, String) {
