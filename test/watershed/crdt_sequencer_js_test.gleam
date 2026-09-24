@@ -12,6 +12,9 @@
 //// strings is `crdt_relay_lifecycle_test`.
 
 @target(javascript)
+import watershed/tree/checked_test as checked
+
+@target(javascript)
 import gleam/int
 @target(javascript)
 import gleam/json
@@ -399,18 +402,19 @@ pub fn envelopes_are_carried_unchanged_in_both_directions_test() -> Nil {
 
   crdt_sequencer_js.send_envelope(
     one.relay,
-    crdt_core.encode(alpha, crdt_core.hello_message(alpha)),
+    checked.value(crdt_core.encode(alpha, crdt_core.hello_message(alpha))),
   )
   |> expect.to_be_ok()
   crdt_sequencer_js.send_envelope(
     two.relay,
-    crdt_core.encode(beta, crdt_core.hello_message(beta)),
+    checked.value(crdt_core.encode(beta, crdt_core.hello_message(beta))),
   )
   |> expect.to_be_ok()
   relay_fake.settle(hub)
 
   // The second client's hello reaches the first, byte for byte.
-  let hello_beta = crdt_core.encode(beta, crdt_core.hello_message(beta))
+  let hello_beta =
+    checked.value(crdt_core.encode(beta, crdt_core.hello_message(beta)))
   relay_fake.outbound(hub)
   |> list.filter(fn(raw) { string.contains(raw, "\"type\":\"frame\"") })
   |> list.any(fn(raw) { string.contains(raw, escape(hello_beta)) })
@@ -436,12 +440,12 @@ pub fn a_state_request_is_answered_and_terminated_test() -> Nil {
   let _ =
     crdt_sequencer_js.send_envelope(
       client.relay,
-      crdt_core.encode(alpha, crdt_core.hello_message(alpha)),
+      checked.value(crdt_core.encode(alpha, crdt_core.hello_message(alpha))),
     )
   let _ =
     crdt_sequencer_js.send_envelope(
       client.relay,
-      crdt_core.encode(alpha, crdt_core.state_request_message()),
+      checked.value(crdt_core.encode(alpha, crdt_core.state_request_message())),
     )
   relay_fake.settle(hub)
 
@@ -457,30 +461,37 @@ pub fn an_attestation_quotes_the_order_actually_processed_test() -> Nil {
   let _ =
     crdt_sequencer_js.send_envelope(
       client.relay,
-      crdt_core.encode(alpha, crdt_core.hello_message(alpha)),
+      checked.value(crdt_core.encode(alpha, crdt_core.hello_message(alpha))),
     )
   let _ =
     crdt_sequencer_js.send_envelope(
       client.relay,
-      crdt_core.encode(alpha, crdt_core.state_message(alpha)),
+      checked.value(crdt_core.encode(
+        alpha,
+        checked.value(crdt_core.state_message(alpha)),
+      )),
     )
   relay_fake.settle(hub)
   // The relay stamped hello 1 and state 2, and answered nothing, so
   // nothing has been processed yet.
   crdt_sequencer_js.last_order(client.relay) |> expect.to_equal(0)
 
-  let _ = crdt_sequencer_js.attest(client.relay, crdt_core.digest(alpha))
+  let _ =
+    crdt_sequencer_js.attest(
+      client.relay,
+      checked.value(crdt_core.digest(alpha)),
+    )
   relay_fake.settle(hub)
 
   events(client)
   |> expect.to_equal([
     "ready",
-    "attested " <> short(crdt_core.digest(alpha)),
+    "attested " <> short(checked.value(crdt_core.digest(alpha))),
   ])
   crdt_sequencer_js.last_order(client.relay) |> expect.to_equal(3)
   relay_fake.log_size(hub, room) |> expect.to_equal(1)
   relay_fake.attested(hub, room)
-  |> expect.to_equal(crdt_core.digest(alpha))
+  |> expect.to_equal(checked.value(crdt_core.digest(alpha)))
 }
 
 @target(javascript)
@@ -495,7 +506,7 @@ pub fn nothing_is_written_before_the_handshake_or_after_a_close_test() -> Nil {
 
   crdt_sequencer_js.send_envelope(
     client.relay,
-    crdt_core.encode(alpha, crdt_core.hello_message(alpha)),
+    checked.value(crdt_core.encode(alpha, crdt_core.hello_message(alpha))),
   )
   |> expect.to_equal(Error(RelayNotReady))
   crdt_sequencer_js.attest(client.relay, "abc")
@@ -677,12 +688,12 @@ pub fn the_order_high_water_mark_resets_with_every_socket_test() -> Nil {
   let _ =
     crdt_sequencer_js.send_envelope(
       client.relay,
-      crdt_core.encode(alpha, crdt_core.hello_message(alpha)),
+      checked.value(crdt_core.encode(alpha, crdt_core.hello_message(alpha))),
     )
   let _ =
     crdt_sequencer_js.send_envelope(
       client.relay,
-      crdt_core.encode(alpha, crdt_core.state_request_message()),
+      checked.value(crdt_core.encode(alpha, crdt_core.state_request_message())),
     )
   relay_fake.settle(hub)
   { crdt_sequencer_js.last_order(client.relay) > 0 } |> expect.to_be_true()
@@ -711,20 +722,22 @@ pub fn a_refused_envelope_is_skipped_by_order_test() -> Nil {
   let refuse = transport_js.new_cell([])
   let relay = refusing_client(hub, refuse, events)
   let alpha = document("alpha")
-  let payload = crdt_core.encode(alpha, crdt_core.hello_message(alpha))
+  let payload =
+    checked.value(crdt_core.encode(alpha, crdt_core.hello_message(alpha)))
 
   // Admitted, so the relay knows what it has delivered to this socket.
   let _ = crdt_sequencer_js.send_envelope(relay, payload)
   let _ =
     crdt_sequencer_js.send_envelope(
       relay,
-      crdt_core.encode(alpha, crdt_core.state_request_message()),
+      checked.value(crdt_core.encode(alpha, crdt_core.state_request_message())),
     )
   relay_fake.settle(hub)
   let assert [connection] = relay_fake.open_sockets(hub)
 
   let beta = document("beta")
-  let carried = crdt_core.encode(beta, crdt_core.hello_message(beta))
+  let carried =
+    checked.value(crdt_core.encode(beta, crdt_core.hello_message(beta)))
   relay_fake.inject(
     hub,
     connection,
@@ -777,7 +790,8 @@ pub fn an_unreportable_refusal_freezes_the_high_water_mark_test() -> Nil {
   let relay = refusing_client(hub, refuse, events)
   let assert [connection] = relay_fake.open_sockets(hub)
   let alpha = document("alpha")
-  let payload = crdt_core.encode(alpha, crdt_core.hello_message(alpha))
+  let payload =
+    checked.value(crdt_core.encode(alpha, crdt_core.hello_message(alpha)))
 
   relay_fake.inject(
     hub,
@@ -817,7 +831,8 @@ pub fn a_refusal_that_cannot_be_written_retires_the_socket_test() -> Nil {
   let relay = refusing_client(hub, refuse, events)
   let assert [connection] = relay_fake.open_sockets(hub)
   let alpha = document("alpha")
-  let payload = crdt_core.encode(alpha, crdt_core.hello_message(alpha))
+  let payload =
+    checked.value(crdt_core.encode(alpha, crdt_core.hello_message(alpha)))
 
   // The socket has left OPEN with no close delivered, and the next thing
   // it carries is something this document refuses.
@@ -852,7 +867,8 @@ pub fn the_reported_skip_list_is_bounded_test() -> Nil {
   let refuse = transport_js.new_cell(["always"])
   let relay = refusing_client(hub, refuse, events)
   let alpha = document("alpha")
-  let payload = crdt_core.encode(alpha, crdt_core.hello_message(alpha))
+  let payload =
+    checked.value(crdt_core.encode(alpha, crdt_core.hello_message(alpha)))
 
   // Admitted, so the relay honours the skips this socket reports rather
   // than closing it for talking out of turn.
@@ -926,7 +942,8 @@ pub fn a_write_to_a_socket_that_is_gone_answers_false_test() -> Nil {
   let hub = relay_fake.new_hub()
   let client = spawn(hub, relay_fake.new_clock())
   let alpha = document("alpha")
-  let payload = crdt_core.encode(alpha, crdt_core.hello_message(alpha))
+  let payload =
+    checked.value(crdt_core.encode(alpha, crdt_core.hello_message(alpha)))
 
   crdt_sequencer_js.send_envelope(client.relay, payload)
   |> expect.to_be_ok()
@@ -978,7 +995,7 @@ pub fn a_relay_that_stamps_no_order_is_still_read_test() -> Nil {
   relay_fake.inject(
     hub,
     connection,
-    crdt_core.encode(alpha, crdt_core.hello_message(alpha)),
+    checked.value(crdt_core.encode(alpha, crdt_core.hello_message(alpha))),
   )
   relay_fake.settle(hub)
 
@@ -1003,7 +1020,7 @@ pub fn support_is_declared_and_the_relay_records_it_test() -> Nil {
   let _ =
     crdt_sequencer_js.send_envelope(
       client.relay,
-      crdt_core.encode(alpha, crdt_core.hello_message(alpha)),
+      checked.value(crdt_core.encode(alpha, crdt_core.hello_message(alpha))),
     )
   relay_fake.settle(hub)
   relay_fake.supports_checkpoints(hub, 1) |> expect.to_be_false()
@@ -1029,7 +1046,7 @@ pub fn a_checkpoint_request_is_reported_and_moves_no_mark_test() -> Nil {
   let _ =
     crdt_sequencer_js.send_envelope(
       client.relay,
-      crdt_core.encode(alpha, crdt_core.hello_message(alpha)),
+      checked.value(crdt_core.encode(alpha, crdt_core.hello_message(alpha))),
     )
   relay_fake.settle(hub)
   let before = crdt_sequencer_js.last_order(client.relay)

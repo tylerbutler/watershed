@@ -7,6 +7,7 @@ import watershed/crdt_core as core
 import watershed/crdt_sim as sim
 import watershed/crdt_wire
 import watershed/or_map_kernel as kernel
+import watershed/tree/checked_test as checked
 
 fn document(replica: String) -> core.Document {
   let assert Ok(document) =
@@ -35,7 +36,7 @@ fn entries(document: core.Document) -> List(#(String, kernel.OrMapValue)) {
 fn projected_leaves(document: core.Document) -> List(#(String, String)) {
   let assert Ok([leaves]) =
     json.parse(
-      core.digest_canonical_json(document),
+      checked.value(core.digest_canonical_json(document)),
       decode.at(
         ["channels"],
         decode.list(decode.at(
@@ -59,7 +60,7 @@ pub fn mv_or_map_digest_sorts_keys_nested_tags_and_vclocks_test() -> Nil {
     |> write("gate", "open")
   let b = document("b") |> write("gate", "closed")
   let assert Ok(#(merged, _)) =
-    core.receive(a, core.envelope(b, core.state_message(b)))
+    core.receive(a, core.envelope(b, checked.value(core.state_message(b))))
   let leaves = projected_leaves(merged)
   list.map(leaves, fn(pair) { pair.0 }) |> expect.to_equal(["a", "gate", "z"])
   list.key_find(leaves, "gate")
@@ -67,11 +68,16 @@ pub fn mv_or_map_digest_sorts_keys_nested_tags_and_vclocks_test() -> Nil {
     "{\"state\":{\"entries\":[{\"tag\":{\"c\":1,\"r\":\"a\"},\"value\":\"open\"},{\"tag\":{\"c\":1,\"r\":\"b\"},\"value\":\"closed\"}],\"vclock\":{\"a\":1,\"b\":1}},\"type\":\"mv_register\",\"v\":1}",
   ))
   let assert Ok(#(reverse, _)) =
-    core.receive(b, core.envelope(a, core.state_message(a)))
-  core.digest(reverse) |> expect.to_equal(core.digest(merged))
+    core.receive(b, core.envelope(a, checked.value(core.state_message(a))))
+  checked.value(core.digest(reverse))
+  |> expect.to_equal(checked.value(core.digest(merged)))
   let assert Ok(#(imported, _)) =
-    core.import_snapshot(document("loader"), core.canonical_json(merged))
-  core.digest(imported) |> expect.to_equal(core.digest(merged))
+    core.import_snapshot(
+      document("loader"),
+      checked.value(core.canonical_json(merged)),
+    )
+  checked.value(core.digest(imported))
+  |> expect.to_equal(checked.value(core.digest(merged)))
 }
 
 pub fn mv_or_map_mesh_reorder_duplicate_late_join_and_reconnect_test() -> Nil {
@@ -95,8 +101,8 @@ pub fn mv_or_map_mesh_reorder_duplicate_late_join_and_reconnect_test() -> Nil {
   list.each(["a", "b", "late"], fn(name) {
     entries(sim.document(mesh, name))
     |> expect.to_equal([#("gate", kernel.MvRegister(["closed", "open"]))])
-    core.digest(sim.document(mesh, name))
-    |> expect.to_equal(core.digest(sim.document(mesh, "a")))
+    checked.value(core.digest(sim.document(mesh, name)))
+    |> expect.to_equal(checked.value(core.digest(sim.document(mesh, "a"))))
   })
   let mesh =
     mesh
@@ -111,8 +117,8 @@ pub fn mv_or_map_mesh_reorder_duplicate_late_join_and_reconnect_test() -> Nil {
   list.each(["a", "b", "late"], fn(name) {
     entries(sim.document(mesh, name))
     |> expect.to_equal([#("gate", kernel.MvRegister(["resolved"]))])
-    core.digest(sim.document(mesh, name))
-    |> expect.to_equal(core.digest(sim.document(mesh, "a")))
+    checked.value(core.digest(sim.document(mesh, name)))
+    |> expect.to_equal(checked.value(core.digest(sim.document(mesh, "a"))))
   })
 }
 
@@ -120,22 +126,28 @@ pub fn mv_or_map_digest_retains_resolution_and_removed_leaf_history_test() -> Ni
   let a = document("a") |> write("gate", "same")
   let b = document("b") |> write("gate", "same")
   let assert Ok(#(both, _)) =
-    core.receive(a, core.envelope(b, core.state_message(b)))
+    core.receive(a, core.envelope(b, checked.value(core.state_message(b))))
   entries(both)
   |> expect.to_equal([#("gate", kernel.MvRegister(["same", "same"]))])
   let resolved = write(both, "gate", "same")
   entries(resolved) |> expect.to_equal(entries(a))
-  core.digest(resolved) |> expect.to_not_equal(core.digest(a))
-  core.digest(resolved) |> expect.to_not_equal(core.digest(both))
+  checked.value(core.digest(resolved))
+  |> expect.to_not_equal(checked.value(core.digest(a)))
+  checked.value(core.digest(resolved))
+  |> expect.to_not_equal(checked.value(core.digest(both)))
   let assert Ok(#(removed, _)) =
     core.edit(resolved, "root", channel.OrMapRemoveEdit("gate"))
   entries(removed) |> expect.to_equal([])
   projected_leaves(removed) |> expect.to_equal(projected_leaves(resolved))
-  core.digest(removed) |> expect.to_not_equal(core.digest(document("a")))
+  checked.value(core.digest(removed))
+  |> expect.to_not_equal(checked.value(core.digest(document("a"))))
   let assert Ok(#(loaded, _)) =
-    core.import_snapshot(document("new"), core.canonical_json(removed))
+    core.import_snapshot(
+      document("new"),
+      checked.value(core.canonical_json(removed)),
+    )
   let assert Ok(#(loaded, _)) =
-    core.receive(loaded, core.envelope(b, core.state_message(b)))
+    core.receive(loaded, core.envelope(b, checked.value(core.state_message(b))))
   entries(loaded) |> expect.to_equal([])
   let loaded = write(loaded, "gate", "restored")
   entries(loaded)
@@ -163,5 +175,6 @@ pub fn mv_or_map_replaying_delta_under_new_message_id_is_idempotent_test() -> Ni
   let assert Ok(#(b, result)) = core.receive(b, core.envelope(a, duplicate))
   result.events |> expect.to_equal([])
   entries(b) |> expect.to_equal([#("gate", kernel.MvRegister(["open"]))])
-  core.digest(b) |> expect.to_equal(core.digest(a))
+  checked.value(core.digest(b))
+  |> expect.to_equal(checked.value(core.digest(a)))
 }

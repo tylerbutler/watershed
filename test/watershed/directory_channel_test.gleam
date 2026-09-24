@@ -6,6 +6,8 @@
 //// threading (author, refSeq, the kernel message-id carried in the operation),
 //// and convergence.
 
+import watershed/tree/checked_test as checked
+
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
@@ -263,11 +265,11 @@ pub fn directory_snapshot_round_trips_test() -> Nil {
   let state = ack(state, operation)
 
   let snapshot = channel.DirectorySnapshot(directory_kernel.summary_tree(state))
-  let encoded = channel.encode_snapshot(snapshot)
+  let encoded = checked.value(channel.encode_snapshot(snapshot))
   let assert Ok(decoded) =
     json.parse(
       json.to_string(encoded),
-      channel.snapshot_decoder(channel.DirectoryChannel),
+      checked.value(channel.snapshot_decoder(channel.DirectoryChannel)),
     )
   channel.same_snapshot(snapshot, decoded) |> expect.to_be_true()
 }

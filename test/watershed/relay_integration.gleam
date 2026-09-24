@@ -28,6 +28,8 @@ import gleam/option.{None, Some}
 import gleam/result
 @target(javascript)
 import gleam/string
+@target(javascript)
+import watershed/tree/checked_test as checked
 
 @target(javascript)
 import watershed/crdt_js.{
@@ -215,7 +217,7 @@ pub fn value(client: Client) -> Int {
 
 @target(javascript)
 pub fn digest(client: Client) -> String {
-  crdt_js.digest(client.document)
+  checked.value(crdt_js.digest(client.document))
 }
 
 @target(javascript)
@@ -480,7 +482,7 @@ pub fn lww_value(client: LwwClient) -> String {
 
 @target(javascript)
 pub fn lww_digest(client: LwwClient) -> String {
-  crdt_js.digest(client.document)
+  checked.value(crdt_js.digest(client.document))
 }
 
 @target(javascript)
@@ -635,7 +637,7 @@ pub fn set_map_merge(client: SetMapClient, snapshot: json.Json) -> Nil {
 
 @target(javascript)
 pub fn set_map_digest(client: SetMapClient) -> String {
-  crdt_js.digest(client.document)
+  checked.value(crdt_js.digest(client.document))
 }
 
 @target(javascript)
@@ -742,7 +744,7 @@ pub fn lww_map_snapshot(client: LwwMapClient) -> String {
 
 @target(javascript)
 pub fn lww_map_digest(client: LwwMapClient) -> String {
-  crdt_js.digest(client.document)
+  checked.value(crdt_js.digest(client.document))
 }
 
 @target(javascript)

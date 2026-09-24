@@ -362,7 +362,8 @@ pub fn subscribe_lww_map(map: LwwMap) -> Subject(lww_map_kernel.LwwMapEvent) {
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -1775,7 +1776,8 @@ pub fn subscribe_counter(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -1876,7 +1878,8 @@ pub fn subscribe_json_ot(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -1983,7 +1986,8 @@ pub fn subscribe_rich_text(
     | channel.DirectoryEvent(_)
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -2181,7 +2185,8 @@ pub fn subscribe_or_map(or_map: OrMap) -> Subject(or_map_kernel.OrMapEvent) {
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -2283,7 +2288,8 @@ pub fn subscribe_or_set(or_set: OrSet) -> Subject(or_set_kernel.OrSetEvent) {
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -2444,7 +2450,8 @@ pub fn subscribe_sequence(
     | channel.DirectoryEvent(_)
     | channel.OrderedCollectionEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -2674,7 +2681,8 @@ pub fn subscribe_text(text: SharedText) -> Subject(text_kernel.TextEvent) {
     | channel.DirectoryEvent(_)
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
-    | channel.RichTextEvent(_) -> None
+    | channel.RichTextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -2807,7 +2815,8 @@ pub fn subscribe_register_collection(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -2902,7 +2911,8 @@ pub fn subscribe_claims(claims: Claims) -> Subject(claims_kernel.ClaimEvent) {
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3009,7 +3019,8 @@ pub fn subscribe_task_manager(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3112,7 +3123,8 @@ pub fn subscribe_g_set(set: GSet) -> Subject(g_set_kernel.GSetEvent) {
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3233,7 +3245,8 @@ pub fn subscribe_two_p_set(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3448,7 +3461,8 @@ pub fn subscribe_directory(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3551,7 +3565,8 @@ pub fn subscribe_g_counter(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3645,7 +3660,8 @@ pub fn subscribe_pn_counter(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3768,7 +3784,8 @@ pub fn subscribe_pact_map(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -4020,7 +4037,8 @@ pub fn subscribe_ordered_collection(
     | channel.DirectoryEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -4311,7 +4329,8 @@ pub fn subscribe(map: SharedMap) -> Subject(map_kernel.MapEvent) {
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -4362,7 +4381,8 @@ fn field_change(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -4581,7 +4601,8 @@ pub fn subscribe_mv_register(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -4724,6 +4745,7 @@ pub fn subscribe_lww_register(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }

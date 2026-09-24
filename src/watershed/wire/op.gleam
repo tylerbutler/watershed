@@ -98,10 +98,17 @@ pub fn encode_attach(
   use route <- result.try(fluid_container.route_from_path("/" <> address))
   let kind = channel.snapshot_type(snapshot)
   let attributes = channel.fluid_attributes(kind)
-  let blobs = case snapshot {
-    channel.MapSnapshot(entries) -> encode_map_attach_blobs(entries)
-    _ -> [attach_blob("header", channel.encode_snapshot(snapshot))]
-  }
+  use blobs <- result.try(case snapshot {
+    channel.MapSnapshot(entries) ->
+      encode_map_attach_blobs(entries)
+      |> Ok
+    _ ->
+      channel.encode_snapshot(snapshot)
+      |> result.map(fn(encoded) { [attach_blob("header", encoded)] })
+      |> result.map_error(fn(error) {
+        fluid_container.MalformedMessage("attach", string.inspect(error))
+      })
+  })
   let snapshot =
     json.object([
       #(
@@ -183,44 +190,59 @@ pub fn encode_channel_envelope(
   operation: channel.ChannelOperation,
 ) -> Result(Json, fluid_container.ContainerError) {
   use route <- result.try(fluid_container.route_from_path("/" <> address))
-  fluid_container.encode(fluid_container.ChannelOperation(
-    route,
-    encode_channel_operation(operation),
-  ))
+  use contents <- result.try(
+    encode_channel_operation(operation)
+    |> result.map_error(fn(error) {
+      fluid_container.MalformedMessage("channel", string.inspect(error))
+    }),
+  )
+  fluid_container.encode(fluid_container.ChannelOperation(route, contents))
 }
 
-pub fn encode_channel_operation(operation: channel.ChannelOperation) -> Json {
+pub fn encode_channel_operation(
+  operation: channel.ChannelOperation,
+) -> Result(Json, channel.ChannelError) {
   case operation {
-    channel.MapOperation(operation) -> encode_map_operation(operation)
-    channel.CounterOperation(operation) -> encode_counter_operation(operation)
+    channel.TreeOperation(_) ->
+      Error(channel.MissingDocumentContext(
+        "tree operation requires document context",
+      ))
+    channel.MapOperation(operation) -> Ok(encode_map_operation(operation))
+    channel.CounterOperation(operation) ->
+      Ok(encode_counter_operation(operation))
     channel.PnCounterOperation(operation) ->
-      encode_pn_counter_operation(operation)
+      Ok(encode_pn_counter_operation(operation))
     channel.GCounterOperation(operation) ->
-      encode_g_counter_operation(operation)
+      Ok(encode_g_counter_operation(operation))
     channel.MvRegisterOperation(operation) ->
-      encode_mv_register_operation(operation)
+      Ok(encode_mv_register_operation(operation))
     channel.LwwRegisterOperation(operation) ->
-      encode_lww_register_operation(operation)
-    channel.LwwMapOperation(operation) -> encode_lww_map_operation(operation)
-    channel.OrMapOperation(operation) -> encode_or_map_operation(operation)
-    channel.OrSetOperation(operation) -> encode_or_set_operation(operation)
-    channel.GSetOperation(operation) -> encode_g_set_operation(operation)
-    channel.TwoPSetOperation(operation) -> encode_two_p_set_operation(operation)
+      Ok(encode_lww_register_operation(operation))
+    channel.LwwMapOperation(operation) ->
+      Ok(encode_lww_map_operation(operation))
+    channel.OrMapOperation(operation) -> Ok(encode_or_map_operation(operation))
+    channel.OrSetOperation(operation) -> Ok(encode_or_set_operation(operation))
+    channel.GSetOperation(operation) -> Ok(encode_g_set_operation(operation))
+    channel.TwoPSetOperation(operation) ->
+      Ok(encode_two_p_set_operation(operation))
     channel.RegisterCollectionOperation(operation) ->
-      encode_register_collection_operation(operation)
-    channel.ClaimsOperation(operation) -> encode_claim_operation(operation)
+      Ok(encode_register_collection_operation(operation))
+    channel.ClaimsOperation(operation) -> Ok(encode_claim_operation(operation))
     channel.TaskManagerOperation(operation) ->
-      encode_task_manager_operation(operation)
-    channel.JsonOtOperation(operation) -> encode_json_ot_operation(operation)
+      Ok(encode_task_manager_operation(operation))
+    channel.JsonOtOperation(operation) ->
+      Ok(encode_json_ot_operation(operation))
     channel.DirectoryOperation(operation, message_id) ->
-      encode_directory_operation(operation, message_id)
-    channel.PactMapOperation(operation) -> encode_pact_map_operation(operation)
+      Ok(encode_directory_operation(operation, message_id))
+    channel.PactMapOperation(operation) ->
+      Ok(encode_pact_map_operation(operation))
     channel.OrderedCollectionOperation(operation) ->
-      encode_ordered_operation(operation)
-    channel.SequenceOperation(operation) -> encode_sequence_operation(operation)
+      Ok(encode_ordered_operation(operation))
+    channel.SequenceOperation(operation) ->
+      Ok(encode_sequence_operation(operation))
     channel.RichTextOperation(operation) ->
-      encode_rich_text_operation(operation)
-    channel.TextOperation(operation) -> encode_text_operation(operation)
+      Ok(encode_rich_text_operation(operation))
+    channel.TextOperation(operation) -> Ok(encode_text_operation(operation))
   }
 }
 
@@ -229,54 +251,73 @@ pub fn encode_channel_operation(operation: channel.ChannelOperation) -> Json {
 /// `decode_operation_contents`.
 pub fn channel_operation_decoder(
   channel_type: channel.ChannelType,
-) -> Decoder(channel.ChannelOperation) {
+) -> Result(Decoder(channel.ChannelOperation), channel.ChannelError) {
   case channel_type {
+    channel.TreeChannel ->
+      Error(channel.MissingDocumentContext(
+        "tree operation requires document context",
+      ))
     channel.MapChannel ->
-      map_operation_decoder() |> decode.map(channel.MapOperation)
+      Ok(map_operation_decoder() |> decode.map(channel.MapOperation))
     channel.CounterChannel ->
-      counter_operation_decoder() |> decode.map(channel.CounterOperation)
+      Ok(counter_operation_decoder() |> decode.map(channel.CounterOperation))
     channel.PnCounterChannel ->
-      pn_counter_operation_decoder() |> decode.map(channel.PnCounterOperation)
+      Ok(
+        pn_counter_operation_decoder() |> decode.map(channel.PnCounterOperation),
+      )
     channel.GCounterChannel ->
-      g_counter_operation_decoder() |> decode.map(channel.GCounterOperation)
+      Ok(g_counter_operation_decoder() |> decode.map(channel.GCounterOperation))
     channel.MvRegisterChannel ->
-      mv_register_operation_decoder() |> decode.map(channel.MvRegisterOperation)
+      Ok(
+        mv_register_operation_decoder()
+        |> decode.map(channel.MvRegisterOperation),
+      )
     channel.LwwRegisterChannel ->
-      lww_register_operation_decoder()
-      |> decode.map(channel.LwwRegisterOperation)
+      Ok(
+        lww_register_operation_decoder()
+        |> decode.map(channel.LwwRegisterOperation),
+      )
     channel.LwwMapChannel ->
-      lww_map_operation_decoder()
-      |> decode.map(channel.LwwMapOperation)
+      Ok(
+        lww_map_operation_decoder()
+        |> decode.map(channel.LwwMapOperation),
+      )
     channel.OrMapChannel ->
-      or_map_operation_decoder() |> decode.map(channel.OrMapOperation)
+      Ok(or_map_operation_decoder() |> decode.map(channel.OrMapOperation))
     channel.OrSetChannel ->
-      or_set_operation_decoder() |> decode.map(channel.OrSetOperation)
+      Ok(or_set_operation_decoder() |> decode.map(channel.OrSetOperation))
     channel.GSetChannel ->
-      g_set_operation_decoder() |> decode.map(channel.GSetOperation)
+      Ok(g_set_operation_decoder() |> decode.map(channel.GSetOperation))
     channel.TwoPSetChannel ->
-      two_p_set_operation_decoder() |> decode.map(channel.TwoPSetOperation)
+      Ok(two_p_set_operation_decoder() |> decode.map(channel.TwoPSetOperation))
     channel.RegisterCollectionChannel ->
-      register_collection_operation_decoder()
-      |> decode.map(channel.RegisterCollectionOperation)
+      Ok(
+        register_collection_operation_decoder()
+        |> decode.map(channel.RegisterCollectionOperation),
+      )
     channel.ClaimsChannel ->
-      claim_operation_decoder() |> decode.map(channel.ClaimsOperation)
+      Ok(claim_operation_decoder() |> decode.map(channel.ClaimsOperation))
     channel.TaskManagerChannel ->
-      task_manager_operation_decoder()
-      |> decode.map(channel.TaskManagerOperation)
+      Ok(
+        task_manager_operation_decoder()
+        |> decode.map(channel.TaskManagerOperation),
+      )
     channel.JsonOtChannel ->
-      json_ot_operation_decoder() |> decode.map(channel.JsonOtOperation)
-    channel.DirectoryChannel -> directory_operation_decoder()
+      Ok(json_ot_operation_decoder() |> decode.map(channel.JsonOtOperation))
+    channel.DirectoryChannel -> Ok(directory_operation_decoder())
     channel.PactMapChannel ->
-      pact_map_operation_decoder() |> decode.map(channel.PactMapOperation)
+      Ok(pact_map_operation_decoder() |> decode.map(channel.PactMapOperation))
     channel.OrderedCollectionChannel ->
-      ordered_operation_decoder()
-      |> decode.map(channel.OrderedCollectionOperation)
+      Ok(
+        ordered_operation_decoder()
+        |> decode.map(channel.OrderedCollectionOperation),
+      )
     channel.SequenceChannel ->
-      sequence_operation_decoder() |> decode.map(channel.SequenceOperation)
+      Ok(sequence_operation_decoder() |> decode.map(channel.SequenceOperation))
     channel.RichTextChannel ->
-      rich_text_operation_decoder() |> decode.map(channel.RichTextOperation)
+      Ok(rich_text_operation_decoder() |> decode.map(channel.RichTextOperation))
     channel.TextChannel ->
-      text_operation_decoder() |> decode.map(channel.TextOperation)
+      Ok(text_operation_decoder() |> decode.map(channel.TextOperation))
   }
 }
 
@@ -2113,8 +2154,11 @@ pub fn decode_attach_snapshot(
       decode_map_attach(entries, header)
       |> result.map(channel.MapSnapshot)
     _ ->
-      json.parse(header, channel.snapshot_decoder(kind))
-      |> result.map_error(string.inspect)
+      case channel.snapshot_decoder(kind) {
+        Ok(decoder) ->
+          json.parse(header, decoder) |> result.map_error(string.inspect)
+        Error(error) -> Error(string.inspect(error))
+      }
   }
   decoded
   |> result.map_error(fn(detail) {

@@ -13,6 +13,9 @@
 //// along that seam.
 
 @target(javascript)
+import watershed/tree/checked_test as checked
+
+@target(javascript)
 import gleam/int
 @target(javascript)
 import gleam/json
@@ -90,21 +93,21 @@ pub fn document_envelopes_are_not_client_frames_test() -> Nil {
 
   let messages = [
     crdt_core.hello_message(document),
-    crdt_core.state_message(document),
+    checked.value(crdt_core.state_message(document)),
     crdt_core.state_request_message(),
-    crdt_core.digest_message(document),
+    checked.value(crdt_core.digest_message(document)),
     ..outcome.broadcast
   ]
 
   list.each(messages, fn(message) {
     // The whole envelope, as it goes onto a data channel.
-    crdt_core.encode(document, message)
+    checked.value(crdt_core.encode(document, message))
     |> crdt_signaling.decode_client
     |> expect.to_equal(Error(crdt_signaling.Malformed("not a signaling frame")))
 
     // And the bare message, in case an adapter ever tried to hand one to
     // signaling without its envelope.
-    json.to_string(crdt_wire.encode_message(message))
+    json.to_string(checked.value(crdt_wire.encode_message(message)))
     |> crdt_signaling.decode_client
     |> expect.to_equal(Error(crdt_signaling.Malformed("not a signaling frame")))
   })
@@ -603,7 +606,10 @@ pub fn serve_tags_frames_by_type_test() -> Nil {
     crdt_signaling.serve(
       rooms,
       3,
-      crdt_core.encode(document, crdt_core.hello_message(document)),
+      checked.value(crdt_core.encode(
+        document,
+        crdt_core.hello_message(document),
+      )),
     )
   tag |> expect.to_equal("rejected:malformed")
   actions

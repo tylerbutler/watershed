@@ -13,6 +13,7 @@ import watershed/or_map_kernel.{
   RegisterMode, RegisterUpdated, Remove, SetMvRegister, Tally, TallyMode,
   TallyUpdated,
 }
+import watershed/tree/checked_test as checked
 
 fn replica(name: String) -> replica_id.ReplicaId {
   replica_id.new(name)
@@ -870,10 +871,16 @@ pub fn mv_full_merge_rejects_negative_clock_before_join_test() -> Nil {
   corrupted |> expect.to_not_equal(source)
   // The native decoder now rejects this clock before a typed map can reach a join.
   or_map.from_json(corrupted) |> expect.to_be_error()
-  json.parse(corrupted, channel.snapshot_decoder(channel.OrMapChannel))
+  json.parse(
+    corrupted,
+    checked.value(channel.snapshot_decoder(channel.OrMapChannel)),
+  )
   |> expect.to_be_error()
   let assert Ok(snapshot) =
-    json.parse(source, channel.snapshot_decoder(channel.OrMapChannel))
+    json.parse(
+      source,
+      checked.value(channel.snapshot_decoder(channel.OrMapChannel)),
+    )
   let assert Ok(#(unchanged, events)) =
     channel.merge_p2p_snapshot(channel.OrMapState(state), snapshot)
   unchanged |> expect.to_equal(channel.OrMapState(state))

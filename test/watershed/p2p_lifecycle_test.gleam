@@ -680,6 +680,10 @@ fn expect_unsupported_p2p(result: Result(a, channel.ChannelError)) -> Nil {
     | Error(channel.CorruptRemoteOperation(..))
     | Error(channel.OrMapOperationFailed(..)) ->
       panic as "expected Error(channel.UnsupportedP2p(_))"
+    Error(channel.TreeFailure(..))
+    | Error(channel.MissingDocumentContext(..))
+    | Error(channel.UnsupportedTreeOperation(..)) ->
+      panic as "expected Error(channel.UnsupportedP2p(_))"
   }
 }
 
@@ -965,7 +969,8 @@ pub fn text_empty_edit_still_commits_an_operation_test() -> Nil {
     | channel.DirectoryOperation(..)
     | channel.OrderedCollectionOperation(..)
     | channel.SequenceOperation(..)
-    | channel.RichTextOperation(..) ->
+    | channel.RichTextOperation(..)
+    | channel.TreeOperation(..) ->
       panic as "expected an Insert(0, \"\", _) op even for an empty edit"
   }
 

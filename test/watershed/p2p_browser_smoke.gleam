@@ -26,6 +26,9 @@
 //// `p2p_transport_js_test.gleam` are the ones in the normal suite.
 
 @target(javascript)
+import watershed/tree/checked_test as checked
+
+@target(javascript)
 import gleam/int
 @target(javascript)
 import gleam/javascript/promise.{type Promise}
@@ -273,7 +276,7 @@ fn send_to(node: Node, peer: String, message: crdt_wire.Message) -> Nil {
         p2p_transport_js.send(
           transport,
           peer,
-          crdt_core.encode(document, message),
+          checked.value(crdt_core.encode(document, message)),
         )
       {
         Ok(Nil) -> Nil
@@ -300,7 +303,7 @@ fn broadcast(node: Node, message: crdt_wire.Message) -> Nil {
       let _ =
         p2p_transport_js.broadcast(
           transport,
-          crdt_core.encode(document, message),
+          checked.value(crdt_core.encode(document, message)),
         )
       Nil
     }
@@ -358,7 +361,7 @@ fn problems(node: Node) -> List(String) {
 
 @target(javascript)
 fn digest(node: Node) -> String {
-  crdt_core.digest(transport_js.get_cell(node.document))
+  checked.value(crdt_core.digest(transport_js.get_cell(node.document)))
 }
 
 @target(javascript)
@@ -368,7 +371,9 @@ fn digest(node: Node) -> String {
 /// cursors removed — the thing two peers holding the same logical and
 /// causal state must agree on byte for byte.
 fn snapshot(node: Node) -> String {
-  crdt_core.digest_canonical_json(transport_js.get_cell(node.document))
+  checked.value(
+    crdt_core.digest_canonical_json(transport_js.get_cell(node.document)),
+  )
 }
 
 @target(javascript)

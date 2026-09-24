@@ -114,8 +114,37 @@ pub fn history_view(state: TreeState) -> history.HistoryView {
   history.inspect(state.history)
 }
 
+pub fn stored_schema(state: TreeState) -> schema.StoredSchema {
+  state.stored
+}
+
 pub fn identity_revisions(state: TreeState) -> List(fluid_ids.StableId) {
   history.identity_revisions(state.history)
+}
+
+pub fn rebind_identity_order(
+  state: TreeState,
+  order: change.IdentityOrder,
+) -> Result(TreeState, TreeError) {
+  use history <- result.try(history.rebind_identity_order(state.history, order))
+  Ok(TreeState(..state, history:))
+}
+
+pub fn advance_document(
+  state: TreeState,
+  sequence_number: Int,
+  minimum_sequence_number: Int,
+  allocation: allocation,
+  mint: history.MintRevision(allocation),
+) -> Result(#(TreeState, allocation), TreeError) {
+  use #(update, allocation) <- result.try(history.advance_minimum(
+    state.history,
+    sequence_number,
+    minimum_sequence_number,
+    allocation,
+    mint,
+  ))
+  Ok(#(TreeState(..state, history: update.history), allocation))
 }
 
 pub fn validate_edit(state: TreeState, edit: Edit) -> Result(Nil, TreeError) {
@@ -198,12 +227,12 @@ pub fn receive_ordered(
   allocation: allocation,
   mint: history.MintRevision(allocation),
 ) -> Result(#(TreeState, List(TreeEvent), allocation), TreeError) {
-  use history <- result.try(history.rebind_identity_order(state.history, order))
+  use state <- result.try(rebind_identity_order(state, order))
   use authored <- result.try(
     change.rebind_identity_order(commit.change, order, [commit.revision]),
   )
   receive(
-    TreeState(..state, history:),
+    state,
     history.Commit(..commit, change: authored),
     point,
     reference_sequence_number,

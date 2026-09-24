@@ -807,7 +807,7 @@ fn same_document(left: crdt_core.Document, right: crdt_core.Document) -> Bool
 /// state, whatever number of callers ask for it. The cache uses the document
 /// itself as its key, so a state change cannot leave a stale digest. Such a
 /// change misses the cache.
-fn document_digest(cell: Cell(State)) -> String {
+fn document_digest(cell: Cell(State)) -> Result(String, P2pError) {
   let state = transport_js.get_cell(cell)
   let cache = transport_js.get_cell(state.digest_cache)
   let hit = case cache.taken_from {
@@ -819,9 +819,9 @@ fn document_digest(cell: Cell(State)) -> String {
     None -> None
   }
   case hit {
-    Some(value) -> value
+    Some(value) -> Ok(value)
     None -> {
-      let value = crdt_core.digest(state.document)
+      use value <- result.try(crdt_core.digest(state.document))
       transport_js.set_cell(
         state.digest_cache,
         DigestCache(
@@ -830,8 +830,16 @@ fn document_digest(cell: Cell(State)) -> String {
           computations: cache.computations + 1,
         ),
       )
-      value
+      Ok(value)
     }
+  }
+}
+
+@target(javascript)
+fn with_digest(cell: Cell(State), action: fn(String) -> Nil) -> Nil {
+  case document_digest(cell) {
+    Ok(value) -> action(value)
+    Error(error) -> emit(cell, TransportError(error))
   }
 }
 
@@ -839,8 +847,8 @@ fn document_digest(cell: Cell(State)) -> String {
 /// `crdt_core.digest_message`, from the digest that this document already
 /// computed. The message is the same in both routes. This function removes the
 /// hash step only.
-fn digest_message(cell: Cell(State)) -> Message {
-  crdt_wire.Digest(document_digest(cell))
+fn digest_message(cell: Cell(State)) -> Result(Message, P2pError) {
+  document_digest(cell) |> result.map(crdt_wire.Digest)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1426,12 +1434,13 @@ fn publish_state(cell: Cell(State)) -> Nil {
     True, _, _ -> Nil
     _, Some(relay), RelaySyncing -> {
       cancel(state.resync_timer)
-      let digest = document_digest(cell)
-      transport_js.set_cell(
-        cell,
-        State(..state, published: digest, resync_timer: None),
-      )
-      publish(cell, relay, digest, state.document)
+      with_digest(cell, fn(digest) {
+        transport_js.set_cell(
+          cell,
+          State(..state, published: digest, resync_timer: None),
+        )
+        publish(cell, relay, digest, state.document)
+      })
     }
     _, Some(_), RelayOff
     | _, Some(_), RelayOpening
@@ -1456,12 +1465,16 @@ fn publish(
   digest: String,
   document: crdt_core.Document,
 ) -> Nil {
-  case relay_write(cell, crdt_core.state_message(document)) {
-    False -> Nil
-    True ->
-      case crdt_sequencer_js.attest(relay, digest) {
-        Ok(Nil) -> Nil
-        Error(_) -> relay_unwritable(cell)
+  case crdt_core.state_message(document) {
+    Error(error) -> emit(cell, TransportError(error))
+    Ok(message) ->
+      case relay_write(cell, message) {
+        False -> Nil
+        True ->
+          case crdt_sequencer_js.attest(relay, digest) {
+            Ok(Nil) -> Nil
+            Error(_) -> relay_unwritable(cell)
+          }
       }
   }
 }
@@ -1484,21 +1497,22 @@ fn publish(
 /// its caller. A status handler that closed the document, or that dropped the
 /// lane, between the decision and this line is owed no frame.
 fn publish_while_primary(cell: Cell(State)) -> Nil {
-  let digest = document_digest(cell)
-  let state = transport_js.get_cell(cell)
-  case state.closed, state.relay, state.phase {
-    False, Some(relay), RelayPrimaryPhase -> {
-      transport_js.set_cell(cell, State(..state, published: digest))
-      publish(cell, relay, digest, state.document)
+  with_digest(cell, fn(digest) {
+    let state = transport_js.get_cell(cell)
+    case state.closed, state.relay, state.phase {
+      False, Some(relay), RelayPrimaryPhase -> {
+        transport_js.set_cell(cell, State(..state, published: digest))
+        publish(cell, relay, digest, state.document)
+      }
+      True, _, _
+      | _, None, _
+      | _, Some(_), RelayOff
+      | _, Some(_), RelayOpening
+      | _, Some(_), RelaySyncing
+      | _, Some(_), RelayUnsupportedPhase
+      -> Nil
     }
-    True, _, _
-    | _, None, _
-    | _, Some(_), RelayOff
-    | _, Some(_), RelayOpening
-    | _, Some(_), RelaySyncing
-    | _, Some(_), RelayUnsupportedPhase
-    -> Nil
-  }
+  })
 }
 
 @target(javascript)
@@ -1567,17 +1581,13 @@ fn relay_attested(cell: Cell(State), attested: String) -> Nil {
   case state.closed, state.phase {
     True, _ -> Nil
     _, RelaySyncing -> {
-      let local = document_digest(cell)
-      case attested != "" && attested == state.published, attested == local {
-        // The relay holds exactly what we hold. Nothing else in this
-        // protocol is allowed to claim that.
-        True, True -> relay_primary(cell, local)
-        // Ours moved on between publishing and being answered — a local
-        // edit, or a merge. We are strictly ahead, so publish again now
-        // rather than waiting on a timer.
-        True, False -> publish_state(cell)
-        _, _ -> schedule_resync(cell)
-      }
+      with_digest(cell, fn(local) {
+        case attested != "" && attested == state.published, attested == local {
+          True, True -> relay_primary(cell, local)
+          True, False -> publish_state(cell)
+          _, _ -> schedule_resync(cell)
+        }
+      })
     }
     _, RelayPrimaryPhase ->
       case attested != "" && attested == state.published {
@@ -1872,10 +1882,12 @@ fn relay_document(cell: Cell(State), raw: String) -> Bool {
               // rather than waiting out the backoff. This is what makes
               // two concurrent attachments converge in a round trip
               // instead of a timer.
-              case syncing, document_digest(cell) != previous {
-                True, True -> publish_state(cell)
-                _, _ -> Nil
-              }
+              with_digest(cell, fn(current) {
+                case syncing, current != previous {
+                  True, True -> publish_state(cell)
+                  _, _ -> Nil
+                }
+              })
               True
             }
           }
@@ -1890,11 +1902,15 @@ fn relay_send(cell: Cell(State), message: Message) -> Bool {
   case state.relay {
     None -> False
     Some(relay) ->
-      crdt_sequencer_js.send_envelope(
-        relay,
-        crdt_core.encode(state.document, message),
-      )
-      |> result.is_ok()
+      case crdt_core.encode(state.document, message) {
+        Ok(payload) ->
+          crdt_sequencer_js.send_envelope(relay, payload)
+          |> result.is_ok()
+        Error(error) -> {
+          emit(cell, TransportError(error))
+          False
+        }
+      }
   }
 }
 
@@ -2240,14 +2256,16 @@ fn route(cell: Cell(State), peer: Peer, envelope: crdt_wire.Envelope) -> Nil {
       // merge rather than reading `outcome.events`, because a catch-up can
       // change the lattice (an OR-Set tag, a 2P-Set tombstone) with no
       // visible membership change and so no event at all.
-      let before = document_digest(cell)
-      merge(cell, peer.id, envelope, fn(_) {
-        let after = document_digest(cell)
-        case before != after {
-          True -> note_repair(cell)
-          False -> Nil
-        }
-        state_merged(cell, peer.id, list.length(entries))
+      with_digest(cell, fn(before) {
+        merge(cell, peer.id, envelope, fn(_) {
+          with_digest(cell, fn(after) {
+            case before != after {
+              True -> note_repair(cell)
+              False -> Nil
+            }
+          })
+          state_merged(cell, peer.id, list.length(entries))
+        })
       })
     }
     // A peer's digest is the anti-entropy comparison this replica answers
@@ -2284,8 +2302,10 @@ fn receive_envelope(
 ) -> Result(#(crdt_core.Document, crdt_core.Outcome), P2pError) {
   let document = transport_js.get_cell(cell).document
   case envelope.message {
-    crdt_wire.Digest(_) ->
-      crdt_core.receive_with_digest(document, envelope, document_digest(cell))
+    crdt_wire.Digest(_) -> {
+      use digest <- result.try(document_digest(cell))
+      crdt_core.receive_with_digest(document, envelope, digest)
+    }
     crdt_wire.Hello(..)
     | crdt_wire.ChannelAnnounce(_)
     | crdt_wire.Delta(..)
@@ -2327,20 +2347,31 @@ fn merge(
   let durable = state.path == Sequenced && state.phase == RelayPrimaryPhase
   let before = case durable {
     True -> document_digest(cell)
-    False -> ""
+    False -> Ok("")
   }
-  case receive_envelope(cell, envelope) {
+  case before {
     Error(error) -> reject_peer(cell, peer_id, error)
-    Ok(#(document, outcome)) -> {
-      transport_js.set_cell(cell, State(..state, document: document))
-      list.each(outcome.reply, fn(message) { send(cell, peer_id, message) })
-      list.each(outcome.broadcast, fn(message) { broadcast(cell, message) })
-      dispatch(cell, outcome.events)
-      case durable && document_digest(cell) != before {
-        True -> owe_publication(cell)
-        False -> Nil
+    Ok(before) -> {
+      case receive_envelope(cell, envelope) {
+        Error(error) -> reject_peer(cell, peer_id, error)
+        Ok(#(document, outcome)) -> {
+          transport_js.set_cell(cell, State(..state, document: document))
+          list.each(outcome.reply, fn(message) { send(cell, peer_id, message) })
+          list.each(outcome.broadcast, fn(message) { broadcast(cell, message) })
+          dispatch(cell, outcome.events)
+          case durable {
+            True ->
+              with_digest(cell, fn(current) {
+                case current != before {
+                  True -> owe_publication(cell)
+                  False -> Nil
+                }
+              })
+            False -> Nil
+          }
+          after(outcome)
+        }
       }
-      after(outcome)
     }
   }
 }
@@ -2442,7 +2473,11 @@ fn greet(cell: Cell(State), peer_id: String) -> Nil {
       // — so a peer that never sees this relay's traffic can ask for
       // whatever it is missing rather than wait for a local edit.
       case transport_js.get_cell(cell).path {
-        Sequenced -> send(cell, peer_id, digest_message(cell))
+        Sequenced ->
+          case digest_message(cell) {
+            Ok(message) -> send(cell, peer_id, message)
+            Error(error) -> emit(cell, TransportError(error))
+          }
         PeerToPeer -> Nil
       }
       // The mesh now has a validated peer to answer, so start (or leave
@@ -2510,9 +2545,13 @@ fn send(cell: Cell(State), peer_id: String, message: Message) -> Nil {
   case state.transport {
     None -> Nil
     Some(transport) -> {
-      let payload = crdt_core.encode(state.document, message)
-      let _ = p2p_transport_js.send(transport, peer_id, payload)
-      Nil
+      case crdt_core.encode(state.document, message) {
+        Ok(payload) -> {
+          let _ = p2p_transport_js.send(transport, peer_id, payload)
+          Nil
+        }
+        Error(error) -> emit(cell, TransportError(error))
+      }
     }
   }
 }
@@ -2835,12 +2874,13 @@ fn tick_sync(cell: Cell(State)) -> Nil {
 /// the canonical digest only when that digest differs from the last one that the
 /// peers received.
 fn sync_digest(cell: Cell(State)) -> Nil {
-  let digest = document_digest(cell)
-  let state = transport_js.get_cell(cell)
-  case digest == state.last_sync_digest {
-    True -> Nil
-    False -> broadcast_digest(cell)
-  }
+  with_digest(cell, fn(digest) {
+    let state = transport_js.get_cell(cell)
+    case digest == state.last_sync_digest {
+      True -> Nil
+      False -> broadcast_digest(cell)
+    }
+  })
 }
 
 @target(javascript)
@@ -2851,10 +2891,11 @@ fn sync_digest(cell: Cell(State)) -> Nil {
 /// coalescer, and the final push of a failover. One of them thus cannot make the
 /// gate incorrect.
 fn broadcast_digest(cell: Cell(State)) -> Nil {
-  let digest = document_digest(cell)
-  let state = transport_js.get_cell(cell)
-  transport_js.set_cell(cell, State(..state, last_sync_digest: digest))
-  peer_broadcast(cell, crdt_wire.Digest(digest))
+  with_digest(cell, fn(digest) {
+    let state = transport_js.get_cell(cell)
+    transport_js.set_cell(cell, State(..state, last_sync_digest: digest))
+    peer_broadcast(cell, crdt_wire.Digest(digest))
+  })
 }
 
 @target(javascript)
@@ -2883,12 +2924,15 @@ fn peer_broadcast(cell: Cell(State), message: Message) -> Nil {
   case state.transport {
     None -> Nil
     Some(transport) -> {
-      let payload = crdt_core.encode(state.document, message)
-      greeted_peers(state)
-      |> list.each(fn(peer_id) {
-        let _ = p2p_transport_js.send(transport, peer_id, payload)
-        Nil
-      })
+      case crdt_core.encode(state.document, message) {
+        Ok(payload) ->
+          greeted_peers(state)
+          |> list.each(fn(peer_id) {
+            let _ = p2p_transport_js.send(transport, peer_id, payload)
+            Nil
+          })
+        Error(error) -> emit(cell, TransportError(error))
+      }
     }
   }
 }
@@ -3000,7 +3044,8 @@ pub fn subscribe_pn_counter(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3030,7 +3075,8 @@ pub fn subscribe_or_map(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3060,7 +3106,8 @@ pub fn subscribe_or_set(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3090,7 +3137,8 @@ pub fn subscribe_g_set(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3120,7 +3168,8 @@ pub fn subscribe_two_p_set(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3150,7 +3199,8 @@ pub fn subscribe_sequence(
     | channel.DirectoryEvent(_)
     | channel.OrderedCollectionEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3180,7 +3230,8 @@ pub fn subscribe_text(
     | channel.DirectoryEvent(_)
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
-    | channel.RichTextEvent(_) -> None
+    | channel.RichTextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3402,7 +3453,8 @@ pub fn subscribe_mv_register(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3468,7 +3520,8 @@ pub fn subscribe_lww_register(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3567,7 +3620,8 @@ pub fn subscribe_lww_map(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3609,7 +3663,8 @@ pub fn g_counter_value(
     | channel.OrderedCollectionState(_)
     | channel.SequenceState(_)
     | channel.RichTextState(_)
-    | channel.TextState(_) -> 0
+    | channel.TextState(_)
+    | channel.TreeState(_) -> 0
   }
 }
 
@@ -3641,7 +3696,8 @@ pub fn subscribe_g_counter(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TextEvent(_) -> None
+    | channel.TextEvent(_)
+    | channel.TreeEvent(_) -> None
   }
 }
 
@@ -3698,7 +3754,8 @@ pub fn pn_counter_value(
     | channel.OrderedCollectionState(_)
     | channel.SequenceState(_)
     | channel.RichTextState(_)
-    | channel.TextState(_) -> 0
+    | channel.TextState(_)
+    | channel.TreeState(_) -> 0
   }
 }
 
@@ -3824,7 +3881,8 @@ pub fn or_map_value(
     | channel.OrderedCollectionState(_)
     | channel.SequenceState(_)
     | channel.RichTextState(_)
-    | channel.TextState(_) -> Error(Nil)
+    | channel.TextState(_)
+    | channel.TreeState(_) -> Error(Nil)
   }
 }
 
@@ -3877,7 +3935,8 @@ pub fn or_map_entries(
     | channel.OrderedCollectionState(_)
     | channel.SequenceState(_)
     | channel.RichTextState(_)
-    | channel.TextState(_) -> []
+    | channel.TextState(_)
+    | channel.TreeState(_) -> []
   }
 }
 
@@ -3926,7 +3985,8 @@ pub fn or_set_contains(
     | channel.OrderedCollectionState(_)
     | channel.SequenceState(_)
     | channel.RichTextState(_)
-    | channel.TextState(_) -> False
+    | channel.TextState(_)
+    | channel.TreeState(_) -> False
   }
 }
 
@@ -3956,7 +4016,8 @@ pub fn or_set_values(
     | channel.OrderedCollectionState(_)
     | channel.SequenceState(_)
     | channel.RichTextState(_)
-    | channel.TextState(_) -> []
+    | channel.TextState(_)
+    | channel.TreeState(_) -> []
   }
 }
 
@@ -3997,7 +4058,8 @@ pub fn g_set_contains(
     | channel.OrderedCollectionState(_)
     | channel.SequenceState(_)
     | channel.RichTextState(_)
-    | channel.TextState(_) -> False
+    | channel.TextState(_)
+    | channel.TreeState(_) -> False
   }
 }
 
@@ -4027,7 +4089,8 @@ pub fn g_set_values(
     | channel.OrderedCollectionState(_)
     | channel.SequenceState(_)
     | channel.RichTextState(_)
-    | channel.TextState(_) -> []
+    | channel.TextState(_)
+    | channel.TreeState(_) -> []
   }
 }
 
@@ -4076,7 +4139,8 @@ pub fn two_p_set_contains(
     | channel.OrderedCollectionState(_)
     | channel.SequenceState(_)
     | channel.RichTextState(_)
-    | channel.TextState(_) -> False
+    | channel.TextState(_)
+    | channel.TreeState(_) -> False
   }
 }
 
@@ -4106,7 +4170,8 @@ pub fn two_p_set_values(
     | channel.OrderedCollectionState(_)
     | channel.SequenceState(_)
     | channel.RichTextState(_)
-    | channel.TextState(_) -> []
+    | channel.TextState(_)
+    | channel.TreeState(_) -> []
   }
 }
 
@@ -4173,7 +4238,8 @@ pub fn sequence_values(
     | channel.DirectoryState(_)
     | channel.OrderedCollectionState(_)
     | channel.RichTextState(_)
-    | channel.TextState(_) -> []
+    | channel.TextState(_)
+    | channel.TreeState(_) -> []
   }
 }
 
@@ -4241,7 +4307,8 @@ pub fn text_value(
     | channel.DirectoryState(_)
     | channel.OrderedCollectionState(_)
     | channel.SequenceState(_)
-    | channel.RichTextState(_) -> ""
+    | channel.RichTextState(_)
+    | channel.TreeState(_) -> ""
   }
 }
 
@@ -4272,7 +4339,8 @@ pub fn text_length(
     | channel.DirectoryState(_)
     | channel.OrderedCollectionState(_)
     | channel.SequenceState(_)
-    | channel.RichTextState(_) -> 0
+    | channel.RichTextState(_)
+    | channel.TreeState(_) -> 0
   }
 }
 
@@ -4407,7 +4475,7 @@ fn format_json_decode_error(error: json.DecodeError) -> String {
 /// worse still. No caller could trust such a snapshot.
 pub fn export_snapshot(document: CrdtDocument(root)) -> Result(Json, P2pError) {
   let state = transport_js.get_cell(document.cell)
-  let raw = crdt_core.canonical_json(state.document)
+  use raw <- result.try(crdt_core.canonical_json(state.document))
   json.parse(raw, wire.json_value_decoder())
   |> result.replace_error(p2p.InvalidEnvelope(
     crdt_core.replica(state.document),
@@ -4430,10 +4498,10 @@ pub fn merge_snapshot(
   let state = transport_js.get_cell(cell)
   use _ <- result.try(usable(cell, state))
   let durable = state.path == Sequenced && state.phase == RelayPrimaryPhase
-  let before = case durable {
+  use before <- result.try(case durable {
     True -> document_digest(cell)
-    False -> ""
-  }
+    False -> Ok("")
+  })
   use #(core, outcome) <- result.try(fail(
     cell,
     crdt_core.import_snapshot(state.document, json.to_string(snapshot)),
@@ -4441,7 +4509,11 @@ pub fn merge_snapshot(
   transport_js.set_cell(cell, State(..state, document: core))
   dispatch(cell, outcome.events)
   refresh_sync(cell)
-  case durable && document_digest(cell) != before, state.transport {
+  use current <- result.try(case durable {
+    True -> document_digest(cell)
+    False -> Ok(before)
+  })
+  case durable && current != before, state.transport {
     True, Some(_) -> owe_publication(cell)
     True, None -> publish_while_primary(cell)
     False, _ -> Nil
@@ -4514,7 +4586,7 @@ pub fn replica_label(document: CrdtDocument(root)) -> String {
 /// The module computes this value one time for each document state, and it
 /// reuses that value until the document moves. To read it in a render loop thus
 /// costs one comparison, and not a hash of the whole document.
-pub fn digest(document: CrdtDocument(root)) -> String {
+pub fn digest(document: CrdtDocument(root)) -> Result(String, P2pError) {
   document_digest(document.cell)
 }
 

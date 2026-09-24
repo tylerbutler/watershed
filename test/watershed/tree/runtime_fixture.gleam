@@ -9,11 +9,20 @@ import gleam/string
 import signet/types as token
 import spillway/message
 import spillway/types.{type SequencedDocumentMessage}
+import watershed/channel
 import watershed/fluid_ids
+import watershed/runtime_core
 import watershed/tree/codec
 import watershed/tree/codec/summary
+import watershed/tree/fixtures
+import watershed/tree/forest
+import watershed/tree/history
+import watershed/tree/schema
+import watershed/tree_kernel
 import watershed/wire
+import watershed/wire/fluid_container
 import watershed/wire/fluid_summary
+import watershed/wire/op as wire_op
 import watershed/wire/socket
 
 pub type RuntimeInput {
@@ -214,6 +223,127 @@ pub fn read(
     prefix:,
     operations:,
   ))
+}
+
+pub fn routed_seed_input() -> Result(
+  #(runtime_core.BootstrapSeedInput, List(SequencedDocumentMessage)),
+  String,
+) {
+  use fixture <- result.try(fixtures.load("batched-commits"))
+  use session <- result.try(
+    fluid_ids.session_id("30000000-0000-4000-8000-000000000003")
+    |> result.map_error(string.inspect),
+  )
+  use input <- result.try(read(fixture.input, session))
+  use component <- result.try(blob(input.document, "/.channels/A/.component"))
+  use package_json <- result.try(read_field(component, "pkg", decode.string))
+  use package_path <- result.try(
+    json.parse(package_json, decode.list(decode.string))
+    |> result.map_error(string.inspect),
+  )
+  use map <- result.try(wire_op.decode_map_header(input.map_header))
+  use view <- result.try(
+    schema.view_from_json(schema.stored_to_json(input.tree.schema))
+    |> result.map_error(string.inspect),
+  )
+  use view_id <- result.try(
+    fluid_ids.stable_id("40000000-0000-4000-8000-000000000004")
+    |> result.map_error(string.inspect),
+  )
+  use snapshot <- result.try(snapshot(
+    input.tree,
+    input.sequence_number,
+    input.minimum_sequence_number,
+    view_id,
+  ))
+  Ok(#(
+    runtime_core.BootstrapSeedInput(
+      profile: runtime_core.RoutedSeed,
+      sequence_number: input.sequence_number,
+      minimum_sequence_number: input.minimum_sequence_number,
+      members: [],
+      datastores: [runtime_core.DatastoreSeed("A", package_path)],
+      aliases: [#("root", "A")],
+      channels: [
+        runtime_core.ChannelSeed(
+          fluid_container.Route("A", "root"),
+          channel.fluid_attributes(channel.MapChannel),
+          channel.MapSnapshot(map),
+        ),
+        runtime_core.ChannelSeed(
+          fluid_container.Route("A", "_C"),
+          channel.fluid_attributes(channel.TreeChannel),
+          channel.TreeSnapshot(snapshot),
+        ),
+      ],
+      bootstrap_map: fluid_container.Route("A", "root"),
+      compressor: Some(input.compressor),
+      tree_views: [
+        runtime_core.TreeViewSeed(
+          fluid_container.Route("A", "_C"),
+          view_id,
+          view,
+        ),
+      ],
+    ),
+    input.prefix,
+  ))
+}
+
+pub fn routed_core() -> Result(runtime_core.Core, String) {
+  use #(input, prefix) <- result.try(routed_seed_input())
+  use seed <- result.try(
+    runtime_core.bootstrap_seed(input) |> result.map_error(string.inspect),
+  )
+  use bootstrapped <- result.try(
+    runtime_core.bootstrap_seeded(connected("reader", prefix, 2), seed)
+    |> result.map_error(string.inspect),
+  )
+  case bootstrapped {
+    runtime_core.Complete(core) -> Ok(core)
+    runtime_core.MissingPrefix(_, _, _, _) ->
+      Error("runtime fixture did not replay the prefix")
+  }
+}
+
+fn snapshot(
+  data: summary.TreeSummaryData,
+  sequence_number: Int,
+  minimum_sequence_number: Int,
+  view_id: fluid_ids.StableId,
+) -> Result(tree_kernel.TreeSnapshot, String) {
+  let summary.TreeSummaryData(
+    stored,
+    summary.ForestSummary(fields),
+    summary.DetachedFieldIndex(detached, next_id),
+    summary.EditManagerSummary(trunk, branches),
+  ) = data
+  use _ <- result.try(case detached == [] && trunk == [] && branches == [] {
+    True -> Ok(Nil)
+    False -> Error("runtime fixture requires an initial empty tree history")
+  })
+  use roots <- result.try(
+    list.key_find(fields, "rootFieldKey")
+    |> result.map_error(fn(_) { "runtime fixture root field is missing" }),
+  )
+  use root <- result.try(case roots {
+    [] -> Ok(None)
+    [root] -> Ok(Some(root))
+    _ -> Error("runtime fixture has multiple root trees")
+  })
+  tree_kernel.snapshot_from_parts(
+    view_id,
+    stored,
+    forest.ForestData(root, [], next_id),
+    history.HistorySnapshot(
+      history.InitialBase,
+      [],
+      [],
+      sequence_number,
+      minimum_sequence_number,
+    ),
+  )
+  |> result.map_error(string.inspect)
 }
 
 fn blob(

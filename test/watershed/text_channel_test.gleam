@@ -6,6 +6,7 @@ import startest/expect
 import watershed/channel
 import watershed/counter_kernel
 import watershed/text_kernel
+import watershed/tree/checked_test as checked
 
 fn new_a() -> text_kernel.TextState {
   text_kernel.new(replica_id.new("a"))
@@ -101,11 +102,11 @@ pub fn text_summary_round_trips_test() -> Nil {
   let summary = channel.TextSummary(state.sequenced)
   channel.snapshot_type(summary) |> expect.to_equal(channel.TextChannel)
 
-  let encoded = channel.encode_snapshot(summary)
+  let encoded = checked.value(channel.encode_snapshot(summary))
   let assert Ok(decoded) =
     json.parse(
       json.to_string(encoded),
-      channel.snapshot_decoder(channel.TextChannel),
+      checked.value(channel.snapshot_decoder(channel.TextChannel)),
     )
 
   channel.same_snapshot(summary, decoded) |> expect.to_be_true()
@@ -131,17 +132,19 @@ pub fn detached_text_attach_carries_optimistic_state_and_promotes_test() -> Nil 
 
   // Attach snapshot carries the optimistic (pending-inclusive) text, unlike
   // `snapshot`, which would only carry the empty sequenced state.
-  let assert channel.TextSummary(sequenced) = channel.snapshot(detached)
+  let assert channel.TextSummary(sequenced) =
+    checked.value(channel.snapshot(detached))
   text_kernel.from_sequenced(sequenced, replica_id.new("a"))
   |> text_kernel.value
   |> expect.to_equal("")
 
-  let assert channel.TextSummary(optimistic) = channel.attach_snapshot(detached)
+  let assert channel.TextSummary(optimistic) =
+    checked.value(channel.attach_snapshot(detached))
   text_kernel.from_sequenced(optimistic, replica_id.new("a"))
   |> text_kernel.value
   |> expect.to_equal("draft")
 
-  let promoted = channel.attach_state(detached, replica: "a")
+  let assert Ok(promoted) = channel.attach_state(detached, replica: "a")
   let assert channel.TextState(promoted_kernel) = promoted
   text_kernel.value(promoted_kernel) |> expect.to_equal("draft")
   text_kernel.sequenced_value(promoted_kernel) |> expect.to_equal("draft")

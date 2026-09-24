@@ -16,6 +16,8 @@
 //// The service that runs this protocol over `ws` and a disk is tested in
 //// `tools/relay/test.mjs`; the two suites are split along that seam.
 
+import watershed/tree/checked_test as checked
+
 import gleam/int
 import gleam/list
 import gleam/string
@@ -64,7 +66,7 @@ fn clapped(
         )
       let encoded =
         list.map(outcome.broadcast, fn(message) {
-          crdt_core.encode(next, message)
+          checked.value(crdt_core.encode(next, message))
         })
       let #(final, rest) = clapped(next, times - 1)
       #(final, list.append(encoded, rest))
@@ -77,24 +79,30 @@ fn clapped(
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn hello(document: crdt_core.Document) -> String {
-  crdt_core.encode(document, crdt_core.hello_message(document))
+  checked.value(crdt_core.encode(document, crdt_core.hello_message(document)))
 }
 
 fn state(document: crdt_core.Document) -> String {
-  crdt_core.encode(document, crdt_core.state_message(document))
+  checked.value(crdt_core.encode(
+    document,
+    checked.value(crdt_core.state_message(document)),
+  ))
 }
 
 fn state_request(document: crdt_core.Document) -> String {
-  crdt_core.encode(document, crdt_core.state_request_message())
+  checked.value(crdt_core.encode(document, crdt_core.state_request_message()))
 }
 
 fn digest(document: crdt_core.Document) -> String {
-  crdt_core.encode(document, crdt_core.digest_message(document))
+  checked.value(crdt_core.encode(
+    document,
+    checked.value(crdt_core.digest_message(document)),
+  ))
 }
 
 fn attest(document: crdt_core.Document, up_to: Int) -> String {
   crdt_relay.control_to_string(crdt_relay.Attest(
-    digest: crdt_core.digest(document),
+    digest: checked.value(crdt_core.digest(document)),
     up_to: up_to,
   ))
 }
@@ -336,7 +344,10 @@ pub fn only_the_documented_message_types_are_carried_test() -> Nil {
   let alpha = document("alpha")
   let relay = admitted(1, alpha)
   let rejection =
-    crdt_core.encode(alpha, crdt_core.rejection_message("nope", "not here"))
+    checked.value(crdt_core.encode(
+      alpha,
+      crdt_core.rejection_message("nope", "not here"),
+    ))
 
   let run = frame(relay, 1, rejection)
   closes(run.actions) |> expect.to_equal([#(1, "unsupportedMessage")])
@@ -499,9 +510,10 @@ pub fn a_covering_publication_is_attested_and_checkpointed_test() -> Nil {
   list.length(appends(run.actions)) |> expect.to_equal(1)
 
   let run = frame(run.relay, 1, attest(alpha, 1))
-  attestations(run.actions) |> expect.to_equal([crdt_core.digest(alpha)])
+  attestations(run.actions)
+  |> expect.to_equal([checked.value(crdt_core.digest(alpha))])
   crdt_relay.attested_digest(run.relay, room)
-  |> expect.to_equal(crdt_core.digest(alpha))
+  |> expect.to_equal(checked.value(crdt_core.digest(alpha)))
   crdt_relay.log_size(run.relay, room) |> expect.to_equal(1)
 
   // The digest line is appended before the compaction that keeps it, so a
@@ -554,7 +566,8 @@ pub fn a_publication_that_covers_what_it_was_sent_collapses_the_log_test() -> Ni
   let run = frame(run.relay, 2, state(merged))
   let run = frame(run.relay, 2, attest(merged, 3))
 
-  attestations(run.actions) |> expect.to_equal([crdt_core.digest(merged)])
+  attestations(run.actions)
+  |> expect.to_equal([checked.value(crdt_core.digest(merged))])
   crdt_relay.log_size(run.relay, room) |> expect.to_equal(1)
   crdt_relay.replayable(run.relay, room) |> expect.to_equal([state(merged)])
 }
@@ -663,7 +676,7 @@ pub fn a_compacted_log_replays_to_the_checkpoint_test() -> Nil {
   let restarted = crdt_relay.replay(crdt_relay.new_relay(), room, kept)
   crdt_relay.replayable(restarted, room) |> expect.to_equal([state(alpha)])
   crdt_relay.attested_digest(restarted, room)
-  |> expect.to_equal(crdt_core.digest(alpha))
+  |> expect.to_equal(checked.value(crdt_core.digest(alpha)))
   // And the marker names the entry the checkpoint is, so a restart
   // knows which record is canonical.
   crdt_relay.checkpoint_order(restarted, room) |> expect.to_equal(2)
@@ -736,7 +749,7 @@ pub fn a_replay_keeps_a_checkpoint_older_records_are_restored_behind_test() -> N
       ]),
     )
   crdt_relay.attested_digest(restored, room)
-  |> expect.to_equal(crdt_core.digest(alpha))
+  |> expect.to_equal(checked.value(crdt_core.digest(alpha)))
   crdt_relay.checkpoint_order(restored, room) |> expect.to_equal(4)
   crdt_relay.replayable(restored, room) |> list.length |> expect.to_equal(2)
   // Orders still only move forward from the highest the file holds.
@@ -931,7 +944,8 @@ pub fn a_skipped_entry_is_carried_past_the_next_checkpoint_test() -> Nil {
 
   // The checkpoint is honoured — and the entry alpha could not read is
   // still there, in order, on the wire and on disk.
-  attestations(run.actions) |> expect.to_equal([crdt_core.digest(alpha)])
+  attestations(run.actions)
+  |> expect.to_equal([checked.value(crdt_core.digest(alpha))])
   crdt_relay.log_size(run.relay, room) |> expect.to_equal(2)
   crdt_relay.replayable(run.relay, room)
   |> expect.to_equal([poisoned, state(alpha)])
@@ -947,7 +961,8 @@ pub fn a_skipped_entry_is_carried_past_the_next_checkpoint_test() -> Nil {
   let #(alpha, _) = clapped(alpha, 1)
   let run = frame(run.relay, 1, state(alpha))
   let run = frame(run.relay, 1, attest(alpha, 1_000_000))
-  attestations(run.actions) |> expect.to_equal([crdt_core.digest(alpha)])
+  attestations(run.actions)
+  |> expect.to_equal([checked.value(crdt_core.digest(alpha))])
   crdt_relay.replayable(run.relay, room)
   |> expect.to_equal([poisoned, state(alpha)])
 }
@@ -975,7 +990,8 @@ pub fn a_skip_cannot_delete_an_entry_anyone_else_can_merge_test() -> Nil {
   let #(alpha, _) = clapped(alpha, 1)
   let run = frame(run.relay, 1, state(alpha))
   let run = frame(run.relay, 1, attest(alpha, 3))
-  attestations(run.actions) |> expect.to_equal([crdt_core.digest(alpha)])
+  attestations(run.actions)
+  |> expect.to_equal([checked.value(crdt_core.digest(alpha))])
 
   // Beta's delta is still in the log, still on disk, and still replayed
   // to a client that arrives afterwards.
@@ -1005,7 +1021,8 @@ pub fn a_skip_cannot_delete_an_earlier_checkpoint_test() -> Nil {
   let #(alpha, _) = clapped(alpha, 2)
   let run = frame(relay, 1, state(alpha))
   let run = frame(run.relay, 1, attest(alpha, 1))
-  attestations(run.actions) |> expect.to_equal([crdt_core.digest(alpha)])
+  attestations(run.actions)
+  |> expect.to_equal([checked.value(crdt_core.digest(alpha))])
   crdt_relay.replayable(run.relay, room) |> expect.to_equal([state(alpha)])
 
   // Beta arrives, is replayed that checkpoint, and claims it could not
@@ -1019,7 +1036,8 @@ pub fn a_skip_cannot_delete_an_earlier_checkpoint_test() -> Nil {
   let run = frame(run.relay, 2, state(beta))
   let run = frame(run.relay, 2, attest(beta, 1_000_000))
 
-  attestations(run.actions) |> expect.to_equal([crdt_core.digest(beta)])
+  attestations(run.actions)
+  |> expect.to_equal([checked.value(crdt_core.digest(beta))])
   crdt_relay.replayable(run.relay, room)
   |> expect.to_equal([state(alpha), state(beta)])
   crdt_relay.log_size(run.relay, room) |> expect.to_equal(2)
@@ -1055,7 +1073,8 @@ pub fn concurrent_clients_keep_their_own_skips_test() -> Nil {
   let #(alpha, _) = clapped(alpha, 1)
   let run = frame(run.relay, 1, state(alpha))
   let run = frame(run.relay, 1, attest(alpha, 5))
-  attestations(run.actions) |> expect.to_equal([crdt_core.digest(alpha)])
+  attestations(run.actions)
+  |> expect.to_equal([checked.value(crdt_core.digest(alpha))])
   crdt_relay.replayable(run.relay, room)
   |> expect.to_equal([poisoned, state(alpha)])
   // Beta's claim named an entry that is gone — merged into the
@@ -1090,7 +1109,8 @@ pub fn a_client_that_merges_a_carried_entry_retires_it_test() -> Nil {
   let run = frame(run.relay, 2, state(beta))
   let run = frame(run.relay, 2, attest(beta, 1_000_000))
 
-  attestations(run.actions) |> expect.to_equal([crdt_core.digest(beta)])
+  attestations(run.actions)
+  |> expect.to_equal([checked.value(crdt_core.digest(beta))])
   crdt_relay.log_size(run.relay, room) |> expect.to_equal(1)
   crdt_relay.replayable(run.relay, room) |> expect.to_equal([state(beta)])
   crdt_relay.skipped_orders(run.relay, 2) |> expect.to_equal([])
@@ -1116,7 +1136,7 @@ pub fn a_compacted_log_replays_what_it_carried_test() -> Nil {
   crdt_relay.replayable(restarted, room)
   |> expect.to_equal([poisoned, state(alpha)])
   crdt_relay.attested_digest(restarted, room)
-  |> expect.to_equal(crdt_core.digest(alpha))
+  |> expect.to_equal(checked.value(crdt_core.digest(alpha)))
   // Diagnostic orders stay monotonic for whatever is written next.
   crdt_relay.next_order(restarted, room)
   |> expect.to_equal(crdt_relay.next_order(run.relay, room))
@@ -1142,7 +1162,8 @@ pub fn a_repeated_skip_is_one_claim_test() -> Nil {
   let #(alpha, _) = clapped(alpha, 1)
   let run = frame(run.relay, 1, state(alpha))
   let run = frame(run.relay, 1, attest(alpha, 4))
-  attestations(run.actions) |> expect.to_equal([crdt_core.digest(alpha)])
+  attestations(run.actions)
+  |> expect.to_equal([checked.value(crdt_core.digest(alpha))])
   crdt_relay.replayable(run.relay, room)
   |> expect.to_equal([first, state(alpha)])
 }
@@ -1170,7 +1191,8 @@ pub fn a_skip_covers_an_entry_no_later_frame_follows_test() -> Nil {
   let run = frame(run.relay, 1, skip(4))
   let run = frame(run.relay, 1, state(alpha))
   let run = frame(run.relay, 1, attest(alpha, 2))
-  attestations(run.actions) |> expect.to_equal([crdt_core.digest(alpha)])
+  attestations(run.actions)
+  |> expect.to_equal([checked.value(crdt_core.digest(alpha))])
   // The checkpoint lands, and the entry it could not read is carried
   // beside it — in log order, whichever order the two were stamped in.
   crdt_relay.replayable(run.relay, room)
@@ -1481,7 +1503,8 @@ pub fn a_supports_declaring_client_may_always_publish_test() -> Nil {
   // spent.
   let attested =
     frame(published.relay, 1, attest(alpha, crdt_relay.max_room_records + 3))
-  attestations(attested.actions) |> expect.to_equal([crdt_core.digest(alpha)])
+  attestations(attested.actions)
+  |> expect.to_equal([checked.value(crdt_core.digest(alpha))])
   crdt_relay.log_size(attested.relay, room) |> expect.to_equal(1)
   { crdt_relay.checkpoint_order(attested.relay, room) > 0 }
   |> expect.to_be_true()
@@ -1594,7 +1617,8 @@ pub fn a_supports_declaring_client_drains_a_recovered_full_room_test() -> Nil {
   // so its checkpoint subsumes every record.
   let attested =
     frame(published.relay, 2, attest(honest, crdt_relay.max_room_records + 3))
-  attestations(attested.actions) |> expect.to_equal([crdt_core.digest(honest)])
+  attestations(attested.actions)
+  |> expect.to_equal([checked.value(crdt_core.digest(honest))])
   crdt_relay.log_size(attested.relay, room) |> expect.to_equal(1)
   { crdt_relay.checkpoint_order(attested.relay, room) > 0 }
   |> expect.to_be_true()

@@ -209,18 +209,23 @@ fn prepare_save(
     crdt_js.export_snapshot(document)
     |> result.map_error(SnapshotFailure),
   )
-  Ok(#(crdt_js.digest(document), json.to_string(snapshot)))
+  use digest <- result.try(
+    crdt_js.digest(document) |> result.map_error(SnapshotFailure),
+  )
+  Ok(#(digest, json.to_string(snapshot)))
 }
 
 @target(javascript)
 fn prepare_replace(
   document: CrdtDocument(root),
 ) -> Result(#(String, String), PersistenceError) {
-  crdt_js.export_snapshot(document)
-  |> result.map(fn(snapshot) {
-    #(crdt_js.digest(document), json.to_string(snapshot))
-  })
-  |> result.map_error(SnapshotFailure)
+  use snapshot <- result.try(
+    crdt_js.export_snapshot(document) |> result.map_error(SnapshotFailure),
+  )
+  use digest <- result.try(
+    crdt_js.digest(document) |> result.map_error(SnapshotFailure),
+  )
+  Ok(#(digest, json.to_string(snapshot)))
 }
 
 @target(javascript)

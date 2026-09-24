@@ -46,6 +46,7 @@ import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 
 import watershed/canonical_json
 import watershed/channel.{
@@ -358,12 +359,12 @@ pub fn state_request_message() -> Message {
 
 /// The whole registry of this document, with its current snapshots, in
 /// canonical address order.
-pub fn state_message(document: Document) -> Message {
-  crdt_wire.State(entries(document))
+pub fn state_message(document: Document) -> Result(Message, P2pError) {
+  entries(document) |> result.map(crdt_wire.State)
 }
 
-pub fn digest_message(document: Document) -> Message {
-  crdt_wire.Digest(digest(document))
+pub fn digest_message(document: Document) -> Result(Message, P2pError) {
+  digest(document) |> result.map(crdt_wire.Digest)
 }
 
 pub fn rejection_message(reason: String, detail: String) -> Message {
@@ -380,7 +381,10 @@ pub fn envelope(document: Document, message: Message) -> Envelope {
   )
 }
 
-pub fn encode(document: Document, message: Message) -> String {
+pub fn encode(
+  document: Document,
+  message: Message,
+) -> Result(String, P2pError) {
   crdt_wire.envelope_to_string(envelope(document, message))
 }
 
@@ -410,8 +414,11 @@ pub fn create_channel(
       registry: dict.insert(document.registry, address, descriptor),
       states: dict.insert(document.states, address, state),
     )
-  let announce =
-    crdt_wire.ChannelAnnounce(ChannelEntry(descriptor, channel.snapshot(state)))
+  use snapshot <- result.try(
+    channel.snapshot(state)
+    |> result.replace_error(p2p.UnsupportedChannel(descriptor.channel_type)),
+  )
+  let announce = crdt_wire.ChannelAnnounce(ChannelEntry(descriptor, snapshot))
   Ok(#(
     document,
     Outcome(broadcast: [announce], reply: [], created: [descriptor], events: []),
@@ -557,19 +564,20 @@ fn apply_message(
     crdt_wire.ChannelAnnounce(entry) -> merge_entries(document, from, [entry])
     crdt_wire.Delta(id, address, channel_type, operation) ->
       apply_delta(document, from, id, address, channel_type, operation)
-    crdt_wire.StateRequest ->
+    crdt_wire.StateRequest -> {
+      use state <- result.try(state_message(document))
       Ok(#(
         document,
-        Outcome(
-          broadcast: [],
-          reply: [state_message(document)],
-          created: [],
-          events: [],
-        ),
+        Outcome(broadcast: [], reply: [state], created: [], events: []),
       ))
+    }
     crdt_wire.State(entries) -> merge_entries(document, from, entries)
-    crdt_wire.Digest(remote) ->
-      case remote == option.lazy_unwrap(local, fn() { digest(document) }) {
+    crdt_wire.Digest(remote) -> {
+      use ours <- result.try(case local {
+        Some(local) -> Ok(local)
+        None -> digest(document)
+      })
+      case remote == ours {
         True -> Ok(#(document, empty_outcome()))
         False ->
           Ok(#(
@@ -582,6 +590,7 @@ fn apply_message(
             ),
           ))
       }
+    }
     // A peer telling us it rejected something changes no local state; the
     // transport decides whether to close that peer.
     crdt_wire.Rejected(_, _) -> Ok(#(document, empty_outcome()))
@@ -888,18 +897,22 @@ fn flush_buffered(
 /// sorted by address, and the snapshot codec of each channel encodes that
 /// channel. Two replicas that reached the same value through different delivery
 /// orders produce the same bytes.
-pub fn canonical_json(document: Document) -> String {
-  json.to_string(
-    json.object([
-      #("v", json.int(crdt_wire.protocol_version)),
-      #("room", json.string(document.config.room)),
-      #("compatibility", json.string(document.config.compatibility)),
-      #("root", json.string(channel.type_to_string(root_type(document)))),
-      #(
-        "channels",
-        json.array(entries(document), crdt_wire.encode_channel_entry),
-      ),
-    ]),
+pub fn canonical_json(document: Document) -> Result(String, P2pError) {
+  use entries <- result.try(entries(document))
+  use encoded <- result.try(list.try_map(
+    entries,
+    crdt_wire.encode_channel_entry,
+  ))
+  Ok(
+    json.to_string(
+      json.object([
+        #("v", json.int(crdt_wire.protocol_version)),
+        #("room", json.string(document.config.room)),
+        #("compatibility", json.string(document.config.compatibility)),
+        #("root", json.string(channel.type_to_string(root_type(document)))),
+        #("channels", json.preprocessed_array(encoded)),
+      ]),
+    ),
   )
 }
 
@@ -920,48 +933,66 @@ pub fn canonical_json(document: Document) -> String {
 /// canonical bytes of its elements, and every number has one form. Neither the
 /// iteration order of a dictionary nor the compile target can thus move one
 /// byte.
-pub fn digest_canonical_json(document: Document) -> String {
-  canonical_json.to_string(
-    json_ot.VObject([
-      #("v", json_ot.VNumber(json_ot.NInt(crdt_wire.protocol_version))),
-      #("room", json_ot.VString(document.config.room)),
-      #("compatibility", json_ot.VString(document.config.compatibility)),
-      #("root", json_ot.VString(channel.type_to_string(root_type(document)))),
-      #("channels", json_ot.VArray(list.map(entries(document), digest_entry))),
-    ]),
+pub fn digest_canonical_json(document: Document) -> Result(String, P2pError) {
+  use entries <- result.try(entries(document))
+  use digests <- result.try(list.try_map(entries, digest_entry))
+  Ok(
+    canonical_json.to_string(
+      json_ot.VObject([
+        #("v", json_ot.VNumber(json_ot.NInt(crdt_wire.protocol_version))),
+        #("room", json_ot.VString(document.config.room)),
+        #("compatibility", json_ot.VString(document.config.compatibility)),
+        #("root", json_ot.VString(channel.type_to_string(root_type(document)))),
+        #("channels", json_ot.VArray(digests)),
+      ]),
+    ),
   )
 }
 
 /// The SHA-256 of `digest_canonical_json`, as lowercase hex. Two replicas that
 /// reached the same state, through any delivery order and on either compile
 /// target, get the same value.
-pub fn digest(document: Document) -> String {
-  sha256.hex(digest_canonical_json(document))
+pub fn digest(document: Document) -> Result(String, P2pError) {
+  digest_canonical_json(document) |> result.map(sha256.hex)
 }
 
 /// This function builds the entry, and `crdt_wire.encode_descriptor` does not.
 /// The digest is a projection of the state, and not a wire message. A new name
 /// for an envelope field must not change it.
-fn digest_entry(entry: ChannelEntry) -> JsonValue {
+fn digest_entry(entry: ChannelEntry) -> Result(JsonValue, P2pError) {
   let ChannelDescriptor(address, channel_type, created_by) = entry.descriptor
-  json_ot.VObject([
-    #(
-      "descriptor",
-      json_ot.VObject([
-        #("address", json_ot.VString(address)),
-        #("channelType", json_ot.VString(channel.type_to_string(channel_type))),
-        #("createdBy", json_ot.VString(created_by)),
-      ]),
-    ),
-    #("state", projected(entry.snapshot)),
-  ])
+  use state <- result.try(projected(entry.snapshot))
+  Ok(
+    json_ot.VObject([
+      #(
+        "descriptor",
+        json_ot.VObject([
+          #("address", json_ot.VString(address)),
+          #(
+            "channelType",
+            json_ot.VString(channel.type_to_string(channel_type)),
+          ),
+          #("createdBy", json_ot.VString(created_by)),
+        ]),
+      ),
+      #("state", state),
+    ]),
+  )
 }
 
-fn projected(snapshot: Snapshot) -> JsonValue {
-  channel.encode_snapshot(snapshot)
-  |> json.to_string
-  |> parse_value
-  |> merge_relevant
+fn projected(snapshot: Snapshot) -> Result(JsonValue, P2pError) {
+  use encoded <- result.try(
+    channel.encode_snapshot(snapshot)
+    |> result.replace_error(
+      p2p.UnsupportedChannel(channel.snapshot_type(snapshot)),
+    ),
+  )
+  Ok(
+    encoded
+    |> json.to_string
+    |> parse_value
+    |> merge_relevant,
+  )
 }
 
 /// Remove the replica-local authoring cursors from one self-describing lattice
@@ -1247,13 +1278,21 @@ fn canonical_decoder() -> Decoder(CanonicalSnapshot) {
 
 // --- helpers --------------------------------------------------------------
 
-fn entries(document: Document) -> List(ChannelEntry) {
+fn entries(document: Document) -> Result(List(ChannelEntry), P2pError) {
   descriptors(document)
-  |> list.filter_map(fn(descriptor) {
-    case dict.get(document.states, descriptor.address) {
-      Ok(state) -> Ok(ChannelEntry(descriptor, channel.snapshot(state)))
-      Error(_) -> Error(Nil)
-    }
+  |> list.try_map(fn(descriptor) {
+    use state <- result.try(
+      dict.get(document.states, descriptor.address)
+      |> result.replace_error(rejected(
+        document.config.replica,
+        "registered channel has no state",
+      )),
+    )
+    use snapshot <- result.try(
+      channel.snapshot(state)
+      |> result.replace_error(p2p.UnsupportedChannel(descriptor.channel_type)),
+    )
+    Ok(ChannelEntry(descriptor, snapshot))
   })
 }
 
@@ -1284,6 +1323,8 @@ fn init_for(snapshot: Snapshot) -> Result(ChannelInit, P2pError) {
     | channel.OrderedCollectionSnapshot(..)
     | channel.RichTextSnapshot(_) ->
       Error(p2p.UnsupportedChannel(channel.snapshot_type(snapshot)))
+    channel.TreeSnapshot(_) ->
+      Error(p2p.UnsupportedChannel(channel.TreeChannel))
   }
 }
 
@@ -1388,6 +1429,9 @@ fn channel_error_detail(error: channel.ChannelError) -> String {
     channel.CorruptRemoteOperation(detail) -> detail
     channel.UnexpectedAck(detail) -> detail
     channel.WrongChannelType(detail) -> detail
+    channel.MissingDocumentContext(detail)
+    | channel.UnsupportedTreeOperation(detail) -> detail
+    channel.TreeFailure(error) -> string.inspect(error)
   }
 }
 

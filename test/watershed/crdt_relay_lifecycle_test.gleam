@@ -23,6 +23,9 @@
 //// - and a relay that comes back merges both sides before it is trusted
 ////   again.
 
+@target(javascript)
+import watershed/tree/checked_test as checked
+
 @internal
 pub const compilation_target = "javascript"
 
@@ -673,7 +676,7 @@ pub fn a_late_attachment_merges_publishes_then_claims_the_relay_test() -> Nil {
   settle(environment)
   value(beta) |> expect.to_equal(3)
   crdt_js.relay_is_primary(beta.document) |> expect.to_be_true()
-  crdt_js.digest(beta.document)
+  checked.value(crdt_js.digest(beta.document))
   |> expect.to_equal(relay_fake.attested(hub_of(environment), room))
   relay_statuses(beta)
   |> expect.to_equal(["relayConnecting", "relaySyncing", "relayPrimary"])
@@ -720,15 +723,15 @@ pub fn two_concurrent_attachments_converge_without_a_winner_test() -> Nil {
 
   value(alpha) |> expect.to_equal(7)
   value(beta) |> expect.to_equal(7)
-  crdt_js.digest(alpha.document)
-  |> expect.to_equal(crdt_js.digest(beta.document))
+  checked.value(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(beta.document)))
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   crdt_js.relay_is_primary(beta.document) |> expect.to_be_true()
   // The log collapsed to one attested checkpoint rather than keeping a
   // pile of states nobody could choose between.
   relay_fake.log_size(hub, room) |> expect.to_equal(1)
   relay_fake.attested(hub, room)
-  |> expect.to_equal(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
 }
 
 @target(javascript)
@@ -774,7 +777,10 @@ fn duplicate_case(webrtc_first webrtc_first: Bool) -> Nil {
   send_raw(
     carol,
     target,
-    crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
+    checked.value(crdt_core.encode(
+      carol.document,
+      crdt_core.hello_message(carol.document),
+    )),
   )
   settle(environment)
 
@@ -832,7 +838,10 @@ pub fn a_refused_relay_envelope_does_not_cost_the_lane_test() -> Nil {
     connection,
     crdt_relay.server_to_string(crdt_relay.Frame(
       99,
-      crdt_core.encode(mismatched, crdt_core.hello_message(mismatched)),
+      checked.value(crdt_core.encode(
+        mismatched,
+        crdt_core.hello_message(mismatched),
+      )),
     )),
   )
   settle(environment)
@@ -956,9 +965,9 @@ pub fn recovery_merges_both_sides_before_it_is_primary_test() -> Nil {
   saw(alpha, "relayRecovering") |> expect.to_be_true()
   // The relay ended up holding exactly what the replicas hold.
   relay_fake.attested(hub_of(environment), room)
-  |> expect.to_equal(crdt_js.digest(alpha.document))
-  crdt_js.digest(alpha.document)
-  |> expect.to_equal(crdt_js.digest(beta.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
+  checked.value(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(beta.document)))
   value(alpha) |> expect.to_equal(7)
 }
 
@@ -993,7 +1002,7 @@ pub fn a_restarted_relay_recovers_from_its_log_test() -> Nil {
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   value(alpha) |> expect.to_equal(7)
   relay_fake.attested(hub_of(environment), room)
-  |> expect.to_equal(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
   relay_fake.log_size(hub_of(environment), room) |> expect.to_equal(1)
 }
 
@@ -1024,8 +1033,8 @@ pub fn a_late_client_after_a_restart_sees_everything_test() -> Nil {
   settle(elsewhere)
 
   value(gamma) |> expect.to_equal(7)
-  crdt_js.digest(gamma.document)
-  |> expect.to_equal(crdt_js.digest(alpha.document))
+  checked.value(crdt_js.digest(gamma.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
   crdt_js.peers(gamma.document) |> expect.to_equal([])
 }
 
@@ -1105,7 +1114,7 @@ fn raw_delta(
       channel.PnCounterEdit(amount),
     )
   let assert [message, ..] = outcome.broadcast
-  #(document, crdt_core.encode(document, message))
+  #(document, checked.value(crdt_core.encode(document, message)))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1187,7 +1196,7 @@ pub fn a_poisoned_log_entry_does_not_wedge_an_auto_document_test() -> Nil {
   // into it: the state, and the record this client never merged.
   relay_fake.log_size(hub, room) |> expect.to_equal(2)
   relay_fake.attested(hub, room)
-  |> expect.to_equal(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
   relay_fake.lines(hub, room)
   |> list.any(fn(line) { string.contains(line, "nonsense") })
   |> expect.to_be_true()
@@ -1282,7 +1291,7 @@ pub fn a_poisoned_entry_is_skipped_again_after_a_reconnect_test() -> Nil {
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   value(alpha) |> expect.to_equal(2)
   relay_fake.attested(hub, room)
-  |> expect.to_equal(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
   relay_fake.log_size(hub, room) |> expect.to_equal(2)
   relay_fake.lines(hub, room)
   |> list.any(fn(line) { string.contains(line, "nonsense") })
@@ -1316,8 +1325,8 @@ pub fn a_second_client_skips_the_same_entry_test() -> Nil {
 
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   crdt_js.relay_is_primary(beta.document) |> expect.to_be_true()
-  crdt_js.digest(alpha.document)
-  |> expect.to_equal(crdt_js.digest(beta.document))
+  checked.value(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(beta.document)))
   // One checkpoint, and the entry neither of them could read.
   relay_fake.log_size(hub, room) |> expect.to_equal(2)
   relay_fake.lines(hub, room)
@@ -1354,10 +1363,10 @@ pub fn a_p2p_only_peer_converges_while_the_relay_is_primary_test() -> Nil {
   value(alpha) |> expect.to_equal(7)
   value(beta) |> expect.to_equal(7)
   value(carol) |> expect.to_equal(7)
-  crdt_js.digest(alpha.document)
-  |> expect.to_equal(crdt_js.digest(carol.document))
-  crdt_js.digest(beta.document)
-  |> expect.to_equal(crdt_js.digest(carol.document))
+  checked.value(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(carol.document)))
+  checked.value(crdt_js.digest(beta.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(carol.document)))
   // Merged, not replayed: each replica saw each change once.
   list.length(entries(carol.events)) |> expect.to_equal(2)
   list.length(entries(beta.events)) |> expect.to_equal(2)
@@ -1390,7 +1399,7 @@ pub fn a_p2p_only_edit_reaches_the_relays_durable_history_test() -> Nil {
   // The room's checkpoint is the room's state — not the state the relay
   // held before a peer's edit crossed the mesh.
   relay_fake.attested(hub_of(environment), room)
-  |> expect.to_equal(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
   relay_fake.replayable(hub_of(environment), room)
   |> list.length
   |> expect.to_equal(relay_fake.log_size(hub_of(environment), room))
@@ -1402,8 +1411,8 @@ pub fn a_p2p_only_edit_reaches_the_relays_durable_history_test() -> Nil {
   crdt_js.peers(dave.document) |> expect.to_equal([])
   crdt_js.effective_path(dave.document) |> expect.to_equal(Sequenced)
   value(dave) |> expect.to_equal(4)
-  crdt_js.digest(dave.document)
-  |> expect.to_equal(crdt_js.digest(carol.document))
+  checked.value(crdt_js.digest(dave.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(carol.document)))
   // Durability, not a second delta: one state change and one event each.
   list.length(entries(alpha.events)) |> expect.to_equal(1)
   list.length(entries(carol.events)) |> expect.to_equal(1)
@@ -1452,8 +1461,8 @@ pub fn a_p2p_only_channel_reaches_the_relays_durable_history_test() -> Nil {
       crdt_js.address(ours),
     )
   crdt_js.or_set_values(from_relay) |> expect.to_equal(Ok(["map"]))
-  crdt_js.digest(dave.document)
-  |> expect.to_equal(crdt_js.digest(carol.document))
+  checked.value(crdt_js.digest(dave.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(carol.document)))
 }
 
 @target(javascript)
@@ -1484,13 +1493,13 @@ pub fn a_peers_state_transfer_reaches_the_relays_durable_history_test() -> Nil {
   |> list.contains("delta")
   |> expect.to_be_false()
   relay_fake.attested(hub_of(environment), room)
-  |> expect.to_equal(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
 
   let dave = spawn_as(environment, "dave", SequencedOnly)
   converge(environment)
   value(dave) |> expect.to_equal(6)
-  crdt_js.digest(dave.document)
-  |> expect.to_equal(crdt_js.digest(carol.document))
+  checked.value(crdt_js.digest(dave.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(carol.document)))
 }
 
 @target(javascript)
@@ -1577,7 +1586,10 @@ pub fn a_primary_relay_sends_peers_a_digest_and_not_the_delta_test() -> Nil {
   send_raw(
     carol,
     crdt_js.replica_id(alpha.document),
-    crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
+    checked.value(crdt_core.encode(
+      carol.document,
+      crdt_core.hello_message(carol.document),
+    )),
   )
   settle(environment)
   transport_js.set_cell(heard, [])
@@ -1619,8 +1631,8 @@ pub fn an_unsupported_relay_leaves_a_mixed_room_converging_test() -> Nil {
 
   value(alpha) |> expect.to_equal(7)
   value(carol) |> expect.to_equal(7)
-  crdt_js.digest(alpha.document)
-  |> expect.to_equal(crdt_js.digest(carol.document))
+  checked.value(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(carol.document)))
   list.length(entries(alpha.events)) |> expect.to_equal(2)
   list.length(entries(carol.events)) |> expect.to_equal(2)
 }
@@ -1734,7 +1746,7 @@ pub fn an_attestation_that_fails_to_write_falls_back_test() -> Nil {
   converge(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   relay_fake.attested(hub_of(environment), room)
-  |> expect.to_equal(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1762,7 +1774,10 @@ pub fn peer_digests_are_coalesced_while_the_relay_is_primary_test() -> Nil {
   send_raw(
     carol,
     crdt_js.replica_id(alpha.document),
-    crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
+    checked.value(crdt_core.encode(
+      carol.document,
+      crdt_core.hello_message(carol.document),
+    )),
   )
   settle(environment)
   transport_js.set_cell(heard, [])
@@ -1817,7 +1832,10 @@ pub fn sustained_edits_cost_one_digest_per_interval_test() -> Nil {
   send_raw(
     carol,
     crdt_js.replica_id(alpha.document),
-    crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
+    checked.value(crdt_core.encode(
+      carol.document,
+      crdt_core.hello_message(carol.document),
+    )),
   )
   settle(environment)
   transport_js.set_cell(heard, [])
@@ -1891,8 +1909,8 @@ pub fn a_digest_that_follows_the_relays_fan_out_costs_nothing_test() -> Nil {
   |> expect.to_be_true()
   asks() |> expect.to_equal(quiet)
   transfers() |> expect.to_equal(carried)
-  crdt_js.digest(alpha.document)
-  |> expect.to_equal(crdt_js.digest(beta.document))
+  checked.value(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(beta.document)))
 
   // And the case the interval exists to avoid, forced by holding the
   // relay's fan-out back until after the timer: the peer is behind, so it
@@ -1924,7 +1942,10 @@ pub fn the_anti_entropy_interval_is_injectable_test() -> Nil {
   send_raw(
     carol,
     crdt_js.replica_id(alpha.document),
-    crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
+    checked.value(crdt_core.encode(
+      carol.document,
+      crdt_core.hello_message(carol.document),
+    )),
   )
   settle(environment)
   transport_js.set_cell(heard, [])
@@ -1960,7 +1981,10 @@ pub fn a_fallback_flushes_the_digest_it_owed_test() -> Nil {
   send_raw(
     carol,
     crdt_js.replica_id(alpha.document),
-    crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
+    checked.value(crdt_core.encode(
+      carol.document,
+      crdt_core.hello_message(carol.document),
+    )),
   )
   settle(environment)
 
@@ -2002,7 +2026,10 @@ pub fn a_fallback_with_a_clean_window_sends_no_digest_test() -> Nil {
   send_raw(
     carol,
     crdt_js.replica_id(alpha.document),
-    crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
+    checked.value(crdt_core.encode(
+      carol.document,
+      crdt_core.hello_message(carol.document),
+    )),
   )
   settle(environment)
 
@@ -2051,7 +2078,10 @@ pub fn failover_repair_is_not_coalesced_test() -> Nil {
   send_raw(
     carol,
     crdt_js.replica_id(alpha.document),
-    crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
+    checked.value(crdt_core.encode(
+      carol.document,
+      crdt_core.hello_message(carol.document),
+    )),
   )
   settle(environment)
   transport_js.set_cell(heard, [])
@@ -2203,7 +2233,8 @@ pub fn mv_register_relay_replays_conflict_and_resolved_checkpoint_test() -> Nil 
   |> expect.to_equal(Ok(["arm pump", "raise crest"]))
   let assert Ok(Nil) = crdt_js.mv_register_set(crdt_js.root(late), "resolved")
   settle(environment)
-  crdt_js.digest(alpha) |> expect.to_equal(crdt_js.digest(late))
+  checked.value(crdt_js.digest(alpha))
+  |> expect.to_equal(checked.value(crdt_js.digest(late)))
   crdt_js.mv_register_values(crdt_js.root(alpha))
   |> expect.to_equal(Ok(["resolved"]))
   list.each(list.repeat(Nil, crdt_relay.max_room_records + 20), fn(_) {
@@ -2215,7 +2246,7 @@ pub fn mv_register_relay_replays_conflict_and_resolved_checkpoint_test() -> Nil 
   { relay_fake.checkpoint_order(hub, room) > 0 } |> expect.to_be_true()
   { relay_fake.log_size(hub, room) < crdt_relay.max_room_records }
   |> expect.to_be_true()
-  let digest = crdt_js.digest(late)
+  let digest = checked.value(crdt_js.digest(late))
   crdt_js.close(alpha_connection)
   crdt_js.close(beta_connection)
   crdt_js.close(late_connection)
@@ -2226,7 +2257,7 @@ pub fn mv_register_relay_replays_conflict_and_resolved_checkpoint_test() -> Nil 
   converge(environment)
   crdt_js.mv_register_values(crdt_js.root(restored))
   |> expect.to_equal(Ok(["resolved"]))
-  crdt_js.digest(restored) |> expect.to_equal(digest)
+  checked.value(crdt_js.digest(restored)) |> expect.to_equal(digest)
   crdt_js.close(restored_connection)
 }
 
@@ -2255,7 +2286,8 @@ pub fn an_or_set_peer_converges_when_the_relay_drops_test() -> Nil {
   relay_fake.stop(hub_of(environment))
   settle(environment)
   crdt_js.or_set_values(crdt_js.root(carol)) |> expect.to_equal(Ok(["tent"]))
-  crdt_js.digest(carol) |> expect.to_equal(crdt_js.digest(alpha))
+  checked.value(crdt_js.digest(carol))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha)))
 }
 
 @target(javascript)
@@ -2282,7 +2314,8 @@ pub fn a_sequence_peer_converges_when_the_relay_drops_test() -> Nil {
   settle(environment)
   let assert Ok(caught_up) = crdt_js.sequence_values(crdt_js.root(carol))
   list.length(caught_up) |> expect.to_equal(2)
-  crdt_js.digest(carol) |> expect.to_equal(crdt_js.digest(alpha))
+  checked.value(crdt_js.digest(carol))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha)))
 }
 
 @target(javascript)
@@ -2302,7 +2335,8 @@ pub fn a_text_peer_converges_when_the_relay_drops_test() -> Nil {
   relay_fake.stop(hub_of(environment))
   settle(environment)
   crdt_js.text_value(crdt_js.root(carol)) |> expect.to_equal(Ok("harbour"))
-  crdt_js.digest(carol) |> expect.to_equal(crdt_js.digest(alpha))
+  checked.value(crdt_js.digest(carol))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha)))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2364,8 +2398,8 @@ pub fn an_ordinary_session_past_the_bound_checkpoints_and_continues_test() -> Ni
   converge(environment)
   entries(beta.readies) |> expect.to_equal(["ok"])
   value(beta) |> expect.to_equal(mutations)
-  crdt_js.digest(beta.document)
-  |> expect.to_equal(crdt_js.digest(alpha.document))
+  checked.value(crdt_js.digest(beta.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
 }
 
 @target(javascript)
@@ -2406,7 +2440,7 @@ fn valid_deltas(
         )
       let more =
         list.map(outcome.broadcast, fn(message) {
-          crdt_core.encode(next, message)
+          checked.value(crdt_core.encode(next, message))
         })
       valid_deltas(next, needed, list.append(list.reverse(more), carried))
     }
@@ -2514,6 +2548,6 @@ pub fn a_valid_full_room_recovers_for_a_late_client_test() -> Nil {
   entries(late.readies) |> expect.to_equal(["ok"])
   crdt_js.relay_is_primary(late.document) |> expect.to_be_true()
   value(late) |> expect.to_equal(count + 3)
-  crdt_js.digest(late.document)
-  |> expect.to_equal(crdt_js.digest(honest.document))
+  checked.value(crdt_js.digest(late.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(honest.document)))
 }

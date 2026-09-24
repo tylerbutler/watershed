@@ -11,6 +11,8 @@
 //// from the membership roster — see `roster_test` for that, and the sluice
 //// driver suite for it end to end.
 
+import watershed/tree/checked_test as checked
+
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
@@ -152,15 +154,17 @@ pub fn pact_map_operation_wire_round_trips_test() -> Nil {
 
 fn round_trip_operation(operation: pact_map_kernel.PactMapOperation) -> Nil {
   let encoded =
-    wire_op.encode_channel_operation(channel.PactMapOperation(operation))
+    checked.value(
+      wire_op.encode_channel_operation(channel.PactMapOperation(operation)),
+    )
   let assert Ok(decoded) =
     json.parse(
       json.to_string(encoded),
-      wire_op.channel_operation_decoder(channel.PactMapChannel),
+      checked.value(wire_op.channel_operation_decoder(channel.PactMapChannel)),
     )
   // Compare via re-encoding: `Json` values are opaque and not reliably equal
   // across a decode, but their canonical encodings are.
-  json.to_string(wire_op.encode_channel_operation(decoded))
+  json.to_string(checked.value(wire_op.encode_channel_operation(decoded)))
   |> expect.to_equal(json.to_string(encoded))
 }
 
@@ -188,11 +192,11 @@ pub fn pact_map_snapshot_round_trips_test() -> Nil {
     )
 
   let snapshot = channel.PactMapSnapshot(pact_map_kernel.summary_entries(state))
-  let encoded = channel.encode_snapshot(snapshot)
+  let encoded = checked.value(channel.encode_snapshot(snapshot))
   let assert Ok(decoded) =
     json.parse(
       json.to_string(encoded),
-      channel.snapshot_decoder(channel.PactMapChannel),
+      checked.value(channel.snapshot_decoder(channel.PactMapChannel)),
     )
   channel.same_snapshot(snapshot, decoded) |> expect.to_be_true()
 }

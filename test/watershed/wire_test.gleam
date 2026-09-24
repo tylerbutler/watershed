@@ -11,6 +11,8 @@
 //// - `submitOp` is `{clientId, messageBatches: [[operation]]}` with
 ////   per-operation keys as in `leveeDeltaConnection.ts` `submitCore`
 
+import watershed/tree/checked_test as checked
+
 import gleam/dict
 import gleam/dynamic/decode
 import gleam/json
@@ -161,7 +163,7 @@ pub fn or_map_set_snapshot_raw_validation_precedes_native_decoding_test() -> Nil
   let raw = or_map.to_json(state.optimistic) |> json.to_string
   let snapshot =
     channel.OrMapSnapshot(or_map_kernel.OrSetMode, state.optimistic)
-  json.parse(raw, channel.snapshot_decoder(channel.OrMapChannel))
+  json.parse(raw, checked.value(channel.snapshot_decoder(channel.OrMapChannel)))
   |> expect.to_equal(Ok(snapshot))
   let assert Ok([entry]) =
     json.parse(
@@ -187,7 +189,10 @@ pub fn or_map_set_snapshot_raw_validation_precedes_native_decoding_test() -> Nil
     invalid |> expect.to_not_equal(leaf)
     let malformed =
       string.replace(raw, encoded_leaf, json.string(invalid) |> json.to_string)
-    json.parse(malformed, channel.snapshot_decoder(channel.OrMapChannel))
+    json.parse(
+      malformed,
+      checked.value(channel.snapshot_decoder(channel.OrMapChannel)),
+    )
     |> result.is_error
     |> expect.to_be_true
   })
@@ -215,7 +220,10 @@ pub fn or_map_set_snapshot_raw_validation_precedes_native_decoding_test() -> Nil
     ],
     fn(malformed) {
       malformed |> expect.to_not_equal(raw)
-      json.parse(malformed, channel.snapshot_decoder(channel.OrMapChannel))
+      json.parse(
+        malformed,
+        checked.value(channel.snapshot_decoder(channel.OrMapChannel)),
+      )
       |> result.is_error
       |> expect.to_be_true
     },
@@ -352,7 +360,10 @@ pub fn lww_register_wire_rejects_malformed_fragments_and_intent_test() -> Nil {
     )
     |> result.is_error
     |> expect.to_be_true()
-    json.parse(delta, channel.snapshot_decoder(channel.LwwRegisterChannel))
+    json.parse(
+      delta,
+      checked.value(channel.snapshot_decoder(channel.LwwRegisterChannel)),
+    )
     |> result.is_error
     |> expect.to_be_true()
   })
@@ -471,7 +482,10 @@ pub fn lww_map_wire_round_trips_and_rejects_mismatched_fragments_test() -> Nil {
       |> json.to_string
     let assert Error(_) = json.parse(raw, wire_op.lww_map_operation_decoder())
     let assert Error(_) =
-      json.parse(delta, channel.snapshot_decoder(channel.LwwMapChannel))
+      json.parse(
+        delta,
+        checked.value(channel.snapshot_decoder(channel.LwwMapChannel)),
+      )
     Nil
   })
   let encoded = wire_op.encode_lww_map_operation(set) |> json.to_string
@@ -796,9 +810,11 @@ pub fn summary_blob_round_trips_test() -> Nil {
     #("nested", json.object([#("a", json.array([1, 2], json.int))])),
   ]
   let encoded =
-    summary_blob.encode_channels(7, [11, 12], [
-      #("watershed/root", channel.MapSnapshot(entries)),
-    ])
+    checked.value(
+      summary_blob.encode_channels(7, [11, 12], [
+        #("watershed/root", channel.MapSnapshot(entries)),
+      ]),
+    )
     |> json.to_string
   let assert Ok(blob) = summary_blob.decode(encoded)
   blob.sequence_number |> expect.to_equal(7)
@@ -1482,7 +1498,7 @@ fn decode_sequence_channel_round_trip(
   let assert Ok(channel.SequenceOperation(decoded)) =
     decode.run(
       payload,
-      wire_op.channel_operation_decoder(channel.SequenceChannel),
+      checked.value(wire_op.channel_operation_decoder(channel.SequenceChannel)),
     )
   decoded
 }
@@ -1560,7 +1576,7 @@ pub fn sequence_decoder_rejects_malformed_delta_envelope_test() -> Nil {
   let _ =
     decode.run(
       payload,
-      wire_op.channel_operation_decoder(channel.SequenceChannel),
+      checked.value(wire_op.channel_operation_decoder(channel.SequenceChannel)),
     )
     |> expect.to_be_error()
   Nil
@@ -1597,7 +1613,7 @@ pub fn sequence_decoder_rejects_compacted_state_as_delta_test() -> Nil {
   let _ =
     decode.run(
       payload,
-      wire_op.channel_operation_decoder(channel.SequenceChannel),
+      checked.value(wire_op.channel_operation_decoder(channel.SequenceChannel)),
     )
     |> expect.to_be_error()
   Nil
@@ -1637,7 +1653,7 @@ pub fn decode_operation_contents_discrimination_test() -> Nil {
       case
         decode.run(
           payload,
-          wire_op.channel_operation_decoder(channel.MapChannel),
+          checked.value(wire_op.channel_operation_decoder(channel.MapChannel)),
         )
       {
         Ok(channel.MapOperation(Set(k, _))) -> k |> expect.to_equal("k")
@@ -1801,13 +1817,16 @@ pub fn counter_channel_operation_stage_two_decode_test() -> Nil {
       address |> expect.to_equal("watershed/tally")
       decode.run(
         payload,
-        wire_op.channel_operation_decoder(channel.CounterChannel),
+        checked.value(wire_op.channel_operation_decoder(channel.CounterChannel)),
       )
       |> expect.to_equal(
         Ok(channel.CounterOperation(counter_kernel.Increment(5))),
       )
       // The same payload must not decode against the map grammar.
-      decode.run(payload, wire_op.channel_operation_decoder(channel.MapChannel))
+      decode.run(
+        payload,
+        checked.value(wire_op.channel_operation_decoder(channel.MapChannel)),
+      )
       |> expect.to_be_error()
       Nil
     }
@@ -1864,14 +1883,17 @@ pub fn claim_channel_operation_stage_two_decode_test() -> Nil {
       address |> expect.to_equal("watershed/locks")
       decode.run(
         payload,
-        wire_op.channel_operation_decoder(channel.ClaimsChannel),
+        checked.value(wire_op.channel_operation_decoder(channel.ClaimsChannel)),
       )
       |> expect.to_equal(Ok(channel.ClaimsOperation(operation)))
-      decode.run(payload, wire_op.channel_operation_decoder(channel.MapChannel))
+      decode.run(
+        payload,
+        checked.value(wire_op.channel_operation_decoder(channel.MapChannel)),
+      )
       |> expect.to_be_error()
       decode.run(
         payload,
-        wire_op.channel_operation_decoder(channel.CounterChannel),
+        checked.value(wire_op.channel_operation_decoder(channel.CounterChannel)),
       )
       |> expect.to_be_error()
       Nil
@@ -2055,7 +2077,10 @@ pub fn or_map_mv_register_rejects_corrupt_nested_causal_state_test() -> Nil {
     )
   let encoded = or_map.delta_to_json(delta) |> json.to_string
   let snapshot = or_map.to_json(state.optimistic) |> json.to_string
-  json.parse(snapshot, channel.snapshot_decoder(channel.OrMapChannel))
+  json.parse(
+    snapshot,
+    checked.value(channel.snapshot_decoder(channel.OrMapChannel)),
+  )
   |> expect.to_equal(
     Ok(channel.OrMapSnapshot(or_map_kernel.MvRegisterMode, state.optimistic)),
   )
@@ -2114,7 +2139,10 @@ pub fn or_map_mv_register_rejects_corrupt_nested_causal_state_test() -> Nil {
         json.string(corrupted_leaf) |> json.to_string,
       )
     corrupt_snapshot |> expect.to_not_equal(snapshot)
-    json.parse(corrupt_snapshot, channel.snapshot_decoder(channel.OrMapChannel))
+    json.parse(
+      corrupt_snapshot,
+      checked.value(channel.snapshot_decoder(channel.OrMapChannel)),
+    )
     |> result.is_error
     |> expect.to_be_true()
   })
@@ -2138,14 +2166,17 @@ pub fn or_map_channel_operation_stage_two_decode_test() -> Nil {
       address |> expect.to_equal("watershed/scores")
       decode.run(
         payload,
-        wire_op.channel_operation_decoder(channel.OrMapChannel),
+        checked.value(wire_op.channel_operation_decoder(channel.OrMapChannel)),
       )
       |> expect.to_equal(Ok(channel.OrMapOperation(operation)))
-      decode.run(payload, wire_op.channel_operation_decoder(channel.MapChannel))
+      decode.run(
+        payload,
+        checked.value(wire_op.channel_operation_decoder(channel.MapChannel)),
+      )
       |> expect.to_be_error()
       decode.run(
         payload,
-        wire_op.channel_operation_decoder(channel.CounterChannel),
+        checked.value(wire_op.channel_operation_decoder(channel.CounterChannel)),
       )
       |> expect.to_be_error()
       Nil
@@ -2189,18 +2220,20 @@ pub fn summary_blob_mixed_channel_types_round_trip_test() -> Nil {
   let assert Ok(#(or_map, _, _, _)) =
     or_map_kernel.increment(or_map, "score", 2)
   let encoded =
-    summary_blob.encode_channels(9, [3], [
-      #("watershed/root", channel.MapSnapshot([#("k", json.int(1))])),
-      #("watershed/tally", channel.CounterSnapshot(7)),
-      #(
-        "watershed/scores",
-        channel.OrMapSnapshot(or_map.mode, or_map.optimistic),
-      ),
-      #(
-        "watershed/locks",
-        channel.ClaimsSnapshot([#("owner", json.string("alice"), 9)]),
-      ),
-    ])
+    checked.value(
+      summary_blob.encode_channels(9, [3], [
+        #("watershed/root", channel.MapSnapshot([#("k", json.int(1))])),
+        #("watershed/tally", channel.CounterSnapshot(7)),
+        #(
+          "watershed/scores",
+          channel.OrMapSnapshot(or_map.mode, or_map.optimistic),
+        ),
+        #(
+          "watershed/locks",
+          channel.ClaimsSnapshot([#("owner", json.string("alice"), 9)]),
+        ),
+      ]),
+    )
     |> json.to_string
   string_contains(encoded, "\"type\":\"counter\"") |> expect.to_be_true()
   string_contains(encoded, "\"type\":\"ormap\"") |> expect.to_be_true()
@@ -2291,14 +2324,19 @@ pub fn register_collection_channel_operation_stage_two_decode_test() -> Nil {
       address |> expect.to_equal("watershed/registers")
       decode.run(
         payload,
-        wire_op.channel_operation_decoder(channel.RegisterCollectionChannel),
+        checked.value(wire_op.channel_operation_decoder(
+          channel.RegisterCollectionChannel,
+        )),
       )
       |> expect.to_equal(Ok(channel.RegisterCollectionOperation(operation)))
-      decode.run(payload, wire_op.channel_operation_decoder(channel.MapChannel))
+      decode.run(
+        payload,
+        checked.value(wire_op.channel_operation_decoder(channel.MapChannel)),
+      )
       |> expect.to_be_error()
       decode.run(
         payload,
-        wire_op.channel_operation_decoder(channel.CounterChannel),
+        checked.value(wire_op.channel_operation_decoder(channel.CounterChannel)),
       )
       |> expect.to_be_error()
       Nil
@@ -2383,7 +2421,10 @@ fn decode_text_channel_round_trip(
   let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let assert Ok(channel.TextOperation(decoded)) =
-    decode.run(payload, wire_op.channel_operation_decoder(channel.TextChannel))
+    decode.run(
+      payload,
+      checked.value(wire_op.channel_operation_decoder(channel.TextChannel)),
+    )
   decoded
 }
 
@@ -2426,14 +2467,17 @@ pub fn text_channel_operation_stage_two_decode_test() -> Nil {
       address |> expect.to_equal("watershed/doc")
       decode.run(
         payload,
-        wire_op.channel_operation_decoder(channel.TextChannel),
+        checked.value(wire_op.channel_operation_decoder(channel.TextChannel)),
       )
       |> expect.to_equal(Ok(channel.TextOperation(operation)))
-      decode.run(payload, wire_op.channel_operation_decoder(channel.MapChannel))
+      decode.run(
+        payload,
+        checked.value(wire_op.channel_operation_decoder(channel.MapChannel)),
+      )
       |> expect.to_be_error()
       decode.run(
         payload,
-        wire_op.channel_operation_decoder(channel.SequenceChannel),
+        checked.value(wire_op.channel_operation_decoder(channel.SequenceChannel)),
       )
       |> expect.to_be_error()
       Nil
@@ -2552,7 +2596,10 @@ pub fn text_decoder_rejects_malformed_delta_envelope_test() -> Nil {
   let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let _ =
-    decode.run(payload, wire_op.channel_operation_decoder(channel.TextChannel))
+    decode.run(
+      payload,
+      checked.value(wire_op.channel_operation_decoder(channel.TextChannel)),
+    )
     |> expect.to_be_error()
   Nil
 }
@@ -2579,7 +2626,10 @@ pub fn text_decoder_rejects_compacted_state_as_delta_test() -> Nil {
   let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let _ =
-    decode.run(payload, wire_op.channel_operation_decoder(channel.TextChannel))
+    decode.run(
+      payload,
+      checked.value(wire_op.channel_operation_decoder(channel.TextChannel)),
+    )
     |> expect.to_be_error()
   Nil
 }
@@ -2593,7 +2643,10 @@ pub fn text_decoder_rejects_missing_index_field_test() -> Nil {
   let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let _ =
-    decode.run(payload, wire_op.channel_operation_decoder(channel.TextChannel))
+    decode.run(
+      payload,
+      checked.value(wire_op.channel_operation_decoder(channel.TextChannel)),
+    )
     |> expect.to_be_error()
   Nil
 }
@@ -2607,7 +2660,10 @@ pub fn text_decoder_rejects_missing_range_fields_test() -> Nil {
   let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let _ =
-    decode.run(payload, wire_op.channel_operation_decoder(channel.TextChannel))
+    decode.run(
+      payload,
+      checked.value(wire_op.channel_operation_decoder(channel.TextChannel)),
+    )
     |> expect.to_be_error()
   Nil
 }
@@ -2621,7 +2677,10 @@ pub fn text_decoder_rejects_missing_delta_field_test() -> Nil {
   let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let _ =
-    decode.run(payload, wire_op.channel_operation_decoder(channel.TextChannel))
+    decode.run(
+      payload,
+      checked.value(wire_op.channel_operation_decoder(channel.TextChannel)),
+    )
     |> expect.to_be_error()
   Nil
 }
@@ -2635,7 +2694,10 @@ pub fn text_decoder_rejects_unknown_operation_type_test() -> Nil {
   let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let _ =
-    decode.run(payload, wire_op.channel_operation_decoder(channel.TextChannel))
+    decode.run(
+      payload,
+      checked.value(wire_op.channel_operation_decoder(channel.TextChannel)),
+    )
     |> expect.to_be_error()
   Nil
 }

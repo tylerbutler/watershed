@@ -27,6 +27,8 @@ import watershed/sluice/frame
 @target(javascript)
 import watershed/transport_js
 @target(javascript)
+import watershed/tree/checked_test as checked
+@target(javascript)
 import watershed/wire
 @target(javascript)
 import watershed/wire/op
@@ -220,12 +222,14 @@ fn run_ffi(
 pub fn run() -> Promise(Nil) {
   run_ffi(
     make_fixture,
-    summary_blob.encode_channels(1, [], [
-      #(
-        "watershed/root",
-        channel.MapSnapshot([#("value", json.string("summary"))]),
-      ),
-    ])
+    checked.value(
+      summary_blob.encode_channels(1, [], [
+        #(
+          "watershed/root",
+          channel.MapSnapshot([#("value", json.string("summary"))]),
+        ),
+      ]),
+    )
       |> json.to_string,
     fn(sequence, value) {
       operation(sequence, value) |> frame.encode_sequenced |> json.to_string

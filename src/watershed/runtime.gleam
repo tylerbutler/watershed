@@ -2433,41 +2433,46 @@ pub fn summarize(runtime: Runtime) -> Promise(Result(String, String)) {
                     "summarize requires the client to be caught up; retry once "
                     <> "in-flight edits have been acknowledged",
                   ))
-                True -> {
-                  let #(published, resolve) = promise.start()
-                  cell_set(
-                    cell,
-                    State(
-                      ..state,
-                      pending_summary: Some(PendingSummary(
-                        "",
-                        -1,
-                        None,
-                        resolve,
-                      )),
-                    ),
-                  )
-                  let _ =
-                    git_storage.upload_summary(
-                      base_url: state.http_base_url,
-                      tenant: state.connect_message.tenant_id,
-                      token: token,
-                      sequence_number: core.last_seen_sequence_number,
-                      members: runtime_core.summary_members(core),
-                      channels: runtime_core.summary_channels(core),
-                    )
-                    |> promise.map(fn(result) {
-                      case result {
-                        Error(error) ->
-                          resolve_pending_summary(
-                            cell,
-                            Error(git_storage.error_to_string(error)),
-                          )
-                        Ok(tree_sha) -> finish_summarize(cell, tree_sha)
-                      }
-                    })
-                  published
-                }
+                True ->
+                  case runtime_core.summary_channels(core) {
+                    Error(error) ->
+                      promise.resolve(Error(string.inspect(error)))
+                    Ok(channels) -> {
+                      let #(published, resolve) = promise.start()
+                      cell_set(
+                        cell,
+                        State(
+                          ..state,
+                          pending_summary: Some(PendingSummary(
+                            "",
+                            -1,
+                            None,
+                            resolve,
+                          )),
+                        ),
+                      )
+                      let _ =
+                        git_storage.upload_summary(
+                          base_url: state.http_base_url,
+                          tenant: state.connect_message.tenant_id,
+                          token: token,
+                          sequence_number: core.last_seen_sequence_number,
+                          members: runtime_core.summary_members(core),
+                          channels: channels,
+                        )
+                        |> promise.map(fn(result) {
+                          case result {
+                            Error(error) ->
+                              resolve_pending_summary(
+                                cell,
+                                Error(git_storage.error_to_string(error)),
+                              )
+                            Ok(tree_sha) -> finish_summarize(cell, tree_sha)
+                          }
+                        })
+                      published
+                    }
+                  }
               }
           }
         Ready(_, None), None

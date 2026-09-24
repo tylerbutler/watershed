@@ -5,6 +5,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
+import watershed/tree/checked_test as checked
 
 import signet/types as token
 import spillway/message
@@ -109,11 +110,11 @@ pub fn two_p_set_snapshot_round_trips_test() -> Nil {
     two_p_set_kernel.remove(state, "stake-3")
   let assert Ok(state) = two_p_set_kernel.ack_local(state, remove_operation)
   let snapshot = channel.TwoPSetSnapshot(state.sequenced)
-  let encoded = channel.encode_snapshot(snapshot)
+  let encoded = checked.value(channel.encode_snapshot(snapshot))
   let assert Ok(decoded) =
     json.parse(
       json.to_string(encoded),
-      channel.snapshot_decoder(channel.TwoPSetChannel),
+      checked.value(channel.snapshot_decoder(channel.TwoPSetChannel)),
     )
 
   channel.same_snapshot(snapshot, decoded) |> expect.to_be_true()

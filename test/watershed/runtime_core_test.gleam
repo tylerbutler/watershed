@@ -5,6 +5,8 @@
 //// initialMessages), SN dedupe as a general invariant, fatal sequence
 //// gaps, CSN/RSN stamping, and FIFO ack matching.
 
+import watershed/tree/checked_test as checked
+
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
@@ -397,29 +399,39 @@ fn decode_outbound_contents(
           case
             decode.run(
               contents,
-              wire_op.channel_operation_decoder(channel.MapChannel),
+              checked.value(wire_op.channel_operation_decoder(
+                channel.MapChannel,
+              )),
             ),
             decode.run(
               contents,
-              wire_op.channel_operation_decoder(channel.CounterChannel),
+              checked.value(wire_op.channel_operation_decoder(
+                channel.CounterChannel,
+              )),
             ),
             decode.run(
               contents,
-              wire_op.channel_operation_decoder(channel.OrMapChannel),
+              checked.value(wire_op.channel_operation_decoder(
+                channel.OrMapChannel,
+              )),
             ),
             decode.run(
               contents,
-              wire_op.channel_operation_decoder(
+              checked.value(wire_op.channel_operation_decoder(
                 channel.RegisterCollectionChannel,
-              ),
+              )),
             ),
             decode.run(
               contents,
-              wire_op.channel_operation_decoder(channel.ClaimsChannel),
+              checked.value(wire_op.channel_operation_decoder(
+                channel.ClaimsChannel,
+              )),
             ),
             decode.run(
               contents,
-              wire_op.channel_operation_decoder(channel.TextChannel),
+              checked.value(wire_op.channel_operation_decoder(
+                channel.TextChannel,
+              )),
             )
           {
             Ok(operation), _, _, _, _, _ ->
@@ -478,6 +490,7 @@ fn is_ack_mismatch(core_error: runtime_core.CoreError) -> Bool {
     | runtime_core.BadSummaryChannel(..)
     | runtime_core.BadBootstrapSeed(..)
     | runtime_core.ContainerOperationFailed(..)
+    | runtime_core.ChannelBoundaryFailed(..)
     | runtime_core.LwwRegisterOperationFailed(..)
     | runtime_core.LwwMapOperationFailed(..) -> False
   }
@@ -870,7 +883,7 @@ pub fn bootstrap_from_summary_no_deltas_test() -> Nil {
   |> expect.to_equal([#("a", json.int(1)), #("b", json.int(2))])
   core.last_seen_sequence_number |> expect.to_equal(5)
   // The confirmed entries a fresh summarize would capture round-trip exactly.
-  runtime_core.summary_channels(core)
+  checked.value(runtime_core.summary_channels(core))
   |> expect.to_equal([
     #(
       "watershed/root",
@@ -2138,7 +2151,7 @@ pub fn bootstrap_from_multi_channel_summary_and_attach_replay_test() -> Nil {
       |> expect.to_equal(Ok(json.int(2)))
       runtime_core.get(core, "watershed/grand", "g")
       |> expect.to_equal(Ok(json.int(9)))
-      runtime_core.summary_channels(core)
+      checked.value(runtime_core.summary_channels(core))
       |> expect.to_equal([
         #("watershed/root", channel.MapSnapshot([#("die", json.int(4))])),
         #(
@@ -2185,7 +2198,7 @@ pub fn bootstrap_from_bare_attach_history_test() -> Nil {
       |> expect.to_equal(Ok(json.int(2)))
       root_get(core, "ref")
       |> expect.to_equal(Ok(handle.encode_handle("watershed/child")))
-      runtime_core.summary_channels(core)
+      checked.value(runtime_core.summary_channels(core))
       |> expect.to_equal([
         #(
           "watershed/root",
@@ -2622,7 +2635,7 @@ pub fn claims_summary_round_trip_preserves_sequence_numbers_test() -> Nil {
     Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
       panic as "expected summary bootstrap to complete"
   }
-  runtime_core.summary_channels(core)
+  checked.value(runtime_core.summary_channels(core))
   |> expect.to_equal([
     #("watershed/root", channel.MapSnapshot([])),
     #(
@@ -2666,7 +2679,7 @@ pub fn claims_summary_round_trip_preserves_sequence_numbers_test() -> Nil {
   ])
   runtime_core.get_claim(core, "watershed/locks", "owner")
   |> expect.to_equal(Ok(json.string("carol")))
-  runtime_core.summary_channels(core)
+  checked.value(runtime_core.summary_channels(core))
   |> expect.to_equal([
     #("watershed/root", channel.MapSnapshot([])),
     #(
@@ -3133,6 +3146,7 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..))
     | Error(runtime_core.BadBootstrapSeed(..))
+    | Error(runtime_core.ChannelBoundaryFailed(..))
     | Error(runtime_core.ContainerOperationFailed(..)) ->
       panic as "expected increment on RegisterMode to be rejected"
   }
@@ -3165,6 +3179,7 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..))
     | Error(runtime_core.BadBootstrapSeed(..))
+    | Error(runtime_core.ChannelBoundaryFailed(..))
     | Error(runtime_core.ContainerOperationFailed(..)) ->
       panic as "expected set on TallyMode to be rejected"
   }
@@ -3263,11 +3278,11 @@ pub fn mv_or_map_runtime_submit_ack_resubmit_and_summary_test() -> Nil {
   runtime_core.or_map_values(core, "watershed/revisions", "gate")
   |> expect.to_equal(Ok(["local", "remote"]))
   let assert Ok(blob) =
-    summary_blob.encode_channels(
+    checked.value(summary_blob.encode_channels(
       core.last_seen_sequence_number,
       runtime_core.summary_members(core),
-      runtime_core.summary_channels(core),
-    )
+      checked.value(runtime_core.summary_channels(core)),
+    ))
     |> json.to_string
     |> summary_blob.decode
   let assert Ok(runtime_core.Complete(loaded)) =
@@ -3329,10 +3344,12 @@ pub fn or_map_register_set_attaches_handle_dependencies_test() -> Nil {
         sequence_number: 2,
         client_sequence_number: 1,
         address: "watershed/registers",
-        snapshot: channel.attach_snapshot(channel.new(
-          channel.InitOrMap(or_map_kernel.RegisterMode),
-          replica: other_client_id,
-        )),
+        snapshot: checked.value(
+          channel.attach_snapshot(channel.new(
+            channel.InitOrMap(or_map_kernel.RegisterMode),
+            replica: other_client_id,
+          )),
+        ),
       ),
     )
   let core =
@@ -3403,6 +3420,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..))
     | Error(runtime_core.BadBootstrapSeed(..))
+    | Error(runtime_core.ChannelBoundaryFailed(..))
     | Error(runtime_core.ContainerOperationFailed(..)) ->
       panic as "expected set on a counter channel to be rejected"
   }
@@ -3425,6 +3443,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..))
     | Error(runtime_core.BadBootstrapSeed(..))
+    | Error(runtime_core.ChannelBoundaryFailed(..))
     | Error(runtime_core.ContainerOperationFailed(..)) ->
       panic as "expected delete on a counter channel to be rejected"
   }
@@ -3447,6 +3466,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..))
     | Error(runtime_core.BadBootstrapSeed(..))
+    | Error(runtime_core.ChannelBoundaryFailed(..))
     | Error(runtime_core.ContainerOperationFailed(..)) ->
       panic as "expected clear on a counter channel to be rejected"
   }
@@ -3475,6 +3495,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..))
     | Error(runtime_core.BadBootstrapSeed(..))
+    | Error(runtime_core.ChannelBoundaryFailed(..))
     | Error(runtime_core.ContainerOperationFailed(..)) ->
       panic as "expected increment on a map channel to be rejected"
   }
@@ -3517,7 +3538,7 @@ pub fn summary_captures_confirmed_counter_value_test() -> Nil {
   // The optimistic read includes the un-acked increment; the summary only
   // captures the confirmed value.
   runtime_core.counter_value(core, "watershed/tally") |> expect.to_equal(Ok(7))
-  runtime_core.summary_channels(core)
+  checked.value(runtime_core.summary_channels(core))
   |> expect.to_equal([
     #("watershed/root", channel.MapSnapshot([])),
     #("watershed/tally", channel.CounterSnapshot(4)),
@@ -4461,7 +4482,7 @@ pub fn text_summary_round_trip_reload_with_new_replica_test() -> Nil {
   let assert [
     #("watershed/root", channel.MapSnapshot([])),
     #("watershed/doc", document_snapshot),
-  ] = runtime_core.summary_channels(core)
+  ] = checked.value(runtime_core.summary_channels(core))
   let assert channel.TextSummary(reloaded) = document_snapshot
   text_kernel.from_sequenced(reloaded, replica_id.new("checker"))
   |> text_kernel.value

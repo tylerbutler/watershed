@@ -363,7 +363,11 @@ fn value(peer: Peer) -> Result(Int, Nil) {
 @target(javascript)
 fn digest(peer: Peer) -> Result(String, Nil) {
   case document_of(peer) {
-    Ok(document) -> Ok(crdt_js.digest(document))
+    Ok(document) ->
+      case crdt_js.digest(document) {
+        Ok(digest) -> Ok(digest)
+        Error(_) -> Error(Nil)
+      }
     Error(_) -> Error(Nil)
   }
 }

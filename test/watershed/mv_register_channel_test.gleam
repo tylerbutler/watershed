@@ -14,6 +14,7 @@ import watershed/channel
 import watershed/handle
 import watershed/mv_register_kernel as mv
 import watershed/runtime_core
+import watershed/tree/checked_test as checked
 import watershed/wire/op
 
 fn bootstrap() -> runtime_core.Core {
@@ -102,11 +103,11 @@ pub fn detached_attach_and_resubmit_preserve_the_original_write_test() -> Nil {
 pub fn snapshot_and_kind_round_trip_test() -> Nil {
   let #(state, _, _) = mv.p2p_set(mv.new(replica_id.new("a")), "confirmed")
   let #(state, _, _, _) = mv.set(state, "pending")
-  let snapshot = channel.snapshot(channel.MvRegisterState(state))
+  let snapshot = checked.value(channel.snapshot(channel.MvRegisterState(state)))
   let assert Ok(decoded) =
     json.parse(
-      channel.encode_snapshot(snapshot) |> json.to_string,
-      channel.snapshot_decoder(channel.MvRegisterChannel),
+      checked.value(channel.encode_snapshot(snapshot)) |> json.to_string,
+      checked.value(channel.snapshot_decoder(channel.MvRegisterChannel)),
     )
   channel.same_snapshot(snapshot, decoded) |> expect.to_be_true()
   let assert Ok(channel.MvRegisterState(loaded)) =
@@ -114,7 +115,7 @@ pub fn snapshot_and_kind_round_trip_test() -> Nil {
   mv.values(loaded) |> expect.to_equal(["confirmed"])
   let assert Ok(channel.MvRegisterState(attached)) =
     channel.from_snapshot(
-      channel.attach_snapshot(channel.MvRegisterState(state)),
+      checked.value(channel.attach_snapshot(channel.MvRegisterState(state))),
       replica: "b",
     )
   mv.values(attached) |> expect.to_equal(["pending"])
@@ -152,7 +153,7 @@ pub fn operation_requires_one_matching_causal_write_test() -> Nil {
   })
   json.parse(
     op.encode_mv_register_operation(write) |> json.to_string,
-    op.channel_operation_decoder(channel.PnCounterChannel),
+    checked.value(op.channel_operation_decoder(channel.PnCounterChannel)),
   )
   |> result.is_error
   |> expect.to_be_true()

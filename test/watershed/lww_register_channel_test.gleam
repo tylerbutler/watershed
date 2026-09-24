@@ -14,6 +14,7 @@ import watershed/handle
 import watershed/lww_clock
 import watershed/lww_register_kernel as register
 import watershed/runtime_core
+import watershed/tree/checked_test as checked
 import watershed/wire
 import watershed/wire/op
 import watershed/wire/summary_blob
@@ -112,11 +113,11 @@ pub fn lww_register_channel_and_snapshot_contract_test() -> Nil {
     register.p2p_set(register.new(replica_id.new("z")), "confirmed", 100)
   let assert Ok(#(state, _, _, _)) = register.set(state, "pending", 0)
   let wrapped = channel.LwwRegisterState(state)
-  let snapshot = channel.snapshot(wrapped)
+  let snapshot = checked.value(channel.snapshot(wrapped))
   let assert Ok(decoded) =
     json.parse(
-      channel.encode_snapshot(snapshot) |> json.to_string,
-      channel.snapshot_decoder(channel.LwwRegisterChannel),
+      checked.value(channel.encode_snapshot(snapshot)) |> json.to_string,
+      checked.value(channel.snapshot_decoder(channel.LwwRegisterChannel)),
     )
   channel.same_snapshot(snapshot, decoded) |> expect.to_be_true()
   let assert Ok(channel.LwwRegisterState(loaded)) =
@@ -124,7 +125,7 @@ pub fn lww_register_channel_and_snapshot_contract_test() -> Nil {
   register.value(loaded) |> expect.to_equal("confirmed")
   let assert Ok(#(_, _, operation, _)) = register.set(loaded, "next", 0)
   stamp(operation) |> expect.to_equal(#("next", 101, "a"))
-  let assert channel.LwwRegisterState(attached) =
+  let assert Ok(channel.LwwRegisterState(attached)) =
     channel.attach_state(wrapped, replica: "z")
   register.value(attached) |> expect.to_equal("pending")
   attached.pending |> expect.to_equal([])
@@ -215,11 +216,11 @@ pub fn register_summary_load_retains_winner_but_uses_the_joining_author_test() -
   let assert Ok(#(core, _, [_])) =
     runtime_core.lww_register_set(core, "watershed/cell", "pending", 200)
   let assert Ok(blob) =
-    summary_blob.encode_channels(
+    checked.value(summary_blob.encode_channels(
       core.last_seen_sequence_number,
       runtime_core.summary_members(core),
-      runtime_core.summary_channels(core),
-    )
+      checked.value(runtime_core.summary_channels(core)),
+    ))
     |> json.to_string
     |> summary_blob.decode
   let joining =

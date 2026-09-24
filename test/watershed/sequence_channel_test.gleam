@@ -15,6 +15,7 @@ import watershed/handle
 import watershed/map_kernel
 import watershed/runtime_core.{type Core}
 import watershed/sequence_kernel
+import watershed/tree/checked_test as checked
 import watershed/wire.{type OutboundOperation}
 import watershed/wire/op as wire_op
 
@@ -106,7 +107,10 @@ pub fn detached_sequence_attaches_then_emits_operations_test() -> Nil {
   let assert Ok(wire_op.ChannelOperation("watershed/root", contents)) =
     wire_op.decode_operation_contents(dynamic_value)
   let assert Ok(channel.MapOperation(map_kernel.Set("items", value))) =
-    decode.run(contents, wire_op.channel_operation_decoder(channel.MapChannel))
+    decode.run(
+      contents,
+      checked.value(wire_op.channel_operation_decoder(channel.MapChannel)),
+    )
   value |> expect.to_equal(handle.encode_handle(address))
 
   let assert Ok(#(core, _, [operation])) =
@@ -241,7 +245,7 @@ pub fn attached_sequence_insert_attaches_nested_handle_first_test() -> Nil {
       "items",
       handle.encode_handle(address),
     )
-  runtime_core.summary_channels(core)
+  checked.value(runtime_core.summary_channels(core))
   |> list.map(fn(entry) { entry.0 })
   |> expect.to_equal(["watershed/root", address])
 
@@ -286,7 +290,7 @@ pub fn attached_sequence_replace_attaches_nested_handle_first_test() -> Nil {
       "items",
       handle.encode_handle(address),
     )
-  runtime_core.summary_channels(core)
+  checked.value(runtime_core.summary_channels(core))
   |> list.map(fn(entry) { entry.0 })
   |> expect.to_equal(["watershed/root", address])
 
@@ -396,11 +400,11 @@ pub fn sequence_summary_round_trips_test() -> Nil {
     )
   let assert Ok(state) = sequence_kernel.ack_local(state, operation)
   let summary = channel.SequenceSummary(state.sequenced)
-  let encoded = channel.encode_snapshot(summary)
+  let encoded = checked.value(channel.encode_snapshot(summary))
   let assert Ok(decoded) =
     json.parse(
       json.to_string(encoded),
-      channel.snapshot_decoder(channel.SequenceChannel),
+      checked.value(channel.snapshot_decoder(channel.SequenceChannel)),
     )
 
   channel.same_snapshot(summary, decoded) |> expect.to_be_true()

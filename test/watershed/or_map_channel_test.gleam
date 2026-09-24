@@ -4,6 +4,7 @@ import lattice_core/replica_id
 import startest/expect
 import watershed/channel
 import watershed/or_map_kernel as kernel
+import watershed/tree/checked_test as checked
 import watershed/wire/op
 
 pub fn mv_or_map_wire_stash_rollback_preserves_the_authored_operation_test() -> Nil {
@@ -52,18 +53,18 @@ pub fn mv_or_map_channel_snapshot_attach_and_ack_test() -> Nil {
       "open",
     )
   let wrapped = channel.OrMapState(state)
-  let snapshot = channel.attach_snapshot(wrapped)
+  let snapshot = checked.value(channel.attach_snapshot(wrapped))
   let assert Ok(decoded) =
     json.parse(
-      channel.encode_snapshot(snapshot) |> json.to_string,
-      channel.snapshot_decoder(channel.OrMapChannel),
+      checked.value(channel.encode_snapshot(snapshot)) |> json.to_string,
+      checked.value(channel.snapshot_decoder(channel.OrMapChannel)),
     )
   channel.same_snapshot(snapshot, decoded) |> expect.to_be_true()
   let assert Ok(channel.OrMapState(loaded)) =
     channel.from_snapshot(decoded, replica: "b")
   kernel.get(loaded, "gate") |> expect.to_equal(Ok(kernel.MvRegister(["open"])))
-  let attached = channel.attach_state(wrapped, replica: "a")
-  channel.same_snapshot(snapshot, channel.snapshot(attached))
+  let assert Ok(attached) = channel.attach_state(wrapped, replica: "a")
+  channel.same_snapshot(snapshot, checked.value(channel.snapshot(attached)))
   |> expect.to_be_true()
   channel.handle_addresses(wrapped) |> expect.to_equal([])
   let operation = channel.OrMapOperation(operation)

@@ -228,35 +228,48 @@ fn request_pagehide_save(controller: Controller(root)) -> Nil {
 @target(javascript)
 fn start_save_if_changed(controller: Controller(root)) -> Bool {
   let state = get(controller)
-  let digest = crdt_js.digest(state.document)
-  case state.stopped || state.saving || digest == state.last_saved {
+  case state.stopped || state.saving {
     True -> False
-    False -> {
-      cancel(state.debounce)
-      set(
-        controller,
-        State(..state, dirty: False, saving: True, debounce: None),
-      )
-      state.on_status(Saving)
-      state.save(state.document, fn(outcome) {
-        let current = get(controller)
-        case outcome {
-          Ok(saved_digest) -> {
-            set(
-              controller,
-              State(..current, last_saved: saved_digest, saving: False),
-            )
-            current.on_status(Saved(saved_digest))
-          }
-          Error(error) -> {
-            set(controller, State(..current, dirty: True, saving: False))
-            current.on_status(SaveFailed(error))
-          }
+    False ->
+      case crdt_js.digest(state.document) {
+        Error(error) -> {
+          state.on_status(SaveFailed(persist_js.SnapshotFailure(error)))
+          False
         }
-        continue_after_save(controller)
-      })
-      True
-    }
+        Ok(digest) ->
+          case digest == state.last_saved {
+            True -> False
+            False -> {
+              cancel(state.debounce)
+              set(
+                controller,
+                State(..state, dirty: False, saving: True, debounce: None),
+              )
+              state.on_status(Saving)
+              state.save(state.document, fn(outcome) {
+                let current = get(controller)
+                case outcome {
+                  Ok(saved_digest) -> {
+                    set(
+                      controller,
+                      State(..current, last_saved: saved_digest, saving: False),
+                    )
+                    current.on_status(Saved(saved_digest))
+                  }
+                  Error(error) -> {
+                    set(
+                      controller,
+                      State(..current, dirty: True, saving: False),
+                    )
+                    current.on_status(SaveFailed(error))
+                  }
+                }
+                continue_after_save(controller)
+              })
+              True
+            }
+          }
+      }
   }
 }
 
@@ -280,12 +293,19 @@ fn continue_after_save(controller: Controller(root)) -> Nil {
 @target(javascript)
 fn arm_debounce_if_needed(controller: Controller(root)) -> Nil {
   let state = get(controller)
-  case
-    !state.stopped
-    && { state.dirty || crdt_js.digest(state.document) != state.last_saved }
-  {
-    True -> arm_debounce(controller)
-    False -> Nil
+  case state.stopped, state.dirty {
+    True, _ -> Nil
+    False, True -> arm_debounce(controller)
+    False, False ->
+      case crdt_js.digest(state.document) {
+        Ok(digest) ->
+          case digest != state.last_saved {
+            True -> arm_debounce(controller)
+            False -> Nil
+          }
+        Error(error) ->
+          state.on_status(SaveFailed(persist_js.SnapshotFailure(error)))
+      }
   }
 }
 

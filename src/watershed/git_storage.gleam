@@ -79,6 +79,7 @@ pub type HierarchyTreeEntry {
 /// storage protocol that failed, and it carries the data that a reader needs
 /// to find the fault.
 pub type StorageError {
+  UnsupportedSummaryChannel(error: channel.ChannelError)
   /// A version history request must ask for at least one version.
   InvalidVersionCount(count: Int)
   /// The client could not build the request. The URL is not a valid one.
@@ -114,6 +115,7 @@ pub type StorageError {
 /// String.
 pub fn error_to_string(error: StorageError) -> String {
   case error {
+    UnsupportedSummaryChannel(error) -> string.inspect(error)
     InvalidVersionCount(count) ->
       "version count must be positive: " <> int.to_string(count)
     BadRequestUrl(url) -> "storage url is not valid: " <> url
@@ -243,10 +245,11 @@ pub fn upload_summary(
   members members: List(Int),
   channels channels: List(#(String, channel.Snapshot)),
 ) -> Result(String, StorageError) {
+  use body <- result.try(blob_body(sequence_number, members, channels))
   use blob_sha <- result.try(post_json(
     blobs_url(base_url, tenant),
     token,
-    blob_body(sequence_number, members, channels),
+    body,
     sha_decoder(),
   ))
   post_json(
@@ -390,18 +393,23 @@ pub fn upload_summary(
   members members: List(Int),
   channels channels: List(#(String, channel.Snapshot)),
 ) -> Promise(Result(String, StorageError)) {
-  use blob_sha <- promise.try_await(post_json(
-    blobs_url(base_url, tenant),
-    token,
-    blob_body(sequence_number, members, channels),
-    sha_decoder(),
-  ))
-  post_json(
-    trees_url(base_url, tenant),
-    token,
-    tree_body(blob_sha),
-    sha_decoder(),
-  )
+  case blob_body(sequence_number, members, channels) {
+    Error(error) -> promise.resolve(Error(error))
+    Ok(body) -> {
+      use blob_sha <- promise.try_await(post_json(
+        blobs_url(base_url, tenant),
+        token,
+        body,
+        sha_decoder(),
+      ))
+      post_json(
+        trees_url(base_url, tenant),
+        token,
+        tree_body(blob_sha),
+        sha_decoder(),
+      )
+    }
+  }
 }
 
 @target(javascript)
@@ -560,16 +568,20 @@ fn blob_body(
   sequence_number: Int,
   members: List(Int),
   channels: List(#(String, channel.Snapshot)),
-) -> String {
-  let blob_json =
+) -> Result(String, StorageError) {
+  use blob <- result.try(
     summary_blob.encode_channels(sequence_number, members, channels)
-    |> json.to_string
+    |> result.map_error(UnsupportedSummaryChannel),
+  )
+  let blob_json = json.to_string(blob)
   let content = bit_array.base64_encode(<<blob_json:utf8>>, True)
-  json.object([
-    #("content", json.string(content)),
-    #("encoding", json.string("base64")),
-  ])
-  |> json.to_string
+  Ok(
+    json.object([
+      #("content", json.string(content)),
+      #("encoding", json.string("base64")),
+    ])
+    |> json.to_string,
+  )
 }
 
 fn tree_body(blob_sha: String) -> String {

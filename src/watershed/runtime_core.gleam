@@ -55,7 +55,9 @@ import watershed/sequence_kernel
 import watershed/summary_policy.{type Policy}
 import watershed/task_manager_kernel
 import watershed/text_kernel
+import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema as tree_schema
+import watershed/tree_kernel
 import watershed/two_p_set_kernel
 import watershed/wire
 import watershed/wire/fluid_container
@@ -160,6 +162,7 @@ pub type InFlight {
 
 pub type CoreError {
   ContainerOperationFailed(error: fluid_container.ContainerError)
+  ChannelBoundaryFailed(error: channel.ChannelError)
   BadBootstrapSeed(detail: String)
   AckMismatch(detail: String)
   BadOperationContents(sequence_number: Int)
@@ -312,10 +315,6 @@ pub fn bootstrap_seed(
     "invalid sequence numbers",
   ))
   use _ <- result.try(seed_requirement(
-    input.tree_views == [],
-    "tree channels are not registered",
-  ))
-  use _ <- result.try(seed_requirement(
     input.profile != NativeMapSeed
       || input.bootstrap_map == fluid_container.Route("watershed", "root"),
     "native seed requires the native root route",
@@ -431,15 +430,69 @@ pub fn bootstrap_seed(
         case channel.snapshot_type(entry.snapshot) {
           channel.MapChannel ->
             snapshot_version == "0.2" && package_version == "3.1.0"
+          channel.TreeChannel ->
+            snapshot_version == "0.0.0" && package_version == "3.1.0"
           _ -> snapshot_version == "1" && package_version == "1"
         },
         "unsupported channel attributes",
       ))
-      use _ <- result.try(
-        channel.from_snapshot(entry.snapshot, replica: "bootstrap-seed")
-        |> result.map_error(fn(detail) { BadSummaryChannel(key, detail) }),
-      )
+      use _ <- result.try(case entry.snapshot {
+        channel.TreeSnapshot(snapshot) -> {
+          use _ <- result.try(seed_requirement(
+            input.profile == RoutedSeed,
+            "native seed cannot contain a tree",
+          ))
+          use compressor <- result.try(case input.compressor {
+            Some(compressor) -> Ok(compressor)
+            None ->
+              Error(BadBootstrapSeed("tree seed requires a document compressor"))
+          })
+          use view_seed <- result.try(matching_tree_view(
+            input.tree_views,
+            entry.route,
+          ))
+          let #(_, _, snapshot_history) = tree_kernel.snapshot_parts(snapshot)
+          use _ <- result.try(seed_requirement(
+            snapshot_history.sequence_number == input.sequence_number
+              && snapshot_history.minimum_sequence_number
+              == input.minimum_sequence_number,
+            "tree history does not match the document sequence point",
+          ))
+          tree_runtime.restore(
+            snapshot,
+            view_seed.view_id,
+            view_seed.view,
+            compressor,
+          )
+          |> result.map_error(fn(error) {
+            BadSummaryChannel(key, string.inspect(error))
+          })
+          |> result.map(fn(_) { Nil })
+        }
+        snapshot ->
+          channel.from_snapshot(snapshot, replica: "bootstrap-seed")
+          |> result.map_error(fn(detail) { BadSummaryChannel(key, detail) })
+          |> result.map(fn(_) { Nil })
+      })
       Ok(dict.insert(registered, key, entry))
+    }),
+  )
+  use _ <- result.try(
+    list.try_each(input.tree_views, fn(view) {
+      use key <- result.try(
+        fluid_container.route_key(view.route)
+        |> result.map_error(fn(error) {
+          BadBootstrapSeed(string.inspect(error))
+        }),
+      )
+      use entry <- result.try(
+        dict.get(registered, key)
+        |> result.replace_error(BadBootstrapSeed("unmatched tree view")),
+      )
+      seed_requirement(
+        channel.snapshot_type(entry.snapshot) == channel.TreeChannel,
+        "tree view names a non-tree channel",
+      )
     }),
   )
   use root <- result.try(
@@ -455,6 +508,17 @@ pub fn bootstrap_seed(
     "bootstrap route is not a map",
   ))
   Ok(BootstrapSeed(BootstrapSeedInput(..input, channels: channels)))
+}
+
+fn matching_tree_view(
+  views: List(TreeViewSeed),
+  route: fluid_container.Route,
+) -> Result(TreeViewSeed, CoreError) {
+  case list.filter(views, fn(view) { view.route == route }) {
+    [view] -> Ok(view)
+    [] -> Error(BadBootstrapSeed("tree channel has no matching view"))
+    _ -> Error(BadBootstrapSeed("tree channel has duplicate views"))
+  }
 }
 
 fn seed_requirement(valid: Bool, detail: String) -> Result(Nil, CoreError) {
@@ -563,8 +627,10 @@ pub fn bootstrap_seeded(
     }),
   )
   use #(channels, channel_order) <- result.try(load_channels(
-    list.map(entries, fn(entry) { #(entry.0, entry.1.snapshot) }),
+    entries,
     connected.client_id,
+    input.compressor,
+    input.tree_views,
   ))
   start_core(
     connected,
@@ -814,12 +880,21 @@ pub fn summary_members(core: Core) -> List(Int) {
   core.members |> set.to_list |> list.sort(by: int.compare)
 }
 
-pub fn summary_channels(core: Core) -> List(#(String, Snapshot)) {
-  list.filter_map(core.channel_order, fn(address) {
-    case dict.get(core.channels, address) {
-      Ok(state) -> Ok(#(address, channel.snapshot(state)))
-      Error(_) -> Error(Nil)
-    }
+pub fn summary_channels(
+  core: Core,
+) -> Result(List(#(String, Snapshot)), CoreError) {
+  list.try_map(core.channel_order, fn(address) {
+    use state <- result.try(
+      dict.get(core.channels, address)
+      |> result.replace_error(BadSummaryChannel(
+        address,
+        "registered channel has no state",
+      )),
+    )
+    use snapshot <- result.try(
+      channel.snapshot(state) |> result.map_error(ChannelBoundaryFailed),
+    )
+    Ok(#(address, snapshot))
   })
 }
 
@@ -916,18 +991,34 @@ pub fn build_summarize(
 }
 
 fn load_channels(
-  seeded: List(#(String, Snapshot)),
+  seeded: List(#(String, ChannelSeed)),
   replica: String,
+  compressor: Option(fluid_ids.Compressor),
+  views: List(TreeViewSeed),
 ) -> Result(#(Dict(String, ChannelState), List(String)), CoreError) {
   list.try_fold(seeded, #(dict.new(), []), fn(acc, entry) {
     let #(channels, channel_order) = acc
-    let #(address, snapshot) = entry
-    use state <- result.try(
-      channel.from_snapshot(snapshot, replica: replica)
-      |> result.map_error(fn(detail) {
-        BadSummaryChannel(address: address, detail: detail)
-      }),
-    )
+    let #(address, seed) = entry
+    use state <- result.try(case seed.snapshot {
+      channel.TreeSnapshot(snapshot) -> {
+        use compressor <- result.try(case compressor {
+          Some(compressor) -> Ok(compressor)
+          None ->
+            Error(BadBootstrapSeed("tree seed requires a document compressor"))
+        })
+        use view <- result.try(matching_tree_view(views, seed.route))
+        tree_runtime.restore(snapshot, view.view_id, view.view, compressor)
+        |> result.map(channel.TreeState)
+        |> result.map_error(fn(error) {
+          BadSummaryChannel(address, string.inspect(error))
+        })
+      }
+      snapshot ->
+        channel.from_snapshot(snapshot, replica: replica)
+        |> result.map_error(fn(detail) {
+          BadSummaryChannel(address: address, detail: detail)
+        })
+    })
     Ok(#(
       dict.insert(channels, address, state),
       list.unique(list.append(channel_order, [address])),
@@ -1865,13 +1956,12 @@ fn handle_channel_operation(
       // grammar. Channels are always attached before their operations arrive.
       case dict.get(core.channels, address) {
         Error(_) -> Error(UnknownChannel(address, msg.sequence_number))
-        Ok(state) ->
-          case
-            decode.run(
-              raw_contents,
-              wire_op.channel_operation_decoder(channel.channel_type(state)),
-            )
-          {
+        Ok(state) -> {
+          use decoder <- result.try(
+            wire_op.channel_operation_decoder(channel.channel_type(state))
+            |> result.map_error(ChannelBoundaryFailed),
+          )
+          case decode.run(raw_contents, decoder) {
             Error(_) -> Error(BadOperationContents(msg.sequence_number))
             Ok(operation) ->
               case is_own_operation(core, msg.client_id) {
@@ -1899,6 +1989,7 @@ fn handle_channel_operation(
                   )
               }
           }
+        }
       }
   }
 }
@@ -1997,6 +2088,7 @@ fn apply_remote_channel(
     | Error(channel.WrongChannelType(detail))
     | Error(channel.CorruptRemoteOperation(detail))
     | Error(channel.UnsupportedP2p(detail)) -> Error(AckMismatch(detail))
+    Error(error) -> Error(ChannelBoundaryFailed(error))
   }
 }
 
@@ -2165,6 +2257,7 @@ fn ack_own_operation(
                     | Error(channel.CorruptRemoteOperation(detail))
                     | Error(channel.UnsupportedP2p(detail)) ->
                       Error(AckMismatch(detail))
+                    Error(error) -> Error(ChannelBoundaryFailed(error))
                   }
                 False ->
                   case
@@ -2187,6 +2280,7 @@ fn ack_own_operation(
                     | Error(channel.CorruptRemoteOperation(detail))
                     | Error(channel.UnsupportedP2p(detail)) ->
                       Error(AckMismatch(detail))
+                    Error(error) -> Error(ChannelBoundaryFailed(error))
                   }
               }
             }
@@ -2211,6 +2305,15 @@ pub fn create_detached(
   address: String,
   init: channel.ChannelInit,
 ) -> Result(Core, CoreError) {
+  use _ <- result.try(case channel.init_type(init) {
+    channel.TreeChannel ->
+      Error(
+        ChannelBoundaryFailed(channel.UnsupportedTreeOperation(
+          "native tree creation is not supported",
+        )),
+      )
+    _ -> Ok(Nil)
+  })
   use route <- result.try(
     fluid_container.route_from_path("/" <> address)
     |> result.map_error(ContainerOperationFailed),
@@ -4827,7 +4930,10 @@ fn submit_attaches(
     case dict.get(core.detached, address) {
       Error(_) -> Ok(#(core, outbound))
       Ok(state) -> {
-        let snapshot = channel.attach_snapshot(state)
+        use snapshot <- result.try(
+          channel.attach_snapshot(state)
+          |> result.map_error(ChannelBoundaryFailed),
+        )
         let client_sequence_number = core.next_client_sequence_number
         use outbound_operation <- result.try(
           wire_op.outbound_attach_operation(
@@ -4838,12 +4944,11 @@ fn submit_attaches(
           )
           |> result.map_error(ContainerOperationFailed),
         )
-        let core =
-          add_attached_channel(
-            core,
-            address,
-            channel.attach_state(state, replica: core.client_id),
-          )
+        use attached <- result.try(
+          channel.attach_state(state, replica: core.client_id)
+          |> result.map_error(ChannelBoundaryFailed),
+        )
+        let core = add_attached_channel(core, address, attached)
         let core =
           Core(
             ..core,

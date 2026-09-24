@@ -13,6 +13,8 @@
 //// exercises `channel.apply_remote` without going through `runtime_core`'s
 //// per-kernel edit verbs.
 
+import watershed/tree/checked_test as checked
+
 import gleam/dynamic/decode
 import gleam/json
 import gleam/option.{None, Some}
@@ -71,7 +73,7 @@ pub fn rich_text_init_type_and_new_dispatch_test() -> Nil {
 
   let state = channel.new(channel.InitRichText, replica: "client-a")
   channel.channel_type(state) |> expect.to_equal(channel.RichTextChannel)
-  channel.snapshot(state)
+  checked.value(channel.snapshot(state))
   |> expect.to_equal(channel.RichTextSnapshot(rich_text.empty_document()))
 }
 
@@ -111,7 +113,7 @@ pub fn rich_text_operation_round_trips_through_channel_envelope_test() -> Nil {
   let assert Ok(channel.RichTextOperation(decoded)) =
     decode.run(
       payload,
-      wire_op.channel_operation_decoder(channel.RichTextChannel),
+      checked.value(wire_op.channel_operation_decoder(channel.RichTextChannel)),
     )
   decoded |> expect.to_equal(operation)
 }
@@ -153,18 +155,18 @@ pub fn rich_text_snapshot_json_exact_shape_test() -> Nil {
     channel.RichTextSnapshot(document(
       "[{\"insert\":\"hi\",\"attributes\":{\"bold\":true}}]",
     ))
-  channel.encode_snapshot(snapshot)
+  checked.value(channel.encode_snapshot(snapshot))
   |> json.to_string
   |> expect.to_equal("[{\"insert\":\"hi\",\"attributes\":{\"bold\":true}}]")
 }
 
 pub fn rich_text_snapshot_round_trips_test() -> Nil {
   let snapshot = channel.RichTextSnapshot(document("[{\"insert\":\"ABC\"}]"))
-  let encoded = channel.encode_snapshot(snapshot)
+  let encoded = checked.value(channel.encode_snapshot(snapshot))
   let assert Ok(decoded) =
     json.parse(
       json.to_string(encoded),
-      channel.snapshot_decoder(channel.RichTextChannel),
+      checked.value(channel.snapshot_decoder(channel.RichTextChannel)),
     )
 
   channel.same_snapshot(snapshot, decoded) |> expect.to_be_true()
@@ -174,7 +176,7 @@ pub fn rich_text_snapshot_decoder_rejects_non_insert_only_operations_test() -> N
   let _ =
     json.parse(
       "[{\"delete\":1}]",
-      channel.snapshot_decoder(channel.RichTextChannel),
+      checked.value(channel.snapshot_decoder(channel.RichTextChannel)),
     )
     |> expect.to_be_error()
   Nil
@@ -188,9 +190,9 @@ pub fn rich_text_attach_snapshot_includes_pending_persisted_excludes_it_test() -
   let assert Ok(#(kernel, _, _)) = rich_text_kernel.submit(kernel, a, 0)
   let state = channel.RichTextState(kernel)
 
-  channel.snapshot(state)
+  checked.value(channel.snapshot(state))
   |> expect.to_equal(channel.RichTextSnapshot(rich_text.empty_document()))
-  channel.attach_snapshot(state)
+  checked.value(channel.attach_snapshot(state))
   |> expect.to_equal(channel.RichTextSnapshot(document("[{\"insert\":\"A\"}]")))
 }
 
@@ -200,7 +202,7 @@ pub fn rich_text_attach_state_reconstructs_from_snapshot_test() -> Nil {
   let assert Ok(#(kernel, _, _)) = rich_text_kernel.submit(kernel, a, 0)
   let state = channel.RichTextState(kernel)
 
-  let attached = channel.attach_state(state, replica: "client-b")
+  let assert Ok(attached) = channel.attach_state(state, replica: "client-b")
   let assert channel.RichTextState(attached_kernel) = attached
   rich_text_kernel.view(attached_kernel)
   |> expect.to_equal(Ok(document("[{\"insert\":\"A\"}]")))
@@ -266,7 +268,7 @@ pub fn rich_text_submit_canonicalizes_before_wire_round_trip_test() -> Nil {
   let assert Ok(decoded) =
     decode.run(
       payload,
-      wire_op.channel_operation_decoder(channel.RichTextChannel),
+      checked.value(wire_op.channel_operation_decoder(channel.RichTextChannel)),
     )
 
   channel.same_shape(channel.RichTextOperation(wire_op), decoded)

@@ -3276,6 +3276,9 @@ fn do_summarize(
         <> "in-flight edits have been acknowledged",
       )
   })
+  use channels <- result.try(
+    runtime_core.summary_channels(core) |> result.map_error(string.inspect),
+  )
   use tree_sha <- result.try(
     git_storage.upload_summary(
       base_url: http_base_url(state),
@@ -3283,7 +3286,7 @@ fn do_summarize(
       token: token,
       sequence_number: core.last_seen_sequence_number,
       members: runtime_core.summary_members(core),
-      channels: runtime_core.summary_channels(core),
+      channels: channels,
     )
     |> result.map_error(git_storage.error_to_string),
   )

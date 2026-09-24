@@ -15,6 +15,7 @@ import watershed/channel
 import watershed/handle
 import watershed/lww_map_kernel as kernel
 import watershed/runtime_core
+import watershed/tree/checked_test as checked
 import watershed/wire
 import watershed/wire/op
 import watershed/wire/summary_blob
@@ -101,24 +102,24 @@ pub fn lww_map_channel_snapshot_and_attach_contract_test() -> Nil {
       channel.new(channel.InitLwwMap, replica: "a"),
       channel.LwwMapRemoveEdit("gone", 100),
     )
-  let snapshot = channel.snapshot(state)
+  let snapshot = checked.value(channel.snapshot(state))
   let assert Ok(decoded) =
     json.parse(
-      channel.encode_snapshot(snapshot) |> json.to_string,
-      channel.snapshot_decoder(channel.LwwMapChannel),
+      checked.value(channel.encode_snapshot(snapshot)) |> json.to_string,
+      checked.value(channel.snapshot_decoder(channel.LwwMapChannel)),
     )
   channel.same_snapshot(snapshot, decoded) |> expect.to_be_true()
   let assert Ok(channel.LwwMapState(loaded)) =
     channel.from_snapshot(decoded, replica: "b")
   let assert Ok(#(loaded, _, _, _)) = kernel.set(loaded, "gone", "restored", 0)
   let wrapped = channel.LwwMapState(loaded)
-  let assert channel.LwwMapState(attached) =
+  let assert Ok(channel.LwwMapState(attached)) =
     channel.attach_state(wrapped, replica: "b")
   attached.pending |> expect.to_equal([])
   kernel.sequenced_entries(attached) |> expect.to_equal([#("gone", "restored")])
   channel.same_snapshot(
-    channel.attach_snapshot(wrapped),
-    channel.snapshot(channel.LwwMapState(attached)),
+    checked.value(channel.attach_snapshot(wrapped)),
+    checked.value(channel.snapshot(channel.LwwMapState(attached))),
   )
   |> expect.to_be_true()
   channel.handle_addresses(wrapped) |> expect.to_equal([])
@@ -167,7 +168,10 @@ pub fn lww_map_ack_metadata_and_operation_matching_test() -> Nil {
     )
   let assert Ok(#(duplicate, [], [])) =
     channel.apply_remote(remote, operation, meta)
-  channel.same_snapshot(channel.snapshot(remote), channel.snapshot(duplicate))
+  channel.same_snapshot(
+    checked.value(channel.snapshot(remote)),
+    checked.value(channel.snapshot(duplicate)),
+  )
   |> expect.to_be_true()
 }
 
@@ -214,11 +218,11 @@ pub fn lww_map_core_attach_reconnect_summary_and_errors_test() -> Nil {
   let assert Ok(#(core, [], [_])) =
     runtime_core.lww_map_set(core, "watershed/map", "k", "restored", 200)
   let assert Ok(blob) =
-    summary_blob.encode_channels(
+    checked.value(summary_blob.encode_channels(
       core.last_seen_sequence_number,
       runtime_core.summary_members(core),
-      runtime_core.summary_channels(core),
-    )
+      checked.value(runtime_core.summary_channels(core)),
+    ))
     |> json.to_string
     |> summary_blob.decode
   let joining =

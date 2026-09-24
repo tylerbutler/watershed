@@ -6,6 +6,8 @@
 //// FIFO convergence (add / acquire / complete / release) over sequenced
 //// operations.
 
+import watershed/tree/checked_test as checked
+
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
@@ -143,15 +145,19 @@ fn round_trip_operation(
   operation: ordered_collection_kernel.OrderedOperation,
 ) -> Nil {
   let encoded =
-    wire_op.encode_channel_operation(channel.OrderedCollectionOperation(
-      operation,
-    ))
+    checked.value(
+      wire_op.encode_channel_operation(channel.OrderedCollectionOperation(
+        operation,
+      )),
+    )
   let assert Ok(decoded) =
     json.parse(
       json.to_string(encoded),
-      wire_op.channel_operation_decoder(channel.OrderedCollectionChannel),
+      checked.value(wire_op.channel_operation_decoder(
+        channel.OrderedCollectionChannel,
+      )),
     )
-  json.to_string(wire_op.encode_channel_operation(decoded))
+  json.to_string(checked.value(wire_op.encode_channel_operation(decoded)))
   |> expect.to_equal(json.to_string(encoded))
 }
 
@@ -175,11 +181,11 @@ pub fn ordered_snapshot_round_trips_test() -> Nil {
       ordered_collection_kernel.summary_queue(state),
       ordered_collection_kernel.summary_jobs(state),
     )
-  let encoded = channel.encode_snapshot(snapshot)
+  let encoded = checked.value(channel.encode_snapshot(snapshot))
   let assert Ok(decoded) =
     json.parse(
       json.to_string(encoded),
-      channel.snapshot_decoder(channel.OrderedCollectionChannel),
+      checked.value(channel.snapshot_decoder(channel.OrderedCollectionChannel)),
     )
   channel.same_snapshot(snapshot, decoded) |> expect.to_be_true()
 }
@@ -468,6 +474,7 @@ fn added_value(
       | Ok(_), channel.SequenceEvent(_)
       | Ok(_), channel.RichTextEvent(_)
       | Ok(_), channel.TextEvent(_)
+      | Ok(_), channel.TreeEvent(_)
       -> found
       Error(_),
         channel.OrderedCollectionEvent(ordered_collection_kernel.Added(
@@ -497,6 +504,7 @@ fn added_value(
       | Error(_), channel.SequenceEvent(_)
       | Error(_), channel.RichTextEvent(_)
       | Error(_), channel.TextEvent(_)
+      | Error(_), channel.TreeEvent(_)
       -> Error(Nil)
     }
   })
@@ -578,6 +586,7 @@ fn acquired_value(
       | Ok(_), channel.SequenceEvent(_)
       | Ok(_), channel.RichTextEvent(_)
       | Ok(_), channel.TextEvent(_)
+      | Ok(_), channel.TreeEvent(_)
       -> found
       Error(_),
         channel.OrderedCollectionEvent(ordered_collection_kernel.Acquired(
@@ -607,6 +616,7 @@ fn acquired_value(
       | Error(_), channel.SequenceEvent(_)
       | Error(_), channel.RichTextEvent(_)
       | Error(_), channel.TextEvent(_)
+      | Error(_), channel.TreeEvent(_)
       -> Error(Nil)
     }
   })

@@ -5,6 +5,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
+import watershed/tree/checked_test as checked
 
 import lattice_core/replica_id
 import signet/types as token
@@ -105,11 +106,11 @@ pub fn or_set_snapshot_round_trips_test() -> Nil {
     or_set_kernel.add(or_set_kernel.new(replica_id.new("a")), "a")
   let assert Ok(state) = or_set_kernel.ack_local(state, operation)
   let snapshot = channel.OrSetSnapshot(state.sequenced)
-  let encoded = channel.encode_snapshot(snapshot)
+  let encoded = checked.value(channel.encode_snapshot(snapshot))
   let assert Ok(decoded) =
     json.parse(
       json.to_string(encoded),
-      channel.snapshot_decoder(channel.OrSetChannel),
+      checked.value(channel.snapshot_decoder(channel.OrSetChannel)),
     )
 
   channel.same_snapshot(snapshot, decoded) |> expect.to_be_true()

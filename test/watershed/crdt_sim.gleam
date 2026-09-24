@@ -12,6 +12,8 @@
 //// `take_queue`/`enqueue` let a test reverse, duplicate, or interleave
 //// packets before they land.
 
+import watershed/tree/checked_test as checked
+
 import gleam/list
 import gleam/order
 import gleam/string
@@ -155,7 +157,7 @@ pub fn send(
         to: to,
         from: from,
         kind: crdt_wire.message_type(message),
-        raw: crdt_core.encode(document, message),
+        raw: checked.value(crdt_core.encode(document, message)),
       )
     })
   enqueue(mesh, packets)
@@ -165,7 +167,9 @@ pub fn send(
 /// across a chain: the middle peer merges first, then passes the join on.
 pub fn gossip_state(mesh: Mesh) -> Mesh {
   list.fold(names(mesh), mesh, fn(mesh, name) {
-    broadcast(mesh, name, [crdt_core.state_message(document(mesh, name))])
+    broadcast(mesh, name, [
+      checked.value(crdt_core.state_message(document(mesh, name))),
+    ])
   })
   |> settle
 }

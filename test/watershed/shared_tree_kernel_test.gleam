@@ -380,6 +380,7 @@ pub fn shared_tree_kernel_rebinds_authored_orders_before_remote_delivery_test() 
     Ok(value) -> value
     Error(error) -> panic as string.inspect(error)
   }
+
   tree_kernel.read(received, ["point", "x"])
   |> expect.to_equal(Ok(Some(NumberValue(7.0))))
   tree_kernel.history_view(received).pending
@@ -387,6 +388,41 @@ pub fn shared_tree_kernel_rebinds_authored_orders_before_remote_delivery_test() 
   |> expect.to_equal(1)
   list.any(tree_kernel.identity_revisions(received), fn(id) { id == rollback })
   |> expect.to_equal(False)
+}
+
+pub fn shared_tree_kernel_advances_non_tree_messages_before_first_commit_test() {
+  let initial = initial_state()
+  let peer = initial_state_for(other_session())
+  let assert Ok(order) = change.identity_order([#(other_revision(), -1)])
+  let assert Ok(#(_, commit, _)) =
+    tree_kernel.apply_local(
+      peer,
+      other_revision(),
+      order,
+      SetField(["point", "x"], NumberValue(3.0)),
+    )
+  let assert Ok(#(after_one, Nil)) =
+    tree_kernel.advance_document(initial, 1, 0, Nil, no_mint)
+  let assert Ok(#(after_two, Nil)) =
+    tree_kernel.advance_document(after_one, 2, 0, Nil, no_mint)
+  tree_kernel.read(after_two, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+  tree_kernel.history_view(after_two).sequenced.trunk
+  |> expect.to_equal([])
+  let assert Ok(#(received, events, Nil)) =
+    tree_kernel.receive_ordered(
+      after_two,
+      commit,
+      order,
+      types.SequencePoint(3, 0),
+      2,
+      0,
+      Nil,
+      no_mint,
+    )
+  events |> expect.to_equal([tree_kernel.TreeChanged(False)])
+  tree_kernel.read(received, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(3.0))))
 }
 
 pub fn shared_tree_kernel_rebinding_drops_unused_identity_keys_test() {

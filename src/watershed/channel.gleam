@@ -41,6 +41,7 @@ import lattice_text/text.{type Text}
 import watershed/claims_kernel
 import watershed/counter_kernel
 import watershed/directory_kernel
+import watershed/fluid_ids
 import watershed/g_counter_kernel
 import watershed/g_set_kernel
 import watershed/handle
@@ -62,6 +63,9 @@ import watershed/rich_text_kernel
 import watershed/sequence_kernel
 import watershed/task_manager_kernel
 import watershed/text_kernel
+import watershed/tree/history
+import watershed/tree/types as tree_types
+import watershed/tree_kernel
 import watershed/two_p_set_kernel
 import watershed/wire
 
@@ -90,6 +94,7 @@ pub type ChannelType {
   SequenceChannel
   RichTextChannel
   TextChannel
+  TreeChannel
 }
 
 /// The parameters that create a channel. Most channel types need their channel
@@ -116,6 +121,7 @@ pub type ChannelInit {
   InitSequence
   InitRichText
   InitText
+  InitTree(state: tree_kernel.TreeState)
 }
 
 pub fn type_to_string(channel_type: ChannelType) -> String {
@@ -141,12 +147,14 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
     SequenceChannel -> wire.channel_type_sequence
     RichTextChannel -> wire.channel_type_rich_text
     TextChannel -> wire.channel_type_text
+    TreeChannel -> "tree"
   }
 }
 
 pub fn fluid_type_to_string(channel_type: ChannelType) -> String {
   case channel_type {
     MapChannel -> "https://graph.microsoft.com/types/map"
+    TreeChannel -> "https://graph.microsoft.com/types/tree"
     other -> "org.watershed/" <> type_to_string(other)
   }
 }
@@ -154,6 +162,7 @@ pub fn fluid_type_to_string(channel_type: ChannelType) -> String {
 pub fn fluid_attributes(channel_type: ChannelType) -> Json {
   let #(snapshot_version, package_version) = case channel_type {
     MapChannel -> #("0.2", "3.1.0")
+    TreeChannel -> #("0.0.0", "3.1.0")
     _ -> #("1", "1")
   }
   json.object([
@@ -166,6 +175,7 @@ pub fn fluid_attributes(channel_type: ChannelType) -> Json {
 pub fn fluid_string_to_type(raw: String) -> Result(ChannelType, Nil) {
   case raw {
     "https://graph.microsoft.com/types/map" -> Ok(MapChannel)
+    "https://graph.microsoft.com/types/tree" -> Ok(TreeChannel)
     _ ->
       case string.starts_with(raw, "org.watershed/") {
         True -> {
@@ -205,6 +215,7 @@ pub fn string_to_type(raw: String) -> Result(ChannelType, Nil) {
     _ if raw == wire.channel_type_sequence -> Ok(SequenceChannel)
     _ if raw == wire.channel_type_rich_text -> Ok(RichTextChannel)
     _ if raw == wire.channel_type_text -> Ok(TextChannel)
+    "tree" -> Ok(TreeChannel)
     _ -> Error(Nil)
   }
 }
@@ -232,6 +243,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
     InitSequence -> SequenceChannel
     InitRichText -> RichTextChannel
     InitText -> TextChannel
+    InitTree(_) -> TreeChannel
   }
 }
 
@@ -260,6 +272,7 @@ pub fn supports_p2p(channel_type: ChannelType) -> Bool {
     | DirectoryChannel
     | OrderedCollectionChannel
     | RichTextChannel -> False
+    TreeChannel -> False
   }
 }
 
@@ -286,6 +299,7 @@ pub type ChannelState {
   SequenceState(sequence_kernel.SequenceState)
   RichTextState(rich_text_kernel.RichTextState)
   TextState(text_kernel.TextState)
+  TreeState(state: tree_kernel.TreeState)
 }
 
 /// A kernel operation as it goes through the runtime, in the in-flight queue
@@ -322,6 +336,7 @@ pub type ChannelOperation {
   SequenceOperation(sequence_kernel.SequenceOperation)
   RichTextOperation(rich_text_kernel.RichTextWireOperation)
   TextOperation(text_kernel.TextOperation)
+  TreeOperation(commit: history.Commit)
 }
 
 /// A local mutation for the ack-free p2p lifecycle. See `apply_p2p_local`.
@@ -381,6 +396,7 @@ pub type ChannelEvent {
   SequenceEvent(sequence_kernel.SequenceEvent)
   RichTextEvent(rich_text_kernel.RichTextEvent)
   TextEvent(text_kernel.TextEvent)
+  TreeEvent(event: tree_kernel.TreeEvent)
 }
 
 /// The state of a channel, in the form that the stored formats carry. Those
@@ -413,6 +429,7 @@ pub type Snapshot {
   SequenceSummary(state: Sequence(Json))
   RichTextSnapshot(document: rich_text.Document)
   TextSummary(state: Text)
+  TreeSnapshot(snapshot: tree_kernel.TreeSnapshot)
 }
 
 pub type Resolution {
@@ -443,6 +460,7 @@ pub type LocalOperationMeta {
   DirectoryMeta(message_id: Int)
   SequenceMeta(message_id: Int)
   TextMeta(message_id: Int)
+  TreeMeta(revision: fluid_ids.StableId)
 }
 
 /// The metadata that the sequencer assigns to a sequenced operation. The map
@@ -503,6 +521,9 @@ pub type ChannelError {
   /// protect, so those refusals arrive here, and not in an error type of that
   /// kernel.
   UnsupportedP2p(detail: String)
+  TreeFailure(error: tree_types.TreeError)
+  MissingDocumentContext(detail: String)
+  UnsupportedTreeOperation(detail: String)
 }
 
 pub fn channel_type(state: ChannelState) -> ChannelType {
@@ -528,6 +549,7 @@ pub fn channel_type(state: ChannelState) -> ChannelType {
     SequenceState(_) -> SequenceChannel
     RichTextState(_) -> RichTextChannel
     TextState(_) -> TextChannel
+    TreeState(_) -> TreeChannel
   }
 }
 
@@ -554,6 +576,7 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
     SequenceSummary(_) -> SequenceChannel
     RichTextSnapshot(_) -> RichTextChannel
     TextSummary(_) -> TextChannel
+    TreeSnapshot(_) -> TreeChannel
   }
 }
 
@@ -592,6 +615,7 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
     InitSequence -> SequenceState(sequence_kernel.new(replica_id.new(replica)))
     InitRichText -> RichTextState(rich_text_kernel.new())
     InitText -> TextState(text_kernel.new(replica_id.new(replica)))
+    InitTree(state) -> TreeState(state)
   }
 }
 
@@ -684,6 +708,7 @@ pub fn from_snapshot(
       Ok(RichTextState(rich_text_kernel.from_summary(document)))
     TextSummary(state) ->
       Ok(TextState(text_kernel.from_sequenced(state, replica_id.new(replica))))
+    TreeSnapshot(_) -> Error("tree snapshot requires document context")
   }
 }
 
@@ -702,40 +727,48 @@ fn or_map_kernel_error_detail(error: or_map_kernel.KernelError) -> String {
 }
 
 /// The confirmed state, which contains the sequenced data only, as a summary
-/// captures it.
-pub fn snapshot(state: ChannelState) -> Snapshot {
+/// captures it. A tree snapshot still needs document context to encode.
+pub fn snapshot(state: ChannelState) -> Result(Snapshot, ChannelError) {
   case state {
-    MapState(kernel) -> MapSnapshot(map_kernel.sequenced_entries(kernel))
-    CounterState(kernel) -> CounterSnapshot(counter_sequenced_value(kernel))
-    PnCounterState(kernel) -> PnCounterSnapshot(kernel.sequenced)
-    GCounterState(kernel) -> GCounterSnapshot(kernel.sequenced)
-    LwwRegisterState(kernel) -> LwwRegisterSnapshot(kernel.sequenced)
-    LwwMapState(kernel) -> LwwMapSnapshot(kernel.sequenced)
-    MvRegisterState(kernel) -> MvRegisterSnapshot(kernel.sequenced)
-    OrMapState(kernel) -> OrMapSnapshot(kernel.mode, kernel.sequenced)
-    OrSetState(kernel) -> OrSetSnapshot(kernel.sequenced)
-    GSetState(kernel) -> GSetSnapshot(kernel.sequenced)
-    TwoPSetState(kernel) -> TwoPSetSnapshot(kernel.sequenced)
+    MapState(kernel) -> Ok(MapSnapshot(map_kernel.sequenced_entries(kernel)))
+    CounterState(kernel) -> Ok(CounterSnapshot(counter_sequenced_value(kernel)))
+    PnCounterState(kernel) -> Ok(PnCounterSnapshot(kernel.sequenced))
+    GCounterState(kernel) -> Ok(GCounterSnapshot(kernel.sequenced))
+    LwwRegisterState(kernel) -> Ok(LwwRegisterSnapshot(kernel.sequenced))
+    LwwMapState(kernel) -> Ok(LwwMapSnapshot(kernel.sequenced))
+    MvRegisterState(kernel) -> Ok(MvRegisterSnapshot(kernel.sequenced))
+    OrMapState(kernel) -> Ok(OrMapSnapshot(kernel.mode, kernel.sequenced))
+    OrSetState(kernel) -> Ok(OrSetSnapshot(kernel.sequenced))
+    GSetState(kernel) -> Ok(GSetSnapshot(kernel.sequenced))
+    TwoPSetState(kernel) -> Ok(TwoPSetSnapshot(kernel.sequenced))
     RegisterCollectionState(kernel) ->
-      RegisterCollectionSnapshot(register_collection_kernel.summary_registers(
-        kernel,
-      ))
-    ClaimsState(kernel) -> ClaimsSnapshot(claims_kernel.summary_entries(kernel))
+      Ok(
+        RegisterCollectionSnapshot(register_collection_kernel.summary_registers(
+          kernel,
+        )),
+      )
+    ClaimsState(kernel) ->
+      Ok(ClaimsSnapshot(claims_kernel.summary_entries(kernel)))
     TaskManagerState(kernel) ->
-      TaskManagerSnapshot(task_manager_kernel.summary_queues(kernel))
+      Ok(TaskManagerSnapshot(task_manager_kernel.summary_queues(kernel)))
     PactMapState(kernel) ->
-      PactMapSnapshot(pact_map_kernel.summary_entries(kernel))
-    JsonOtState(kernel) -> JsonOtSnapshot(json_ot_kernel.summary(kernel))
+      Ok(PactMapSnapshot(pact_map_kernel.summary_entries(kernel)))
+    JsonOtState(kernel) -> Ok(JsonOtSnapshot(json_ot_kernel.summary(kernel)))
     DirectoryState(kernel) ->
-      DirectorySnapshot(directory_kernel.summary_tree(kernel))
+      Ok(DirectorySnapshot(directory_kernel.summary_tree(kernel)))
     OrderedCollectionState(kernel) ->
-      OrderedCollectionSnapshot(
+      Ok(OrderedCollectionSnapshot(
         ordered_collection_kernel.summary_queue(kernel),
         ordered_collection_kernel.summary_jobs(kernel),
-      )
-    SequenceState(kernel) -> SequenceSummary(kernel.sequenced)
-    RichTextState(kernel) -> RichTextSnapshot(rich_text_kernel.summary(kernel))
-    TextState(kernel) -> TextSummary(kernel.sequenced)
+      ))
+    SequenceState(kernel) -> Ok(SequenceSummary(kernel.sequenced))
+    RichTextState(kernel) ->
+      Ok(RichTextSnapshot(rich_text_kernel.summary(kernel)))
+    TextState(kernel) -> Ok(TextSummary(kernel.sequenced))
+    TreeState(kernel) ->
+      tree_kernel.snapshot(kernel)
+      |> result.map(TreeSnapshot)
+      |> result.map_error(TreeFailure)
   }
 }
 
@@ -751,87 +784,94 @@ fn counter_sequenced_value(kernel: counter_kernel.CounterState) -> Int {
 /// The current optimistic view, as an attach operation captures it. Every local
 /// edit of a detached channel is pending, so this function must include them,
 /// and `snapshot` does not.
-pub fn attach_snapshot(state: ChannelState) -> Snapshot {
+pub fn attach_snapshot(state: ChannelState) -> Result(Snapshot, ChannelError) {
   case state {
-    MapState(kernel) -> MapSnapshot(map_kernel.entries(kernel))
-    CounterState(kernel) -> CounterSnapshot(kernel.value)
-    PnCounterState(kernel) -> PnCounterSnapshot(kernel.optimistic)
-    GCounterState(kernel) -> GCounterSnapshot(kernel.optimistic)
-    LwwRegisterState(kernel) -> LwwRegisterSnapshot(kernel.optimistic)
-    LwwMapState(kernel) -> LwwMapSnapshot(kernel.optimistic)
-    MvRegisterState(kernel) -> MvRegisterSnapshot(kernel.optimistic)
-    OrMapState(kernel) -> OrMapSnapshot(kernel.mode, kernel.optimistic)
-    OrSetState(kernel) -> OrSetSnapshot(kernel.optimistic)
-    GSetState(kernel) -> GSetSnapshot(kernel.optimistic)
-    TwoPSetState(kernel) -> TwoPSetSnapshot(kernel.optimistic)
+    MapState(kernel) -> Ok(MapSnapshot(map_kernel.entries(kernel)))
+    CounterState(kernel) -> Ok(CounterSnapshot(kernel.value))
+    PnCounterState(kernel) -> Ok(PnCounterSnapshot(kernel.optimistic))
+    GCounterState(kernel) -> Ok(GCounterSnapshot(kernel.optimistic))
+    LwwRegisterState(kernel) -> Ok(LwwRegisterSnapshot(kernel.optimistic))
+    LwwMapState(kernel) -> Ok(LwwMapSnapshot(kernel.optimistic))
+    MvRegisterState(kernel) -> Ok(MvRegisterSnapshot(kernel.optimistic))
+    OrMapState(kernel) -> Ok(OrMapSnapshot(kernel.mode, kernel.optimistic))
+    OrSetState(kernel) -> Ok(OrSetSnapshot(kernel.optimistic))
+    GSetState(kernel) -> Ok(GSetSnapshot(kernel.optimistic))
+    TwoPSetState(kernel) -> Ok(TwoPSetSnapshot(kernel.optimistic))
     RegisterCollectionState(kernel) ->
-      RegisterCollectionSnapshot(register_collection_kernel.summary_registers(
-        kernel,
-      ))
-    ClaimsState(kernel) -> ClaimsSnapshot(claims_kernel.summary_entries(kernel))
+      Ok(
+        RegisterCollectionSnapshot(register_collection_kernel.summary_registers(
+          kernel,
+        )),
+      )
+    ClaimsState(kernel) ->
+      Ok(ClaimsSnapshot(claims_kernel.summary_entries(kernel)))
     TaskManagerState(kernel) ->
-      TaskManagerSnapshot(task_manager_kernel.summary_queues(kernel))
+      Ok(TaskManagerSnapshot(task_manager_kernel.summary_queues(kernel)))
     // PactMap is a consensus kernel with no optimistic local state (like
     // task_manager); attach carries the confirmed summary.
     PactMapState(kernel) ->
-      PactMapSnapshot(pact_map_kernel.summary_entries(kernel))
+      Ok(PactMapSnapshot(pact_map_kernel.summary_entries(kernel)))
     JsonOtState(kernel) ->
       case json_ot_kernel.view(kernel) {
-        Ok(document) -> JsonOtSnapshot(document)
-        Error(_) -> JsonOtSnapshot(json_ot_kernel.summary(kernel))
+        Ok(document) -> Ok(JsonOtSnapshot(document))
+        Error(_) -> Ok(JsonOtSnapshot(json_ot_kernel.summary(kernel)))
       }
     // Directory attach carries the sequenced tree only; detached local edits
     // (pending, non-summarized) are treated like the other non-optimistic
     // kernels here. The demo and multi-client flows always attach first.
     DirectoryState(kernel) ->
-      DirectorySnapshot(directory_kernel.summary_tree(kernel))
+      Ok(DirectorySnapshot(directory_kernel.summary_tree(kernel)))
     // The queue kernel keeps a single state (no pending/sequenced split), so
     // the optimistic attach view equals the confirmed summary; detached
     // adds/acquires are already folded into it and travel in the attach.
     OrderedCollectionState(kernel) ->
-      OrderedCollectionSnapshot(
+      Ok(OrderedCollectionSnapshot(
         ordered_collection_kernel.summary_queue(kernel),
         ordered_collection_kernel.summary_jobs(kernel),
-      )
-    SequenceState(kernel) -> SequenceSummary(kernel.optimistic)
+      ))
+    SequenceState(kernel) -> Ok(SequenceSummary(kernel.optimistic))
     RichTextState(kernel) ->
       case rich_text_kernel.view(kernel) {
-        Ok(document) -> RichTextSnapshot(document)
-        Error(_) -> RichTextSnapshot(rich_text_kernel.summary(kernel))
+        Ok(document) -> Ok(RichTextSnapshot(document))
+        Error(_) -> Ok(RichTextSnapshot(rich_text_kernel.summary(kernel)))
       }
-    TextState(kernel) -> TextSummary(kernel.optimistic)
+    TextState(kernel) -> Ok(TextSummary(kernel.optimistic))
+    TreeState(_) ->
+      Error(UnsupportedTreeOperation("tree attach requires document context"))
   }
 }
 
 pub fn attach_state(
   state: ChannelState,
   replica replica: String,
-) -> ChannelState {
+) -> Result(ChannelState, ChannelError) {
   case state {
     LwwMapState(kernel) ->
-      LwwMapState(lww_map_kernel.promote_attach(
-        lww_map_kernel.LwwMapState(
-          ..kernel,
-          replica_id: replica_id.new(replica),
-        ),
-      ))
+      Ok(
+        LwwMapState(lww_map_kernel.promote_attach(
+          lww_map_kernel.LwwMapState(
+            ..kernel,
+            replica_id: replica_id.new(replica),
+          ),
+        )),
+      )
     LwwRegisterState(kernel) ->
-      LwwRegisterState(
+      Ok(LwwRegisterState(
         lww_register_kernel.LwwRegisterState(
           ..kernel,
           replica_id: replica_id.new(replica),
           sequenced: kernel.optimistic,
           pending: [],
         ),
-      )
-    OrMapState(kernel) -> OrMapState(or_map_kernel.promote_attach(kernel))
-    OrSetState(kernel) -> OrSetState(or_set_kernel.promote_attach(kernel))
-    GSetState(kernel) -> GSetState(g_set_kernel.promote_attach(kernel))
+      ))
+    OrMapState(kernel) -> Ok(OrMapState(or_map_kernel.promote_attach(kernel)))
+    OrSetState(kernel) -> Ok(OrSetState(or_set_kernel.promote_attach(kernel)))
+    GSetState(kernel) -> Ok(GSetState(g_set_kernel.promote_attach(kernel)))
     TwoPSetState(kernel) ->
-      TwoPSetState(two_p_set_kernel.promote_attach(kernel))
+      Ok(TwoPSetState(two_p_set_kernel.promote_attach(kernel)))
     SequenceState(kernel) ->
-      SequenceState(sequence_kernel.promote_attach(kernel))
-    TextState(kernel) -> TextState(text_kernel.promote_attach(kernel))
+      Ok(SequenceState(sequence_kernel.promote_attach(kernel)))
+    TextState(kernel) -> Ok(TextState(text_kernel.promote_attach(kernel)))
     MapState(_)
     | CounterState(_)
     | PnCounterState(_)
@@ -845,13 +885,16 @@ pub fn attach_state(
     | DirectoryState(_)
     | OrderedCollectionState(_)
     | RichTextState(_) ->
-      case from_snapshot(attach_snapshot(state), replica: replica) {
-        Ok(attached) -> attached
-        // The snapshot comes from `state` itself, so its value mode always
-        // agrees. The arm keeps the state as it is, because a channel must
-        // not panic.
-        Error(_) -> state
+      case attach_snapshot(state) {
+        Ok(snapshot) ->
+          case from_snapshot(snapshot, replica: replica) {
+            Ok(attached) -> Ok(attached)
+            Error(_) -> Ok(state)
+          }
+        Error(_) -> Ok(state)
       }
+    TreeState(_) ->
+      Error(UnsupportedTreeOperation("tree attach requires document context"))
   }
 }
 
@@ -874,6 +917,8 @@ pub fn apply_remote(
   ChannelError,
 ) {
   case state, operation {
+    TreeState(_), TreeOperation(_) ->
+      Error(UnsupportedTreeOperation("tree receipt requires document context"))
     MapState(kernel), MapOperation(operation) -> {
       let #(kernel, events) = map_kernel.apply_remote(kernel, operation)
       Ok(#(MapState(kernel), list.map(events, MapEvent), []))
@@ -1052,6 +1097,7 @@ pub fn apply_remote(
     | SequenceState(_), _
     | RichTextState(_), _
     | TextState(_), _
+    | TreeState(_), _
     -> Error(wrong_channel_type(state, "remote op"))
   }
 }
@@ -1143,7 +1189,8 @@ pub fn applies_own_on_sequence(state: ChannelState) -> Bool {
     | OrderedCollectionState(_)
     | SequenceState(_)
     | RichTextState(_)
-    | TextState(_) -> False
+    | TextState(_)
+    | TreeState(_) -> False
   }
 }
 
@@ -1198,7 +1245,8 @@ pub fn on_leave(
     | DirectoryState(_)
     | SequenceState(_)
     | RichTextState(_)
-    | TextState(_) -> #(state, [])
+    | TextState(_)
+    | TreeState(_) -> #(state, [])
   }
 }
 
@@ -1241,6 +1289,8 @@ pub fn ack_local(
   ChannelError,
 ) {
   case state, operation {
+    TreeState(_), TreeOperation(_) ->
+      Error(UnsupportedTreeOperation("tree receipt requires document context"))
     MapState(kernel), MapOperation(operation) ->
       case map_kernel.ack_local(kernel, operation) {
         Ok(kernel) -> Ok(#(MapState(kernel), [], None))
@@ -1286,6 +1336,7 @@ pub fn ack_local(
         SequenceMeta(_) ->
           Error(UnexpectedAck("counter ack has sequence metadata"))
         TextMeta(_) -> Error(UnexpectedAck("counter ack has text metadata"))
+        TreeMeta(_) -> Error(UnexpectedAck("tree metadata on a non-tree ack"))
       }
     PnCounterState(kernel), PnCounterOperation(operation) ->
       case local {
@@ -1328,6 +1379,7 @@ pub fn ack_local(
         SequenceMeta(_) ->
           Error(UnexpectedAck("pn-counter ack has sequence metadata"))
         TextMeta(_) -> Error(UnexpectedAck("pn-counter ack has text metadata"))
+        TreeMeta(_) -> Error(UnexpectedAck("tree metadata on a non-tree ack"))
       }
     GCounterState(kernel), GCounterOperation(operation) ->
       case local {
@@ -1359,6 +1411,7 @@ pub fn ack_local(
         | SequenceMeta(_)
         | TextMeta(_) ->
           Error(UnexpectedAck("g-counter ack is missing its local message id"))
+        TreeMeta(_) -> Error(UnexpectedAck("tree metadata on a non-tree ack"))
       }
     LwwRegisterState(kernel), LwwRegisterOperation(operation) ->
       case local {
@@ -1389,6 +1442,7 @@ pub fn ack_local(
           Error(UnexpectedAck(
             "LWW register ack is missing its local message id",
           ))
+        TreeMeta(_) -> Error(UnexpectedAck("tree metadata on a non-tree ack"))
       }
     LwwMapState(kernel), LwwMapOperation(operation) ->
       case local {
@@ -1417,6 +1471,7 @@ pub fn ack_local(
         | SequenceMeta(_)
         | TextMeta(_) ->
           Error(UnexpectedAck("LWW map ack is missing its local message id"))
+        TreeMeta(_) -> Error(UnexpectedAck("tree metadata on a non-tree ack"))
       }
     MvRegisterState(kernel), MvRegisterOperation(operation) ->
       case local {
@@ -1448,6 +1503,7 @@ pub fn ack_local(
         | SequenceMeta(_)
         | TextMeta(_) ->
           Error(UnexpectedAck("mv-register ack is missing its local message id"))
+        TreeMeta(_) -> Error(UnexpectedAck("tree metadata on a non-tree ack"))
       }
     OrMapState(kernel), OrMapOperation(operation) ->
       case local {
@@ -1490,6 +1546,7 @@ pub fn ack_local(
         SequenceMeta(_) ->
           Error(UnexpectedAck("or-map ack has sequence metadata"))
         TextMeta(_) -> Error(UnexpectedAck("or-map ack has text metadata"))
+        TreeMeta(_) -> Error(UnexpectedAck("tree metadata on a non-tree ack"))
       }
     OrSetState(kernel), OrSetOperation(operation) ->
       case local {
@@ -1521,6 +1578,7 @@ pub fn ack_local(
         | SequenceMeta(_)
         | TextMeta(_) ->
           Error(UnexpectedAck("or-set ack is missing its local message id"))
+        TreeMeta(_) -> Error(UnexpectedAck("tree metadata on a non-tree ack"))
       }
     GSetState(kernel), GSetOperation(operation) ->
       case local {
@@ -1552,6 +1610,7 @@ pub fn ack_local(
         | SequenceMeta(_)
         | TextMeta(_) ->
           Error(UnexpectedAck("g-set ack is missing its local message id"))
+        TreeMeta(_) -> Error(UnexpectedAck("tree metadata on a non-tree ack"))
       }
     TwoPSetState(kernel), TwoPSetOperation(operation) ->
       case local {
@@ -1583,6 +1642,7 @@ pub fn ack_local(
         | SequenceMeta(_)
         | TextMeta(_) ->
           Error(UnexpectedAck("two-p-set ack is missing its local message id"))
+        TreeMeta(_) -> Error(UnexpectedAck("tree metadata on a non-tree ack"))
       }
     RegisterCollectionState(kernel), RegisterCollectionOperation(operation) -> {
       let #(kernel, events, _is_winner) =
@@ -1651,6 +1711,7 @@ pub fn ack_local(
           Error(UnexpectedAck(
             "task-manager ack is missing its local message id",
           ))
+        TreeMeta(_) -> Error(UnexpectedAck("tree metadata on a non-tree ack"))
       }
     JsonOtState(kernel), JsonOtOperation(operation) ->
       case
@@ -1696,6 +1757,7 @@ pub fn ack_local(
         | SequenceMeta(_)
         | TextMeta(_) ->
           Error(UnexpectedAck("directory ack is missing its local metadata"))
+        TreeMeta(_) -> Error(UnexpectedAck("tree metadata on a non-tree ack"))
       }
     OrderedCollectionState(kernel), OrderedCollectionOperation(operation) -> {
       // The queue kernel is non-optimistic: the own operation takes effect
@@ -1748,6 +1810,7 @@ pub fn ack_local(
         | DirectoryMeta(_)
         | TextMeta(_) ->
           Error(UnexpectedAck("sequence ack is missing its local message id"))
+        TreeMeta(_) -> Error(UnexpectedAck("tree metadata on a non-tree ack"))
       }
     RichTextState(kernel), RichTextOperation(operation) ->
       case
@@ -1791,6 +1854,7 @@ pub fn ack_local(
         | DirectoryMeta(_)
         | SequenceMeta(_) ->
           Error(UnexpectedAck("text ack is missing its local message id"))
+        TreeMeta(_) -> Error(UnexpectedAck("tree metadata on a non-tree ack"))
       }
     LwwMapState(_), _
     | LwwRegisterState(_), _
@@ -1813,6 +1877,7 @@ pub fn ack_local(
     | SequenceState(_), _
     | RichTextState(_), _
     | TextState(_), _
+    | TreeState(_), _
     -> Error(wrong_channel_type(state, "local ack"))
   }
 }
@@ -2162,6 +2227,7 @@ pub fn apply_p2p_local(
     | SequenceState(_), _
     | RichTextState(_), _
     | TextState(_), _
+    | TreeState(_), _
     -> Error(unsupported_p2p(state, "local p2p edit"))
   }
 }
@@ -2301,6 +2367,7 @@ pub fn merge_p2p_snapshot(
     | SequenceState(_), _
     | RichTextState(_), _
     | TextState(_), _
+    | TreeState(_), _
     -> Error(unsupported_p2p(state, "remote p2p snapshot"))
   }
 }
@@ -2372,7 +2439,8 @@ pub fn take_outbound(
     | DirectoryState(_)
     | OrderedCollectionState(_)
     | SequenceState(_)
-    | TextState(_) -> #(state, None)
+    | TextState(_)
+    | TreeState(_) -> #(state, None)
   }
 }
 
@@ -2389,6 +2457,8 @@ fn wrong_channel_type(state: ChannelState, context: String) -> ChannelError {
 /// client submitted. This is the check on the FIFO ack matching.
 pub fn same_shape(ours: ChannelOperation, echoed: ChannelOperation) -> Bool {
   case ours, echoed {
+    TreeOperation(ours), TreeOperation(echoed) ->
+      ours.revision == echoed.revision && ours.originator == echoed.originator
     MapOperation(ours), MapOperation(echoed) -> same_map_shape(ours, echoed)
     CounterOperation(counter_kernel.Increment(ours)),
       CounterOperation(counter_kernel.Increment(echoed))
@@ -2455,6 +2525,7 @@ pub fn same_shape(ours: ChannelOperation, echoed: ChannelOperation) -> Bool {
     | SequenceOperation(_), _
     | RichTextOperation(_), _
     | TextOperation(_), _
+    | TreeOperation(_), _
     -> False
   }
 }
@@ -2667,6 +2738,7 @@ fn same_task_manager_shape(
 /// their bytes.
 pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
   case ours, echoed {
+    TreeSnapshot(ours), TreeSnapshot(echoed) -> ours == echoed
     MapSnapshot(ours), MapSnapshot(echoed) -> same_entries(ours, echoed)
     CounterSnapshot(ours), CounterSnapshot(echoed) -> ours == echoed
     PnCounterSnapshot(ours), PnCounterSnapshot(echoed) -> ours == echoed
@@ -2724,6 +2796,7 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
     | SequenceSummary(_), _
     | RichTextSnapshot(_), _
     | TextSummary(_), _
+    | TreeSnapshot(_), _
     -> False
   }
 }
@@ -2833,36 +2906,39 @@ fn handle_values(state: ChannelState) -> List(Json) {
     }
     // Text holds only graphemes, never nested DDS handles.
     TextState(_) -> []
+    TreeState(_) -> []
   }
 }
 
 /// Encode the payload of a snapshot, whose shape depends on the channel type.
 /// That payload is the `snapshot` field of the attach operation, and the `data`
 /// field of the channel in the summary blob.
-pub fn encode_snapshot(snapshot: Snapshot) -> Json {
+pub fn encode_snapshot(snapshot: Snapshot) -> Result(Json, ChannelError) {
   case snapshot {
-    MapSnapshot(entries) -> wire.encode_entries(entries)
-    CounterSnapshot(value) -> json.int(value)
-    PnCounterSnapshot(state) -> pn_counter.to_json(state)
-    GCounterSnapshot(state) -> g_counter.to_json(state)
-    MvRegisterSnapshot(state) -> mv_register.to_json(state)
-    LwwRegisterSnapshot(state) -> lww_register.to_json(state)
-    LwwMapSnapshot(state) -> lww_map.to_json(state)
-    OrMapSnapshot(_, state) -> or_map.to_json(state)
-    OrSetSnapshot(state) -> or_set.to_json(state)
-    GSetSnapshot(state) -> g_set.to_json(state)
-    TwoPSetSnapshot(state) -> two_p_set.to_json(state)
-    RegisterCollectionSnapshot(registers) -> encode_registers(registers)
-    ClaimsSnapshot(entries) -> encode_claims(entries)
-    TaskManagerSnapshot(queues) -> encode_task_queues(queues)
-    PactMapSnapshot(entries) -> encode_pact_entries(entries)
-    JsonOtSnapshot(document) -> json_ot.to_json(document)
-    DirectorySnapshot(summary) -> encode_directory_summary(summary)
+    MapSnapshot(entries) -> Ok(wire.encode_entries(entries))
+    CounterSnapshot(value) -> Ok(json.int(value))
+    PnCounterSnapshot(state) -> Ok(pn_counter.to_json(state))
+    GCounterSnapshot(state) -> Ok(g_counter.to_json(state))
+    MvRegisterSnapshot(state) -> Ok(mv_register.to_json(state))
+    LwwRegisterSnapshot(state) -> Ok(lww_register.to_json(state))
+    LwwMapSnapshot(state) -> Ok(lww_map.to_json(state))
+    OrMapSnapshot(_, state) -> Ok(or_map.to_json(state))
+    OrSetSnapshot(state) -> Ok(or_set.to_json(state))
+    GSetSnapshot(state) -> Ok(g_set.to_json(state))
+    TwoPSetSnapshot(state) -> Ok(two_p_set.to_json(state))
+    RegisterCollectionSnapshot(registers) -> Ok(encode_registers(registers))
+    ClaimsSnapshot(entries) -> Ok(encode_claims(entries))
+    TaskManagerSnapshot(queues) -> Ok(encode_task_queues(queues))
+    PactMapSnapshot(entries) -> Ok(encode_pact_entries(entries))
+    JsonOtSnapshot(document) -> Ok(json_ot.to_json(document))
+    DirectorySnapshot(summary) -> Ok(encode_directory_summary(summary))
     OrderedCollectionSnapshot(queue, jobs) ->
-      encode_ordered_snapshot(queue, jobs)
-    SequenceSummary(state) -> sequence.to_json(state, fn(value) { value })
-    RichTextSnapshot(document) -> rich_text.document_to_json(document)
-    TextSummary(state) -> text.to_json(state)
+      Ok(encode_ordered_snapshot(queue, jobs))
+    SequenceSummary(state) -> Ok(sequence.to_json(state, fn(value) { value }))
+    RichTextSnapshot(document) -> Ok(rich_text.document_to_json(document))
+    TextSummary(state) -> Ok(text.to_json(state))
+    TreeSnapshot(_) ->
+      Error(MissingDocumentContext("tree snapshot requires document context"))
   }
 }
 
@@ -2898,36 +2974,43 @@ fn encode_create_info(create: directory_kernel.CreateInfo) -> Json {
 
 /// The decoder for a snapshot payload. The channel type selects it, and the
 /// envelope that carries the payload names that type in a field.
-pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
+pub fn snapshot_decoder(
+  channel_type: ChannelType,
+) -> Result(Decoder(Snapshot), ChannelError) {
   case channel_type {
-    MapChannel -> decode.list(wire.entry_decoder()) |> decode.map(MapSnapshot)
-    CounterChannel -> decode.int |> decode.map(CounterSnapshot)
-    PnCounterChannel -> pn_counter_snapshot_decoder()
-    GCounterChannel -> g_counter_snapshot_decoder()
-    MvRegisterChannel -> mv_register_snapshot_decoder()
+    TreeChannel ->
+      Error(MissingDocumentContext("tree snapshot requires document context"))
+    MapChannel ->
+      Ok(decode.list(wire.entry_decoder()) |> decode.map(MapSnapshot))
+    CounterChannel -> Ok(decode.int |> decode.map(CounterSnapshot))
+    PnCounterChannel -> Ok(pn_counter_snapshot_decoder())
+    GCounterChannel -> Ok(g_counter_snapshot_decoder())
+    MvRegisterChannel -> Ok(mv_register_snapshot_decoder())
     LwwRegisterChannel ->
-      lww_register_decoder() |> decode.map(LwwRegisterSnapshot)
-    LwwMapChannel -> lww_map_kernel.decoder() |> decode.map(LwwMapSnapshot)
-    OrMapChannel -> or_map_snapshot_decoder()
-    OrSetChannel -> or_set_snapshot_decoder()
-    GSetChannel -> g_set_snapshot_decoder()
-    TwoPSetChannel -> two_p_set_snapshot_decoder()
+      Ok(lww_register_decoder() |> decode.map(LwwRegisterSnapshot))
+    LwwMapChannel -> Ok(lww_map_kernel.decoder() |> decode.map(LwwMapSnapshot))
+    OrMapChannel -> Ok(or_map_snapshot_decoder())
+    OrSetChannel -> Ok(or_set_snapshot_decoder())
+    GSetChannel -> Ok(g_set_snapshot_decoder())
+    TwoPSetChannel -> Ok(two_p_set_snapshot_decoder())
     RegisterCollectionChannel ->
-      decode.list(register_entry_decoder())
-      |> decode.map(RegisterCollectionSnapshot)
+      Ok(
+        decode.list(register_entry_decoder())
+        |> decode.map(RegisterCollectionSnapshot),
+      )
     ClaimsChannel ->
-      decode.list(claim_entry_decoder()) |> decode.map(ClaimsSnapshot)
+      Ok(decode.list(claim_entry_decoder()) |> decode.map(ClaimsSnapshot))
     TaskManagerChannel ->
-      decode.list(task_queue_decoder()) |> decode.map(TaskManagerSnapshot)
+      Ok(decode.list(task_queue_decoder()) |> decode.map(TaskManagerSnapshot))
     PactMapChannel ->
-      decode.list(pact_entry_decoder()) |> decode.map(PactMapSnapshot)
-    JsonOtChannel -> json_ot.decoder() |> decode.map(JsonOtSnapshot)
+      Ok(decode.list(pact_entry_decoder()) |> decode.map(PactMapSnapshot))
+    JsonOtChannel -> Ok(json_ot.decoder() |> decode.map(JsonOtSnapshot))
     DirectoryChannel ->
-      directory_summary_decoder() |> decode.map(DirectorySnapshot)
-    OrderedCollectionChannel -> ordered_snapshot_decoder()
-    SequenceChannel -> sequence_summary_decoder()
-    RichTextChannel -> rich_text_snapshot_decoder()
-    TextChannel -> text_summary_decoder()
+      Ok(directory_summary_decoder() |> decode.map(DirectorySnapshot))
+    OrderedCollectionChannel -> Ok(ordered_snapshot_decoder())
+    SequenceChannel -> Ok(sequence_summary_decoder())
+    RichTextChannel -> Ok(rich_text_snapshot_decoder())
+    TextChannel -> Ok(text_summary_decoder())
   }
 }
 

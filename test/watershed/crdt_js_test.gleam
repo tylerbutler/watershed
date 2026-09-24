@@ -17,6 +17,9 @@
 //// itself.
 
 @target(javascript)
+import watershed/tree/checked_test as checked
+
+@target(javascript)
 import gleam/int
 @target(javascript)
 import gleam/json
@@ -89,12 +92,12 @@ pub fn set_map_public_members_removal_and_mode_errors_test() -> Nil {
   let document = member.document
   let map = crdt_js.root(document)
   p2p_fake.settle(world)
-  let before = crdt_js.digest(document)
+  let before = checked.value(crdt_js.digest(document))
   crdt_js.or_map_remove_member(map, "missing", "draft")
   |> expect.to_equal(Ok(Nil))
   crdt_js.or_map_remove_key(map, "missing") |> expect.to_equal(Ok(Nil))
   crdt_js.or_map_value(map, "missing") |> expect.to_equal(Ok(Error(Nil)))
-  crdt_js.digest(document) |> expect.to_equal(before)
+  checked.value(crdt_js.digest(document)) |> expect.to_equal(before)
   crdt_js.or_map_add_member(map, "doc", "draft") |> expect.to_equal(Ok(Nil))
   let assert Ok(old_add) = crdt_js.export_snapshot(document)
   crdt_js.or_map_remove_member(map, "doc", "draft")
@@ -123,9 +126,9 @@ pub fn set_map_public_members_removal_and_mode_errors_test() -> Nil {
     crdt_js.subscribe_or_map(map, fn(event) {
       transport_js.set_cell(events, [event, ..transport_js.get_cell(events)])
     })
-  let before = crdt_js.digest(document)
+  let before = checked.value(crdt_js.digest(document))
   crdt_js.or_map_add_member(map, "doc", "handoff") |> expect.to_equal(Ok(Nil))
-  crdt_js.digest(document) |> expect.to_not_equal(before)
+  checked.value(crdt_js.digest(document)) |> expect.to_not_equal(before)
   transport_js.get_cell(events) |> expect.to_equal([])
   crdt_js.or_map_remove_member(map, "doc", "absent")
   |> expect.to_equal(Ok(Nil))
@@ -199,7 +202,8 @@ pub fn mv_or_map_public_mesh_import_and_late_join_test() -> Nil {
       crdt_js.config(room, "imported", tag, kind, signaling),
       snapshot,
     )
-  crdt_js.digest(imported) |> expect.to_equal(crdt_js.digest(a.document))
+  checked.value(crdt_js.digest(imported))
+  |> expect.to_equal(checked.value(crdt_js.digest(a.document)))
   let assert Ok(Nil) = crdt_js.or_map_set_mv_register(map_a, "gate", "resolved")
   p2p_fake.settle(world)
   crdt_js.or_map_values(map_b, "gate") |> expect.to_equal(Ok(Ok(["resolved"])))
@@ -250,11 +254,11 @@ pub fn set_map_mesh_fanout_repairs_eventless_add_and_key_removal_test() -> Nil {
   drive_convergence(world, clock, interval, documents, 12)
   crdt_js.or_map_value(map_c, "doc")
   |> expect.to_equal(Ok(Ok(or_map_kernel.SetMembers(["draft"]))))
-  let before = crdt_js.digest(c.document)
+  let before = checked.value(crdt_js.digest(c.document))
   crdt_js.or_map_add_member(map_a, "doc", "draft") |> expect.to_equal(Ok(Nil))
   p2p_fake.settle(world)
   drive_convergence(world, clock, interval, documents, 12)
-  crdt_js.digest(c.document) |> expect.to_not_equal(before)
+  checked.value(crdt_js.digest(c.document)) |> expect.to_not_equal(before)
   transport_js.get_cell(events)
   |> expect.to_equal([or_map_kernel.SetMembersUpdated("doc", ["draft"])])
   // C has observed the duplicate tag before it removes the whole key.
@@ -309,7 +313,7 @@ pub fn lww_map_mesh_metadata_forwarding_import_and_late_join_test() -> Nil {
         })
       #(subscription, events)
     })
-  let before = crdt_js.digest(c.document)
+  let before = checked.value(crdt_js.digest(c.document))
   let assert Ok(Nil) =
     crdt_js.lww_map_remove(crdt_js.root(a.document), "absent")
   drive_convergence(
@@ -319,7 +323,7 @@ pub fn lww_map_mesh_metadata_forwarding_import_and_late_join_test() -> Nil {
     [a.document, b.document, c.document],
     12,
   )
-  crdt_js.digest(c.document) |> expect.to_not_equal(before)
+  checked.value(crdt_js.digest(c.document)) |> expect.to_not_equal(before)
   list.each(observations, fn(observation) {
     transport_js.get_cell(observation.1) |> expect.to_equal([])
   })
@@ -358,7 +362,8 @@ pub fn lww_map_mesh_metadata_forwarding_import_and_late_join_test() -> Nil {
       crdt_js.config(room, "imported", tag, p2p.lww_map_root(), signaling),
       snapshot,
     )
-  crdt_js.digest(imported) |> expect.to_equal(crdt_js.digest(a.document))
+  checked.value(crdt_js.digest(imported))
+  |> expect.to_equal(checked.value(crdt_js.digest(a.document)))
   let assert Ok(Nil) =
     crdt_js.lww_map_set(crdt_js.root(late.document), "absent", "restored")
   drive_convergence(
@@ -457,7 +462,8 @@ pub fn mv_register_mesh_repairs_dropped_and_eventless_writes_test() -> Nil {
   p2p_fake.settle(world)
   let assert Ok(Nil) =
     crdt_js.mv_register_set(crdt_js.root(a.document), "resolved")
-  crdt_js.digest(a.document) |> expect.to_not_equal(crdt_js.digest(b.document))
+  checked.value(crdt_js.digest(a.document))
+  |> expect.to_not_equal(checked.value(crdt_js.digest(b.document)))
   p2p_fake.reconnect(
     world,
     crdt_js.replica_id(a.document),
@@ -855,8 +861,8 @@ pub fn a_late_replica_is_ready_only_after_a_state_transfer_test() -> Nil {
   entries(beta.readies) |> expect.to_equal(["ok"])
   crdt_js.pn_counter_value(crdt_js.root(beta.document))
   |> expect.to_equal(Ok(7))
-  crdt_js.digest(beta.document)
-  |> expect.to_equal(crdt_js.digest(alpha.document))
+  checked.value(crdt_js.digest(beta.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
 
   // The order the bootstrap took, with the transport's own statuses
   // filtered out.
@@ -1438,7 +1444,10 @@ pub fn a_silent_bootstrap_peer_does_not_hold_readiness_test() -> Nil {
   send_raw(
     carol,
     crdt_js.replica_id(beta.document),
-    crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
+    checked.value(crdt_core.encode(
+      carol.document,
+      crdt_core.hello_message(carol.document),
+    )),
   )
   p2p_fake.settle(world)
 
@@ -1481,8 +1490,8 @@ pub fn a_local_edit_is_visible_immediately_and_broadcast_test() -> Nil {
   [alpha.document, beta.document, gamma.document]
   |> list.each(fn(document) {
     crdt_js.pn_counter_value(crdt_js.root(document)) |> expect.to_equal(Ok(7))
-    crdt_js.digest(document)
-    |> expect.to_equal(crdt_js.digest(alpha.document))
+    checked.value(crdt_js.digest(document))
+    |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
   })
   crdt_js.peer_count(alpha.document) |> expect.to_equal(2)
 }
@@ -1622,7 +1631,7 @@ pub fn a_forged_sender_closes_the_peer_test() -> Nil {
   send_raw(
     raw,
     crdt_js.replica_id(alpha.document),
-    crdt_core.encode(forged, crdt_core.hello_message(forged)),
+    checked.value(crdt_core.encode(forged, crdt_core.hello_message(forged))),
   )
   p2p_fake.settle(world)
 
@@ -1649,7 +1658,10 @@ pub fn a_repeated_delta_merges_once_and_reports_once_test() -> Nil {
   send_raw(
     raw,
     target,
-    crdt_core.encode(raw.document, crdt_core.hello_message(raw.document)),
+    checked.value(crdt_core.encode(
+      raw.document,
+      crdt_core.hello_message(raw.document),
+    )),
   )
   let #(_document, delta) = raw_delta(raw.document, 6)
   send_raw(raw, target, delta)
@@ -1678,7 +1690,10 @@ pub fn a_repeated_hello_does_not_repeat_the_state_transfer_test() -> Nil {
 
   let target = crdt_js.replica_id(alpha.document)
   let hello =
-    crdt_core.encode(raw.document, crdt_core.hello_message(raw.document))
+    checked.value(crdt_core.encode(
+      raw.document,
+      crdt_core.hello_message(raw.document),
+    ))
   send_raw(raw, target, hello)
   p2p_fake.settle(world)
   let after_first = list.length(entries(raw.received))
@@ -1722,7 +1737,10 @@ pub fn deltas_are_not_broadcast_before_the_handshake_test() -> Nil {
   send_raw(
     silent,
     crdt_js.replica_id(alpha.document),
-    crdt_core.encode(silent.document, crdt_core.hello_message(silent.document)),
+    checked.value(crdt_core.encode(
+      silent.document,
+      crdt_core.hello_message(silent.document),
+    )),
   )
   p2p_fake.settle(world)
   let assert Ok(Nil) =
@@ -1767,15 +1785,18 @@ pub fn a_rejection_from_a_peer_is_reported_test() -> Nil {
   send_raw(
     raw,
     target,
-    crdt_core.encode(raw.document, crdt_core.hello_message(raw.document)),
+    checked.value(crdt_core.encode(
+      raw.document,
+      crdt_core.hello_message(raw.document),
+    )),
   )
   send_raw(
     raw,
     target,
-    crdt_core.encode(
+    checked.value(crdt_core.encode(
       raw.document,
       crdt_core.rejection_message("compatibilityMismatch", "yours differs"),
-    ),
+    )),
   )
   p2p_fake.settle(world)
 
@@ -2200,7 +2221,8 @@ pub fn a_snapshot_round_trips_and_reattaches_test() -> Nil {
   p2p_fake.settle(world)
   crdt_js.pn_counter_value(crdt_js.root(alpha.document))
   |> expect.to_equal(Ok(10))
-  crdt_js.digest(alpha.document) |> expect.to_equal(crdt_js.digest(restored))
+  checked.value(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(restored)))
 }
 
 @target(javascript)
@@ -2298,19 +2320,20 @@ pub fn merge_snapshot_is_a_join_and_is_idempotent_test() -> Nil {
   crdt_js.or_set_values(target_basket) |> expect.to_equal(Ok(["apples"]))
 
   let assert Ok(_) = crdt_js.merge_snapshot(source, target_before)
-  crdt_js.digest(source) |> expect.to_equal(crdt_js.digest(target))
+  checked.value(crdt_js.digest(source))
+  |> expect.to_equal(checked.value(crdt_js.digest(target)))
   let assert Ok(source_values) = crdt_js.g_set_values(crdt_js.root(source))
   source_values
   |> list.sort(string.compare)
   |> expect.to_equal(["from-source", "from-target"])
 
-  let digest = crdt_js.digest(target)
+  let digest = checked.value(crdt_js.digest(target))
   let assert Ok(second) = crdt_js.merge_snapshot(target, snapshot)
   let crdt_core.Outcome(created: created_again, events: events_again, ..) =
     second
   created_again |> expect.to_equal([])
   events_again |> expect.to_equal([])
-  crdt_js.digest(target) |> expect.to_equal(digest)
+  checked.value(crdt_js.digest(target)) |> expect.to_equal(digest)
   entries(seen) |> expect.to_equal(["from-source"])
 }
 
@@ -2355,8 +2378,8 @@ pub fn merge_snapshot_propagates_to_attached_peers_test() -> Nil {
     12,
   )
 
-  crdt_js.digest(alpha.document)
-  |> expect.to_equal(crdt_js.digest(beta.document))
+  checked.value(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(beta.document)))
   let assert Ok(alpha_values) =
     crdt_js.g_set_values(crdt_js.root(alpha.document))
   alpha_values
@@ -2453,7 +2476,8 @@ pub fn a_detached_imported_document_can_edit_create_subscribe_export_and_attach_
   )
 
   entries(readies) |> expect.to_equal(["ok"])
-  crdt_js.digest(alpha.document) |> expect.to_equal(crdt_js.digest(imported))
+  checked.value(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(imported)))
   let assert Ok(alpha_values) =
     crdt_js.g_set_values(crdt_js.root(alpha.document))
   alpha_values
@@ -2618,7 +2642,8 @@ pub fn an_imported_snapshot_stays_detached_after_a_synchronous_attach_failure_an
   crdt_js.readiness(imported) |> expect.to_equal(Some(Ok(Nil)))
   crdt_js.pn_counter_value(crdt_js.root(alpha.document))
   |> expect.to_equal(Ok(10))
-  crdt_js.digest(alpha.document) |> expect.to_equal(crdt_js.digest(imported))
+  checked.value(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(imported)))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2855,9 +2880,15 @@ pub fn a_healed_edge_converges_every_peer_across_all_three_kinds_test() -> Nil {
   p2p_fake.settle(world)
 
   // The partitions really did diverge before the heal.
-  { crdt_js.digest(alpha.document) == crdt_js.digest(beta.document) }
+  {
+    checked.value(crdt_js.digest(alpha.document))
+    == checked.value(crdt_js.digest(beta.document))
+  }
   |> expect.to_be_true()
-  { crdt_js.digest(alpha.document) != crdt_js.digest(gamma.document) }
+  {
+    checked.value(crdt_js.digest(alpha.document))
+    != checked.value(crdt_js.digest(gamma.document))
+  }
   |> expect.to_be_true()
 
   // Heal one edge only, then let anti-entropy carry the merge the rest of
@@ -2875,9 +2906,9 @@ pub fn a_healed_edge_converges_every_peer_across_all_three_kinds_test() -> Nil {
   // Equal canonical digests across every peer. The digest is the
   // canonical fingerprint: a raw snapshot still carries each replica's own
   // OR-Set tag seed, but the converged logical state is one digest.
-  let converged = crdt_js.digest(alpha.document)
-  crdt_js.digest(beta.document) |> expect.to_equal(converged)
-  crdt_js.digest(gamma.document) |> expect.to_equal(converged)
+  let converged = checked.value(crdt_js.digest(alpha.document))
+  checked.value(crdt_js.digest(beta.document)) |> expect.to_equal(converged)
+  checked.value(crdt_js.digest(gamma.document)) |> expect.to_equal(converged)
 
   // Read back through the handles taken before the split.
   expect_triptych(
@@ -2917,7 +2948,7 @@ pub fn a_healed_edge_converges_every_peer_across_all_three_kinds_test() -> Nil {
   // the digest it agreed on; the late joiner is bootstrapped.
   { crdt_js.repair_count(alpha.document) >= 1 } |> expect.to_be_true()
   crdt_js.last_digest_match(beta.document)
-  |> expect.to_equal(Some(crdt_js.digest(beta.document)))
+  |> expect.to_equal(Some(checked.value(crdt_js.digest(beta.document))))
   crdt_js.bootstrap_state(gamma.document)
   |> expect.to_equal(crdt_js.Bootstrapped)
 }
@@ -2977,9 +3008,9 @@ pub fn an_event_less_change_reaches_the_third_peer_across_a_healed_edge_test() -
     [alpha.document, beta.document, gamma.document],
     12,
   )
-  let baseline = crdt_js.digest(alpha.document)
-  crdt_js.digest(beta.document) |> expect.to_equal(baseline)
-  crdt_js.digest(gamma.document) |> expect.to_equal(baseline)
+  let baseline = checked.value(crdt_js.digest(alpha.document))
+  checked.value(crdt_js.digest(beta.document)) |> expect.to_equal(baseline)
+  checked.value(crdt_js.digest(gamma.document)) |> expect.to_equal(baseline)
 
   // Beat the interval a few more times so the baseline leaves the mesh
   // quiescent. A per-merge timer has fired and fallen silent by now; a
@@ -3004,9 +3035,10 @@ pub fn an_event_less_change_reaches_the_third_peer_across_a_healed_edge_test() -
 
   // The lattice really did diverge, though the membership did not: gamma's
   // digest now differs while alpha and beta hold the baseline.
-  { crdt_js.digest(gamma.document) != baseline } |> expect.to_be_true()
-  crdt_js.digest(alpha.document) |> expect.to_equal(baseline)
-  crdt_js.digest(beta.document) |> expect.to_equal(baseline)
+  { checked.value(crdt_js.digest(gamma.document)) != baseline }
+  |> expect.to_be_true()
+  checked.value(crdt_js.digest(alpha.document)) |> expect.to_equal(baseline)
+  checked.value(crdt_js.digest(beta.document)) |> expect.to_equal(baseline)
 
   // Heal one edge only: beta to gamma. beta merges gamma's event-less
   // change on the handshake — its digest moves, but the membership it
@@ -3015,10 +3047,14 @@ pub fn an_event_less_change_reaches_the_third_peer_across_a_healed_edge_test() -
   let repairs_before = crdt_js.repair_count(alpha.document)
   p2p_fake.reconnect(world, crdt_js.replica_id(beta.document), id_gamma)
   p2p_fake.settle(world)
-  { crdt_js.digest(beta.document) == crdt_js.digest(gamma.document) }
+  {
+    checked.value(crdt_js.digest(beta.document))
+    == checked.value(crdt_js.digest(gamma.document))
+  }
   |> expect.to_be_true()
-  { crdt_js.digest(beta.document) != baseline } |> expect.to_be_true()
-  crdt_js.digest(alpha.document) |> expect.to_equal(baseline)
+  { checked.value(crdt_js.digest(beta.document)) != baseline }
+  |> expect.to_be_true()
+  checked.value(crdt_js.digest(alpha.document)) |> expect.to_equal(baseline)
   let assert Ok(beta_observed) = crdt_js.or_set_values(beta_handles.2)
   beta_observed |> expect.to_equal(["shared"])
   let assert Ok(beta_two_phase) = crdt_js.two_p_set_values(beta_handles.1)
@@ -3035,9 +3071,9 @@ pub fn an_event_less_change_reaches_the_third_peer_across_a_healed_edge_test() -
     [alpha.document, beta.document, gamma.document],
     12,
   )
-  let converged = crdt_js.digest(alpha.document)
-  crdt_js.digest(beta.document) |> expect.to_equal(converged)
-  crdt_js.digest(gamma.document) |> expect.to_equal(converged)
+  let converged = checked.value(crdt_js.digest(alpha.document))
+  checked.value(crdt_js.digest(beta.document)) |> expect.to_equal(converged)
+  checked.value(crdt_js.digest(gamma.document)) |> expect.to_equal(converged)
 
   // alpha pulled a fresh catch-up across the healed edge even though
   // nothing it can see changed: the repair count rose past where it stood
@@ -3114,7 +3150,10 @@ pub fn an_idle_document_does_not_keep_broadcasting_digests_test() -> Nil {
   send_raw(
     carol,
     crdt_js.replica_id(alpha.document),
-    crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
+    checked.value(crdt_core.encode(
+      carol.document,
+      crdt_core.hello_message(carol.document),
+    )),
   )
   p2p_fake.settle(world)
 
@@ -3247,7 +3286,10 @@ pub fn a_synchronous_scheduler_fires_one_heartbeat_without_looping_test() -> Nil
   send_raw(
     beta,
     crdt_js.replica_id(alpha),
-    crdt_core.encode(beta.document, crdt_core.hello_message(beta.document)),
+    checked.value(crdt_core.encode(
+      beta.document,
+      crdt_core.hello_message(beta.document),
+    )),
   )
   p2p_fake.settle(world)
 
@@ -3305,7 +3347,7 @@ pub fn a_matching_digest_is_recorded_without_a_repair_test() -> Nil {
   p2p_fake.settle(world)
 
   crdt_js.last_digest_match(alpha.document)
-  |> expect.to_equal(Some(crdt_js.digest(alpha.document)))
+  |> expect.to_equal(Some(checked.value(crdt_js.digest(alpha.document))))
   crdt_js.repair_count(alpha.document) |> expect.to_equal(0)
 }
 
@@ -3369,7 +3411,10 @@ pub fn a_digest_that_is_never_answered_counts_no_repair_test() -> Nil {
   send_raw(
     raw,
     target,
-    crdt_core.encode(raw.document, crdt_core.hello_message(raw.document)),
+    checked.value(crdt_core.encode(
+      raw.document,
+      crdt_core.hello_message(raw.document),
+    )),
   )
   p2p_fake.settle(world)
   crdt_js.repair_count(alpha.document) |> expect.to_equal(0)
@@ -3380,7 +3425,10 @@ pub fn a_digest_that_is_never_answered_counts_no_repair_test() -> Nil {
   send_raw(
     raw,
     target,
-    crdt_core.encode(raw_ahead, crdt_core.digest_message(raw_ahead)),
+    checked.value(crdt_core.encode(
+      raw_ahead,
+      checked.value(crdt_core.digest_message(raw_ahead)),
+    )),
   )
   p2p_fake.settle(world)
 
@@ -3449,7 +3497,8 @@ pub fn an_imported_snapshot_reaches_the_mesh_test() -> Nil {
     12,
   )
 
-  crdt_js.digest(alpha.document) |> expect.to_equal(crdt_js.digest(imported))
+  checked.value(crdt_js.digest(alpha.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(imported)))
   crdt_js.g_set_values(crdt_js.root(alpha.document))
   |> expect.to_equal(Ok(["packed"]))
   let assert Ok(alpha_basket) =
@@ -3486,16 +3535,16 @@ pub fn an_idle_mesh_hashes_the_document_once_test() -> Nil {
   crdt_js.peer_count(alpha.document) |> expect.to_equal(2)
 
   // One answer, however many ask for it.
-  let digest = crdt_js.digest(alpha.document)
+  let digest = checked.value(crdt_js.digest(alpha.document))
   let once = crdt_js.digest_computations(alpha.document)
-  crdt_js.digest(alpha.document) |> expect.to_equal(digest)
+  checked.value(crdt_js.digest(alpha.document)) |> expect.to_equal(digest)
   crdt_js.digest_computations(alpha.document) |> expect.to_equal(once)
 
   // Ten intervals against a document that has not moved: the beats after
   // the first broadcast nothing, and nothing hashes anything new.
   tick_intervals(world, clock, interval, 10)
   crdt_js.digest_computations(alpha.document) |> expect.to_equal(once)
-  crdt_js.digest(alpha.document) |> expect.to_equal(digest)
+  checked.value(crdt_js.digest(alpha.document)) |> expect.to_equal(digest)
   crdt_js.digest_computations(alpha.document) |> expect.to_equal(once)
 
   // A local edit moves the document. It hashes nothing by itself — the
@@ -3507,7 +3556,7 @@ pub fn an_idle_mesh_hashes_the_document_once_test() -> Nil {
   crdt_js.digest_computations(alpha.document) |> expect.to_equal(once + 1)
   tick_intervals(world, clock, interval, 5)
   crdt_js.digest_computations(alpha.document) |> expect.to_equal(once + 1)
-  crdt_js.digest(alpha.document) |> expect.to_not_equal(digest)
+  checked.value(crdt_js.digest(alpha.document)) |> expect.to_not_equal(digest)
 
   // A merge learned from a peer is the same rule from the other side: the
   // merge itself hashes nothing, and the heartbeat after it hashes once.
@@ -3523,10 +3572,10 @@ pub fn an_idle_mesh_hashes_the_document_once_test() -> Nil {
   // every peer agrees on the value and on the digest.
   crdt_js.g_set_values(crdt_js.root(alpha.document))
   |> expect.to_equal(Ok(["map", "tent"]))
-  crdt_js.digest(gamma.document)
-  |> expect.to_equal(crdt_js.digest(alpha.document))
-  crdt_js.digest(beta.document)
-  |> expect.to_equal(crdt_js.digest(alpha.document))
+  checked.value(crdt_js.digest(gamma.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
+  checked.value(crdt_js.digest(beta.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
 }
 
 @target(javascript)
@@ -3552,8 +3601,8 @@ pub fn a_cached_digest_still_repairs_an_event_less_change_test() -> Nil {
 
   // Both sides hash themselves at their first heartbeat, and agree.
   tick_intervals(world, clock, interval, 1)
-  crdt_js.digest(beta.document)
-  |> expect.to_equal(crdt_js.digest(alpha.document))
+  checked.value(crdt_js.digest(beta.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
   let hashes = crdt_js.digest_computations(beta.document)
 
   // Cut the edge, and remove on one side an element neither side ever
@@ -3569,8 +3618,8 @@ pub fn a_cached_digest_still_repairs_an_event_less_change_test() -> Nil {
   p2p_fake.settle(world)
   crdt_js.two_p_set_values(crdt_js.root(alpha.document))
   |> expect.to_equal(Ok([]))
-  crdt_js.digest(alpha.document)
-  |> expect.to_not_equal(crdt_js.digest(beta.document))
+  checked.value(crdt_js.digest(alpha.document))
+  |> expect.to_not_equal(checked.value(crdt_js.digest(beta.document)))
 
   // Heal it. Nothing about the merge is visible to a subscriber, so the
   // digests are the only thing that can carry it — and they do.
@@ -3581,8 +3630,8 @@ pub fn a_cached_digest_still_repairs_an_event_less_change_test() -> Nil {
   )
   p2p_fake.settle(world)
   drive_convergence(world, clock, interval, [alpha.document, beta.document], 12)
-  crdt_js.digest(beta.document)
-  |> expect.to_equal(crdt_js.digest(alpha.document))
+  checked.value(crdt_js.digest(beta.document))
+  |> expect.to_equal(checked.value(crdt_js.digest(alpha.document)))
   { crdt_js.repair_count(beta.document) >= 1 } |> expect.to_be_true()
   // The repair is a state change, so the digest behind it was recomputed
   // rather than served from the cache the comparison started with.
@@ -3605,9 +3654,9 @@ pub fn an_imported_snapshot_hashes_itself_once_test() -> Nil {
       root: p2p.g_set_root(),
       signaling: signaling,
     ))
-  let empty = crdt_js.digest(source)
+  let empty = checked.value(crdt_js.digest(source))
   let assert Ok(Nil) = crdt_js.g_set_add(crdt_js.root(source), "packed")
-  crdt_js.digest(source) |> expect.to_not_equal(empty)
+  checked.value(crdt_js.digest(source)) |> expect.to_not_equal(empty)
   crdt_js.digest_computations(source) |> expect.to_equal(2)
   let assert Ok(snapshot) = crdt_js.export_snapshot(source)
 
@@ -3625,9 +3674,11 @@ pub fn an_imported_snapshot_hashes_itself_once_test() -> Nil {
   // Nothing has been hashed yet: importing does not pay for a digest
   // nobody asked for.
   crdt_js.digest_computations(imported) |> expect.to_equal(0)
-  crdt_js.digest(imported) |> expect.to_equal(crdt_js.digest(source))
+  checked.value(crdt_js.digest(imported))
+  |> expect.to_equal(checked.value(crdt_js.digest(source)))
   crdt_js.digest_computations(imported) |> expect.to_equal(1)
-  crdt_js.digest(imported) |> expect.to_equal(crdt_js.digest(source))
+  checked.value(crdt_js.digest(imported))
+  |> expect.to_equal(checked.value(crdt_js.digest(source)))
   crdt_js.digest_computations(imported) |> expect.to_equal(1)
 }
 
@@ -3698,5 +3749,5 @@ fn raw_delta(
       channel.PnCounterEdit(amount),
     )
   let assert [message, ..] = outcome.broadcast
-  #(document, crdt_core.encode(document, message))
+  #(document, checked.value(crdt_core.encode(document, message)))
 }

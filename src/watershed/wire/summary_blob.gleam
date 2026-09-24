@@ -24,8 +24,11 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/json.{type Json}
+import gleam/list
+import gleam/result
 
 import watershed/channel
+import watershed/wire
 
 /// The current on-disk format version. A loader refuses a version that it does
 /// not recognize. It does not read a foreign snapshot incorrectly.
@@ -47,39 +50,83 @@ pub type ChannelSnapshot {
   ChannelSnapshot(address: String, snapshot: channel.Snapshot)
 }
 
+type RawSummaryBlob {
+  RawSummaryBlob(
+    sequence_number: Int,
+    members: List(Int),
+    channels: List(RawChannelSnapshot),
+  )
+}
+
+type RawChannelSnapshot {
+  RawChannelSnapshot(address: String, channel_type: String, data: Json)
+}
+
 pub fn encode_channels(
   sequence_number: Int,
   members: List(Int),
   channels: List(#(String, channel.Snapshot)),
-) -> Json {
-  json.object([
-    #("watershedSummaryVersion", json.int(version)),
-    #("sequenceNumber", json.int(sequence_number)),
-    #("members", json.array(members, json.int)),
-    #(
-      "channels",
-      json.array(channels, fn(entry) {
-        let #(address, snapshot) = entry
+) -> Result(Json, channel.ChannelError) {
+  use entries <- result.try(
+    list.try_map(channels, fn(entry) {
+      let #(address, snapshot) = entry
+      use data <- result.try(channel.encode_snapshot(snapshot))
+      Ok(
         json.object([
           #("address", json.string(address)),
           #(
             "type",
             json.string(channel.type_to_string(channel.snapshot_type(snapshot))),
           ),
-          #("data", channel.encode_snapshot(snapshot)),
-        ])
-      }),
-    ),
-  ])
+          #("data", data),
+        ]),
+      )
+    }),
+  )
+  Ok(
+    json.object([
+      #("watershedSummaryVersion", json.int(version)),
+      #("sequenceNumber", json.int(sequence_number)),
+      #("members", json.array(members, json.int)),
+      #("channels", json.preprocessed_array(entries)),
+    ]),
+  )
 }
 
-/// Decode a blob that `encode_channels` produced. Refuse an unknown version
-/// and an unknown channel type.
+/// Decode a blob that `encode_channels` produced. Refuse an unknown version,
+/// an unknown channel type, or a tree that needs document context.
 pub fn decode(raw: String) -> Result(SummaryBlob, json.DecodeError) {
-  json.parse(raw, decoder())
+  use blob <- result.try(json.parse(raw, decoder()))
+  use channels <- result.try(
+    list.try_map(blob.channels, fn(entry) {
+      use channel_type <- result.try(
+        channel.string_to_type(entry.channel_type)
+        |> result.replace_error(
+          json.UnableToDecode([
+            decode.DecodeError("ChannelType", entry.channel_type, ["type"]),
+          ]),
+        ),
+      )
+      use decoder <- result.try(
+        channel.snapshot_decoder(channel_type)
+        |> result.replace_error(
+          json.UnableToDecode([
+            decode.DecodeError(
+              "snapshot requires document context",
+              entry.channel_type,
+              ["data"],
+            ),
+          ]),
+        ),
+      )
+      use snapshot <- result.try(json.parse(json.to_string(entry.data), decoder))
+      Ok(ChannelSnapshot(entry.address, snapshot))
+    }),
+  )
+  Ok(SummaryBlob(blob.sequence_number, blob.members, channels))
 }
 
-pub fn decoder() -> Decoder(SummaryBlob) {
+fn decoder() -> Decoder(RawSummaryBlob) {
   use blob_version <- decode.field("watershedSummaryVersion", decode.int)
   case blob_version == version {
     True -> {
@@ -89,7 +136,7 @@ pub fn decoder() -> Decoder(SummaryBlob) {
         "channels",
         decode.list(channel_snapshot_decoder()),
       )
-      decode.success(SummaryBlob(
+      decode.success(RawSummaryBlob(
         sequence_number: sequence_number,
         members: members,
         channels: channels,
@@ -97,28 +144,15 @@ pub fn decoder() -> Decoder(SummaryBlob) {
     }
     False ->
       decode.failure(
-        SummaryBlob(sequence_number: 0, members: [], channels: []),
+        RawSummaryBlob(sequence_number: 0, members: [], channels: []),
         "watershedSummaryVersion " <> int.to_string(version),
       )
   }
 }
 
-fn channel_snapshot_decoder() -> Decoder(ChannelSnapshot) {
+fn channel_snapshot_decoder() -> Decoder(RawChannelSnapshot) {
   use address <- decode.field("address", decode.string)
   use channel_type <- decode.field("type", decode.string)
-  // Only recognize known channel types.
-  case channel.string_to_type(channel_type) {
-    Ok(channel_type) -> {
-      use snapshot <- decode.field(
-        "data",
-        channel.snapshot_decoder(channel_type),
-      )
-      decode.success(ChannelSnapshot(address: address, snapshot: snapshot))
-    }
-    Error(_) ->
-      decode.failure(
-        ChannelSnapshot(address: "", snapshot: channel.MapSnapshot([])),
-        "ChannelType",
-      )
-  }
+  use data <- decode.field("data", wire.json_value_decoder())
+  decode.success(RawChannelSnapshot(address, channel_type, data))
 }

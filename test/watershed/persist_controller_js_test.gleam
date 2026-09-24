@@ -6,6 +6,9 @@
 ////
 //// JavaScript target only.
 
+@target(javascript)
+import watershed/tree/checked_test as checked
+
 @internal
 pub const compilation_target = "javascript"
 
@@ -80,14 +83,14 @@ pub fn set_map_controller_saves_eventless_metadata_and_stops_test() -> Nil {
           snapshot,
           ..transport_js.get_cell(snapshots)
         ])
-        done(Ok(crdt_js.digest(document)))
+        done(Ok(checked.value(crdt_js.digest(document))))
       },
     )
   relay_fake.advance(clock, 500)
   transport_js.get_cell(snapshots) |> expect.to_equal([initial])
-  let before = crdt_js.digest(document)
+  let before = checked.value(crdt_js.digest(document))
   crdt_js.or_map_add_member(map, "doc", "draft") |> expect.to_equal(Ok(Nil))
-  crdt_js.digest(document) |> expect.to_not_equal(before)
+  checked.value(crdt_js.digest(document)) |> expect.to_not_equal(before)
   transport_js.get_cell(events) |> expect.to_equal([])
   let assert Ok(updated) = crdt_js.export_snapshot(document)
   // No visible callback calls changed; the digest sweep must find the tag.
@@ -177,7 +180,7 @@ fn save_driver(
       ..transport_js.get_cell(attempts)
     ])
     transport_js.set_cell(pending, [
-      Pending(digest: crdt_js.digest(document), done:),
+      Pending(digest: checked.value(crdt_js.digest(document)), done:),
       ..transport_js.get_cell(pending)
     ])
   }
@@ -319,13 +322,16 @@ pub fn lww_map_metadata_only_remote_merge_is_saved_by_digest_sweep_test() -> Nil
       channel.LwwMapRemoveEdit("gone", 100),
     )
   let assert Ok(snapshot) =
-    json.parse(crdt_core.canonical_json(source), wire.json_value_decoder())
+    json.parse(
+      checked.value(crdt_core.canonical_json(source)),
+      wire.json_value_decoder(),
+    )
   let assert Ok(_) = crdt_js.merge_snapshot(document, snapshot)
   let deferred = deferred_save()
   let harness = start_harness(document, deferred)
   relay_fake.advance(harness.clock, 500)
   release_saved(deferred)
-  let before = crdt_js.digest(document)
+  let before = checked.value(crdt_js.digest(document))
   let assert Ok(#(source, _)) =
     crdt_core.edit(
       source,
@@ -333,16 +339,19 @@ pub fn lww_map_metadata_only_remote_merge_is_saved_by_digest_sweep_test() -> Nil
       channel.LwwMapRemoveEdit("gone", 200),
     )
   let assert Ok(snapshot) =
-    json.parse(crdt_core.canonical_json(source), wire.json_value_decoder())
+    json.parse(
+      checked.value(crdt_core.canonical_json(source)),
+      wire.json_value_decoder(),
+    )
   let assert Ok(outcome) = crdt_js.merge_snapshot(document, snapshot)
   outcome.events |> expect.to_equal([])
-  crdt_js.digest(document) |> expect.to_not_equal(before)
+  checked.value(crdt_js.digest(document)) |> expect.to_not_equal(before)
   // No event calls `changed`; the periodic digest sweep must find this edit.
   relay_fake.advance(harness.clock, 5000)
   attempts(deferred) |> expect.to_equal([[], []])
   let DeferredSave(pending:, ..) = deferred
   let assert [Pending(digest:, ..)] = transport_js.get_cell(pending)
-  digest |> expect.to_equal(crdt_js.digest(document))
+  digest |> expect.to_equal(checked.value(crdt_js.digest(document)))
   release_saved(deferred)
   persist_controller_js.stop(harness.controller)
 }

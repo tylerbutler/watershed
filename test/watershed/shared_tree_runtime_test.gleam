@@ -2,7 +2,8 @@ import gleam/dict
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{None, Some}
+import gleam/string
 import spillway/types
 import startest/expect
 import watershed/channel
@@ -11,7 +12,11 @@ import watershed/handle
 import watershed/map_kernel
 import watershed/runtime_core
 import watershed/tree/fixtures
+import watershed/tree/runtime as tree_runtime
 import watershed/tree/runtime_fixture
+import watershed/tree/schema as tree_schema
+import watershed/tree/types as tree_types
+import watershed/tree_kernel
 import watershed/wire
 import watershed/wire/fluid_container
 import watershed/wire/op as wire_op
@@ -616,6 +621,93 @@ pub fn shared_tree_runtime_fixture_reads_empty_trunk_and_prefix_test() -> Nil {
   })
 }
 
+pub fn shared_tree_runtime_routed_seed_restores_tree_with_document_session_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  runtime_core.root_channel_address(core) |> expect.to_equal(Ok("A/root"))
+  runtime_core.has_channel(core, "A/_C") |> expect.to_equal(True)
+  let assert Ok(channel.TreeState(state)) = dict.get(core.channels, "A/_C")
+  let assert Some(compressor) = core.compressor
+  let #(_, unsubmitted) = fluid_ids.take_unfinalized_range(compressor)
+  unsubmitted |> expect.to_equal(None)
+  tree_kernel.history_view(state).sequenced.trunk |> expect.to_equal([])
+  Nil
+}
+
+pub fn shared_tree_runtime_rejects_native_tree_creation_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(channel.TreeState(state)) = dict.get(core.channels, "A/_C")
+  runtime_core.create_detached(core, "A/other", channel.InitTree(state))
+  |> expect.to_equal(
+    Error(
+      runtime_core.ChannelBoundaryFailed(channel.UnsupportedTreeOperation(
+        "native tree creation is not supported",
+      )),
+    ),
+  )
+}
+
+pub fn shared_tree_runtime_seed_requires_tree_context_and_unique_view_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert [view] = input.tree_views
+  runtime_core.bootstrap_seed(
+    runtime_core.BootstrapSeedInput(..input, compressor: None),
+  )
+  |> expect.to_equal(
+    Error(runtime_core.BadBootstrapSeed(
+      "tree seed requires a document compressor",
+    )),
+  )
+  runtime_core.bootstrap_seed(
+    runtime_core.BootstrapSeedInput(..input, tree_views: []),
+  )
+  |> expect.to_equal(
+    Error(runtime_core.BadBootstrapSeed("tree channel has no matching view")),
+  )
+  runtime_core.bootstrap_seed(
+    runtime_core.BootstrapSeedInput(..input, tree_views: [view, view]),
+  )
+  |> expect.to_equal(
+    Error(runtime_core.BadBootstrapSeed("tree channel has duplicate views")),
+  )
+  let unmatched =
+    runtime_core.TreeViewSeed(
+      fluid_container.Route("A", "other"),
+      view.view_id,
+      view.view,
+    )
+  runtime_core.bootstrap_seed(
+    runtime_core.BootstrapSeedInput(..input, tree_views: [view, unmatched]),
+  )
+  |> expect.to_equal(
+    Error(runtime_core.BadBootstrapSeed("unmatched tree view")),
+  )
+}
+
+pub fn shared_tree_runtime_seed_rejects_schema_and_sequence_mismatch_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert [view] = input.tree_views
+  let assert Ok(incompatible) =
+    tree_schema.view_from_string(
+      "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Root\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}",
+    )
+  let mismatch =
+    runtime_core.TreeViewSeed(view.route, view.view_id, incompatible)
+  let error =
+    runtime_core.bootstrap_seed(
+      runtime_core.BootstrapSeedInput(..input, tree_views: [mismatch]),
+    )
+    |> expect.to_be_error()
+  string.inspect(error) |> string.contains("Schema") |> expect.to_equal(True)
+  runtime_core.bootstrap_seed(
+    runtime_core.BootstrapSeedInput(..input, sequence_number: 1),
+  )
+  |> expect.to_equal(
+    Error(runtime_core.BadBootstrapSeed(
+      "tree history does not match the document sequence point",
+    )),
+  )
+}
+
 pub fn shared_tree_runtime_socket_normalizes_string_contents_test() -> Nil {
   let assert Ok(session) = fluid_ids.session_id(peer_session)
   let assert Ok(fixture) = fixtures.load("bootstrap-map-handles")
@@ -661,6 +753,50 @@ pub fn shared_tree_runtime_socket_preserves_real_group_positions_test() -> Nil {
   decoded.grouped |> expect.to_be_true()
   group.client_sequence_number |> expect.to_equal(1)
   group.sequence_number |> expect.to_equal(3)
+}
+
+pub fn shared_tree_runtime_bridge_decodes_captured_group_with_allocation_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(fixture) = fixtures.load("batched-commits")
+  let assert Some(compressor) = core.compressor
+  let assert Ok(input) =
+    runtime_fixture.read(fixture.input, fluid_ids.local_session(compressor))
+  let assert [group] = input.operations
+  let assert Ok(contents) = socket.container_contents(group.contents)
+  let assert Ok(decoded) = fluid_container.decode(contents, None)
+  let assert [
+    fluid_container.ContainerMessage(fluid_container.IdAllocation(range), 0, _),
+    fluid_container.ContainerMessage(
+      fluid_container.ChannelOperation(fluid_container.Route("A", "_C"), first),
+      1,
+      _,
+    ),
+    ..
+  ] = decoded.messages
+  let assert Ok(compressor) = fluid_ids.finalize(compressor, range)
+  let assert Ok(channel.TreeState(state)) = dict.get(core.channels, "A/_C")
+  let assert Ok(#(commit, message)) =
+    tree_runtime.decode_message(json.to_string(first), state, compressor)
+  commit.revision |> expect.to_equal(message.commit.revision)
+  commit.originator |> expect.to_equal(message.commit.originator)
+  let assert Ok(_) = tree_runtime.identity_order(state, commit, compressor)
+  let assert Ok(#(after_one, compressor)) =
+    tree_runtime.advance_document(state, 1, 0, compressor)
+  let assert Ok(#(after_two, compressor)) =
+    tree_runtime.advance_document(after_one, 2, 0, compressor)
+  let assert Ok(#(received, _, _)) =
+    tree_runtime.receive_commit(
+      after_two,
+      commit,
+      tree_types.SequencePoint(group.sequence_number, 1),
+      group.reference_sequence_number,
+      group.minimum_sequence_number,
+      compressor,
+    )
+  tree_kernel.history_view(received).sequenced.trunk
+  |> list.length
+  |> expect.to_equal(1)
+  Nil
 }
 
 pub fn shared_tree_runtime_rejects_ungrouped_compression_test() -> Nil {

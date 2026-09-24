@@ -212,59 +212,96 @@ fn positive_counter(raw: String) -> Bool {
 
 /// Encode an envelope. The field order is fixed, so two equal envelopes encode
 /// to two equal strings on both targets.
-pub fn encode_envelope(envelope: Envelope) -> Json {
-  json.object([
-    #("v", json.int(protocol_version)),
-    #("room", json.string(envelope.room)),
-    #("from", json.string(envelope.from)),
-    #("session", json.string(envelope.session)),
-    #("message", encode_message(envelope.message)),
-  ])
+pub fn encode_envelope(envelope: Envelope) -> Result(Json, P2pError) {
+  use message <- result.try(encode_message(envelope.message))
+  Ok(
+    json.object([
+      #("v", json.int(protocol_version)),
+      #("room", json.string(envelope.room)),
+      #("from", json.string(envelope.from)),
+      #("session", json.string(envelope.session)),
+      #("message", message),
+    ]),
+  )
 }
 
-pub fn envelope_to_string(envelope: Envelope) -> String {
-  json.to_string(encode_envelope(envelope))
+pub fn envelope_to_string(envelope: Envelope) -> Result(String, P2pError) {
+  encode_envelope(envelope) |> result.map(json.to_string)
 }
 
-pub fn encode_message(message: Message) -> Json {
+pub fn encode_message(message: Message) -> Result(Json, P2pError) {
   case message {
-    Hello(compatibility, root) ->
-      json.object([
-        #("type", json.string(type_hello)),
-        #("compatibility", json.string(compatibility)),
-        #("root", json.string(channel.type_to_string(root))),
-      ])
-    ChannelAnnounce(entry) ->
-      json.object([
-        #("type", json.string(type_channel)),
-        #("descriptor", encode_descriptor(entry.descriptor)),
-        #("snapshot", channel.encode_snapshot(entry.snapshot)),
-      ])
-    Delta(id, address, channel_type, operation) ->
-      json.object([
-        #("type", json.string(type_delta)),
-        #("id", encode_message_id(id)),
-        #("address", json.string(address)),
-        #("channelType", json.string(channel.type_to_string(channel_type))),
-        #("contents", wire_op.encode_channel_operation(operation)),
-      ])
-    StateRequest -> json.object([#("type", json.string(type_state_request))])
-    State(entries) ->
-      json.object([
-        #("type", json.string(type_state)),
-        #("channels", json.array(sort_entries(entries), encode_channel_entry)),
-      ])
+    Hello(compatibility, root) -> {
+      use _ <- result.try(p2p.validate(root))
+      Ok(
+        json.object([
+          #("type", json.string(type_hello)),
+          #("compatibility", json.string(compatibility)),
+          #("root", json.string(channel.type_to_string(root))),
+        ]),
+      )
+    }
+    ChannelAnnounce(entry) -> {
+      use _ <- result.try(p2p.validate(entry.descriptor.channel_type))
+      use snapshot <- result.try(
+        channel.encode_snapshot(entry.snapshot)
+        |> result.replace_error(
+          p2p.UnsupportedChannel(channel.snapshot_type(entry.snapshot)),
+        ),
+      )
+      Ok(
+        json.object([
+          #("type", json.string(type_channel)),
+          #("descriptor", encode_descriptor(entry.descriptor)),
+          #("snapshot", snapshot),
+        ]),
+      )
+    }
+    Delta(id, address, channel_type, operation) -> {
+      use _ <- result.try(p2p.validate(channel_type))
+      use contents <- result.try(
+        wire_op.encode_channel_operation(operation)
+        |> result.replace_error(p2p.UnsupportedChannel(channel_type)),
+      )
+      Ok(
+        json.object([
+          #("type", json.string(type_delta)),
+          #("id", encode_message_id(id)),
+          #("address", json.string(address)),
+          #("channelType", json.string(channel.type_to_string(channel_type))),
+          #("contents", contents),
+        ]),
+      )
+    }
+    StateRequest ->
+      Ok(json.object([#("type", json.string(type_state_request))]))
+    State(entries) -> {
+      use entries <- result.try(list.try_map(
+        sort_entries(entries),
+        encode_channel_entry,
+      ))
+      Ok(
+        json.object([
+          #("type", json.string(type_state)),
+          #("channels", json.preprocessed_array(entries)),
+        ]),
+      )
+    }
     Digest(digest) ->
-      json.object([
-        #("type", json.string(type_digest)),
-        #("digest", json.string(digest)),
-      ])
+      Ok(
+        json.object([
+          #("type", json.string(type_digest)),
+          #("digest", json.string(digest)),
+        ]),
+      )
     Rejected(reason, detail) ->
-      json.object([
-        #("type", json.string(type_error)),
-        #("reason", json.string(reason)),
-        #("detail", json.string(detail)),
-      ])
+      Ok(
+        json.object([
+          #("type", json.string(type_error)),
+          #("reason", json.string(reason)),
+          #("detail", json.string(detail)),
+        ]),
+      )
   }
 }
 
@@ -283,11 +320,20 @@ pub fn sort_entries(entries: List(ChannelEntry)) -> List(ChannelEntry) {
   })
 }
 
-pub fn encode_channel_entry(entry: ChannelEntry) -> Json {
-  json.object([
-    #("descriptor", encode_descriptor(entry.descriptor)),
-    #("snapshot", channel.encode_snapshot(entry.snapshot)),
-  ])
+pub fn encode_channel_entry(entry: ChannelEntry) -> Result(Json, P2pError) {
+  use _ <- result.try(p2p.validate(entry.descriptor.channel_type))
+  use snapshot <- result.try(
+    channel.encode_snapshot(entry.snapshot)
+    |> result.replace_error(
+      p2p.UnsupportedChannel(channel.snapshot_type(entry.snapshot)),
+    ),
+  )
+  Ok(
+    json.object([
+      #("descriptor", encode_descriptor(entry.descriptor)),
+      #("snapshot", snapshot),
+    ]),
+  )
 }
 
 pub fn encode_descriptor(descriptor: ChannelDescriptor) -> Json {
@@ -505,11 +551,12 @@ fn validate_message(
         )),
       )
       use channel_type <- result.try(eligible_type(channel_type, from))
+      use decoder <- result.try(
+        wire_op.channel_operation_decoder(channel_type)
+        |> result.replace_error(p2p.UnsupportedChannel(channel_type)),
+      )
       use operation <- result.try(
-        json.parse(
-          json.to_string(contents),
-          wire_op.channel_operation_decoder(channel_type),
-        )
+        json.parse(json.to_string(contents), decoder)
         |> result.replace_error(invalid(
           from,
           "delta contents do not match channel type "
@@ -565,8 +612,12 @@ fn validate_entry(
     limits.snapshot_bytes,
     p2p.SnapshotTooLarge,
   ))
+  use decoder <- result.try(
+    channel.snapshot_decoder(channel_type)
+    |> result.replace_error(p2p.UnsupportedChannel(channel_type)),
+  )
   use snapshot <- result.try(
-    json.parse(encoded, channel.snapshot_decoder(channel_type))
+    json.parse(encoded, decoder)
     |> result.replace_error(invalid(
       from,
       "snapshot for "
