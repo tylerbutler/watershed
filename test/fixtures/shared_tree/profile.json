@@ -226,13 +226,16 @@
     "primitive-leaves",
     "optional-string",
     "nested-object",
+    "dynamic-map-schema",
+    "per-key-map-edits",
+    "recursive-map-values",
+    "canonical-map-iteration",
     "bootstrap-map-handle",
     "grouped-batches",
     "gc-metadata"
   ],
   "excludedFeatures": [
     "arrays",
-    "maps-in-tree",
     "schema-evolution",
     "shared-branches",
     "gc-sweep",

@@ -28,7 +28,9 @@ import {
 } from "./interop-scenarios.mjs";
 import {
   preflight,
+  excludedFeatures,
   serviceConfig,
+  supportedFeatures,
   validatePreflight,
   withLocalFloodgate,
 } from "./service.mjs";
@@ -49,7 +51,7 @@ const service = {
   revision: "0eb493fc46d1bb9baf1151a6ccdde93544e057e7",
 };
 const profileDigest =
-  "53e73c5359c5940c410c98f68eb1e4928817f7e1296f96c778aa48c0ecf2934b";
+  "a13390fcfcb551c142eee272db78b18fa899e9f2e7dc608e2ca71be06fee8fc2";
 const runtimeOptions = {
   enableRuntimeIdCompressor: "on",
   compressionOptions: {
@@ -82,24 +84,6 @@ const channelAttributes = {
     packageVersion: "3.1.0",
   },
 };
-const supportedFeatures = [
-  "fixed-object-schema",
-  "primitive-leaves",
-  "optional-string",
-  "nested-object",
-  "bootstrap-map-handle",
-  "grouped-batches",
-  "gc-metadata",
-];
-const excludedFeatures = [
-  "arrays",
-  "maps-in-tree",
-  "schema-evolution",
-  "shared-branches",
-  "gc-sweep",
-  "compressed-ops",
-  "chunked-ops",
-];
 const verifiedArtifactMaps = new WeakMap();
 
 function object(value, message) {

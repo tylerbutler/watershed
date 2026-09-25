@@ -1076,7 +1076,7 @@ test("the committed profile is hashed and every compatibility pin is validated",
   assert.match(loaded.profileDigest, /^[0-9a-f]{64}$/);
   assert.equal(
     loaded.profileDigest,
-    "53e73c5359c5940c410c98f68eb1e4928817f7e1296f96c778aa48c0ecf2934b",
+    "a13390fcfcb551c142eee272db78b18fa899e9f2e7dc608e2ca71be06fee8fc2",
   );
   assert.deepEqual(loaded.profile.reference, reference);
   assert.deepEqual(
@@ -1086,6 +1086,20 @@ test("the committed profile is hashed and every compatibility pin is validated",
     },
     service,
   );
+  assert.deepEqual(loaded.profile.supportedFeatures, [
+    "fixed-object-schema",
+    "primitive-leaves",
+    "optional-string",
+    "nested-object",
+    "dynamic-map-schema",
+    "per-key-map-edits",
+    "recursive-map-values",
+    "canonical-map-iteration",
+    "bootstrap-map-handle",
+    "grouped-batches",
+    "gc-metadata",
+  ]);
+  assert(!loaded.profile.excludedFeatures.includes("maps-in-tree"));
   const directory = await mkdtemp(join(tmpdir(), "watershed-profile-"));
   const profile = JSON.parse(await readFile(profilePath, "utf8"));
   for (const [name, mutate] of [

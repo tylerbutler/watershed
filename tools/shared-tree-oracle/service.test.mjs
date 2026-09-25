@@ -12,6 +12,7 @@ import {
   localFloodgateReady,
   preflight,
   observedDocumentServiceFactory,
+  mapServiceStore,
   serviceConfig,
   serviceStore,
   runServiceCommand,
@@ -99,6 +100,30 @@ test("the service bootstrap is a real SharedMap containing a hierarchical tree h
     await service.synchronize();
     assert.equal(second.data.view.root.title, "bootstrap");
     assert.equal(first.data.view.root.point.y, 9);
+  } finally {
+    await cleanupEphemeralService();
+  }
+});
+
+test("the map service store creates and reloads a dynamic map root", {
+  timeout: 30_000,
+}, async () => {
+  const service = startEphemeralService();
+  try {
+    const first = await service.defaultClient.createAttachedContainer(mapServiceStore);
+    const second = await service.defaultClient.loadContainer(first.id, mapServiceStore);
+    assert.equal(first.data.bootstrap.attributes.type, SharedMap.getFactory().type);
+    assert(first.data.bootstrap.handle.absolutePath.endsWith("/root"));
+    assert.deepEqual([...first.data.view.root.items.entries()], []);
+
+    first.data.view.root.items.set("", "empty");
+    first.data.view.root.items.set("é", 7);
+    first.data.view.root.items.set("__proto__", null);
+    await service.synchronize();
+
+    assert.equal(second.data.view.root.items.get(""), "empty");
+    assert.equal(second.data.view.root.items.get("é"), 7);
+    assert.equal(second.data.view.root.items.get("__proto__"), null);
   } finally {
     await cleanupEphemeralService();
   }

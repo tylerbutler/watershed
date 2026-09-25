@@ -25,7 +25,12 @@ import {
   sharedObjectRegistryFromIterable,
 } from "@fluidframework/shared-object-base/internal";
 import { SharedTree } from "@fluidframework/tree/internal";
-import { initialRoot, treeConfig } from "./schema.mjs";
+import {
+  initialMapRoot,
+  initialRoot,
+  mapTreeConfig,
+  treeConfig,
+} from "./schema.mjs";
 import {
   reference, validateCapture, verifyCheckout, verifyPackages, verifyRepository,
 } from "./source.mjs";
@@ -61,26 +66,57 @@ export const summarizerRuntimeOptions = {
   },
 };
 
-export const serviceStore = defineDataStore({
-  type: "org.watershed.shared-tree.m1.bootstrap",
-  registry: sharedObjectRegistryFromIterable([SharedMap, SharedTree]),
-  async instantiateFirstTime(rootCreator, creator) {
-    const bootstrap = await rootCreator.createSharedObject(SharedMap);
-    const tree = await creator.createSharedObject(SharedTree);
-    const view = tree.viewWith(treeConfig);
-    view.initialize(initialRoot());
-    view.dispose();
-    bootstrap.set("tree", tree.handle);
-    return bootstrap;
-  },
-  async view(bootstrap) {
-    const handle = bootstrap.get("tree");
-    assert.equal(typeof handle?.get, "function", "Bootstrap tree handle is missing");
-    const tree = await handle.get();
-    assert.equal(tree.attributes.type, SharedTree.getFactory().type, "Bootstrap handle is not a tree");
-    return { bootstrap, tree, view: tree.viewWith(treeConfig) };
-  },
-});
+export const supportedFeatures = [
+  "fixed-object-schema",
+  "primitive-leaves",
+  "optional-string",
+  "nested-object",
+  "dynamic-map-schema",
+  "per-key-map-edits",
+  "recursive-map-values",
+  "canonical-map-iteration",
+  "bootstrap-map-handle",
+  "grouped-batches",
+  "gc-metadata",
+];
+export const excludedFeatures = [
+  "arrays",
+  "schema-evolution",
+  "shared-branches",
+  "gc-sweep",
+  "compressed-ops",
+  "chunked-ops",
+];
+
+function createServiceStore(config, initialRoot) {
+  return defineDataStore({
+    type: "org.watershed.shared-tree.m1.bootstrap",
+    registry: sharedObjectRegistryFromIterable([SharedMap, SharedTree]),
+    async instantiateFirstTime(rootCreator, creator) {
+      const bootstrap = await rootCreator.createSharedObject(SharedMap);
+      const tree = await creator.createSharedObject(SharedTree);
+      const view = tree.viewWith(config);
+      view.initialize(initialRoot());
+      view.dispose();
+      bootstrap.set("tree", tree.handle);
+      return bootstrap;
+    },
+    async view(bootstrap) {
+      const handle = bootstrap.get("tree");
+      assert.equal(typeof handle?.get, "function", "Bootstrap tree handle is missing");
+      const tree = await handle.get();
+      assert.equal(
+        tree.attributes.type,
+        SharedTree.getFactory().type,
+        "Bootstrap handle is not a tree",
+      );
+      return { bootstrap, tree, view: tree.viewWith(config) };
+    },
+  });
+}
+
+export const serviceStore = createServiceStore(treeConfig, initialRoot);
+export const mapServiceStore = createServiceStore(mapTreeConfig, initialMapRoot);
 
 export function serviceConfig(environment = process.env) {
   const secret = environment.FLOODGATE_JWT_SECRET;
@@ -669,11 +705,8 @@ export async function preflight(config) {
         },
         codecTree: source.codecTree,
         compressorFormat: { version: compressorVersion, byteOrder: endianness() },
-        supportedFeatures: [
-          "fixed-object-schema", "primitive-leaves", "optional-string", "nested-object",
-          "bootstrap-map-handle", "grouped-batches", "gc-metadata",
-        ],
-        excludedFeatures: ["arrays", "maps-in-tree", "schema-evolution", "shared-branches", "gc-sweep", "compressed-ops", "chunked-ops"],
+        supportedFeatures,
+        excludedFeatures,
       },
       capture: {
         documentId: id,
