@@ -154,6 +154,62 @@ pub fn shared_tree_summary_decodes_dynamic_map_forest_test() {
     })
   })
   |> expect.to_be_true
+  let assert Ok(encoded_again) =
+    summary.encode(
+      decoded,
+      session,
+      codec.EncodeContext(codec.Fluid310, compressor, Some(decoded.schema)),
+    )
+  summary.decode(
+    encoded_again,
+    None,
+    session,
+    codec.DecodeContext(codec.Fluid310, compressor),
+  )
+  |> expect.to_equal(Ok(decoded))
+}
+
+pub fn shared_tree_summary_restores_dynamic_map_and_continues_editing_test() {
+  let assert Ok(fixtures.Case(raw:, ..)) = fixtures.load("map-history-codecs")
+  let assert Ok(VObject(raw)) = json_ot.parse_json(json.to_string(raw))
+  let assert Ok(VObject(summary_raw)) = list.key_find(raw, "summary")
+  let assert Ok(encoded) = list.key_find(summary_raw, "value")
+  let assert Ok(VObject(reload)) = list.key_find(raw, "reload")
+  let assert Ok(VString(compressor_raw)) = list.key_find(reload, "compressor")
+  let assert Ok(session) =
+    fluid_ids.session_id("30000000-0000-4000-8000-000000000003")
+  let assert Ok(compressor) =
+    fluid_ids.deserialize(json.string(compressor_raw), session)
+  let assert Ok(decoded) =
+    summary.decode(
+      decode_summary_entry(encoded),
+      None,
+      session,
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+  let summary.TreeSummaryData(
+    stored,
+    _,
+    _,
+    summary.EditManagerSummary(trunk, _),
+  ) = decoded
+  let assert Ok(summary.SummaryCommit(_, Some(sequence_number), _)) =
+    list.last(trunk)
+  let assert Ok(view_id) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  let assert Ok(snapshot) =
+    tree_summary.from_wire(decoded, view_id, compressor, sequence_number, 0)
+  let assert Ok(view) = schema.view_from_json(schema.stored_to_json(stored))
+  let assert Ok(state) =
+    tree_runtime.restore(snapshot, view_id, view, compressor)
+  let assert Ok(#(state, _, _, _)) =
+    tree_runtime.author_edit(
+      state,
+      types.MapSet(["items"], "after-reload", types.BooleanValue(True)),
+      compressor,
+    )
+  tree_kernel.read(state, ["items", "after-reload"])
+  |> expect.to_equal(Ok(Some(types.BooleanValue(True))))
 }
 
 fn contains_map(value: types.TreeValue) -> Bool {
