@@ -137,6 +137,24 @@ pub fn shared_tree_forest_fixture_tagged_value_codec_test() -> Nil {
   )
 }
 
+pub fn shared_tree_forest_fixture_map_value_codec_test() -> Nil {
+  let value =
+    types.MapValue("DynamicMap", [
+      #("水", types.StringValue("海")),
+      #("__proto__", types.StringValue("safe")),
+    ])
+  let encoded = fixtures.tree_value_to_json(value)
+  let assert Ok(decoded) =
+    json.parse(json.to_string(encoded), fixtures.tree_value_decoder())
+  decoded
+  |> expect.to_equal(
+    types.MapValue("DynamicMap", [
+      #("__proto__", types.StringValue("safe")),
+      #("水", types.StringValue("海")),
+    ]),
+  )
+}
+
 pub fn shared_tree_forest_fixture_build_content_changes_output_test() -> Nil {
   let assert Ok(first) =
     forest_fixture.run(

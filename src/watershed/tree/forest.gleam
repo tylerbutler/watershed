@@ -16,7 +16,7 @@ import watershed/fluid_ids.{type StableId}
 import watershed/tree/schema.{type StoredSchema}
 import watershed/tree/types.{
   type AtomId, type FieldPath, type TreeError, type TreeValue, AtomId,
-  CorruptData, InvalidEdit, ObjectValue,
+  CorruptData, InvalidEdit, MapValue, ObjectValue,
 }
 
 const max_safe_integer = 9_007_199_254_740_991
@@ -24,6 +24,7 @@ const max_safe_integer = 9_007_199_254_740_991
 type Node {
   Leaf(value: TreeValue)
   Object(schema_id: String, fields: List(#(String, List(Int))))
+  Map(schema_id: String, entries: List(#(String, List(Int))))
 }
 
 pub opaque type NodeRef {
@@ -691,6 +692,16 @@ fn children(
             Error(Nil) -> Ok([])
           }
         }
+        Map(schema_id, entries) -> {
+          use _ <- result.try(
+            schema.map_entry_schema(state.schema, schema_id)
+            |> result.map_error(fn(error) { contextual(key, error) }),
+          )
+          case list.key_find(entries, key) {
+            Ok(children) -> Ok(children)
+            Error(Nil) -> Ok([])
+          }
+        }
       }
     }
   }
@@ -733,6 +744,33 @@ fn set_children(
             Forest(
               ..state,
               nodes: dict.insert(state.nodes, id, Object(schema_id, fields)),
+            ),
+          )
+        }
+        Map(schema_id, entries) -> {
+          use _ <- result.try(check(
+            list.length(children) <= 1,
+            key,
+            "map entry contains more than one node",
+          ))
+          let entries = case children {
+            [] -> list.filter(entries, fn(pair) { pair.0 != key })
+            _ ->
+              case list.key_find(entries, key) {
+                Ok(_) ->
+                  list.map(entries, fn(pair) {
+                    case pair.0 == key {
+                      True -> #(key, children)
+                      False -> pair
+                    }
+                  })
+                Error(Nil) -> list.append(entries, [#(key, children)])
+              }
+          }
+          Ok(
+            Forest(
+              ..state,
+              nodes: dict.insert(state.nodes, id, Map(schema_id, entries)),
             ),
           )
         }
@@ -1020,6 +1058,48 @@ pub fn read(
   }
 }
 
+/// Return the schema identifier for a map node.
+pub fn map_type(state: Forest, path: FieldPath) -> Result(String, TreeError) {
+  use #(schema_id, _) <- result.try(map_node(state, path))
+  Ok(schema_id)
+}
+
+/// Read one entry from a map node.
+pub fn map_get(
+  state: Forest,
+  path: FieldPath,
+  key: String,
+) -> Result(Option(TreeValue), TreeError) {
+  use #(_, entries) <- result.try(map_node(state, path))
+  let children = list.key_find(entries, key) |> result.unwrap([])
+  materialize_field(state, children, set.new())
+  |> result.map(fn(pair) { pair.0 })
+}
+
+/// Read all present entries from a map node in canonical key order.
+pub fn map_entries(
+  state: Forest,
+  path: FieldPath,
+) -> Result(List(#(String, TreeValue)), TreeError) {
+  use #(_, entries) <- result.try(map_node(state, path))
+  use #(values, _) <- result.try(
+    list.try_fold(entries, #([], set.new()), fn(acc, entry) {
+      use #(value, visited) <- result.try(materialize_field(
+        state,
+        entry.1,
+        acc.1,
+      ))
+      case value {
+        None -> Error(CorruptData(entry.0, "map entry is empty"))
+        Some(value) -> Ok(#([#(entry.0, value), ..acc.0], visited))
+      }
+    }),
+  )
+  values
+  |> list.sort(fn(left, right) { canonical_json.compare(left.0, right.0) })
+  |> Ok
+}
+
 pub fn locate(state: Forest, path: FieldPath) -> Result(NodeRef, TreeError) {
   use node <- result.try(walk(state, state.root, path, path))
   case node {
@@ -1051,6 +1131,23 @@ fn reference_id(state: Forest, node: NodeRef) -> Result(Int, TreeError) {
   }
 }
 
+fn map_node(
+  state: Forest,
+  path: FieldPath,
+) -> Result(#(String, List(#(String, List(Int)))), TreeError) {
+  use node <- result.try(walk(state, state.root, path, path))
+  case node {
+    None -> Error(InvalidEdit(path, "field is absent"))
+    Some(id) -> {
+      use node <- result.try(get_node(state, id))
+      case node {
+        Map(schema_id, entries) -> Ok(#(schema_id, entries))
+        Leaf(_) | Object(_, _) -> Error(InvalidEdit(path, "node is not a map"))
+      }
+    }
+  }
+}
+
 fn walk(
   state: Forest,
   children: List(Int),
@@ -1077,6 +1174,11 @@ fn walk(
               )
               walk(state, [], rest, full_path)
             }
+          }
+        Map(_, entries) ->
+          case list.key_find(entries, field) {
+            Ok(children) -> walk(state, children, rest, full_path)
+            Error(Nil) -> walk(state, [], rest, full_path)
           }
       }
     }
@@ -1109,6 +1211,15 @@ fn allocate(
             }),
           )
           Ok(#(state, Object(schema_id, list.reverse(fields))))
+        }
+        MapValue(schema_id, entries) -> {
+          use #(state, entries) <- result.try(
+            list.try_fold(entries, #(state, []), fn(acc, entry) {
+              use #(state, child) <- result.try(allocate(acc.0, entry.1))
+              Ok(#(state, [#(entry.0, [child]), ..acc.1]))
+            }),
+          )
+          Ok(#(state, Map(schema_id, list.reverse(entries))))
         }
         _ -> Ok(#(state, Leaf(value)))
       })
@@ -1149,6 +1260,29 @@ fn materialize(
         }),
       )
       Ok(#(ObjectValue(schema_id, list.reverse(values)), visited))
+    }
+    Map(schema_id, entries) -> {
+      use #(values, visited) <- result.try(
+        list.try_fold(entries, #([], visited), fn(acc, entry) {
+          case entry.1 {
+            [child] -> {
+              use #(value, visited) <- result.try(materialize(
+                state,
+                child,
+                acc.1,
+              ))
+              Ok(#([#(entry.0, value), ..acc.0], visited))
+            }
+            [] -> Error(CorruptData(entry.0, "map entry is empty"))
+            _ ->
+              Error(CorruptData(entry.0, "field contains more than one node"))
+          }
+        }),
+      )
+      let values =
+        values
+        |> list.sort(fn(left, right) { canonical_json.compare(left.0, right.0) })
+      Ok(#(MapValue(schema_id, values), visited))
     }
   }
 }
