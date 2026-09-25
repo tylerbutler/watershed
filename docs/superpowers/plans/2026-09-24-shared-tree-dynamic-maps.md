@@ -1337,8 +1337,8 @@ git commit -m "test(tree): prove dynamic map interoperability"
 
 ### Task 9: Publish the M2 profile and run permanent gates
 
-**Status:** Complete except for external repository-wide gate blockers. The M2
-profile digest is
+**Status:** Complete in `adf7815`, except for external repository-wide gate
+blockers. The M2 profile digest is
 `a13390fcfcb551c142eee272db78b18fa899e9f2e7dc608e2ca71be06fee8fc2`.
 
 **Files:**
@@ -1434,7 +1434,7 @@ Confirm generated fixtures are the only generated files committed, no
 `.code-map/` file changed, and the unrelated `apm.lock.yaml` modification is
 not staged.
 
-- [ ] **Step 6: Commit documentation and gate updates**
+- [x] **Step 6: Commit documentation and gate updates**
 
 ```sh
 git add README.md tools/shared-tree-oracle/README.md justfile \
