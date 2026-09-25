@@ -909,6 +909,13 @@ git commit -m "feat(tree): encode dynamic map state"
 
 ### Task 6: Expose map operations through the kernel and facades
 
+**Status:** Complete on 2026-09-25 in `bc0e269`, `505658d`, and `f7f8f6a`.
+Both native facades expose all five map operations through the existing tree
+edit lifecycle. The kernel tests cover visible reads and local edits; runtime
+and facade tests cover allocation atomicity, delivery, acknowledgement,
+resubmission, canonical ordering, and retained reads during reconnect.
+The SharedTree gate passes on both targets. Tasks 7–9 remain open.
+
 **Files:**
 - Modify: `src/watershed/tree_kernel.gleam`
 - Modify: `src/watershed/runtime_core.gleam`
@@ -919,6 +926,8 @@ git commit -m "feat(tree): encode dynamic map state"
 - Create: `test/watershed/shared_tree_map_kernel_test.gleam`
 - Create: `test/watershed/shared_tree_map_facade_test.gleam`
 - Modify: `test/watershed/facade_parity_test.gleam`
+- Modify: `test/watershed/shared_tree_runtime_test.gleam`
+- Modify: `test/watershed/tree/runtime_fixture.gleam`
 
 **Interfaces:**
 - Consumes: `MapSet`, `MapDelete`, `forest.map_get`, and
@@ -942,7 +951,7 @@ Both public facade modules produce the five functions specified in the design:
 `tree_map_get`, `tree_map_set`, `tree_map_delete`, `tree_map_keys`, and
 `tree_map_entries`.
 
-- [ ] **Step 1: Write failing pure-kernel tests**
+- [x] **Step 1: Write failing pure-kernel tests**
 
 Cover local set, replacement, delete, repeated delete, nested object edit,
 nested map edit, remote receive, acknowledgement, duplicate delivery, and
@@ -950,7 +959,7 @@ reconnect resubmission. Assert `TreeChanged(True)` for visible local changes,
 `TreeChanged(False)` for visible remote changes, and no event for a captured
 upstream no-op.
 
-- [ ] **Step 2: Write the allocation atomicity test**
+- [x] **Step 2: Write the allocation atomicity test**
 
 Capture before and after:
 
@@ -970,14 +979,14 @@ tree_kernel.history_view(state) |> expect.to_equal(before_history)
 
 Repeat for `MapSet` against an object path and `MapDelete` against a leaf path.
 
-- [ ] **Step 3: Write failing facade parity tests**
+- [x] **Step 3: Write failing facade parity tests**
 
 Assert that `watershed.gleam` and `watershed_beam.gleam` export the same map
 functions with the same argument and result types. Exercise keys
 `""`, `"__proto__"`, `"2"`, `"10"`, `"01"`, `"é"`, and `"水"` and expect
 canonical ordering.
 
-- [ ] **Step 4: Add pure kernel reads**
+- [x] **Step 4: Add pure kernel reads**
 
 Delegate `tree_kernel.map_get` and `tree_kernel.map_entries` to the visible
 forest. Implement keys as:
@@ -989,7 +998,7 @@ tree_kernel.map_entries(state, path)
 
 Keep map writes on the existing `validate_edit` and `apply_local` path.
 
-- [ ] **Step 5: Add runtime-core reads**
+- [x] **Step 5: Add runtime-core reads**
 
 Add:
 
@@ -1011,13 +1020,13 @@ pub fn tree_map_entries(
 Use the existing `tree_channel` lookup and wrap errors in
 `TreeOperationFailed(address, error)`.
 
-- [ ] **Step 6: Add target runtime reads**
+- [x] **Step 6: Add target runtime reads**
 
 For JavaScript, add synchronous read wrappers beside `tree_read`. For BEAM, add
 `TreeMapGet` and `TreeMapEntries` actor messages and wrappers beside `TreeRead`.
 Writes continue through `tree_edit` with `MapSet` and `MapDelete`.
 
-- [ ] **Step 7: Add public facade operations**
+- [x] **Step 7: Add public facade operations**
 
 Implement matching functions in both facade modules:
 
@@ -1034,7 +1043,7 @@ pub fn tree_map_delete(tree, path, key) {
 Map getters and entry readers call the new runtime read functions. Derive keys
 from entries so both targets use one ordering implementation.
 
-- [ ] **Step 8: Run kernel, runtime, and facade tests**
+- [x] **Step 8: Run kernel, runtime, and facade tests**
 
 Run:
 
@@ -1046,7 +1055,7 @@ gleam format --check src test
 
 Expected: all selected tests pass on both targets.
 
-- [ ] **Step 9: Commit the public map API**
+- [x] **Step 9: Commit the public map API**
 
 ```sh
 git add src/watershed/tree_kernel.gleam \
