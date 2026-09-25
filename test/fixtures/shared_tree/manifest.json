@@ -218,7 +218,10 @@
       "tree-codecs",
       "tree-kernel",
       "bootstrap-map-handles",
-      "batched-commits"
+      "batched-commits",
+      "map-schema-content",
+      "map-field-algebra",
+      "map-history-codecs"
     ],
     "erlang": [
       "id-ranges",
@@ -232,7 +235,10 @@
       "tree-codecs",
       "tree-kernel",
       "bootstrap-map-handles",
-      "batched-commits"
+      "batched-commits",
+      "map-schema-content",
+      "map-field-algebra",
+      "map-history-codecs"
     ]
   },
   "cases": [
