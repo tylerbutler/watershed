@@ -1337,8 +1337,7 @@ git commit -m "test(tree): prove dynamic map interoperability"
 
 ### Task 9: Publish the M2 profile and run permanent gates
 
-**Status:** Complete in `adf7815`, except for external repository-wide gate
-blockers. The M2 profile digest is
+**Status:** Complete in `adf7815`. The M2 profile digest is
 `a13390fcfcb551c142eee272db78b18fa899e9f2e7dc608e2ca71be06fee8fc2`.
 
 **Files:**
@@ -1480,13 +1479,7 @@ If `justfile` or the workflow required no change, omit that path from
 - `just shared-tree-interop`: passed with no skipped M2 result.
 - `gleam test --target erlang -- shared_tree_map facade_parity`: 44 passed.
 - `gleam test --target javascript -- shared_tree_map facade_parity`: 44 passed.
-- `just test`: root and available package tests passed, then Hex rate limiting
-  blocked dependency resolution in `drum_machine_lustre`,
-  `grocery_triptych_lustre`, `markdown_notes_lustre`,
-  `pixel_canvas_lustre`, `retro_board_lustre`, `retro_tutorial_lustre`,
-  `tournament_bracket_lustre`, and `website_runtime`.
-- `just build`: the root package and `shared_tree_cli` built, then the same Hex
-  rate limit blocked `dice_cli` and `scoreboard_cli`.
-- `just lint`: `trellis run format --check` stalled in the root
-  `gleam format --check` while the pinned Fluid reference checkout was present.
-  Two runs were stopped after they made no progress.
+- `just test`: passed after the Hex API rate limit cleared.
+- `just build`: passed after the remaining packages downloaded.
+- `just lint`: passed with the ignored pinned reference checkout moved outside
+  the repository for the format scan, then restored unchanged.
