@@ -2219,7 +2219,21 @@ the interface prerequisites below do not replace that gate. In particular:
 After M1, dynamic maps and array/sequence algorithms can proceed in parallel
 once their modular field-handler and codec interfaces agree. Give shared schema
 and codec dispatch one integration owner. A sequence-field rebaser is not a
-prerequisite for completing the object-only M1 profile.
+prerequisite for completing the object-only M1 profile. The M2 implementation
+plan keeps its native Tasks 2 through 9 ordered; only its Task 1 oracle work can
+overlap the end of M1.
+
+After M2, use these parallel lanes:
+
+| Lane | Work that can proceed | Coordination requirement |
+| --- | --- | --- |
+| M3 arrays and moves | Sequence-field algebra, array operations, codecs, and interoperability evidence. | Agree changeset and codec interfaces before M3 and M4 edit shared dispatch. |
+| M4 schema evolution | Stored/view compatibility and schema/data race evidence for object and map fields. | Coordinate each schema change with every field kind that it supports. |
+| Selected M7 consumers | Lustre bindings, examples, and richer typed APIs that use the stable native facade. | Consume the existing facade; do not change attach, alias, or bootstrap contracts from this lane. |
+
+Further M7 container lifecycle work can overlap the consumer lane after its
+contracts stabilize, but it needs one owner for attach, alias, bootstrap, and
+handle behavior.
 
 The fixed-layout creation slice now has a standalone dual-target example at
 `examples/shared_tree_cli`. It uses caller-authored schema and initial content,
@@ -2227,14 +2241,11 @@ returns the assigned ID before opening, and has no SDK seed step. Creation
 does not retry uncertain POST outcomes. This slice does not complete Task 16
 or the M1 checklist above.
 
-Further container lifecycle work can overlap with Lustre bindings and
-typed-facade consumers after their contracts stabilize. Consumers use the
-existing facade rather than changing the attach/alias/bootstrap contracts.
-
 Schema evolution needs coordinated schema/data integration with the supported
 field kinds. Transactions/undo, branching, crash recovery, and reclamation
 share history or runtime state; do not assign concurrent owners to the same
-reconciliation and retention paths. Broader container layouts, handle-valued
+reconciliation and retention paths. M8 performance and reclamation work should
+wait for representative M3 workloads. Broader container layouts, handle-valued
 leaves, incremental summaries, and additional supported versions each need
 their own approved scope and interoperability proof. Independent design or
 oracle work does not remove those implementation dependencies.
