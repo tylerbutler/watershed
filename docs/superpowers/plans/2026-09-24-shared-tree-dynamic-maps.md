@@ -1208,6 +1208,11 @@ git commit -m "test(tree): drive dynamic map clients"
 
 ### Task 8: Prove mixed-client map interoperability
 
+**Status:** Complete in `c6b22e8`, `735e27f`, `29455e8`, `e321866`, and
+`af0c0d0`. The real-service gate covers 72 M2 deterministic cells, 100 seeded
+map schedules in the 200-schedule run, replayable failures, and all nine map
+summary writer-reader cells.
+
 **Files:**
 - Modify: `tools/shared-tree-oracle/interop-scenarios.mjs`
 - Modify: `tools/shared-tree-oracle/client-interop.mjs`
@@ -1223,7 +1228,7 @@ git commit -m "test(tree): drive dynamic map clients"
 - Produces: deterministic schedules, failure artifacts, replay support, and
   measured claims for behavior, service, reconnect, and summaries.
 
-- [ ] **Step 1: Add deterministic map schedules**
+- [x] **Step 1: Add deterministic map schedules**
 
 Add named schedules:
 
@@ -1244,20 +1249,20 @@ Each schedule records the author, operation, release order, expected
 intermediate checkpoint, expected final map, and expected event locality.
 Generate both sequencing orders for every same-key conflict.
 
-- [ ] **Step 2: Extend the upstream adapter**
+- [x] **Step 2: Extend the upstream adapter**
 
 Resolve the M2 map tree with `mapTreeConfig`. Implement the same five logical
 commands as the native clients. Convert upstream nodes to the fixture
 `MapValue` representation and sort observed entries only in the normalized
 comparison output.
 
-- [ ] **Step 3: Add failure replay coverage**
+- [x] **Step 3: Add failure replay coverage**
 
 Include map commands and map checkpoints in `failure.json`. Add a unit test
 that mutates one nested map value and proves replay validation reports the
 exact action index and path.
 
-- [ ] **Step 4: Run focused in-memory mixed-client tests**
+- [x] **Step 4: Run focused in-memory mixed-client tests**
 
 Run:
 
@@ -1272,7 +1277,7 @@ node smoke/shared_tree.mjs \
 Expected: every deterministic schedule and seeded run completes with matching
 upstream, JavaScript, and BEAM checkpoints.
 
-- [ ] **Step 5: Add the cross-writer summary matrix**
+- [x] **Step 5: Add the cross-writer summary matrix**
 
 For each writer in `upstream`, `javascript`, and `beam`, publish a map state
 containing:
@@ -1287,7 +1292,7 @@ Open each artifact with every reader, verify the state, make a new map edit,
 publish or sequence it, and verify a fresh peer observes it. This gives nine
 writer-reader combinations.
 
-- [ ] **Step 6: Run real-service interop**
+- [x] **Step 6: Run real-service interop**
 
 Start the isolated pinned Floodgate service through the M1 command, then run:
 
@@ -1299,7 +1304,7 @@ Expected: the report includes every required map schedule, all three client
 types as authors and readers, reconnect evidence, summary continuation, and no
 skipped service or target result.
 
-- [ ] **Step 7: Mark native corpus coverage**
+- [x] **Step 7: Mark native corpus coverage**
 
 After both native targets pass the three Task 1 cases, add them to the
 generated manifest's native semantic coverage source in `generate.mjs` and
@@ -1313,7 +1318,7 @@ npm --prefix tools/shared-tree-oracle run check
 Confirm the manifest lists `map-schema-content`, `map-field-algebra`, and
 `map-history-codecs` for JavaScript and Erlang.
 
-- [ ] **Step 8: Commit interoperability coverage**
+- [x] **Step 8: Commit interoperability coverage**
 
 ```sh
 git add tools/shared-tree-oracle/interop-scenarios.mjs \
@@ -1332,6 +1337,10 @@ git commit -m "test(tree): prove dynamic map interoperability"
 
 ### Task 9: Publish the M2 profile and run permanent gates
 
+**Status:** Complete except for external repository-wide gate blockers. The M2
+profile digest is
+`a13390fcfcb551c142eee272db78b18fa899e9f2e7dc608e2ca71be06fee8fc2`.
+
 **Files:**
 - Modify: `README.md`
 - Modify: `tools/shared-tree-oracle/README.md`
@@ -1344,7 +1353,7 @@ git commit -m "test(tree): prove dynamic map interoperability"
 - Produces: documented support boundaries and required non-skipping release
   gates.
 
-- [ ] **Step 1: Update the supported profile**
+- [x] **Step 1: Update the supported profile**
 
 Document:
 
@@ -1359,7 +1368,7 @@ Document:
   undo/redo, branching, incremental summaries, Lustre bindings, and disk
   recovery.
 
-- [ ] **Step 2: Audit the production dependency boundary**
+- [x] **Step 2: Audit the production dependency boundary**
 
 Run:
 
@@ -1372,7 +1381,7 @@ Expected: no production Gleam or JavaScript module imports the oracle or Fluid
 packages as the native map engine. Test tools and documentation references are
 allowed.
 
-- [ ] **Step 3: Verify facade and target parity**
+- [x] **Step 3: Verify facade and target parity**
 
 Run:
 
@@ -1384,7 +1393,7 @@ gleam test --target javascript -- shared_tree_map facade_parity
 Expected: both targets execute a nonzero map test count and expose the same map
 operations.
 
-- [ ] **Step 4: Run the complete release gate**
+- [x] **Step 4: Run the complete release gate**
 
 Run in this order:
 
@@ -1411,7 +1420,7 @@ If `just test` reproduces the known unchanged
 verify it on the M1 baseline commit and record it as baseline evidence. Do not
 silence it or weaken the M2 gate.
 
-- [ ] **Step 5: Review the final diff**
+- [x] **Step 5: Review the final diff**
 
 Check:
 
@@ -1441,24 +1450,43 @@ If `justfile` or the workflow required no change, omit that path from
 ## 3. Final M2 acceptance checklist
 
 - [ ] M1 Task 16 and the M1 completion checklist passed before native M2 work.
-- [ ] The pinned oracle generated all three required map corpus cases.
-- [ ] Schema-v2 named, root, nested, union-valued, and recursive maps decode.
-- [ ] Map values support M1 leaves, fixed objects, and supported map nodes.
-- [ ] Duplicate map keys fail before allocation or state change.
-- [ ] Root and nested map paths traverse on JavaScript and BEAM.
-- [ ] Public map get, set, delete, keys, and entries match across facades.
-- [ ] Native key and entry lists use canonical UTF-8 key order.
-- [ ] Different-key edits remain independent.
-- [ ] Same-key set/set and set/delete match upstream in both sequence orders.
-- [ ] Nested edit versus replacement and deletion preserves upstream identity.
-- [ ] Removed map values retain required repair data and history.
-- [ ] Reconnect resubmits pending map edits without loss or duplication.
-- [ ] Native clients consume upstream map messages and summaries.
-- [ ] Upstream consumes JavaScript- and BEAM-written map messages and summaries.
-- [ ] All nine summary writer-reader combinations load and continue editing.
-- [ ] Real-service tests include upstream, JavaScript, and BEAM map authors.
-- [ ] Malformed and unsupported map data stop the affected document without
+- [x] The pinned oracle generated all three required map corpus cases.
+- [x] Schema-v2 named, root, nested, union-valued, and recursive maps decode.
+- [x] Map values support M1 leaves, fixed objects, and supported map nodes.
+- [x] Duplicate map keys fail before allocation or state change.
+- [x] Root and nested map paths traverse on JavaScript and BEAM.
+- [x] Public map get, set, delete, keys, and entries match across facades.
+- [x] Native key and entry lists use canonical UTF-8 key order.
+- [x] Different-key edits remain independent.
+- [x] Same-key set/set and set/delete match upstream in both sequence orders.
+- [x] Nested edit versus replacement and deletion preserves upstream identity.
+- [x] Removed map values retain required repair data and history.
+- [x] Reconnect resubmits pending map edits without loss or duplication.
+- [x] Native clients consume upstream map messages and summaries.
+- [x] Upstream consumes JavaScript- and BEAM-written map messages and summaries.
+- [x] All nine summary writer-reader combinations load and continue editing.
+- [x] Real-service tests include upstream, JavaScript, and BEAM map authors.
+- [x] Malformed and unsupported map data stop the affected document without
   partial readiness.
-- [ ] Existing object-tree and non-tree regression suites retain their behavior.
-- [ ] Production modules have no Fluid npm or oracle dependency.
-- [ ] Documentation names the supported M2 profile and deferred features.
+- [x] Existing object-tree and non-tree regression suites retain their behavior.
+- [x] Production modules have no Fluid npm or oracle dependency.
+- [x] Documentation names the supported M2 profile and deferred features.
+
+### Task 9 verification
+
+- `just shared-tree-oracle-check`: passed.
+- `just shared-tree-test`: passed, including 511 Erlang and 511 JavaScript
+  SharedTree tests plus storage, bootstrap, and creation smokes.
+- `just shared-tree-interop`: passed with no skipped M2 result.
+- `gleam test --target erlang -- shared_tree_map facade_parity`: 44 passed.
+- `gleam test --target javascript -- shared_tree_map facade_parity`: 44 passed.
+- `just test`: root and available package tests passed, then Hex rate limiting
+  blocked dependency resolution in `drum_machine_lustre`,
+  `grocery_triptych_lustre`, `markdown_notes_lustre`,
+  `pixel_canvas_lustre`, `retro_board_lustre`, `retro_tutorial_lustre`,
+  `tournament_bracket_lustre`, and `website_runtime`.
+- `just build`: the root package and `shared_tree_cli` built, then the same Hex
+  rate limit blocked `dice_cli` and `scoreboard_cli`.
+- `just lint`: `trellis run format --check` stalled in the root
+  `gleam format --check` while the pinned Fluid reference checkout was present.
+  Two runs were stopped after they made no progress.

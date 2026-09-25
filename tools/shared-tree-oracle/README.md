@@ -65,9 +65,10 @@ just shared-tree-interop
 
 The final command is the combined Task 15 acceptance gate. It verifies the
 committed profile and pinned source, starts an isolated pinned Floodgate,
-executes the native corpus on both targets, then runs 75 deterministic cases,
-12 focused reconnect cases, 24 refusal cases, the nine-cell summary reload
-matrix, and 200 generated schedules. The recipe uses
+executes the native corpus on both targets, then runs 147 deterministic cases,
+12 focused reconnect cases, 24 refusal cases, separate nine-cell object and
+map summary reload matrices, and 200 generated object/map schedules. The
+recipe uses
 `test/fixtures/shared_tree/profile.json` and seed `42`, matching the coordinator's
 defaults, so this is equivalent:
 
@@ -87,13 +88,13 @@ does not print or write credentials. It writes phase progress to stderr and one
 machine-readable result to stdout.
 
 Each run uses `.output/interop/<run-id>/`. `status.json` records the current
-phase. Corpus, preflight, deterministic, reconnect, refusal, reload, and seeded
-evidence stay in separate artifacts. A successful `report.json` is published
-only after every artifact is reopened and validated and all run-owned clients
-and the local service are stopped. The report is evidence only for the exact
-pinned Fluid release, Floodgate revision, profile digest, schema, seed, and
-schedule count that it records. It is not an arbitrary Fluid document or
-service compatibility claim.
+phase. Corpus, preflight, deterministic, reconnect, refusal, object reload, map
+reload, and seeded evidence stay in separate artifacts. A successful
+`report.json` is published only after every artifact is reopened and validated
+and all run-owned clients and the local service are stopped. The report is
+evidence only for the exact pinned Fluid release, Floodgate revision, profile
+digest, schemas, seed, and schedule count that it records. It is not an
+arbitrary Fluid document or service compatibility claim.
 
 On failure, the command exits nonzero and prints the preserved `failure.json`
 path. Seeded failures include the expanded schedule and a replay command. Replay
@@ -113,8 +114,26 @@ run uses the same coordinator and report validator:
 just shared-tree-interop-deep
 ```
 
-The normal acceptance gate requires 200 schedules. The 5,000-schedule command
-is optional and is not part of the Task 15 completion claim.
+The normal acceptance gate requires 200 schedules. The generator alternates
+the fixed-object and dynamic-map profiles. Map actions keep `path` and `key`
+separate, and failure artifacts retain the full action, checkpoint, first
+difference path, and replay command. The 5,000-schedule command is optional.
+
+The M2 deterministic catalogue covers independent keys, same-key set/set,
+set/delete, nested-object replacement, nested delete/edit, recursive-map
+conflicts, reconnect with pending edits, and summary tails. Every same-key or
+nested conflict runs in both sequencing orders. Empty, Unicode,
+numeric-looking, and prototype-like keys reach the real service.
+
+The map reload matrix uses upstream, JavaScript, and Erlang as writers and
+readers. Each writer publishes scalar, null, fixed-object, nested-map,
+recursive-map, deleted, empty, Unicode, numeric-looking, and prototype-like
+entries. Every fresh reader consumes the selected summary, observes the
+post-summary tail, keeps the deleted entry absent, and authors a continuation
+that a connected peer observes.
+
+The generated manifest requires `map-schema-content`, `map-field-algebra`, and
+`map-history-codecs` in the JavaScript and Erlang native semantic-runner lists.
 
 ### Permanent gates
 
@@ -128,16 +147,16 @@ pushes to `main`, and manual dispatch:
 
 Administrators can require these check names in branch protection or a ruleset.
 The workflow file does not configure that policy. Both jobs fail on missing
-prerequisites; the service job cannot pass by skipping a target, corpus, service,
-or matrix. The M1 coordinator runs the source verification and fixture
-regeneration check itself, so CI does not repeat that expensive check.
+prerequisites; the service job cannot pass by skipping a target, corpus,
+service, or matrix. The M1+M2 coordinator runs the source verification and
+fixture regeneration check itself, so CI does not repeat that expensive check.
 
 | Local command | Scope |
 | --- | --- |
 | `just shared-tree-test` | Native suites and HTTP smokes on both targets. |
 | `npm --prefix tools/shared-tree-oracle test` | Oracle/report/recipe tests. |
 | `just shared-tree-oracle-check` | Regenerate from the pinned source and compare committed fixtures. |
-| `just shared-tree-interop` | Real-service M1 matrix and 200 seeded schedules. |
+| `just shared-tree-interop` | Real-service M1+M2 matrices and 200 object/map seeded schedules. |
 | `just shared-tree-create-interop` | Six native-creator/fresh-reader cells and continued editing. |
 | `just shared-tree-interop-deep` | Manual 5,000-schedule acceptance through the same runner. |
 
@@ -146,9 +165,9 @@ failure as `shared-tree-evidence-<run-id>-<run-attempt>`. It includes the hidden
 `.output` directory but excludes source checkouts, service databases, and other
 output directories. Each runner verifies its own current-run artifacts; an
 older `report.json` cannot turn a failed command into success. Cleanup failure
-also fails the command. The two reports establish separate claims: M1's nine
-summary writer/reader combinations and native creation's six creator/reader
-combinations.
+also fails the command. The reports establish separate claims: M1's nine
+object-summary cells, M2's nine map-summary cells, and native creation's six
+creator/reader cells.
 
 The workflow starts no shared development server. The existing service wrapper
 verifies Floodgate commit `0eb493fc46d1bb9baf1151a6ccdde93544e057e7`, allocates a
@@ -231,7 +250,7 @@ other error still fails the schedule.
 The TCP gate forwards unmodified bytes; for these two cases it inspects
 WebSocket frame boundaries and decoded payloads to pause after the handshake
 and capture withheld submissions. It does not fabricate service messages.
-The permanent service job runs this focused gate through the combined M1
+The permanent service job runs this focused gate through the combined M1+M2
 coordinator; CI does not repeat it as a separate command.
 
 The default summary gate exports all four input-only `summary-writer-matrix`
@@ -339,10 +358,11 @@ These values come from the captured codec graph and compressor header, not from
 the npm major version. The raw message list includes ID allocations. The summary
 is a DDS summary, not a complete Fluid container summary.
 
-The object schema in `schema.mjs` is the planned M1 schema. Its tree-only
-`rootStore` is an oracle health check. The service profile must instead create a
-real SharedMap bootstrap channel with a `"tree"` handle. A passing smoke case
-does not freeze that profile or satisfy the M0 exit gate.
+`schema.mjs` defines the M1 fixed-object schema and the M2 `MapRoot`,
+`DynamicMap`, and `MapPoint` schema. Its tree-only `rootStore` is an oracle
+health check. The service profile creates a real SharedMap bootstrap channel
+with a `"tree"` handle and selects the object or map tree schema for each
+scenario.
 
 ## Real-service preflight
 

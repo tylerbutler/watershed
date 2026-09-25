@@ -54,7 +54,7 @@ jobs:
       - run: npm --prefix tools/shared-tree-oracle ci
       - run: npm --prefix tools/shared-tree-oracle run source:prepare
       - run: npm --prefix tools/shared-tree-oracle run source:verify
-      - name: Three-client M1 acceptance
+      - name: Three-client M1 and M2 acceptance
         run: just shared-tree-interop
       - name: Native-container creation acceptance
         run: just shared-tree-create-interop

@@ -85,11 +85,11 @@ guide](https://watershed.tylerbutler.com/guide/connect) for both.
 
 ## SharedTree runtime (experimental)
 
-Watershed supports the fixed-schema SharedTree object profile on JavaScript
-and BEAM, with interoperability coverage against Fluid Framework **3.1.0** and
-the pinned Floodgate service. The gate compares upstream, JavaScript, and BEAM
-authors, reconnects pending edits, and loads and continues editing across all
-nine summary writer/reader combinations. This claim applies to the declared
+Watershed supports fixed objects and dynamic maps on JavaScript and BEAM, with
+interoperability coverage against Fluid Framework **3.1.0** and the pinned
+Floodgate service. The gate compares upstream, JavaScript, and BEAM authors,
+reconnects pending edits, and loads and continues editing across separate
+nine-cell object and map summary matrices. This claim applies to the declared
 profile, not arbitrary Fluid documents or services.
 
 The [profile manifest](test/fixtures/shared_tree/profile.json) records upstream
@@ -99,9 +99,12 @@ field is container metadata, not a claim of tested Fluid 2.x compatibility.
 The layout uses alias `root` -> datastore `A`, a bootstrap map at `/A/root`
 with a `"tree"` handle, and a tree at `/A/_C`.
 
-The schema subset includes nested objects, required and optional fields, and
-string, finite number, boolean, and null leaves. It supports optimistic edits,
-routed map/tree handles, and atomic allocation-before-content batches.
+The schema subset includes nested objects, required and optional fields,
+dynamic maps, and string, finite number, boolean, and null leaves. The M2
+profile uses `MapRoot`, `DynamicMap`, and `MapPoint`. Map values can contain
+leaves, fixed objects, and nested `DynamicMap` nodes. Map keys are arbitrary
+strings, including empty, Unicode, numeric-looking, and prototype-like keys.
+Key and entry reads use canonical UTF-8 key order.
 
 Ordinary connections can load published upstream SharedTree summaries for this
 fixed container and schema profile without a caller-supplied seed. The checked
@@ -127,6 +130,12 @@ can use `schema.TreeChannel` with `set_tree_field` and
 `resolve_tree_field(document, map, field, view)`. JavaScript's
 `subscribe_tree(tree, handler)` returns a `SubscriptionToken` for `unsubscribe`;
 BEAM's `subscribe_tree(tree)` returns `Subject(TreeEvent)`.
+
+Use `tree_map_get`, `tree_map_set`, `tree_map_delete`, `tree_map_keys`, and
+`tree_map_entries` on either facade. Each operation takes a path to the map;
+single-entry operations take the key as a separate argument. Per-key edits,
+recursive map values, reconnect, and full-summary reload are part of the M2
+profile.
 
 Unsupported versions, incompatible schemas, and corrupt input return explicit
 errors. Failed bootstrap does not expose a writable partial document. Invalid
@@ -162,10 +171,11 @@ depends on attached and retained detached content, pending edits, and the
 collaboration window. History can trim as the minimum sequence advances, but
 there is no published capacity, throughput, or bounded-memory guarantee.
 
-Dynamic map nodes, arrays and moves, schema evolution, handle-valued tree
-leaves, transactions, undo/redo, and branching remain deferred. Fixed-layout
-creation is available below; broader container layouts, live attachment,
-SharedTree Lustre bindings, and disk recovery of pending edits are not.
+Map-wide clear, arrays and moves, schema evolution, handle-valued tree leaves,
+transactions, undo/redo, branching, and incremental summaries remain deferred.
+Fixed-layout creation is available below; broader container layouts, live
+attachment, SharedTree Lustre bindings, and disk recovery of pending edits are
+not.
 
 Recreate documents written with earlier Watershed development encodings.
 There is no legacy reader or migration path. This format change does not
@@ -208,14 +218,14 @@ tokens. Run `just shared-tree-create-test` for the native and HTTP checks, or
 The `SharedTree native` and `SharedTree interoperability` CI jobs run on pull
 requests and pushes to `main`. The native job needs no live service or upstream
 source build; the interoperability job owns an isolated pinned Floodgate and
-requires both the M1 matrix and the native-creation matrix.
+requires the M1 and M2 matrices plus the native-creation matrix.
 
 | Command | Checks |
 | --- | --- |
 | `just shared-tree-test` | Both native suites, storage/facade coverage, and HTTP/bootstrap/creation smokes. |
 | `npm --prefix tools/shared-tree-oracle test` | Oracle, report-validator, and recipe contracts. |
 | `just shared-tree-oracle-check` | Pinned upstream regeneration against committed fixtures. |
-| `just shared-tree-interop` | 75 deterministic, 12 reconnect, 24 refusal cases, nine reload cells, and 200 seeded schedules. |
+| `just shared-tree-interop` | 147 deterministic cases, 12 reconnect cases, 24 refusal cases, two nine-cell reload matrices, and 200 object/map seeded schedules. |
 | `just shared-tree-create-interop` | Two native creators, each with fresh JavaScript, BEAM, and upstream readers: six cells. |
 | `just shared-tree-interop-deep` | Manual 5,000-schedule run through the same coordinator. |
 
