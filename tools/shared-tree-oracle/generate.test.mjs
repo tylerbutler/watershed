@@ -216,6 +216,45 @@ function mapFieldCaseFixture() {
     ]],
   };
   const state = { entries: [], detached: [] };
+  const encodedChange = {
+    maxId: 0,
+    changes: [{
+      fieldKey: "rootFieldKey",
+      fieldKind: "ModularEditBuilder.Generic",
+      change: [[0, {
+        fieldChanges: [{
+          fieldKey: "items",
+          fieldKind: "ModularEditBuilder.Generic",
+          change: [[0, {
+            fieldChanges: [{
+              fieldKey: "key",
+              fieldKind: "Optional",
+              change: { r: { e: true, d: 0 } },
+            }],
+          }]],
+        }],
+      }]],
+    }],
+  };
+  const delta = {
+    latestRevision: null,
+    fields: [[
+      "rootFieldKey",
+      {
+        marks: [{
+          count: 1,
+          attach: null,
+          detach: null,
+          fields: [],
+        }],
+      },
+    ]],
+    build: [],
+    refreshers: [],
+    global: [],
+    rename: [],
+    destroy: [],
+  };
   const change = (id, revision) => ({
     id,
     revision,
@@ -225,7 +264,7 @@ function mapFieldCaseFixture() {
       encodedRevision: revision === null ? null : 1,
       isSummary: false,
     },
-    encoded: { maxId: 0, changes: [] },
+    encoded: structuredClone(encodedChange),
   });
   const scenario = (id) => {
     const conflict = !["set-absent", "replace-present", "delete-present", "delete-absent"]
@@ -335,9 +374,11 @@ function mapFieldCaseFixture() {
           operation,
           actions: replay(operation).map((action) => ({
             id: action,
-            forest: {},
+            forest: {
+              fields: [["rootFieldKey", [structuredClone(root)]]],
+            },
             detachedIndex: [],
-            ...(action === "initial" ? {} : { delta: {} }),
+            ...(action === "initial" ? {} : { delta: structuredClone(delta) }),
           })),
         })),
         fieldKeys: ["key"],
@@ -524,6 +565,51 @@ test("map field validation requires encoded changes and paired raw payloads", ()
     mutate(validMapCase);
     assert.throws(() => generator.validateMapFieldCase(validMapCase), /encoded|raw payload/i);
   }
+});
+
+test("map field validation rejects empty encoded payloads even when raw copies match", () => {
+  const validMapCase = mapFieldCaseFixture();
+  assert.doesNotThrow(() => generator.validateMapFieldCase(validMapCase));
+  const scenario = validMapCase.input.scenarios[0];
+  const change = scenario.changes.find(({ id }) => id === "composed");
+  change.encoded = {};
+  validMapCase.raw.scenarios[0].changes.composed.encoded = {};
+  validMapCase.expected.observations[0].intermediate
+    .find(({ operation }) => operation === "compose").encoded = {};
+  assert.throws(
+    () => generator.validateMapFieldCase(validMapCase),
+    /ModularChange payload/i,
+  );
+});
+
+test("map field validation requires raw replay forest evidence", () => {
+  const validMapCase = mapFieldCaseFixture();
+  assert.doesNotThrow(() => generator.validateMapFieldCase(validMapCase));
+  delete validMapCase.raw.scenarios[0].operations[0].actions[0].forest;
+  assert.throws(
+    () => generator.validateMapFieldCase(validMapCase),
+    /raw replay forest/i,
+  );
+});
+
+test("map field validation requires raw replay detached-index evidence", () => {
+  const validMapCase = mapFieldCaseFixture();
+  assert.doesNotThrow(() => generator.validateMapFieldCase(validMapCase));
+  delete validMapCase.raw.scenarios[0].operations[0].actions[0].detachedIndex;
+  assert.throws(
+    () => generator.validateMapFieldCase(validMapCase),
+    /raw replay detached index/i,
+  );
+});
+
+test("map field validation requires raw replay apply delta evidence", () => {
+  const validMapCase = mapFieldCaseFixture();
+  assert.doesNotThrow(() => generator.validateMapFieldCase(validMapCase));
+  delete validMapCase.raw.scenarios[0].operations[0].actions[1].delta;
+  assert.throws(
+    () => generator.validateMapFieldCase(validMapCase),
+    /raw replay apply delta/i,
+  );
 });
 
 test("map field validation requires final visible map state", () => {

@@ -708,6 +708,144 @@ function validateFieldCase(value) {
 export function validateMapFieldCase(value) {
   const label = "map-field-algebra";
   const check = (condition, detail) => assert(condition, `${label}: ${detail}`);
+  const safe = (item) => Number.isSafeInteger(item) && item >= 0;
+  const encodedAtom = (item, detail) => {
+    check(safe(item) || (Array.isArray(item) && item.length === 2
+      && item.every(safe)), `ModularChange payload ${detail} atom`);
+  };
+  const encodedFields = (fields, detail) => {
+    check(nonemptyArray(fields), `ModularChange payload ${detail} fields`);
+    for (const field of fields) {
+      check(object(field) && typeof field.fieldKey === "string"
+        && ["ModularEditBuilder.Generic", "Optional", "Value"].includes(field.fieldKind),
+      `ModularChange payload ${detail} field`);
+      if (field.fieldKind === "ModularEditBuilder.Generic") {
+        check(nonemptyArray(field.change), `ModularChange payload ${detail} Generic change`);
+        for (const entry of field.change) {
+          check(Array.isArray(entry) && entry.length === 2 && safe(entry[0])
+            && object(entry[1]) && nonemptyArray(entry[1].fieldChanges),
+          `ModularChange payload ${detail} Generic entry`);
+          encodedFields(entry[1].fieldChanges, `${detail}.${field.fieldKey}`);
+        }
+      } else {
+        check(object(field.change), `ModularChange payload ${detail} field change`);
+        if (field.change.r !== undefined) {
+          check(object(field.change.r) && typeof field.change.r.e === "boolean",
+            `ModularChange payload ${detail} replacement`);
+          encodedAtom(field.change.r.d, `${detail}.replacement.detach`);
+          if (field.change.r.s !== undefined && field.change.r.s !== null) {
+            encodedAtom(field.change.r.s, `${detail}.replacement.source`);
+          }
+        }
+        if (field.change.m !== undefined) {
+          check(Array.isArray(field.change.m), `ModularChange payload ${detail} moves`);
+          for (const move of field.change.m) {
+            check(Array.isArray(move) && move.length === 2,
+              `ModularChange payload ${detail} move`);
+            move.forEach((atom) => encodedAtom(atom, `${detail}.move`));
+          }
+        }
+        if (field.change.c !== undefined) {
+          check(Array.isArray(field.change.c), `ModularChange payload ${detail} child changes`);
+          for (const child of field.change.c) {
+            check(Array.isArray(child) && child.length === 2
+              && (child[0] === null || safe(child[0]) || Array.isArray(child[0]))
+              && object(child[1]) && nonemptyArray(child[1].fieldChanges),
+            `ModularChange payload ${detail} child change`);
+            if (child[0] !== null) encodedAtom(child[0], `${detail}.child`);
+            encodedFields(child[1].fieldChanges, `${detail}.${field.fieldKey}`);
+          }
+        }
+      }
+    }
+  };
+  const encodedIdentityTable = (item, detail) => {
+    check(Array.isArray(item) && item.length > 0,
+      `ModularChange payload ${detail} identity table`);
+    for (const entry of item) {
+      if (Array.isArray(entry)) encodedIdentityTable(entry, detail);
+      else check(entry === null || safe(entry),
+        `ModularChange payload ${detail} identity`);
+    }
+  };
+  const encodedChange = (item, scenario, detail) => {
+    check(object(item) && safe(item.maxId) && nonemptyArray(item.changes),
+      `encoded ModularChange payload ${detail}`);
+    encodedFields(item.changes, detail);
+    if (item.revisions !== undefined) {
+      check(nonemptyArray(item.revisions), `ModularChange payload ${detail} revisions`);
+      for (const revision of item.revisions) {
+        check(object(revision) && safe(revision.revision)
+          && scenario.compressor.revisions.some(({ encoded }) => encoded === revision.revision),
+        `ModularChange payload ${detail} revision identity`);
+      }
+    }
+    if (item.builds !== undefined) {
+      check(object(item.builds) && nonemptyArray(item.builds.builds)
+        && object(item.builds.trees) && item.builds.trees.version === 2
+        && Array.isArray(item.builds.trees.identifiers)
+        && nonemptyArray(item.builds.trees.shapes)
+        && nonemptyArray(item.builds.trees.data),
+      `ModularChange payload ${detail} builds`);
+      for (const build of item.builds.builds) {
+        encodedIdentityTable(build, `${detail} builds`);
+      }
+    }
+  };
+  const rawAtom = (item, detail) => {
+    check(object(item) && (item.major === null || safe(item.major)) && safe(item.minor),
+      `raw replay ${detail} atom`);
+  };
+  const rawFields = (fields, detail) => {
+    check(Array.isArray(fields), `raw replay ${detail} fields`);
+    for (const entry of fields) {
+      check(Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string"
+        && object(entry[1]) && Array.isArray(entry[1].marks),
+      `raw replay ${detail} field`);
+      for (const mark of entry[1].marks) {
+        check(object(mark) && safe(mark.count) && mark.count > 0
+          && (mark.attach === null || object(mark.attach))
+          && (mark.detach === null || object(mark.detach)),
+        `raw replay ${detail} mark`);
+        if (mark.attach !== null) rawAtom(mark.attach, `${detail} attach`);
+        if (mark.detach !== null) rawAtom(mark.detach, `${detail} detach`);
+        rawFields(mark.fields, `${detail}.${entry[0]}`);
+      }
+    }
+  };
+  const rawForest = (item, detail) => {
+    check(object(item) && nonemptyArray(item.fields), `raw replay forest ${detail}`);
+    for (const entry of item.fields) {
+      check(Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string"
+        && nonemptyArray(entry[1]), `raw replay forest ${detail} field`);
+      for (const tree of entry[1]) validateTaggedValue(tree, label);
+    }
+  };
+  const rawDetachedIndex = (item, detail) => {
+    check(Array.isArray(item), `raw replay detached index ${detail}`);
+    for (const entry of item) {
+      check(object(entry) && safe(entry.root)
+        && (entry.latestRelevantRevision === null || safe(entry.latestRelevantRevision)),
+      `raw replay detached index ${detail} entry`);
+      rawAtom(entry.id, `${detail} detached index`);
+    }
+  };
+  const rawDelta = (item, detail) => {
+    check(object(item) && (item.latestRevision === null || safe(item.latestRevision))
+      && nonemptyArray(item.fields), `raw replay apply delta ${detail}`);
+    rawFields(item.fields, `${detail} delta`);
+    for (const collection of ["build", "refreshers"]) {
+      check(Array.isArray(item[collection]), `raw replay apply delta ${detail} ${collection}`);
+      for (const entry of item[collection]) {
+        check(object(entry) && nonemptyArray(entry.trees),
+          `raw replay apply delta ${detail} ${collection} entry`);
+        rawAtom(entry.id, `${detail} ${collection}`);
+        for (const tree of entry.trees) validateTaggedValue(tree, label);
+      }
+    }
+    check(Array.isArray(item.global) && Array.isArray(item.rename)
+      && Array.isArray(item.destroy), `raw replay apply delta ${detail} sections`);
+  };
   const visible = (state, detail) => {
     check(object(state) && Array.isArray(state.entries) && Array.isArray(state.detached), detail);
     for (const entry of state.entries) {
@@ -778,8 +916,8 @@ export function validateMapFieldCase(value) {
         && change.encodingContext.revision === change.revision
         && (change.encodingContext.encodedRevision === null
           || Number.isSafeInteger(change.encodingContext.encodedRevision))
-        && change.encodingContext.isSummary === false
-        && object(change.encoded), `scenario ${id} encoded change`);
+        && change.encodingContext.isSummary === false, `scenario ${id} encoded change`);
+      encodedChange(change.encoded, scenario, `scenario ${id} change ${change.id}`);
       changes.set(change.id, change);
       const rawChange = raw?.changes?.[change.id];
       check(object(rawChange), `scenario ${id} raw payload ${change.id}`);
@@ -852,6 +990,13 @@ export function validateMapFieldCase(value) {
         `raw operation ${id}.${item.operation}`);
       assert.deepEqual(rawOperation.actions.map(({ id: actionId }) => actionId), replay,
         `${label}: raw operation actions ${id}.${item.operation}`);
+      for (const [actionIndex, action] of rawOperation.actions.entries()) {
+        rawForest(action?.forest, `${id}.${item.operation}.${action?.id}`);
+        rawDetachedIndex(action?.detachedIndex, `${id}.${item.operation}.${action?.id}`);
+        if (actionIndex > 0) {
+          rawDelta(action?.delta, `${id}.${item.operation}.${action?.id}`);
+        }
+      }
     }
     visible(observation.final, `final visible state ${id}`);
     const finalOperation = observation.intermediate
@@ -863,6 +1008,8 @@ export function validateMapFieldCase(value) {
     }
     check(raw !== undefined && nonemptyArray(raw.fieldKeys) && nonemptyArray(raw.fieldKinds)
       && raw.fieldKinds.every((kind) => kind !== "Sequence"), `raw scenario ${id}`);
+    assert.deepEqual(raw.operations.map(({ operation }) => operation), requiredOperations,
+      `${label}: raw operation order ${id}`);
   }
 }
 
