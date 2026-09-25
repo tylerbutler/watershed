@@ -1,14 +1,18 @@
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
+import gleam/option.{Some}
 import gleam/string
 import startest/expect
 import watershed/tree/codec/field_batch
 import watershed/tree/fixtures
+import watershed/tree/schema
 import watershed/tree/types.{
-  BooleanValue, NullValue, NumberValue, ObjectValue, StringValue,
+  BooleanValue, MapValue, NullValue, NumberValue, ObjectValue, StringValue,
 }
 import watershed/wire
+
+const map_type = "org.watershed.shared-tree.m2.DynamicMap"
 
 fn encoded_batch(shapes: List(json.Json), data: List(json.Json)) -> json.Json {
   json.object([
@@ -21,6 +25,17 @@ fn encoded_batch(shapes: List(json.Json), data: List(json.Json)) -> json.Json {
 
 fn stream(values: List(json.Json)) -> json.Json {
   json.array(values, fn(value) { value })
+}
+
+fn map_schema() -> schema.StoredSchema {
+  let assert Ok(fixture) = fixtures.load("map-schema-content")
+  let assert Ok(raw) =
+    json.parse(
+      json.to_string(fixture.input),
+      decode.at(["schemas", "recursive"], decode.string),
+    )
+  let assert Ok(stored) = schema.stored_from_string(raw)
+  stored
 }
 
 pub fn shared_tree_codec_field_batch_uncompressed_string_test() {
@@ -253,6 +268,21 @@ pub fn shared_tree_codec_field_batch_round_trips_values_and_fields_test() {
   ]
   let assert Ok(encoded) = field_batch.encode(values)
   field_batch.decode(encoded) |> expect.to_equal(Ok(values))
+}
+
+pub fn shared_tree_codec_field_batch_round_trips_map_values_with_schema_test() {
+  let values = [
+    [
+      MapValue(map_type, [
+        #("", StringValue("empty-key")),
+        #("__proto__", StringValue("safe")),
+        #("nested", MapValue(map_type, [#("水", NumberValue(42.0))])),
+      ]),
+    ],
+  ]
+  let assert Ok(encoded) = field_batch.encode(values)
+  field_batch.decode_with_schema(encoded, Some(map_schema()))
+  |> expect.to_equal(Ok(values))
 }
 
 pub fn shared_tree_codec_field_batch_accepts_finite_recursive_shape_test() {

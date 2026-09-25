@@ -10,6 +10,7 @@ import gleam/string
 import watershed/json_ot.{
   type JsonValue, NFloat, NInt, VArray, VBool, VNull, VNumber, VObject, VString,
 }
+import watershed/tree/schema
 import watershed/tree/types.{
   type TreeError, type TreeValue, BooleanValue, CorruptData, MapValue, NullValue,
   NumberValue, ObjectValue, StringValue, UnsupportedFeature, UnsupportedFormat,
@@ -94,6 +95,21 @@ pub fn decode(encoded: Json) -> Result(List(List(TreeValue)), TreeError) {
       _ -> Error(CorruptData(location, "stream has trailing values"))
     }
   })
+}
+
+/// Decode FieldBatch V2 content and classify structural nodes with stored schema.
+pub fn decode_with_schema(
+  encoded: Json,
+  stored: Option(schema.StoredSchema),
+) -> Result(List(List(TreeValue)), TreeError) {
+  use fields <- result.try(decode(encoded))
+  case stored {
+    None -> Ok(fields)
+    Some(stored) ->
+      list.try_map(fields, fn(field) {
+        list.try_map(field, classify_value(_, stored))
+      })
+  }
 }
 
 /// Encode fields with the upstream uncompressed FieldBatch V2 shapes.
@@ -840,35 +856,61 @@ fn encode_node(
         VArray([]),
       ])
     NullValue -> Ok([VNumber(NInt(3))])
+    ObjectValue(type_id, fields) ->
+      encode_structural_node(type_id, fields, location)
+    MapValue(type_id, entries) ->
+      encode_structural_node(type_id, entries, location)
+  }
+}
+
+fn classify_value(
+  value: TreeValue,
+  stored: schema.StoredSchema,
+) -> Result(TreeValue, TreeError) {
+  case value {
     ObjectValue(type_id, fields) -> {
-      use encoded_fields <- result.try(
-        list.try_fold(fields, [], fn(encoded, field) {
-          use _ <- result.try(
-            case list.any(encoded, fn(value) { value == VString(field.0) }) {
-              True ->
-                Error(CorruptData(
-                  location,
-                  "node has duplicate field " <> field.0,
-                ))
-              False -> Ok(Nil)
-            },
-          )
-          use child <- result.try(encode_node(
-            field.1,
-            location <> "." <> field.0,
-          ))
-          Ok(list.append(encoded, [VString(field.0), VArray(child)]))
+      use fields <- result.try(
+        list.try_map(fields, fn(field) {
+          classify_value(field.1, stored)
+          |> result.map(fn(value) { #(field.0, value) })
         }),
       )
-      Ok([
-        VNumber(NInt(0)),
-        VString(type_id),
-        VBool(False),
-        VArray(encoded_fields),
-      ])
+      use node <- result.try(schema.node_schema(stored, type_id))
+      case node {
+        schema.Object(_) -> Ok(ObjectValue(type_id, fields))
+        schema.Map(_) -> Ok(MapValue(type_id, fields))
+        schema.Leaf(_) ->
+          Error(CorruptData("fieldBatch", "leaf node uses a structural shape"))
+      }
     }
-    MapValue(_, _) -> Error(UnsupportedFeature(location, "map nodes"))
+    other -> Ok(other)
   }
+}
+
+fn encode_structural_node(
+  type_id: String,
+  fields: List(#(String, TreeValue)),
+  location: String,
+) -> Result(List(JsonValue), TreeError) {
+  use encoded_fields <- result.try(
+    list.try_fold(fields, [], fn(encoded, field) {
+      use _ <- result.try(
+        case list.any(encoded, fn(value) { value == VString(field.0) }) {
+          True ->
+            Error(CorruptData(location, "node has duplicate field " <> field.0))
+          False -> Ok(Nil)
+        },
+      )
+      use child <- result.try(encode_node(field.1, location <> "." <> field.0))
+      Ok(list.append(encoded, [VString(field.0), VArray(child)]))
+    }),
+  )
+  Ok([
+    VNumber(NInt(0)),
+    VString(type_id),
+    VBool(False),
+    VArray(encoded_fields),
+  ])
 }
 
 fn decode_identifier(

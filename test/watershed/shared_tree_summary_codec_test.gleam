@@ -7,6 +7,7 @@ import watershed/fluid_ids
 import watershed/json_ot.{
   type JsonValue, NInt, VArray, VNumber, VObject, VString,
 }
+import watershed/tree/change
 import watershed/tree/codec
 import watershed/tree/codec/summary
 import watershed/tree/fixtures
@@ -100,6 +101,68 @@ pub fn shared_tree_summary_decodes_initial_bootstrap_test() {
     )
   list.map(fields, fn(field) { field.0 })
   |> expect.to_equal(["rootFieldKey"])
+}
+
+pub fn shared_tree_summary_decodes_dynamic_map_forest_test() {
+  let assert Ok(fixtures.Case(raw:, ..)) = fixtures.load("map-history-codecs")
+  let assert Ok(VObject(raw)) = json_ot.parse_json(json.to_string(raw))
+  let assert Ok(VObject(summary_raw)) = list.key_find(raw, "summary")
+  let assert Ok(encoded) = list.key_find(summary_raw, "value")
+  let assert Ok(VObject(reload)) = list.key_find(raw, "reload")
+  let assert Ok(VString(compressor_raw)) = list.key_find(reload, "compressor")
+  let assert Ok(session) =
+    fluid_ids.session_id("30000000-0000-4000-8000-000000000003")
+  let assert Ok(compressor) =
+    fluid_ids.deserialize(json.string(compressor_raw), session)
+  let decoded = case
+    summary.decode(
+      decode_summary_entry(encoded),
+      None,
+      session,
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+  {
+    Ok(value) -> value
+    Error(error) -> panic as { string.inspect(error) }
+  }
+  let summary.TreeSummaryData(
+    _,
+    summary.ForestSummary(fields),
+    _,
+    summary.EditManagerSummary(trunk, peers),
+  ) = decoded
+  let assert Ok([types.ObjectValue(_, [#("items", types.MapValue(_, entries))])]) =
+    list.key_find(fields, "rootFieldKey")
+  list.is_empty(entries) |> expect.to_be_false
+  let commits =
+    list.append(trunk, list.flat_map(peers, fn(peer) { peer.commits }))
+  commits
+  |> list.any(fn(commit) {
+    let summary.SummaryCommit(codec.WireCommit(changes: changes, ..), _, _) =
+      commit
+    changes
+    |> list.any(fn(item) {
+      case item {
+        codec.DataChange(value) -> {
+          let data = change.to_data(value)
+          list.append(data.builds, data.refreshers)
+          |> list.flat_map(fn(build) { build.trees })
+          |> list.any(contains_map)
+        }
+        codec.SchemaChange(_, _) -> False
+      }
+    })
+  })
+  |> expect.to_be_true
+}
+
+fn contains_map(value: types.TreeValue) -> Bool {
+  case value {
+    types.MapValue(_, _) -> True
+    types.ObjectValue(_, fields) ->
+      list.any(fields, fn(field) { contains_map(field.1) })
+    _ -> False
+  }
 }
 
 pub fn shared_tree_summary_restores_and_reexports_retained_history_test() {

@@ -185,13 +185,17 @@ pub fn decode(
     "DetachedFieldIndexBlob",
     "summary.indexes.DetachedFieldIndex.DetachedFieldIndexBlob",
   ))
-  use forest <- result.try(decode_forest_string(forest_raw))
+  use forest <- result.try(decode_forest_string_with_schema(forest_raw, stored))
   use detached <- result.try(decode_detached_string(
     detached_raw,
     session,
     context,
   ))
-  use history <- result.try(decode_edit_manager_string(history_raw, context))
+  use history <- result.try(decode_edit_manager_string_with_schema(
+    history_raw,
+    context,
+    stored,
+  ))
   use _ <- result.try(validate_tree_summary(stored, forest, detached))
   Ok(TreeSummaryData(stored, forest, detached, history))
 }
@@ -242,6 +246,21 @@ pub fn encode(
 
 /// Decode Forest V2 content from JSON.
 pub fn decode_forest(encoded: Json) -> Result(ForestSummary, TreeError) {
+  decode_forest_value(encoded, None)
+}
+
+/// Decode Forest V2 content with its active stored schema.
+pub fn decode_forest_with_schema(
+  encoded: Json,
+  stored: schema.StoredSchema,
+) -> Result(ForestSummary, TreeError) {
+  decode_forest_value(encoded, Some(stored))
+}
+
+fn decode_forest_value(
+  encoded: Json,
+  stored: Option(schema.StoredSchema),
+) -> Result(ForestSummary, TreeError) {
   use value <- result.try(json_value(encoded, "forest"))
   use members <- result.try(object(value, "forest"))
   use _ <- result.try(exact_keys(
@@ -261,7 +280,10 @@ pub fn decode_forest(encoded: Json) -> Result(ForestSummary, TreeError) {
   )
   use _ <- result.try(unique_strings(keys, "forest.keys"))
   use fields_value <- result.try(required(members, "fields", "forest.fields"))
-  use fields <- result.try(field_batch.decode(json_ot.to_json(fields_value)))
+  use fields <- result.try(field_batch.decode_with_schema(
+    json_ot.to_json(fields_value),
+    stored,
+  ))
   case list.length(keys) == list.length(fields) {
     True -> Ok(ForestSummary(list.zip(keys, fields)))
     False ->
@@ -395,6 +417,23 @@ pub fn decode_edit_manager(
   encoded: Json,
   context: codec.DecodeContext,
 ) -> Result(EditManagerSummary, TreeError) {
+  decode_edit_manager_value(encoded, context, None)
+}
+
+/// Decode EditManager V7 content with its active stored schema.
+pub fn decode_edit_manager_with_schema(
+  encoded: Json,
+  context: codec.DecodeContext,
+  stored: schema.StoredSchema,
+) -> Result(EditManagerSummary, TreeError) {
+  decode_edit_manager_value(encoded, context, Some(stored))
+}
+
+fn decode_edit_manager_value(
+  encoded: Json,
+  context: codec.DecodeContext,
+  stored: Option(schema.StoredSchema),
+) -> Result(EditManagerSummary, TreeError) {
   use value <- result.try(json_value(encoded, "editManager"))
   use members <- result.try(object(value, "editManager"))
   use _ <- result.try(exact_keys(
@@ -417,6 +456,7 @@ pub fn decode_edit_manager(
         value,
         True,
         context,
+        stored,
         "editManager.trunk[" <> int.to_string(index) <> "]",
       )
     }),
@@ -432,6 +472,7 @@ pub fn decode_edit_manager(
       decode_branch(
         value,
         context,
+        stored,
         "editManager.branches[" <> int.to_string(index) <> "]",
       )
     }),
@@ -464,9 +505,12 @@ pub fn encode_edit_manager(
   )
 }
 
-fn decode_forest_string(raw: String) -> Result(ForestSummary, TreeError) {
+fn decode_forest_string_with_schema(
+  raw: String,
+  stored: schema.StoredSchema,
+) -> Result(ForestSummary, TreeError) {
   use value <- result.try(parse(raw, "forest"))
-  decode_forest(json_ot.to_json(value))
+  decode_forest_with_schema(json_ot.to_json(value), stored)
 }
 
 fn decode_detached_string(
@@ -478,18 +522,20 @@ fn decode_detached_string(
   decode_detached(json_ot.to_json(value), session, context)
 }
 
-fn decode_edit_manager_string(
+fn decode_edit_manager_string_with_schema(
   raw: String,
   context: codec.DecodeContext,
+  stored: schema.StoredSchema,
 ) -> Result(EditManagerSummary, TreeError) {
   use value <- result.try(parse(raw, "editManager"))
-  decode_edit_manager(json_ot.to_json(value), context)
+  decode_edit_manager_with_schema(json_ot.to_json(value), context, stored)
 }
 
 fn decode_commit(
   value: JsonValue,
   sequenced: Bool,
   context: codec.DecodeContext,
+  stored: Option(schema.StoredSchema),
   location: String,
 ) -> Result(SummaryCommit, TreeError) {
   use members <- result.try(object(value, location))
@@ -533,11 +579,21 @@ fn decode_commit(
     "change",
     location <> ".change",
   ))
-  use changes <- result.try(codec.decode_changes(
-    json_ot.to_json(changes_value),
-    context,
-    codec.ChangeContext(session, Some(revision), codec.Summary),
-  ))
+  use changes <- result.try(case stored {
+    None ->
+      codec.decode_changes(
+        json_ot.to_json(changes_value),
+        context,
+        codec.ChangeContext(session, Some(revision), codec.Summary),
+      )
+    Some(stored) ->
+      codec.decode_changes_with_schema(
+        json_ot.to_json(changes_value),
+        context,
+        codec.ChangeContext(session, Some(revision), codec.Summary),
+        stored,
+      )
+  })
   use metadata <- result.try(case optional(members, "customMetadata") {
     None -> Ok(None)
     Some(value) ->
@@ -631,6 +687,7 @@ fn encode_commit(
 fn decode_branch(
   value: JsonValue,
   context: codec.DecodeContext,
+  stored: Option(schema.StoredSchema),
   location: String,
 ) -> Result(PeerBranch, TreeError) {
   use pair <- result.try(array(value, location))
@@ -670,6 +727,7 @@ fn decode_branch(
         value,
         False,
         context,
+        stored,
         location <> "[1].commits[" <> int.to_string(index) <> "]",
       )
     }),

@@ -76,9 +76,10 @@ pub fn decode_message(
   state: tree_kernel.TreeState,
   compressor: fluid_ids.Compressor,
 ) -> Result(#(history.Commit, codec.TreeMessage), TreeError) {
-  use message <- result.try(codec.decode_message(
+  use message <- result.try(codec.decode_message_with_schema(
     raw,
     codec.DecodeContext(codec.Fluid310, compressor),
+    tree_kernel.stored_schema(state),
   ))
   use commit <- result.try(wire_to_commit(message.commit))
   use _ <- result.try(identity_order(state, commit, compressor))

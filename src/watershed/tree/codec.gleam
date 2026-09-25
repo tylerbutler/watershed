@@ -95,6 +95,23 @@ pub fn decode_message(
   raw: String,
   context: DecodeContext,
 ) -> Result(TreeMessage, TreeError) {
+  decode_message_value(raw, context, None)
+}
+
+/// Decode one Message V7 commit envelope with its active stored schema.
+pub fn decode_message_with_schema(
+  raw: String,
+  context: DecodeContext,
+  stored: schema.StoredSchema,
+) -> Result(TreeMessage, TreeError) {
+  decode_message_value(raw, context, Some(stored))
+}
+
+fn decode_message_value(
+  raw: String,
+  context: DecodeContext,
+  stored: Option(schema.StoredSchema),
+) -> Result(TreeMessage, TreeError) {
   use value <- result.try(
     json_ot.parse_json(raw)
     |> result.map_error(fn(_) {
@@ -144,6 +161,7 @@ pub fn decode_message(
     changeset,
     context,
     ChangeContext(originator, Some(revision), Message),
+    stored,
     "message.changeset",
   ))
   use custom_metadata <- result.try(case optional(members, "customMetadata") {
@@ -212,7 +230,18 @@ pub fn decode_modular(
   change_context: ChangeContext,
 ) -> Result(change.Changeset, TreeError) {
   use value <- result.try(json_value(encoded, "modular"))
-  decode_modular_value(value, context, change_context, "modular")
+  decode_modular_value(value, context, change_context, None, "modular")
+}
+
+/// Decode one ModularChange V5 payload with its active stored schema.
+pub fn decode_modular_with_schema(
+  encoded: Json,
+  context: DecodeContext,
+  change_context: ChangeContext,
+  stored: schema.StoredSchema,
+) -> Result(change.Changeset, TreeError) {
+  use value <- result.try(json_value(encoded, "modular"))
+  decode_modular_value(value, context, change_context, Some(stored), "modular")
 }
 
 /// Encode one ModularChange V5 payload.
@@ -232,7 +261,18 @@ pub fn decode_changes(
   change_context: ChangeContext,
 ) -> Result(List(TreeChange), TreeError) {
   use value <- result.try(json_value(encoded, "changes"))
-  decode_changes_value(value, context, change_context, "changes")
+  decode_changes_value(value, context, change_context, None, "changes")
+}
+
+/// Decode SharedTreeChange V5 content with its active stored schema.
+pub fn decode_changes_with_schema(
+  encoded: Json,
+  context: DecodeContext,
+  change_context: ChangeContext,
+  stored: schema.StoredSchema,
+) -> Result(List(TreeChange), TreeError) {
+  use value <- result.try(json_value(encoded, "changes"))
+  decode_changes_value(value, context, change_context, Some(stored), "changes")
 }
 
 /// Encode an ordered SharedTreeChange V5 list.
@@ -369,6 +409,7 @@ fn decode_changes_value(
   value: JsonValue,
   context: DecodeContext,
   change_context: ChangeContext,
+  stored: Option(schema.StoredSchema),
   location: String,
 ) -> Result(List(TreeChange), TreeError) {
   use values <- result.try(array(value, location))
@@ -377,7 +418,13 @@ fn decode_changes_value(
     use members <- result.try(object(value, location))
     case members {
       [#("data", data)] ->
-        decode_modular_value(data, context, change_context, location <> ".data")
+        decode_modular_value(
+          data,
+          context,
+          change_context,
+          stored,
+          location <> ".data",
+        )
         |> result.map(DataChange)
       [#("schema", schema_change)] ->
         decode_schema_change(schema_change, location <> ".schema")
@@ -441,6 +488,7 @@ fn decode_modular_value(
   value: JsonValue,
   context: DecodeContext,
   change_context: ChangeContext,
+  stored: Option(schema.StoredSchema),
   location: String,
 ) -> Result(change.Changeset, TreeError) {
   use members <- result.try(object(value, location))
@@ -500,12 +548,24 @@ fn decode_modular_value(
   use builds <- result.try(case optional(members, "builds") {
     None -> Ok([])
     Some(value) ->
-      decode_builds(value, context, change_context, location <> ".builds")
+      decode_builds(
+        value,
+        context,
+        change_context,
+        stored,
+        location <> ".builds",
+      )
   })
   use refreshers <- result.try(case optional(members, "refreshers") {
     None -> Ok([])
     Some(value) ->
-      decode_builds(value, context, change_context, location <> ".refreshers")
+      decode_builds(
+        value,
+        context,
+        change_context,
+        stored,
+        location <> ".refreshers",
+      )
   })
   let DecodeChangeState(_, nodes, parents) = state
   let data =
@@ -1031,13 +1091,14 @@ fn decode_builds(
   value: JsonValue,
   context: DecodeContext,
   change_context: ChangeContext,
+  stored: Option(schema.StoredSchema),
   location: String,
 ) -> Result(List(forest.Build), TreeError) {
   use members <- result.try(object(value, location))
   use _ <- result.try(exact_keys(members, ["builds", "trees"], location))
   use trees <- result.try(required(members, "trees", location <> ".trees"))
   use trees <- result.try(
-    field_batch.decode(json_ot.to_json(trees))
+    field_batch.decode_with_schema(json_ot.to_json(trees), stored)
     |> result.map_error(fn(error) { at_location(error, location <> ".trees") }),
   )
   use groups <- result.try(required(members, "builds", location <> ".builds"))
