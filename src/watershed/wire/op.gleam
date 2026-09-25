@@ -5,7 +5,9 @@
 //// snapshot blobs. The SharedMap codec uses upstream Plain values. Other
 //// existing DDSes retain their native payloads and Watershed type identifiers.
 ////
-//// The summarize operation still publishes the native non-tree summary.
+//// A summarize operation announces a stored document summary.
+//// Tree documents use the declared Fluid summary hierarchy.
+//// Other existing DDSes retain their native summary payloads.
 
 import gleam/dict
 import gleam/dynamic.{type Dynamic}

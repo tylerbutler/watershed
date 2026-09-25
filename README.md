@@ -85,12 +85,23 @@ guide](https://watershed.tylerbutler.com/guide/connect) for both.
 
 ## SharedTree runtime (experimental)
 
-The fixed-schema SharedTree object profile now runs in the native document
-core on JavaScript and BEAM. It supports required and optional fields, routed
-map/tree handles, optimistic edits, and atomic allocation-before-content
-batches. The development oracle compares native replay with Fluid 3.1.0 and
-feeds fresh native messages to an upstream container on its local service,
-then returns an upstream edit to the native core.
+Watershed supports the fixed-schema SharedTree object profile on JavaScript
+and BEAM, with interoperability coverage against Fluid Framework **3.1.0** and
+the pinned Floodgate service. The gate compares upstream, JavaScript, and BEAM
+authors, reconnects pending edits, and loads and continues editing across all
+nine summary writer/reader combinations. This claim applies to the declared
+profile, not arbitrary Fluid documents or services.
+
+The [profile manifest](test/fixtures/shared_tree/profile.json) records upstream
+commit `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960` and Floodgate commit
+`0eb493fc46d1bb9baf1151a6ccdde93544e057e7`. Its `oldestSupportedClient: 2.117.0`
+field is container metadata, not a claim of tested Fluid 2.x compatibility.
+The layout uses alias `root` -> datastore `A`, a bootstrap map at `/A/root`
+with a `"tree"` handle, and a tree at `/A/_C`.
+
+The schema subset includes nested objects, required and optional fields, and
+string, finite number, boolean, and null leaves. It supports optimistic edits,
+routed map/tree handles, and atomic allocation-before-content batches.
 
 Ordinary connections can load published upstream SharedTree summaries for this
 fixed container and schema profile without a caller-supplied seed. The checked
@@ -117,6 +128,11 @@ can use `schema.TreeChannel` with `set_tree_field` and
 `subscribe_tree(tree, handler)` returns a `SubscriptionToken` for `unsubscribe`;
 BEAM's `subscribe_tree(tree)` returns `Subject(TreeEvent)`.
 
+Unsupported versions, incompatible schemas, and corrupt input return explicit
+errors. Failed bootstrap does not expose a writable partial document. Invalid
+local edits leave the tree, pending edits, allocations, events, and outgoing
+messages unchanged.
+
 Manual `summarize` publishes a complete tree document when it is synchronized
 and has its original routing and protocol metadata. Automatic summary policy
 still skips tree documents. New tree edits require the ready phase: disconnected,
@@ -133,9 +149,27 @@ recoverable connection failures have a bounded, delayed retry and report
 their cause through `connection_observation`. A replay error also suspends
 recovery without discarding accepted local edits.
 This is in-memory reconnect, not disk recovery or offline authoring.
-The focused `client:interop -- --local-floodgate` oracle exercises six live
-schedules on each native target; broader mixed-client matrices and permanent
-CI gates remain open. SharedTree has no P2P mode.
+The combined service gate includes the six focused reconnect schedules on
+each native target, the three-client editing matrix, and fresh summary readers.
+SharedTree has no P2P mode; P2P tree creation and snapshot import return an
+unsupported-channel error. A compatible service transport alone does not
+establish SharedTree operation or persistence compatibility.
+
+### Limits
+
+Native writers produce full summaries, not incremental summaries. Memory use
+depends on attached and retained detached content, pending edits, and the
+collaboration window. History can trim as the minimum sequence advances, but
+there is no published capacity, throughput, or bounded-memory guarantee.
+
+Dynamic map nodes, arrays and moves, schema evolution, handle-valued tree
+leaves, transactions, undo/redo, and branching remain deferred. Fixed-layout
+creation is available below; broader container layouts, live attachment,
+SharedTree Lustre bindings, and disk recovery of pending edits are not.
+
+Recreate documents written with earlier Watershed development encodings.
+There is no legacy reader or migration path. This format change does not
+remove the regression requirement for existing DDS APIs and behavior.
 
 ### Create a SharedTree container
 
@@ -168,6 +202,26 @@ JavaScript, edits it on BEAM, and reopens it without an SDK seed. Local token
 minting in that example is for development; applications supply service-issued
 tokens. Run `just shared-tree-create-test` for the native and HTTP checks, or
 `just shared-tree-create-interop` for the pinned-service creation matrix.
+
+### SharedTree checks
+
+The `SharedTree native` and `SharedTree interoperability` CI jobs run on pull
+requests and pushes to `main`. The native job needs no live service or upstream
+source build; the interoperability job owns an isolated pinned Floodgate and
+requires both the M1 matrix and the native-creation matrix.
+
+| Command | Checks |
+| --- | --- |
+| `just shared-tree-test` | Both native suites, storage/facade coverage, and HTTP/bootstrap/creation smokes. |
+| `npm --prefix tools/shared-tree-oracle test` | Oracle, report-validator, and recipe contracts. |
+| `just shared-tree-oracle-check` | Pinned upstream regeneration against committed fixtures. |
+| `just shared-tree-interop` | 75 deterministic, 12 reconnect, 24 refusal cases, nine reload cells, and 200 seeded schedules. |
+| `just shared-tree-create-interop` | Two native creators, each with fresh JavaScript, BEAM, and upstream readers: six cells. |
+| `just shared-tree-interop-deep` | Manual 5,000-schedule run through the same coordinator. |
+
+See the [oracle README](tools/shared-tree-oracle/README.md#run) for prerequisites,
+evidence artifacts, and failure replay. These checks prove the declared profile;
+they do not expand the compatibility claim.
 
 ## Data structures
 

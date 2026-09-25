@@ -33,9 +33,25 @@ published dependencies; the pinned upstream lockfile covers its source build.
 
 From the Watershed repository root:
 
+Use the Gleam/Erlang versions in `mise.toml`, Node 24, pnpm 11.13.1, and `just`.
+Install the root transport dependencies and the separate oracle dependencies
+from their lockfiles:
+
 ```sh
+pnpm install --frozen-lockfile
 npm --prefix tools/shared-tree-oracle ci
 npm --prefix tools/shared-tree-oracle test
+just shared-tree-test
+```
+
+The native recipe executes both complete file-selected SharedTree suites,
+storage/facade coverage, and the owned HTTP/bootstrap/creation smokes. It needs
+the root Node transport dependencies, but no Fluid SDK, upstream source build,
+or live service. The oracle Node tests also check the recipes and require `just`.
+
+Prepare and verify the pinned source before regeneration or service acceptance:
+
+```sh
 npm --prefix tools/shared-tree-oracle run source:prepare
 npm --prefix tools/shared-tree-oracle run source:verify
 npm --prefix tools/shared-tree-oracle run source:capture
@@ -44,15 +60,16 @@ npm --prefix tools/shared-tree-oracle run runtime:interop
 npm --prefix tools/shared-tree-oracle run summary:interop
 npm --prefix tools/shared-tree-oracle run summary:interop -- --service floodgate --local
 npm --prefix tools/shared-tree-oracle run client:interop -- --local-floodgate
-node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 200 --seed 42
+just shared-tree-interop
 ```
 
 The final command is the combined Task 15 acceptance gate. It verifies the
 committed profile and pinned source, starts an isolated pinned Floodgate,
 executes the native corpus on both targets, then runs 75 deterministic cases,
 12 focused reconnect cases, 24 refusal cases, the nine-cell summary reload
-matrix, and 200 generated schedules. The default profile, iteration count, and
-seed are the values shown above, so this is equivalent:
+matrix, and 200 generated schedules. The recipe uses
+`test/fixtures/shared_tree/profile.json` and seed `42`, matching the coordinator's
+defaults, so this is equivalent:
 
 ```sh
 npm --prefix tools/shared-tree-oracle run interop
@@ -93,11 +110,50 @@ it does not rewrite valid tree payloads or compute native state. A deeper local
 run uses the same coordinator and report validator:
 
 ```sh
-node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 5000 --seed 42
+just shared-tree-interop-deep
 ```
 
 The normal acceptance gate requires 200 schedules. The 5,000-schedule command
 is optional and is not part of the Task 15 completion claim.
+
+### Permanent gates
+
+`.github/workflows/shared-tree.yml` runs these independent jobs on pull requests,
+pushes to `main`, and manual dispatch:
+
+| Check name | Required commands |
+| --- | --- |
+| `SharedTree native` | Oracle Node tests and `just shared-tree-test`; no source compilation or service. |
+| `SharedTree interoperability` | Verified source preparation, `just shared-tree-interop`, and `just shared-tree-create-interop`. |
+
+Administrators can require these check names in branch protection or a ruleset.
+The workflow file does not configure that policy. Both jobs fail on missing
+prerequisites; the service job cannot pass by skipping a target, corpus, service,
+or matrix. The M1 coordinator runs the source verification and fixture
+regeneration check itself, so CI does not repeat that expensive check.
+
+| Local command | Scope |
+| --- | --- |
+| `just shared-tree-test` | Native suites and HTTP smokes on both targets. |
+| `npm --prefix tools/shared-tree-oracle test` | Oracle/report/recipe tests. |
+| `just shared-tree-oracle-check` | Regenerate from the pinned source and compare committed fixtures. |
+| `just shared-tree-interop` | Real-service M1 matrix and 200 seeded schedules. |
+| `just shared-tree-create-interop` | Six native-creator/fresh-reader cells and continued editing. |
+| `just shared-tree-interop-deep` | Manual 5,000-schedule acceptance through the same runner. |
+
+The service job uploads `.output/interop/` and `.output/creation/` on success or
+failure as `shared-tree-evidence-<run-id>-<run-attempt>`. It includes the hidden
+`.output` directory but excludes source checkouts, service databases, and other
+output directories. Each runner verifies its own current-run artifacts; an
+older `report.json` cannot turn a failed command into success. Cleanup failure
+also fails the command. The two reports establish separate claims: M1's nine
+summary writer/reader combinations and native creation's six creator/reader
+combinations.
+
+The workflow starts no shared development server. The existing service wrapper
+verifies Floodgate commit `0eb493fc46d1bb9baf1151a6ccdde93544e057e7`, allocates a
+local port and temporary data, and stops only its owned process. Docker and
+service credentials from repository secrets are not required.
 
 ### Native container creation
 
@@ -132,10 +188,10 @@ before returning its assigned ID. The fresh upstream reader uses the same
 datastore factory as the object-profile oracle and must accept the logical
 `watershed-shared-tree` code package.
 
-This gate covers the pulled-forward native-creation slice of M7. Task 16's
-permanent CI work and the rest of M7 remain open. It does not cover arbitrary
-Fluid applications, live channel attachment, service discovery, or a hosted
-relay.
+This gate covers the pulled-forward native-creation slice of M7 and runs in
+the permanent interoperability job. The rest of M7 remains open. It does not
+cover arbitrary Fluid applications, live channel attachment, service discovery,
+or a hosted relay.
 
 `client:interop` builds long-lived JavaScript and BEAM test clients once, then
 creates a fresh upstream document for each schedule. The upstream summarizer
@@ -175,8 +231,8 @@ other error still fails the schedule.
 The TCP gate forwards unmodified bytes; for these two cases it inspects
 WebSocket frame boundaries and decoded payloads to pause after the handshake
 and capture withheld submissions. It does not fabricate service messages.
-This focused gate is also consumed by the combined Task 15 coordinator. It is
-not a permanent CI gate.
+The permanent service job runs this focused gate through the combined M1
+coordinator; CI does not repeat it as a separate command.
 
 The default summary gate exports all four input-only `summary-writer-matrix`
 persistence states on JavaScript and BEAM. Each exporter decodes the captured

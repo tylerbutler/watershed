@@ -481,6 +481,8 @@ pub fn resolve_root(document: Document(root)) -> Result(SharedMap, String) {
 
 @target(javascript)
 /// Resolve an existing tree with a compatible fixed view.
+/// This API supports the declared Fluid 3.1.0 object profile.
+/// An incompatible stored schema returns an error.
 pub fn resolve_tree(
   document: Document(root),
   value: Json,
@@ -498,6 +500,8 @@ pub fn tree_handle_of(tree: SharedTree) -> Json {
 }
 
 @target(javascript)
+/// Read a field from the current tree view.
+/// An absent optional field returns `None`. A null leaf is a value.
 pub fn tree_get(
   tree: SharedTree,
   path: tree_types.FieldPath,
@@ -506,6 +510,8 @@ pub fn tree_get(
 }
 
 @target(javascript)
+/// Set a field after schema validation. The document must be ready.
+/// An invalid edit does not change the tree.
 pub fn tree_set(
   tree: SharedTree,
   path: tree_types.FieldPath,
@@ -519,6 +525,8 @@ pub fn tree_set(
 }
 
 @target(javascript)
+/// Clear an optional field. A required field cannot be cleared.
+/// The document must be ready.
 pub fn tree_clear(
   tree: SharedTree,
   path: tree_types.FieldPath,
