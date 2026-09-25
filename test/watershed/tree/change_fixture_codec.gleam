@@ -512,8 +512,18 @@ pub fn wire_atom(
   id: types.AtomId,
   revisions: Revisions,
 ) -> Result(Json, String) {
+  wire_tagged_atom(id, revisions, None)
+}
+
+fn wire_tagged_atom(
+  id: types.AtomId,
+  revisions: Revisions,
+  tagged_revision: Option(StableId),
+) -> Result(Json, String) {
   case id.revision {
     None -> Ok(json.int(id.local_id))
+    Some(revision) if Some(revision) == tagged_revision ->
+      Ok(json.int(id.local_id))
     Some(revision) -> {
       use encoded <- result.try(wire_revision(revision, revisions))
       Ok(array([json.int(id.local_id), json.int(encoded)]))
@@ -525,10 +535,25 @@ pub fn wire(
   value: change.Changeset,
   revisions: Revisions,
 ) -> Result(Json, String) {
+  wire_tagged(value, revisions, None)
+}
+
+pub fn wire_tagged(
+  value: change.Changeset,
+  revisions: Revisions,
+  tagged_revision: Option(StableId),
+) -> Result(Json, String) {
   let data = change.to_data(value)
-  use fields <- result.try(wire_fields(data.fields, data, revisions))
+  use fields <- result.try(wire_fields(
+    data.fields,
+    data,
+    revisions,
+    tagged_revision,
+  ))
   use revision_data <- result.try(
-    list.try_map(data.revisions, fn(info) {
+    data.revisions
+    |> list.filter(fn(info) { Some(info.revision) != tagged_revision })
+    |> list.try_map(fn(info) {
       use revision <- result.try(wire_revision(info.revision, revisions))
       use rollback <- result.try(case info.rollback_of {
         None -> Ok([])
@@ -540,24 +565,29 @@ pub fn wire(
       Ok(json.object([#("revision", json.int(revision)), ..rollback]))
     }),
   )
-  use builds <- result.try(wire_builds(data.builds, revisions))
-  use refreshers <- result.try(wire_builds(data.refreshers, revisions))
+  use builds <- result.try(wire_builds(data.builds, revisions, tagged_revision))
+  use refreshers <- result.try(wire_builds(
+    data.refreshers,
+    revisions,
+    tagged_revision,
+  ))
   case data.destroys {
     [] -> {
-      let fields = [
-        #("maxId", json.int(data.max_local_id)),
-        #("revisions", array(revision_data)),
-        #("changes", fields),
-      ]
-      let fields = case builds {
-        None -> fields
-        Some(value) -> list.append(fields, [#("builds", value)])
+      let members = [#("maxId", json.int(data.max_local_id))]
+      let members = case revision_data {
+        [] -> members
+        _ -> list.append(members, [#("revisions", array(revision_data))])
       }
-      let fields = case refreshers {
-        None -> fields
-        Some(value) -> list.append(fields, [#("refreshers", value)])
+      let members = list.append(members, [#("changes", fields)])
+      let members = case builds {
+        None -> members
+        Some(value) -> list.append(members, [#("builds", value)])
       }
-      Ok(json.object(fields))
+      let members = case refreshers {
+        None -> members
+        Some(value) -> list.append(members, [#("refreshers", value)])
+      }
+      Ok(json.object(members))
     }
     _ -> Error("the encoded fixture profile excludes destroy-bearing changes")
   }
@@ -567,18 +597,28 @@ fn wire_fields(
   fields: List(#(String, change.FieldChange)),
   data: change.ChangeData,
   revisions: Revisions,
+  tagged_revision: Option(StableId),
 ) -> Result(Json, String) {
   use encoded <- result.try(
     list.try_map(fields, fn(entry) {
       use #(kind, payload) <- result.try(case entry.1 {
         change.ValueField(field) ->
-          wire_concrete(field, data, revisions)
+          wire_concrete(field, data, revisions, tagged_revision)
           |> result.map(fn(encoded) { #("Value", encoded) })
         change.OptionalField(field) ->
-          wire_concrete(field, data, revisions)
+          wire_concrete(field, data, revisions, tagged_revision)
           |> result.map(fn(encoded) { #("Optional", encoded) })
-        change.GenericField(_) ->
-          Error("the encoded fixture profile excludes Generic fields")
+        change.GenericField(children) -> {
+          use children <- result.try(
+            list.try_map(children, fn(child) {
+              use node <- result.try(
+                wire_node(child.1, data, revisions, tagged_revision, []),
+              )
+              Ok(array([json.int(child.0), node]))
+            }),
+          )
+          Ok(#("ModularEditBuilder.Generic", array(children)))
+        }
       })
       Ok(
         json.object([
@@ -596,29 +636,52 @@ fn wire_concrete(
   field: optional_field.FieldChange,
   data: change.ChangeData,
   revisions: Revisions,
+  tagged_revision: Option(StableId),
 ) -> Result(Json, String) {
   use moves <- result.try(
     list.try_map(field.moves, fn(entry) {
-      use first <- result.try(wire_atom(entry.0, revisions))
-      use second <- result.try(wire_atom(entry.1, revisions))
+      use first <- result.try(wire_tagged_atom(
+        entry.0,
+        revisions,
+        tagged_revision,
+      ))
+      use second <- result.try(wire_tagged_atom(
+        entry.1,
+        revisions,
+        tagged_revision,
+      ))
       Ok(array([first, second]))
     }),
   )
   use children <- result.try(
     list.try_map(field.child_changes, fn(entry) {
-      use register <- result.try(wire_register(entry.0, revisions))
-      use node <- result.try(wire_node(entry.1, data, revisions, []))
+      use register <- result.try(wire_register(
+        entry.0,
+        revisions,
+        tagged_revision,
+      ))
+      use node <- result.try(
+        wire_node(entry.1, data, revisions, tagged_revision, []),
+      )
       Ok(array([register, node]))
     }),
   )
   use replacement <- result.try(case field.replacement {
     None -> Ok([])
     Some(value) -> {
-      use detach <- result.try(wire_atom(value.detach_id, revisions))
+      use detach <- result.try(wire_tagged_atom(
+        value.detach_id,
+        revisions,
+        tagged_revision,
+      ))
       use source <- result.try(case value.source {
         None -> Ok([])
         Some(value) -> {
-          use value <- result.try(wire_register(value, revisions))
+          use value <- result.try(wire_register(
+            value,
+            revisions,
+            tagged_revision,
+          ))
           Ok([#("s", value)])
         }
       })
@@ -648,10 +711,12 @@ fn wire_concrete(
 fn wire_register(
   value: optional_field.RegisterId,
   revisions: Revisions,
+  tagged_revision: Option(StableId),
 ) -> Result(Json, String) {
   case value {
     optional_field.Active -> Ok(json.null())
-    optional_field.Detached(id) -> wire_atom(id, revisions)
+    optional_field.Detached(id) ->
+      wire_tagged_atom(id, revisions, tagged_revision)
   }
 }
 
@@ -659,13 +724,15 @@ fn wire_node(
   id: types.AtomId,
   data: change.ChangeData,
   revisions: Revisions,
+  tagged_revision: Option(StableId),
   visited: List(types.AtomId),
 ) -> Result(Json, String) {
   case list.contains(visited, id) {
     True -> Error("cyclic node alias in encoded change")
     False ->
       case list.key_find(data.aliases, id) {
-        Ok(next) -> wire_node(next, data, revisions, [id, ..visited])
+        Ok(next) ->
+          wire_node(next, data, revisions, tagged_revision, [id, ..visited])
         Error(Nil) -> {
           use node <- result.try(
             list.key_find(data.nodes, id)
@@ -674,7 +741,12 @@ fn wire_node(
           case node.fields {
             [] -> Ok(json.object([]))
             fields -> {
-              use fields <- result.try(wire_fields(fields, data, revisions))
+              use fields <- result.try(wire_fields(
+                fields,
+                data,
+                revisions,
+                tagged_revision,
+              ))
               Ok(json.object([#("fieldChanges", fields)]))
             }
           }
@@ -686,6 +758,7 @@ fn wire_node(
 fn wire_builds(
   builds: List(forest.Build),
   revisions: Revisions,
+  tagged_revision: Option(StableId),
 ) -> Result(Option(Json), String) {
   case builds {
     [] -> Ok(None)
@@ -694,6 +767,7 @@ fn wire_builds(
         list.try_map(builds, fn(build) {
           use revision <- result.try(case build.id.revision {
             None -> Ok(-1)
+            Some(revision) if Some(revision) == tagged_revision -> Ok(-1)
             Some(revision) -> wire_revision(revision, revisions)
           })
           Ok(#(revision, build))
@@ -708,23 +782,12 @@ fn wire_builds(
         })
       use trees <- result.try(
         list.try_map(keyed, fn(entry) {
-          case entry.1.trees {
-            [types.StringValue(value)] ->
-              Ok(
-                array([
-                  json.int(1),
-                  array([
-                    json.string("com.fluidframework.leaf.string"),
-                    json.bool(True),
-                    json.string(value),
-                    array([]),
-                  ]),
-                ]),
-              )
-            _ ->
-              Error("the encoded fixture profile requires single string chunks")
-          }
-        }),
+          list.try_map(entry.1.trees, fn(tree) {
+            wire_tree(tree)
+            |> result.map(fn(tree) { array([json.int(1), tree]) })
+          })
+        })
+        |> result.map(list.flatten),
       )
       let indexed =
         list.index_map(keyed, fn(entry, index) {
@@ -774,5 +837,63 @@ fn wire_builds(
         ),
       )
     }
+  }
+}
+
+fn wire_tree(value: types.TreeValue) -> Result(Json, String) {
+  case value {
+    types.StringValue(value) ->
+      Ok(
+        array([
+          json.string("com.fluidframework.leaf.string"),
+          json.bool(True),
+          json.string(value),
+          array([]),
+        ]),
+      )
+    types.NumberValue(value) ->
+      Ok(
+        array([
+          json.string("com.fluidframework.leaf.number"),
+          json.bool(True),
+          json.float(value),
+          array([]),
+        ]),
+      )
+    types.BooleanValue(value) ->
+      Ok(
+        array([
+          json.string("com.fluidframework.leaf.boolean"),
+          json.bool(True),
+          json.bool(value),
+          array([]),
+        ]),
+      )
+    types.NullValue ->
+      Ok(
+        array([
+          json.string("com.fluidframework.leaf.null"),
+          json.bool(True),
+          json.null(),
+          array([]),
+        ]),
+      )
+    types.ObjectValue(identifier, fields) -> {
+      use fields <- result.try(
+        list.try_map(fields, fn(field) {
+          use value <- result.try(wire_tree(field.1))
+          Ok([json.string(field.0), value])
+        }),
+      )
+      Ok(
+        array([
+          json.string(identifier),
+          json.bool(False),
+          fields |> list.flatten |> array,
+        ]),
+      )
+    }
+    types.MapValue(_, _) ->
+      Error("the encoded fixture profile excludes map builds")
   }
 }

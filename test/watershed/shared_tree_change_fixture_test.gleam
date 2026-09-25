@@ -1,5 +1,6 @@
 import gleam/json
 import gleam/list
+import gleam/string
 import startest/expect
 import watershed/json_ot.{
   type JsonValue, type PathKey, Index, Key, NInt, VArray, VBool, VNumber,
@@ -8,9 +9,14 @@ import watershed/json_ot.{
 import watershed/tree/change_fixture
 import watershed/tree/change_fixture_codec as codec
 import watershed/tree/fixtures
+import watershed/tree/map_change_fixture
 
 pub fn shared_tree_nested_change_algebra_matches_upstream_test() -> Nil {
   fixtures.assert_case("modular-nested-algebra", change_fixture.run)
+}
+
+pub fn shared_tree_map_change_algebra_matches_upstream_test() -> Nil {
+  fixtures.assert_case("map-field-algebra", map_change_fixture.run)
 }
 
 pub fn shared_tree_nested_change_runner_rejects_missing_inputs_test() -> Nil {
@@ -66,6 +72,135 @@ fn operation_path(index: Int, field: String) -> List(PathKey) {
 fn replay(value: JsonValue) -> json.Json {
   let assert Ok(output) = change_fixture.run(json_ot.to_json(value))
   output
+}
+
+fn map_input() -> JsonValue {
+  let assert Ok(fixture) = fixtures.load("map-field-algebra")
+  let assert Ok(input) = codec.parse(fixture.input)
+  input
+}
+
+fn map_replay(value: JsonValue) -> json.Json {
+  let assert Ok(output) = map_change_fixture.run(json_ot.to_json(value))
+  output
+}
+
+fn map_scenario_path(scenario: Int, rest: List(PathKey)) -> List(PathKey) {
+  [Key("scenarios"), Index(scenario), ..rest]
+}
+
+fn assert_map_mutation_changes(
+  original: JsonValue,
+  path: List(PathKey),
+  replacement: JsonValue,
+) -> Nil {
+  let baseline = map_replay(original)
+  let changed_input = replace_at(original, path, replacement)
+  let changed = case map_change_fixture.run(json_ot.to_json(changed_input)) {
+    Ok(changed) -> changed
+    Error(error) -> panic as { string.inspect(path) <> ": " <> error }
+  }
+  case fixtures.first_difference(baseline, changed) {
+    Error(_) -> Nil
+    Ok(Nil) -> panic as { string.inspect(path) <> ": output did not change" }
+  }
+}
+
+pub fn shared_tree_map_change_runner_executes_fixture_arguments_test() -> Nil {
+  let original = map_input()
+  let mutations = [
+    #(
+      map_scenario_path(0, [
+        Key("changes"),
+        Index(0),
+        Key("encoded"),
+        Key("builds"),
+        Key("trees"),
+        Key("data"),
+        Index(0),
+        Index(1),
+        Index(2),
+      ]),
+      VString("changed"),
+    ),
+    #(
+      map_scenario_path(4, [
+        Key("algebra"),
+        Index(2),
+        Key("operation"),
+      ]),
+      VString("rebase-right-over-left"),
+    ),
+    #(
+      map_scenario_path(4, [Key("algebra"), Index(2)]),
+      VObject([
+        #("operation", VString("rebase-left-over-right")),
+        #("change", VString("right")),
+        #("over", VString("left")),
+        #(
+          "revisionMetadata",
+          VArray([
+            VObject([
+              #("revision", VString("00000000-0000-4000-b000-000000000008")),
+            ]),
+            VObject([
+              #("revision", VString("00000000-0000-4000-b000-000000000009")),
+            ]),
+          ]),
+        ),
+        #("output", VString("right-over-left")),
+      ]),
+    ),
+    #(
+      map_scenario_path(5, [Key("algebra"), Index(2)]),
+      VObject([
+        #("operation", VString("rebase-left-over-right")),
+        #("change", VString("right")),
+        #("over", VString("left")),
+        #(
+          "revisionMetadata",
+          VArray([
+            VObject([
+              #("revision", VString("00000000-0000-4000-b000-00000000000c")),
+            ]),
+            VObject([
+              #("revision", VString("00000000-0000-4000-b000-00000000000b")),
+            ]),
+          ]),
+        ),
+        #("output", VString("right-over-left")),
+      ]),
+    ),
+  ]
+  list.each(mutations, fn(mutation) {
+    assert_map_mutation_changes(original, mutation.0, mutation.1)
+  })
+}
+
+pub fn shared_tree_map_change_runner_rejects_invalid_input_test() -> Nil {
+  let original = map_input()
+  let mutations = [
+    #(
+      map_scenario_path(0, [Key("algebra"), Index(0), Key("operation")]),
+      VString("unknown"),
+    ),
+    #(
+      map_scenario_path(0, [
+        Key("algebra"),
+        Index(0),
+        Key("changes"),
+        Index(0),
+      ]),
+      VString("missing"),
+    ),
+    #([Key("profile"), Key("modularChange")], VNumber(NInt(6))),
+    #(map_scenario_path(0, [Key("algebra")]), VObject([])),
+  ]
+  list.each(mutations, fn(mutation) {
+    let changed = replace_at(original, mutation.0, mutation.1)
+    map_change_fixture.run(json_ot.to_json(changed)) |> expect.to_be_error
+    Nil
+  })
 }
 
 pub fn shared_tree_nested_change_runner_executes_operation_arguments_test() -> Nil {
