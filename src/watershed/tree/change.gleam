@@ -14,7 +14,8 @@ import watershed/tree/schema.{
 }
 import watershed/tree/types.{
   type AtomId, type Edit, type FieldPath, type TreeError, type TreeValue, AtomId,
-  ClearField, CorruptData, InvalidEdit, InvalidHistory, ObjectValue, SetField,
+  ClearField, CorruptData, InvalidEdit, InvalidHistory, MapDelete, MapSet,
+  ObjectValue, SetField,
 }
 
 const max_safe_integer = 9_007_199_254_740_991
@@ -326,10 +327,7 @@ pub fn edit_from(
     "change allocator",
     "invalid next identifier",
   ))
-  let #(path, value) = case operation {
-    SetField(path, value) -> #(path, Some(value))
-    ClearField(path) -> #(path, None)
-  }
+  use #(path, value) <- result.try(field_edit(operation))
   let is_root = list.is_empty(path)
   use #(field_schema, parent_path, field, was_empty) <- result.try(
     edit_destination(schema, forest, path, value),
@@ -371,12 +369,20 @@ pub fn validate_edit(
   forest: forest.Forest,
   operation: Edit,
 ) -> Result(Nil, TreeError) {
-  let #(path, value) = case operation {
-    SetField(path, value) -> #(path, Some(value))
-    ClearField(path) -> #(path, None)
-  }
+  use #(path, value) <- result.try(field_edit(operation))
   use _ <- result.try(edit_destination(schema, forest, path, value))
   Ok(Nil)
+}
+
+fn field_edit(
+  operation: Edit,
+) -> Result(#(FieldPath, Option(TreeValue)), TreeError) {
+  case operation {
+    SetField(path, value) -> Ok(#(path, Some(value)))
+    ClearField(path) -> Ok(#(path, None))
+    MapSet(path, key, _) | MapDelete(path, key) ->
+      Error(InvalidEdit(list.append(path, [key]), "map edits are not supported"))
+  }
 }
 
 pub fn into_delta(change: TaggedChange) -> Result(forest.Delta, TreeError) {

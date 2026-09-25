@@ -1,6 +1,7 @@
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
 import watershed/tree/fixtures
@@ -52,6 +53,76 @@ fn compatible(stored: String, view: String) -> Result(Nil, types.TreeError) {
   let assert Ok(stored) = schema.stored_from_string(stored)
   let assert Ok(view) = schema.view_from_string(view)
   schema.can_view(stored, view)
+}
+
+pub fn shared_tree_map_schema_exposes_explicit_map_edits_test() -> Nil {
+  let set = types.MapSet(["items"], "", StringValue("value"))
+  let delete = types.MapDelete(["items"], "__proto__")
+  let assert types.MapSet(["items"], "", StringValue("value")) = set
+  let assert types.MapDelete(["items"], "__proto__") = delete
+  Nil
+}
+
+pub fn shared_tree_map_schema_validates_map_entries_test() -> Nil {
+  let #(_, map_schema) = map_schemas()
+  let assert Ok(stored) = schema.stored_from_string(map_schema)
+  [
+    #("string", StringValue("value")),
+    #("number", NumberValue(2.0)),
+    #("object", point()),
+    #("map", MapValue(map_type, [#("nested", StringValue("value"))])),
+  ]
+  |> list.each(fn(entry) {
+    schema.validate_map_entry(stored, map_type, entry.0, Some(entry.1))
+    |> expect.to_equal(Ok(Nil))
+  })
+  schema.validate_map_entry(stored, map_type, "deleted", None)
+  |> expect.to_equal(Ok(Nil))
+}
+
+pub fn shared_tree_map_schema_rejects_invalid_map_entries_test() -> Nil {
+  let #(_, map_schema) = map_schemas()
+  let assert Ok(stored) = schema.stored_from_string(map_schema)
+  schema.validate_map_entry(
+    stored,
+    map_type,
+    "blocked",
+    Some(ObjectValue(named_map_type, [])),
+  )
+  |> expect.to_equal(
+    Error(types.InvalidEdit(
+      ["blocked"],
+      "node type is not allowed: " <> named_map_type,
+    )),
+  )
+  schema.validate_map_entry(stored, "missing", "key", None)
+  |> expect.to_equal(
+    Error(types.InvalidEdit([], "unknown map schema: missing")),
+  )
+  schema.validate_map_entry(stored, point_type, "key", None)
+  |> expect.to_equal(
+    Error(types.InvalidEdit([], "node schema is not a map: " <> point_type)),
+  )
+}
+
+pub fn shared_tree_map_schema_starts_entry_errors_at_map_keys_test() -> Nil {
+  let #(_, map_schema) = map_schemas()
+  let assert Ok(stored) = schema.stored_from_string(map_schema)
+  ["", "__proto__", "é", "水"]
+  |> list.each(fn(key) {
+    schema.validate_map_entry(
+      stored,
+      map_type,
+      key,
+      Some(ObjectValue(named_map_type, [])),
+    )
+    |> expect.to_equal(
+      Error(types.InvalidEdit(
+        [key],
+        "node type is not allowed: " <> named_map_type,
+      )),
+    )
+  })
 }
 
 pub fn shared_tree_map_schema_decodes_named_and_recursive_maps_test() -> Nil {

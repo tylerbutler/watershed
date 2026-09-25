@@ -178,6 +178,17 @@ pub fn map_entry_schema(
   }
 }
 
+/// Validate one map entry assignment or deletion.
+pub fn validate_map_entry(
+  schema: StoredSchema,
+  map_type: String,
+  key: String,
+  value: Option(TreeValue),
+) -> Result(Nil, TreeError) {
+  use definition <- result.try(map_entry_schema(schema, map_type))
+  validate_content(schema.repository, definition, value, [key])
+}
+
 fn validate_content(
   repository: Repository,
   field: FieldSchema,

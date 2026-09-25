@@ -22,6 +22,8 @@ pub type TreeValue {
 pub type Edit {
   SetField(path: FieldPath, value: TreeValue)
   ClearField(path: FieldPath)
+  MapSet(path: FieldPath, key: String, value: TreeValue)
+  MapDelete(path: FieldPath, key: String)
 }
 
 pub type TreeError {
