@@ -381,7 +381,10 @@ fn field_edit(
     SetField(path, value) -> Ok(#(path, Some(value)))
     ClearField(path) -> Ok(#(path, None))
     MapSet(path, key, _) | MapDelete(path, key) ->
-      Error(InvalidEdit(list.append(path, [key]), "map edits are not supported"))
+      Error(InvalidEdit(
+        list.append(path, [key]),
+        "change authoring does not support map edits",
+      ))
   }
 }
 
