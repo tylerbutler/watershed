@@ -37,3 +37,35 @@ export const rootStore = defineTreeDataStore({
   config: treeConfig,
   initializer: initialRoot,
 });
+
+const mapFactory = new SchemaFactory("org.watershed.shared-tree.m2");
+
+export class MapPoint extends mapFactory.object("Point", {
+  x: mapFactory.number,
+  y: mapFactory.number,
+}) {}
+
+export class DynamicMap extends mapFactory.mapRecursive("DynamicMap", [
+  mapFactory.string,
+  mapFactory.number,
+  mapFactory.boolean,
+  mapFactory.null,
+  MapPoint,
+  () => DynamicMap,
+]) {}
+
+export class MapRoot extends mapFactory.object("Root", {
+  items: DynamicMap,
+}) {}
+
+export const mapTreeConfig = new TreeViewConfiguration({ schema: MapRoot });
+
+export function initialMapRoot() {
+  return new MapRoot({ items: new DynamicMap([]) });
+}
+
+export const mapRootStore = defineTreeDataStore({
+  type: "org.watershed.shared-tree.m2.root",
+  config: mapTreeConfig,
+  initializer: initialMapRoot,
+});

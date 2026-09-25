@@ -37,6 +37,9 @@ export const requiredCases = [
   ["summary-foundations", "summary"],
   ["history-reconciliation", "history"],
   ["tree-codecs", "codec"],
+  ["map-schema-content", "schema"],
+  ["map-field-algebra", "field"],
+  ["map-history-codecs", "codec"],
 ];
 
 const forestScenarioIds = [
@@ -109,6 +112,33 @@ const historyScheduleIds = [
   "never-submitted",
   "resubmit-detached-repair",
   "nonlexical-rollback-order",
+];
+
+const mapFieldScenarioIds = [
+  "set-absent",
+  "replace-present",
+  "delete-present",
+  "delete-absent",
+  "different-keys",
+  "same-key-set-set-left-last",
+  "same-key-set-set-right-last",
+  "same-key-set-delete",
+  "same-key-delete-set",
+  "nested-edit-vs-replace",
+  "nested-edit-vs-delete",
+  "nested-map-independent",
+  "nested-map-conflict",
+];
+const mapKeys = ["", "2", "10", "01", "__proto__", "é", "水"];
+const mapHistoryObservationIds = [
+  "messages",
+  "history",
+  "detached-after-replacement",
+  "detached-after-deletion",
+  "reconnect-resubmission",
+  "refreshers-after-replacement",
+  "refreshers-after-deletion",
+  "reload-and-edit",
 ];
 
 const identity = { package: "@fluidframework/tree", version: reference.version, commit: reference.commit };
@@ -673,6 +703,127 @@ function validateFieldCase(value) {
       }
     }
   }
+}
+
+export function validateMapFieldCase(value) {
+  const label = "map-field-algebra";
+  const check = (condition, detail) => assert(condition, `${label}: ${detail}`);
+  check(object(value) && value.id === label && value.domain === "field", "identity");
+  check(value.formatVersion === 1 && value.reference?.package === "@fluidframework/tree"
+    && value.reference?.version === reference.version
+    && value.reference?.commit === reference.commit, "reference identity");
+  check(value.input?.profile?.modularChange === 5
+    && value.input.profile.optionalField === 2
+    && value.input.profile.genericField === 1, "format versions");
+  check(object(value.input.changes) && Object.keys(value.input.changes).length > 0,
+    "changes");
+  check(Array.isArray(value.input.scenarios)
+    && value.input.scenarios.length === mapFieldScenarioIds.length, "scenario count");
+  check(Array.isArray(value.expected?.observations)
+    && value.expected.observations.length === mapFieldScenarioIds.length, "observations");
+  check(object(value.raw?.encoded) && Object.keys(value.raw.encoded).length > 0
+    && Array.isArray(value.raw.scenarios)
+    && value.raw.scenarios.length === mapFieldScenarioIds.length, "raw evidence");
+  for (const id of mapFieldScenarioIds) {
+    const scenario = value.input.scenarios.find((item) => item.id === id);
+    const observation = value.expected.observations.find((item) => item.id === id);
+    const raw = value.raw.scenarios.find((item) => item.id === id);
+    check(scenario !== undefined && Array.isArray(scenario.operations)
+      && ["compose", "invert"].every((operation) => scenario.operations.includes(operation)),
+    `scenario ${id}`);
+    if (!["set-absent", "replace-present", "delete-present", "delete-absent"].includes(id)) {
+      check(["rebase-left-over-right", "rebase-right-over-left"]
+        .every((operation) => scenario.operations.includes(operation)), `conflict scenario ${id}`);
+    }
+    check(observation !== undefined && nonemptyArray(observation.intermediate)
+      && object(observation.final), `intermediate observation ${id}`);
+    if (id === "nested-edit-vs-replace" || id === "nested-edit-vs-delete") {
+      check(nonemptyArray(observation.detachedIdentity), `detached identity ${id}`);
+    }
+    check(raw !== undefined && nonemptyArray(raw.fieldKeys) && nonemptyArray(raw.fieldKinds)
+      && raw.fieldKinds.every((kind) => kind !== "Sequence"), `raw scenario ${id}`);
+  }
+}
+
+export function validateMapSchemaCase(value) {
+  const label = "map-schema-content";
+  const check = (condition, detail) => assert(condition, `${label}: ${detail}`);
+  check(object(value) && value.id === label && value.domain === "schema", "identity");
+  check(value.formatVersion === 1 && value.reference?.package === "@fluidframework/tree"
+    && value.reference?.version === reference.version
+    && value.reference?.commit === reference.commit, "reference identity");
+  check(value.input?.profile?.schema === 2 && value.input.profile.forest === 2,
+    "format versions");
+  check(Array.isArray(value.input.keys) && value.input.keys.length === mapKeys.length
+    && mapKeys.every((key, index) => value.input.keys[index] === key), "keys");
+  for (const name of ["named", "recursive", "rootMap", "objectContainedMap"]) {
+    check(typeof value.input.schemas?.[name] === "string", `input schema ${name}`);
+    const schema = validateSchemaString(value.input.schemas[name], `map ${name}`);
+    check(object(value.raw?.schemas?.[name])
+      && value.raw.schemas[name].bytes === value.input.schemas[name]
+      && object(value.raw.schemas[name].parsed), `raw schema ${name}`);
+    check(Object.values(schema.nodes).some((node) => object(node)
+      && object(node.kind) && object(node.kind.map)
+      && node.kind.map.kind === "Optional"), `map field schema ${name}`);
+  }
+  check(object(value.input.content?.empty) && object(value.input.content?.populated),
+    "normalized content");
+  check(typeof value.raw?.forest?.empty === "string" && value.raw.forest.empty.length > 0
+    && typeof value.raw.forest.populated === "string" && value.raw.forest.populated.length > 0,
+  "forest bytes");
+  const observation = value.expected?.observations?.[0];
+  check(observation?.id === "schema-and-content"
+    && Array.isArray(observation.keys) && Array.isArray(observation.entries)
+    && observation.keys.length === mapKeys.length && observation.entries.length === mapKeys.length,
+  "iteration observations");
+}
+
+export function validateMapHistoryCase(value) {
+  const label = "map-history-codecs";
+  const check = (condition, detail) => assert(condition, `${label}: ${detail}`);
+  check(object(value) && value.id === label && value.domain === "codec", "identity");
+  check(value.formatVersion === 1 && value.reference?.package === "@fluidframework/tree"
+    && value.reference?.version === reference.version
+    && value.reference?.commit === reference.commit, "reference identity");
+  const profile = value.input?.profile;
+  for (const [name, version] of Object.entries({
+    message: 7,
+    sharedTreeChange: 5,
+    modularChange: 5,
+    optionalField: 2,
+    genericField: 1,
+    fieldBatch: 2,
+    schema: 2,
+    forest: 2,
+    detachedFieldIndex: 2,
+    editManager: 7,
+  })) {
+    check(profile?.[name] === version, `format ${name}`);
+  }
+  for (const name of ["set", "replacement", "delete"]) {
+    check(typeof value.input.messageBytes?.[name] === "string"
+      && value.input.messageBytes[name].length > 0
+      && JSON.parse(value.input.messageBytes[name]).version === 7, `message ${name}`);
+  }
+  for (const name of ["map", "nestedMap"]) {
+    check(typeof value.input.modularBytes?.[name] === "string"
+      && value.input.modularBytes[name].length > 0, `modular bytes ${name}`);
+  }
+  check(nonemptyArray(value.input.history?.pending?.pending)
+    && nonemptyArray(value.input.history?.pending?.sequenced)
+    && Array.isArray(value.input.history?.sequenced?.pending)
+    && nonemptyArray(value.input.history?.sequenced?.sequenced), "history");
+  check(Array.isArray(value.expected?.observations)
+    && mapHistoryObservationIds.every((id) =>
+      value.expected.observations.some((item) => item.id === id)), "observations");
+  check(nonemptyArray(value.raw?.detached?.afterReplacement?.removed)
+    && nonemptyArray(value.raw?.detached?.afterDeletion?.removed), "detached content");
+  check(object(value.raw?.refreshers?.replacement?.refreshers)
+    && object(value.raw?.refreshers?.deletion?.refreshers), "refreshers");
+  check(nonemptyArray(value.raw?.reconnect)
+    && typeof value.raw?.summary?.bytes === "string"
+    && value.raw.summary.bytes.length > 0
+    && nonemptyArray(value.raw?.reload?.messages), "raw history evidence");
 }
 
 function validateModularCase(value) {
@@ -1505,6 +1656,9 @@ export function validateCases(cases) {
     if (value.id === "modular-nested-algebra") validateModularCase(value);
     if (value.id === "history-reconciliation") validateHistoryCase(value);
     if (value.id === "tree-codecs") validateCodecCase(value);
+    if (value.id === "map-schema-content") validateMapSchemaCase(value);
+    if (value.id === "map-field-algebra") validateMapFieldCase(value);
+    if (value.id === "map-history-codecs") validateMapHistoryCase(value);
     if (value.id === "summary-writer-matrix") validateSummaryPersistence(value);
     if (value.id === "id-ranges") {
       assert(object(value.input.sessions) && typeof value.input.sessions.summaryRestoration === "string"
@@ -1797,6 +1951,7 @@ export async function generate({ check = false } = {}) {
       ...await read(join(source, "forest-cases.json")),
       ...await read(join(source, "history-cases.json")),
       ...await read(join(source, "codec-cases.json")),
+      ...await read(join(source, "map-cases.json")),
       ...await read(join(container, "container-cases.json")),
     ];
     const malformed = cases.find((item) => item.id === "id-ranges")?.raw.malformedAllocation;

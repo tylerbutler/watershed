@@ -43,9 +43,15 @@ const schemaValidationCheckIds = [
 ];
 
 function cases(exclude = []) {
-  return requiredCases.filter(([id]) => !exclude.includes(id)).map(([id]) => JSON.parse(readFileSync(
-    new URL(`../../test/fixtures/shared_tree/cases/${id}.json`, import.meta.url), "utf8",
-  )));
+  const synthetic = {
+    "map-schema-content": mapSchemaCaseFixture,
+    "map-field-algebra": mapFieldCaseFixture,
+    "map-history-codecs": mapHistoryCaseFixture,
+  };
+  return requiredCases.filter(([id]) => !exclude.includes(id)).map(([id]) =>
+    synthetic[id]?.() ?? JSON.parse(readFileSync(
+      new URL(`../../test/fixtures/shared_tree/cases/${id}.json`, import.meta.url), "utf8",
+    )));
 }
 
 test("summary persistence validation refuses missing or nonreplayable inputs", () => {
@@ -160,6 +166,186 @@ function codecCaseFixture() {
   };
 }
 
+function mapFieldCaseFixture() {
+  const scenarioIds = [
+    "set-absent",
+    "replace-present",
+    "delete-present",
+    "delete-absent",
+    "different-keys",
+    "same-key-set-set-left-last",
+    "same-key-set-set-right-last",
+    "same-key-set-delete",
+    "same-key-delete-set",
+    "nested-edit-vs-replace",
+    "nested-edit-vs-delete",
+    "nested-map-independent",
+    "nested-map-conflict",
+  ];
+  return {
+    formatVersion: 1,
+    reference: {
+      package: "@fluidframework/tree",
+      version: "3.1.0",
+      commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+    },
+    id: "map-field-algebra",
+    domain: "field",
+    input: {
+      profile: { modularChange: 5, optionalField: 2, genericField: 1 },
+      changes: { set: { fields: [["key", { kind: "Optional" }]] } },
+      scenarios: scenarioIds.map((id) => ({
+        id,
+        operations: ["compose", "invert", "rebase-left-over-right", "rebase-right-over-left"],
+      })),
+    },
+    expected: {
+      observations: scenarioIds.map((id) => ({
+        id,
+        intermediate: [{ operation: "compose" }, { operation: "invert" }],
+        final: {},
+        ...(["nested-edit-vs-replace", "nested-edit-vs-delete"].includes(id)
+          ? { detachedIdentity: [{ revision: "revision", localId: 0 }] }
+          : {}),
+      })),
+    },
+    raw: {
+      encoded: { set: { version: 5 } },
+      scenarios: scenarioIds.map((id) => ({ id, fieldKeys: ["key"], fieldKinds: ["Optional"] })),
+    },
+  };
+}
+
+function mapSchemaCaseFixture() {
+  const schema = JSON.stringify({
+    version: 2,
+    nodes: {
+      "org.watershed.shared-tree.m2.DynamicMap": {
+        kind: { map: { kind: "Optional", types: ["com.fluidframework.leaf.string"] } },
+      },
+    },
+    root: { kind: "Value", types: ["org.watershed.shared-tree.m2.DynamicMap"] },
+  });
+  const keys = ["", "2", "10", "01", "__proto__", "é", "水"];
+  return {
+    formatVersion: 1,
+    reference: {
+      package: "@fluidframework/tree",
+      version: "3.1.0",
+      commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+    },
+    id: "map-schema-content",
+    domain: "schema",
+    input: {
+      profile: { schema: 2, forest: 2 },
+      schemas: {
+        named: schema,
+        recursive: schema,
+        rootMap: schema,
+        objectContainedMap: schema,
+      },
+      keys,
+      content: { empty: {}, populated: {} },
+    },
+    expected: {
+      observations: [{
+        id: "schema-and-content",
+        keys,
+        entries: keys.map((key) => [key, key]),
+      }],
+    },
+    raw: {
+      schemas: Object.fromEntries(["named", "recursive", "rootMap", "objectContainedMap"]
+        .map((name) => [name, { bytes: schema, parsed: JSON.parse(schema) }])),
+      forest: { empty: "empty", populated: "populated" },
+      summaries: {},
+    },
+  };
+}
+
+function mapHistoryCaseFixture() {
+  const message = JSON.stringify({ version: 7, originatorId: "session", changeset: [{}] });
+  const state = { pending: [1], sequenced: [2], longestBranchLength: 1 };
+  return {
+    formatVersion: 1,
+    reference: {
+      package: "@fluidframework/tree",
+      version: "3.1.0",
+      commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+    },
+    id: "map-history-codecs",
+    domain: "codec",
+    input: {
+      profile: {
+        message: 7,
+        sharedTreeChange: 5,
+        modularChange: 5,
+        optionalField: 2,
+        genericField: 1,
+        fieldBatch: 2,
+        schema: 2,
+        forest: 2,
+        detachedFieldIndex: 2,
+        editManager: 7,
+      },
+      actions: ["set"],
+      messageBytes: { set: message, replacement: message, delete: message },
+      modularBytes: { map: "[{}]", nestedMap: "[{}]" },
+      history: { pending: state, sequenced: { ...state, pending: [] } },
+    },
+    expected: {
+      observations: [
+        { id: "messages" },
+        { id: "history" },
+        { id: "detached-after-replacement" },
+        { id: "detached-after-deletion" },
+        { id: "reconnect-resubmission" },
+        { id: "refreshers-after-replacement" },
+        { id: "refreshers-after-deletion" },
+        { id: "reload-and-edit" },
+      ],
+    },
+    raw: {
+      messages: {},
+      modular: {},
+      detached: {
+        afterReplacement: { removed: [{}] },
+        afterDeletion: { removed: [{}] },
+      },
+      reconnect: [{}],
+      refreshers: {
+        replacement: { refreshers: {} },
+        deletion: { refreshers: {} },
+      },
+      summary: { bytes: "{}" },
+      reload: { messages: [{}] },
+    },
+  };
+}
+
+test("map field validation rejects a missing scenario", () => {
+  const validMapCase = mapFieldCaseFixture();
+  assert.doesNotThrow(() => generator.validateMapFieldCase(validMapCase));
+  const broken = structuredClone(validMapCase);
+  broken.input.scenarios.pop();
+  assert.throws(() => generator.validateMapFieldCase(broken), /scenario/i);
+});
+
+test("map history validation requires replacement and deletion refreshers", () => {
+  const validMapCase = mapHistoryCaseFixture();
+  assert.doesNotThrow(() => generator.validateMapHistoryCase(validMapCase));
+  delete validMapCase.raw.refreshers.deletion;
+  assert.throws(() => generator.validateMapHistoryCase(validMapCase), /refresher/i);
+});
+
+test("map field validation requires detached identity observations", () => {
+  const validMapCase = mapFieldCaseFixture();
+  assert.doesNotThrow(() => generator.validateMapFieldCase(validMapCase));
+  delete validMapCase.expected.observations
+    .find(({ id }) => id === "nested-edit-vs-delete").detachedIdentity;
+  assert.throws(() => generator.validateMapFieldCase(validMapCase), /detached/i);
+});
+
 test("tree codec case validator requires complete replayable evidence", () => {
   assert.doesNotThrow(() => generator.validateCodecCase(codecCaseFixture()));
 });
@@ -180,8 +366,8 @@ test("tree codec case validator rejects missing context and observations", () =>
 });
 
 test("corpus requires the tree codecs case", () => {
-  assert.equal(requiredCases.length, 26);
-  assert.deepEqual(requiredCases.at(-1), ["tree-codecs", "codec"]);
+  assert.equal(requiredCases.length, 29);
+  assert(requiredCases.some(([id, domain]) => id === "tree-codecs" && domain === "codec"));
 });
 
 test("corpus validation requires independent container and summary foundations", () => {
@@ -379,7 +565,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
 });
 
 test("corpus validation requires every named case and nonempty observations", () => {
-  assert.equal(requiredCases.length, 26);
+  assert.equal(requiredCases.length, 29);
   assert.doesNotThrow(() => validateCases(cases()));
   assert.throws(() => validateCases([]), /empty|missing/i);
   assert.throws(() => validateCases(cases().slice(1)), /schema-profile/);

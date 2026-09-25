@@ -365,6 +365,21 @@
       "id": "tree-codecs",
       "domain": "codec",
       "file": "cases/tree-codecs.json"
+    },
+    {
+      "id": "map-schema-content",
+      "domain": "schema",
+      "file": "cases/map-schema-content.json"
+    },
+    {
+      "id": "map-field-algebra",
+      "domain": "field",
+      "file": "cases/map-field-algebra.json"
+    },
+    {
+      "id": "map-history-codecs",
+      "domain": "codec",
+      "file": "cases/map-history-codecs.json"
     }
   ]
 }

@@ -13,6 +13,7 @@ const forestSource = join(directory, "upstream-forest.spec.ts");
 const modularSource = join(directory, "upstream-modular.spec.ts");
 const historySource = join(directory, "upstream-history.spec.ts");
 const codecsSource = join(directory, "upstream-codecs.spec.ts");
+const mapSource = join(directory, "upstream-map.spec.ts");
 
 export const reference = {
   version: "3.1.0",
@@ -38,6 +39,7 @@ export const forestInjectedTestPath = "packages/dds/tree/src/test/watershedFores
 export const modularInjectedTestPath = "packages/dds/tree/src/test/watershedModular.spec.ts";
 export const historyInjectedTestPath = "packages/dds/tree/src/test/watershedHistory.spec.ts";
 export const codecsInjectedTestPath = "packages/dds/tree/src/test/watershedCodecs.spec.ts";
+export const mapInjectedTestPath = "packages/dds/tree/src/test/watershedMap.spec.ts";
 const injections = new Map([
   [injectedTestPath, oracleSource],
   ["packages/dds/tree/src/test/watershedAlgebra.spec.ts", join(directory, "upstream-algebra.spec.ts")],
@@ -45,6 +47,7 @@ const injections = new Map([
   [modularInjectedTestPath, modularSource],
   [historyInjectedTestPath, historySource],
   [codecsInjectedTestPath, codecsSource],
+  [mapInjectedTestPath, mapSource],
 ]);
 
 export async function verifyPackages(root = directory) {
@@ -210,21 +213,34 @@ export async function runSource(output, { corpus = false } = {}) {
   await pnpm(["run", "build:compile"], tree);
   await pnpm(["run", "build:test:esm"], tree);
   await mkdir(output, { recursive: true });
-  await pnpm([
-    "exec", "mocha", "--no-config", "--fail-zero", "--timeout", "30000",
-    "--node-option", "conditions=allow-ff-test-exports",
-    "--node-option", `import=${pathToFileURL(join(directory, "determinism.mjs")).href}`,
-    "lib/test/watershedOracle.spec.js",
-    ...(corpus
-      ? ["lib/test/watershedAlgebra.spec.js", "lib/test/watershedForest.spec.js"]
-      : []),
-  ], tree, {
+  const environment = {
     ...process.env,
     WATERSHED_ORACLE_OUTPUT: resolve(output),
     WATERSHED_ORACLE_COMMIT: reference.commit,
     WATERSHED_ORACLE_DETERMINISTIC: "1",
     WATERSHED_ORACLE_CORPUS: corpus ? "1" : "0",
-  }, 90_000);
+  };
+  const mocha = [
+    "exec", "mocha", "--no-config", "--fail-zero", "--timeout", "30000",
+    "--node-option", "conditions=allow-ff-test-exports",
+    "--node-option", `import=${pathToFileURL(join(directory, "determinism.mjs")).href}`,
+  ];
+  await pnpm([
+    ...mocha,
+    "lib/test/watershedOracle.spec.js",
+    ...(corpus
+      ? [
+          "lib/test/watershedAlgebra.spec.js",
+          "lib/test/watershedForest.spec.js",
+        ]
+      : []),
+  ], tree, environment, 90_000);
+  if (corpus) {
+    await pnpm([...mocha, "lib/test/watershedMap.spec.js"], tree, {
+      ...environment,
+      WATERSHED_ORACLE_CORPUS: "map",
+    }, 90_000);
+  }
   await verifyCheckout();
 }
 
