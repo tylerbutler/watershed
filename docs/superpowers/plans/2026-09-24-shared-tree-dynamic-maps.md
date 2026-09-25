@@ -1208,10 +1208,10 @@ git commit -m "test(tree): drive dynamic map clients"
 
 ### Task 8: Prove mixed-client map interoperability
 
-**Status:** Complete in `c6b22e8`, `735e27f`, `29455e8`, `e321866`, and
-`af0c0d0`. The real-service gate covers 72 M2 deterministic cells, 100 seeded
-map schedules in the 200-schedule run, replayable failures, and all nine map
-summary writer-reader cells.
+**Status:** Complete in `c6b22e8`, `735e27f`, `29455e8`, `e321866`, `af0c0d0`,
+and `09eeb48`. The real-service gate covers 72 M2 deterministic cells, 100
+seeded map schedules in the 200-schedule run, replayable failures, and all nine
+map summary writer-reader cells.
 
 **Files:**
 - Modify: `tools/shared-tree-oracle/interop-scenarios.mjs`
