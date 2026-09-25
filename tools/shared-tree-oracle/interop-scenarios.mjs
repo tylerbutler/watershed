@@ -16,7 +16,8 @@ import { SharedTree } from "@fluidframework/tree/internal";
 import { Tree } from "@fluidframework/tree/internal";
 import { startClient } from "./client-driver.mjs";
 import { DeliveryGate } from "./delivery-gate.mjs";
-import { openSession, tokenProvider } from "./service.mjs";
+import { mapServiceStore, openSession, tokenProvider } from "./service.mjs";
+import { DynamicMap, MapPoint } from "./schema.mjs";
 
 const implementations = ["upstream", "javascript", "erlang"];
 const nativeTargets = ["javascript", "erlang"];
@@ -181,6 +182,10 @@ function allAuthorCell(family) {
   };
 }
 
+function mapCells(cells) {
+  return cells.map((cell) => ({ ...cell, profile: "map" }));
+}
+
 const scenarioCells = [
   ...pairCells("independent-scalar"),
   ...pairCells("independent-nested"),
@@ -202,6 +207,14 @@ const scenarioCells = [
   ...authorCells("delivery-duplicates-gaps", nativeTargets),
   allAuthorCell("multi-session-ids"),
   ...authorCells("unicode-finite-values"),
+  ...mapCells(pairCells("map-independent-keys")),
+  ...mapCells(pairCells("map-same-key-set-set", true)),
+  ...mapCells(pairCells("map-set-delete", true)),
+  ...mapCells(pairCells("map-nested-object-replace", true)),
+  ...mapCells(pairCells("map-nested-delete-edit", true)),
+  ...mapCells(pairCells("map-recursive-conflict", true)),
+  ...mapCells(authorCells("map-reconnect-pending")),
+  ...mapCells(authorCells("map-summary-tail")),
 ];
 
 const localRefusals = [
@@ -598,6 +611,17 @@ export function rootValue(root) {
   };
 }
 
+function mapRootValue(root) {
+  return {
+    present: true,
+    value: {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m2.Root",
+      fields: [["items", mapTreeValue(root.items)]],
+    },
+  };
+}
+
 export function canonicalValue(value) {
   if (Array.isArray(value)) return value.map(canonicalValue);
   if (!value || typeof value !== "object") return value;
@@ -605,6 +629,11 @@ export function canonicalValue(value) {
     .map(([key, item]) => [key, canonicalValue(item)]));
   if (Array.isArray(result.fields)) {
     result.fields = result.fields
+      .map(([key, item]) => [key, canonicalValue(item)])
+      .sort(([left], [right]) => Buffer.from(left).compare(Buffer.from(right)));
+  }
+  if (Array.isArray(result.entries)) {
+    result.entries = result.entries
       .map(([key, item]) => [key, canonicalValue(item)])
       .sort(([left], [right]) => Buffer.from(left).compare(Buffer.from(right)));
   }
@@ -622,12 +651,15 @@ function pendingTreeCommits(session) {
 }
 
 function setUpstream(root, path, value) {
-  if (path.length === 1) {
-    root[path[0]] = value;
-    return;
+  assert(path.length > 0, "Upstream path must not be empty");
+  let parent = root;
+  for (const segment of path.slice(0, -1)) {
+    parent = parent instanceof DynamicMap ? parent.get(segment) : parent[segment];
+    assert(parent !== undefined, `Missing upstream path segment: ${segment}`);
   }
-  assert.equal(path.length, 2, "Unsupported upstream path");
-  root[path[0]][path[1]] = value;
+  const field = path.at(-1);
+  if (parent instanceof DynamicMap) parent.set(field, value);
+  else parent[field] = value;
 }
 
 function treeValue(value) {
@@ -646,6 +678,88 @@ function treeValue(value) {
     };
   }
   throw new TypeError("Unsupported tree value");
+}
+
+function upstreamMapValue(value) {
+  assert(value && typeof value === "object", "Map value must be tagged");
+  switch (value.kind) {
+    case "null":
+      return null;
+    case "string":
+    case "number":
+    case "boolean":
+      return value.value;
+    case "object": {
+      assert.equal(
+        value.schemaId,
+        "org.watershed.shared-tree.m2.Point",
+        "Unsupported map object schema",
+      );
+      const fields = Object.fromEntries(value.fields);
+      assert.deepEqual(Object.keys(fields).sort(), ["x", "y"]);
+      return new MapPoint({
+        x: upstreamMapValue(fields.x),
+        y: upstreamMapValue(fields.y),
+      });
+    }
+    case "map": {
+      assert.equal(
+        value.schemaId,
+        "org.watershed.shared-tree.m2.DynamicMap",
+        "Unsupported map schema",
+      );
+      const keys = value.entries.map(([key]) => key);
+      assert.equal(new Set(keys).size, keys.length, "Duplicate map key");
+      return new DynamicMap(value.entries.map(([key, item]) =>
+        [key, upstreamMapValue(item)]));
+    }
+    default:
+      throw new TypeError(`Unsupported map value kind: ${value.kind}`);
+  }
+}
+
+function mapTreeValue(value) {
+  if (value === null) return { kind: "null" };
+  if (typeof value === "string") return { kind: "string", value };
+  if (typeof value === "number") return { kind: "number", value };
+  if (typeof value === "boolean") return { kind: "boolean", value };
+  if (value instanceof MapPoint) {
+    return {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m2.Point",
+      fields: [
+        ["x", mapTreeValue(value.x)],
+        ["y", mapTreeValue(value.y)],
+      ],
+    };
+  }
+  if (value instanceof DynamicMap) {
+    return {
+      kind: "map",
+      schemaId: "org.watershed.shared-tree.m2.DynamicMap",
+      entries: [...value.entries()].map(([key, item]) =>
+        [key, mapTreeValue(item)]),
+    };
+  }
+  throw new TypeError("Unsupported upstream map value");
+}
+
+function mapAt(root, path) {
+  const value = path.reduce((node, segment) =>
+    node instanceof DynamicMap ? node.get(segment) : node[segment], root);
+  assert(value instanceof DynamicMap, `Path is not a dynamic map: ${path.join(".")}`);
+  return value;
+}
+
+function canonicalMapKeys(keys) {
+  return [...keys].sort((left, right) =>
+    Buffer.from(left).compare(Buffer.from(right)));
+}
+
+function canonicalMapEntries(entries) {
+  return [...entries]
+    .map(([key, value]) => [key, canonicalValue(value)])
+    .sort(([left], [right]) => Buffer.from(left).compare(Buffer.from(right)));
 }
 
 export function upstreamAdapter(session) {
@@ -672,6 +786,27 @@ export function upstreamAdapter(session) {
       assert.deepEqual(path, ["note"], "Only the optional note can be cleared");
       delete session.data.view.root.note;
     },
+    async mapGet(path, key) {
+      const map = mapAt(session.data.view.root, path);
+      return map.has(key)
+        ? { present: true, value: canonicalValue(mapTreeValue(map.get(key))) }
+        : { present: false };
+    },
+    async mapSet(path, key, value) {
+      mapAt(session.data.view.root, path).set(key, upstreamMapValue(value));
+    },
+    async mapDelete(path, key) {
+      mapAt(session.data.view.root, path).delete(key);
+    },
+    async mapKeys(path) {
+      return canonicalMapKeys(mapAt(session.data.view.root, path).keys());
+    },
+    async mapEntries(path) {
+      return canonicalMapEntries(
+        [...mapAt(session.data.view.root, path).entries()]
+          .map(([key, value]) => [key, mapTreeValue(value)]),
+      );
+    },
     async checkpoint() {
       if (session.container.clientId) clientIds.add(session.container.clientId);
       const captured = events.splice(0);
@@ -681,7 +816,9 @@ export function upstreamAdapter(session) {
         sequenceNumber: session.container.deltaManager.lastSequenceNumber,
         pendingTreeCount: pendingTreeCommits(session),
         inflightSubmissionCount: session.container.deltaManager.outbound.length,
-        wholeTree: canonicalValue(rootValue(session.data.view.root)),
+        wholeTree: canonicalValue(session.data.view.root.items instanceof DynamicMap
+          ? mapRootValue(session.data.view.root)
+          : rootValue(session.data.view.root)),
         events: captured,
         clientId: session.container.clientId,
         connectionEvents: [...connectionEvents],
@@ -790,6 +927,29 @@ export async function nativeAdapter(
     async clear(path) {
       success(await client.request({ command: "clear", path }),
         `${target} clear ${path.join(".")}`);
+    },
+    async mapGet(path, key) {
+      return canonicalValue(await client.mapGet(path, key));
+    },
+    async mapSet(path, key, value) {
+      try {
+        await client.mapSet(path, key, value);
+      } catch (error) {
+        throw new Error(
+          `${target} map-set ${path.join(".")}[${JSON.stringify(key)}]: `
+            + JSON.stringify(error.cause ?? replayError(error)),
+          { cause: error },
+        );
+      }
+    },
+    async mapDelete(path, key) {
+      await client.mapDelete(path, key);
+    },
+    async mapKeys(path) {
+      return canonicalMapKeys(await client.mapKeys(path));
+    },
+    async mapEntries(path) {
+      return canonicalMapEntries(await client.mapEntries(path));
     },
     async checkpoint() {
       const reply = success(await client.request({ command: "checkpoint" }),
@@ -1036,6 +1196,30 @@ function measuredRemoteObservers(checkpoints, authors) {
       observation.implementation === implementation
       && observation.events.some((event) =>
         implementation === "upstream" || event.local === false))));
+}
+
+function measuredLocalAuthors(checkpoints, authors) {
+  return authors.filter((author) => checkpoints.some(
+    ({ stage, observations }) => stage === "intermediate"
+      && observations.some(({ implementation, events }) =>
+        implementation === author
+        && events.some((event) => author === "upstream" || event.local === true)),
+  ));
+}
+
+async function waitForLocalNotifications(adapters, checkpoints, authors) {
+  let observed = measuredLocalAuthors(checkpoints, authors);
+  await until(async () => {
+    if (observed.length === authors.length) return true;
+    checkpoints.push(await captureCheckpoint(
+      "local-notifications",
+      "intermediate",
+      adapters,
+    ));
+    observed = measuredLocalAuthors(checkpoints, authors);
+    return observed.length === authors.length;
+  }, "map local notifications", 5_000);
+  return observed;
 }
 
 export async function waitForRemoteNotifications(
@@ -1751,19 +1935,424 @@ async function runCell(config, context, cell) {
   }
 }
 
-export async function runDeterministicCases(config, context) {
+function taggedPoint(x, y) {
+  return {
+    kind: "object",
+    schemaId: "org.watershed.shared-tree.m2.Point",
+    fields: [
+      ["x", { kind: "number", value: x }],
+      ["y", { kind: "number", value: y }],
+    ],
+  };
+}
+
+function taggedMap(entries) {
+  return {
+    kind: "map",
+    schemaId: "org.watershed.shared-tree.m2.DynamicMap",
+    entries,
+  };
+}
+
+async function runMapCell(config, context, cell) {
+  const containers = [];
+  const natives = [];
+  let scenarioError;
+  try {
+    const creator = await openSession(config, containers, undefined, false, {
+      store: mapServiceStore,
+    });
+    const documentId = creator.container.resolvedUrl.id;
+    if (cell.family === "map-set-delete") {
+      creator.data.view.root.items.set("shared", "seed");
+    } else if (["map-nested-object-replace", "map-nested-delete-edit"]
+      .includes(cell.family)) {
+      creator.data.view.root.items.set("point", new MapPoint({ x: 1, y: 2 }));
+    } else if (cell.family === "map-recursive-conflict") {
+      creator.data.view.root.items.set(
+        "nested",
+        new DynamicMap([["shared", "seed"], ["independent", "seed"]]),
+      );
+    } else if (cell.family === "map-reconnect-pending") {
+      creator.data.view.root.items.set("delete-me", "seed");
+    }
+    await until(() => !creator.container.isDirty, `${cell.id} initial map`);
+    await publishUpstreamSummary(
+      config,
+      containers,
+      documentId,
+      `Task 8 ${cell.id} bootstrap`,
+      { store: mapServiceStore },
+    );
+    const upstream = upstreamAdapter(await openSession(
+      config,
+      containers,
+      documentId,
+      false,
+      { store: mapServiceStore },
+    ));
+    const { jwt } = await tokenProvider(config).fetchOrdererToken(
+      config.tenantId,
+      documentId,
+    );
+    for (const target of nativeTargets) {
+      natives.push(await nativeAdapter(target, config, {
+        runId: context.runId,
+        documentId,
+        tenant: config.tenantId,
+        viewSchema: context.mapViewSchema,
+      }, jwt));
+    }
+    const adapters = {
+      upstream,
+      javascript: natives[0],
+      erlang: natives[1],
+    };
+    await Promise.all(nativeTargets.map((target) => adapters[target].awaitSynced()));
+    const initial = await settle(adapters);
+    initial.label = "initial";
+    const checkpoints = [initial];
+    let authoredPrefixes = [];
+    let summaryTail;
+
+    if (cell.authors.length === 2) {
+      const [left, right] = cell.authors;
+      const actions = {
+        [left]: async () => {
+          switch (cell.family) {
+            case "map-independent-keys":
+              await adapters[left].mapSet(
+                ["items"],
+                "",
+                { kind: "string", value: `${left}-empty` },
+              );
+              break;
+            case "map-same-key-set-set":
+              await adapters[left].mapSet(
+                ["items"],
+                "shared",
+                { kind: "string", value: `${left}-value` },
+              );
+              break;
+            case "map-set-delete":
+              await adapters[left].mapSet(
+                ["items"],
+                "shared",
+                { kind: "string", value: `${left}-replacement` },
+              );
+              break;
+            case "map-nested-object-replace":
+              await adapters[left].mapSet(["items"], "point", taggedPoint(3, 4));
+              break;
+            case "map-nested-delete-edit":
+              await adapters[left].mapDelete(["items"], "point");
+              break;
+            case "map-recursive-conflict":
+              await adapters[left].mapSet(
+                ["items", "nested"],
+                "shared",
+                { kind: "string", value: `${left}-inner` },
+              );
+              await adapters[left].mapSet(
+                ["items", "nested"],
+                `${left}-independent`,
+                { kind: "number", value: 1 },
+              );
+              break;
+            default:
+              assert.fail(`Unknown map pair family: ${cell.family}`);
+          }
+        },
+        [right]: async () => {
+          switch (cell.family) {
+            case "map-independent-keys":
+              await adapters[right].mapSet(
+                ["items"],
+                "__proto__",
+                { kind: "string", value: `${right}-prototype` },
+              );
+              break;
+            case "map-same-key-set-set":
+              await adapters[right].mapSet(
+                ["items"],
+                "shared",
+                { kind: "string", value: `${right}-value` },
+              );
+              break;
+            case "map-set-delete":
+              await adapters[right].mapDelete(["items"], "shared");
+              break;
+            case "map-nested-object-replace":
+            case "map-nested-delete-edit":
+              await adapters[right].set(["items", "point", "x"], 42);
+              break;
+            case "map-recursive-conflict":
+              await adapters[right].mapSet(
+                ["items"],
+                "nested",
+                taggedMap([
+                  ["replacement", { kind: "boolean", value: true }],
+                ]),
+              );
+              break;
+            default:
+              assert.fail(`Unknown map pair family: ${cell.family}`);
+          }
+        },
+      };
+      const result = await concurrentEdits(cell, adapters, upstream, actions);
+      checkpoints.push(...result.checkpoints);
+      authoredPrefixes = result.authoredPrefixes;
+      if (cell.family === "map-set-delete") {
+        await adapters[right].mapDelete(["items"], "shared");
+        checkpoints.push(await settle(adapters));
+      }
+    } else {
+      const author = cell.authors[0];
+      const baseline = await adapters[author].checkpoint();
+      authoredPrefixes = [{
+        author,
+        referenceSequenceNumber: baseline.sequenceNumber,
+      }];
+      if (cell.family === "map-reconnect-pending") {
+        const observer = implementations.find((implementation) => implementation !== author);
+        await adapters[author].holdInbound();
+        await adapters[author].holdOutbound();
+        await adapters[author].mapSet(
+          ["items"],
+          "accepted-prefix",
+          { kind: "string", value: author },
+        );
+        await adapters[author].releaseOutbound();
+        await waitForAuthorSubmission(
+          creator,
+          adapters,
+          author,
+          baseline.sequenceNumber,
+        );
+        await adapters[author].holdOutbound();
+        await adapters[author].mapSet(
+          ["items"],
+          "",
+          { kind: "string", value: `${author}-empty` },
+        );
+        await adapters[author].mapSet(
+          ["items"],
+          "水",
+          taggedPoint(5, 6),
+        );
+        await adapters[author].mapDelete(["items"], "delete-me");
+        await adapters[observer].mapSet(
+          ["items"],
+          "__proto__",
+          { kind: "boolean", value: true },
+        );
+        checkpoints.push(await captureCheckpoint(
+          "map-accepted-prefix-unsent-suffix",
+          "intermediate",
+          adapters,
+        ));
+        await adapters[author].disconnect();
+        if (author === "upstream") {
+          await adapters[author].releaseOutbound();
+          await adapters[author].releaseInbound();
+        }
+        await adapters[author].reconnect();
+        checkpoints.push(await settle(adapters));
+      } else {
+        await adapters[author].mapSet(
+          ["items"],
+          "",
+          { kind: "string", value: "empty" },
+        );
+        await adapters[author].mapSet(
+          ["items"],
+          "scalar",
+          { kind: "number", value: 7 },
+        );
+        await adapters[author].mapSet(
+          ["items"],
+          "point",
+          taggedPoint(1, 2),
+        );
+        await adapters[author].mapSet(
+          ["items"],
+          "nested",
+          taggedMap([
+            ["inner", { kind: "string", value: "nested" }],
+            ["recursive", taggedMap([
+              ["leaf", { kind: "boolean", value: true }],
+            ])],
+          ]),
+        );
+        await adapters[author].mapSet(
+          ["items"],
+          "deleted",
+          { kind: "string", value: "retained" },
+        );
+        await adapters[author].mapDelete(["items"], "deleted");
+        await adapters[author].mapSet(
+          ["items"],
+          "é",
+          { kind: "string", value: "unicode" },
+        );
+        await adapters[author].mapSet(
+          ["items"],
+          "42",
+          { kind: "string", value: "numeric-looking" },
+        );
+        await adapters[author].mapSet(
+          ["items"],
+          "__proto__",
+          { kind: "null" },
+        );
+        checkpoints.push(await captureCheckpoint(
+          "map-summary-writer",
+          "intermediate",
+          adapters,
+        ));
+        checkpoints.push(await settle(adapters));
+        const summary = await publishUpstreamSummary(
+          config,
+          containers,
+          documentId,
+          `Task 8 ${cell.id} summary`,
+          { store: mapServiceStore },
+        );
+        const tailAuthor = implementations.find(
+          (implementation) => implementation !== author,
+        );
+        await adapters[tailAuthor].mapSet(
+          ["items"],
+          "tail",
+          { kind: "string", value: tailAuthor },
+        );
+        const settled = await settle(adapters);
+        checkpoints.push(settled);
+        const fresh = await openSession(
+          config,
+          containers,
+          documentId,
+          false,
+          { cache: false, observeStorage: true, store: mapServiceStore },
+        );
+        const freshAdapter = upstreamAdapter(fresh);
+        await freshAdapter.awaitSynced(settled.observations[0].sequenceNumber);
+        const freshCheckpoint = await freshAdapter.checkpoint();
+        assert.deepEqual(
+          freshCheckpoint.wholeTree,
+          settled.observations[0].wholeTree,
+          `${cell.id}: summary-plus-tail reader observed another map`,
+        );
+        summaryTail = {
+          summaryAcknowledgement: summary.summaryAckOp,
+          tailAuthor,
+          freshCheckpoint,
+          storageObservations: fresh.storageObservations,
+        };
+      }
+    }
+
+    const finalHistory = await serverHistory(creator);
+    const decoded = decodedEvidence(finalHistory, adapters, cell.authors);
+    const localAuthors = await waitForLocalNotifications(
+      adapters,
+      checkpoints,
+      cell.authors,
+    );
+    assert.deepEqual(localAuthors.sort(), [...cell.authors].sort(),
+      "Missing measured map local notifications");
+    const remoteObservers = await waitForRemoteNotifications(
+      adapters,
+      checkpoints,
+      cell.authors,
+    );
+    assert.deepEqual(remoteObservers, implementations.filter(
+      (implementation) => !cell.authors.includes(implementation),
+    ), "Missing measured map remote notifications");
+    const finalEntries = await adapters.upstream.mapEntries(["items"]);
+    const item = {
+      ...cell,
+      runId: context.runId,
+      profileDigest: context.profileDigest,
+      documentId,
+      instanceIds: Object.fromEntries(implementations.map((implementation) =>
+        [implementation, adapters[implementation].instanceId])),
+      authorCoverage: [...cell.authors],
+      checkpoints,
+      evidence: {
+        authoredPrefixes,
+        submissions: decoded.submissions,
+        notifications: {
+          intermediateLocalAuthors: localAuthors,
+          settledRemoteObservers: remoteObservers,
+        },
+        map: {
+          keys: await adapters.upstream.mapKeys(["items"]),
+          entries: finalEntries,
+        },
+        ...(summaryTail ? { summaryTail } : {}),
+      },
+      artifacts: [],
+      passed: true,
+      skipped: false,
+    };
+    item.artifacts = [await writeArtifact(context, item, {
+      history: finalHistory,
+      decoded: decoded.decoded,
+      gates: Object.fromEntries(nativeTargets.map((target) =>
+        [target, adapters[target].evidence()])),
+    })];
+    return item;
+  } catch (error) {
+    scenarioError = error;
+    throw error;
+  } finally {
+    const cleanupErrors = [];
+    for (const native of natives.toReversed()) {
+      try {
+        await native.close();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const container of containers.toReversed()) {
+      try {
+        if (!container.closed) container.dispose();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      if (scenarioError) scenarioError.cleanupErrors = cleanupErrors;
+      else throw new AggregateError(cleanupErrors, `Cleanup failed for ${cell.id}`);
+    }
+  }
+}
+
+export async function runDeterministicCases(
+  config,
+  context,
+  { runObject = runCell, runMap = runMapCell } = {},
+) {
   assert(typeof context?.runId === "string" && context.runId.length > 0,
     "runDeterministicCases context requires runId");
   assert(typeof context.profileDigest === "string" && context.profileDigest.length > 0,
     "runDeterministicCases context requires profileDigest");
   assert(typeof context.viewSchema === "string" && context.viewSchema.length > 0,
     "runDeterministicCases context requires viewSchema");
+  assert(typeof context.mapViewSchema === "string" && context.mapViewSchema.length > 0,
+    "runDeterministicCases context requires mapViewSchema");
   assert(typeof context.artifactDirectory === "string"
     && context.artifactDirectory.length > 0,
   "runDeterministicCases context requires artifactDirectory");
   const results = [];
   for (const cell of requiredScenarioCells()) {
-    results.push(await runCell(config, context, cell));
+    results.push(await (cell.profile === "map" ? runMap : runObject)(
+      config,
+      context,
+      cell,
+    ));
   }
   return results;
 }

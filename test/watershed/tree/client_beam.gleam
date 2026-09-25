@@ -15,6 +15,8 @@ import watershed/runtime_core
 @target(erlang)
 import watershed/tree/client_protocol as protocol
 @target(erlang)
+import watershed/tree/types.{ObjectValue}
+@target(erlang)
 import watershed/tree_kernel.{TreeChanged}
 @target(erlang)
 import watershed_beam as watershed
@@ -301,33 +303,49 @@ fn checkpoint(
   events: Option(process.Subject(tree_kernel.TreeEvent)),
   active: Bool,
 ) -> Result(Json, protocol.ProtocolError) {
-  use root <- result.try(map_result(
-    "checkpoint",
-    watershed.tree_get(tree, []),
-    protocol.encode_read,
-  ))
-  use values <- result.try(
-    list.try_map(
-      [
-        #("title", ["title"]),
-        #("enabled", ["enabled"]),
-        #("rating", ["rating"]),
-        #("marker", ["marker"]),
-        #("note", ["note"]),
-        #("point", ["point"]),
-        #("x", ["point", "x"]),
-        #("y", ["point", "y"]),
-      ],
-      fn(entry) {
-        map_result(
-          "checkpoint",
-          watershed.tree_get(tree, entry.1),
-          protocol.encode_read,
-        )
-        |> result.map(fn(value) { #(entry.0, value) })
-      },
-    ),
+  use root_value <- result.try(
+    watershed.tree_get(tree, [])
+    |> result.map_error(fn(reason) {
+      protocol.ProtocolError("facade-error", "checkpoint", reason)
+    }),
   )
+  let root = protocol.encode_read(root_value)
+  use values <- result.try(case root_value {
+    Some(ObjectValue("org.watershed.shared-tree.m2.Root", _)) -> {
+      use keys <- result.try(map_result(
+        "checkpoint",
+        watershed.tree_map_keys(tree, ["items"]),
+        protocol.encode_map_keys,
+      ))
+      use entries <- result.try(map_result(
+        "checkpoint",
+        watershed.tree_map_entries(tree, ["items"]),
+        protocol.encode_map_entries,
+      ))
+      Ok([#("keys", keys), #("entries", entries)])
+    }
+    _ ->
+      list.try_map(
+        [
+          #("title", ["title"]),
+          #("enabled", ["enabled"]),
+          #("rating", ["rating"]),
+          #("marker", ["marker"]),
+          #("note", ["note"]),
+          #("point", ["point"]),
+          #("x", ["point", "x"]),
+          #("y", ["point", "y"]),
+        ],
+        fn(entry) {
+          map_result(
+            "checkpoint",
+            watershed.tree_get(tree, entry.1),
+            protocol.encode_read,
+          )
+          |> result.map(fn(value) { #(entry.0, value) })
+        },
+      )
+  })
   let changes = case events, active {
     Some(subject), True -> drain(subject, [])
     _, _ -> []

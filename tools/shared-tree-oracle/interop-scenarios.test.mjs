@@ -16,6 +16,7 @@ import {
   replayFailure,
   sameReplayFailure,
   settle,
+  upstreamAdapter,
   runDeterministicCases,
   runFailureCases,
   runSeededSchedule,
@@ -24,6 +25,7 @@ import {
   waitForRemoteNotifications,
   writeSeededFailure,
 } from "./interop-scenarios.mjs";
+import { initialMapRoot } from "./schema.mjs";
 
 test("settling preserves notifications drained while polling", async () => {
   const adapters = Object.fromEntries(["upstream", "javascript", "erlang"].map(
@@ -157,6 +159,159 @@ test("failed native subscription closes the newly acquired client", async () => 
   }), (error) => error === original);
   assert.equal(closed, true);
   assert.deepEqual(original.cleanupErrors, [cleanup]);
+});
+
+test("map adapters preserve keys, tagged values, and canonical entries", async () => {
+  const session = {
+    container: {
+      connected: true,
+      clientId: "upstream-map",
+      deltaManager: {
+        on() {},
+        lastSequenceNumber: 0,
+        outbound: [],
+        inbound: [],
+      },
+    },
+    data: {
+      tree: {
+        kernel: {
+          editManager: {
+            constructor: { name: "EditManager" },
+            getLocalCommits() { return []; },
+          },
+        },
+      },
+      view: { root: initialMapRoot() },
+    },
+  };
+  const upstream = upstreamAdapter(session);
+  const nested = {
+    kind: "map",
+    schemaId: "org.watershed.shared-tree.m2.DynamicMap",
+    entries: [["inside", { kind: "string", value: "value" }]],
+  };
+  await upstream.mapSet(["items"], "😀", nested);
+  await upstream.mapSet(["items"], "", { kind: "null" });
+  await upstream.mapSet(["items"], "point", {
+    kind: "object",
+    schemaId: "org.watershed.shared-tree.m2.Point",
+    fields: [
+      ["x", { kind: "number", value: 1 }],
+      ["y", { kind: "number", value: 2 }],
+    ],
+  });
+  await upstream.set(["items", "point", "x"], 9);
+  assert.deepEqual(await upstream.mapGet(["items"], "missing"), { present: false });
+  assert.deepEqual(await upstream.mapGet(["items"], "😀"), {
+    present: true,
+    value: nested,
+  });
+  assert.deepEqual(await upstream.mapGet(["items"], "point"), {
+    present: true,
+    value: {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m2.Point",
+      fields: [
+        ["x", { kind: "number", value: 9 }],
+        ["y", { kind: "number", value: 2 }],
+      ],
+    },
+  });
+  assert.deepEqual(await upstream.mapKeys(["items"]), ["", "point", "😀"]);
+  assert.deepEqual(await upstream.mapEntries(["items"]), [
+    ["", { kind: "null" }],
+    ["point", {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m2.Point",
+      fields: [
+        ["x", { kind: "number", value: 9 }],
+        ["y", { kind: "number", value: 2 }],
+      ],
+    }],
+    ["😀", nested],
+  ]);
+  await upstream.mapDelete(["items"], "");
+  assert.deepEqual(await upstream.mapGet(["items"], ""), { present: false });
+  const upstreamCheckpoint = await upstream.checkpoint();
+  assert(upstreamCheckpoint.events.length > 0);
+  assert.deepEqual(upstreamCheckpoint.wholeTree, {
+    present: true,
+    value: {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m2.Root",
+      fields: [["items", {
+        kind: "map",
+        schemaId: "org.watershed.shared-tree.m2.DynamicMap",
+        entries: [
+          ["point", {
+            kind: "object",
+            schemaId: "org.watershed.shared-tree.m2.Point",
+            fields: [
+              ["x", { kind: "number", value: 9 }],
+              ["y", { kind: "number", value: 2 }],
+            ],
+          }],
+          ["😀", nested],
+        ],
+      }]],
+    },
+  });
+
+  const calls = [];
+  const native = await nativeAdapter("javascript", {}, {}, "", {
+    createClient: async () => ({
+      instanceId: "native-map",
+      gate: {
+        evidence() { return { held: [], delivered: [] }; },
+        hold() {},
+        async release() {},
+        async disconnect() {},
+        async reconnect() {},
+      },
+      async request({ command }) {
+        if (command === "subscribe") return { ok: true };
+        throw new Error(`Unexpected request: ${command}`);
+      },
+      async mapGet(path, key) {
+        calls.push(["mapGet", path, key]);
+        return { present: false };
+      },
+      async mapSet(path, key, value) {
+        calls.push(["mapSet", path, key, value]);
+        return null;
+      },
+      async mapDelete(path, key) {
+        calls.push(["mapDelete", path, key]);
+        return null;
+      },
+      async mapKeys(path) {
+        calls.push(["mapKeys", path]);
+        return ["😀", ""];
+      },
+      async mapEntries(path) {
+        calls.push(["mapEntries", path]);
+        return [["😀", nested], ["", { kind: "null" }]];
+      },
+      async close() {},
+    }),
+  });
+  assert.deepEqual(await native.mapGet(["items"], "__proto__"), { present: false });
+  await native.mapSet(["items"], "😀", nested);
+  await native.mapDelete(["items"], "");
+  assert.deepEqual(await native.mapKeys(["items"]), ["", "😀"]);
+  assert.deepEqual(await native.mapEntries(["items"]), [
+    ["", { kind: "null" }],
+    ["😀", nested],
+  ]);
+  assert.deepEqual(calls, [
+    ["mapGet", ["items"], "__proto__"],
+    ["mapSet", ["items"], "😀", nested],
+    ["mapDelete", ["items"], ""],
+    ["mapKeys", ["items"]],
+    ["mapEntries", ["items"]],
+  ]);
+  await native.close();
 });
 
 test("native reconnect retries one transient transport timeout", async () => {
@@ -579,6 +734,25 @@ const expectedScenarioIds = [
   "unicode-finite-values:erlang",
 ];
 
+const mapImplementations = ["upstream", "javascript", "erlang"];
+const mapOrderedPairs = mapImplementations.flatMap((first) =>
+  mapImplementations.filter((second) => second !== first)
+    .map((second) => [first, second]));
+const mapPairIds = (family, ordered = false) => mapOrderedPairs.flatMap((authors) =>
+  ordered
+    ? authors.map((first) => `${family}:${authors.join("->")}:${first}-first`)
+    : [`${family}:${authors.join("->")}`]);
+const expectedMapScenarioIds = [
+  ...mapPairIds("map-independent-keys"),
+  ...mapPairIds("map-same-key-set-set", true),
+  ...mapPairIds("map-set-delete", true),
+  ...mapPairIds("map-nested-object-replace", true),
+  ...mapPairIds("map-nested-delete-edit", true),
+  ...mapPairIds("map-recursive-conflict", true),
+  ...mapImplementations.map((author) => `map-reconnect-pending:${author}`),
+  ...mapImplementations.map((author) => `map-summary-tail:${author}`),
+];
+
 const expectedFailureIds = [
   "clear-required-title:javascript",
   "clear-required-title:erlang",
@@ -608,8 +782,13 @@ const expectedFailureIds = [
 
 test("the deterministic catalogue expands every required Task 3 cell", () => {
   const cells = requiredScenarioCells();
-  assert.equal(cells.length, 75);
-  assert.deepEqual(cells.map(({ id }) => id), expectedScenarioIds);
+  assert.equal(cells.length, 147);
+  assert.deepEqual(cells.map(({ id }) => id), [
+    ...expectedScenarioIds,
+    ...expectedMapScenarioIds,
+  ]);
+  assert(cells.slice(expectedScenarioIds.length)
+    .every(({ profile }) => profile === "map"));
   assert.deepEqual(cells[0], {
     id: "independent-scalar:upstream->javascript",
     family: "independent-scalar",
@@ -684,7 +863,7 @@ test("catalogue callers cannot mutate later results", () => {
   const failures = requiredFailureCells();
   scenarios.pop();
   failures[0].caseId = "changed";
-  assert.equal(requiredScenarioCells().length, 75);
+  assert.equal(requiredScenarioCells().length, 147);
   assert.equal(requiredFailureCells()[0].caseId, "clear-required-title");
 });
 
@@ -785,6 +964,30 @@ test("the deterministic runner rejects an incomplete coordinator context", async
     () => runDeterministicCases({}, {}),
     /runId/,
   );
+});
+
+test("the deterministic runner routes object and map cells to separate executors", async () => {
+  const routed = [];
+  const results = await runDeterministicCases({}, {
+    runId: "routing",
+    profileDigest: "a".repeat(64),
+    viewSchema: "object-schema",
+    mapViewSchema: "map-schema",
+    artifactDirectory: "/unused",
+  }, {
+    async runObject(_config, _context, cell) {
+      routed.push(["object", cell.id]);
+      return cell.id;
+    },
+    async runMap(_config, _context, cell) {
+      routed.push(["map", cell.id]);
+      return cell.id;
+    },
+  });
+  assert.equal(results.length, 147);
+  assert.equal(routed.filter(([profile]) => profile === "object").length, 75);
+  assert.equal(routed.filter(([profile]) => profile === "map").length, 72);
+  assert(routed.slice(75).every(([profile]) => profile === "map"));
 });
 
 test("the failure runner rejects an incomplete coordinator context", async () => {

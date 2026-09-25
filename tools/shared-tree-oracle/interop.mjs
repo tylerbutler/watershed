@@ -422,17 +422,26 @@ async function runCorpus(runDirectory, context, log) {
   return corpus;
 }
 
-async function readViewSchema() {
-  const fixture = JSON.parse(await readFile(join(
+async function readViewSchemas() {
+  const objectFixture = JSON.parse(await readFile(join(
     repository,
     "test/fixtures/shared_tree/cases/schema-profile.json",
   ), "utf8"));
-  assert.equal(fixture.reference.version, reference.version,
+  assert.equal(objectFixture.reference.version, reference.version,
     "Pinned schema reference changed");
-  const schema = fixture.input.summary.tree.indexes.tree.Schema.tree.SchemaString.content;
-  assert.equal(JSON.parse(schema).root.kind, "Value",
+  const object = objectFixture.input.summary.tree.indexes.tree.Schema
+    .tree.SchemaString.content;
+  assert.equal(JSON.parse(object).root.kind, "Value",
     "Fixture is not the fixed root profile");
-  return schema;
+  const mapFixture = JSON.parse(await readFile(join(
+    repository,
+    "test/fixtures/shared_tree/cases/map-schema-content.json",
+  ), "utf8"));
+  assert.equal(mapFixture.reference.version, reference.version,
+    "Pinned map schema reference changed");
+  const map = mapFixture.input.schemas.objectContainedMap;
+  assert.equal(typeof map, "string", "Fixture lacks the object-contained map schema");
+  return { object, map };
 }
 
 export function assertPreflightProfile(actual, expected) {
@@ -577,11 +586,13 @@ async function acceptance(options, { env, stderr }) {
   const runDirectory = join(options.outputDirectory, runId);
   const log = (message) => stderr.write(`${message}\n`);
   await mkdir(runDirectory, { recursive: true });
+  const viewSchemas = await readViewSchemas();
   const context = {
     runId,
     profileDigest: loaded.profileDigest,
     profile: loaded.profile,
-    viewSchema: await readViewSchema(),
+    viewSchema: viewSchemas.object,
+    mapViewSchema: viewSchemas.map,
     artifactDirectory: runDirectory,
   };
   try {
@@ -632,11 +643,13 @@ async function replay(options, { env, stderr }) {
   const runId = randomUUID();
   const runDirectory = join(options.outputDirectory, runId);
   await mkdir(runDirectory, { recursive: true });
+  const viewSchemas = await readViewSchemas();
   const context = {
     runId,
     profileDigest: loaded.profileDigest,
     profile: loaded.profile,
-    viewSchema: await readViewSchema(),
+    viewSchema: viewSchemas.object,
+    mapViewSchema: viewSchemas.map,
     artifactDirectory: runDirectory,
   };
   const log = (message) => stderr.write(`${message}\n`);
