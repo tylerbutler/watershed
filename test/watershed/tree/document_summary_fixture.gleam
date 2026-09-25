@@ -192,6 +192,8 @@ fn value_json(value: TreeValue) -> Json {
       json.object(
         list.map(fields, fn(entry) { #(entry.0, value_json(entry.1)) }),
       )
+    types.MapValue(_, _) ->
+      panic as { "map values are not supported by summary fixtures" }
   }
 }
 

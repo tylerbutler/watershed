@@ -18,8 +18,8 @@ import watershed/json_ot.{
 }
 import watershed/tree/types.{
   type FieldPath, type TreeError, type TreeValue, BooleanValue, CorruptData,
-  InvalidEdit, InvalidSchema, NullValue, NumberValue, ObjectValue, StringValue,
-  UnsupportedFormat,
+  InvalidEdit, InvalidSchema, MapValue, NullValue, NumberValue, ObjectValue,
+  StringValue, UnsupportedFormat,
 }
 
 pub type Cardinality {
@@ -41,6 +41,7 @@ pub type LeafKind {
 pub type NodeSchema {
   Leaf(kind: LeafKind)
   Object(fields: List(#(String, FieldSchema)))
+  Map(entries: FieldSchema)
 }
 
 type Repository {
@@ -126,6 +127,7 @@ fn value_identifier(value: TreeValue) -> String {
     BooleanValue(_) -> leaf_identifier(BooleanLeaf)
     NullValue -> leaf_identifier(NullLeaf)
     ObjectValue(identifier, _) -> identifier
+    MapValue(identifier, _) -> identifier
   }
 }
 
@@ -157,8 +159,22 @@ pub fn field_schema(
       }
     Ok(Leaf(_)) ->
       Error(InvalidEdit(path, "parent schema is a leaf: " <> parent_type))
+    Ok(Map(_)) ->
+      Error(InvalidEdit(path, "parent schema is a map: " <> parent_type))
     Error(Nil) ->
       Error(InvalidEdit(path, "unknown parent schema: " <> parent_type))
+  }
+}
+
+/// Read the common entry field for a map schema.
+pub fn map_entry_schema(
+  schema: StoredSchema,
+  map_type: String,
+) -> Result(FieldSchema, TreeError) {
+  case dict.get(schema.repository.nodes, map_type) {
+    Ok(Map(entries)) -> Ok(entries)
+    Ok(_) -> Error(InvalidEdit([], "node schema is not a map: " <> map_type))
+    Error(Nil) -> Error(InvalidEdit([], "unknown map schema: " <> map_type))
   }
 }
 
@@ -240,6 +256,28 @@ fn validate_node(
         )
       })
     }
+    Map(definition), MapValue(_, entries) -> {
+      use _ <- result.try(
+        list.try_fold(entries, set.new(), fn(keys, entry) {
+          case set.contains(keys, entry.0) {
+            True ->
+              Error(InvalidEdit(
+                list.append(path, [entry.0]),
+                "duplicate map key",
+              ))
+            False -> Ok(set.insert(keys, entry.0))
+          }
+        }),
+      )
+      list.try_each(entries, fn(entry) {
+        validate_content(
+          repository,
+          definition,
+          Some(entry.1),
+          list.append(path, [entry.0]),
+        )
+      })
+    }
     _, _ -> Error(InvalidEdit(path, "value does not match its node schema"))
   }
 }
@@ -302,6 +340,7 @@ fn compare_node(
         }
       })
     }
+    Map(a), Map(b) -> compare_field(a, b, identifier)
     _, _ -> Error(InvalidSchema(identifier <> ": incompatible node kind"))
   }
 }
@@ -344,6 +383,7 @@ fn decode_repository(raw: String) -> Result(Repository, TreeError) {
           list.try_each(fields, fn(field) {
             check_references(repository, field.1, key_path(entry.0, field.0))
           })
+        Map(entries) -> check_references(repository, entries, entry.0)
       }
     }),
   )
@@ -390,6 +430,9 @@ fn decode_node(
       )
       Ok(Object(fields))
     }
+    [#("map", entries)] ->
+      decode_field(entries, path <> ".kind.map")
+      |> result.map(Map)
     [#(kind, _)] ->
       Error(InvalidSchema(path <> ": unsupported node kind " <> kind))
     _ -> Error(CorruptData(path <> ".kind", "expected exactly one node kind"))

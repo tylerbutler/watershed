@@ -1041,6 +1041,8 @@ fn content_json(value: TreeValue) -> Result(Json, String) {
         ]),
       )
     }
+    types.MapValue(_, _) ->
+      Error("map values are not supported by kernel fixtures")
   }
 }
 

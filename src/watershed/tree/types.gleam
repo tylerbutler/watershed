@@ -16,6 +16,7 @@ pub type TreeValue {
   BooleanValue(Bool)
   NullValue
   ObjectValue(schema_id: String, fields: List(#(String, TreeValue)))
+  MapValue(schema_id: String, entries: List(#(String, TreeValue)))
 }
 
 pub type Edit {

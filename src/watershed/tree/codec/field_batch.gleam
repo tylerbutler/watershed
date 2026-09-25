@@ -11,7 +11,7 @@ import watershed/json_ot.{
   type JsonValue, NFloat, NInt, VArray, VBool, VNull, VNumber, VObject, VString,
 }
 import watershed/tree/types.{
-  type TreeError, type TreeValue, BooleanValue, CorruptData, NullValue,
+  type TreeError, type TreeValue, BooleanValue, CorruptData, MapValue, NullValue,
   NumberValue, ObjectValue, StringValue, UnsupportedFeature, UnsupportedFormat,
 }
 
@@ -867,6 +867,7 @@ fn encode_node(
         VArray(encoded_fields),
       ])
     }
+    MapValue(_, _) -> Error(UnsupportedFeature(location, "map nodes"))
   }
 }
 

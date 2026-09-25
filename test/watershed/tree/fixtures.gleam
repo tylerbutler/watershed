@@ -7,6 +7,7 @@ import gleam/json.{type Json}
 import gleam/list
 import gleam/order
 import gleam/result
+import gleam/set
 import gleam/string
 import simplifile
 import watershed/canonical_json
@@ -227,6 +228,39 @@ pub fn tree_value_decoder() -> Decoder(types.TreeValue) {
         )
         decode.success(types.ObjectValue(identifier, fields))
       })
+    "map" ->
+      exact_decoder(fields, ["kind", "schemaId", "entries"], types.NullValue, {
+        use identifier <- decode.field("schemaId", decode.string)
+        use entries <- decode.field(
+          "entries",
+          decode.list({
+            use pair <- decode.then(decode.list(decode.dynamic))
+            case pair {
+              [_, _] -> {
+                use key <- decode.field(0, decode.string)
+                use value <- decode.field(
+                  1,
+                  decode.recursive(tree_value_decoder),
+                )
+                decode.success(#(key, value))
+              }
+              _ ->
+                decode.failure(#("", types.NullValue), "two-element map entry")
+            }
+          }),
+        )
+        case
+          list.try_fold(entries, set.new(), fn(keys, entry) {
+            case set.contains(keys, entry.0) {
+              True -> Error(Nil)
+              False -> Ok(set.insert(keys, entry.0))
+            }
+          })
+        {
+          Ok(_) -> decode.success(types.MapValue(identifier, entries))
+          Error(Nil) -> decode.failure(types.NullValue, "unique map keys")
+        }
+      })
     _ -> decode.failure(types.NullValue, "known tree value kind")
   }
 }
@@ -262,6 +296,24 @@ pub fn tree_value_to_json(value: types.TreeValue) -> Json {
             |> json.array(fn(field) {
               json.array(
                 [json.string(field.0), tree_value_to_json(field.1)],
+                fn(value) { value },
+              )
+            }),
+        ),
+      ])
+    types.MapValue(identifier, entries) ->
+      json.object([
+        #("kind", json.string("map")),
+        #("schemaId", json.string(identifier)),
+        #(
+          "entries",
+          entries
+            |> list.sort(fn(left, right) {
+              canonical_json.compare(left.0, right.0)
+            })
+            |> json.array(fn(entry) {
+              json.array(
+                [json.string(entry.0), tree_value_to_json(entry.1)],
                 fn(value) { value },
               )
             }),

@@ -192,6 +192,63 @@ pub fn shared_tree_fixture_array_order_reports_first_index_test() -> Nil {
   fixtures.first_difference(left, right) |> expect.to_equal(Error("$[0]"))
 }
 
+pub fn shared_tree_fixture_map_value_codec_orders_keys_test() -> Nil {
+  let raw =
+    "{\"kind\":\"map\",\"schemaId\":\"org.watershed.shared-tree.m2.DynamicMap\",\"entries\":[[\"水\",{\"kind\":\"string\",\"value\":\"海\"}],[\"\",{\"kind\":\"null\"}],[\"a\",{\"kind\":\"boolean\",\"value\":true}]]}"
+  let assert Ok(value) = json.parse(raw, fixtures.tree_value_decoder())
+  value
+  |> fixtures.tree_value_to_json
+  |> expect.to_equal(
+    json.object([
+      #("kind", json.string("map")),
+      #("schemaId", json.string("org.watershed.shared-tree.m2.DynamicMap")),
+      #(
+        "entries",
+        json.array(
+          [
+            json.array(
+              [json.string(""), json.object([#("kind", json.string("null"))])],
+              fn(value) { value },
+            ),
+            json.array(
+              [
+                json.string("a"),
+                json.object([
+                  #("kind", json.string("boolean")),
+                  #("value", json.bool(True)),
+                ]),
+              ],
+              fn(value) { value },
+            ),
+            json.array(
+              [
+                json.string("水"),
+                json.object([
+                  #("kind", json.string("string")),
+                  #("value", json.string("海")),
+                ]),
+              ],
+              fn(value) { value },
+            ),
+          ],
+          fn(value) { value },
+        ),
+      ),
+    ]),
+  )
+}
+
+pub fn shared_tree_fixture_map_value_decoder_rejects_bad_entries_test() -> Nil {
+  [
+    "{\"kind\":\"map\",\"schemaId\":\"Map\",\"entries\":[[\"same\",{\"kind\":\"null\"}],[\"same\",{\"kind\":\"string\",\"value\":\"second\"}]]}",
+    "{\"kind\":\"map\",\"schemaId\":\"Map\",\"entries\":[[\"missing-value\"]]}",
+    "{\"kind\":\"map\",\"schemaId\":\"Map\",\"entries\":[[1,{\"kind\":\"null\"}]]}",
+  ]
+  |> list.each(fn(raw) {
+    json.parse(raw, fixtures.tree_value_decoder()) |> expect.to_be_error
+  })
+}
+
 pub fn shared_tree_fixture_nested_difference_reports_first_path_test() -> Nil {
   let left =
     json.object([
@@ -254,6 +311,7 @@ pub fn shared_tree_fixture_loads_all_required_corpus_ids_test() -> Nil {
     #("forest-delta", "forest"),
     #("container-foundations", "container"),
     #("summary-foundations", "summary"),
+    #("map-schema-content", "schema"),
   ]
   |> list.each(fn(required) {
     let #(id, domain) = required

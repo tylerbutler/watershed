@@ -9,7 +9,7 @@ import gleam/string
 import watershed/runtime_core
 import watershed/tree/schema
 import watershed/tree/types.{
-  type FieldPath, type TreeValue, BooleanValue, NullValue, NumberValue,
+  type FieldPath, type TreeValue, BooleanValue, MapValue, NullValue, NumberValue,
   ObjectValue, StringValue,
 }
 
@@ -281,6 +281,8 @@ pub fn encode_value(value: TreeValue) -> Json {
           ),
         ),
       ])
+    MapValue(_, _) ->
+      panic as { "map values are not supported by the client protocol" }
   }
 }
 
