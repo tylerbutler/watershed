@@ -151,11 +151,22 @@ Native creation of a new Fluid container and crash recovery of unsent edits
 from local disk are later milestones. Reconnect in this milestone keeps the
 current process's pending state.
 
+**Pulled-forward M7 slice:** After Task 15, native container creation is available
+on JavaScript and BEAM through `create_tree_container`. It publishes a complete
+initial summary to pinned Floodgate and returns a server-assigned ID for the
+existing token/connect flow. The layout stays fixed at alias `root` -> `A`,
+map `/A/root`, and tree `/A/_C`; callers supply a checked schema and initial root
+within the existing subset. This does not include live channel attachment,
+broader layouts, or crash recovery. See `examples/shared_tree_cli` and the
+`shared-tree-create-interop` gate. Task 16 and the M1 release checklist remain
+open.
+
 ### Deferred public features
 
 Defer arrays and moves, dynamic map nodes, schema evolution, Fluid-handle leaf
 values, user-facing transactions, undo/redo, branching, native container
-creation, and optimized incremental summary writing.
+creation beyond the fixed-layout operation above, and optimized incremental
+summary writing.
 
 These API deferrals do not remove internal protocol requirements. Implement
 composition, inversion, rebasing, detached content, and batch processing when

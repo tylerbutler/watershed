@@ -239,6 +239,14 @@ fn decode_value(value: Dynamic) -> Result(TreeValue, ProtocolError) {
   }
 }
 
+pub fn decode_tree_value(raw: String) -> Result(TreeValue, ProtocolError) {
+  use value <- result.try(
+    json.parse(raw, decode.dynamic)
+    |> result.map_error(fn(_) { invalid("value", "malformed JSON") }),
+  )
+  decode_value(value)
+}
+
 pub fn encode_value(value: TreeValue) -> Json {
   case value {
     StringValue(text) ->

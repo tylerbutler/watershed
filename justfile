@@ -17,8 +17,8 @@ default:
 build: _build-gleam _build-bundles
 
 # `trellis run` fans the Gleam compile across every member in dependency order.
-# Only `watershed` belongs to both target families, so each target is its own
-# task with its own exclusions — see `[tools.trellis.exclude]` in gleam.toml.
+# `watershed` and `shared_tree_cli` belong to both target families. Each target
+# has its own task and exclusions — see `[tools.trellis.exclude]` in gleam.toml.
 # A new package under examples/ is picked up here for free.
 _build-gleam:
     trellis run build-erlang
@@ -49,6 +49,7 @@ _test-js:
     trellis run test --target javascript watershed
     node smoke/shared_tree_storage.mjs
     node smoke/shared_tree_bootstrap.mjs
+    node smoke/shared_tree_creation.mjs
     node smoke/runtime_bootstrap.mjs
 
 # The one guarantee no ordinary test can make: that *wrong* code is rejected.
@@ -187,6 +188,16 @@ shared-tree-oracle-check:
 
 shared-tree-codec-interop:
     npm --prefix tools/shared-tree-oracle run codec:interop
+
+# Both native creators and HTTP failure cases; no upstream SDK or live service.
+shared-tree-create-test:
+    gleam test --target erlang -- shared_tree_creation git_storage facade_parity
+    gleam test --target javascript -- shared_tree_creation git_storage facade_parity
+    node smoke/shared_tree_creation.mjs
+
+# Native-created documents, fresh JS/BEAM/upstream readers, and continuation.
+shared-tree-create-interop: shared-tree-create-test
+    node tools/shared-tree-oracle/creation.mjs interop --local-floodgate
 
 # The p2p gate: two *real* browser pages join a room through the real
 # signaling process, clap concurrently, and must converge on the same total

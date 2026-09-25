@@ -1,8 +1,10 @@
-//// The HTTP client for the storage REST endpoints of floodgate. There are two
-//// of them. The git-storage (Historian) API reads and writes full Fluid
+//// The HTTP client for the storage REST endpoints of floodgate.
+//// The git-storage (Historian) API reads and writes full Fluid
 //// summary hierarchies. The deltas API (`GET /deltas/:tenant_id/:id`) fetches the
 //// sequenced operations that are older than the in-band history window of the
 //// server.
+//// The document-create API publishes a complete initial container and returns
+//// its assigned ID. It requires tenant write access and does not retry.
 ////
 //// Staging writes blobs and trees only. The summarize operation publishes
 //// a commit over the staged root tree. A read needs the `doc:read` scope;
@@ -11,7 +13,8 @@
 //// This module is a **cross-target seam**. The request construction, the
 //// response decoders, and the blob serialization are shared. The network
 //// `send` function differs for each target. The Erlang path uses
-//// `gleam_httpc` and is synchronous, because it runs in the OTP actor. The
+//// `gleam_httpc` for ordinary storage and Gluegun for one-shot creation.
+//// Both are synchronous. The
 //// JavaScript path uses `gleam_fetch` and returns a `Promise`, because the
 //// `fetch` function of a browser is always asynchronous.
 
@@ -24,17 +27,32 @@ import gleam/http/response.{type Response}
 import gleam/int
 import gleam/json
 import gleam/list
+@target(erlang)
+import gleam/option
 import gleam/result
 import gleam/string
 import gleam/uri
 
 import spillway/types.{type SequencedDocumentMessage}
 
+import watershed/wire/fluid_document
 import watershed/wire/fluid_summary
 import watershed/wire/socket
 
 @target(erlang)
 import gleam/httpc
+@target(erlang)
+import gluegun/client as http_client
+@target(erlang)
+import gluegun/connection
+@target(erlang)
+import gluegun/error as http_error
+@target(erlang)
+import gluegun/message as http_message
+@target(erlang)
+import gluegun/request as http_request
+@target(erlang)
+import gluegun/response as http_response
 
 @target(javascript)
 import gleam/fetch
@@ -73,7 +91,7 @@ pub type StorageError {
   RequestFailed(url: String, detail: String)
   /// The client could not read the body of the response.
   BodyReadFailed(url: String, detail: String)
-  /// The server answered with a status outside the 2xx range.
+  /// The server answered with a status that the operation does not accept.
   UnexpectedStatus(url: String, status: Int, body: String)
   /// The body of the response is not the JSON that this client expects.
   ResponseDecodeFailed(url: String, detail: String)
@@ -317,9 +335,182 @@ pub fn fetch_versions(
   )
 }
 
+@target(erlang)
+/// Publish an initial container once. A lost response does not cause a retry.
+pub fn create_document(
+  base_url base_url: String,
+  tenant tenant: String,
+  token token: String,
+  summary summary: fluid_document.DocumentSummary,
+) -> Result(String, StorageError) {
+  use body <- result.try(
+    fluid_document.encode_create_request(summary)
+    |> result.map_error(SummaryStructure),
+  )
+  use request <- result.try(build_post(
+    document_create_url(base_url, tenant),
+    token,
+    json.to_string(body),
+  ))
+  use response <- result.try(send_initial_request(request))
+  decode_created_response(request, response)
+}
+
+@target(javascript)
+/// Publish an initial container once. A lost response does not cause a retry.
+pub fn create_document(
+  base_url base_url: String,
+  tenant tenant: String,
+  token token: String,
+  summary summary: fluid_document.DocumentSummary,
+) -> Promise(Result(String, StorageError)) {
+  use body <- promise_try(
+    fluid_document.encode_create_request(summary)
+    |> result.map_error(SummaryStructure),
+  )
+  use request <- promise_try(build_post(
+    document_create_url(base_url, tenant),
+    token,
+    json.to_string(body),
+  ))
+  send_fetch(
+    request,
+    initial_fetch_request(fetch.to_fetch_request(request)),
+    decode_created_response,
+  )
+}
+
+@target(erlang)
+fn send_initial_request(
+  request: Request(String),
+) -> Result(Response(String), StorageError) {
+  // httpc retries 503 responses even for POST. Gun returns the first response.
+  let deadline = monotonic_time(Millisecond) + 30_000
+  let #(transport, default_port) = case request.scheme {
+    http.Http -> #(connection.Tcp, 80)
+    http.Https -> #(connection.Tls, 443)
+  }
+  let options =
+    connection.options()
+    |> connection.with_transport(transport)
+    |> connection.with_protocols([connection.Http1])
+    |> connection.with_retry(connection.Milliseconds(0))
+    |> connection.with_connect_timeout(connection.Milliseconds(30_000))
+  let failed =
+    RequestFailed(
+      request.host <> request.path,
+      "initial request did not complete",
+    )
+  use connection <- result.try(
+    connection.open(
+      options,
+      request.host,
+      option.unwrap(request.port, default_port),
+    )
+    |> result.replace_error(failed),
+  )
+  let sent = {
+    use _ <- result.try(connection.await_up(
+      connection,
+      remaining_time(deadline),
+    ))
+    http_client.request_with(
+      connection,
+      http_request.Post,
+      request.path,
+      request.headers,
+      bit_array.from_string(request.body),
+      http_request.options(),
+      connection.Milliseconds(30_000),
+      http_request.request,
+      fn(connection, stream, _) {
+        case remaining_time(deadline) {
+          connection.Milliseconds(0) -> Error(http_error.Timeout)
+          timeout -> http_message.await(connection, stream, timeout)
+        }
+      },
+    )
+  }
+  let closed = connection.shutdown(connection)
+  use response <- result.try(sent |> result.replace_error(failed))
+  use _ <- result.try(closed |> result.replace_error(failed))
+  use body <- result.try(
+    http_response.body_text(response)
+    |> result.replace_error(BodyReadFailed(
+      request.host <> request.path,
+      "initial response is not UTF-8",
+    )),
+  )
+  Ok(response.Response(
+    http_response.status(response),
+    http_response.headers(response),
+    body,
+  ))
+}
+
+@target(erlang)
+type TimeUnit {
+  Millisecond
+}
+
+@target(erlang)
+@external(erlang, "erlang", "monotonic_time")
+fn monotonic_time(unit: TimeUnit) -> Int
+
+@target(erlang)
+fn remaining_time(deadline: Int) -> connection.Timeout {
+  let remaining = deadline - monotonic_time(Millisecond)
+  connection.Milliseconds(int.max(0, remaining))
+}
+
+@target(javascript)
+@external(javascript, "./git_storage_ffi.mjs", "initial_request")
+fn initial_fetch_request(request: fetch.FetchRequest) -> fetch.FetchRequest
+
+fn decode_created_response(
+  request: Request(String),
+  response: Response(String),
+) -> Result(String, StorageError) {
+  case response.status {
+    201 -> decode_response(request, response, created_document_decoder())
+    _ ->
+      Error(UnexpectedStatus(
+        request.host <> request.path,
+        response.status,
+        response.body,
+      ))
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared URL construction
 // ─────────────────────────────────────────────────────────────────────────────
+
+pub fn document_create_url(base_url: String, tenant: String) -> String {
+  let base_url = case string.ends_with(base_url, "/") {
+    True -> string.drop_end(base_url, 1)
+    False -> base_url
+  }
+  base_url <> "/documents/" <> fluid_summary.encode_component(tenant)
+}
+
+pub fn created_document_decoder() -> Decoder(String) {
+  use id <- decode.then(decode.string)
+  case
+    id != ""
+    && id != "."
+    && id != ".."
+    && id == string.trim(id)
+    && !list.any(string.to_utf_codepoints(id), fn(codepoint) {
+      let value = string.utf_codepoint_to_int(codepoint)
+      value <= 32 || value == 127
+    })
+    && !list.any(["/", "\\", "?", "#", ":", "%"], string.contains(id, _))
+  {
+    True -> decode.success(id)
+    False -> decode.failure("", "a document identifier")
+  }
+}
 
 pub fn commit_url(
   base_url: String,
@@ -1042,8 +1233,19 @@ fn send(
   request: Request(String),
   decoder: Decoder(a),
 ) -> Promise(Result(a, StorageError)) {
+  send_fetch(request, fetch.to_fetch_request(request), fn(request, response) {
+    decode_response(request, response, decoder)
+  })
+}
+
+@target(javascript)
+fn send_fetch(
+  request: Request(String),
+  fetch_request: fetch.FetchRequest,
+  decode: fn(Request(String), Response(String)) -> Result(a, StorageError),
+) -> Promise(Result(a, StorageError)) {
   use sent <- promise.try_await(
-    fetch.send(request)
+    fetch.raw_send(fetch_request)
     |> promise.map(
       result.map_error(_, fn(error) {
         RequestFailed(request.host <> request.path, string.inspect(error))
@@ -1051,14 +1253,14 @@ fn send(
     ),
   )
   use response <- promise.try_await(
-    fetch.read_text_body(sent)
+    fetch.read_text_body(fetch.from_fetch_response(sent))
     |> promise.map(
       result.map_error(_, fn(error) {
         BodyReadFailed(request.host <> request.path, string.inspect(error))
       }),
     ),
   )
-  promise.resolve(decode_response(request, response, decoder))
+  promise.resolve(decode(request, response))
 }
 
 @target(javascript)

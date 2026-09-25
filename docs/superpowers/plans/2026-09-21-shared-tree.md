@@ -2166,7 +2166,7 @@ the interface prerequisites below do not replace that gate. In particular:
 | Transactions and undo/redo | M1 plus each supported edited field kind | Constraints, atomic abort, selective undo, redo after remote changes, retained repair data. |
 | Local branching | M1 plus working modular history | Fork/rebase/merge and branch lifetime without prematurely reclaiming history. |
 | Shared branches | M1 plus a separate version/profile decision | Explicit support for the experimental shared-branch wire family; no accidental opt-in. |
-| Native container creation | M1 container read/write contract | Bootstrap/attach/alias lifecycle and upstream loading of native-created documents. |
+| Native container creation | Task 15 container read/write contract | Fixed-layout create-then-connect pulled forward: both native facades publish an initial container to pinned Floodgate. `just shared-tree-create-interop` checks fresh native/upstream loading and continuation. Broader layouts and live attach/alias changes remain deferred. |
 | Lustre and typed schema UX | M1 plus a stable native facade | Deferred effects, schema safety, subscriptions, and one real collaborative example. |
 | Crash-recoverable pending state | M1 reconnect | Restored compressor session, unsent changes, resubmission, and accepted-before-crash deduplication. |
 | Scale and incremental summaries | Measured M1/M3 workloads | Bounded retained history, safe reclamation, operation costs, and cross-version persistence. |
@@ -2178,10 +2178,15 @@ once their modular field-handler and codec interfaces agree. Give shared schema
 and codec dispatch one integration owner. A sequence-field rebaser is not a
 prerequisite for completing the object-only M1 profile.
 
-Native container creation can overlap with Lustre bindings and typed-facade
-consumers after the container and facade contracts stabilize. Creation owns
-attach/alias/bootstrap behavior; consumers use the existing facade rather than
-changing those runtime contracts.
+The fixed-layout creation slice now has a standalone dual-target example at
+`examples/shared_tree_cli`. It uses caller-authored schema and initial content,
+returns the assigned ID before opening, and has no SDK seed step. Creation
+does not retry uncertain POST outcomes. This slice does not complete Task 16
+or the M1 checklist above.
+
+Further container lifecycle work can overlap with Lustre bindings and
+typed-facade consumers after their contracts stabilize. Consumers use the
+existing facade rather than changing the attach/alias/bootstrap contracts.
 
 Schema evolution needs coordinated schema/data integration with the supported
 field kinds. Transactions/undo, branching, crash recovery, and reclamation

@@ -285,9 +285,25 @@ function observedDeltaStorage(storage, observations) {
   });
 }
 
-export function observedDocumentServiceFactory(factory, observations) {
+export function observedDocumentServiceFactory(
+  factory,
+  observations,
+  { observeCreateContainer = false, observeStorage = true } = {},
+) {
   return new Proxy(factory, {
     get(target, property) {
+      if (property === "createContainer" && observeCreateContainer) {
+        return observedResult(observations, "createContainer", async (summary, ...args) => {
+          const service = await target.createContainer(summary, ...args);
+          observations.push({
+            operation: "createContainer",
+            summary,
+            documentId: service.resolvedUrl?.id ?? null,
+          });
+          return service;
+        });
+      }
+      if (!observeStorage) return bind(target, property);
       if (property !== "createDocumentService") return bind(target, property);
       return observedResult(observations, "createDocumentService", async (resolved, ...args) => {
         const service = await target.createDocumentService(resolved, ...args);
@@ -336,10 +352,15 @@ export async function openSession(
 ) {
   const {
     cache = true,
+    codeDetails = { package: "watershed-tree-oracle" },
+    observeCreateContainer = false,
     observeStorage = false,
     store = serviceStore,
   } = options;
   assert(typeof cache === "boolean", "openSession cache must be a boolean");
+  assert(typeof codeDetails?.package === "string", "openSession codeDetails must name a package");
+  assert(typeof observeCreateContainer === "boolean",
+    "openSession observeCreateContainer must be a boolean");
   assert(typeof observeStorage === "boolean", "openSession observeStorage must be a boolean");
   assert(typeof store?.type === "string", "openSession store must be a data store");
   let runtime;
@@ -347,8 +368,11 @@ export async function openSession(
   const baseDocumentServiceFactory = new RouterliciousDocumentServiceFactory(
     tokenProvider(config), driverPolicies,
   );
-  const documentServiceFactory = observeStorage
-    ? observedDocumentServiceFactory(baseDocumentServiceFactory, storageObservations)
+  const documentServiceFactory = observeStorage || observeCreateContainer
+    ? observedDocumentServiceFactory(baseDocumentServiceFactory, storageObservations, {
+      observeCreateContainer,
+      observeStorage,
+    })
     : baseDocumentServiceFactory;
   const codeLoader = makeCodeLoader(
     async (type) => {
@@ -383,7 +407,7 @@ export async function openSession(
     },
   };
   const container = documentId === undefined
-    ? await createDetachedContainer({ ...properties, codeDetails: { package: "watershed-tree-oracle" } })
+    ? await createDetachedContainer({ ...properties, codeDetails })
     : await loadExistingContainer({
       ...properties,
       request: {
@@ -417,7 +441,7 @@ export async function openSession(
   };
 }
 
-async function snapshot(storage) {
+export async function snapshot(storage) {
   const tree = await storage.getSnapshotTree();
   assert(tree, "Published snapshot is missing");
   const blobs = {};

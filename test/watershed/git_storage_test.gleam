@@ -5,6 +5,32 @@ import startest/expect
 import watershed/git_storage
 import watershed/wire/fluid_summary
 
+pub fn shared_tree_creation_url_encodes_tenant_test() {
+  git_storage.document_create_url("http://127.0.0.1:3000/", "a/b +")
+  |> expect.to_equal("http://127.0.0.1:3000/documents/a%2Fb%20%2B")
+}
+
+pub fn shared_tree_creation_response_validates_document_id_test() -> Nil {
+  json.parse("\"new-document\"", git_storage.created_document_decoder())
+  |> expect.to_equal(Ok("new-document"))
+  json.parse("\"\"", git_storage.created_document_decoder())
+  |> expect.to_be_error()
+  json.parse("\"   \"", git_storage.created_document_decoder())
+  |> expect.to_be_error()
+  json.parse(
+    "{\"id\":\"new-document\"}",
+    git_storage.created_document_decoder(),
+  )
+  |> expect.to_be_error()
+  json.parse("\"wrong/route\"", git_storage.created_document_decoder())
+  |> expect.to_be_error()
+  json.parse("\"wrong:topic\"", git_storage.created_document_decoder())
+  |> expect.to_be_error()
+  json.parse("\"wrong\\nroute\"", git_storage.created_document_decoder())
+  |> expect.to_be_error()
+  Nil
+}
+
 pub fn published_commit_history_decodes_test() -> Nil {
   let body =
     "[{

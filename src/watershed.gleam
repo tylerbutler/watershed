@@ -71,6 +71,8 @@ import watershed/channel.{type ChannelEvent}
 @target(javascript)
 import watershed/claims_kernel
 @target(javascript)
+import watershed/container
+@target(javascript)
 import watershed/counter_kernel
 @target(javascript)
 import watershed/directory_kernel
@@ -351,6 +353,18 @@ pub fn connect(
 }
 
 @target(javascript)
+/// Create a persisted SharedTree container and return its assigned ID.
+/// Obtain a token for that ID, then call `connect`. This call does not retry.
+pub fn create_tree_container(
+  config: container.CreateConfig,
+  stored: tree_schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+) -> Promise(Result(String, String)) {
+  container.create_tree(config, stored, initial_root)
+  |> promise.map(result.map_error(_, container.error_to_string))
+}
+
+@target(javascript)
 /// Connect through an injected transport. The in-memory `sluice_js` test driver
 /// uses this seam. `on_ready` still runs when the handshake completes, and the
 /// driver causes that completion when it delivers the handshake frame on a
@@ -466,7 +480,7 @@ pub fn resolve_root(document: Document(root)) -> Result(SharedMap, String) {
 }
 
 @target(javascript)
-/// Resolve an upstream-created tree with a compatible fixed view.
+/// Resolve an existing tree with a compatible fixed view.
 pub fn resolve_tree(
   document: Document(root),
   value: Json,

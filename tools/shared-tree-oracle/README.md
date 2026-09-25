@@ -99,6 +99,44 @@ node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --it
 The normal acceptance gate requires 200 schedules. The 5,000-schedule command
 is optional and is not part of the Task 15 completion claim.
 
+### Native container creation
+
+```sh
+npm --prefix tools/shared-tree-oracle run creation:capture -- --local-floodgate
+just shared-tree-create-test
+just shared-tree-create-interop
+```
+
+`creation:capture` records the upstream initial-create contract with code
+package `watershed-shared-tree`. It preserves the other oracle commands' code
+package defaults. This capture is reference evidence, not native creation.
+The native initializer builds its own schema/forest indexes, empty history,
+compressor, GC routes, aliases, and code quorum. It does not copy captured
+container bytes.
+
+`shared-tree-create-test` runs both native targets and the owned HTTP
+failure-injection smoke without a live service or upstream npm dependencies.
+`shared-tree-create-interop` adds `creation:interop -- --local-floodgate`.
+That gate calls the production creation facade on JavaScript and BEAM, closes
+each creator, and opens fresh JavaScript, BEAM, and upstream readers from the
+initial stored summary before publishing a replacement summary. It checks edits,
+peer observations, native summaries with a later operation tail, and upstream
+continuation. A missing creator, reader, service, or evidence cell fails the run.
+Run artifacts live under `.output/creation/<run-id>/`; they contain no tokens
+or tenant secrets.
+
+The supported layout is root alias `root` -> `A`, map `/A/root`, and tree `/A/_C`.
+The create request sends the inline application tree and sequence-zero code
+quorum to `POST /documents/{tenant}`. Floodgate publishes the initial summary
+before returning its assigned ID. The fresh upstream reader uses the same
+datastore factory as the object-profile oracle and must accept the logical
+`watershed-shared-tree` code package.
+
+This gate covers the pulled-forward native-creation slice of M7. Task 16's
+permanent CI work and the rest of M7 remain open. It does not cover arbitrary
+Fluid applications, live channel attachment, service discovery, or a hosted
+relay.
+
 `client:interop` builds long-lived JavaScript and BEAM test clients once, then
 creates a fresh upstream document for each schedule. The upstream summarizer
 publishes an acknowledged bootstrap summary before the native client loads it.

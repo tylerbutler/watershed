@@ -30,13 +30,14 @@ lattice_text = ">= 2.0.0 and < 3.0.0"
 # Pinned to commits, not `main`. A branch ref is not a pin: every package that
 # resolves fresh (each example carries its own manifest) picked up whatever
 # `main` was that day, which is how the examples drifted onto incompatible
-# revisions of these three and stopped building. `aquamarine` in particular
+# revisions of these packages and stopped building. `aquamarine` in particular
 # cannot move past this commit while `startest` is a dev-dependency — newer
 # aquamarine pulls `collie >= 3.0`, which needs `gleam_stdlib >= 1.0`, and
 # `startest` -> `bigben` caps stdlib below 1.0. Bump these deliberately.
 signet = { git = "https://github.com/tylerbutler/signet", ref = "51843ffe6f38a57c295e1a139fd926dc947eca6d" }
 spillway = { git = "https://github.com/tylerbutler/spillway", ref = "25f515cf67027e4b2db2344c3abb2141056e45fc" }
 aquamarine = { git = "https://github.com/tylerbutler/aquamarine", ref = "45451e8a5b8846258dd4a5e72094078423b82017" }
+gluegun = { git = "https://github.com/tylerbutler/gluegun.git", ref = "532af1ac0308ff93c8a957467dbb638859593c93" }
 
 [dev-dependencies]
 startest = ">= 0.8.0 and < 1.0.0"
@@ -71,8 +72,8 @@ test = [
     "tools/compile-fail/*",
 ]
 
-# Two target families live here, and only `watershed` belongs to both: it and
-# the CLI examples run on the BEAM, while `watershed_lustre`, the browser
+# Two target families live here. `watershed` and `shared_tree_cli` belong to
+# both. The other CLI examples run on the BEAM, while `watershed_lustre`, the browser
 # examples, and `tools/source-snippets` compile to JavaScript. A package built
 # for the wrong target is a hard error (missing externals one way, `lustre` the
 # other), so each family gets its own task and its own exclusions rather than
@@ -86,6 +87,7 @@ bundle = [
     "watershed_lustre",
     "examples/dice_cli",
     "examples/scoreboard_cli",
+    "examples/shared_tree_cli",
     "tools/compile-fail/*",
     "tools/website-runtime",
     "tools/website-samples",

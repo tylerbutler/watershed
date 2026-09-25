@@ -95,8 +95,8 @@ then returns an upstream edit to the native core.
 Ordinary connections can load published upstream SharedTree summaries for this
 fixed container and schema profile without a caller-supplied seed. The checked
 `runtime_core.BootstrapSeed` and `connect_via_seed` remain available for injected
-transports. Arbitrary Fluid containers and native tree creation are not
-supported.
+transports. Both targets can also create new containers for this profile with
+`create_tree_container`. Arbitrary Fluid container layouts remain unsupported.
 
 On either facade, `resolve_root(document)` returns the checked bootstrap
 `SharedMap` or an error before readiness. Its handle preserves the full route,
@@ -107,7 +107,7 @@ resolution requires an absolute marker. Use
 its source channel's datastore.
 
 After readiness, use `resolve_root(document)`, `get(root, "tree")`, and
-`resolve_tree(document, handle, view)` to reach an upstream-created tree.
+`resolve_tree(document, handle, view)` to reach an existing tree.
 `tree_get(tree, path)` returns `Result(Option(TreeValue), String)`: `None` is
 an absent optional field, not a null leaf. `tree_set` and `tree_clear` check
 the stored schema before changing the optimistic value; required fields cannot
@@ -136,6 +136,38 @@ This is in-memory reconnect, not disk recovery or offline authoring.
 The focused `client:interop -- --local-floodgate` oracle exercises six live
 schedules on each native target; broader mixed-client matrices and permanent
 CI gates remain open. SharedTree has no P2P mode.
+
+### Create a SharedTree container
+
+`watershed.create_tree_container` returns a
+`Promise(Result(String, String))`; `watershed_beam.create_tree_container`
+returns `Result(String, String)`. Pass a
+`container.CreateConfig(base_url, tenant, token)`, a checked `StoredSchema`,
+and an `Option(TreeValue)` initial root. Use `None` only with an optional root
+schema. You can supply your own namespace and fields within the supported
+fixed-schema object profile.
+
+Creation sends one authenticated POST to the pinned Floodgate service and
+returns its assigned document ID. It does not start a WebSocket connection or
+document runtime. Obtain
+a document-scoped token for that ID, call the existing `connect`, then follow
+`resolve_root` -> `get(root, "tree")` -> `resolve_tree`. Keep the returned ID if
+token acquisition or opening fails; retry opening that document, not creation.
+If the creation response is lost or invalid, the service may have created a
+document. Watershed reports that uncertainty and does not retry the POST.
+
+The initial layout uses alias `root` -> datastore `A`, a bootstrap map at
+`/A/root`, and a tree at `/A/_C`. The logical code package is
+`watershed-shared-tree`; an upstream reader must provide a matching application
+loader and view schema. The library has no Fluid SDK runtime dependency.
+Creation does not add `create_tree` or `ensure_tree` to an open document, and it
+does not add dynamic datastore attachment.
+
+The [standalone CLI example](examples/shared_tree_cli) creates a document on
+JavaScript, edits it on BEAM, and reopens it without an SDK seed. Local token
+minting in that example is for development; applications supply service-issued
+tokens. Run `just shared-tree-create-test` for the native and HTTP checks, or
+`just shared-tree-create-interop` for the pinned-service creation matrix.
 
 ## Data structures
 

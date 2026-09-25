@@ -58,6 +58,8 @@ import watershed/channel.{type ChannelEvent}
 @target(erlang)
 import watershed/claims_kernel
 @target(erlang)
+import watershed/container
+@target(erlang)
 import watershed/counter_kernel
 @target(erlang)
 import watershed/directory_kernel
@@ -134,6 +136,18 @@ const socket_path = "/socket/websocket?vsn=2.0.0"
 
 @target(erlang)
 const call_timeout_milliseconds = 5000
+
+@target(erlang)
+/// Create a persisted SharedTree container and return its assigned ID.
+/// Obtain a token for that ID, then call `connect`. This call does not retry.
+pub fn create_tree_container(
+  config: container.CreateConfig,
+  stored: tree_schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+) -> Result(String, String) {
+  container.create_tree(config, stored, initial_root)
+  |> result.map_error(container.error_to_string)
+}
 
 @target(erlang)
 pub opaque type Document(root) {
@@ -579,7 +593,7 @@ pub fn resolve_root(document: Document(root)) -> Result(SharedMap, String) {
 }
 
 @target(erlang)
-/// Resolve an upstream-created tree with a compatible fixed view.
+/// Resolve an existing tree with a compatible fixed view.
 pub fn resolve_tree(
   document: Document(root),
   value: Json,

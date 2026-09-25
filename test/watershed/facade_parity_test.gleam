@@ -459,6 +459,13 @@ pub fn tree_creation_is_not_a_public_facade_test() -> Nil {
   |> expect.to_be_true()
 }
 
+pub fn tree_container_creation_has_native_facade_parity_test() -> Nil {
+  set.contains(exports_of("src/watershed.gleam"), "create_tree_container")
+  |> expect.to_be_true()
+  set.contains(exports_of("src/watershed_beam.gleam"), "create_tree_container")
+  |> expect.to_be_true()
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────

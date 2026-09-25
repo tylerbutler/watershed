@@ -16,13 +16,214 @@ import watershed/fluid_ids
 import watershed/handle
 import watershed/tree/codec
 import watershed/tree/codec/summary as summary_codec
+import watershed/tree/forest
+import watershed/tree/history
+import watershed/tree/schema
 import watershed/tree/summary as tree_summary
+import watershed/tree/types as tree_types
+import watershed/tree_kernel
 import watershed/wire
 import watershed/wire/fluid_summary.{
   type SummaryEntry, type SummaryError, SummaryBlob, SummaryTree,
 }
 import watershed/wire/op as wire_op
 import watershed/wire/summary_blob as inspection
+
+/// Build the supported initial container. No edit has been sequenced.
+pub fn initial_tree(
+  stored: schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+  session: fluid_ids.SessionId,
+  view_id: fluid_ids.StableId,
+) -> Result(DocumentSummary, SummaryError) {
+  use snapshot <- result.try(
+    tree_kernel.snapshot_from_parts(
+      view_id,
+      stored,
+      forest.ForestData(initial_root, [], 1),
+      history.HistorySnapshot(history.InitialBase, [], [], 0, 0),
+    )
+    |> result.map_error(fn(error) {
+      fluid_summary.MalformedEntry(
+        "/.channels/A/.channels/_C",
+        string.inspect(error),
+      )
+    }),
+  )
+  let code =
+    json.array(
+      [
+        json.array(
+          [
+            json.string("code"),
+            json.object([
+              #("key", json.string("code")),
+              #(
+                "value",
+                json.object([#("package", json.string("watershed-shared-tree"))]),
+              ),
+              #("approvalSequenceNumber", json.int(0)),
+              #("commitSequenceNumber", json.int(0)),
+              #("sequenceNumber", json.int(0)),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ],
+      fn(value) { value },
+    )
+  let metadata =
+    json.object([
+      #("createContainerRuntimeVersion", json.string("3.1.0")),
+      #("summaryNumber", json.int(1)),
+      #("summaryFormatVersion", json.int(1)),
+      #("gcFeature", json.int(3)),
+      #("sessionExpiryTimeoutMs", json.int(2_592_000_000)),
+      #("sweepEnabled", json.bool(False)),
+      #("tombstoneTimeoutMs", json.int(3_110_400_000)),
+      #("message", json.object([#("sequenceNumber", json.int(-1))])),
+      #(
+        "documentSchema",
+        json.object([
+          #("version", json.int(1)),
+          #("refSeq", json.int(0)),
+          #(
+            "info",
+            json.object([#("minVersionForCollab", json.string("2.117.0"))]),
+          ),
+          #(
+            "runtime",
+            json.object([
+              #("explicitSchemaControl", json.bool(True)),
+              #("idCompressorMode", json.string("on")),
+              #("opGroupingEnabled", json.bool(True)),
+            ]),
+          ),
+        ]),
+      ),
+    ])
+  let store =
+    Datastore(
+      "A",
+      json.object([
+        #("pkg", json.string("[\"org.watershed.shared-tree.m1.bootstrap\"]")),
+        #("summaryFormatVersion", json.int(2)),
+        #("isRootDataStore", json.bool(True)),
+      ]),
+      ["org.watershed.shared-tree.m1.bootstrap"],
+      [
+        Channel(
+          "root",
+          channel.fluid_attributes(channel.MapChannel),
+          channel.MapSnapshot([#("tree", handle.encode_handle("A/_C"))]),
+        ),
+        Channel(
+          "_C",
+          channel.fluid_attributes(channel.TreeChannel),
+          channel.TreeSnapshot(snapshot),
+        ),
+      ],
+    )
+  let summary =
+    DocumentSummary(
+      0,
+      0,
+      metadata,
+      json.array([], json.string),
+      [],
+      json.array([], json.string),
+      code,
+      [#("root", "A")],
+      [store],
+      Some(fluid_ids.new(session)),
+      view_id,
+      json.object([#("gcNodes", json.object([]))]),
+      None,
+    )
+  use gc <- result.try(refresh_gc(summary))
+  Ok(DocumentSummary(..summary, gc:))
+}
+
+/// Encode the Routerlicious first-summary POST body, not a Historian upload.
+pub fn encode_create_request(
+  summary: DocumentSummary,
+) -> Result(Json, SummaryError) {
+  use _ <- result.try(require(
+    summary.sequence_number == 0
+      && summary.minimum_sequence_number == 0
+      && json.to_string(summary.protocol_members) == "[]"
+      && json.to_string(summary.protocol_proposals) == "[]",
+    "/.protocol",
+    "creation requires an initial document",
+  ))
+  use tree <- result.try(encode(summary))
+  use entries <- result.try(tree_entries(tree, "/"))
+  use application <- result.try(whole_summary(
+    SummaryTree(list.filter(entries, fn(entry) { entry.0 != ".protocol" })),
+    "/",
+  ))
+  Ok(
+    json.object([
+      #("summary", application),
+      #("sequenceNumber", json.int(0)),
+      #("values", summary.protocol_values),
+      #("enableDiscovery", json.bool(False)),
+      #("generateToken", json.bool(False)),
+      #("isEphemeralContainer", json.bool(False)),
+      #("enableAnyBinaryBlobOnFirstSummary", json.bool(True)),
+    ]),
+  )
+}
+
+fn whole_summary(
+  entry: SummaryEntry,
+  path: String,
+) -> Result(Json, SummaryError) {
+  case entry {
+    SummaryBlob(bytes) -> {
+      let #(content, encoding) = case bit_array.to_string(bytes) {
+        Ok(text) -> #(text, "utf-8")
+        Error(_) -> #(bit_array.base64_encode(bytes, True), "base64")
+      }
+      Ok(
+        json.object([
+          #("type", json.string("blob")),
+          #("content", json.string(content)),
+          #("encoding", json.string(encoding)),
+        ]),
+      )
+    }
+    SummaryTree(entries) -> {
+      use entries <- result.try(
+        list.try_map(entries, fn(pair) {
+          use value <- result.try(whole_summary(pair.1, path <> "/" <> pair.0))
+          let kind = case pair.1 {
+            SummaryBlob(_) -> "blob"
+            _ -> "tree"
+          }
+          Ok(
+            json.object([
+              #("path", json.string(fluid_summary.encode_component(pair.0))),
+              #("type", json.string(kind)),
+              #("value", value),
+            ]),
+          )
+        }),
+      )
+      Ok(
+        json.object([
+          #("type", json.string("tree")),
+          #("entries", json.array(entries, fn(value) { value })),
+        ]),
+      )
+    }
+    fluid_summary.SummaryHandle(_, _) ->
+      Error(fluid_summary.UnsupportedEntry(
+        path,
+        "initial summary has a prior reference",
+      ))
+  }
+}
 
 pub fn native(
   sequence_number: Int,
