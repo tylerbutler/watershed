@@ -189,6 +189,22 @@ shared-tree-oracle-check:
 shared-tree-codec-interop:
     npm --prefix tools/shared-tree-oracle run codec:interop
 
+# Native corpus, facade/storage coverage, and owned HTTP smokes; no live service.
+shared-tree-test:
+    gleam test --target erlang -- shared_tree git_storage facade_parity
+    gleam test --target javascript -- shared_tree git_storage facade_parity
+    node smoke/shared_tree_storage.mjs
+    node smoke/shared_tree_bootstrap.mjs
+    node smoke/shared_tree_creation.mjs
+
+# The coordinator verifies source/corpus and runs tests on both targets.
+shared-tree-interop:
+    node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 200 --seed 42
+
+# Manual deep run; keep it out of the pull-request gate.
+shared-tree-interop-deep:
+    node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 5000 --seed 42
+
 # Both native creators and HTTP failure cases; no upstream SDK or live service.
 shared-tree-create-test:
     gleam test --target erlang -- shared_tree_creation git_storage facade_parity

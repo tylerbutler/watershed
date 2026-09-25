@@ -2059,9 +2059,18 @@ checklist remain open.
 
 ### Task 16: wire permanent gates and document the supported profile
 
+**Status:** Recipes, CI workflow, supported-profile documentation, and local
+acceptance are implemented and verified. Broad regression closure is blocked
+by Hex API rate limits in existing workspace packages. The workflow also
+includes the approved native-creation gate. Hosted CI has not yet run; this
+change does not configure branch protection. The user approved merging the
+implementation with these remaining checks recorded.
+
 **Files:** Modify `justfile`, `README.md`, the oracle README, and module docs.
-Create `.github/workflows/shared-tree.yml`. Update directly affected examples or
-fixtures if the document-format change requires it; avoid unrelated website work.
+Create `.github/workflows/shared-tree.yml` and
+`tools/shared-tree-oracle/gates.test.mjs`; extend `interop.test.mjs` to reject
+empty/incomplete native runs. Update directly affected examples or fixtures if
+the document-format change requires it; avoid unrelated website work.
 
 **Interfaces:** Recipes:
 
@@ -2073,19 +2082,26 @@ shared-tree-oracle-check:
     npm --prefix tools/shared-tree-oracle run check
 
 shared-tree-test:
-    gleam test --target erlang -- --test-name-filter=shared_tree
-    gleam test --target javascript -- --test-name-filter=shared_tree
+    gleam test --target erlang -- shared_tree git_storage facade_parity
+    gleam test --target javascript -- shared_tree git_storage facade_parity
+    node smoke/shared_tree_storage.mjs
+    node smoke/shared_tree_bootstrap.mjs
+    node smoke/shared_tree_creation.mjs
 
 shared-tree-interop:
-    gleam test --target erlang -- --test-name-filter=shared_tree
-    gleam test --target javascript -- --test-name-filter=shared_tree
     node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 200 --seed 42
+
+shared-tree-interop-deep:
+    node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 5000 --seed 42
 ```
 
-The client runner is a test module, so this recipe uses `gleam test` to create
-its artifacts on both targets. A production-only build does not compile `test/`.
+The client runner is a test module. The native recipe and acceptance coordinator
+use `gleam test` on both targets, selecting whole test files with `-- shared_tree`.
+A function-name filter misses cases. A production-only build does not compile
+`test/`. The coordinator owns source/corpus verification and native execution;
+the service recipe does not repeat those prerequisites.
 
-- [ ] **1. Make required jobs fail instead of skip.**
+- [x] **1. Make required jobs fail instead of skip.**
 
 Separate fast corpus/native gates from the real-service job so normal kernel
 development does not need a service. In the required service job, missing BEAM,
@@ -2096,7 +2112,13 @@ Check the pinned source checkout and `npm ci` lock before oracle regeneration.
 Use existing repository toolchain configuration. Keep nightly/deep fuzzing a
 separate command using the same runner.
 
-- [ ] **2. Document the exact compatibility claim.**
+The workflow's `SharedTree native` and `SharedTree interoperability` checks run
+on pull requests, pushes to `main`, and manual dispatch. The service job requires
+both `shared-tree-interop` and `shared-tree-create-interop`, preserves their
+separate evidence directories, and has no successful skip path. The manual
+5,000-schedule recipe uses the same M1 coordinator.
+
+- [x] **2. Document the exact compatibility claim.**
 
 State the upstream release, container profile, supported object/primitive schema,
 read/edit/reconnect/summarize behavior, and the deferred APIs. Explain how to
@@ -2114,6 +2136,7 @@ claiming arbitrary-document or feature parity.
 rtk proxy just shared-tree-oracle-check
 rtk proxy just shared-tree-test
 rtk proxy just shared-tree-interop
+rtk proxy just shared-tree-create-interop
 rtk proxy just test
 rtk proxy just build
 rtk proxy just lint
@@ -2124,32 +2147,52 @@ runtime changes affect existing DDSes, examples, and Lustre users. Diagnose new
 failures; record independently reproduced baseline failures rather than
 silencing them.
 
-- [ ] **4. Audit the production dependency boundary and commit.**
+- [x] **4. Audit the production dependency boundary and record evidence.**
 
 Confirm that production Gleam/JS modules neither import the oracle nor delegate
 tree state to Fluid npm code. Verify that both facades pass the same semantic
 cases and that unsupported P2P paths return explicit errors.
-Commit subject: `docs(tree): publish supported interoperability profile`.
+If a commit is requested, use subject:
+`docs(tree): publish supported interoperability profile`.
+
+Local Task 16 evidence:
+
+| Gate | Evidence |
+| --- | --- |
+| Native recipe | 447 Erlang and 438 JavaScript tests; storage, bootstrap, and creation HTTP smokes passed. Creation sent 34 POSTs with no redirects or WebSocket connection. |
+| Oracle Node tests | 187 passed, zero skips. The inherited local PATH contained inaccessible `/root/.local/bin`; unchanged HEAD reproduced the missing-executable test's `EACCES`. Removing that entry for the invocation restored `ENOENT` without changing tests. |
+| Source and corpus | Pinned source/package verification passed; regeneration matched all 26 committed cases. Twelve semantic runners per target cover schema, container, runtime, IDs, fields, modular changes, forest, summaries, history, and codecs. |
+| M1 service | Run `17867f63-4af9-47a3-b452-fefece53a227`: 75 deterministic, 12 reconnect, 24 refusal cases, nine reload cells, and 200/200 seeded schedules; 421 JavaScript and 430 Erlang corpus tests; zero skips/divergences. |
+| Native creation | Run `146edddb-b77c-47d1-84b4-05067480f9e5`: all six creator/reader cells; zero skips/divergences. |
+| Workflow and lint | `actionlint` and `just lint` passed. The latter ran with the owned, ignored upstream checkout outside the formatter's recursive scan, then restored it. |
+| Production boundary | No Fluid SDK or oracle import under production source, Lustre bindings, or examples. Both native suites retain the explicit P2P creation/import refusal case. |
+| Broad regression blocker | `just test` could not finish: Hex API rate limiting blocked dependency resolution for `markdown_notes_lustre`, `retro_board_lustre`, `showcase_lustre`, `website_samples`, and `work_queue_lustre`. Restoring cached dependency sources with identical lockfiles allowed the other packages, including the root Erlang suite, to pass. No test assertion failed. The remaining `just test` phases and `just build` remain unverified; do not infer success from the focused gates. |
+
+The reports and their referenced evidence are under
+`tools/shared-tree-oracle/.output/interop/17867f63-4af9-47a3-b452-fefece53a227/`
+and `.output/creation/146edddb-b77c-47d1-84b4-05067480f9e5/`.
+Both live acceptance commands returned success. Broad regression completion and
+a hosted workflow result remain separate requirements before closing M1.
 
 ---
 
 ## 5. M1 completion checklist
 
-- [ ] M0 profile and service requirements remain the ones approved at the gate.
-- [ ] Pure tree and compressor semantics execute on JavaScript and BEAM.
-- [ ] Each mandatory corpus domain has native cases on both targets.
-- [ ] Native operations are accepted by upstream, not only by native decoders.
-- [ ] Real upstream/native clients can each author concurrent edits.
-- [ ] Parent replacement and removed-child edits preserve upstream behavior.
-- [ ] Reconnect does not duplicate, lose, or silently abandon pending edits.
-- [ ] All nine summary writer/reader combinations load and continue editing.
-- [ ] Summary-plus-tail replay uses the snapshot point, not publication time.
-- [ ] Invalid local edits cause no state/allocation/event/output change.
-- [ ] Unsupported/corrupt documents report errors without partial readiness.
+- [x] M0 profile and service requirements remain the ones approved at the gate.
+- [x] Pure tree and compressor semantics execute on JavaScript and BEAM.
+- [x] Each mandatory corpus domain has native cases on both targets.
+- [x] Native operations are accepted by upstream, not only by native decoders.
+- [x] Real upstream/native clients can each author concurrent edits.
+- [x] Parent replacement and removed-child edits preserve upstream behavior.
+- [x] Reconnect does not duplicate, lose, or silently abandon pending edits.
+- [x] All nine summary writer/reader combinations load and continue editing.
+- [x] Summary-plus-tail replay uses the snapshot point, not publication time.
+- [x] Invalid local edits cause no state/allocation/event/output change.
+- [x] Unsupported/corrupt documents report errors without partial readiness.
 - [ ] Required jobs execute with no skipped target, service, or corpus.
 - [ ] Existing DDS behavior passes its regression suites after format replacement.
-- [ ] Documentation names the restricted profile and deferred capabilities.
-- [ ] No production dependency uses upstream TypeScript as the native tree engine.
+- [x] Documentation names the restricted profile and deferred capabilities.
+- [x] No production dependency uses upstream TypeScript as the native tree engine.
 
 ## 6. Later plans
 

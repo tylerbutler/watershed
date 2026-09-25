@@ -158,8 +158,10 @@ existing token/connect flow. The layout stays fixed at alias `root` -> `A`,
 map `/A/root`, and tree `/A/_C`; callers supply a checked schema and initial root
 within the existing subset. This does not include live channel attachment,
 broader layouts, or crash recovery. See `examples/shared_tree_cli` and the
-`shared-tree-create-interop` gate. Task 16 and the M1 release checklist remain
-open.
+`shared-tree-create-interop` gate. Task 16's permanent gates and profile
+documentation are wired, including creation coverage. Its broad regression
+closure remains blocked by Hex API rate limits, and hosted CI has not yet run.
+The M1 release checklist remains open.
 
 ### Deferred public features
 

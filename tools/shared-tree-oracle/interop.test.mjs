@@ -1232,6 +1232,19 @@ test("corpus accounting accepts the current Gleam test summary", () => {
   ), 417);
 });
 
+test("native corpus accounting rejects empty and incomplete runs", () => {
+  for (const output of [
+    "Tests: 0 passed (0)",
+    "Tests: 1 passed (2)",
+    "1 tests, 1 failures",
+    "No test summary was emitted",
+  ]) {
+    for (const target of ["javascript", "erlang"]) {
+      assert.throws(() => parseTestCount(output, target));
+    }
+  }
+});
+
 test("preflight profile comparison preserves the JSON Infinity encoding", async () => {
   const loaded = await loadInteropProfile(profilePath);
   const captured = structuredClone(loaded.profile);
