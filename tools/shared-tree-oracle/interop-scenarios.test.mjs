@@ -572,6 +572,54 @@ test("inbound release waits for measured frames before releasing the recorded or
   assert.deepEqual(state.deliveries[1].deliveredSequenceNumbers, [3, 2]);
 });
 
+test("seeded map actions keep path and key separate", async () => {
+  const calls = [];
+  const state = {
+    adapters: {
+      javascript: {
+        async mapSet(path, key, value) {
+          calls.push(["set", path, key, value]);
+        },
+        async mapDelete(path, key) {
+          calls.push(["delete", path, key]);
+        },
+      },
+    },
+    connected: { javascript: true },
+    held: { javascript: { inbound: false, outbound: true } },
+    quiescent: true,
+    summaries: [],
+  };
+  await executeScheduleAction({}, {}, { profile: "map" }, {
+    type: "map-set",
+    author: "javascript",
+    path: ["items"],
+    key: "__proto__",
+    value: { kind: "string", value: "safe" },
+    preconditions: {
+      connected: ["javascript"],
+      outboundHeld: true,
+      pathType: "dynamic-map",
+    },
+  }, state);
+  await executeScheduleAction({}, {}, { profile: "map" }, {
+    type: "map-delete",
+    author: "javascript",
+    path: ["items"],
+    key: "水",
+    preconditions: {
+      connected: ["javascript"],
+      outboundHeld: true,
+      pathType: "dynamic-map",
+    },
+  }, state);
+  assert.deepEqual(calls, [
+    ["set", ["items"], "__proto__", { kind: "string", value: "safe" }],
+    ["delete", ["items"], "水"],
+  ]);
+  assert.equal(state.quiescent, false);
+});
+
 test("replay cannot label a different or infrastructure failure as reproduced", () => {
   const original = {
     error: { name: "AssertionError", code: "ERR_ASSERTION", message: "roots differ" },
@@ -1001,6 +1049,7 @@ test("seed 42 expands a literal three-author schedule", () => {
   const [schedule] = generateSchedules({ seed: 42, iterations: 1 });
   assert.deepEqual(schedule, {
     formatVersion: 1,
+    profile: "object",
     index: 0,
     seed: 42,
     subSeed: 551831576,
@@ -1156,7 +1205,8 @@ test("schedule generation is deterministic, sized, unique, and covers every auth
     assert(schedule.actions.every(({ preconditions }) =>
       preconditions && typeof preconditions === "object"));
     const actionAuthors = new Set(schedule.actions
-      .filter(({ type }) => type === "set" || type === "clear")
+      .filter(({ type }) =>
+        ["set", "clear", "map-set", "map-delete"].includes(type))
       .map(({ author }) => author));
     assert.deepEqual([...actionAuthors].sort(),
       ["erlang", "javascript", "upstream"]);
@@ -1179,6 +1229,11 @@ test("schedule generation is deterministic, sized, unique, and covers every auth
   assert(normal.some(({ template }) => template === "optional-conflict"));
   assert(normal.some(({ template }) => template === "parent-child-conflict"));
   assert(normal.some(({ template }) => template === "multiple-pending"));
+  assert(normal.some(({ profile }) => profile === "map"));
+  assert(normal.filter(({ profile }) => profile === "map").every(({ actions }) =>
+    actions.some(({ type }) => type === "map-set")));
+  assert(normal.some(({ profile, actions }) =>
+    profile === "map" && actions.some(({ type }) => type === "map-delete")));
   assert(normal.some(({ actions }) => actions.some(({ type }) => type === "reconnect")));
   for (const schedule of normal.filter(({ actions }) =>
     actions.some(({ type }) => type === "reconnect"))) {
@@ -1227,6 +1282,7 @@ function replayArtifact() {
     seed: 42,
     index: 0,
     subSeed: schedule.subSeed,
+    profile: "object",
     schedule,
     originalDocumentId: "document",
     identityMapping: {
@@ -1251,6 +1307,7 @@ test("replay artifacts reject malformed, stale, and incomplete records", () => {
     ["stale profile", (copy) => { copy.profileDigest = "b".repeat(64); }],
     ["stale reference", (copy) => { copy.reference.version = "3.2.0"; }],
     ["stale service", (copy) => { copy.service.revision = "stale"; }],
+    ["changed profile", (copy) => { copy.profile = "map"; }],
     ["omitted author", (copy) => { copy.schedule.authors.pop(); }],
     ["changed expansion", (copy) => { copy.schedule.actions.pop(); }],
     ["missing operations", (copy) => { delete copy.rawSequencedOperations; }],

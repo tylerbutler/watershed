@@ -27,6 +27,12 @@ const seededTemplates = [
   "parent-child-conflict",
   "nested-conflict",
 ];
+const mapSeededTemplates = [
+  "map-scalar-conflict",
+  "map-object-conflict",
+  "map-nested-conflict",
+  "map-recursive-delete",
+];
 const replayReference = {
   package: "@fluidframework/tree",
   version: "3.1.0",
@@ -341,6 +347,21 @@ function edit(type, author, path, value, outboundHeld = false) {
   };
 }
 
+function mapEdit(type, author, key, value, outboundHeld = false) {
+  return {
+    type,
+    author,
+    path: ["items"],
+    key,
+    ...(type === "map-set" ? { value } : {}),
+    preconditions: {
+      ...connected(author),
+      pathType: "dynamic-map",
+      ...(outboundHeld ? { outboundHeld: true } : {}),
+    },
+  };
+}
+
 function release(author, direction, order, duplicate) {
   return {
     type: "release",
@@ -460,6 +481,166 @@ function generatedActions(seed, index, template, roles, random) {
   return actions;
 }
 
+function generatedMapActions(seed, index, template, roles, random) {
+  const actions = [
+    mapEdit(
+      "map-set",
+      roles.third,
+      "delete-me",
+      { kind: "string", value: `seed-${seed}-${index}` },
+    ),
+    {
+      type: "checkpoint",
+      label: "initial",
+      stage: "quiescent",
+      preconditions: { connected: [...implementations] },
+    },
+  ];
+  for (const author of [roles.first, roles.second, roles.third]) {
+    actions.push(control("hold-inbound", author, false));
+    actions.push(control("hold-outbound", author, false));
+  }
+  const magnitude = 100 + seed + index;
+  if (template === "map-object-conflict") {
+    actions.push(mapEdit(
+      "map-set",
+      roles.first,
+      "point",
+      taggedPoint(magnitude, magnitude + 1),
+      true,
+    ));
+    actions.push(mapEdit(
+      "map-set",
+      roles.second,
+      "point",
+      taggedPoint(-magnitude, -magnitude - 1),
+      true,
+    ));
+  } else if (template === "map-nested-conflict") {
+    actions.push(mapEdit(
+      "map-set",
+      roles.first,
+      "nested",
+      taggedMap([["shared", { kind: "string", value: roles.first }]]),
+      true,
+    ));
+    actions.push(mapEdit(
+      "map-set",
+      roles.second,
+      "nested",
+      taggedMap([["shared", { kind: "string", value: roles.second }]]),
+      true,
+    ));
+  } else if (template === "map-recursive-delete") {
+    actions.push(mapEdit(
+      "map-set",
+      roles.first,
+      "nested",
+      taggedMap([["recursive", taggedMap([
+        ["leaf", { kind: "number", value: magnitude }],
+      ])]]),
+      true,
+    ));
+    actions.push(mapEdit(
+      "map-delete",
+      roles.second,
+      "delete-me",
+      undefined,
+      true,
+    ));
+  } else {
+    actions.push(mapEdit(
+      "map-set",
+      roles.first,
+      "__proto__",
+      { kind: "string", value: roles.first },
+      true,
+    ));
+    actions.push(mapEdit(
+      "map-delete",
+      roles.second,
+      "delete-me",
+      undefined,
+      true,
+    ));
+  }
+  actions.push(mapEdit(
+    "map-set",
+    roles.third,
+    "水",
+    { kind: "number", value: magnitude },
+    true,
+  ));
+  actions.push({
+    type: "checkpoint",
+    label: "optimistic",
+    stage: "intermediate",
+    preconditions: { connected: [...implementations] },
+  });
+  const inboundOrder = random() % 2 === 0 ? "fifo" : "reverse";
+  const conflictOrder = random() % 2 === 0
+    ? [roles.first, roles.second]
+    : [roles.second, roles.first];
+  const releaseOrder = [...conflictOrder, roles.third];
+  for (const author of releaseOrder) {
+    actions.push(release(author, "outbound", "fifo", false));
+  }
+  for (const author of releaseOrder) {
+    actions.push(release(
+      author,
+      "inbound",
+      author === "upstream" ? "fifo" : inboundOrder,
+      false,
+    ));
+  }
+  if ((index + seed) % 5 === 4) {
+    actions.push({
+      type: "checkpoint",
+      label: "before-reconnect",
+      stage: "quiescent",
+      preconditions: { connected: [...implementations] },
+    });
+    actions.push({
+      type: "disconnect",
+      author: roles.reload,
+      preconditions: connected(roles.reload),
+    });
+    actions.push({
+      type: "reconnect",
+      author: roles.reload,
+      preconditions: { disconnected: [roles.reload] },
+    });
+  }
+  if ((index + seed) % 7 === 6) {
+    actions.push({
+      type: "checkpoint",
+      label: "before-publish",
+      stage: "quiescent",
+      preconditions: { connected: [...implementations] },
+    });
+    actions.push({
+      type: "summarize",
+      author: roles.first,
+      preconditions: { connected: [...implementations], quiescent: true },
+    });
+    actions.push({
+      type: "reload",
+      author: roles.reload,
+      preconditions: {
+        connected: [...implementations],
+        summaryAvailable: true,
+      },
+    });
+  }
+  actions.push({
+    type: "checkpoint",
+    label: "settled",
+    stage: "quiescent",
+    preconditions: { connected: [...implementations] },
+  });
+  return actions;
+}
+
 export function generateSchedules({ seed, iterations }) {
   assert(Number.isSafeInteger(seed) && seed >= 0 && seed <= 0xffff_ffff,
     "Schedule seed must be an unsigned 32-bit integer");
@@ -474,7 +655,9 @@ export function generateSchedules({ seed, iterations }) {
       state ^= state << 5;
       return state >>>= 0;
     };
-    const template = seededTemplates[random() % seededTemplates.length];
+    const profile = index % 2 === 0 ? "object" : "map";
+    const templates = profile === "map" ? mapSeededTemplates : seededTemplates;
+    const template = templates[random() % templates.length];
     const rotation = (seed + index + 1) % implementations.length;
     const authors = [
       ...implementations.slice(rotation),
@@ -488,13 +671,16 @@ export function generateSchedules({ seed, iterations }) {
     };
     return {
       formatVersion: 1,
+      profile,
       index,
       seed,
       subSeed,
       template,
       authors: [...implementations],
       roles,
-      actions: generatedActions(seed, index, template, roles, random),
+      actions: profile === "map"
+        ? generatedMapActions(seed, index, template, roles, random)
+        : generatedActions(seed, index, template, roles, random),
     };
   });
 }
@@ -533,6 +719,7 @@ export function validateReplayArtifact(artifact, expected) {
   assert.equal(artifact.seed, artifact.schedule.seed, "Replay seed changed");
   assert.equal(artifact.index, artifact.schedule.index, "Replay index changed");
   assert.equal(artifact.subSeed, artifact.schedule.subSeed, "Replay sub-seed changed");
+  assert.equal(artifact.profile, artifact.schedule.profile, "Replay profile changed");
   assert(artifact.originalDocumentId === null
     || (typeof artifact.originalDocumentId === "string"
       && artifact.originalDocumentId.length > 0),
@@ -2497,6 +2684,7 @@ export async function writeSeededFailure(context, schedule, state, error) {
     seed: schedule.seed,
     index: schedule.index,
     subSeed: schedule.subSeed,
+    profile: schedule.profile,
     schedule,
     originalDocumentId: state.documentId ?? null,
     identityMapping: mapping,
@@ -2505,6 +2693,11 @@ export async function writeSeededFailure(context, schedule, state, error) {
     summaries: state.summaries,
     captureErrors,
     failedAction: state.currentAction ?? null,
+    actionIndex: state.currentAction?.index ?? null,
+    action: state.currentAction
+      ? Object.fromEntries(Object.entries(state.currentAction)
+        .filter(([key]) => key !== "index"))
+      : null,
     failedCheckpoint: error.checkpoint ?? null,
     firstDifferencePath: error.checkpoint ? checkpointDifference([error.checkpoint]) : null,
     error: replayError(error),
@@ -2524,8 +2717,14 @@ export async function writeSeededFailure(context, schedule, state, error) {
 
 export async function freshReload(
   config, context, documentId, author, token, expectedTree,
-  { createNative = nativeAdapter, createSession = openSession } = {},
+  {
+    createNative = nativeAdapter,
+    createSession = openSession,
+    profile = "object",
+  } = {},
 ) {
+  const store = profile === "map" ? mapServiceStore : undefined;
+  const viewSchema = profile === "map" ? context.mapViewSchema : context.viewSchema;
   if (author === "upstream") {
     const containers = [];
     let failure;
@@ -2533,6 +2732,7 @@ export async function freshReload(
       const session = await createSession(config, containers, documentId, false, {
         cache: false,
         observeStorage: true,
+        ...(store ? { store } : {}),
       });
       const adapter = upstreamAdapter(session);
       const observation = await adapter.checkpoint();
@@ -2566,7 +2766,7 @@ export async function freshReload(
     runId: context.runId,
     documentId,
     tenant: config.tenantId,
-    viewSchema: context.viewSchema,
+    viewSchema,
   }, token);
   let failure;
   try {
@@ -2631,6 +2831,12 @@ export async function executeScheduleAction(
     state.quiescent = false;
   } else if (action.type === "clear") {
     await adapters[action.author].clear(action.path);
+    state.quiescent = false;
+  } else if (action.type === "map-set") {
+    await adapters[action.author].mapSet(action.path, action.key, action.value);
+    state.quiescent = false;
+  } else if (action.type === "map-delete") {
+    await adapters[action.author].mapDelete(action.path, action.key);
     state.quiescent = false;
   } else if (action.type === "hold-inbound") {
     await adapters[action.author].holdInbound();
@@ -2703,6 +2909,7 @@ export async function executeScheduleAction(
         state.containers,
         state.documentId,
         `Task 6 seeded ${schedule.index}`,
+        schedule.profile === "map" ? { store: mapServiceStore } : undefined,
       )
       : await adapters[action.author].summarize();
     state.summaries.push({
@@ -2721,6 +2928,7 @@ export async function executeScheduleAction(
       action.author,
       state.token,
       barrier.observations[0].wholeTree,
+      { profile: schedule.profile },
     ));
     state.quiescent = true;
   } else {
@@ -2731,6 +2939,11 @@ export async function executeScheduleAction(
 export async function runSeededSchedule(config, context, schedule) {
   validateRunnerContext("runSeededSchedule", context);
   validateSchedule(schedule);
+  if (schedule.profile === "map") {
+    assert(typeof context.mapViewSchema === "string"
+      && context.mapViewSchema.length > 0,
+    "runSeededSchedule context requires mapViewSchema");
+  }
   const state = {
     adapters: undefined,
     checkpoints: [],
@@ -2753,16 +2966,28 @@ export async function runSeededSchedule(config, context, schedule) {
   };
   let scheduleError;
   try {
-    state.creator = await openSession(config, state.containers);
+    const store = schedule.profile === "map" ? mapServiceStore : undefined;
+    state.creator = await openSession(
+      config,
+      state.containers,
+      undefined,
+      false,
+      store ? { store } : undefined,
+    );
     state.documentId = state.creator.container.resolvedUrl.id;
     await publishUpstreamSummary(
       config,
       state.containers,
       state.documentId,
       `Task 6 seeded ${schedule.index} bootstrap`,
+      store ? { store } : undefined,
     );
     const upstream = upstreamAdapter(await openSession(
-      config, state.containers, state.documentId,
+      config,
+      state.containers,
+      state.documentId,
+      false,
+      store ? { store } : undefined,
     ));
     const { jwt } = await tokenProvider(config)
       .fetchOrdererToken(config.tenantId, state.documentId);
@@ -2772,7 +2997,9 @@ export async function runSeededSchedule(config, context, schedule) {
         runId: context.runId,
         documentId: state.documentId,
         tenant: config.tenantId,
-        viewSchema: context.viewSchema,
+        viewSchema: schedule.profile === "map"
+          ? context.mapViewSchema
+          : context.viewSchema,
       }, jwt));
     }
     state.adapters = {
@@ -2783,7 +3010,7 @@ export async function runSeededSchedule(config, context, schedule) {
     await Promise.all(nativeTargets.map((target) =>
       state.adapters[target].awaitSynced()));
     for (const [index, action] of schedule.actions.entries()) {
-      state.currentAction = { index, type: action.type, label: action.label ?? null };
+      state.currentAction = { index, ...structuredClone(action) };
       await executeScheduleAction(config, context, schedule, action, state);
     }
     const finalHistory = await serverHistory(state.creator);
@@ -2806,6 +3033,7 @@ export async function runSeededSchedule(config, context, schedule) {
       seed: schedule.seed,
       subSeed: schedule.subSeed,
       template: schedule.template,
+      profile: schedule.profile,
       roles: schedule.roles,
       actions: schedule.actions,
       runId: context.runId,
