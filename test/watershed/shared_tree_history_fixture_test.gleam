@@ -259,6 +259,9 @@ fn assert_map_repairs_are_resubmitted() {
       ])
     let assert Ok(authored) =
       change.from_data(change.to_data(authored), inverse_order)
+    let assert Ok(delta) =
+      change.into_delta(change.TaggedChange(Some(revision), None, authored))
+    let assert Ok(current) = forest.apply_delta(visible, delta)
     let assert Ok(inverted) =
       change.invert(
         change.TaggedChange(Some(revision), None, authored),
@@ -268,7 +271,11 @@ fn assert_map_repairs_are_resubmitted() {
     let commit = history.Commit(inverse_revision, map_session(), inverted)
     let assert Ok(update) =
       history.append_local(history.new(map_session()), commit)
-    let repair = forest.Build(AtomId(Some(revision), 0), [entry.1])
+    let detached = AtomId(Some(revision), 0)
+    let assert Ok(reference) = forest.locate_detached(current, detached)
+    let assert Ok(value) = forest.read_node(current, reference)
+    value |> expect.to_equal(entry.1)
+    let repair = forest.Build(detached, [value])
     let assert Ok([resubmitted]) =
       history.resubmit(update.history, [#(inverse_revision, [repair])])
     change.to_data(resubmitted.change).refreshers

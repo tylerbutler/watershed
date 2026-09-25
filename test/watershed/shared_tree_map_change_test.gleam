@@ -296,9 +296,17 @@ pub fn shared_tree_map_change_repairs_replaced_and_deleted_entries_test() {
     ),
   ]
   |> list.each(fn(entry) {
-    let authored = authored_change(object_map_forest(), entry.0)
+    let visible = object_map_forest()
+    let authored = authored_change(visible, entry.0)
     let assert Ok(authored) =
       change.from_data(change.to_data(authored), atomic_identity_order())
+    let assert Ok(delta) =
+      change.into_delta(change.TaggedChange(
+        Some(authored_revision()),
+        None,
+        authored,
+      ))
+    let assert Ok(current) = forest.apply_delta(visible, delta)
     let assert Ok(inverted) =
       change.invert(
         change.TaggedChange(Some(authored_revision()), None, authored),
@@ -307,7 +315,10 @@ pub fn shared_tree_map_change_repairs_replaced_and_deleted_entries_test() {
       )
     let assert Ok(roots) = change.relevant_removed_roots(inverted)
     roots |> expect.to_equal([atom(0)])
-    let repair = forest.Build(atom(0), [entry.1])
+    let assert Ok(reference) = forest.locate_detached(current, atom(0))
+    let assert Ok(value) = forest.read_node(current, reference)
+    value |> expect.to_equal(entry.1)
+    let repair = forest.Build(atom(0), [value])
     let assert Ok(refreshed) =
       change.update_refreshers(inverted, roots, [repair])
     change.to_data(refreshed).refreshers
