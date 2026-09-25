@@ -327,10 +327,8 @@ pub fn edit_from(
     "change allocator",
     "invalid next identifier",
   ))
-  use #(path, value) <- result.try(field_edit(operation))
-  let is_root = list.is_empty(path)
-  use #(field_schema, parent_path, field, was_empty) <- result.try(
-    edit_destination(schema, forest, path, value),
+  use #(field_schema, parent_path, field, was_empty, value, is_root) <- result.try(
+    operation_destination(schema, forest, operation),
   )
   let FieldSchema(cardinality, _) = field_schema
   use #(field_change, builds, next_id) <- result.try(authored_field(
@@ -369,22 +367,57 @@ pub fn validate_edit(
   forest: forest.Forest,
   operation: Edit,
 ) -> Result(Nil, TreeError) {
-  use #(path, value) <- result.try(field_edit(operation))
-  use _ <- result.try(edit_destination(schema, forest, path, value))
+  use _ <- result.try(operation_destination(schema, forest, operation))
   Ok(Nil)
 }
 
-fn field_edit(
+fn operation_destination(
+  schema: StoredSchema,
+  forest: forest.Forest,
   operation: Edit,
-) -> Result(#(FieldPath, Option(TreeValue)), TreeError) {
+) -> Result(
+  #(FieldSchema, FieldPath, String, Bool, Option(TreeValue), Bool),
+  TreeError,
+) {
   case operation {
-    SetField(path, value) -> Ok(#(path, Some(value)))
-    ClearField(path) -> Ok(#(path, None))
-    MapSet(path, key, _) | MapDelete(path, key) ->
-      Error(InvalidEdit(
-        list.append(path, [key]),
-        "change authoring does not support map edits",
+    SetField(path, value) -> {
+      use #(field_schema, parent_path, field, was_empty) <- result.try(
+        edit_destination(schema, forest, path, Some(value)),
+      )
+      Ok(#(
+        field_schema,
+        parent_path,
+        field,
+        was_empty,
+        Some(value),
+        list.is_empty(path),
       ))
+    }
+    ClearField(path) -> {
+      use #(field_schema, parent_path, field, was_empty) <- result.try(
+        edit_destination(schema, forest, path, None),
+      )
+      Ok(#(
+        field_schema,
+        parent_path,
+        field,
+        was_empty,
+        None,
+        list.is_empty(path),
+      ))
+    }
+    MapSet(path, key, value) -> {
+      use #(field_schema, parent_path, field, was_empty) <- result.try(
+        map_edit_destination(schema, forest, path, key, Some(value)),
+      )
+      Ok(#(field_schema, parent_path, field, was_empty, Some(value), False))
+    }
+    MapDelete(path, key) -> {
+      use #(field_schema, parent_path, field, was_empty) <- result.try(
+        map_edit_destination(schema, forest, path, key, None),
+      )
+      Ok(#(field_schema, parent_path, field, was_empty, None, False))
+    }
   }
 }
 
@@ -2283,6 +2316,20 @@ fn edit_destination(
       Ok(#(definition, parent_path, field, current == None))
     }
   }
+}
+
+fn map_edit_destination(
+  stored: StoredSchema,
+  visible: forest.Forest,
+  path: FieldPath,
+  key: String,
+  value: Option(TreeValue),
+) -> Result(#(FieldSchema, FieldPath, String, Bool), TreeError) {
+  use map_type <- result.try(forest.map_type(visible, path))
+  use entry_schema <- result.try(schema.map_entry_schema(stored, map_type))
+  use _ <- result.try(schema.validate_map_entry(stored, map_type, key, value))
+  use current <- result.try(forest.map_get(visible, path, key))
+  Ok(#(entry_schema, path, key, current == None))
 }
 
 fn split_last_loop(
