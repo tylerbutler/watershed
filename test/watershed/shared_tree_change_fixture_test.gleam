@@ -92,6 +92,22 @@ fn map_scenario_path(scenario: Int, rest: List(PathKey)) -> List(PathKey) {
   [Key("scenarios"), Index(scenario), ..rest]
 }
 
+fn map_revision_metadata(
+  original: JsonValue,
+  scenario_index: Int,
+  operation_index: Int,
+) -> List(JsonValue) {
+  let assert Ok(scenarios_value) = codec.get(original, "scenarios")
+  let assert Ok(scenarios) = codec.items(scenarios_value)
+  let assert Ok(scenario) = list.drop(scenarios, scenario_index) |> list.first
+  let assert Ok(algebra_value) = codec.get(scenario, "algebra")
+  let assert Ok(algebra) = codec.items(algebra_value)
+  let assert Ok(operation) = list.drop(algebra, operation_index) |> list.first
+  let assert Ok(metadata_value) = codec.get(operation, "revisionMetadata")
+  let assert Ok(metadata) = codec.items(metadata_value)
+  metadata
+}
+
 fn assert_map_mutation_changes(
   original: JsonValue,
   path: List(PathKey),
@@ -205,14 +221,7 @@ pub fn shared_tree_map_change_runner_accepts_irrelevant_revision_metadata_test()
       Index(2),
       Key("revisionMetadata"),
     ])
-  let assert Ok(scenarios_value) = codec.get(original, "scenarios")
-  let assert Ok(scenarios) = codec.items(scenarios_value)
-  let assert Ok(scenario) = list.drop(scenarios, 4) |> list.first
-  let assert Ok(algebra_value) = codec.get(scenario, "algebra")
-  let assert Ok(algebra) = codec.items(algebra_value)
-  let assert Ok(operation) = list.drop(algebra, 2) |> list.first
-  let assert Ok(metadata_value) = codec.get(operation, "revisionMetadata")
-  let assert Ok(metadata) = codec.items(metadata_value)
+  let metadata = map_revision_metadata(original, 4, 2)
   let changed =
     replace_at(
       original,
@@ -226,6 +235,33 @@ pub fn shared_tree_map_change_runner_accepts_irrelevant_revision_metadata_test()
       ),
     )
   map_replay(changed) |> expect.to_equal(map_replay(original))
+}
+
+pub fn shared_tree_map_change_runner_successful_metadata_variants_are_stable_test() -> Nil {
+  let original = map_input()
+  let baseline = map_replay(original)
+  let path =
+    map_scenario_path(4, [
+      Key("algebra"),
+      Index(2),
+      Key("revisionMetadata"),
+    ])
+  let metadata = map_revision_metadata(original, 4, 2)
+  let mutations = [
+    VArray(list.reverse(metadata)),
+    VArray(
+      list.append(metadata, [
+        VObject([
+          #("revision", VString("00000000-0000-4000-b000-00000000000a")),
+          #("rollbackOf", VString("00000000-0000-4000-b000-000000000009")),
+        ]),
+      ]),
+    ),
+  ]
+  list.each(mutations, fn(replacement) {
+    let changed = replace_at(original, path, replacement)
+    map_replay(changed) |> expect.to_equal(baseline)
+  })
 }
 
 pub fn shared_tree_map_change_runner_observes_rollback_metadata_test() -> Nil {
@@ -247,6 +283,38 @@ pub fn shared_tree_map_change_runner_observes_rollback_metadata_test() -> Nil {
   let assert Error(error) = map_change_fixture.run(json_ot.to_json(changed))
   string.contains(error, "rebase rollback metadata does not match")
   |> expect.to_be_true
+}
+
+pub fn shared_tree_map_change_runner_rejects_invalid_metadata_variants_test() -> Nil {
+  let original = map_input()
+  let path =
+    map_scenario_path(4, [
+      Key("algebra"),
+      Index(2),
+      Key("revisionMetadata"),
+    ])
+  let left =
+    VObject([
+      #("revision", VString("00000000-0000-4000-b000-000000000008")),
+    ])
+  let right =
+    VObject([
+      #("revision", VString("00000000-0000-4000-b000-000000000009")),
+    ])
+  let unrelated =
+    VObject([
+      #("revision", VString("00000000-0000-4000-b000-00000000000a")),
+    ])
+  let mutations = [
+    VArray([left]),
+    VArray([unrelated, right]),
+    VArray([left, left, right]),
+  ]
+  list.each(mutations, fn(replacement) {
+    let changed = replace_at(original, path, replacement)
+    map_change_fixture.run(json_ot.to_json(changed)) |> expect.to_be_error
+    Nil
+  })
 }
 
 pub fn shared_tree_map_change_runner_rejects_reused_inverse_revision_test() -> Nil {
