@@ -1316,7 +1316,11 @@ async function readMapCell(config, context, row, reader) {
     const baseline = loaded.sequenceNumber;
     await adapter.mapSet(["items"], continuationKey, continuationValue);
     await adapter.awaitSynced();
-    await until(() => row.observer.data.view.root.items.has(continuationKey),
+    await until(() => mapEntryMatches(
+      row.observer.data.view.root,
+      continuationKey,
+      continuationValue,
+    ),
       `${reader} map continuation observation`);
     const continuation = await acknowledgedSubmission(
       row.observer,
@@ -1389,6 +1393,16 @@ async function readMapCell(config, context, row, reader) {
 
 function writerReaderKey(writer, reader) {
   return `${writer}-${reader}`;
+}
+
+export function mapEntryMatches(root, key, expected) {
+  if (!root.items.has(key)) return false;
+  const actual = root.items.get(key);
+  if (expected.kind === "null") return actual === null;
+  if (["string", "number", "boolean"].includes(expected.kind)) {
+    return actual === expected.value;
+  }
+  return false;
 }
 
 async function runMapWriterRow(config, context, writer) {

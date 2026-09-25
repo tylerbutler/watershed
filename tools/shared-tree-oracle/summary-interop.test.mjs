@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  loadRequests, readCell, runArtifactInterop, runMapReloadMatrix, runReloadMatrix,
-  validateMapResults, validateResults, validateSummaryArtifact,
+  loadRequests, mapEntryMatches, readCell, runArtifactInterop, runMapReloadMatrix,
+  runReloadMatrix, validateMapResults, validateResults, validateSummaryArtifact,
 } from "./summary-interop.mjs";
 
 const implementations = ["upstream", "javascript", "erlang"];
@@ -202,6 +202,18 @@ test("map reload matrix requires nine canonical tail and continuation cells", ()
     mutation(copy);
     assert.throws(() => validateMapResults(copy), undefined, label);
   }
+});
+
+test("map continuation observation requires the exact value", () => {
+  const root = { items: new Map([["reader", "expected"]]) };
+  assert.equal(mapEntryMatches(root, "reader", {
+    kind: "string",
+    value: "expected",
+  }), true);
+  assert.equal(mapEntryMatches(root, "reader", {
+    kind: "string",
+    value: "corrupt",
+  }), false);
 });
 
 test("native replay start prefers delivered operations over stale handshake context", () => {
