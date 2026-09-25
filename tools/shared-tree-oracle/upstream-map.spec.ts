@@ -18,7 +18,11 @@ import {
 	MockSharedObjectServices,
 } from "@fluidframework/test-runtime-utils/internal";
 
-import { FluidClientVersion, type CodecWriteOptions } from "../codec/index.js";
+import {
+	FluidClientVersion,
+	FormatValidatorNoOp,
+	type CodecWriteOptions,
+} from "../codec/index.js";
 import {
 	RevisionTagCodec,
 	revisionMetadataSourceFromInfo,
@@ -41,10 +45,12 @@ import {
 	fieldBatchCodecBuilder,
 	fieldKindConfigurations,
 	fieldKinds,
+	intoDelta,
 	makeModularChangeCodecFamily,
 	ModularChangeFamily,
 	ModularChangeFormatVersion,
 	relevantRemovedRoots,
+	schemaCodecBuilder,
 	TreeCompressionStrategy,
 	updateRefreshers,
 	type ModularChangeset,
@@ -61,6 +67,12 @@ import { configuredSharedTreeInternal } from "../treeFactory.js";
 import { brand } from "../util/index.js";
 import { MockContainerRuntimeWithOpBunching } from "./mocksForOpBunching.js";
 import { TestTreeProviderLite, mintRevisionTag, testIdCompressor } from "./utils.js";
+import { deltaDataWithCompressor } from "./watershedModular.spec.js";
+import {
+	runScenario,
+	type Scenario as ForestScenario,
+	type TaggedValue as ForestTaggedValue,
+} from "./watershedForest.spec.js";
 
 const formatVersion = 1;
 const reference = {
@@ -363,6 +375,7 @@ function fieldAlgebraCase() {
 	const codec = family.codecs.resolve(ModularChangeFormatVersion.v5);
 	const revisions = Array.from({ length: 48 }, () => mintRevisionTag());
 	let nextRevision = 0;
+	const schema = schemaString(MapRoot);
 	const encodingContext: ChangeEncodingContext = {
 		originatorId: testIdCompressor.localSessionId,
 		idCompressor: testIdCompressor,
@@ -406,42 +419,141 @@ function fieldAlgebraCase() {
 		return codec.encode(change.change, { ...encodingContext, revision: change.revision });
 	}
 
-	function observation(operation: string, change: TaggedChange<ModularChangeset>) {
+	function stableRevision(revision: RevisionTag | undefined): string | null {
+		if (revision === undefined) return null;
+		assert(typeof revision === "number");
+		return testIdCompressor.decompress(revision);
+	}
+
+	function changeEvidence(id: string, change: TaggedChange<ModularChangeset>) {
+		const revision = stableRevision(change.revision);
 		return {
-			operation,
+			id,
+			revision,
+			encodingContext: {
+				originatorId: encodingContext.originatorId,
+				revision,
+				encodedRevision: change.revision ?? null,
+				isSummary: encodingContext.isSummary,
+			},
 			encoded: encoded(change),
 		};
+	}
+
+	function root(entries: [string, Parameters<typeof tagged>[0]][]): ForestTaggedValue {
+		return {
+			kind: "object",
+			type: MapRoot.identifier,
+			fields: [[
+				"items",
+				{
+					kind: "object",
+					type: DynamicMap.identifier,
+					fields: entries.map(([key, value]) => [key, tagged(value)]),
+				},
+			]],
+		};
+	}
+
+	function visibleState(state: unknown) {
+		assert(state !== null && typeof state === "object");
+		const root = Reflect.get(state, "root");
+		assert(root !== null && typeof root === "object" && Reflect.get(root, "kind") === "object");
+		const rootFields = Reflect.get(root, "fields");
+		assert(Array.isArray(rootFields));
+		const items = rootFields.find(([key]) => key === "items")?.[1];
+		assert(items !== null && typeof items === "object" && Reflect.get(items, "kind") === "object");
+		const entries = Reflect.get(items, "fields");
+		const detached = Reflect.get(state, "detached");
+		assert(Array.isArray(entries) && Array.isArray(detached));
+		return { entries, detached };
 	}
 
 	function scenario(
 		id: typeof requiredMapScenarios[number],
 		left: TaggedChange<ModularChangeset>,
+		initialEntries: [string, Parameters<typeof tagged>[0]][],
 		right?: TaggedChange<ModularChangeset>,
 		reverseCompose = false,
 	) {
-		const taggedChanges = right === undefined
+		const composeChanges = right === undefined
 			? [left]
 			: reverseCompose ? [right, left] : [left, right];
-		const composed = tagChange(family.compose(taggedChanges), undefined);
+		const composed = tagChange(family.compose(composeChanges), undefined);
 		const inverseRevision = revisions[nextRevision++];
 		const inverted = tagChange(family.invert(composed, false, inverseRevision), inverseRevision);
-		const intermediate = [observation("compose", composed), observation("invert", inverted)];
+		const changes = new Map<string, TaggedChange<ModularChangeset>>([
+			["left", left],
+			["composed", composed],
+			["inverted", inverted],
+		]);
+		const algebra: {
+			operation: string;
+			output: string;
+			changes?: string[];
+			change?: string;
+			inverseRevision?: string | null;
+			over?: string;
+			revisionMetadata?: { revision: string | null }[];
+		}[] = [
+			{
+				operation: "compose",
+				changes: right === undefined
+					? ["left"]
+					: reverseCompose ? ["right", "left"] : ["left", "right"],
+				output: "composed",
+			},
+			{
+				operation: "invert",
+				change: "composed",
+				inverseRevision: stableRevision(inverseRevision),
+				output: "inverted",
+			},
+		];
+		const replays = new Map<string, string[]>([
+			["compose", ["composed"]],
+			["invert", ["composed", "inverted"]],
+		]);
 		let detachedIdentity: object[] | undefined;
 		if (right !== undefined) {
 			assert(left.revision !== undefined && right.revision !== undefined);
-			const metadata = revisionMetadataSourceFromInfo([
+			changes.set("right", right);
+			const revisionMetadata = [
 				{ revision: left.revision },
 				{ revision: right.revision },
-			]);
+			];
+			const metadata = revisionMetadataSourceFromInfo(revisionMetadata);
 			const leftOverRight = tagChange(
 				family.rebase(left, right, metadata),
 				left.revision,
 			);
-			intermediate.push(observation("rebase-left-over-right", leftOverRight));
-			intermediate.push(observation("rebase-right-over-left", tagChange(
+			const rightOverLeft = tagChange(
 				family.rebase(right, left, metadata),
 				right.revision,
-			)));
+			);
+			changes.set("left-over-right", leftOverRight);
+			changes.set("right-over-left", rightOverLeft);
+			const normalizedMetadata = revisionMetadata.map(({ revision }) => ({
+				revision: stableRevision(revision),
+			}));
+			algebra.push(
+				{
+					operation: "rebase-left-over-right",
+					change: "left",
+					over: "right",
+					revisionMetadata: normalizedMetadata,
+					output: "left-over-right",
+				},
+				{
+					operation: "rebase-right-over-left",
+					change: "right",
+					over: "left",
+					revisionMetadata: normalizedMetadata,
+					output: "right-over-left",
+				},
+			);
+			replays.set("rebase-left-over-right", ["right", "left-over-right"]);
+			replays.set("rebase-right-over-left", ["left", "right-over-left"]);
 			if (id === "nested-edit-vs-replace" || id === "nested-edit-vs-delete") {
 				const roots = [...relevantRemovedRoots(leftOverRight.change)];
 				assert(roots.length > 0);
@@ -459,6 +571,48 @@ function fieldAlgebraCase() {
 				), { ...encodingContext, revision: leftOverRight.revision });
 			}
 		}
+		const initial = { schema, root: root(initialEntries) };
+		const decoder = schemaCodecBuilder.buildDecoder({ jsonValidator: FormatValidatorNoOp });
+		const intermediate = algebra.map((operation) => {
+			const replay = replays.get(operation.operation);
+			assert(replay !== undefined);
+			const definition: ForestScenario = {
+				id: `${id}-${operation.operation}`,
+				...initial,
+				actions: [
+					{ id: "initial", op: "observe" },
+					...replay.map((name) => {
+						const change = changes.get(name);
+						assert(change !== undefined);
+						return {
+							id: name,
+							op: "apply" as const,
+							delta: deltaDataWithCompressor(
+								intoDelta(change),
+								change.revision,
+								testIdCompressor,
+							),
+						};
+					}),
+				],
+			};
+			const result = runScenario(definition, testIdCompressor, decoder);
+			assert(result.observation.checkpoints.every(({ accepted }) => accepted));
+			const checkpoints = result.observation.checkpoints.map((checkpoint) => {
+				assert(checkpoint.state !== null);
+				return { id: checkpoint.id, visible: visibleState(checkpoint.state) };
+			});
+			return {
+				operation: operation.operation,
+				encoded: encoded(changes.get(operation.output) ?? assert.fail()),
+				checkpoints,
+				final: checkpoints.at(-1)?.visible ?? assert.fail(),
+				raw: result.raw,
+			};
+		});
+		const initialVisible = intermediate[0].checkpoints[0].visible;
+		const final = intermediate.find(({ operation }) => operation === "compose")?.final;
+		assert(final !== undefined);
 		const fieldKinds: string[] = [];
 		const fieldKeys: string[] = [];
 		function collect(value: unknown): void {
@@ -471,68 +625,100 @@ function fieldAlgebraCase() {
 				Object.values(object).forEach(collect);
 			}
 		}
-		collect(intermediate);
-		assert(!fieldKinds.includes("Sequence"));
-		return {
-			input: {
-				id,
-				operations: intermediate.map(({ operation }) => operation),
-				changes: taggedChanges.map(encoded),
-			},
-			observation: {
-				id,
-				intermediate,
-				final: intermediate.at(-1),
-				...(detachedIdentity === undefined ? {} : { detachedIdentity }),
-			},
-			raw: { id, fieldKeys, fieldKinds, encoded: intermediate.map(({ encoded: bytes }) => bytes) },
-		};
+	const normalizedChanges = [...changes].map(([name, change]) => changeEvidence(name, change));
+	const compressor = {
+		localSessionId: testIdCompressor.localSessionId,
+		revisions: normalizedChanges
+			.filter(({ revision }) => revision !== null)
+			.map(({ revision, encodingContext: { encodedRevision } }) => ({
+				stable: revision,
+				encoded: encodedRevision,
+			})),
+	};
+	collect(normalizedChanges);
+	assert(!fieldKinds.includes("Sequence"));
+	return {
+		input: {
+			id,
+			initial,
+			compressor,
+			changes: normalizedChanges,
+			operations: algebra.map(({ operation }) => operation),
+			algebra,
+			finalOperation: "compose",
+		},
+		observation: {
+			id,
+			initial: initialVisible,
+			intermediate: intermediate.map(({ raw: _raw, ...item }) => item),
+			final,
+			...(detachedIdentity === undefined ? {} : { detachedIdentity }),
+		},
+		raw: {
+			id,
+			changes: Object.fromEntries(normalizedChanges.map((change) => [change.id, {
+				revision: change.revision,
+				encodingContext: change.encodingContext,
+				encoded: change.encoded,
+			}])),
+			operations: intermediate.map(({ operation, raw }) => ({ operation, ...raw })),
+			fieldKeys,
+			fieldKinds,
+		},
+	};
 	}
 
 	const scenarios = [
-		scenario("set-absent", edit(["items", "new"], "value", true)),
-		scenario("replace-present", edit(["items", "key"], "after", false)),
-		scenario("delete-present", edit(["items", "key"], undefined, false)),
-		scenario("delete-absent", edit(["items", "missing"], undefined, true)),
-		scenario("different-keys",
-			edit(["items", "left"], "left", true),
-			edit(["items", "right"], "right", true)),
-		scenario("same-key-set-set-left-last",
-			edit(["items", "same"], "left", true),
-			edit(["items", "same"], "right", true),
-			true),
-		scenario("same-key-set-set-right-last",
-			edit(["items", "same"], "left", true),
-			edit(["items", "same"], "right", true)),
-		scenario("same-key-set-delete",
-			edit(["items", "same"], "left", false),
-			edit(["items", "same"], undefined, false)),
-		scenario("same-key-delete-set",
-			edit(["items", "same"], undefined, false),
-			edit(["items", "same"], "right", false)),
-		scenario("nested-edit-vs-replace",
-			requiredEdit(["items", "point", "x"], 7),
-			edit(["items", "point"], { x: 10, y: 20 }, false)),
-		scenario("nested-edit-vs-delete",
-			requiredEdit(["items", "point", "x"], 7),
-			edit(["items", "point"], undefined, false)),
-		scenario("nested-map-independent",
-			edit(["items", "nested", "left"], "left", true),
-			edit(["items", "nested", "right"], "right", true)),
-		scenario("nested-map-conflict",
-			edit(["items", "nested", "same"], "left", true),
-			edit(["items", "nested", "same"], "right", true)),
+	scenario("set-absent", edit(["items", "new"], "value", true), []),
+	scenario("replace-present", edit(["items", "key"], "after", false), [["key", "before"]]),
+	scenario("delete-present", edit(["items", "key"], undefined, false), [["key", "before"]]),
+	scenario("delete-absent", edit(["items", "missing"], undefined, true), []),
+	scenario("different-keys",
+		edit(["items", "left"], "left", true),
+		[],
+		edit(["items", "right"], "right", true)),
+	scenario("same-key-set-set-left-last",
+		edit(["items", "same"], "left", true),
+		[],
+		edit(["items", "same"], "right", true),
+		true),
+	scenario("same-key-set-set-right-last",
+		edit(["items", "same"], "left", true),
+		[],
+		edit(["items", "same"], "right", true)),
+	scenario("same-key-set-delete",
+		edit(["items", "same"], "left", false),
+		[["same", "before"]],
+		edit(["items", "same"], undefined, false)),
+	scenario("same-key-delete-set",
+		edit(["items", "same"], undefined, false),
+		[["same", "before"]],
+		edit(["items", "same"], "right", false)),
+	scenario("nested-edit-vs-replace",
+		requiredEdit(["items", "point", "x"], 7),
+		[["point", { x: 1, y: 2 }]],
+		edit(["items", "point"], { x: 10, y: 20 }, false)),
+	scenario("nested-edit-vs-delete",
+		requiredEdit(["items", "point", "x"], 7),
+		[["point", { x: 1, y: 2 }]],
+		edit(["items", "point"], undefined, false)),
+	scenario("nested-map-independent",
+		edit(["items", "nested", "left"], "left", true),
+		[["nested", new Map<string, string>()]],
+		edit(["items", "nested", "right"], "right", true)),
+	scenario("nested-map-conflict",
+		edit(["items", "nested", "same"], "left", true),
+		[["nested", new Map<string, string>()]],
+		edit(["items", "nested", "same"], "right", true)),
 	];
 	return {
-		oracleCase: caseFile("map-field-algebra", "field", {
+	oracleCase: caseFile("map-field-algebra", "field", {
 		profile: { modularChange: 5, optionalField: 2, genericField: 1 },
-		schema: schemaString(MapRoot),
-		changes: Object.fromEntries(scenarios.map((item) => [item.input.id, item.input.changes])),
+		schema,
 		scenarios: scenarios.map((item) => item.input),
 	}, scenarios.map((item) => item.observation), {
-		encoded: Object.fromEntries(scenarios.map((item) => [item.raw.id, item.raw.encoded])),
 		scenarios: scenarios.map((item) => item.raw),
-		}),
+	}),
 		refreshers,
 	};
 }

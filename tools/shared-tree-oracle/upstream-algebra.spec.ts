@@ -1790,8 +1790,9 @@ function makeModularCase(commit: string): OracleCase {
 	};
 }
 
-describe("watershed upstream algebra oracle", () => {
-	it("writes the pinned algebra corpus", () => {
+if (process.env.WATERSHED_ORACLE_CORPUS !== "map") {
+	describe("watershed upstream algebra oracle", () => {
+		it("writes the pinned algebra corpus", () => {
 		const output = process.env.WATERSHED_ORACLE_OUTPUT;
 		assert(output !== undefined, "WATERSHED_ORACLE_OUTPUT is required.");
 		assert(path.isAbsolute(output), "WATERSHED_ORACLE_OUTPUT must be absolute.");
@@ -1821,5 +1822,6 @@ describe("watershed upstream algebra oracle", () => {
 			`${JSON.stringify(cases, undefined, 2)}\n`,
 			"utf8",
 		);
+		});
 	});
-});
+}

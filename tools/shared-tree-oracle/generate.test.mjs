@@ -182,6 +182,170 @@ function mapFieldCaseFixture() {
     "nested-map-independent",
     "nested-map-conflict",
   ];
+  const schema = JSON.stringify({
+    version: 2,
+    nodes: {
+      "org.watershed.shared-tree.m2.DynamicMap": {
+        kind: { map: { kind: "Optional", types: ["com.fluidframework.leaf.string"] } },
+      },
+      "org.watershed.shared-tree.m2.Root": {
+        kind: {
+          object: {
+            fields: {
+              items: {
+                kind: "Value",
+                types: ["org.watershed.shared-tree.m2.DynamicMap"],
+              },
+            },
+          },
+        },
+      },
+    },
+    root: { kind: "Value", types: ["org.watershed.shared-tree.m2.Root"] },
+  });
+  const root = {
+    kind: "object",
+    type: "org.watershed.shared-tree.m2.Root",
+    fields: [[
+      "items",
+      {
+        kind: "object",
+        type: "org.watershed.shared-tree.m2.DynamicMap",
+        fields: [],
+      },
+    ]],
+  };
+  const state = { entries: [], detached: [] };
+  const change = (id, revision) => ({
+    id,
+    revision,
+    encodingContext: {
+      originatorId: "11111111-1111-4111-8111-111111111111",
+      revision,
+      encodedRevision: revision === null ? null : 1,
+      isSummary: false,
+    },
+    encoded: { maxId: 0, changes: [] },
+  });
+  const scenario = (id) => {
+    const conflict = !["set-absent", "replace-present", "delete-present", "delete-absent"]
+      .includes(id);
+    const changes = [
+      change("left", "left-revision"),
+      ...(conflict ? [change("right", "right-revision")] : []),
+      change("composed", null),
+      change("inverted", "inverse-revision"),
+      ...(conflict
+        ? [
+          change("left-over-right", "left-revision"),
+          change("right-over-left", "right-revision"),
+        ]
+        : []),
+    ];
+    const operations = [
+      { operation: "compose", changes: conflict ? ["left", "right"] : ["left"], output: "composed" },
+      {
+        operation: "invert",
+        change: "composed",
+        inverseRevision: "inverse-revision",
+        output: "inverted",
+      },
+      ...(conflict
+        ? [
+          {
+            operation: "rebase-left-over-right",
+            change: "left",
+            over: "right",
+            revisionMetadata: [
+              { revision: "left-revision" },
+              { revision: "right-revision" },
+            ],
+            output: "left-over-right",
+          },
+          {
+            operation: "rebase-right-over-left",
+            change: "right",
+            over: "left",
+            revisionMetadata: [
+              { revision: "left-revision" },
+              { revision: "right-revision" },
+            ],
+            output: "right-over-left",
+          },
+        ]
+        : []),
+    ];
+    const replay = (operation) => {
+      switch (operation) {
+        case "compose":
+          return ["initial", "composed"];
+        case "invert":
+          return ["initial", "composed", "inverted"];
+        case "rebase-left-over-right":
+          return ["initial", "right", "left-over-right"];
+        case "rebase-right-over-left":
+          return ["initial", "left", "right-over-left"];
+        default:
+          throw new Error(`Unknown synthetic operation: ${operation}`);
+      }
+    };
+    return {
+      input: {
+        id,
+        initial: { schema, root },
+        compressor: {
+          localSessionId: "11111111-1111-4111-8111-111111111111",
+          revisions: changes
+            .filter(({ revision }) => revision !== null)
+            .map(({ revision, encodingContext }) => ({
+              stable: revision,
+              encoded: encodingContext.encodedRevision,
+            })),
+        },
+        changes,
+        operations: operations.map(({ operation }) => operation),
+        algebra: operations,
+        finalOperation: "compose",
+      },
+      observation: {
+        id,
+        initial: structuredClone(state),
+        intermediate: operations.map(({ operation, output }) => ({
+          operation,
+          encoded: changes.find(({ id: changeId }) => changeId === output).encoded,
+          checkpoints: replay(operation).map((checkpoint) => ({
+            id: checkpoint,
+            visible: structuredClone(state),
+          })),
+          final: structuredClone(state),
+        })),
+        final: structuredClone(state),
+        ...(["nested-edit-vs-replace", "nested-edit-vs-delete"].includes(id)
+          ? { detachedIdentity: [{ revision: "revision", localId: 0 }] }
+          : {}),
+      },
+      raw: {
+        id,
+        changes: Object.fromEntries(changes.map((item) => [item.id, {
+          revision: item.revision,
+          encodingContext: item.encodingContext,
+          encoded: item.encoded,
+        }])),
+        operations: operations.map(({ operation, output }) => ({
+          operation,
+          actions: replay(operation).map((action) => ({
+            id: action,
+            forest: {},
+            detachedIndex: [],
+            ...(action === "initial" ? {} : { delta: {} }),
+          })),
+        })),
+        fieldKeys: ["key"],
+        fieldKinds: ["Optional"],
+      },
+    };
+  };
+  const scenarios = scenarioIds.map(scenario);
   return {
     formatVersion: 1,
     reference: {
@@ -193,25 +357,14 @@ function mapFieldCaseFixture() {
     domain: "field",
     input: {
       profile: { modularChange: 5, optionalField: 2, genericField: 1 },
-      changes: { set: { fields: [["key", { kind: "Optional" }]] } },
-      scenarios: scenarioIds.map((id) => ({
-        id,
-        operations: ["compose", "invert", "rebase-left-over-right", "rebase-right-over-left"],
-      })),
+      schema,
+      scenarios: scenarios.map((item) => item.input),
     },
     expected: {
-      observations: scenarioIds.map((id) => ({
-        id,
-        intermediate: [{ operation: "compose" }, { operation: "invert" }],
-        final: {},
-        ...(["nested-edit-vs-replace", "nested-edit-vs-delete"].includes(id)
-          ? { detachedIdentity: [{ revision: "revision", localId: 0 }] }
-          : {}),
-      })),
+      observations: scenarios.map((item) => item.observation),
     },
     raw: {
-      encoded: { set: { version: 5 } },
-      scenarios: scenarioIds.map((id) => ({ id, fieldKeys: ["key"], fieldKinds: ["Optional"] })),
+      scenarios: scenarios.map((item) => item.raw),
     },
   };
 }
@@ -344,6 +497,40 @@ test("map field validation requires detached identity observations", () => {
   delete validMapCase.expected.observations
     .find(({ id }) => id === "nested-edit-vs-delete").detachedIdentity;
   assert.throws(() => generator.validateMapFieldCase(validMapCase), /detached/i);
+});
+
+test("map field validation requires every rebase observation", () => {
+  const validMapCase = mapFieldCaseFixture();
+  assert.doesNotThrow(() => generator.validateMapFieldCase(validMapCase));
+  const observation = validMapCase.expected.observations
+    .find(({ id }) => id === "same-key-set-set-right-last");
+  observation.intermediate = observation.intermediate
+    .filter(({ operation }) => operation !== "rebase-right-over-left");
+  assert.throws(() => generator.validateMapFieldCase(validMapCase), /rebase.*observation/i);
+});
+
+test("map field validation requires encoded changes and paired raw payloads", () => {
+  for (const mutate of [
+    (value) => {
+      delete value.input.scenarios[0].changes
+        .find(({ id }) => id === "composed").encoded;
+    },
+    (value) => {
+      delete value.raw.scenarios[0].changes.composed;
+    },
+  ]) {
+    const validMapCase = mapFieldCaseFixture();
+    assert.doesNotThrow(() => generator.validateMapFieldCase(validMapCase));
+    mutate(validMapCase);
+    assert.throws(() => generator.validateMapFieldCase(validMapCase), /encoded|raw payload/i);
+  }
+});
+
+test("map field validation requires final visible map state", () => {
+  const validMapCase = mapFieldCaseFixture();
+  assert.doesNotThrow(() => generator.validateMapFieldCase(validMapCase));
+  delete validMapCase.expected.observations[0].final.entries;
+  assert.throws(() => generator.validateMapFieldCase(validMapCase), /final/i);
 });
 
 test("tree codec case validator requires complete replayable evidence", () => {

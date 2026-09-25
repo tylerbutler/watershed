@@ -708,6 +708,23 @@ function validateFieldCase(value) {
 export function validateMapFieldCase(value) {
   const label = "map-field-algebra";
   const check = (condition, detail) => assert(condition, `${label}: ${detail}`);
+  const visible = (state, detail) => {
+    check(object(state) && Array.isArray(state.entries) && Array.isArray(state.detached), detail);
+    for (const entry of state.entries) {
+      check(Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string",
+        `${detail} entry`);
+      validateTaggedValue(entry[1], label);
+    }
+    for (const item of state.detached) {
+      check(object(item) && object(item.id) && Number.isSafeInteger(item.id.localId)
+        && (item.id.revision === null || typeof item.id.revision === "string")
+        && Number.isSafeInteger(item.forestRootId)
+        && (item.latestRelevantRevision === null
+          || typeof item.latestRelevantRevision === "string"),
+      `${detail} detached`);
+      validateTaggedValue(item.value, label);
+    }
+  };
   check(object(value) && value.id === label && value.domain === "field", "identity");
   check(value.formatVersion === 1 && value.reference?.package === "@fluidframework/tree"
     && value.reference?.version === reference.version
@@ -715,28 +732,132 @@ export function validateMapFieldCase(value) {
   check(value.input?.profile?.modularChange === 5
     && value.input.profile.optionalField === 2
     && value.input.profile.genericField === 1, "format versions");
-  check(object(value.input.changes) && Object.keys(value.input.changes).length > 0,
-    "changes");
+  validateSchemaString(value.input?.schema, "map field schema");
   check(Array.isArray(value.input.scenarios)
     && value.input.scenarios.length === mapFieldScenarioIds.length, "scenario count");
   check(Array.isArray(value.expected?.observations)
     && value.expected.observations.length === mapFieldScenarioIds.length, "observations");
-  check(object(value.raw?.encoded) && Object.keys(value.raw.encoded).length > 0
-    && Array.isArray(value.raw.scenarios)
+  check(Array.isArray(value.raw?.scenarios)
     && value.raw.scenarios.length === mapFieldScenarioIds.length, "raw evidence");
+  assert.deepEqual(value.input.scenarios.map(({ id }) => id), mapFieldScenarioIds,
+    `${label}: scenario order`);
+  assert.deepEqual(value.expected.observations.map(({ id }) => id), mapFieldScenarioIds,
+    `${label}: observation order`);
+  assert.deepEqual(value.raw.scenarios.map(({ id }) => id), mapFieldScenarioIds,
+    `${label}: raw scenario order`);
   for (const id of mapFieldScenarioIds) {
     const scenario = value.input.scenarios.find((item) => item.id === id);
     const observation = value.expected.observations.find((item) => item.id === id);
     const raw = value.raw.scenarios.find((item) => item.id === id);
-    check(scenario !== undefined && Array.isArray(scenario.operations)
-      && ["compose", "invert"].every((operation) => scenario.operations.includes(operation)),
-    `scenario ${id}`);
-    if (!["set-absent", "replace-present", "delete-present", "delete-absent"].includes(id)) {
-      check(["rebase-left-over-right", "rebase-right-over-left"]
-        .every((operation) => scenario.operations.includes(operation)), `conflict scenario ${id}`);
+    const conflict = !["set-absent", "replace-present", "delete-present", "delete-absent"]
+      .includes(id);
+    const requiredOperations = [
+      "compose",
+      "invert",
+      ...(conflict ? ["rebase-left-over-right", "rebase-right-over-left"] : []),
+    ];
+    check(object(scenario) && object(scenario.initial)
+      && scenario.initial.schema === value.input.schema
+      && object(scenario.compressor)
+      && typeof scenario.compressor.localSessionId === "string"
+      && nonemptyArray(scenario.compressor.revisions),
+    `scenario ${id} replay context`);
+    validateTaggedValue(scenario.initial.root, label);
+    assert.deepEqual(scenario.operations, requiredOperations, `${label}: scenario ${id} operations`);
+    check(Array.isArray(scenario.algebra)
+      && Array.isArray(scenario.changes) && scenario.changes.length >= requiredOperations.length,
+    `scenario ${id} algebra`);
+    assert.deepEqual(scenario.algebra.map(({ operation }) => operation), requiredOperations,
+      `${label}: scenario ${id} algebra order`);
+    const changes = new Map();
+    for (const change of scenario.changes) {
+      check(object(change) && typeof change.id === "string" && !changes.has(change.id)
+        && (change.revision === null || typeof change.revision === "string")
+        && object(change.encodingContext)
+        && typeof change.encodingContext.originatorId === "string"
+        && change.encodingContext.revision === change.revision
+        && (change.encodingContext.encodedRevision === null
+          || Number.isSafeInteger(change.encodingContext.encodedRevision))
+        && change.encodingContext.isSummary === false
+        && object(change.encoded), `scenario ${id} encoded change`);
+      changes.set(change.id, change);
+      const rawChange = raw?.changes?.[change.id];
+      check(object(rawChange), `scenario ${id} raw payload ${change.id}`);
+      assert.deepEqual(rawChange, {
+        revision: change.revision,
+        encodingContext: change.encodingContext,
+        encoded: change.encoded,
+      }, `${label}: scenario ${id} raw payload ${change.id}`);
+      if (change.revision !== null) {
+        check(scenario.compressor.revisions.some(({ stable, encoded }) =>
+          stable === change.revision && encoded === change.encodingContext.encodedRevision),
+        `scenario ${id} compressor revision ${change.id}`);
+      }
     }
-    check(observation !== undefined && nonemptyArray(observation.intermediate)
-      && object(observation.final), `intermediate observation ${id}`);
+    for (const operation of scenario.algebra) {
+      check(object(operation) && requiredOperations.includes(operation.operation)
+        && typeof operation.output === "string" && changes.has(operation.output),
+      `scenario ${id} operation`);
+      if (operation.operation === "compose") {
+        check(nonemptyArray(operation.changes)
+          && operation.changes.every((name) => changes.has(name)), `scenario ${id} compose`);
+      } else if (operation.operation === "invert") {
+        check(changes.has(operation.change) && typeof operation.inverseRevision === "string"
+          && operation.inverseRevision === changes.get(operation.output).revision,
+          `scenario ${id} inverse revision`);
+      } else {
+        check(changes.has(operation.change) && changes.has(operation.over)
+          && Array.isArray(operation.revisionMetadata)
+          && operation.revisionMetadata.length === 2
+          && operation.revisionMetadata.every(({ revision }) => typeof revision === "string"),
+        `scenario ${id} ordered rebase metadata`);
+        assert.deepEqual(operation.revisionMetadata, [
+          { revision: changes.get("left").revision },
+          { revision: changes.get("right").revision },
+        ], `${label}: scenario ${id} ordered rebase metadata`);
+      }
+    }
+    check(object(observation) && nonemptyArray(observation.intermediate),
+      `intermediate observation ${id}`);
+    assert.deepEqual(observation.intermediate.map(({ operation }) => operation), requiredOperations,
+      `${label}: rebase observation ${id}`);
+    visible(observation.initial, `initial visible state ${id}`);
+    for (const item of observation.intermediate) {
+      const output = scenario.algebra.find(({ operation }) => operation === item.operation)?.output;
+      const replay = item.operation === "compose"
+        ? ["initial", "composed"]
+        : item.operation === "invert"
+          ? ["initial", "composed", "inverted"]
+          : item.operation === "rebase-left-over-right"
+            ? ["initial", "right", "left-over-right"]
+            : ["initial", "left", "right-over-left"];
+      check(typeof output === "string" && object(item.encoded)
+        && nonemptyArray(item.checkpoints), `operation observation ${id}.${item.operation}`);
+      assert.deepEqual(item.encoded, changes.get(output).encoded,
+        `${label}: encoded observation ${id}.${item.operation}`);
+      assert.deepEqual(item.checkpoints.map(({ id: checkpointId }) => checkpointId), replay,
+        `${label}: operation checkpoints ${id}.${item.operation}`);
+      for (const checkpoint of item.checkpoints) {
+        check(object(checkpoint) && typeof checkpoint.id === "string",
+          `checkpoint ${id}.${item.operation}`);
+        visible(checkpoint.visible, `checkpoint visible state ${id}.${item.operation}`);
+      }
+      assert.deepEqual(item.checkpoints[0].visible, observation.initial,
+        `${label}: operation initial ${id}.${item.operation}`);
+      visible(item.final, `operation final state ${id}.${item.operation}`);
+      assert.deepEqual(item.final, item.checkpoints.at(-1).visible,
+        `${label}: operation final ${id}.${item.operation}`);
+      const rawOperation = raw.operations?.find(({ operation }) => operation === item.operation);
+      check(object(rawOperation) && nonemptyArray(rawOperation.actions),
+        `raw operation ${id}.${item.operation}`);
+      assert.deepEqual(rawOperation.actions.map(({ id: actionId }) => actionId), replay,
+        `${label}: raw operation actions ${id}.${item.operation}`);
+    }
+    visible(observation.final, `final visible state ${id}`);
+    const finalOperation = observation.intermediate
+      .find(({ operation }) => operation === scenario.finalOperation);
+    check(finalOperation !== undefined, `final operation ${id}`);
+    assert.deepEqual(observation.final, finalOperation.final, `${label}: final result ${id}`);
     if (id === "nested-edit-vs-replace" || id === "nested-edit-vs-delete") {
       check(nonemptyArray(observation.detachedIdentity), `detached identity ${id}`);
     }
@@ -1647,7 +1768,8 @@ export function validateCases(cases) {
     if (value.id === "forest-delta") validateForestCase(value);
     if (value.id === "container-foundations") validateContainerFoundationsCase(value);
     if (value.id === "summary-foundations") validateSummaryFoundationsCase(value);
-    if (value.domain === "field" || value.domain === "modular") {
+    if ((value.domain === "field" || value.domain === "modular")
+      && value.id !== "map-field-algebra") {
       assert(object(value.input.changes) && Object.keys(value.input.changes).length > 0
         && object(value.raw.encoded) && Object.keys(value.raw.encoded).length > 0,
       `${value.id}: missing algebra inputs or encoded outputs`);
