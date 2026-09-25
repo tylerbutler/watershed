@@ -183,6 +183,36 @@ fn execute(
           map_result("clear", watershed.tree_clear(tree, path), fn(_) {
             json.null()
           })
+        protocol.MapGet(path, key) ->
+          map_result(
+            "map-get",
+            watershed.tree_map_get(tree, path, key),
+            protocol.encode_read,
+          )
+        protocol.MapSet(path, key, value) ->
+          map_result(
+            "map-set",
+            watershed.tree_map_set(tree, path, key, value),
+            fn(_) { json.null() },
+          )
+        protocol.MapDelete(path, key) ->
+          map_result(
+            "map-delete",
+            watershed.tree_map_delete(tree, path, key),
+            fn(_) { json.null() },
+          )
+        protocol.MapKeys(path) ->
+          map_result(
+            "map-keys",
+            watershed.tree_map_keys(tree, path),
+            protocol.encode_map_keys,
+          )
+        protocol.MapEntries(path) ->
+          map_result(
+            "map-entries",
+            watershed.tree_map_entries(tree, path),
+            protocol.encode_map_entries,
+          )
         protocol.Checkpoint -> checkpoint(tree, events)
         protocol.Disconnect -> {
           watershed.go_offline(document)

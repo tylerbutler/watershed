@@ -6,6 +6,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import watershed/canonical_json
 import watershed/runtime_core
 import watershed/tree/schema
 import watershed/tree/types.{
@@ -69,6 +70,11 @@ pub type Command {
   Read(FieldPath)
   Set(FieldPath, TreeValue)
   Clear(FieldPath)
+  MapGet(FieldPath, String)
+  MapSet(FieldPath, String, TreeValue)
+  MapDelete(FieldPath, String)
+  MapKeys(FieldPath)
+  MapEntries(FieldPath)
   AwaitSynced(Int)
   Checkpoint
   Summarize
@@ -138,6 +144,24 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
       decode_value(value) |> result.map(fn(value) { Set(path, value) })
     }
     "clear" -> decode_path(data) |> result.map(Clear)
+    "map-get" -> {
+      use path <- result.try(decode_path(data))
+      use key <- result.try(decode_key(data))
+      Ok(MapGet(path, key))
+    }
+    "map-set" -> {
+      use path <- result.try(decode_path(data))
+      use key <- result.try(decode_key(data))
+      use value <- result.try(required(data, "value", decode.dynamic))
+      decode_value(value) |> result.map(fn(value) { MapSet(path, key, value) })
+    }
+    "map-delete" -> {
+      use path <- result.try(decode_path(data))
+      use key <- result.try(decode_key(data))
+      Ok(MapDelete(path, key))
+    }
+    "map-keys" -> decode_path(data) |> result.map(MapKeys)
+    "map-entries" -> decode_path(data) |> result.map(MapEntries)
     "await-synced" -> {
       use watermark <- result.try(required(
         data,
@@ -167,6 +191,10 @@ fn decode_path(data: Dynamic) -> Result(FieldPath, ProtocolError) {
     True -> Ok(path)
     False -> Error(invalid("path", "path contains an empty field name"))
   }
+}
+
+fn decode_key(data: Dynamic) -> Result(String, ProtocolError) {
+  required(data, "key", decode.string)
 }
 
 fn decode_value(value: Dynamic) -> Result(TreeValue, ProtocolError) {
@@ -235,6 +263,46 @@ fn decode_value(value: Dynamic) -> Result(TreeValue, ProtocolError) {
       )
       Ok(ObjectValue(schema_id, fields))
     }
+    "map" -> {
+      use schema_id <- result.try(required(value, "schemaId", decode.string))
+      use _ <- result.try(case string.is_empty(schema_id) {
+        True -> Error(invalid("schemaId", "schema ID is empty"))
+        False -> Ok(Nil)
+      })
+      use raw_entries <- result.try(required(
+        value,
+        "entries",
+        decode.list(decode.dynamic),
+      ))
+      use #(entries, _) <- result.try(
+        list.try_fold(raw_entries, #([], []), fn(acc, entry) {
+          let #(entries, keys) = acc
+          use pair <- result.try(
+            decode.run(entry, decode.list(decode.dynamic))
+            |> result.map_error(fn(_) {
+              invalid("entries", "map entry must be a pair")
+            }),
+          )
+          use #(key, data) <- result.try(case pair {
+            [key, data] -> Ok(#(key, data))
+            _ -> Error(invalid("entries", "map entry must be a pair"))
+          })
+          use key <- result.try(
+            decode.run(key, decode.string)
+            |> result.map_error(fn(_) {
+              invalid("entries", "map entry key must be a string")
+            }),
+          )
+          use _ <- result.try(case list.contains(keys, key) {
+            True -> Error(invalid("entries", "duplicate map entry"))
+            False -> Ok(Nil)
+          })
+          use decoded <- result.try(decode_value(data))
+          Ok(#(list.append(entries, [#(key, decoded)]), [key, ..keys]))
+        }),
+      )
+      Ok(MapValue(schema_id, entries))
+    }
     _ -> Error(invalid("kind", "unknown tree value kind"))
   }
 }
@@ -281,9 +349,41 @@ pub fn encode_value(value: TreeValue) -> Json {
           ),
         ),
       ])
-    MapValue(_, _) ->
-      panic as { "map values are not supported by the client protocol" }
+    MapValue(schema_id, entries) ->
+      json.object([
+        #("kind", json.string("map")),
+        #("schemaId", json.string(schema_id)),
+        #(
+          "entries",
+          entries
+            |> list.map(fn(entry) {
+              json.preprocessed_array([
+                json.string(entry.0),
+                encode_value(entry.1),
+              ])
+            })
+            |> json.preprocessed_array,
+        ),
+      ])
   }
+}
+
+pub fn encode_map_keys(keys: List(String)) -> Json {
+  keys
+  |> list.sort(canonical_json.compare)
+  |> json.array(json.string)
+}
+
+pub fn encode_map_entries(entries: List(#(String, TreeValue))) -> Json {
+  entries
+  |> list.sort(fn(left, right) { canonical_json.compare(left.0, right.0) })
+  |> list.map(fn(entry) {
+    json.preprocessed_array([
+      json.string(entry.0),
+      encode_value(entry.1),
+    ])
+  })
+  |> json.preprocessed_array
 }
 
 pub fn encode_read(value: Option(TreeValue)) -> Json {

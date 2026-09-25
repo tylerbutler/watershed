@@ -27,6 +27,126 @@ test("split and coalesced replies retain request correlation", async (t) => {
   assert.equal((await second).requestId, 2);
 });
 
+test("map helpers send exact commands and return decoded results", async (t) => {
+  const process = child(`
+    const expected = [
+      { command: "map-get", path: ["items"], key: "" },
+      {
+        command: "map-set",
+        path: ["items"],
+        key: "😀",
+        value: {
+          kind: "map",
+          schemaId: "org.example.Map",
+          entries: [["nested", { kind: "string", value: "x" }]],
+        },
+      },
+      { command: "map-delete", path: ["items"], key: "a" },
+      { command: "map-keys", path: ["items"] },
+      { command: "map-entries", path: ["items"] },
+    ];
+    const results = [
+      { present: false },
+      null,
+      null,
+      ["", "a", "é", "😀"],
+      [["a", { kind: "string", value: "x" }]],
+    ];
+    let input = "";
+    let index = 0;
+    process.stdin.on("data", (chunk) => {
+      input += chunk;
+      const lines = input.split("\\n");
+      input = lines.pop();
+      for (const line of lines) {
+        const request = JSON.parse(line);
+        const { requestId, ...command } = request;
+        const matches = JSON.stringify(command) === JSON.stringify(expected[index]);
+        process.stdout.write(JSON.stringify(matches
+          ? { requestId, ok: true, result: results[index] }
+          : {
+              requestId,
+              ok: false,
+              error: { code: "wrong-command", operation: command.command, message: line },
+            }) + "\\n");
+        index += 1;
+      }
+    });
+  `);
+  t.after(() => process.kill());
+  const channel = new JsonLinesChannel(process, 2000);
+  assert.deepEqual(await channel.mapGet(["items"], ""), { present: false });
+  assert.equal(await channel.mapSet(["items"], "😀", {
+    kind: "map",
+    schemaId: "org.example.Map",
+    entries: [["nested", { kind: "string", value: "x" }]],
+  }), null);
+  assert.equal(await channel.mapDelete(["items"], "a"), null);
+  assert.deepEqual(await channel.mapKeys(["items"]), ["", "a", "é", "😀"]);
+  assert.deepEqual(await channel.mapEntries(["items"]), [
+    ["a", { kind: "string", value: "x" }],
+  ]);
+});
+
+test("map helpers retain correlation when replies arrive in reverse", async (t) => {
+  const process = child(`
+    const requests = [];
+    let input = "";
+    process.stdin.on("data", (chunk) => {
+      input += chunk;
+      const lines = input.split("\\n");
+      input = lines.pop();
+      for (const line of lines) requests.push(JSON.parse(line));
+      if (requests.length === 2) {
+        for (const request of requests.reverse()) {
+          process.stdout.write(JSON.stringify({
+            requestId: request.requestId,
+            ok: true,
+            result: request.key,
+          }) + "\\n");
+        }
+      }
+    });
+  `);
+  t.after(() => process.kill());
+  const channel = new JsonLinesChannel(process, 2000);
+  const first = channel.mapGet(["items"], "first");
+  const second = channel.mapGet(["items"], "second");
+  assert.equal(await first, "first");
+  assert.equal(await second, "second");
+});
+
+test("map helper facade errors preserve structured details", async (t) => {
+  const process = child(`
+    process.stdin.once("data", (chunk) => {
+      const request = JSON.parse(chunk.toString());
+      process.stdout.write(JSON.stringify({
+        requestId: request.requestId,
+        ok: false,
+        error: {
+          code: "facade-error",
+          operation: request.command,
+          message: "not a map node",
+        },
+      }) + "\\n");
+    });
+  `);
+  t.after(() => process.kill());
+  const channel = new JsonLinesChannel(process, 2000);
+  await assert.rejects(
+    channel.mapKeys(["title"]),
+    (error) => {
+      assert.match(error.message, /map-keys/);
+      assert.deepEqual(error.cause, {
+        code: "facade-error",
+        operation: "map-keys",
+        message: "not a map node",
+      });
+      return true;
+    },
+  );
+});
+
 test("malformed and mismatched output fails the pending request", async (t) => {
   for (const output of ["not-json", '{"requestId":99,"ok":true}']) {
     const process = child(`process.stdin.once("data", () => process.stdout.write(${JSON.stringify(`${output}\n`)}));`);

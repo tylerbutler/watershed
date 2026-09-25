@@ -107,6 +107,14 @@ export class JsonLinesChannel {
     }
   }
 
+  async #result(command) {
+    const reply = await this.request(command);
+    if (!reply.ok) {
+      throw new Error(`Native ${command.command} failed`, { cause: reply.error });
+    }
+    return reply.result;
+  }
+
   request(command) {
     if (this.#failure) return Promise.reject(this.#failure);
     const requestId = this.#nextId++;
@@ -121,6 +129,26 @@ export class JsonLinesChannel {
         if (error) this.#abort(error);
       });
     });
+  }
+
+  mapGet(path, key) {
+    return this.#result({ command: "map-get", path, key });
+  }
+
+  mapSet(path, key, value) {
+    return this.#result({ command: "map-set", path, key, value });
+  }
+
+  mapDelete(path, key) {
+    return this.#result({ command: "map-delete", path, key });
+  }
+
+  mapKeys(path) {
+    return this.#result({ command: "map-keys", path });
+  }
+
+  mapEntries(path) {
+    return this.#result({ command: "map-entries", path });
   }
 
   end() {
@@ -410,6 +438,11 @@ export async function startClient(target, descriptor, environment, options = {})
       instanceId,
       gate,
       request: (command) => channel.request(command),
+      mapGet: (path, key) => channel.mapGet(path, key),
+      mapSet: (path, key, value) => channel.mapSet(path, key, value),
+      mapDelete: (path, key) => channel.mapDelete(path, key),
+      mapKeys: (path) => channel.mapKeys(path),
+      mapEntries: (path) => channel.mapEntries(path),
       async close() {
         const cleanupErrors = [];
         try {

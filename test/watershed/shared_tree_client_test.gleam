@@ -5,7 +5,7 @@ import startest/expect
 import watershed/runtime_core
 import watershed/tree/client_protocol
 import watershed/tree/types.{
-  BooleanValue, NullValue, NumberValue, ObjectValue, StringValue,
+  BooleanValue, MapValue, NullValue, NumberValue, ObjectValue, StringValue,
 }
 
 pub fn shared_tree_client_rejects_unknown_command_test() -> Nil {
@@ -117,6 +117,73 @@ pub fn shared_tree_client_decodes_every_value_and_rejects_bad_input_test() -> Ni
     fn(raw) { client_protocol.decode_request(raw) |> expect.to_be_error() },
   )
   Nil
+}
+
+pub fn shared_tree_client_decodes_map_commands_test() -> Nil {
+  client_protocol.decode_request(
+    "{\"requestId\":1,\"command\":\"map-get\",\"path\":[\"items\"],\"key\":\"\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(1, client_protocol.MapGet(["items"], ""))),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":2,\"command\":\"map-set\",\"path\":[\"items\"],\"key\":\"é\",\"value\":{\"kind\":\"map\",\"schemaId\":\"org.example.Map\",\"entries\":[[\"nested\",{\"kind\":\"string\",\"value\":\"x\"}]]}}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(
+      2,
+      client_protocol.MapSet(
+        ["items"],
+        "é",
+        MapValue("org.example.Map", [#("nested", StringValue("x"))]),
+      ),
+    )),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":3,\"command\":\"map-delete\",\"path\":[\"items\"],\"key\":\"a\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(3, client_protocol.MapDelete(["items"], "a"))),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":4,\"command\":\"map-keys\",\"path\":[\"items\"]}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(4, client_protocol.MapKeys(["items"]))),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":5,\"command\":\"map-entries\",\"path\":[\"items\"]}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(5, client_protocol.MapEntries(["items"]))),
+  )
+}
+
+pub fn shared_tree_client_rejects_invalid_map_commands_test() -> Nil {
+  list.each(
+    [
+      "{\"requestId\":1,\"command\":\"map-get\",\"path\":[\"items\"]}",
+      "{\"requestId\":1,\"command\":\"map-get\",\"path\":[\"items\"],\"key\":1}",
+      "{\"requestId\":1,\"command\":\"map-set\",\"path\":[\"items\"],\"key\":\"a\",\"value\":{\"kind\":\"map\",\"schemaId\":\"\",\"entries\":[]}}",
+      "{\"requestId\":1,\"command\":\"map-set\",\"path\":[\"items\"],\"key\":\"a\",\"value\":{\"kind\":\"map\",\"schemaId\":\"org.example.Map\",\"entries\":[[\"x\",{\"kind\":\"null\"}],[\"x\",{\"kind\":\"null\"}]]}}",
+      "{\"requestId\":1,\"command\":\"map-set\",\"path\":[\"items\"],\"key\":\"a\",\"value\":{\"kind\":\"map\",\"schemaId\":\"org.example.Map\",\"entries\":[[\"x\"]]}}",
+    ],
+    fn(raw) { client_protocol.decode_request(raw) |> expect.to_be_error() },
+  )
+}
+
+pub fn shared_tree_client_encodes_map_results_canonically_test() -> Nil {
+  client_protocol.encode_map_keys(["😀", "�", "a", ""])
+  |> json.to_string
+  |> expect.to_equal("[\"\",\"a\",\"�\",\"😀\"]")
+  client_protocol.encode_map_entries([
+    #("😀", NullValue),
+    #("�", MapValue("org.example.Map", [#("", StringValue("x"))])),
+  ])
+  |> json.to_string
+  |> expect.to_equal(
+    "[[\"�\",{\"kind\":\"map\",\"schemaId\":\"org.example.Map\",\"entries\":[[\"\",{\"kind\":\"string\",\"value\":\"x\"}]]}],[\"😀\",{\"kind\":\"null\"}]]",
+  )
 }
 
 pub fn shared_tree_client_correlates_success_and_error_test() -> Nil {
