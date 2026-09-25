@@ -455,15 +455,28 @@ fn run_operation(
     fixture_codec.text,
   ))
   use output <- result.try(find_change(state.changes, output_id))
-  use #(computed, checkpoints) <- result.try(case selector {
-    "compose" -> compose(operation, state.changes)
+  use #(computed, checkpoints, starting_watermark) <- result.try(case selector {
+    "compose" ->
+      compose(operation, state.changes)
+      |> result.map(fn(output) { #(output.0, output.1, None) })
     "invert" -> invert(operation, state.changes)
     "rebase-left-over-right" | "rebase-right-over-left" ->
       rebase(operation, state.changes)
+      |> result.map(fn(output) { #(output.0, output.1, None) })
     _ -> Error("unsupported map algebra operation: " <> selector)
   })
   use computed <- result.try(case selector {
-    "invert" -> normalize_inverse(computed, output.revision, identity_order)
+    "invert" ->
+      case starting_watermark {
+        Some(watermark) ->
+          normalize_inverse(
+            computed,
+            output.revision,
+            identity_order,
+            watermark,
+          )
+        None -> Error("invert normalization has no starting watermark")
+      }
     _ -> Ok(computed)
   })
   let computed_output = NamedChange(..output, change: computed)
@@ -526,7 +539,7 @@ fn compose(
 fn invert(
   value: JsonValue,
   changes: List(NamedChange),
-) -> Result(#(change.Changeset, List(String)), String) {
+) -> Result(#(change.Changeset, List(String), Option(Int)), String) {
   use _ <- result.try(
     fixture_codec.exact(value, [
       "operation",
@@ -546,15 +559,24 @@ fn invert(
     "inverseRevision",
     fixture_codec.revision,
   ))
-  use inverted <- result.try(
-    change.invert(tagged(original), False, inverse) |> native,
-  )
   use output <- result.try(fixture_codec.field(
     value,
     "output",
     fixture_codec.text,
   ))
-  Ok(#(inverted, [original_id, output]))
+  use output_change <- result.try(find_change(changes, output))
+  use _ <- result.try(case output_change.revision == Some(inverse) {
+    True -> Ok(Nil)
+    False -> Error("inverse revision does not match output revision")
+  })
+  use starting_watermark <- result.try(inversion_starting_watermark(
+    original,
+    inverse,
+  ))
+  use inverted <- result.try(
+    change.invert(tagged(original), False, inverse) |> native,
+  )
+  Ok(#(inverted, [original_id, output], Some(starting_watermark)))
 }
 
 fn rebase(
@@ -579,15 +601,7 @@ fn rebase(
   use over <- result.try(find_change(changes, over_id))
   use metadata <- result.try(
     fixture_codec.field(value, "revisionMetadata", fn(value) {
-      fixture_codec.many(value, fn(value) {
-        use _ <- result.try(fixture_codec.exact(value, ["revision"]))
-        use revision <- result.try(fixture_codec.field(
-          value,
-          "revision",
-          fixture_codec.revision,
-        ))
-        Ok(change.RevisionInfo(revision, None))
-      })
+      fixture_codec.many(value, revision_metadata)
     }),
   )
   use context <- result.try(change.rebase_context(metadata) |> native)
@@ -609,6 +623,31 @@ fn change_operand(
 ) -> Result(NamedChange, String) {
   use id <- result.try(fixture_codec.field(value, key, fixture_codec.text))
   find_change(changes, id)
+}
+
+fn revision_metadata(value: JsonValue) -> Result(change.RevisionInfo, String) {
+  let keys = case value {
+    VObject(fields) ->
+      case list.key_find(fields, "rollbackOf") {
+        Ok(_) -> ["revision", "rollbackOf"]
+        Error(_) -> ["revision"]
+      }
+    _ -> ["revision"]
+  }
+  use _ <- result.try(fixture_codec.exact(value, keys))
+  use revision <- result.try(fixture_codec.field(
+    value,
+    "revision",
+    fixture_codec.revision,
+  ))
+  use rollback <- result.try(case list.contains(keys, "rollbackOf") {
+    False -> Ok(None)
+    True ->
+      fixture_codec.field(value, "rollbackOf", fn(value) {
+        fixture_codec.optional(value, fixture_codec.revision)
+      })
+  })
+  Ok(change.RevisionInfo(revision, rollback))
 }
 
 fn tagged(value: NamedChange) -> change.TaggedChange {
@@ -635,10 +674,68 @@ fn replace_change(
   })
 }
 
+fn inversion_starting_watermark(
+  original: NamedChange,
+  inverse_revision: fluid_ids.StableId,
+) -> Result(Int, String) {
+  let data = change.to_data(original.change)
+  let revision_is_used =
+    original.revision == Some(inverse_revision)
+    || list.any(data.revisions, fn(info) {
+      info.revision == inverse_revision
+      || info.rollback_of == Some(inverse_revision)
+    })
+    || list.any(change_atoms(data), fn(id) {
+      id.revision == Some(inverse_revision)
+    })
+  use _ <- result.try(case revision_is_used {
+    True -> Error("inverse revision is not fresh")
+    False -> Ok(Nil)
+  })
+  let revisions = case data.revisions {
+    [] ->
+      case original.revision {
+        None -> []
+        Some(revision) -> [revision]
+      }
+    revisions -> list.map(revisions, fn(info) { info.revision })
+  }
+  let rollback_revisions =
+    data.revisions
+    |> list.fold([], fn(revisions, info) {
+      case info.rollback_of {
+        None -> revisions
+        Some(revision) -> [revision, ..revisions]
+      }
+    })
+  let revision_count =
+    list.append(revisions, rollback_revisions)
+    |> list.unique
+    |> list.length
+  Ok(reserved_watermark(data.max_local_id, revision_count))
+}
+
+fn reserved_watermark(max_local_id: Int, revision_count: Int) -> Int {
+  case max_local_id, revision_count {
+    -1, _ -> -1
+    _, 0 -> max_local_id
+    _, _ -> reserve_ranges(max_local_id, revision_count, -1)
+  }
+}
+
+fn reserve_ranges(original_max: Int, count: Int, watermark: Int) -> Int {
+  case count {
+    0 -> watermark
+    _ if watermark == -1 -> reserve_ranges(original_max, count - 1, original_max)
+    _ -> reserve_ranges(original_max, count - 1, watermark + original_max + 1)
+  }
+}
+
 fn normalize_inverse(
   value: change.Changeset,
   revision: Option(fluid_ids.StableId),
   identity_order: change.IdentityOrder,
+  starting_watermark: Int,
 ) -> Result(change.Changeset, String) {
   // Fresh inverse identifiers have no semantic identity.
   // Normalize them by detached application order.
@@ -652,12 +749,16 @@ fn normalize_inverse(
       let detach_ids =
         forest.delta_data(delta)
         |> inverse_detaches
-        |> list.filter(fn(id) { id.revision == Some(revision) })
+        |> list.filter(fn(id) {
+          id.revision == Some(revision) && id.local_id > starting_watermark
+        })
         |> list.unique
       let all_ids =
         change.to_data(value)
         |> change_atoms
-        |> list.filter(fn(id) { id.revision == Some(revision) })
+        |> list.filter(fn(id) {
+          id.revision == Some(revision) && id.local_id > starting_watermark
+        })
         |> list.unique
         |> list.sort(fn(left, right) {
           int.compare(left.local_id, right.local_id)

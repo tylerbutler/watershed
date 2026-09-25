@@ -185,8 +185,8 @@ pub fn shared_tree_map_change_runner_observes_supported_operation_test() -> Nil 
       VObject([
         #("operation", VString("invert")),
         #("change", VString("left")),
-        #("inverseRevision", VString("00000000-0000-4000-b000-000000000008")),
-        #("output", VString("left-over-right")),
+        #("inverseRevision", VString("00000000-0000-4000-b000-00000000000a")),
+        #("output", VString("inverted")),
       ]),
     )
   fixtures.first_difference(
@@ -226,6 +226,45 @@ pub fn shared_tree_map_change_runner_accepts_irrelevant_revision_metadata_test()
       ),
     )
   map_replay(changed) |> expect.to_equal(map_replay(original))
+}
+
+pub fn shared_tree_map_change_runner_observes_rollback_metadata_test() -> Nil {
+  let original = map_input()
+  let changed =
+    replace_at(
+      original,
+      map_scenario_path(4, [
+        Key("algebra"),
+        Index(2),
+        Key("revisionMetadata"),
+        Index(0),
+      ]),
+      VObject([
+        #("revision", VString("00000000-0000-4000-b000-000000000008")),
+        #("rollbackOf", VString("00000000-0000-4000-b000-000000000009")),
+      ]),
+    )
+  let assert Error(error) = map_change_fixture.run(json_ot.to_json(changed))
+  string.contains(error, "rebase rollback metadata does not match")
+  |> expect.to_be_true
+}
+
+pub fn shared_tree_map_change_runner_rejects_reused_inverse_revision_test() -> Nil {
+  let original = map_input()
+  let changed =
+    replace_at(
+      original,
+      map_scenario_path(4, [Key("algebra"), Index(1)]),
+      VObject([
+        #("operation", VString("invert")),
+        #("change", VString("composed")),
+        #("inverseRevision", VString("00000000-0000-4000-b000-000000000008")),
+        #("output", VString("left")),
+      ]),
+    )
+  let assert Error(error) = map_change_fixture.run(json_ot.to_json(changed))
+  string.contains(error, "inverse revision is not fresh")
+  |> expect.to_be_true
 }
 
 pub fn shared_tree_fixture_codec_rejects_invalid_tagged_revisions_test() -> Nil {
