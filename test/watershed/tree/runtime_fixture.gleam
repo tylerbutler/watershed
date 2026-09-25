@@ -257,6 +257,71 @@ pub fn routed_seed_input() -> Result(
   Ok(#(seed, input.prefix))
 }
 
+pub fn routed_map_seed_input(
+  schema_name: String,
+  root: tree_types.TreeValue,
+) -> Result(runtime_core.BootstrapSeedInput, String) {
+  use fixture <- result.try(fixtures.load("map-schema-content"))
+  use schemas <- result.try(field(fixture.input, "schemas"))
+  use raw <- result.try(read_field(schemas, schema_name, decode.string))
+  use stored <- result.try(
+    schema.stored_from_string(raw) |> result.map_error(string.inspect),
+  )
+  use view <- result.try(
+    schema.view_from_string(raw) |> result.map_error(string.inspect),
+  )
+  use #(input, _) <- result.try(routed_seed_input())
+  use _ <- result.try(case input.compressor {
+    Some(compressor) -> Ok(compressor)
+    None -> Error("map seed has no compressor")
+  })
+  use tree_view <- result.try(case input.tree_views {
+    [tree_view] -> Ok(tree_view)
+    _ -> Error("map seed must have one tree view")
+  })
+  use _ <- result.try(
+    case
+      list.any(input.channels, fn(seed) {
+        seed.route == tree_view.route
+        && case seed.snapshot {
+          channel.TreeSnapshot(_) -> True
+          _ -> False
+        }
+      })
+    {
+      True -> Ok(Nil)
+      False -> Error("map seed has no matching tree channel")
+    },
+  )
+  use snapshot <- result.try(
+    tree_kernel.snapshot_from_parts(
+      tree_view.view_id,
+      stored,
+      forest.ForestData(Some(root), [], 0),
+      history.HistorySnapshot(history.InitialBase, [], [], 0, 0),
+    )
+    |> result.map_error(string.inspect),
+  )
+  Ok(
+    runtime_core.BootstrapSeedInput(
+      ..input,
+      sequence_number: 0,
+      minimum_sequence_number: 0,
+      tree_views: [runtime_core.TreeViewSeed(..tree_view, view:)],
+      channels: list.map(input.channels, fn(seed) {
+        case seed.route == tree_view.route {
+          True ->
+            runtime_core.ChannelSeed(
+              ..seed,
+              snapshot: channel.TreeSnapshot(snapshot),
+            )
+          False -> seed
+        }
+      }),
+    ),
+  )
+}
+
 fn seed_input(
   input: RuntimeInput,
 ) -> Result(runtime_core.BootstrapSeedInput, String) {

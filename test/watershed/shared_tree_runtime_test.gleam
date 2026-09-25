@@ -25,6 +25,275 @@ import watershed/wire/socket
 
 const peer_session = "30000000-0000-4000-8000-000000000003"
 
+fn map_core_for(client_id: String, session_id: String) -> runtime_core.Core {
+  let input =
+    runtime_fixture.routed_map_seed_input(
+      "objectContainedMap",
+      tree_types.ObjectValue("org.watershed.shared-tree.m2.Root", [
+        #(
+          "items",
+          tree_types.MapValue("org.watershed.shared-tree.m2.DynamicMap", []),
+        ),
+      ]),
+    )
+    |> expect.to_be_ok()
+  let assert Some(compressor) = input.compressor
+  let assert Ok(serialized) = fluid_ids.serialize(compressor, False)
+  let assert Ok(session) = fluid_ids.session_id(session_id)
+  let compressor =
+    fluid_ids.deserialize(serialized, session) |> expect.to_be_ok()
+  let seed =
+    runtime_core.bootstrap_seed(
+      runtime_core.BootstrapSeedInput(..input, compressor: Some(compressor)),
+    )
+    |> expect.to_be_ok()
+  let assert runtime_core.Complete(core) =
+    runtime_core.bootstrap_seeded(
+      runtime_fixture.connected(client_id, [], 0),
+      seed,
+    )
+    |> expect.to_be_ok()
+  core
+}
+
+fn map_core() -> runtime_core.Core {
+  map_core_for("reader", peer_session)
+}
+
+fn map_message(
+  sender: runtime_core.Core,
+  outbound: wire.OutboundOperation,
+  sequence: Int,
+) -> types.SequencedDocumentMessage {
+  types.SequencedDocumentMessage(
+    ..from_outbound(outbound),
+    client_id: Some(sender.client_id),
+    sequence_number: sequence,
+  )
+}
+
+pub fn shared_tree_runtime_map_reads_check_channel_and_node_test() {
+  let core = map_core()
+  runtime_core.tree_map_get(core, "A/_C", ["items"], "missing")
+  |> expect.to_equal(Ok(None))
+  runtime_core.tree_map_entries(core, "A/_C", ["items"])
+  |> expect.to_equal(Ok([]))
+  runtime_core.tree_map_get(core, "A/missing", [], "key")
+  |> expect.to_equal(Error(runtime_core.UnknownChannel("A/missing", 0)))
+  runtime_core.tree_map_entries(core, "A/root", [])
+  |> expect.to_equal(
+    Error(runtime_core.WrongChannelType(
+      "A/root",
+      channel.TreeChannel,
+      channel.MapChannel,
+    )),
+  )
+  runtime_core.tree_map_entries(core, "A/_C", [])
+  |> expect.to_equal(
+    Error(runtime_core.TreeOperationFailed(
+      "A/_C",
+      tree_types.InvalidEdit([], "node is not a map"),
+    )),
+  )
+  runtime_core.tree_map_get(core, "A/_C", ["items", "absent"], "")
+  |> expect.to_equal(
+    Error(runtime_core.TreeOperationFailed(
+      "A/_C",
+      tree_types.InvalidEdit(["items", "absent"], "field is absent"),
+    )),
+  )
+}
+
+pub fn shared_tree_runtime_map_delivery_ack_and_duplicate_test() {
+  let writer = map_core()
+  let reader = map_core_for("other", "50000000-0000-4000-8000-000000000005")
+  let assert Ok(#(pending, local_events, [outbound])) =
+    runtime_core.submit_tree_edits(writer, "A/_C", [
+      tree_types.MapSet(["items"], "key", tree_types.StringValue("value")),
+    ])
+  local_events
+  |> expect.to_equal([
+    #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(True))),
+  ])
+  let message = map_message(writer, outbound, 1)
+  let assert Ok(#(reader, received)) =
+    runtime_core.handle_sequenced(reader, message)
+  received.events
+  |> expect.to_equal([
+    #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
+  ])
+  runtime_core.tree_map_get(reader, "A/_C", ["items"], "key")
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("value"))))
+  let assert Ok(#(settled, acknowledged)) =
+    runtime_core.handle_sequenced(pending, message)
+  acknowledged.events |> expect.to_equal([])
+  settled.in_flight |> expect.to_equal([])
+  let assert Ok(channel.TreeState(tree)) = dict.get(settled.channels, "A/_C")
+  tree_kernel.history_view(tree).pending |> expect.to_equal([])
+  tree_kernel.history_view(tree).sequenced.trunk
+  |> list.length
+  |> expect.to_equal(1)
+  let assert Ok(#(duplicate, received)) =
+    runtime_core.handle_sequenced(reader, message)
+  received.events |> expect.to_equal([])
+  duplicate.channels |> expect.to_equal(reader.channels)
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.submit_tree_edits(settled, "A/_C", [
+      tree_types.MapDelete(["items"], "key"),
+    ])
+  let assert Ok(#(reader, received)) =
+    runtime_core.handle_sequenced(reader, map_message(pending, outbound, 2))
+  received.events
+  |> expect.to_equal([
+    #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
+  ])
+  runtime_core.tree_map_entries(reader, "A/_C", ["items"])
+  |> expect.to_equal(Ok([]))
+}
+
+pub fn shared_tree_runtime_map_absent_delete_keeps_submission_test() {
+  let core = map_core()
+  let assert Ok(#(pending, events, [outbound])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.MapDelete(["items"], "absent"),
+    ])
+  events |> expect.to_equal([])
+  runtime_core.tree_map_entries(pending, "A/_C", ["items"])
+  |> expect.to_equal(Ok([]))
+  list.length(pending.in_flight) |> expect.to_equal(1)
+  let assert Ok(channel.TreeState(tree)) = dict.get(pending.channels, "A/_C")
+  tree_kernel.history_view(tree).pending |> list.length |> expect.to_equal(1)
+  let assert Ok(#(settled, received)) =
+    runtime_core.handle_sequenced(pending, map_message(core, outbound, 1))
+  received.events |> expect.to_equal([])
+  settled.in_flight |> expect.to_equal([])
+}
+
+pub fn shared_tree_runtime_map_reconnect_preserves_pending_identity_test() {
+  let core = map_core()
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.MapSet(["items"], "key", tree_types.StringValue("pending")),
+    ])
+  let reconnected =
+    runtime_core.adopt_reconnect(
+      pending,
+      runtime_fixture.connected("rejoined", [], 0),
+    )
+  let assert Ok(#(resubmitted, [resent])) =
+    runtime_core.resubmit(runtime_core.go_live(reconnected))
+  resubmitted.channels |> expect.to_equal(pending.channels)
+  resubmitted.compressor |> expect.to_equal(pending.compressor)
+  let assert [runtime_core.InFlightBatch(batch_id: before, ..)] =
+    pending.in_flight
+  let assert [runtime_core.InFlightBatch(batch_id: after, ..)] =
+    resubmitted.in_flight
+  after |> expect.to_equal(before)
+  resent.contents |> expect.to_equal(outbound.contents)
+  let assert Ok(#(accepted, _)) =
+    runtime_core.handle_sequenced(
+      reconnected,
+      map_message(pending, outbound, 1),
+    )
+  let assert Ok(#(ready, [])) =
+    runtime_core.resubmit(runtime_core.go_live(accepted))
+  ready.in_flight |> expect.to_equal([])
+  runtime_core.tree_map_get(ready, "A/_C", ["items"], "key")
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("pending"))))
+}
+
+pub fn shared_tree_runtime_map_pending_edits_cross_remote_test() {
+  let core = map_core()
+  let remote = map_core_for("other", "50000000-0000-4000-8000-000000000005")
+  let assert Ok(#(pending, _, [_])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.MapSet(["items"], "local", tree_types.StringValue("first")),
+      tree_types.MapSet(["items"], "local", tree_types.StringValue("second")),
+    ])
+  let assert Ok(#(_, _, [outbound])) =
+    runtime_core.submit_tree_edits(remote, "A/_C", [
+      tree_types.MapSet(["items"], "remote", tree_types.StringValue("peer")),
+    ])
+  let assert Ok(#(rebased, received)) =
+    runtime_core.handle_sequenced(pending, map_message(remote, outbound, 1))
+  received.events
+  |> expect.to_equal([
+    #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
+  ])
+  runtime_core.tree_map_entries(rebased, "A/_C", ["items"])
+  |> expect.to_equal(
+    Ok([
+      #("local", tree_types.StringValue("second")),
+      #("remote", tree_types.StringValue("peer")),
+    ]),
+  )
+  let assert Ok(#(resubmitted, [resent])) =
+    runtime_core.resubmit(
+      runtime_core.go_live(runtime_core.adopt_reconnect(
+        rebased,
+        runtime_fixture.connected("rejoined", [], 1),
+      )),
+    )
+  let assert Ok(#(settled, _)) =
+    runtime_core.handle_sequenced(
+      resubmitted,
+      map_message(resubmitted, resent, 2),
+    )
+  settled.in_flight |> expect.to_equal([])
+  runtime_core.tree_map_entries(settled, "A/_C", ["items"])
+  |> expect.to_equal(runtime_core.tree_map_entries(rebased, "A/_C", ["items"]))
+}
+
+pub fn shared_tree_runtime_map_invalid_batches_preserve_allocation_test() {
+  let core = map_core()
+  let untouched = map_core()
+  let assert Some(compressor) = core.compressor
+  let before = fluid_ids.serialize(compressor, True)
+  let assert Ok(channel.TreeState(tree)) = dict.get(core.channels, "A/_C")
+  let invalid = [
+    tree_types.MapSet([], "key", tree_types.StringValue("bad")),
+    tree_types.MapDelete(["items", "missing"], "key"),
+    tree_types.MapSet(["items"], "key", tree_types.ObjectValue("unknown", [])),
+    tree_types.MapSet(
+      ["items"],
+      "key",
+      tree_types.MapValue("org.watershed.shared-tree.m2.DynamicMap", [
+        #("duplicate", tree_types.StringValue("one")),
+        #("duplicate", tree_types.StringValue("two")),
+      ]),
+    ),
+  ]
+  list.each(invalid, fn(edit) {
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.MapSet(["items"], "valid", tree_types.StringValue("value")),
+      edit,
+    ])
+    |> expect.to_be_error()
+    let assert Some(current) = core.compressor
+    fluid_ids.serialize(current, True) |> expect.to_equal(before)
+    let assert Ok(channel.TreeState(current)) = dict.get(core.channels, "A/_C")
+    tree_kernel.snapshot(current) |> expect.to_equal(tree_kernel.snapshot(tree))
+    tree_kernel.visible_data(current)
+    |> expect.to_equal(tree_kernel.visible_data(tree))
+    tree_kernel.history_view(current)
+    |> expect.to_equal(tree_kernel.history_view(tree))
+    core.in_flight |> expect.to_equal([])
+    core.next_client_sequence_number |> expect.to_equal(1)
+  })
+  let following = [
+    tree_types.MapSet(["items"], "next", tree_types.StringValue("accepted")),
+  ]
+  let assert Ok(#(attempted, events, [outbound])) =
+    runtime_core.submit_tree_edits(core, "A/_C", following)
+  let assert Ok(#(control, control_events, [control_outbound])) =
+    runtime_core.submit_tree_edits(untouched, "A/_C", following)
+  outbound |> expect.to_equal(control_outbound)
+  events |> expect.to_equal(control_events)
+  attempted.in_flight |> expect.to_equal(control.in_flight)
+  attempted.channels |> expect.to_equal(control.channels)
+  attempted.compressor |> expect.to_equal(control.compressor)
+}
+
 pub fn shared_tree_resolve_checks_handle_kind_and_view_test() -> Nil {
   let assert Ok(core) = runtime_fixture.routed_core()
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()

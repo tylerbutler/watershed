@@ -3428,6 +3428,27 @@ pub fn tree_read(
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
 
+pub fn tree_map_get(
+  core: Core,
+  address: String,
+  path: tree_types.FieldPath,
+  key: String,
+) -> Result(Option(tree_types.TreeValue), CoreError) {
+  use state <- result.try(tree_channel(core, address))
+  tree_kernel.map_get(state, path, key)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+pub fn tree_map_entries(
+  core: Core,
+  address: String,
+  path: tree_types.FieldPath,
+) -> Result(List(#(String, tree_types.TreeValue)), CoreError) {
+  use state <- result.try(tree_channel(core, address))
+  tree_kernel.map_entries(state, path)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
 fn tree_channel(
   core: Core,
   address: String,
