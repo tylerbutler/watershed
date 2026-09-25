@@ -44,7 +44,60 @@ npm --prefix tools/shared-tree-oracle run runtime:interop
 npm --prefix tools/shared-tree-oracle run summary:interop
 npm --prefix tools/shared-tree-oracle run summary:interop -- --service floodgate --local
 npm --prefix tools/shared-tree-oracle run client:interop -- --local-floodgate
+node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 200 --seed 42
 ```
+
+The final command is the combined Task 15 acceptance gate. It verifies the
+committed profile and pinned source, starts an isolated pinned Floodgate,
+executes the native corpus on both targets, then runs 75 deterministic cases,
+12 focused reconnect cases, 24 refusal cases, the nine-cell summary reload
+matrix, and 200 generated schedules. The default profile, iteration count, and
+seed are the values shown above, so this is equivalent:
+
+```sh
+npm --prefix tools/shared-tree-oracle run interop
+```
+
+Use an existing pinned Floodgate only when the operator owns its lifecycle and
+environment:
+
+```sh
+node smoke/shared_tree.mjs --external-floodgate
+```
+
+That mode reads the same `FLOODGATE_*` variables as preflight. The coordinator
+does not print or write credentials. It writes phase progress to stderr and one
+machine-readable result to stdout.
+
+Each run uses `.output/interop/<run-id>/`. `status.json` records the current
+phase. Corpus, preflight, deterministic, reconnect, refusal, reload, and seeded
+evidence stay in separate artifacts. A successful `report.json` is published
+only after every artifact is reopened and validated and all run-owned clients
+and the local service are stopped. The report is evidence only for the exact
+pinned Fluid release, Floodgate revision, profile digest, schema, seed, and
+schedule count that it records. It is not an arbitrary Fluid document or
+service compatibility claim.
+
+On failure, the command exits nonzero and prints the preserved `failure.json`
+path. Seeded failures include the expanded schedule and a replay command. Replay
+validates the saved profile before connecting, runs against a fresh service,
+and cannot produce an acceptance report:
+
+```sh
+node smoke/shared_tree.mjs --replay tools/shared-tree-oracle/.output/interop/<run-id>/failure.json
+```
+
+Failure injection is limited to run-owned documents and gates. It can delay,
+duplicate, disconnect, or inject malformed data for the declared refusal cases;
+it does not rewrite valid tree payloads or compute native state. A deeper local
+run uses the same coordinator and report validator:
+
+```sh
+node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 5000 --seed 42
+```
+
+The normal acceptance gate requires 200 schedules. The 5,000-schedule command
+is optional and is not part of the Task 15 completion claim.
 
 `client:interop` builds long-lived JavaScript and BEAM test clients once, then
 creates a fresh upstream document for each schedule. The upstream summarizer
@@ -74,10 +127,18 @@ their withheld original revisions and batch IDs, then checks each encoded
 refresher against the pinned upstream predecessor state. An exact twelve-cell validator rejects
 missing, duplicated, stale, skipped, failed, or wrong-profile results. A
 missing service, compiler, BEAM executable, or pinned dependency fails the run.
+The seeded harness permits one retry only for a native `await-synced`
+reconnect failure whose transport is exactly `Timeout` or
+`StreamError("Closed")`. Those two failures appeared after many cumulative
+connections but did not reproduce against a fresh pinned service. The retry is
+not silent: checkpoints and raw gate artifacts record its attempt, error code,
+operation, and sanitized message in `reconnectRetries`. A second failure or any
+other error still fails the schedule.
 The TCP gate forwards unmodified bytes; for these two cases it inspects
 WebSocket frame boundaries and decoded payloads to pause after the handshake
 and capture withheld submissions. It does not fabricate service messages.
-This is not the broader Task 15 cross-writer matrix or a permanent CI gate.
+This focused gate is also consumed by the combined Task 15 coordinator. It is
+not a permanent CI gate.
 
 The default summary gate exports all four input-only `summary-writer-matrix`
 persistence states on JavaScript and BEAM. Each exporter decodes the captured

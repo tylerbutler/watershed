@@ -48,7 +48,11 @@ fn fail(message: String) -> Nil
 pub fn main() -> Promise(Nil) {
   case protocol.decode_descriptor(descriptor()) {
     Error(error) -> {
-      fail(error.message)
+      fail(protocol.encode_startup_error(
+        "descriptor-decode-failed",
+        "descriptor",
+        error.message,
+      ))
       promise.resolve(Nil)
     }
     Ok(config) -> {
@@ -68,28 +72,44 @@ pub fn main() -> Promise(Nil) {
       case opened {
         Error(reason) -> {
           watershed.close(document)
-          fail(reason)
+          fail(protocol.encode_startup_error(
+            "bootstrap-failed",
+            "connect",
+            reason,
+          ))
           promise.resolve(Nil)
         }
         Ok(Nil) ->
           case watershed.resolve_root(document) {
             Error(reason) -> {
               watershed.close(document)
-              fail(reason)
+              fail(protocol.encode_startup_error(
+                "root-lookup-failed",
+                "resolve-root",
+                reason,
+              ))
               promise.resolve(Nil)
             }
             Ok(root) ->
               case watershed.get(root, "tree") {
                 Error(_) -> {
                   watershed.close(document)
-                  fail("Root map has no tree handle")
+                  fail(protocol.encode_startup_error(
+                    "root-lookup-failed",
+                    "resolve-root",
+                    "Root map has no tree handle",
+                  ))
                   promise.resolve(Nil)
                 }
                 Ok(handle) ->
                   case watershed.resolve_tree(document, handle, config.view) {
                     Error(reason) -> {
                       watershed.close(document)
-                      fail(reason)
+                      fail(protocol.encode_startup_error(
+                        "view-resolution-failed",
+                        "resolve-view",
+                        reason,
+                      ))
                       promise.resolve(Nil)
                     }
                     Ok(tree) -> {
@@ -231,6 +251,11 @@ fn checkpoint(
   tree: watershed.SharedTree,
   events: Cell(List(Json)),
 ) -> Result(Json, protocol.ProtocolError) {
+  use root <- result.try(map_result(
+    "checkpoint",
+    watershed.tree_get(tree, []),
+    protocol.encode_read,
+  ))
   use values <- result.try(
     list.try_map(
       [
@@ -255,12 +280,7 @@ fn checkpoint(
   )
   let changes = list.reverse(transport_js.get_cell(events))
   transport_js.set_cell(events, [])
-  Ok(
-    json.object([
-      #("values", json.object(values)),
-      #("events", json.array(changes, fn(event) { event })),
-    ]),
-  )
+  Ok(protocol.encode_checkpoint(root, values, changes))
 }
 
 @target(javascript)

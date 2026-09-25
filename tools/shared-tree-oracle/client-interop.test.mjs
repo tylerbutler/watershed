@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { caseIds, validateResults } from "./client-interop.mjs";
+import { caseIds, runService, validateResults } from "./client-interop.mjs";
 
 const targets = ["javascript", "erlang"];
 const valid = () => targets.flatMap((target) => caseIds.map((caseId) => ({
   target, caseId, runId: "one-run", profile: "fluid-3.1.0-fixed-object",
+  documentId: `document-${target}-${caseId}`,
   passed: true, skipped: false,
   evidence: {
     sequenceNumber: 1, clientId: "client", pendingTreeCount: 0,
@@ -35,6 +36,7 @@ test("twelve measured cases pass only with one run and the fixed profile", () =>
     (results) => { results[0].skipped = true; },
     (results) => { results[0].runId = "stale"; },
     (results) => { results[0].profile = "other"; },
+    (results) => { delete results[0].documentId; },
     (results) => { results[0].evidence = {}; },
     (results) => { results[0].runId = ""; },
     (results) => { results[0].evidence.submissions = []; },
@@ -47,4 +49,9 @@ test("twelve measured cases pass only with one run and the fixed profile", () =>
     mutation(results);
     assert.throws(() => validateResults(results, "one-run"));
   }
+});
+
+test("the focused runner exposes the combined-run options contract", () => {
+  assert.equal(typeof runService, "function");
+  assert.equal(runService.length, 1);
 });

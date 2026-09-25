@@ -287,6 +287,32 @@ pub fn encode_read(value: Option(TreeValue)) -> Json {
   }
 }
 
+pub fn encode_checkpoint(
+  root: Json,
+  values: List(#(String, Json)),
+  events: List(Json),
+) -> Json {
+  json.object([
+    #("root", root),
+    #("values", json.object(values)),
+    #("events", json.array(events, fn(event) { event })),
+  ])
+}
+
+pub fn encode_startup_error(
+  code: String,
+  operation: String,
+  message: String,
+) -> String {
+  json.object([
+    #("kind", json.string("startup-error")),
+    #("code", json.string(code)),
+    #("operation", json.string(operation)),
+    #("message", json.string(message)),
+  ])
+  |> json.to_string
+}
+
 pub fn encode_response(response: Response) -> Json {
   let observation = response.observation
   let status =

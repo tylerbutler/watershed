@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
@@ -19,19 +20,50 @@ export class JsonLinesChannel {
   #buffer = "";
   #failure;
   #timeout;
+  #stderr = "";
+  #stderrLimit = 64 * 1024;
 
   constructor(child, timeout = 60_000) {
     this.#child = child;
     this.#timeout = timeout;
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => this.#receive(chunk));
+    if (child.stderr) {
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk) => {
+        this.#stderr = (this.#stderr + chunk).slice(-this.#stderrLimit);
+      });
+    }
     child.on("error", (error) => this.#abort(error));
-    child.on("exit", (code, signal) =>
-      this.#abort(new Error(`Native client exited (${code ?? signal})`)));
-    child.stdout.on("end", () => this.#abort(new Error("Native client closed stdout")));
+    child.on("close", (code, signal) => {
+      const cause = this.#startupCause();
+      this.#abort(new Error(`Native client exited (${code ?? signal})`, cause ? { cause } : {}));
+    });
   }
 
   get failure() { return this.#failure; }
+
+  #startupCause() {
+    for (const line of this.#stderr.trimEnd().split("\n").reverse()) {
+      try {
+        const value = JSON.parse(line);
+        if (value?.kind === "startup-error"
+          && typeof value.code === "string"
+          && typeof value.operation === "string"
+          && typeof value.message === "string") {
+          return {
+            kind: value.kind,
+            code: value.code,
+            operation: value.operation,
+            message: value.message,
+          };
+        }
+      } catch {
+        // Native runtimes can write diagnostics around the structured record.
+      }
+    }
+    return undefined;
+  }
 
   #abort(error) {
     if (this.#failure) return;
@@ -326,28 +358,31 @@ export class TcpGate {
   }
 }
 
-export async function startClient(target, descriptor, environment) {
+export async function startClient(target, descriptor, environment, options = {}) {
   assert(["javascript", "erlang"].includes(target), "Unsupported native target");
   const upstream = new URL(environment.socketUrl);
   assert.equal(upstream.protocol, "http:", "Native gate requires the local HTTP profile");
-  const gate = await TcpGate.open(upstream.hostname, Number(upstream.port || 80));
-  const directory = await mkdtemp(join(tmpdir(), "watershed-tree-client-"));
-  const file = join(directory, "descriptor.json");
-  const socketUrl = `ws://127.0.0.1:${gate.port}/socket/websocket?vsn=2.0.0`;
-  await writeFile(file, JSON.stringify({
-    protocolVersion: 1,
-    ...descriptor,
-    socketUrl,
-    host: "127.0.0.1",
-    port: gate.port,
-  }), { mode: 0o600 });
-  const env = {
-    ...process.env,
-    WATERSHED_DESCRIPTOR: file,
-    WATERSHED_TOKEN: environment.token,
-    ERL_CRASH_DUMP: join(directory, "erl-crash.dump"),
-  };
+  const gateFactory = options.gateFactory ?? ((host, port) => TcpGate.open(host, port));
+  const gate = await gateFactory(upstream.hostname, Number(upstream.port || 80));
+  const instanceId = randomUUID();
+  let directory;
   try {
+    directory = await mkdtemp(join(tmpdir(), "watershed-tree-client-"));
+    const file = join(directory, "descriptor.json");
+    const socketUrl = `ws://127.0.0.1:${gate.port}/socket/websocket?vsn=2.0.0`;
+    await writeFile(file, JSON.stringify({
+      protocolVersion: 1,
+      ...descriptor,
+      socketUrl,
+      host: "127.0.0.1",
+      port: gate.port,
+    }), { mode: 0o600 });
+    const env = {
+      ...process.env,
+      WATERSHED_DESCRIPTOR: file,
+      WATERSHED_TOKEN: environment.token,
+      ERL_CRASH_DUMP: join(directory, "erl-crash.dump"),
+    };
     let command;
     let args;
     if (target === "javascript") {
@@ -368,14 +403,15 @@ export async function startClient(target, descriptor, environment) {
         "-eval", "ok = logger:remove_handler(default), ok = logger:add_handler(default, logger_std_h, #{config => #{type => standard_error}}), {ok, _} = application:ensure_all_started(watershed), 'watershed@tree@client_beam':main(), init:stop()."];
     }
     const child = spawn(command, args, {
-      cwd: repository, env, stdio: ["pipe", "pipe", "inherit"],
+      cwd: repository, env, stdio: ["pipe", "pipe", "pipe"],
     });
     const channel = new JsonLinesChannel(child);
     return {
+      instanceId,
       gate,
       request: (command) => channel.request(command),
       async close() {
-        let closeError;
+        const cleanupErrors = [];
         try {
           if (child.exitCode === null && !child.killed && !channel.failure) {
             await channel.request({ command: "close" });
@@ -396,18 +432,48 @@ export async function startClient(target, descriptor, environment) {
             }
           }
         } catch (error) {
-          closeError = error;
+          cleanupErrors.push(error);
         } finally {
-          if (child.exitCode === null) child.kill();
-          await gate.close();
-          await rm(directory, { recursive: true, force: true });
+          if (child.exitCode === null && child.signalCode === null) {
+            child.kill();
+            try {
+              await once(child, "close");
+            } catch (error) {
+              cleanupErrors.push(error);
+            }
+          }
+          try {
+            await gate.close();
+          } catch (error) {
+            cleanupErrors.push(error);
+          }
+          try {
+            await rm(directory, { recursive: true, force: true });
+          } catch (error) {
+            cleanupErrors.push(error);
+          }
         }
-        if (closeError) throw closeError;
+        if (cleanupErrors.length === 1) throw cleanupErrors[0];
+        if (cleanupErrors.length > 1) {
+          throw new AggregateError(cleanupErrors, "Native client cleanup failed");
+        }
       },
     };
   } catch (error) {
-    await gate.close();
-    await rm(directory, { recursive: true, force: true });
+    const cleanupErrors = [];
+    try {
+      await gate.close();
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+    }
+    if (directory) {
+      try {
+        await rm(directory, { recursive: true, force: true });
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+    }
+    if (cleanupErrors.length > 0) error.cleanupErrors = cleanupErrors;
     throw error;
   }
 }

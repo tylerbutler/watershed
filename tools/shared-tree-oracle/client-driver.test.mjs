@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createConnection, createServer } from "node:net";
 import test from "node:test";
-import { JsonLinesChannel, TcpGate } from "./client-driver.mjs";
+import { JsonLinesChannel, TcpGate, startClient } from "./client-driver.mjs";
 
 function child(source) {
   return spawn(process.execPath, ["-e", source], { stdio: ["pipe", "pipe", "pipe"] });
@@ -63,6 +63,48 @@ test("missing executable and unanswered request fail rather than skip", async (t
     new JsonLinesChannel(silent, 50).request({ command: "checkpoint" }),
     /timed out/,
   );
+});
+
+test("structured startup stderr is the cause of the actual child exit", async () => {
+  const startup = {
+    kind: "startup-error",
+    code: "bootstrap-failed",
+    operation: "connect",
+    message: "summary decode failed",
+  };
+  const process = child(`
+    process.stdin.once("data", () => {
+      process.stderr.write(${JSON.stringify(`${JSON.stringify(startup)}\n`)});
+      process.exit(7);
+    });
+  `);
+  const channel = new JsonLinesChannel(process, 2000);
+  await assert.rejects(
+    channel.request({ command: "checkpoint" }),
+    (error) => {
+      assert.match(error.message, /exited \(7\)/);
+      assert.deepEqual(error.cause, startup);
+      return true;
+    },
+  );
+});
+
+test("startClient uses the optional gate factory before launching a subprocess", async () => {
+  const expected = new Error("gate factory sentinel");
+  let call;
+  await assert.rejects(
+    startClient("javascript", {}, {
+      socketUrl: "http://127.0.0.1:4567",
+      token: "test",
+    }, {
+      gateFactory: async (host, port) => {
+        call = { host, port };
+        throw expected;
+      },
+    }),
+    expected,
+  );
+  assert.deepEqual(call, { host: "127.0.0.1", port: 4567 });
 });
 
 test("the byte gate isolates directions and drops old sockets", async (t) => {

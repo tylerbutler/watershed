@@ -62,11 +62,10 @@ this plan; do those actions in Task 1 after adding its manifests.
 
 ### Dependency order
 
-Tasks 1-12 are complete for the approved seed-only runtime stage: the pinned
-oracle, real-service preflight, corpus, native semantics and codecs, routed
-container messages, and JavaScript/BEAM runtime integration. Tasks 13-16 remain
-open. Task 13a's standalone storage foundations do not close compatible
-document loading or publication.
+Tasks 1-15 are complete: the pinned oracle, real-service preflight, corpus,
+native semantics and codecs, routed container messages, JavaScript/BEAM runtime
+integration, compatible summaries, public facades and reconnect, and mixed-client
+acceptance. Task 16 remains open.
 The manifest records native semantic runners for `id-ranges`,
 `schema-validation`, `forest-delta`, `field-compose-invert-rebase`,
 `modular-nested-algebra`, `container-foundations`, and `summary-foundations` on
@@ -75,8 +74,9 @@ both targets. `history-reconciliation`, `tree-codecs`, `tree-kernel`,
 The other generated cases are not evidence of implemented native semantics.
 
 The foundation lanes, Task 11/12 runtime join, Task 13 compatible summaries,
-and Task 14 facades and in-memory reconnect are complete. Tasks 15 and 16
-remain open. The diagram retains the original dependency split:
+Task 14 public facades and reconnect, and Task 15 mixed-client acceptance are
+complete. Task 16 remains open. The diagram retains the original dependency
+split:
 
 ```text
 Completed Tasks 1-6 -> contract and ownership check
@@ -1924,7 +1924,8 @@ accepted-before-ack, never-submitted, interleaved pending edits, detached
 repair, and a second reconnect. Each checkpoint includes visible tagged
 fields, pending counts, connection identity, and captured notifications.
 Sequenced service history supplies batch IDs and revisions. Task 15's wider
-mixed-client and cross-writer matrix and Task 16's permanent gates remain open.
+mixed-client and cross-writer matrix is complete. Task 16's permanent gates
+remain open.
 
 Task 14 closure: `npm --prefix tools/shared-tree-oracle run client:interop
 -- --local-floodgate` returned twelve passing results in run
@@ -1985,7 +1986,7 @@ service, creates one upstream document, launches both native clients, and return
 a machine-readable coverage report. Own processes by explicit handles/PIDs and
 clean up only run-owned documents/files/processes.
 
-- [ ] **1. Write a gate that rejects partial coverage.**
+- [x] **1. Write a gate that rejects partial coverage.**
 
 ```js
 const targets = ["upstream", "javascript", "erlang"];
@@ -2005,7 +2006,7 @@ that already has the state. Force the loader to consume the selected writer's
 summary plus its tail; replaying full history from the document's origin does
 not prove summary compatibility.
 
-- [ ] **2. Run the scenario matrix with controlled delivery.**
+- [x] **2. Run the scenario matrix with controlled delivery.**
 
 Use explicit synchronization barriers and supported connection pause controls.
 Keep server sequencing real; a test transport proxy may delay or disconnect
@@ -2016,21 +2017,21 @@ upstream writer and two native readers. After each quiescent checkpoint, compare
 the whole typed tree, pending state, and the domain's required retained identity
 observations. Use raw operation evidence when native/upstream state diverges.
 
-- [ ] **3. Exercise failure paths in a separate document.**
+- [x] **3. Exercise failure paths in a separate document.**
 
 Test invalid local edits and unsupported-profile loads. Inject malformed wire
 data only into run-owned test documents. Confirm explicit failure and no
 ready/success observation. A failure must not hang the coordinator until an
 unbounded timeout.
 
-- [ ] **4. Add seeded schedules and reproducible failures.**
+- [x] **4. Add seeded schedules and reproducible failures.**
 
 Start with the deterministic cases, then generate at least 200 schedules for
 the normal gate and 5,000 for a deep run. Use fixed, recorded seeds and shrink or
 persist the failing schedule. Counts are coverage settings, not performance
 claims. Keep all three implementations in the comparison.
 
-- [ ] **5. Run the required service command and commit.**
+- [x] **5. Run the required service command and commit.**
 
 ```sh
 rtk proxy node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 200 --seed 42
@@ -2039,6 +2040,22 @@ rtk proxy node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile
 Required result: all mandatory cases, both native targets, all nine summary
 writer/reader cells, zero skips, and no divergences. Commit subject:
 `test(tree): prove three-client SharedTree interoperability`.
+
+Task 15 closure: run `868d8ea6-cdbf-4b6e-9078-61aa03ba1723` passed after the
+stable-scope and final read-only review fixes. Its validated report is
+`tools/shared-tree-oracle/.output/interop/868d8ea6-cdbf-4b6e-9078-61aa03ba1723/report.json`.
+It records 75 deterministic cases, 12 focused reconnect cases, 24 refusal
+cases, all nine reload cells, and 200 of 200 generated schedules. The native
+corpus executed 413 JavaScript tests and 421 Erlang tests. The report has no
+skips or divergences and uses the committed profile digest
+`53e73c5359c5940c410c98f68eb1e4928817f7e1296f96c778aa48c0ecf2934b`.
+No bounded reconnect retry was needed in the live run. Focused tests prove that
+any retry is sanitized, globally one-shot, and consistent across checkpoints
+and raw gate artifacts. The later failure-status diagnostic fix is error-path
+only: fault-injection tests prove that filesystem failures cannot replace the
+primary error, and the final oracle suite passed 164 tests. The final read-only
+review found no Critical or Important issues. Task 16 and the M1 completion
+checklist remain open.
 
 ### Task 16: wire permanent gates and document the supported profile
 

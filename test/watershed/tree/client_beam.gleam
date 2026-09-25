@@ -42,7 +42,12 @@ fn fail(reason: String) -> Nil
 @target(erlang)
 pub fn main() -> Nil {
   case protocol.decode_descriptor(descriptor()) {
-    Error(reason) -> fail(reason.message)
+    Error(reason) ->
+      fail(protocol.encode_startup_error(
+        "descriptor-decode-failed",
+        "descriptor",
+        reason.message,
+      ))
     Ok(config) ->
       case
         watershed.connect(
@@ -54,24 +59,41 @@ pub fn main() -> Nil {
           user_id: "shared-tree-client-beam",
         )
       {
-        Error(reason) -> fail(reason)
+        Error(reason) ->
+          fail(protocol.encode_startup_error(
+            "bootstrap-failed",
+            "connect",
+            reason,
+          ))
         Ok(document) ->
           case watershed.resolve_root(document) {
             Error(reason) -> {
               watershed.close(document)
-              fail(reason)
+              fail(protocol.encode_startup_error(
+                "root-lookup-failed",
+                "resolve-root",
+                reason,
+              ))
             }
             Ok(root) ->
               case watershed.get(root, "tree") {
                 Error(_) -> {
                   watershed.close(document)
-                  fail("Root map has no tree handle")
+                  fail(protocol.encode_startup_error(
+                    "root-lookup-failed",
+                    "resolve-root",
+                    "Root map has no tree handle",
+                  ))
                 }
                 Ok(handle) ->
                   case watershed.resolve_tree(document, handle, config.view) {
                     Error(reason) -> {
                       watershed.close(document)
-                      fail(reason)
+                      fail(protocol.encode_startup_error(
+                        "view-resolution-failed",
+                        "resolve-view",
+                        reason,
+                      ))
                     }
                     Ok(tree) -> {
                       loop(document, tree, None, False)
@@ -229,6 +251,11 @@ fn checkpoint(
   events: Option(process.Subject(tree_kernel.TreeEvent)),
   active: Bool,
 ) -> Result(Json, protocol.ProtocolError) {
+  use root <- result.try(map_result(
+    "checkpoint",
+    watershed.tree_get(tree, []),
+    protocol.encode_read,
+  ))
   use values <- result.try(
     list.try_map(
       [
@@ -255,12 +282,7 @@ fn checkpoint(
     Some(subject), True -> drain(subject, [])
     _, _ -> []
   }
-  Ok(
-    json.object([
-      #("values", json.object(values)),
-      #("events", json.array(changes, fn(value) { value })),
-    ]),
-  )
+  Ok(protocol.encode_checkpoint(root, values, changes))
 }
 
 @target(erlang)

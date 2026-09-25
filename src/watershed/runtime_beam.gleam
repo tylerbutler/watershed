@@ -2596,36 +2596,16 @@ fn handle_inbound(
         State(..state, supported_features: connected.supported_features)
       case state.phase {
         Connecting(_) -> {
-          let summary = case state.seed, connected.summary_context {
-            Some(_), _ | None, None -> None
+          case state.seed, connected.summary_context {
+            Some(_), _ | None, None ->
+              finish_initial_connection(state, connected, None)
             None, Some(context) ->
               case fetch_summary(state, context) {
-                Ok(summary) -> Some(summary)
-                Error(reason) -> panic as { "summary load failed: " <> reason }
+                Ok(summary) ->
+                  finish_initial_connection(state, connected, Some(summary))
+                Error(reason) ->
+                  actor.continue(fail(state, "summary load failed: " <> reason))
               }
-          }
-          let bootstrapped = case state.seed {
-            Some(seed) ->
-              case runtime_core.prepare_seed(seed, fn() { id.uuid_v4() }) {
-                Ok(seed) -> runtime_core.bootstrap_seeded(connected, seed)
-                Error(error) -> Error(error)
-              }
-            None ->
-              case summary {
-                Some(summary) ->
-                  runtime_core.bootstrap_document(connected, summary)
-                None -> runtime_core.bootstrap(connected, summary: None)
-              }
-          }
-          case bootstrapped {
-            Ok(bootstrapped) -> {
-              let core = complete_bootstrap(state, bootstrapped)
-              notify_waiters(state.phase, Ok(Nil))
-              notify_presence_session(state, core)
-              actor.continue(State(..state, phase: Ready(core, None)))
-            }
-            Error(core_error) ->
-              panic as { "bootstrap failed: " <> string.inspect(core_error) }
           }
         }
         Reconnecting(core) -> {
@@ -2715,9 +2695,10 @@ fn handle_inbound(
                     "sequenced op processing failed: " <> string.inspect(error),
                   ))
                 False ->
-                  panic as {
-                    "sequenced op processing failed: " <> string.inspect(error)
-                  }
+                  actor.continue(fail(
+                    state,
+                    "sequenced op processing failed: " <> string.inspect(error),
+                  ))
               }
             Ok(#(
               core,
@@ -2821,6 +2802,42 @@ fn handle_inbound(
 
     // Summary events, pongs: not part of the v1 surface.
     _ -> actor.continue(state)
+  }
+}
+
+@target(erlang)
+fn finish_initial_connection(
+  state: State,
+  connected: message.ConnectedMessage,
+  summary: Option(fluid_document.DocumentSummary),
+) -> actor.Next(State, Msg) {
+  let bootstrapped = case state.seed {
+    Some(seed) ->
+      case runtime_core.prepare_seed(seed, fn() { id.uuid_v4() }) {
+        Ok(seed) -> runtime_core.bootstrap_seeded(connected, seed)
+        Error(error) -> Error(error)
+      }
+    None ->
+      case summary {
+        Some(summary) -> runtime_core.bootstrap_document(connected, summary)
+        None -> runtime_core.bootstrap(connected, summary: None)
+      }
+  }
+  case bootstrapped {
+    Ok(bootstrapped) ->
+      case complete_bootstrap(state, bootstrapped) {
+        Ok(core) -> {
+          notify_waiters(state.phase, Ok(Nil))
+          notify_presence_session(state, core)
+          actor.continue(State(..state, phase: Ready(core, None)))
+        }
+        Error(reason) -> actor.continue(fail(state, reason))
+      }
+    Error(core_error) ->
+      actor.continue(fail(
+        state,
+        "bootstrap failed: " <> string.inspect(core_error),
+      ))
   }
 }
 
@@ -3903,14 +3920,14 @@ fn track_pending_summary(
 fn complete_bootstrap(
   state: State,
   bootstrapped: runtime_core.Bootstrapped,
-) -> runtime_core.Core {
+) -> Result(runtime_core.Core, String) {
   case bootstrapped {
-    runtime_core.Complete(core) -> core
+    runtime_core.Complete(core) -> Ok(core)
     runtime_core.MissingPrefix(core, checkpoint, from, to) -> {
-      let deltas = case fetch_missing_deltas(state, from, to) {
-        Ok(deltas) -> deltas
-        Error(reason) -> panic as { "history catch-up failed: " <> reason }
-      }
+      use deltas <- result.try(
+        fetch_missing_deltas(state, from, to)
+        |> result.map_error(fn(reason) { "history catch-up failed: " <> reason }),
+      )
       case
         runtime_core.resume_bootstrap(
           core,
@@ -3920,7 +3937,7 @@ fn complete_bootstrap(
       {
         Ok(next) -> complete_bootstrap(state, next)
         Error(core_error) ->
-          panic as { "bootstrap failed: " <> string.inspect(core_error) }
+          Error("bootstrap failed: " <> string.inspect(core_error))
       }
     }
   }

@@ -29,6 +29,36 @@ pub fn shared_tree_client_preserves_absence_and_null_test() -> Nil {
   |> expect.to_equal("{\"present\":true,\"value\":{\"kind\":\"null\"}}")
 }
 
+pub fn shared_tree_client_encodes_full_root_checkpoint_test() -> Nil {
+  client_protocol.encode_checkpoint(
+    client_protocol.encode_read(
+      Some(
+        ObjectValue("org.watershed.Root", [
+          #("title", StringValue("hello")),
+          #("note", NullValue),
+        ]),
+      ),
+    ),
+    [#("title", client_protocol.encode_read(Some(StringValue("hello"))))],
+    [json.object([#("local", json.bool(True))])],
+  )
+  |> json.to_string
+  |> expect.to_equal(
+    "{\"root\":{\"present\":true,\"value\":{\"kind\":\"object\",\"schemaId\":\"org.watershed.Root\",\"fields\":[[\"title\",{\"kind\":\"string\",\"value\":\"hello\"}],[\"note\",{\"kind\":\"null\"}]]}},\"values\":{\"title\":{\"present\":true,\"value\":{\"kind\":\"string\",\"value\":\"hello\"}}},\"events\":[{\"local\":true}]}",
+  )
+}
+
+pub fn shared_tree_client_encodes_structured_startup_error_test() -> Nil {
+  client_protocol.encode_startup_error(
+    "bootstrap-failed",
+    "connect",
+    "summary decode failed",
+  )
+  |> expect.to_equal(
+    "{\"kind\":\"startup-error\",\"code\":\"bootstrap-failed\",\"operation\":\"connect\",\"message\":\"summary decode failed\"}",
+  )
+}
+
 pub fn shared_tree_client_decodes_ordered_object_and_rejects_duplicates_test() -> Nil {
   client_protocol.decode_request(
     "{\"requestId\":3,\"command\":\"set\",\"path\":[\"point\"],\"value\":{\"kind\":\"object\",\"schemaId\":\"org.example.Point\",\"fields\":[[\"x\",{\"kind\":\"string\",\"value\":\"a\"}],[\"note\",{\"kind\":\"null\"}]]}}",

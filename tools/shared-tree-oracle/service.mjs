@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
@@ -179,15 +179,181 @@ async function waitFor(predicate, stage, milliseconds = 15_000) {
   }
 }
 
-export async function openSession(config, containers, documentId, summarizing = false) {
+export function cleanupOwned(resources, originalError) {
+  const cleanupErrors = [];
+  for (const resource of resources) {
+    try {
+      resource.dispose();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+  if (cleanupErrors.length === 0) return;
+  if (originalError) {
+    originalError.cleanupErrors = cleanupErrors;
+    return;
+  }
+  throw new AggregateError(cleanupErrors, "Owned resource cleanup failed");
+}
+
+function observedResult(observations, operation, run) {
+  return async (...args) => {
+    try {
+      return await run(...args);
+    } catch (error) {
+      observations.push({ operation, error: error.message });
+      throw error;
+    }
+  };
+}
+
+function bind(target, property) {
+  const value = target[property];
+  return typeof value === "function" ? value.bind(target) : value;
+}
+
+function observedStorage(storage, observations) {
+  return new Proxy(storage, {
+    get(target, property) {
+      if (property === "getVersions") {
+        return observedResult(observations, "getVersions", async (...args) => {
+          const result = await target.getVersions(...args);
+          observations.push({
+            operation: "getVersions",
+            count: result.length,
+            versions: result.map(({ id, treeId }) => ({ id, treeId })),
+          });
+          return result;
+        });
+      }
+      if (property === "getSnapshotTree") {
+        return observedResult(observations, "getSnapshotTree", async (...args) => {
+          const result = await target.getSnapshotTree(...args);
+          observations.push({
+            operation: "getSnapshotTree",
+            id: result?.id,
+            blobs: Object.keys(result?.blobs ?? {}),
+            trees: Object.keys(result?.trees ?? {}),
+          });
+          return result;
+        });
+      }
+      if (property === "readBlob") {
+        return observedResult(observations, "readBlob", async (id, ...args) => {
+          const result = await target.readBlob(id, ...args);
+          const bytes = Buffer.from(result);
+          observations.push({
+            operation: "readBlob",
+            id,
+            byteLength: bytes.length,
+            hash: createHash("sha256").update(bytes).digest("hex"),
+          });
+          return result;
+        });
+      }
+      return bind(target, property);
+    },
+  });
+}
+
+function observedDeltaStorage(storage, observations) {
+  return new Proxy(storage, {
+    get(target, property) {
+      if (property !== "fetchMessages") return bind(target, property);
+      return (...args) => {
+        const [from, to] = args;
+        const stream = target.fetchMessages(...args);
+        observations.push({ operation: "fetchMessages", from, to: to ?? null });
+        return new Proxy(stream, {
+          get(streamTarget, streamProperty) {
+            if (streamProperty !== "read") return bind(streamTarget, streamProperty);
+            return observedResult(observations, "readMessages", async (...readArgs) => {
+              const result = await streamTarget.read(...readArgs);
+              observations.push({
+                operation: "readMessages",
+                done: result.done,
+                sequenceNumbers: result.done
+                  ? []
+                  : result.value.map(({ sequenceNumber }) => sequenceNumber),
+              });
+              return result;
+            });
+          },
+        });
+      };
+    },
+  });
+}
+
+export function observedDocumentServiceFactory(factory, observations) {
+  return new Proxy(factory, {
+    get(target, property) {
+      if (property !== "createDocumentService") return bind(target, property);
+      return observedResult(observations, "createDocumentService", async (resolved, ...args) => {
+        const service = await target.createDocumentService(resolved, ...args);
+        observations.push({
+          operation: "createDocumentService",
+          documentId: resolved?.id,
+          result: "connected",
+        });
+        return new Proxy(service, {
+          get(serviceTarget, serviceProperty) {
+            if (serviceProperty === "connectToStorage") {
+              return observedResult(observations, "connectToStorage", async (...storageArgs) => {
+                const storage = await serviceTarget.connectToStorage(...storageArgs);
+                observations.push({ operation: "connectToStorage", result: "connected" });
+                return observedStorage(storage, observations);
+              });
+            }
+            if (serviceProperty === "connectToDeltaStorage") {
+              return observedResult(
+                observations,
+                "connectToDeltaStorage",
+                async (...storageArgs) => {
+                  const storage = await serviceTarget.connectToDeltaStorage(...storageArgs);
+                  observations.push({
+                    operation: "connectToDeltaStorage",
+                    result: "connected",
+                  });
+                  return observedDeltaStorage(storage, observations);
+                },
+              );
+            }
+            return bind(serviceTarget, serviceProperty);
+          },
+        });
+      });
+    },
+  });
+}
+
+export async function openSession(
+  config,
+  containers,
+  documentId,
+  summarizing = false,
+  options = {},
+) {
+  const {
+    cache = true,
+    observeStorage = false,
+    store = serviceStore,
+  } = options;
+  assert(typeof cache === "boolean", "openSession cache must be a boolean");
+  assert(typeof observeStorage === "boolean", "openSession observeStorage must be a boolean");
+  assert(typeof store?.type === "string", "openSession store must be a data store");
   let runtime;
-  const documentServiceFactory = new RouterliciousDocumentServiceFactory(
+  const storageObservations = [];
+  const baseDocumentServiceFactory = new RouterliciousDocumentServiceFactory(
     tokenProvider(config), driverPolicies,
   );
+  const documentServiceFactory = observeStorage
+    ? observedDocumentServiceFactory(baseDocumentServiceFactory, storageObservations)
+    : baseDocumentServiceFactory;
   const codeLoader = makeCodeLoader(
     async (type) => {
-      assert.equal(type, serviceStore.type, "Unexpected data store type");
-      return serviceStore;
+      assert.equal(type, store.type, "Unexpected data store type");
+      return store;
     },
     oldestSupportedClient,
     async (parameters) => {
@@ -206,7 +372,7 @@ export async function openSession(config, containers, documentId, summarizing = 
       }
       return runtime;
     },
-    serviceStore,
+    store,
   );
   const properties = {
     urlResolver: urlResolver(config),
@@ -222,13 +388,15 @@ export async function openSession(config, containers, documentId, summarizing = 
       ...properties,
       request: {
         url: `${config.httpUrl}/${config.tenantId}/${documentId}`,
-        headers: summarizing ? {
-          [LoaderHeader.cache]: false,
-          [LoaderHeader.clientDetails]: {
-            capabilities: { interactive: false }, type: "summarizer",
-          },
-          [DriverHeader.summarizingClient]: true,
-        } : {},
+        headers: {
+          ...(!cache || summarizing ? { [LoaderHeader.cache]: false } : {}),
+          ...(summarizing ? {
+            [LoaderHeader.clientDetails]: {
+              capabilities: { interactive: false }, type: "summarizer",
+            },
+            [DriverHeader.summarizingClient]: true,
+          } : {}),
+        },
       },
     });
   containers.push(container);
@@ -240,7 +408,13 @@ export async function openSession(config, containers, documentId, summarizing = 
     assert(!container.closed, "Container closed before connecting");
     return container.connectionState === ConnectionState.Connected;
   }, "container connection");
-  return { container, runtime, data, documentServiceFactory };
+  return {
+    container,
+    runtime,
+    data,
+    documentServiceFactory,
+    storageObservations,
+  };
 }
 
 async function snapshot(storage) {
@@ -332,6 +506,7 @@ async function nativeTransports(config, documentId, summaryHandle) {
 export async function preflight(config) {
   const containers = [];
   let stage = "health";
+  let scenarioError;
   try {
     const health = await fetch(`${config.httpUrl}/health`, { signal: AbortSignal.timeout(5000) });
     assert.equal(health.status, 200, `health returned ${health.status}`);
@@ -492,9 +667,33 @@ export async function preflight(config) {
     };
   } catch (error) {
     const status = error.statusCode === undefined ? "" : ` (HTTP ${error.statusCode})`;
-    throw new Error(`SharedTree preflight failed at ${stage}${status}: ${error.message}`, { cause: error });
+    scenarioError = new Error(
+      `SharedTree preflight failed at ${stage}${status}: ${error.message}`,
+      { cause: error },
+    );
+    throw scenarioError;
   } finally {
-    for (const container of containers) container.dispose();
+    cleanupOwned(containers, scenarioError);
+  }
+}
+
+export async function localFloodgateReady(
+  child,
+  httpUrl,
+  { fetch: request = fetch } = {},
+) {
+  assert(child.exitCode === null && child.signalCode === null,
+    "Floodgate exited before becoming ready");
+  try {
+    const response = await request(`${httpUrl}/health`, {
+      signal: AbortSignal.timeout(1000),
+    });
+    await response.text();
+    assert.equal(response.status, 200, "Floodgate health is not ready");
+    return true;
+  } catch (error) {
+    if (error instanceof TypeError) return false;
+    throw error;
   }
 }
 
@@ -540,16 +739,7 @@ export async function withLocalFloodgate(run) {
   try {
     await waitFor(async () => {
       if (startupError) throw startupError;
-      assert(child.exitCode === null && child.signalCode === null, "Floodgate exited before becoming ready");
-      try {
-        const response = await fetch(`${httpUrl}/health`, { signal: AbortSignal.timeout(1000) });
-        await response.text();
-        assert.equal(response.status, 200, "Floodgate health is not ready");
-        return true;
-      } catch (error) {
-        if (error.cause?.code === "ECONNREFUSED") return false;
-        throw error;
-      }
+      return localFloodgateReady(child, httpUrl);
     }, "local Floodgate startup");
     return await run(serviceConfig({
       FLOODGATE_HTTP_URL: httpUrl, FLOODGATE_JWT_SECRET: secret, FLOODGATE_REVISION: floodgateRevision,
@@ -571,8 +761,9 @@ function json(value) {
   }, 2)}\n`;
 }
 
-async function main() {
+async function runPreflightCommand(args) {
   const { values, positionals } = parseArgs({
+    args,
     allowPositionals: true,
     options: {
       local: { type: "boolean", default: false },
@@ -601,8 +792,20 @@ async function main() {
   console.log(json(captured.result));
 }
 
+export async function runServiceCommand(args, {
+  importInterop = () => import("./interop.mjs"),
+  runPreflight = runPreflightCommand,
+} = {}) {
+  const [command, ...rest] = args;
+  if (command === "interop") {
+    const { runInteropCommand } = await importInterop();
+    return runInteropCommand(rest);
+  }
+  return runPreflight(args);
+}
+
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  main().catch((error) => {
+  runServiceCommand(process.argv.slice(2)).catch((error) => {
     console.error(error.message);
     process.exitCode = 1;
   });

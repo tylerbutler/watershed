@@ -2,15 +2,23 @@
 -export([descriptor/0, token/0, read_line/0, write_line/1, fail/1]).
 
 descriptor() ->
-    {ok, Bytes} = file:read_file(required("WATERSHED_DESCRIPTOR")),
-    Bytes.
+    case os:getenv("WATERSHED_DESCRIPTOR") of
+        false ->
+            startup("descriptor-decode-failed", "descriptor",
+                "Missing WATERSHED_DESCRIPTOR");
+        Path ->
+            case file:read_file(Path) of
+                {ok, Bytes} -> Bytes;
+                {error, Reason} ->
+                    startup("descriptor-decode-failed", "descriptor",
+                        ["Could not read descriptor: ", atom_to_list(Reason)])
+            end
+    end.
 
-token() -> unicode:characters_to_binary(required("WATERSHED_TOKEN")).
-
-required(Name) ->
-    case os:getenv(Name) of
-        false -> erlang:error({missing_environment, Name});
-        Value -> Value
+token() ->
+    case os:getenv("WATERSHED_TOKEN") of
+        false -> startup("bootstrap-failed", "connect", "Missing WATERSHED_TOKEN");
+        Value -> unicode:characters_to_binary(Value)
     end.
 
 read_line() ->
@@ -27,3 +35,17 @@ write_line(Value) ->
 fail(Value) ->
     io:format(standard_error, "~ts~n", [Value]),
     erlang:halt(1).
+
+startup(Code, Operation, Message) ->
+    Encoded = io_lib:format(
+        "{\"kind\":\"startup-error\",\"code\":\"~ts\",\"operation\":\"~ts\",\"message\":\"~ts\"}",
+        [escape(Code), escape(Operation), escape(Message)]
+    ),
+    fail(Encoded).
+
+escape(Value) ->
+    Bytes = unicode:characters_to_binary(Value),
+    EscapedSlash = binary:replace(Bytes, <<"\\">>, <<"\\\\">>, [global]),
+    EscapedQuote = binary:replace(EscapedSlash, <<"\"">>, <<"\\\"">>, [global]),
+    EscapedReturn = binary:replace(EscapedQuote, <<"\r">>, <<"\\r">>, [global]),
+    binary:replace(EscapedReturn, <<"\n">>, <<"\\n">>, [global]).

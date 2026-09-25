@@ -403,6 +403,81 @@ pub fn bad_replayed_operation_suspends_without_killing_actor_test() {
 }
 
 @target(erlang)
+pub fn bad_live_operation_fails_without_crashing_actor_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let callbacks_subject = process.new_subject()
+  let assert Ok(actor) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(callbacks_subject, callbacks)
+      }),
+      seed: seed,
+    )
+  let assert Ok(callbacks) = process.receive(callbacks_subject, 1000)
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  let assert Ok(contents) =
+    fluid_container.encode_batch(
+      fluid_container.DecodedBatch(True, None, [
+        fluid_container.ContainerMessage(
+          fluid_container.ChannelOperation(
+            fluid_container.Route("missing", "root"),
+            wire_op.encode_map_operation(map_kernel.Clear),
+          ),
+          0,
+          None,
+        ),
+      ]),
+    )
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      frame.Sequenced(
+        client_id: Some("other"),
+        sequence_number: 1,
+        minimum_sequence_number: 0,
+        client_sequence_number: 1,
+        reference_sequence_number: 0,
+        operation_type: "op",
+        contents: contents,
+        metadata: None,
+        timestamp: 0,
+        data: None,
+      ),
+    ]),
+  )
+  runtime_beam.await_ready(actor) |> expect.to_be_error()
+  let observation = runtime_beam.connection_observation(actor)
+  observation.phase |> expect.to_equal("failed")
+  observation.error |> expect.to_not_equal(None)
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
 pub fn seeded_actor_resolves_routed_root_before_publication_test() {
   let assert Ok(#(input, prefix)) = runtime_fixture.routed_seed_input()
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)
@@ -521,6 +596,99 @@ pub fn seeded_actor_resolves_routed_root_before_publication_test() {
   )
   runtime_beam.await_ready(actor)
   |> expect.to_equal(Ok(Nil))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn failed_bootstrap_history_read_reports_error_without_crashing_actor_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let callbacks_subject = process.new_subject()
+  let assert Ok(actor) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: message.ConnectMessage(..connect_message(), token: None),
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(callbacks_subject, callbacks)
+      }),
+      seed: seed,
+    )
+  let assert Ok(pid) = process.subject_owner(actor)
+  process.unlink(pid)
+  let assert Ok(callbacks) = process.receive(callbacks_subject, 1000)
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 3,
+      initial_clients: ["reader"],
+      initial_messages: [membership_frame(3, "leave", "\"departed\"")],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(actor)
+  |> expect.to_equal(Error(
+    "history catch-up failed: history catch-up requires an auth token",
+  ))
+  runtime_beam.connection_observation(actor).phase
+  |> expect.to_equal("failed")
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn invalid_bootstrap_message_fails_ready_without_crashing_actor_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let callbacks_subject = process.new_subject()
+  let assert Ok(actor) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(callbacks_subject, callbacks)
+      }),
+      seed: seed,
+    )
+  let assert Ok(callbacks) = process.receive(callbacks_subject, 1000)
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["reader"],
+      initial_messages: [
+        membership_frame(1, "unsupported-required-message", ""),
+      ],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(actor) |> expect.to_be_error()
+  runtime_beam.connection_observation(actor).phase
+  |> expect.to_equal("failed")
   process.send(actor, runtime_beam.Shutdown)
 }
 
@@ -1253,7 +1421,7 @@ pub fn failed_signal_with_pending_tree_retains_core_test() {
 }
 
 @target(erlang)
-pub fn bad_last_group_child_does_not_notify_beam_subscribers_test() {
+pub fn bad_last_group_child_fails_without_notifying_beam_subscribers_test() {
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)
   let callbacks_subject = process.new_subject()
@@ -1268,9 +1436,6 @@ pub fn bad_last_group_child_does_not_notify_beam_subscribers_test() {
         process.send(callbacks_subject, callbacks)
       }),
     )
-  let assert Ok(pid) = process.subject_owner(actor)
-  process.unlink(pid)
-  let monitor = process.monitor(pid)
   let assert Ok(callbacks) = process.receive(callbacks_subject, 1000)
   callbacks.on_ready(
     runtime_beam.TransportHandle(
@@ -1340,9 +1505,9 @@ pub fn bad_last_group_child_does_not_notify_beam_subscribers_test() {
       ),
     ]),
   )
-  let selector =
-    process.new_selector()
-    |> process.select_specific_monitor(monitor, fn(down) { down })
-  process.selector_receive(from: selector, within: 1000) |> expect.to_be_ok()
+  runtime_beam.await_ready(actor) |> expect.to_be_error()
+  runtime_beam.connection_observation(actor).phase
+  |> expect.to_equal("failed")
   process.receive(events, 0) |> expect.to_equal(Error(Nil))
+  process.send(actor, runtime_beam.Shutdown)
 }

@@ -39,6 +39,8 @@ export function validateResults(results, runId) {
       "Unknown target or case ID");
     assert.equal(item.runId, expectedRunId, "Result belongs to another run");
     assert.equal(item.profile, profile, "Unsupported tree profile");
+    assert(typeof item.documentId === "string" && item.documentId.length > 0,
+      "Missing interoperability document ID");
     assert.equal(item.passed, true, "Failed interoperability case");
     assert.equal(item.skipped, false, "Skipped interoperability case");
     assert(Number.isSafeInteger(item.evidence?.sequenceNumber)
@@ -500,7 +502,7 @@ async function caseRun(config, viewSchema, runId, target, caseId) {
         "Reconnect did not assign a new transport identity");
     }
     return {
-      runId, target, caseId, profile, passed: true, skipped: false,
+      runId, target, caseId, profile, documentId, passed: true, skipped: false,
       evidence: {
         sequenceNumber: final.sequenceNumber,
         clientId: final.observation.clientId,
@@ -516,13 +518,14 @@ async function caseRun(config, viewSchema, runId, target, caseId) {
   }
 }
 
-async function runService(config) {
-  const runId = randomUUID();
+export async function runService(config, { runId = randomUUID(), build = true } = {}) {
   const viewSchema = await schemaBytes();
-  for (const target of targets) {
-    await execute("gleam", ["build", "--target", target], {
-      cwd: repository, timeout: 120_000,
-    });
+  if (build) {
+    for (const target of targets) {
+      await execute("gleam", ["build", "--target", target], {
+        cwd: repository, timeout: 120_000,
+      });
+    }
   }
   const results = [];
   for (const target of targets) {
