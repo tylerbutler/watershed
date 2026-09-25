@@ -1,4 +1,4 @@
-//// Pure state for the fixed SharedTree object profile.
+//// Pure state for the SharedTree object and dynamic-map profiles.
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -101,6 +101,21 @@ pub fn read(
   path: FieldPath,
 ) -> Result(Option(TreeValue), TreeError) {
   forest.read(state.visible, path)
+}
+
+pub fn map_get(
+  state: TreeState,
+  path: FieldPath,
+  key: String,
+) -> Result(Option(TreeValue), TreeError) {
+  forest.map_get(state.visible, path, key)
+}
+
+pub fn map_entries(
+  state: TreeState,
+  path: FieldPath,
+) -> Result(List(#(String, TreeValue)), TreeError) {
+  forest.map_entries(state.visible, path)
 }
 
 pub fn reference_at(
