@@ -47,6 +47,7 @@ type ArtifactItem = {
 	id: string;
 	kind: "schema" | "fieldBatch" | "message" | "summary";
 	encoded: unknown;
+	schemaProfile?: "map";
 	compressor?: string;
 	compressorMode?: "ongoing" | "summary";
 	session?: string;
@@ -83,6 +84,25 @@ const factory = configuredSharedTreeInternal({
 	minVersionForCollab: FluidClientVersion.v2_117,
 }).getFactory();
 
+const mapSchema = new SchemaFactory("org.watershed.shared-tree.m2");
+class MapPoint extends mapSchema.object("Point", {
+	x: mapSchema.number,
+	y: mapSchema.number,
+}) {}
+class DynamicMap extends mapSchema.mapRecursive("DynamicMap", [
+	mapSchema.string,
+	mapSchema.number,
+	mapSchema.boolean,
+	mapSchema.null,
+	MapPoint,
+	() => DynamicMap,
+]) {}
+class MapRoot extends mapSchema.object("Root", { items: DynamicMap }) {}
+const mapConfiguration = new TreeViewConfiguration({ schema: MapRoot });
+const mapTreeFactory = configuredSharedTreeInternal({
+	minVersionForCollab: FluidClientVersion.v2_117,
+}).getFactory();
+
 function compressor(item: ArtifactItem): IIdCompressor {
 	assert(typeof item.compressor === "string" && item.compressor.length > 0,
 		`${item.id}: missing compressor`);
@@ -107,13 +127,31 @@ async function loadSummary(item: ArtifactItem, idCompressor = compressor(item)) 
 	assert(item.encoded !== null && typeof item.encoded === "object",
 		`${item.id}: summary encoding`);
 	const runtime = new MockFluidDataStoreRuntime({ idCompressor });
-	return factory.load(
+	const selectedFactory = item.schemaProfile === "map" ? mapTreeFactory : factory;
+	return selectedFactory.load(
 		runtime,
 		`codec-${item.id}`,
 		services(
 			item.encoded as Parameters<typeof MockSharedObjectServices.createFromSummary>[0],
 		),
-		factory.attributes,
+		selectedFactory.attributes,
+	);
+}
+
+function mapValue(value: unknown): unknown {
+	if (value instanceof MapPoint) {
+		return { x: value.x, y: value.y };
+	}
+	if (value instanceof DynamicMap) {
+		return Object.fromEntries([...value].map(([key, item]) => [key, mapValue(item)]));
+	}
+	return value;
+}
+
+function visibleMap(root: MapRoot | undefined) {
+	if (root === undefined) return null;
+	return Object.fromEntries(
+		[...root.items].map(([key, value]) => [key, mapValue(value)]),
 	);
 }
 
@@ -229,7 +267,8 @@ async function consume(item: ArtifactItem) {
 				&& Number.isSafeInteger(item.minimumSequenceNumber),
 			`${item.id}: missing sequence metadata`);
 			const runtime = new MockFluidDataStoreRuntime({ idCompressor: compressor(item) });
-			const tree = await factory.load(
+			const selectedFactory = item.schemaProfile === "map" ? mapTreeFactory : factory;
+			const tree = await selectedFactory.load(
 				runtime,
 				`codec-${item.id}`,
 				services(
@@ -237,10 +276,8 @@ async function consume(item: ArtifactItem) {
 						typeof MockSharedObjectServices.createFromSummary
 					>[0],
 				),
-				factory.attributes,
+				selectedFactory.attributes,
 			);
-			const view = tree.viewWith(configuration);
-			const beforeApply = visibleRoot(view.root);
 			const kernel: unknown = Reflect.get(tree, "kernel");
 			assert(kernel !== null && typeof kernel === "object", `${item.id}: missing kernel`);
 			const messageCodec: unknown = Reflect.get(kernel, "messageCodec");
@@ -253,6 +290,40 @@ async function consume(item: ArtifactItem) {
 			assert(decoded !== null && typeof decoded === "object", `${item.id}: decoded message`);
 			const process: unknown = Reflect.get(kernel, "processMessagesCore");
 			assert(typeof process === "function", `${item.id}: missing process function`);
+			if (item.schemaProfile === "map") {
+				const view = tree.viewWith(mapConfiguration);
+				const beforeApply = visibleMap(view.root);
+				process.call(kernel, {
+					envelope: {
+						clientId: "watershed-codec-consumer",
+						clientSequenceNumber: 1,
+						contents: item.encoded,
+						referenceSequenceNumber: item.referenceSequenceNumber,
+						sequenceNumber: item.sequenceNumber,
+						minimumSequenceNumber: item.minimumSequenceNumber,
+						timestamp: 0,
+						type: "op",
+					},
+					local: false,
+					messagesContent: [{
+						contents: item.encoded,
+						localOpMetadata: undefined,
+						clientSequenceNumber: 1,
+					}],
+				});
+				const afterApply = visibleMap(view.root);
+				view.root.items.set("upstream-continuation", true);
+				return {
+					id: item.id,
+					kind: item.kind,
+					decoded: true,
+					beforeApply,
+					afterApply,
+					continued: view.root.items.get("upstream-continuation"),
+				};
+			}
+			const view = tree.viewWith(configuration);
+			const beforeApply = visibleRoot(view.root);
 			process.call(kernel, {
 				envelope: {
 					clientId: "watershed-codec-consumer",
@@ -285,6 +356,26 @@ async function consume(item: ArtifactItem) {
 		case "summary": {
 			const idCompressor = compressor(item);
 			const tree = await loadSummary(item, idCompressor);
+			if (item.schemaProfile === "map") {
+				const view = tree.viewWith(mapConfiguration);
+				const visible = visibleMap(view.root);
+				const history = summaryHistory(tree, idCompressor, item.id);
+				const contentSnapshot: unknown = Reflect.get(tree, "contentSnapshot");
+				assert(typeof contentSnapshot === "function", `${item.id}: missing content snapshot`);
+				const snapshot: unknown = contentSnapshot.call(tree);
+				assert(snapshot !== null && typeof snapshot === "object"
+					&& "removed" in snapshot && Array.isArray(snapshot.removed),
+				`${item.id}: missing removed content`);
+				view.root.items.set("upstream-continuation", true);
+				return {
+					id: item.id,
+					kind: item.kind,
+					visible,
+					removed: removedContent(snapshot.removed, idCompressor, item.id),
+					history,
+					continued: view.root.items.get("upstream-continuation"),
+				};
+			}
 			const view = tree.viewWith(configuration);
 			const visible = visibleRoot(view.root);
 			const history = summaryHistory(tree, idCompressor, item.id);

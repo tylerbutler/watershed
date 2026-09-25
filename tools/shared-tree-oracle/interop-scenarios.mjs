@@ -244,11 +244,13 @@ const failureCells = [
       target,
       kind: "stored-schema-refusal",
       expectedStage: "resolve-view",
-      errorCode: "bootstrap-failed",
-      errorOperation: "connect",
+      errorCode: kind === "array"
+        ? "bootstrap-failed"
+        : "view-resolution-failed",
+      errorOperation: kind === "array" ? "connect" : "resolve-view",
       diagnosticTerms: kind === "array"
         ? ["ExcludedArray", "unsupported field kind Sequence"]
-        : ["ExcludedMap", "unsupported node kind map"],
+        : ["root", "incompatible field schema"],
       clientState: "never-ready",
     }))),
   ...injectedRefusals.flatMap(([

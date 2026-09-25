@@ -30,6 +30,8 @@ const requiredItemIds = [
   "summary-settled-detached",
   "summary-native-authored",
   "summary-restored-detached",
+  "message-map-set",
+  "summary-map-restored",
 ];
 const point = (x, y) => ({
   type: "org.watershed.shared-tree.m1.Point",
@@ -56,6 +58,15 @@ const visibleRoot = ({ title = "", pointValue = { x: 0, y: 0 }, note } = {}) => 
   ...(note === undefined ? {} : { note }),
   point: pointValue,
 });
+const visibleMap = {
+  set: "value",
+  "replace-on-reconnect": { inner: "pending" },
+  "remote-crossing": "sequenced",
+  nested: {
+    before: "value",
+    after: "continued",
+  },
+};
 const firstRevision = "8f95be09-8376-4ff7-8755-ccd7e8124b07";
 const firstSession = "8f95be09-8376-4ff7-8755-ccd7e8124b06";
 const secondRevision = "a0693eac-892a-4396-86f7-ad20dc1cade2";
@@ -225,6 +236,74 @@ const expectedObservations = [
     history: settledHistory,
     continued: "upstream-continuation",
   },
+  {
+    id: "message-map-set",
+    kind: "message",
+    decoded: true,
+    beforeApply: visibleMap,
+    afterApply: {
+      ...visibleMap,
+      native: "value",
+    },
+    continued: true,
+  },
+  {
+    id: "summary-map-restored",
+    kind: "summary",
+    visible: visibleMap,
+    removed: [
+      {
+        major: "8f95be09-8376-4ff7-8755-ccd7e8124b0c",
+        minor: 19,
+        tree: {
+          type: "com.fluidframework.leaf.string",
+          value: "before",
+        },
+      },
+      {
+        major: "8f95be09-8376-4ff7-8755-ccd7e8124b0d",
+        minor: 23,
+        tree: {
+          type: "com.fluidframework.leaf.string",
+          value: "before",
+        },
+      },
+    ],
+    history: {
+      trunk: [
+        {
+          revision: "8f95be09-8376-4ff7-8755-ccd7e8124b0c",
+          session: firstSession,
+          sequenceNumber: 16,
+          indexInBatch: null,
+        },
+        {
+          revision: "8f95be09-8376-4ff7-8755-ccd7e8124b0d",
+          session: firstSession,
+          sequenceNumber: 17,
+          indexInBatch: null,
+        },
+        {
+          revision: "a0693eac-892a-4396-86f7-ad20dc1cade3",
+          session: secondRevision,
+          sequenceNumber: 19,
+          indexInBatch: null,
+        },
+        {
+          revision: "a0693eac-892a-4396-86f7-ad20dc1cade4",
+          session: secondRevision,
+          sequenceNumber: 21,
+          indexInBatch: null,
+        },
+      ],
+      peers: [{
+        session: secondRevision,
+        base: "a0693eac-892a-4396-86f7-ad20dc1cade4",
+        revisions: [],
+      }],
+    },
+    continued: true,
+  },
 ];
 
 const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -245,6 +324,8 @@ export function validateNativeArtifact(artifact) {
     ids.add(item.id);
     requireValue(["schema", "fieldBatch", "message", "summary"].includes(item.kind),
       `${item.id} kind`);
+    requireValue(item.schemaProfile === undefined || item.schemaProfile === "map",
+      `${item.id} schemaProfile`);
     requireValue(Object.hasOwn(item, "encoded"), `${item.id} encoded`);
     if (item.kind === "message" || item.kind === "summary") {
       requireValue(typeof item.compressor === "string" && item.compressor.length > 0,
@@ -298,6 +379,28 @@ function validateConsumerOutput(output, artifact, expectedIds) {
         && Array.isArray(observation.history.peers),
       `${observation.id} history`);
     }
+    if (observation.id === "message-map-set") {
+      requireValue(observation.decoded === true, "message-map-set decoded");
+      requireValue(object(observation.beforeApply)
+        && !Object.hasOwn(observation.beforeApply, "native"),
+      "message-map-set before state");
+      requireValue(object(observation.afterApply)
+        && observation.afterApply.native === "value",
+      "message-map-set applied state");
+      requireValue(observation.continued === true, "message-map-set continuation");
+    }
+    if (observation.id === "summary-map-restored") {
+      requireValue(object(observation.visible)
+        && object(observation.visible.nested)
+        && observation.visible.nested.after === "continued",
+      "summary-map-restored visible state");
+      requireValue(observation.removed.length === 2,
+        "summary-map-restored removed content");
+      requireValue(observation.history.trunk.length === 4,
+        "summary-map-restored trunk history");
+      requireValue(observation.continued === true,
+        "summary-map-restored continuation");
+    }
   }
   requireValue(expectedIds.length === ids.size
     && expectedIds.every((id) => ids.has(id)), "required scenario IDs");
@@ -350,8 +453,12 @@ export async function runCodecInterop({
         expectedIds,
       );
       if (expected !== null) {
+        const expectedIds = new Set(expected.map(({ id }) => id));
         requireValue(
-          isDeepStrictEqual(output.observations, expected),
+          isDeepStrictEqual(
+            output.observations.filter(({ id }) => expectedIds.has(id)),
+            expected,
+          ),
           `${target} consumer observations differ from expected semantics`,
         );
       }

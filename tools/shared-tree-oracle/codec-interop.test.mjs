@@ -50,6 +50,7 @@ test("native codec artifact validation rejects stale, empty, duplicate, and inco
     (value) => { value.items = []; },
     (value) => { value.items.push(structuredClone(value.items[0])); },
     (value) => { value.items[0].kind = "unknown"; },
+    (value) => { value.items[0].schemaProfile = "unknown"; },
     (value) => { delete value.items[0].encoded; },
   ]) {
     const value = artifact();

@@ -5,7 +5,7 @@ import gleam/bit_array
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import simplifile
@@ -19,10 +19,12 @@ import watershed/tree/codec/field_batch
 import watershed/tree/codec/summary
 import watershed/tree/forest
 import watershed/tree/summary as tree_summary
-import watershed/tree/types.{AtomId, ClearField, SetField, StringValue}
+import watershed/tree/types.{AtomId, ClearField, MapSet, SetField, StringValue}
 import watershed/wire/fluid_summary
 
 const fixture_path = "test/fixtures/shared_tree/cases/tree-codecs.json"
+
+const map_fixture_path = "test/fixtures/shared_tree/cases/map-history-codecs.json"
 
 const reference_commit = "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
 
@@ -50,7 +52,16 @@ pub fn main() {
     Ok(value) -> value
     Error(error) -> panic as { error }
   }
-  let artifact = case build_artifact(input) {
+  let map_raw = case simplifile.read(map_fixture_path) {
+    Ok(value) -> value
+    Error(error) ->
+      panic as { "could not read map codec fixture: " <> string.inspect(error) }
+  }
+  let map_initial = case decode_map_initial(map_raw) {
+    Ok(value) -> value
+    Error(error) -> panic as { error }
+  }
+  let artifact = case build_artifact(input, map_initial) {
     Ok(value) -> value
     Error(error) -> panic as { error }
   }
@@ -119,7 +130,40 @@ fn decode_input(raw: String) -> Result(Input, String) {
   Ok(Input(schemas, batches, summaries, message_bases))
 }
 
-fn build_artifact(input: Input) -> Result(Json, String) {
+fn decode_map_initial(raw: String) -> Result(InitialState, String) {
+  use root <- result.try(
+    json_ot.parse_json(raw)
+    |> result.map_error(string.inspect),
+  )
+  use evidence <- result.try(field(root, "raw"))
+  use summary_source <- result.try(field(evidence, "summary"))
+  use encoded <- result.try(field(summary_source, "value"))
+  use reload <- result.try(field(evidence, "reload"))
+  use compressor_raw <- result.try(field_text(reload, "compressor"))
+  use session <- result.try(
+    fluid_ids.session_id(fresh_summary_session)
+    |> result.map_error(string.inspect),
+  )
+  use compressor <- result.try(
+    fluid_ids.deserialize(json.string(compressor_raw), session)
+    |> result.map_error(string.inspect),
+  )
+  use value <- result.try(
+    summary.decode(
+      summary_entry(encoded),
+      None,
+      session,
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+    |> result.map_error(string.inspect),
+  )
+  Ok(InitialState(value, session, compressor))
+}
+
+fn build_artifact(
+  input: Input,
+  map_initial: InitialState,
+) -> Result(Json, String) {
   let Input(schemas, batches, summaries, message_bases) = input
   use schema_items <- result.try(
     list.try_map(schemas, fn(source) {
@@ -140,15 +184,24 @@ fn build_artifact(input: Input) -> Result(Json, String) {
   use note <- result.try(summary_state(message_bases, "optional"))
   use settled <- result.try(summary_state(summaries, "settled-detached"))
   use message_items <- result.try(native_messages(initial, note))
+  use map_message <- result.try(native_message(
+    "message-map-set",
+    map_initial,
+    MapSet(["items"], "native", StringValue("value")),
+    False,
+    Some("map"),
+    Some(#(22, 21, 0)),
+  ))
   use authored_summary <- result.try(native_summary(settled))
   use restored_summary <- result.try(restored_summary_item(summaries))
+  use map_summary <- result.try(map_summary_item(map_initial))
   let items =
     list.flatten([
       schema_items,
       batch_items,
       message_items,
       summary_items,
-      [authored_summary, restored_summary],
+      [authored_summary, restored_summary, map_message, map_summary],
     ])
   case items {
     [] -> Error("codec artifact has no items")
@@ -351,24 +404,37 @@ fn native_messages(
         ]),
       ),
       False,
+      None,
+      None,
     ),
     #(
       "message-nested-scalar",
       initial,
       SetField(["point", "x"], types.NumberValue(7.0)),
       False,
+      None,
+      None,
     ),
     #(
       "message-optional-set",
       initial,
       SetField(["note"], StringValue("native-note")),
       False,
+      None,
+      None,
     ),
-    #("message-optional-clear", note, ClearField(["note"]), False),
-    #("message-detached-repair", note, ClearField(["note"]), True),
+    #("message-optional-clear", note, ClearField(["note"]), False, None, None),
+    #("message-detached-repair", note, ClearField(["note"]), True, None, None),
   ]
   list.try_map(cases, fn(example) {
-    native_message(example.0, example.1, example.2, example.3)
+    native_message(
+      example.0,
+      example.1,
+      example.2,
+      example.3,
+      example.4,
+      example.5,
+    )
   })
 }
 
@@ -377,6 +443,8 @@ fn native_message(
   initial: InitialState,
   operation: types.Edit,
   add_repair: Bool,
+  schema_profile: Option(String),
+  sequence: Option(#(Int, Int, Int)),
 ) -> Result(Json, String) {
   let InitialState(base, session, compressor) = initial
   let summary.TreeSummaryData(stored, _, _, _) = base
@@ -449,6 +517,16 @@ fn native_message(
     fluid_ids.session_id(message_session)
     |> result.map_error(string.inspect),
   )
+  let #(sequence_number, reference_sequence_number, minimum_sequence_number) = case
+    sequence
+  {
+    Some(value) -> value
+    None -> #(4, 2, 2)
+  }
+  let profile_fields = case schema_profile {
+    Some(profile) -> [#("schemaProfile", json.string(profile))]
+    None -> []
+  }
   Ok(
     item(id, "message", encoded, [
       #("compressor", json.string(serialized)),
@@ -456,10 +534,37 @@ fn native_message(
       #("session", json.string(fluid_ids.session_id_to_string(fresh))),
       #("initialSummary", summary_json(initial_summary)),
       #("allocationRanges", json.array([], fn(value) { value })),
-      #("sequenceNumber", json.int(4)),
-      #("referenceSequenceNumber", json.int(2)),
-      #("minimumSequenceNumber", json.int(2)),
+      #("sequenceNumber", json.int(sequence_number)),
+      #("referenceSequenceNumber", json.int(reference_sequence_number)),
+      #("minimumSequenceNumber", json.int(minimum_sequence_number)),
       #("indexInBatch", json.null()),
+      ..profile_fields
+    ]),
+  )
+}
+
+fn map_summary_item(initial: InitialState) -> Result(Json, String) {
+  let InitialState(value, _, compressor) = initial
+  let summary.TreeSummaryData(stored, _, _, _) = value
+  use encoded <- result.try(
+    summary.encode(
+      value,
+      fluid_ids.local_session(compressor),
+      codec.EncodeContext(codec.Fluid310, compressor, Some(stored)),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use serialized <- result.try(serialize_compressor(compressor, False))
+  use fresh <- result.try(
+    fluid_ids.session_id(native_summary_consumer_session)
+    |> result.map_error(string.inspect),
+  )
+  Ok(
+    item("summary-map-restored", "summary", summary_json(encoded), [
+      #("compressor", json.string(serialized)),
+      #("compressorMode", json.string("summary")),
+      #("session", json.string(fluid_ids.session_id_to_string(fresh))),
+      #("schemaProfile", json.string("map")),
     ]),
   )
 }

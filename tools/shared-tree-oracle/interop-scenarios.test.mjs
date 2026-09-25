@@ -626,7 +626,7 @@ test("the deterministic catalogue expands every required Task 3 cell", () => {
   });
 });
 
-test("the failure catalogue covers every native Task 5 refusal target", () => {
+test("the failure catalogue covers every native refusal target", () => {
   const cells = requiredFailureCells();
   assert.equal(cells.length, 24);
   assert.deepEqual(cells.map(({ id }) => id), expectedFailureIds);
@@ -650,6 +650,17 @@ test("the failure catalogue covers every native Task 5 refusal target", () => {
     errorCode: "bootstrap-failed",
     errorOperation: "connect",
     diagnosticTerms: ["ExcludedArray", "unsupported field kind Sequence"],
+    clientState: "never-ready",
+  });
+  assert.deepEqual(cells[12], {
+    id: "unsupported-map-schema:javascript",
+    caseId: "unsupported-map-schema",
+    target: "javascript",
+    kind: "stored-schema-refusal",
+    expectedStage: "resolve-view",
+    errorCode: "view-resolution-failed",
+    errorOperation: "resolve-view",
+    diagnosticTerms: ["root", "incompatible field schema"],
     clientState: "never-ready",
   });
   assert.deepEqual(cells.at(-1), {
