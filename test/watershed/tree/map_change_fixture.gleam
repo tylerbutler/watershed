@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -12,6 +13,7 @@ import watershed/tree/codec
 import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/map_forest_fixture
+import watershed/tree/optional_field
 import watershed/tree/schema
 import watershed/tree/types
 
@@ -22,8 +24,6 @@ type NamedChange {
     id: String,
     revision: Option(fluid_ids.StableId),
     change: change.Changeset,
-    fixture_change: change.Changeset,
-    encoded: Json,
   )
 }
 
@@ -141,7 +141,14 @@ fn run_scenario(
   ))
   use execution <- result.try(
     list.try_fold(algebra, Execution(changes, []), fn(state, operation) {
-      run_operation(state, operation, operations, revisions, initial)
+      run_operation(
+        state,
+        operation,
+        operations,
+        revisions,
+        identity_order,
+        initial,
+      )
       |> result.map_error(fn(error) { id <> ": " <> error })
     }),
   )
@@ -350,7 +357,7 @@ fn decode_change(
   use decoded <- result.try(
     change.with_identity_order(decoded, identity_order) |> native,
   )
-  Ok(NamedChange(id, revision, decoded, decoded, encoded_json))
+  Ok(NamedChange(id, revision, decoded))
 }
 
 fn decode_context(
@@ -430,6 +437,7 @@ fn run_operation(
   operation: JsonValue,
   operations: List(String),
   revisions: fixture_codec.Revisions,
+  identity_order: change.IdentityOrder,
   initial: forest.Forest,
 ) -> Result(Execution, String) {
   use selector <- result.try(fixture_codec.field(
@@ -454,12 +462,17 @@ fn run_operation(
       rebase(operation, state.changes)
     _ -> Error("unsupported map algebra operation: " <> selector)
   })
+  use computed <- result.try(case selector {
+    "invert" -> normalize_inverse(computed, output.revision, identity_order)
+    _ -> Ok(computed)
+  })
   let computed_output = NamedChange(..output, change: computed)
   let changes = replace_change(state.changes, computed_output)
-  use encoded <- result.try(case selector {
-    "invert" -> Ok(output.encoded)
-    _ -> fixture_codec.wire_tagged(computed, revisions, output.revision)
-  })
+  use encoded <- result.try(fixture_codec.wire_tagged(
+    computed,
+    revisions,
+    output.revision,
+  ))
   use #(checkpoint_observations, final) <- result.try(run_checkpoints(
     initial,
     changes,
@@ -602,10 +615,6 @@ fn tagged(value: NamedChange) -> change.TaggedChange {
   change.TaggedChange(value.revision, None, value.change)
 }
 
-fn fixture_tagged(value: NamedChange) -> change.TaggedChange {
-  change.TaggedChange(value.revision, None, value.fixture_change)
-}
-
 fn find_change(
   changes: List(NamedChange),
   id: String,
@@ -626,6 +635,236 @@ fn replace_change(
   })
 }
 
+fn normalize_inverse(
+  value: change.Changeset,
+  revision: Option(fluid_ids.StableId),
+  identity_order: change.IdentityOrder,
+) -> Result(change.Changeset, String) {
+  // Fresh inverse identifiers have no semantic identity.
+  // Normalize them by detached application order.
+  case revision {
+    None -> Ok(value)
+    Some(revision) -> {
+      use delta <- result.try(
+        change.into_delta(change.TaggedChange(Some(revision), None, value))
+        |> native,
+      )
+      let detach_ids =
+        forest.delta_data(delta)
+        |> inverse_detaches
+        |> list.filter(fn(id) { id.revision == Some(revision) })
+        |> list.unique
+      let all_ids =
+        change.to_data(value)
+        |> change_atoms
+        |> list.filter(fn(id) { id.revision == Some(revision) })
+        |> list.unique
+        |> list.sort(fn(left, right) {
+          int.compare(left.local_id, right.local_id)
+        })
+      let ids =
+        list.append(
+          detach_ids,
+          list.filter(all_ids, fn(id) { !list.contains(detach_ids, id) }),
+        )
+      let local_ids =
+        all_ids
+        |> list.map(fn(id) { id.local_id })
+      let mappings =
+        list.zip(ids, local_ids)
+        |> list.map(fn(entry) {
+          #(entry.0, types.AtomId(..entry.0, local_id: entry.1))
+        })
+      let data = change.to_data(value)
+      change.from_data(
+        change.ChangeData(
+          ..data,
+          fields: normalize_fields(data.fields, mappings),
+          nodes: list.map(data.nodes, fn(entry) {
+            #(
+              normalize_atom(entry.0, mappings),
+              change.NodeChange(normalize_fields(entry.1.fields, mappings)),
+            )
+          }),
+          parents: list.map(data.parents, fn(entry) {
+            let change.ParentField(parent, field) = entry.1
+            #(
+              normalize_atom(entry.0, mappings),
+              change.ParentField(
+                option.map(parent, fn(id) { normalize_atom(id, mappings) }),
+                field,
+              ),
+            )
+          }),
+          aliases: list.map(data.aliases, fn(entry) {
+            #(
+              normalize_atom(entry.0, mappings),
+              normalize_atom(entry.1, mappings),
+            )
+          }),
+          builds: list.map(data.builds, fn(build) {
+            forest.Build(normalize_atom(build.id, mappings), build.trees)
+          }),
+          destroys: list.map(data.destroys, fn(destroy) {
+            forest.Destroy(normalize_atom(destroy.id, mappings), destroy.count)
+          }),
+          refreshers: list.map(data.refreshers, fn(build) {
+            forest.Build(normalize_atom(build.id, mappings), build.trees)
+          }),
+        ),
+        identity_order,
+      )
+      |> native
+    }
+  }
+}
+
+fn change_atoms(data: change.ChangeData) -> List(types.AtomId) {
+  list.flatten([
+    fields_atoms(data.fields),
+    list.flat_map(data.nodes, fn(entry) {
+      [entry.0, ..fields_atoms(entry.1.fields)]
+    }),
+    list.flat_map(data.parents, fn(entry) {
+      let change.ParentField(parent, _) = entry.1
+      case parent {
+        None -> [entry.0]
+        Some(parent) -> [entry.0, parent]
+      }
+    }),
+    list.flat_map(data.aliases, fn(entry) { [entry.0, entry.1] }),
+    list.map(data.builds, fn(build) { build.id }),
+    list.map(data.destroys, fn(destroy) { destroy.id }),
+    list.map(data.refreshers, fn(build) { build.id }),
+  ])
+}
+
+fn fields_atoms(
+  fields: List(#(String, change.FieldChange)),
+) -> List(types.AtomId) {
+  list.flat_map(fields, fn(entry) {
+    case entry.1 {
+      change.GenericField(children) -> list.map(children, fn(child) { child.1 })
+      change.ValueField(field) | change.OptionalField(field) ->
+        optional_atoms(field)
+    }
+  })
+}
+
+fn optional_atoms(field: optional_field.FieldChange) -> List(types.AtomId) {
+  let moves = list.flat_map(field.moves, fn(move) { [move.0, move.1] })
+  let children =
+    list.flat_map(field.child_changes, fn(child) {
+      case child.0 {
+        optional_field.Active -> [child.1]
+        optional_field.Detached(id) -> [id, child.1]
+      }
+    })
+  let replacement = case field.replacement {
+    None -> []
+    Some(replacement) -> {
+      let source = case replacement.source {
+        Some(optional_field.Detached(id)) -> [id]
+        _ -> []
+      }
+      [replacement.detach_id, ..source]
+    }
+  }
+  list.flatten([moves, children, replacement])
+}
+
+fn inverse_detaches(data: forest.DeltaData) -> List(types.AtomId) {
+  list.append(
+    list.flat_map(data.global, fn(change) {
+      delta_field_detaches(change.fields)
+    }),
+    delta_field_detaches(data.fields),
+  )
+}
+
+fn delta_field_detaches(
+  fields: List(#(String, forest.FieldDelta)),
+) -> List(types.AtomId) {
+  list.flat_map(fields, fn(field) {
+    list.flat_map(field.1.marks, fn(mark) {
+      let nested = delta_field_detaches(mark.fields)
+      case mark.detach {
+        None -> nested
+        Some(id) -> list.append(nested, [id])
+      }
+    })
+  })
+}
+
+fn normalize_fields(
+  fields: List(#(String, change.FieldChange)),
+  mappings: List(#(types.AtomId, types.AtomId)),
+) -> List(#(String, change.FieldChange)) {
+  list.map(fields, fn(entry) { #(entry.0, normalize_field(entry.1, mappings)) })
+}
+
+fn normalize_field(
+  field: change.FieldChange,
+  mappings: List(#(types.AtomId, types.AtomId)),
+) -> change.FieldChange {
+  case field {
+    change.GenericField(children) ->
+      change.GenericField(
+        list.map(children, fn(child) {
+          #(child.0, normalize_atom(child.1, mappings))
+        }),
+      )
+    change.ValueField(field) ->
+      change.ValueField(normalize_optional(field, mappings))
+    change.OptionalField(field) ->
+      change.OptionalField(normalize_optional(field, mappings))
+  }
+}
+
+fn normalize_optional(
+  field: optional_field.FieldChange,
+  mappings: List(#(types.AtomId, types.AtomId)),
+) -> optional_field.FieldChange {
+  optional_field.FieldChange(
+    list.map(field.moves, fn(move) {
+      #(normalize_atom(move.0, mappings), normalize_atom(move.1, mappings))
+    }),
+    list.map(field.child_changes, fn(child) {
+      #(
+        normalize_register(child.0, mappings),
+        normalize_atom(child.1, mappings),
+      )
+    }),
+    option.map(field.replacement, fn(replacement) {
+      optional_field.Replacement(
+        replacement.was_empty,
+        option.map(replacement.source, fn(source) {
+          normalize_register(source, mappings)
+        }),
+        normalize_atom(replacement.detach_id, mappings),
+      )
+    }),
+  )
+}
+
+fn normalize_register(
+  register: optional_field.RegisterId,
+  mappings: List(#(types.AtomId, types.AtomId)),
+) -> optional_field.RegisterId {
+  case register {
+    optional_field.Active -> optional_field.Active
+    optional_field.Detached(id) ->
+      optional_field.Detached(normalize_atom(id, mappings))
+  }
+}
+
+fn normalize_atom(
+  id: types.AtomId,
+  mappings: List(#(types.AtomId, types.AtomId)),
+) -> types.AtomId {
+  list.key_find(mappings, id) |> result.unwrap(id)
+}
+
 fn run_checkpoints(
   initial: forest.Forest,
   changes: List(NamedChange),
@@ -643,9 +882,7 @@ fn run_checkpoints(
       ]),
       fn(state, id) {
         use current <- result.try(find_change(changes, id))
-        use delta <- result.try(
-          change.into_delta(fixture_tagged(current)) |> native,
-        )
+        use delta <- result.try(change.into_delta(tagged(current)) |> native)
         use updated <- result.try(forest.apply_delta(state.0, delta) |> native)
         use visible <- result.try(observe(updated))
         Ok(#(

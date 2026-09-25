@@ -544,6 +544,14 @@ pub fn wire_tagged(
   tagged_revision: Option(StableId),
 ) -> Result(Json, String) {
   let data = change.to_data(value)
+  use _ <- result.try(case tagged_revision {
+    None -> Ok(Nil)
+    Some(tagged) ->
+      case data.revisions {
+        [change.RevisionInfo(revision, None)] if revision == tagged -> Ok(Nil)
+        _ -> Error("tagged change must contain only its commit revision")
+      }
+  })
   use fields <- result.try(wire_fields(
     data.fields,
     data,

@@ -1,11 +1,14 @@
 import gleam/json
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
+import watershed/fluid_ids
 import watershed/json_ot.{
   type JsonValue, type PathKey, Index, Key, NInt, VArray, VBool, VNumber,
   VObject, VString,
 }
+import watershed/tree/change
 import watershed/tree/change_fixture
 import watershed/tree/change_fixture_codec as codec
 import watershed/tree/fixtures
@@ -106,6 +109,30 @@ fn assert_map_mutation_changes(
   }
 }
 
+fn strip_echoed_operations(value: JsonValue) -> JsonValue {
+  case value {
+    VArray(values) -> VArray(list.map(values, strip_echoed_operations))
+    VObject(fields) ->
+      VObject(
+        fields
+        |> list.filter(fn(entry) { entry.0 != "operation" })
+        |> list.map(fn(entry) { #(entry.0, strip_echoed_operations(entry.1)) }),
+      )
+    other -> other
+  }
+}
+
+fn map_replay_without_echoed_operations(value: JsonValue) -> json.Json {
+  let assert Ok(output) = map_change_fixture.run(json_ot.to_json(value))
+  let assert Ok(output) = codec.parse(output)
+  output |> strip_echoed_operations |> json_ot.to_json
+}
+
+fn stable_revision(value: String) -> fluid_ids.StableId {
+  let assert Ok(revision) = fluid_ids.stable_id(value)
+  revision
+}
+
 pub fn shared_tree_map_change_runner_executes_fixture_arguments_test() -> Nil {
   let original = map_input()
   let mutations = [
@@ -122,14 +149,6 @@ pub fn shared_tree_map_change_runner_executes_fixture_arguments_test() -> Nil {
         Index(2),
       ]),
       VString("changed"),
-    ),
-    #(
-      map_scenario_path(4, [
-        Key("algebra"),
-        Index(2),
-        Key("operation"),
-      ]),
-      VString("rebase-right-over-left"),
     ),
     #(
       map_scenario_path(4, [Key("algebra"), Index(2)]),
@@ -151,30 +170,89 @@ pub fn shared_tree_map_change_runner_executes_fixture_arguments_test() -> Nil {
         #("output", VString("right-over-left")),
       ]),
     ),
-    #(
-      map_scenario_path(5, [Key("algebra"), Index(2)]),
-      VObject([
-        #("operation", VString("rebase-left-over-right")),
-        #("change", VString("right")),
-        #("over", VString("left")),
-        #(
-          "revisionMetadata",
-          VArray([
-            VObject([
-              #("revision", VString("00000000-0000-4000-b000-00000000000c")),
-            ]),
-            VObject([
-              #("revision", VString("00000000-0000-4000-b000-00000000000b")),
-            ]),
-          ]),
-        ),
-        #("output", VString("right-over-left")),
-      ]),
-    ),
   ]
   list.each(mutations, fn(mutation) {
     assert_map_mutation_changes(original, mutation.0, mutation.1)
   })
+}
+
+pub fn shared_tree_map_change_runner_observes_supported_operation_test() -> Nil {
+  let original = map_input()
+  let changed =
+    replace_at(
+      original,
+      map_scenario_path(4, [Key("algebra"), Index(2)]),
+      VObject([
+        #("operation", VString("invert")),
+        #("change", VString("left")),
+        #("inverseRevision", VString("00000000-0000-4000-b000-000000000008")),
+        #("output", VString("left-over-right")),
+      ]),
+    )
+  fixtures.first_difference(
+    map_replay_without_echoed_operations(original),
+    map_replay_without_echoed_operations(changed),
+  )
+  |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_map_change_runner_accepts_irrelevant_revision_metadata_test() -> Nil {
+  let original = map_input()
+  let path =
+    map_scenario_path(4, [
+      Key("algebra"),
+      Index(2),
+      Key("revisionMetadata"),
+    ])
+  let assert Ok(scenarios_value) = codec.get(original, "scenarios")
+  let assert Ok(scenarios) = codec.items(scenarios_value)
+  let assert Ok(scenario) = list.drop(scenarios, 4) |> list.first
+  let assert Ok(algebra_value) = codec.get(scenario, "algebra")
+  let assert Ok(algebra) = codec.items(algebra_value)
+  let assert Ok(operation) = list.drop(algebra, 2) |> list.first
+  let assert Ok(metadata_value) = codec.get(operation, "revisionMetadata")
+  let assert Ok(metadata) = codec.items(metadata_value)
+  let changed =
+    replace_at(
+      original,
+      path,
+      VArray(
+        list.append(metadata, [
+          VObject([
+            #("revision", VString("00000000-0000-4000-b000-00000000000a")),
+          ]),
+        ]),
+      ),
+    )
+  map_replay(changed) |> expect.to_equal(map_replay(original))
+}
+
+pub fn shared_tree_fixture_codec_rejects_invalid_tagged_revisions_test() -> Nil {
+  let first = stable_revision("00000000-0000-4000-b000-000000000001")
+  let second = stable_revision("00000000-0000-4000-b000-000000000002")
+  let assert Ok(order) = change.identity_order([#(first, 0), #(second, 1)])
+  let assert Ok(changeset) =
+    change.from_data(
+      change.ChangeData(
+        max_local_id: -1,
+        revisions: [
+          change.RevisionInfo(first, None),
+          change.RevisionInfo(second, None),
+        ],
+        fields: [],
+        nodes: [],
+        parents: [],
+        aliases: [],
+        builds: [],
+        destroys: [],
+        refreshers: [],
+      ),
+      order,
+    )
+  codec.wire_tagged(changeset, [#(first, 0), #(second, 1)], Some(first))
+  |> expect.to_be_error
+  Nil
 }
 
 pub fn shared_tree_map_change_runner_rejects_invalid_input_test() -> Nil {
