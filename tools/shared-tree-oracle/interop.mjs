@@ -34,7 +34,11 @@ import {
   validatePreflight,
   withLocalFloodgate,
 } from "./service.mjs";
-import { runReloadMatrix } from "./summary-interop.mjs";
+import {
+  runMapReloadMatrix,
+  runReloadMatrix,
+  validateMapResults,
+} from "./summary-interop.mjs";
 
 const implementations = ["upstream", "javascript", "erlang"];
 const nativeTargets = ["javascript", "erlang"];
@@ -507,6 +511,8 @@ function artifactReferences(report) {
     ...report.seeded.flatMap(({ artifacts }) => artifacts),
     ...Object.values(report.reload).flatMap((row) =>
       Object.values(row).flatMap(({ artifacts }) => artifacts)),
+    ...Object.values(report.mapReload).flatMap((row) =>
+      Object.values(row).flatMap(({ artifacts }) => artifacts)),
     ...Object.values(report.corpus).flatMap(({ artifacts }) => artifacts),
   ];
 }
@@ -541,6 +547,10 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
   log("shared-tree interop: selected-summary reload matrix");
   const reload = await runReloadMatrix(config, context);
 
+  await writeStatus(runDirectory, "map-reload");
+  log("shared-tree interop: dynamic-map selected-summary reload matrix");
+  const mapReload = await runMapReloadMatrix(config, context);
+
   await writeStatus(runDirectory, "seeded", {
     requested: options.iterations,
     seed: options.seed,
@@ -574,6 +584,7 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
     failures,
     seeded: seeded.results,
     reload,
+    mapReload,
     corpus,
     skipped: [],
     divergences: [],
@@ -1508,6 +1519,44 @@ function validateReload(report, expected, evidence) {
   }
 }
 
+function validateMapReload(report, expected, evidence) {
+  validateMapResults(report.mapReload);
+  for (const writer of implementations) {
+    for (const reader of implementations) {
+      const item = report.mapReload[writer][reader];
+      assert.equal(item.runId, expected.runId,
+        "Map reload belongs to another run");
+      assert.equal(item.profileDigest, expected.profileDigest,
+        "Map reload uses another profile");
+      assert.equal(item.writerVersionBeforeLoad, item.writerVersion,
+        "Map reload writer head changed before load");
+      assert.equal(item.writerVersionAfterLoad, item.writerVersion,
+        "Map reload writer head changed after continuation");
+      assert(Number.isSafeInteger(item.tailSequenceNumber)
+        && item.tailSequenceNumber > item.publicationSequenceNumber,
+      "Map reload lacks a measured operation after publication");
+      artifacts(item, evidence, expected, {
+        kind: "map-reload",
+        subject: `${writer}->${reader}`,
+        documentId: item.documentId,
+      }, `Map reload ${writer}->${reader}`);
+      for (const reference of item.artifacts) {
+        const claim = evidence.get(reference).claim;
+        assert.deepEqual(claim.measured,
+          reloadMeasuredPayload(item),
+        `Map reload ${writer}->${reader} artifact differs from measured evidence`);
+        if (reader === "upstream") continue;
+        const load = object(claim.raw?.load,
+          "Map reload artifact lacks raw native load evidence");
+        assert(Array.isArray(load.handshakes) && load.handshakes.length > 0,
+          "Map reload artifact lacks native handshake evidence");
+        assert(Array.isArray(load.repairRequests),
+          "Map reload artifact lacks repair-request evidence");
+      }
+    }
+  }
+}
+
 export function validateInteropReport(report, expected) {
   object(report, "Missing interoperability report");
   object(expected, "Missing report expectations");
@@ -1615,6 +1664,7 @@ export function validateInteropReport(report, expected) {
     const schedule = schedules[item.index];
     assert.equal(item.subSeed, schedule.subSeed, "Seeded sub-seed changed");
     assert.equal(item.template, schedule.template, "Seeded template changed");
+    assert.equal(item.profile, schedule.profile, "Seeded profile changed");
     assert.deepEqual(item.roles, schedule.roles, "Seeded roles changed");
     assert.deepEqual(item.actions, schedule.actions, "Seeded actions changed");
     measured(item, expected, implementations, evidence, `Seeded ${item.index}`);
@@ -1624,6 +1674,7 @@ export function validateInteropReport(report, expected) {
   "Seeded results omit an index");
 
   validateReload(report, expected, evidence);
+  validateMapReload(report, expected, evidence);
   assert.deepEqual(Object.keys(report.corpus).sort(), [...nativeTargets].sort(),
     "Corpus evidence lacks a native target");
   for (const target of nativeTargets) {

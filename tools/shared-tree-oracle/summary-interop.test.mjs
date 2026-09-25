@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  loadRequests, readCell, runArtifactInterop, runReloadMatrix, validateResults,
-  validateSummaryArtifact,
+  loadRequests, readCell, runArtifactInterop, runMapReloadMatrix, runReloadMatrix,
+  validateMapResults, validateResults, validateSummaryArtifact,
 } from "./summary-interop.mjs";
 
 const implementations = ["upstream", "javascript", "erlang"];
@@ -66,6 +66,65 @@ const cells = Object.fromEntries(implementations.map((writer, writerIndex) => [
     },
   ])),
 ]));
+const mapRoot = {
+  kind: "object",
+  schemaId: "org.watershed.shared-tree.m2.MapRoot",
+  fields: [[
+    "items",
+    {
+      kind: "map",
+      schemaId: "org.watershed.shared-tree.m2.DynamicMap",
+      entries: [
+        ["", { kind: "string", value: "empty" }],
+        ["123", { kind: "number", value: 123 }],
+        ["__proto__", { kind: "null" }],
+        ["tail", { kind: "string", value: "after-summary" }],
+        ["水", { kind: "boolean", value: true }],
+      ],
+    },
+  ]],
+};
+const mapCells = Object.fromEntries(implementations.map((writer, writerIndex) => [
+  writer,
+  Object.fromEntries(implementations.map((reader, readerIndex) => [
+    reader,
+    {
+      runId: "run",
+      profileDigest: "a".repeat(64),
+      profile: "map",
+      writer,
+      reader,
+      writerVersion: `${writer}-map-commit`,
+      loadedVersion: `${writer}-map-commit`,
+      readerInstanceId: `${writer}-${reader}-map-reader`,
+      snapshotSequenceNumber: 20 + writerIndex,
+      dataEditSequenceNumber: 24 + writerIndex,
+      publicationSequenceNumber: 28 + writerIndex,
+      replayWatermark: 32 + readerIndex,
+      replayStartSequenceNumber: 20 + writerIndex,
+      replayEvidence: reader === "upstream"
+        ? "upstream-delta-storage"
+        : "native-handshake",
+      selectedSummaryRequests: [`${writer}-map-commit`],
+      scenarioId: "map-summary-tail-retained",
+      loaded: true,
+      tailObserved: true,
+      continuedEditing: true,
+      peerObservedEdit: true,
+      deletedEntryAbsent: true,
+      pendingTreeCount: 0,
+      inflightSubmissionCount: 0,
+      wholeTree: mapRoot,
+      retained: {
+        removed: [[1027, 4, { type: "org.watershed.shared-tree.m2.Point" }]],
+        deletedKey: "deleted",
+        summaryConsumed: true,
+      },
+      documentId: `${writer}-map-document`,
+      artifacts: [`map-reload/${writer}-${reader}.json`],
+    },
+  ])),
+]));
 
 test("reload matrix rejects unmeasured selected-summary loads", () => {
   assert.equal(Object.keys(validateResults(cells)).length, 3);
@@ -117,6 +176,31 @@ test("reload matrix proves detached identity from fresh restored content", () =>
     const copy = structuredClone(cells);
     mutation(copy);
     assert.throws(() => validateResults(copy), undefined, label);
+  }
+});
+
+test("map reload matrix requires nine canonical tail and continuation cells", () => {
+  assert.equal(Object.keys(validateMapResults(mapCells)).length, 3);
+  for (const [label, mutation] of [
+    ["missing cell", (copy) => { delete copy.upstream.javascript; }],
+    ["wrong profile", (copy) => { copy.upstream.javascript.profile = "object"; }],
+    ["noncanonical entries", (copy) => {
+      copy.upstream.javascript.wholeTree.fields[0][1].entries.reverse();
+    }],
+    ["missing tail", (copy) => { copy.upstream.javascript.tailObserved = false; }],
+    ["missing continuation", (copy) => {
+      copy.upstream.javascript.peerObservedEdit = false;
+    }],
+    ["deleted entry restored", (copy) => {
+      copy.upstream.javascript.deletedEntryAbsent = false;
+    }],
+    ["missing retained history", (copy) => {
+      copy.upstream.javascript.retained.removed = [];
+    }],
+  ]) {
+    const copy = structuredClone(mapCells);
+    mutation(copy);
+    assert.throws(() => validateMapResults(copy), undefined, label);
   }
 });
 
@@ -326,4 +410,33 @@ test("reload runner requires the combined-run context", async () => {
     runReloadMatrix({}, {}),
     /runReloadMatrix context requires runId/,
   );
+});
+
+test("map reload runner requires the map schema", async () => {
+  await assert.rejects(
+    runMapReloadMatrix({}, {
+      runId: "run",
+      profileDigest: "a".repeat(64),
+      viewSchema: "object-schema",
+      artifactDirectory: "/tmp",
+    }),
+    /runMapReloadMatrix context requires mapViewSchema/,
+  );
+});
+
+test("map reload runner returns one row for every writer", async () => {
+  const seen = [];
+  const result = await runMapReloadMatrix({}, {
+    runId: "run",
+    profileDigest: "a".repeat(64),
+    mapViewSchema: "map-schema",
+    artifactDirectory: "/tmp",
+  }, {
+    runRow: async (_config, _context, writer) => {
+      seen.push(writer);
+      return structuredClone(mapCells[writer]);
+    },
+  });
+  assert.deepEqual(seen, implementations);
+  assert.deepEqual(result, mapCells);
 });

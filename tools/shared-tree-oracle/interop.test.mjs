@@ -581,6 +581,98 @@ async function validFixture() {
       return [reader, item];
     })),
   ]));
+  const mapReload = Object.fromEntries(implementations.map((writer, writerIndex) => [
+    writer,
+    Object.fromEntries(implementations.map((reader, readerIndex) => {
+      const item = {
+        runId: "current",
+        profileDigest: loaded.profileDigest,
+        profile: "map",
+        writer,
+        reader,
+        writerVersion: `${writer}-map-version`,
+        loadedVersion: `${writer}-map-version`,
+        readerInstanceId: `map-reload-${writer}-${reader}`,
+        snapshotSequenceNumber: 70 + writerIndex,
+        dataEditSequenceNumber: 80 + readerIndex,
+        publicationSequenceNumber: 90 + writerIndex,
+        replayWatermark: 100 + readerIndex,
+        replayStartSequenceNumber: 70 + writerIndex,
+        replayEvidence: reader === "upstream"
+          ? "upstream-delta-storage"
+          : "native-handshake",
+        selectedSummaryRequests: [`${writer}-map-version`],
+        scenarioId: "map-summary-tail-retained",
+        loaded: true,
+        tailObserved: true,
+        continuedEditing: true,
+        peerObservedEdit: true,
+        deletedEntryAbsent: true,
+        pendingTreeCount: 0,
+        inflightSubmissionCount: 0,
+        wholeTree: {
+          kind: "object",
+          schemaId: "org.watershed.shared-tree.m2.MapRoot",
+          fields: [[
+            "items",
+            {
+              kind: "map",
+              schemaId: "org.watershed.shared-tree.m2.DynamicMap",
+              entries: [
+                ["", { kind: "string", value: "empty" }],
+                ["123", { kind: "number", value: 123 }],
+                ["__proto__", { kind: "null" }],
+                ["tail", { kind: "string", value: "after-summary" }],
+                ["水", { kind: "boolean", value: true }],
+              ],
+            },
+          ]],
+        },
+        retained: {
+          removed: [[0, 1, {
+            type: "org.watershed.shared-tree.m2.Point",
+            fields: {},
+          }]],
+          deletedKey: "deleted",
+          summaryConsumed: true,
+        },
+        documentId: `map-reload-${writer}`,
+        writerVersionBeforeLoad: `${writer}-map-version`,
+        writerVersionAfterLoad: `${writer}-map-version`,
+        tailSequenceNumber: 95 + writerIndex,
+        continuationIdentity: {
+          clientId: `${reader}-map-client`,
+          referenceSequenceNumber: 100,
+          revisions: [{ revision: 1, originatorId: `${reader}-map-origin` }],
+        },
+        artifacts: [],
+      };
+      item.artifacts = [artifact(
+        "map-reload",
+        `${writer}->${reader}`,
+        item.documentId,
+        {
+          measured: reloadMeasuredPayload(item),
+          ...(reader === "upstream" ? {} : {
+            raw: {
+              load: {
+                handshakes: [{
+                  checkpointSequenceNumber: item.snapshotSequenceNumber,
+                  summarySequenceNumber: item.snapshotSequenceNumber,
+                  initialMessageSequenceNumbers: [
+                    1,
+                    item.snapshotSequenceNumber + 1,
+                  ],
+                }],
+                repairRequests: [],
+              },
+            },
+          }),
+        },
+      )];
+      return [reader, item];
+    })),
+  ]));
   const report = {
     formatVersion: 1,
     runId: "current",
@@ -613,6 +705,7 @@ async function validFixture() {
     failures,
     seeded,
     reload,
+    mapReload,
     corpus: Object.fromEntries(implementations.slice(1).map((target) => {
       const output = "Running 1 tests\nTests: 1 passed (1)";
       return [target, {
@@ -681,6 +774,13 @@ test("an empty result cannot prove interoperability", async () => {
 test("a complete current-run report satisfies the Task 15 coverage gate", async () => {
   const { expected, report } = await validFixture();
   assert.equal(validateInteropReport(report, expected), report);
+});
+
+test("the acceptance report requires all nine map reload cells", async () => {
+  const { expected, report } = await validFixture();
+  delete report.mapReload.upstream.javascript;
+  assert.throws(() => validateInteropReport(report, expected),
+    /map summary interop needs all three readers/i);
 });
 
 test("single-author algebra cells do not invent pending state", async () => {

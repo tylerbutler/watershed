@@ -26,7 +26,8 @@ import {
   upstreamAdapter,
 } from "./interop-scenarios.mjs";
 import {
-  openSession, preflight, serviceConfig, tokenProvider, withLocalFloodgate,
+  mapServiceStore, openSession, preflight, serviceConfig, tokenProvider,
+  withLocalFloodgate,
 } from "./service.mjs";
 import { makeEnvironment, publishSummary, readSnapshot } from "./container-corpus.mjs";
 import { captureSource, reference } from "./source.mjs";
@@ -337,6 +338,80 @@ export function validateResults(results) {
   return results;
 }
 
+export function validateMapResults(results) {
+  assert(results && typeof results === "object" && !Array.isArray(results),
+    "Map summary interop needs a nested reload matrix");
+  assert.deepEqual(Object.keys(results).sort(), [...implementations].sort(),
+    "Map summary interop needs all three writers");
+  const readerInstances = new Set();
+  for (const writer of implementations) {
+    assert.deepEqual(Object.keys(results[writer] ?? {}).sort(), [...implementations].sort(),
+      `Map summary interop needs all three readers for ${writer}`);
+    for (const reader of implementations) {
+      const cell = results[writer][reader];
+      assert.equal(cell.profile, "map", "Map reload has another profile");
+      assert.equal(cell.writer, writer, "Invalid map writer identity");
+      assert.equal(cell.reader, reader, "Invalid map reader identity");
+      assert(typeof cell.runId === "string" && cell.runId.length > 0,
+        "Missing map reload run ID");
+      assert(typeof cell.profileDigest === "string"
+        && /^[0-9a-f]{64}$/.test(cell.profileDigest),
+      "Missing map reload profile digest");
+      assert(typeof cell.documentId === "string" && cell.documentId.length > 0,
+        "Missing map reload document ID");
+      assert(typeof cell.writerVersion === "string" && cell.writerVersion.length > 0,
+        "Missing map writer version");
+      assert.equal(cell.loadedVersion, cell.writerVersion,
+        "Map reload selected another version");
+      assert(typeof cell.readerInstanceId === "string"
+        && cell.readerInstanceId.length > 0, "Missing fresh map reader instance");
+      assert(!readerInstances.has(cell.readerInstanceId),
+        "Map reload reused a reader instance");
+      readerInstances.add(cell.readerInstanceId);
+      assert(Number.isSafeInteger(cell.snapshotSequenceNumber)
+        && cell.snapshotSequenceNumber >= 0
+        && Number.isSafeInteger(cell.dataEditSequenceNumber)
+        && cell.snapshotSequenceNumber < cell.dataEditSequenceNumber
+        && Number.isSafeInteger(cell.publicationSequenceNumber)
+        && cell.dataEditSequenceNumber < cell.publicationSequenceNumber,
+      "Invalid map snapshot/publication positions");
+      assert(Number.isSafeInteger(cell.replayWatermark)
+        && cell.replayWatermark >= cell.publicationSequenceNumber,
+      "Missing map replay watermark");
+      assert(Number.isSafeInteger(cell.replayStartSequenceNumber)
+        && cell.replayStartSequenceNumber >= cell.snapshotSequenceNumber,
+      "Map reload fell back to origin replay");
+      assert(reader === "upstream"
+        ? cell.replayEvidence === "upstream-delta-storage"
+        : ["native-delivery", "native-handshake"].includes(cell.replayEvidence),
+      "Map reload lacks measured replay evidence");
+      assert(Array.isArray(cell.selectedSummaryRequests)
+        && cell.selectedSummaryRequests.includes(cell.loadedVersion),
+      "Map reload did not request the selected summary");
+      assert.equal(cell.scenarioId, "map-summary-tail-retained");
+      assert.equal(cell.loaded, true);
+      assert.equal(cell.tailObserved, true);
+      assert.equal(cell.continuedEditing, true);
+      assert.equal(cell.peerObservedEdit, true);
+      assert.equal(cell.deletedEntryAbsent, true);
+      assert.equal(cell.pendingTreeCount, 0);
+      assert.equal(cell.inflightSubmissionCount, 0);
+      assert.deepEqual(cell.wholeTree, canonicalValue(cell.wholeTree),
+        "Map reload entries are not canonical");
+      assert(Array.isArray(cell.retained?.removed)
+        && cell.retained.removed.length > 0,
+      "Map reload lacks retained deleted content");
+      assert.equal(cell.retained.deletedKey, "deleted",
+        "Map reload retained another deleted key");
+      assert.equal(cell.retained.summaryConsumed, true,
+        "Map retained-state verifier did not consume the summary");
+      assert(Array.isArray(cell.artifacts) && cell.artifacts.length > 0,
+        "Missing map reload artifact");
+    }
+  }
+  return results;
+}
+
 function validateFocusedResults(results) {
   const requiredPairs = implementations.flatMap((writer) =>
     implementations.map((reader) => `${writer}->${reader}`));
@@ -599,6 +674,23 @@ async function writeReloadArtifact(context, item, raw) {
   return relative;
 }
 
+async function writeMapReloadArtifact(context, item, raw) {
+  const relative = `map-reload/${item.writer}-${item.reader}.json`;
+  const path = join(context.artifactDirectory, relative);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({
+    formatVersion: 1,
+    runId: context.runId,
+    profileDigest: context.profileDigest,
+    kind: "map-reload",
+    subject: `${item.writer}->${item.reader}`,
+    documentId: item.documentId,
+    measured: reloadMeasuredPayload(item),
+    raw,
+  })}\n`, { mode: 0o600 });
+  return relative;
+}
+
 export function loadRequests(evidence, version, snapshotSequenceNumber) {
   assert(Number.isSafeInteger(snapshotSequenceNumber) && snapshotSequenceNumber >= 0,
     "Native reader lacks a selected-summary sequence");
@@ -729,6 +821,10 @@ async function publishWriterSummary(
   jwt,
   writer,
   adapters,
+  {
+    store,
+    tailEdit = (adapter, value) => adapter.set(["note"], value),
+  } = {},
 ) {
   const tailAuthor = writer === "javascript" ? "erlang" : "javascript";
   const tailBaseline = await adapters[tailAuthor].checkpoint();
@@ -736,7 +832,13 @@ async function publishWriterSummary(
   let snapshotSequenceNumber;
   let dataEdit;
   if (writer === "upstream") {
-    const summarizer = await openSession(config, containers, documentId, true);
+    const summarizer = await openSession(
+      config,
+      containers,
+      documentId,
+      true,
+      store ? { store } : undefined,
+    );
     assert(summarizer.data.ISummarizer, "Missing upstream summarizer");
     await summarizer.container.deltaManager.outbound.pause();
     const result = summarizer.data.ISummarizer.summarizeOnDemand({
@@ -748,7 +850,7 @@ async function publishWriterSummary(
     snapshotSequenceNumber = submitted.data.referenceSequenceNumber;
     assert(summarizer.container.deltaManager.outbound.length > 0,
       "Upstream summarize operation was not held after upload");
-    await adapters[tailAuthor].set(["note"], `between-${writer}-${randomUUID()}`);
+    await tailEdit(adapters[tailAuthor], `between-${writer}-${randomUUID()}`);
     await adapters[tailAuthor].awaitSynced();
     dataEdit = await acknowledgedSubmission(
       creator,
@@ -789,7 +891,7 @@ async function publishWriterSummary(
       }
       throw new Error(`${error.message}: ${JSON.stringify(evidence)}`, { cause: error });
     }
-    await adapters[tailAuthor].set(["note"], `between-${writer}-${randomUUID()}`);
+    await tailEdit(adapters[tailAuthor], `between-${writer}-${randomUUID()}`);
     await adapters[tailAuthor].awaitSynced();
     await adapter.client.gate.release("outbound");
     const outcome = await published;
@@ -1144,6 +1246,341 @@ export async function runReloadMatrix(config, context) {
     results[writer] = await runWriterRow(config, context, writer);
   }
   return validateResults(results);
+}
+
+const mapPointValue = (x, y) => ({
+  kind: "object",
+  schemaId: "org.watershed.shared-tree.m2.Point",
+  fields: [
+    ["x", { kind: "number", value: x }],
+    ["y", { kind: "number", value: y }],
+  ],
+});
+
+const dynamicMapValue = (entries) => ({
+  kind: "map",
+  schemaId: "org.watershed.shared-tree.m2.DynamicMap",
+  entries,
+});
+
+async function readMapCell(config, context, row, reader) {
+  const containers = [];
+  let adapter;
+  let readError;
+  try {
+    const headBefore = await publishedVersion(config, row.documentId, row.jwt);
+    assert.equal(headBefore, row.version, "Map writer head changed before reload");
+    let load;
+    let rawLoad;
+    if (reader === "upstream") {
+      const session = await openSession(
+        config,
+        containers,
+        row.documentId,
+        false,
+        { cache: false, observeStorage: true, store: mapServiceStore },
+      );
+      adapter = upstreamAdapter(session);
+      await adapter.awaitSynced(row.publicationSequenceNumber);
+      load = storageLoad(session.storageObservations, row.version);
+      rawLoad = session.storageObservations;
+    } else {
+      adapter = await nativeAdapter(reader, config, {
+        runId: context.runId,
+        documentId: row.documentId,
+        tenant: config.tenantId,
+        viewSchema: context.mapViewSchema,
+      }, row.jwt);
+      await adapter.awaitSynced(row.publicationSequenceNumber);
+      rawLoad = adapter.evidence();
+      load = loadRequests(rawLoad, row.version, row.snapshotSequenceNumber);
+    }
+    assert(load.replayStartSequenceNumber >= row.snapshotSequenceNumber,
+      "Fresh map reader replayed from before the selected summary");
+    const loaded = await adapter.checkpoint();
+    const expected = await row.observerAdapter.checkpoint();
+    assert.deepEqual(loaded.wholeTree, expected.wholeTree,
+      `${reader} loaded a different map root`);
+    assert.equal((await adapter.mapGet(["items"], "deleted")).present, false,
+      `${reader} restored the deleted map entry`);
+    assert.deepEqual(await adapter.mapGet(["items"], "tail"), {
+      present: true,
+      value: row.tailValue,
+    }, `${reader} missed the post-summary map tail`);
+
+    const continuationKey = `reader-${writerReaderKey(row.writer, reader)}`;
+    const continuationValue = {
+      kind: "string",
+      value: `${row.writer}-${reader}-${randomUUID()}`,
+    };
+    const baseline = loaded.sequenceNumber;
+    await adapter.mapSet(["items"], continuationKey, continuationValue);
+    await adapter.awaitSynced();
+    await until(() => row.observer.data.view.root.items.has(continuationKey),
+      `${reader} map continuation observation`);
+    const continuation = await acknowledgedSubmission(
+      row.observer,
+      adapter,
+      baseline,
+      reader,
+    );
+    const final = await adapter.checkpoint();
+    const history = await serverHistory(row.observer);
+    const headAfter = await publishedVersion(config, row.documentId, row.jwt);
+    assert.equal(headAfter, row.version, "Map reader unexpectedly changed the writer head");
+    const item = {
+      runId: context.runId,
+      profileDigest: context.profileDigest,
+      profile: "map",
+      writer: row.writer,
+      reader,
+      writerVersion: row.version,
+      loadedVersion: load.loadedVersion,
+      readerInstanceId: adapter.instanceId,
+      snapshotSequenceNumber: row.snapshotSequenceNumber,
+      dataEditSequenceNumber: row.dataEditSequenceNumber,
+      publicationSequenceNumber: row.publicationSequenceNumber,
+      replayWatermark: final.sequenceNumber,
+      replayStartSequenceNumber: load.replayStartSequenceNumber,
+      replayEvidence: load.replayEvidence,
+      selectedSummaryRequests: load.selectedSummaryRequests,
+      scenarioId: "map-summary-tail-retained",
+      loaded: true,
+      tailObserved: true,
+      continuedEditing: true,
+      peerObservedEdit: true,
+      deletedEntryAbsent: true,
+      pendingTreeCount: final.pendingTreeCount,
+      inflightSubmissionCount: final.inflightSubmissionCount,
+      wholeTree: final.wholeTree,
+      documentId: row.documentId,
+      writerVersionBeforeLoad: headBefore,
+      writerVersionAfterLoad: headAfter,
+      tailSequenceNumber: row.tailSequenceNumber,
+      retained: row.retained,
+      continuationIdentity: continuationIdentity(
+        history,
+        adapter,
+        continuation.outerSequenceNumber,
+      ),
+      artifacts: [],
+    };
+    item.artifacts = [await writeMapReloadArtifact(context, item, {
+      load: rawLoad,
+      history,
+      retainedLoad: row.retainedLoad,
+    })];
+    return item;
+  } catch (error) {
+    readError = error;
+    throw error;
+  } finally {
+    const cleanup = [];
+    if (reader === "upstream") {
+      for (const container of containers.toReversed()) {
+        if (!container.closed) cleanup.push(() => container.dispose());
+      }
+    } else if (adapter) {
+      cleanup.push(() => adapter.close());
+    }
+    await cleanupAll(readError, `${reader} map reload reader cleanup failed`, cleanup);
+  }
+}
+
+function writerReaderKey(writer, reader) {
+  return `${writer}-${reader}`;
+}
+
+async function runMapWriterRow(config, context, writer) {
+  const containers = [];
+  const natives = [];
+  let rowError;
+  try {
+    const creator = await openSession(
+      config,
+      containers,
+      undefined,
+      false,
+      { store: mapServiceStore },
+    );
+    const documentId = creator.container.resolvedUrl.id;
+    await publishUpstreamSummary(
+      config,
+      containers,
+      documentId,
+      `M2 ${writer} bootstrap`,
+      { store: mapServiceStore },
+    );
+    const bootstrapSummarizer = containers.at(-1);
+    if (bootstrapSummarizer !== creator.container) bootstrapSummarizer.dispose();
+    const upstream = upstreamAdapter(await openSession(
+      config,
+      containers,
+      documentId,
+      false,
+      { store: mapServiceStore },
+    ));
+    const creatorAdapter = upstreamAdapter(creator);
+    const { jwt } = await tokenProvider(config).fetchOrdererToken(
+      config.tenantId,
+      documentId,
+    );
+    for (const target of nativeTargets) {
+      natives.push(await nativeAdapter(target, config, {
+        runId: context.runId,
+        documentId,
+        tenant: config.tenantId,
+        viewSchema: context.mapViewSchema,
+      }, jwt));
+    }
+    const adapters = {
+      upstream,
+      javascript: natives[0],
+      erlang: natives[1],
+    };
+    await settle(adapters);
+    const values = [
+      ["", { kind: "string", value: "empty" }],
+      ["123", { kind: "number", value: 123 }],
+      ["__proto__", { kind: "null" }],
+      ["point", mapPointValue(3, 4)],
+      ["nested", dynamicMapValue([
+        ["inner", { kind: "string", value: "nested" }],
+        ["recursive", dynamicMapValue([
+          ["leaf", { kind: "boolean", value: true }],
+        ])],
+      ])],
+      ["水", { kind: "boolean", value: true }],
+      ["deleted", mapPointValue(42, 7)],
+    ];
+    for (const [key, value] of values) {
+      await adapters[writer].mapSet(["items"], key, value);
+    }
+    await adapters[writer].mapDelete(["items"], "deleted");
+    await adapters[writer].awaitSynced();
+    await settle(adapters);
+    assert.equal((await adapters[writer].mapGet(["items"], "deleted")).present, false,
+      `${writer} did not delete the retained map entry`);
+
+    const tailValue = {
+      kind: "string",
+      value: `after-summary-${writer}`,
+    };
+    const publication = await publishWriterSummary(
+      config,
+      containers,
+      creator,
+      documentId,
+      jwt,
+      writer,
+      adapters,
+      {
+        store: mapServiceStore,
+        tailEdit: (adapter) => adapter.mapSet(["items"], "tail", tailValue),
+      },
+    );
+
+    for (const native of natives.toReversed()) await native.close();
+    natives.length = 0;
+    if (!upstream.session.container.closed) upstream.session.container.dispose();
+
+    creator.data.bootstrap.set("historyFence", `map-after-${writer}-${randomUUID()}`);
+    await until(() => !creator.container.isDirty, `${writer} map non-tree tail`);
+    const tailHistory = await serverHistory(creator);
+    const tail = tailHistory.findLast(({ clientId, sequenceNumber, type }) =>
+      clientId === creator.container.clientId
+        && sequenceNumber > publication.publicationSequenceNumber
+        && type === "op");
+    assert(tail, `${writer} lacks a map non-tree tail after publication`);
+
+    const verifier = await openSession(
+      config,
+      containers,
+      documentId,
+      false,
+      { cache: false, observeStorage: true, store: mapServiceStore },
+    );
+    const retainedLoad = storageLoad(verifier.storageObservations, publication.version);
+    assert(retainedLoad.replayStartSequenceNumber >= publication.snapshotSequenceNumber,
+      "Map retained verifier replayed from the document origin");
+    assert.equal(verifier.data.view.root.items.has("deleted"), false,
+      "Fresh map retained read restored the deleted entry");
+    assert.equal(verifier.data.view.root.items.has("tail"), true,
+      "Fresh map retained read missed the summary tail");
+    const removed = verifier.data.tree.contentSnapshot().removed;
+    assert(removed.length > 0, "Fresh map retained read omitted deleted content");
+    const retained = {
+      removed,
+      deletedKey: "deleted",
+      summaryConsumed: true,
+    };
+    verifier.container.dispose();
+
+    const row = {
+      writer,
+      documentId,
+      jwt,
+      observer: creator,
+      observerAdapter: creatorAdapter,
+      retained,
+      retainedLoad: verifier.storageObservations,
+      tailSequenceNumber: tail.sequenceNumber,
+      tailValue,
+      ...publication,
+    };
+    const results = {};
+    for (const reader of implementations) {
+      results[reader] = await readMapCell(config, context, row, reader);
+    }
+    return results;
+  } catch (error) {
+    rowError = error;
+    throw error;
+  } finally {
+    const cleanupErrors = [];
+    for (const native of natives.toReversed()) {
+      try {
+        await native.close();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const container of containers.toReversed()) {
+      try {
+        if (!container.closed) container.dispose();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      if (rowError) rowError.cleanupErrors = cleanupErrors;
+      else throw new AggregateError(
+        cleanupErrors,
+        `Cleanup failed for ${writer} map reload row`,
+      );
+    }
+  }
+}
+
+export async function runMapReloadMatrix(config, context, {
+  runRow,
+} = {}) {
+  assert(typeof context?.runId === "string" && context.runId.length > 0,
+    "runMapReloadMatrix context requires runId");
+  assert(typeof context.profileDigest === "string"
+    && /^[0-9a-f]{64}$/.test(context.profileDigest),
+  "runMapReloadMatrix context requires profileDigest");
+  assert(typeof context.mapViewSchema === "string" && context.mapViewSchema.length > 0,
+    "runMapReloadMatrix context requires mapViewSchema");
+  assert(typeof context.artifactDirectory === "string"
+    && context.artifactDirectory.length > 0,
+  "runMapReloadMatrix context requires artifactDirectory");
+  const executeRow = runRow ?? runMapWriterRow;
+  const results = {};
+  for (const writer of implementations) {
+    results[writer] = await executeRow(config, context, writer);
+  }
+  return validateMapResults(results);
 }
 
 export async function runService(config) {
