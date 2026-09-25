@@ -32,6 +32,7 @@ pub type Case {
     domain: String,
     input: Json,
     expected: Json,
+    raw: Json,
     reference_version: String,
   )
 }
@@ -56,6 +57,7 @@ type RawCase {
     domain: String,
     input: JsonValue,
     expected: JsonValue,
+    raw: JsonValue,
   )
 }
 
@@ -139,11 +141,13 @@ pub fn decode_case(raw: String) -> Result(Case, String) {
   use _ <- result.try(nonempty(decoded.domain, "case domain"))
   use _ <- result.try(require_object(decoded.input, "input"))
   use _ <- result.try(validate_expected(decoded.expected))
+  use _ <- result.try(require_object(decoded.raw, "raw"))
   Ok(Case(
     id: decoded.id,
     domain: decoded.domain,
     input: json_ot.to_json(decoded.input),
     expected: json_ot.to_json(decoded.expected),
+    raw: json_ot.to_json(decoded.raw),
     reference_version: decoded.reference.version,
   ))
 }
@@ -354,6 +358,7 @@ fn case_decoder() -> Decoder(RawCase) {
   use domain <- decode.field("domain", decode.string)
   use input <- decode.field("input", json_ot.decoder())
   use expected <- decode.field("expected", json_ot.decoder())
+  use raw <- decode.field("raw", json_ot.decoder())
   decode.success(RawCase(
     format_version:,
     reference:,
@@ -361,6 +366,7 @@ fn case_decoder() -> Decoder(RawCase) {
     domain:,
     input:,
     expected:,
+    raw:,
   ))
 }
 

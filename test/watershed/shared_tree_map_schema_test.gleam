@@ -220,6 +220,15 @@ pub fn shared_tree_map_schema_reports_entry_lookup_errors_test() -> Nil {
   )
 }
 
+pub fn shared_tree_map_schema_exposes_node_kinds_test() -> Nil {
+  let #(_, map_schema) = map_schemas()
+  let assert Ok(stored) = schema.stored_from_string(map_schema)
+  let assert Ok(schema.Map(_)) = schema.node_schema(stored, map_type)
+  let assert Ok(schema.Object(_)) = schema.node_schema(stored, point_type)
+  schema.node_schema(stored, "Missing")
+  |> expect.to_equal(Error(types.InvalidSchema("unknown node schema: Missing")))
+}
+
 pub fn shared_tree_map_schema_rejects_wrong_node_value_kinds_test() -> Nil {
   let #(_, map_schema) = map_schemas()
   let assert Ok(stored) = schema.stored_from_string(map_schema)

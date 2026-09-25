@@ -65,6 +65,17 @@ pub fn root_field_schema(schema: StoredSchema) -> FieldSchema {
   schema.repository.root
 }
 
+/// Read one node definition by its stored identifier.
+pub fn node_schema(
+  schema: StoredSchema,
+  identifier: String,
+) -> Result(NodeSchema, TreeError) {
+  case dict.get(schema.repository.nodes, identifier) {
+    Ok(node) -> Ok(node)
+    Error(Nil) -> Error(InvalidSchema("unknown node schema: " <> identifier))
+  }
+}
+
 /// Decode a schema that is already JSON. Earlier parsers can erase duplicate
 /// keys. Use `stored_from_string` for a schema blob from storage or the wire.
 pub fn stored_from_json(data: Json) -> Result(StoredSchema, TreeError) {

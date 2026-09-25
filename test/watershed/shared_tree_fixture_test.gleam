@@ -24,7 +24,7 @@ fn fixture(
   <> input
   <> ",\"expected\":"
   <> expected
-  <> "}"
+  <> ",\"raw\":{}}"
 }
 
 fn reference_object() -> String {
@@ -51,6 +51,7 @@ pub fn shared_tree_fixture_positive_decode_keeps_complete_expected_test() -> Nil
   fixture_case.id |> expect.to_equal("independent-fields")
   fixture_case.domain |> expect.to_equal("tree")
   fixture_case.reference_version |> expect.to_equal("3.1.0")
+  fixture_case.raw |> expect.to_equal(json.object([]))
   fixtures.first_difference(
     fixture_case.expected,
     json.object([
