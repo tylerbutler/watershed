@@ -12,7 +12,9 @@ import watershed/tree/change
 import watershed/tree/change_fixture
 import watershed/tree/change_fixture_codec as codec
 import watershed/tree/fixtures
+import watershed/tree/forest
 import watershed/tree/map_change_fixture
+import watershed/tree/types
 
 pub fn shared_tree_nested_change_algebra_matches_upstream_test() -> Nil {
   fixtures.assert_case("modular-nested-algebra", change_fixture.run)
@@ -359,6 +361,36 @@ pub fn shared_tree_fixture_codec_rejects_invalid_tagged_revisions_test() -> Nil 
     )
   codec.wire_tagged(changeset, [#(first, 0), #(second, 1)], Some(first))
   |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_fixture_codec_rejects_multi_tree_build_chunks_test() -> Nil {
+  let revision = stable_revision("00000000-0000-4000-b000-000000000001")
+  let assert Ok(order) = change.identity_order([#(revision, 0)])
+  let assert Ok(changeset) =
+    change.from_data(
+      change.ChangeData(
+        max_local_id: 2,
+        revisions: [change.RevisionInfo(revision, None)],
+        fields: [],
+        nodes: [],
+        parents: [],
+        aliases: [],
+        builds: [
+          forest.Build(types.AtomId(Some(revision), 0), [
+            types.StringValue("first"),
+            types.StringValue("second"),
+          ]),
+          forest.Build(types.AtomId(Some(revision), 2), [
+            types.StringValue("third"),
+          ]),
+        ],
+        destroys: [],
+        refreshers: [],
+      ),
+      order,
+    )
+  codec.wire(changeset, [#(revision, 0)]) |> expect.to_be_error
   Nil
 }
 

@@ -773,6 +773,10 @@ fn wire_builds(
     _ -> {
       use keyed <- result.try(
         list.try_map(builds, fn(build) {
+          use _ <- result.try(case build.trees {
+            [_] -> Ok(Nil)
+            _ -> Error("encoded fixture build chunk must contain one tree")
+          })
           use revision <- result.try(case build.id.revision {
             None -> Ok(-1)
             Some(revision) if Some(revision) == tagged_revision -> Ok(-1)
