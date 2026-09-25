@@ -594,7 +594,7 @@ pub fn resolve_root(document: Document(root)) -> Result(SharedMap, String) {
 
 @target(erlang)
 /// Resolve an existing tree with a compatible fixed view.
-/// This API supports the declared Fluid 3.1.0 object profile.
+/// This API supports the declared Fluid 3.1.0 object and dynamic-map profiles.
 /// An incompatible stored schema returns an error.
 pub fn resolve_tree(
   document: Document(root),
@@ -649,6 +649,68 @@ pub fn tree_clear(
     tree.address,
     tree_types.ClearField(path),
   )
+}
+
+@target(erlang)
+/// Read an entry from the tree map node at `path`.
+/// The key is separate from the path. An absent entry returns `None`.
+/// This operation does not read a standalone SharedMap channel.
+pub fn tree_map_get(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+  key: String,
+) -> Result(Option(tree_types.TreeValue), String) {
+  runtime_beam.tree_map_get(tree.runtime, tree.address, path, key)
+}
+
+@target(erlang)
+/// Set an entry in the tree map node at `path`.
+/// The document must be ready. An invalid edit does not change the tree.
+pub fn tree_map_set(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+  key: String,
+  value: tree_types.TreeValue,
+) -> Result(Nil, String) {
+  runtime_beam.tree_edit(
+    tree.runtime,
+    tree.address,
+    tree_types.MapSet(path, key, value),
+  )
+}
+
+@target(erlang)
+/// Delete an entry from the tree map node at `path`.
+/// An absent entry succeeds. The document must be ready.
+pub fn tree_map_delete(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+  key: String,
+) -> Result(Nil, String) {
+  runtime_beam.tree_edit(
+    tree.runtime,
+    tree.address,
+    tree_types.MapDelete(path, key),
+  )
+}
+
+@target(erlang)
+/// Read the keys of the tree map node at `path` in canonical UTF-8 order.
+pub fn tree_map_keys(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+) -> Result(List(String), String) {
+  tree_map_entries(tree, path)
+  |> result.map(fn(entries) { list.map(entries, fn(entry) { entry.0 }) })
+}
+
+@target(erlang)
+/// Read the entries of the tree map node at `path` in canonical UTF-8 key order.
+pub fn tree_map_entries(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+) -> Result(List(#(String, tree_types.TreeValue)), String) {
+  runtime_beam.tree_map_entries(tree.runtime, tree.address, path)
 }
 
 @target(erlang)

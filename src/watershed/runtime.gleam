@@ -2062,6 +2062,39 @@ pub fn tree_read(
 }
 
 @target(javascript)
+pub fn tree_map_get(
+  runtime: Runtime,
+  address: String,
+  path: tree_types.FieldPath,
+  key: String,
+) -> Result(Option(tree_types.TreeValue), String) {
+  read(
+    runtime.cell,
+    Error("tree map read requires a ready document connection"),
+    fn(core) {
+      runtime_core.tree_map_get(core, address, path, key)
+      |> result.map_error(string.inspect)
+    },
+  )
+}
+
+@target(javascript)
+pub fn tree_map_entries(
+  runtime: Runtime,
+  address: String,
+  path: tree_types.FieldPath,
+) -> Result(List(#(String, tree_types.TreeValue)), String) {
+  read(
+    runtime.cell,
+    Error("tree map read requires a ready document connection"),
+    fn(core) {
+      runtime_core.tree_map_entries(core, address, path)
+      |> result.map_error(string.inspect)
+    },
+  )
+}
+
+@target(javascript)
 /// Submit one tree edit through the document transport.
 pub fn tree_edit(
   runtime: Runtime,

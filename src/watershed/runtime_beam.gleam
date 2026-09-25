@@ -437,6 +437,17 @@ pub type Msg {
     path: tree_types.FieldPath,
     reply: Subject(Result(Option(tree_types.TreeValue), String)),
   )
+  TreeMapGet(
+    address: String,
+    path: tree_types.FieldPath,
+    key: String,
+    reply: Subject(Result(Option(tree_types.TreeValue), String)),
+  )
+  TreeMapEntries(
+    address: String,
+    path: tree_types.FieldPath,
+    reply: Subject(Result(List(#(String, tree_types.TreeValue)), String)),
+  )
   TreeEdit(
     address: String,
     edit: tree_types.Edit,
@@ -933,6 +944,33 @@ pub fn tree_read(
     runtime,
     waiting: connect_timeout_milliseconds,
     sending: fn(reply) { TreeRead(address, path, reply) },
+  )
+}
+
+@target(erlang)
+pub fn tree_map_get(
+  runtime: Subject(Msg),
+  address: String,
+  path: tree_types.FieldPath,
+  key: String,
+) -> Result(Option(tree_types.TreeValue), String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { TreeMapGet(address, path, key, reply) },
+  )
+}
+
+@target(erlang)
+pub fn tree_map_entries(
+  runtime: Subject(Msg),
+  address: String,
+  path: tree_types.FieldPath,
+) -> Result(List(#(String, tree_types.TreeValue)), String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { TreeMapEntries(address, path, reply) },
   )
 }
 
@@ -1600,6 +1638,34 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
           Error("tree read requires a ready document connection"),
           fn(core) {
             runtime_core.tree_read(core, address, path)
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
+    TreeMapGet(address, path, key, reply) -> {
+      process.send(
+        reply,
+        read(
+          state,
+          Error("tree map read requires a ready document connection"),
+          fn(core) {
+            runtime_core.tree_map_get(core, address, path, key)
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
+    TreeMapEntries(address, path, reply) -> {
+      process.send(
+        reply,
+        read(
+          state,
+          Error("tree map read requires a ready document connection"),
+          fn(core) {
+            runtime_core.tree_map_entries(core, address, path)
             |> result.map_error(string.inspect)
           },
         ),
