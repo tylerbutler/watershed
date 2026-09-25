@@ -1074,13 +1074,23 @@ git commit -m "feat(tree): expose dynamic map operations"
 
 ### Task 7: Extend the dual-target command clients
 
+**Status:** Complete on 2026-09-25 in `7c2a6bd`. The shared protocol accepts
+all five direct map commands and recursive map values, rejects duplicate map
+entries, and emits canonical key and entry results. Both target clients route
+through the public Task 6 facades. The Node driver exposes correlated map
+helpers with empty-key, Unicode-key, reverse-reply, and facade-error coverage.
+Focused tests pass on both Gleam targets, and all 200 oracle Node tests pass.
+The repository-wide suite reached the package matrix, but Hex API rate limits
+blocked dependency resolution for eight unchanged example packages. Tasks 8–9
+remain open.
+
 **Files:**
 - Modify: `test/watershed/tree/client_protocol.gleam`
 - Modify: `test/watershed/tree/client_js.gleam`
 - Modify: `test/watershed/tree/client_beam.gleam`
 - Modify: `test/watershed/shared_tree_client_test.gleam`
 - Modify: `tools/shared-tree-oracle/client-driver.mjs`
-- Modify: `tools/shared-tree-oracle/client-interop.test.mjs`
+- Modify: `tools/shared-tree-oracle/client-driver.test.mjs`
 
 **Interfaces:**
 - Consumes: the public facade functions from Task 6.
@@ -1094,7 +1104,7 @@ git commit -m "feat(tree): expose dynamic map operations"
 {"requestId":5,"command":"map-entries","path":["items"]}
 ```
 
-- [ ] **Step 1: Write failing protocol tests**
+- [x] **Step 1: Write failing protocol tests**
 
 Extend `Command`:
 
@@ -1109,7 +1119,7 @@ MapEntries(FieldPath)
 Tests must accept empty map keys, reject missing or non-string keys, reject
 duplicate map-value entries, and round-trip nested `MapValue`.
 
-- [ ] **Step 2: Add canonical result encoders**
+- [x] **Step 2: Add canonical result encoders**
 
 Add:
 
@@ -1122,7 +1132,7 @@ pub fn encode_map_entries(
 Encode an array of `[key, value]` pairs. Sort with
 `canonical_json.compare` before encoding. Encode keys as a JSON string array.
 
-- [ ] **Step 3: Run protocol tests and confirm failure**
+- [x] **Step 3: Run protocol tests and confirm failure**
 
 Run:
 
@@ -1133,7 +1143,7 @@ gleam test --target javascript -- shared_tree_client
 
 Expected: both targets fail on missing map command and `MapValue` branches.
 
-- [ ] **Step 4: Implement protocol decoding**
+- [x] **Step 4: Implement protocol decoding**
 
 Keep `decode_path` unchanged for map paths. Add `decode_key` that accepts every
 string, including `""`:
@@ -1147,13 +1157,13 @@ fn decode_key(data: Dynamic) -> Result(String, ProtocolError) {
 Add a `"map"` value branch with `schemaId` and `entries`. Reject duplicate keys
 without rejecting empty keys.
 
-- [ ] **Step 5: Execute map commands on both targets**
+- [x] **Step 5: Execute map commands on both targets**
 
 In `client_js.gleam` and `client_beam.gleam`, map commands call the matching
 facade function. Encode `map-get` with `encode_read`, map keys as a JSON array,
 and map entries with `encode_map_entries`.
 
-- [ ] **Step 6: Extend the Node client driver**
+- [x] **Step 6: Extend the Node client driver**
 
 Add methods:
 
@@ -1169,7 +1179,7 @@ Each method sends one command, checks the correlated response ID, and returns
 the decoded result. Add driver tests for empty and Unicode keys and facade
 errors.
 
-- [ ] **Step 7: Run client tests on both targets**
+- [x] **Step 7: Run client tests on both targets**
 
 Run:
 
@@ -1182,7 +1192,7 @@ gleam format --check test
 
 Expected: protocol, driver, and both command-client implementations pass.
 
-- [ ] **Step 8: Commit command-client support**
+- [x] **Step 8: Commit command-client support**
 
 ```sh
 git add test/watershed/tree/client_protocol.gleam \
