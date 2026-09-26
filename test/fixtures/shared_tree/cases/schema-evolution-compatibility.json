@@ -2079,6 +2079,25 @@
     "refusalAttempts": [
       {
         "id": "narrow",
+        "classification": "upstream-refusal",
+        "compatibility": {
+          "canView": false,
+          "canUpgrade": false,
+          "isEquivalent": false,
+          "discrepancies": [
+            {
+              "mismatch": "allowedTypes",
+              "location": {
+                "nodeType": "org.watershed.shared-tree.m4.Items"
+              },
+              "view": [],
+              "stored": [
+                "org.watershed.shared-tree.m4.Point"
+              ]
+            }
+          ],
+          "canInitialize": false
+        },
         "attempted": true,
         "outcome": "refused",
         "error": "Error: Existing stored schema cannot be upgraded to the requested schema (see TreeView.compatibility.canUpgrade).",
@@ -2182,6 +2201,24 @@
       },
       {
         "id": "new-required",
+        "classification": "upstream-refusal",
+        "compatibility": {
+          "canView": false,
+          "canUpgrade": false,
+          "isEquivalent": false,
+          "discrepancies": [
+            {
+              "mismatch": "fieldKind",
+              "location": {
+                "nodeType": "org.watershed.shared-tree.m4.Root",
+                "fieldKey": "score"
+              },
+              "view": "Value",
+              "stored": "Forbidden"
+            }
+          ],
+          "canInitialize": false
+        },
         "attempted": true,
         "outcome": "refused",
         "error": "Error: Existing stored schema cannot be upgraded to the requested schema (see TreeView.compatibility.canUpgrade).",
@@ -2285,6 +2322,24 @@
       },
       {
         "id": "optional-to-required",
+        "classification": "upstream-refusal",
+        "compatibility": {
+          "canView": false,
+          "canUpgrade": false,
+          "isEquivalent": false,
+          "discrepancies": [
+            {
+              "mismatch": "fieldKind",
+              "location": {
+                "nodeType": "org.watershed.shared-tree.m4.Root",
+                "fieldKey": "note"
+              },
+              "view": "Value",
+              "stored": "Optional"
+            }
+          ],
+          "canInitialize": false
+        },
         "attempted": true,
         "outcome": "refused",
         "error": "Error: Existing stored schema cannot be upgraded to the requested schema (see TreeView.compatibility.canUpgrade).",
@@ -2388,6 +2443,21 @@
       },
       {
         "id": "node-kind-replacement",
+        "classification": "m4-profile-exclusion",
+        "compatibility": {
+          "canView": false,
+          "canUpgrade": true,
+          "isEquivalent": false,
+          "discrepancies": [
+            {
+              "mismatch": "nodeKind",
+              "nodeType": "org.watershed.shared-tree.m4.Point",
+              "view": "Map",
+              "stored": "Object"
+            }
+          ],
+          "canInitialize": false
+        },
         "attempted": true,
         "outcome": "accepted",
         "submittedMessages": 2,
@@ -2490,6 +2560,23 @@
       },
       {
         "id": "sequence",
+        "classification": "m4-profile-exclusion",
+        "compatibility": {
+          "canView": false,
+          "canUpgrade": true,
+          "isEquivalent": false,
+          "discrepancies": [
+            {
+              "mismatch": "allowedTypes",
+              "location": "root",
+              "view": [
+                "org.watershed.shared-tree.m4.Sequence"
+              ],
+              "stored": []
+            }
+          ],
+          "canInitialize": false
+        },
         "attempted": true,
         "outcome": "accepted",
         "submittedMessages": 2,
@@ -2592,6 +2679,23 @@
       },
       {
         "id": "handle",
+        "classification": "m4-profile-exclusion",
+        "compatibility": {
+          "canView": false,
+          "canUpgrade": true,
+          "isEquivalent": false,
+          "discrepancies": [
+            {
+              "mismatch": "allowedTypes",
+              "location": "root",
+              "view": [
+                "com.fluidframework.leaf.handle"
+              ],
+              "stored": []
+            }
+          ],
+          "canInitialize": false
+        },
         "attempted": true,
         "outcome": "accepted",
         "submittedMessages": 2,

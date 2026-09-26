@@ -642,10 +642,10 @@ The four `schema-evolution-*` cases pin the Milestone 4 contract:
 
 | Case | Captured contract |
 | --- | --- |
-| `schema-evolution-compatibility` | The ten application schemas, an attempted upgrade for every profile, full root snapshots before and after each attempt, and raw-schema probes for metadata, duplicate keys, ordering, unused definitions, and required cycles. The similarly named refusal set records the pinned outcome of each attempt; it does not presume that every profile is refused. |
-| `schema-evolution-algebra` | Lossless schema and data operands, consecutive revision transitions, ordered outer composition and inversion, schema/data and schema/schema conflict rebases, empty operands, and inverse-schema encoding refusal. |
-| `schema-evolution-history` | The 19 required causal, concurrent, acknowledgement, rollback, reconnect, summary, and historical-schema scenarios. Each scenario includes executable actions, actual sequence metadata, compressor/session state, and peer-branch revisions. The focused observations include a schema acknowledgement with dependent work still pending, the losing author's `Extra` content, accepted-op replay, a reopened peer view, and summary-plus-tail continuation. |
-| `schema-evolution-codecs` | Old and new Schema V2 bytes, schema-bearing Message V7 evidence, empty outer commits, pending-summary evidence, and a direct decode of the original nonempty historical data change with its authoring and visible schema contexts. |
+| `schema-evolution-compatibility` | The ten application schemas, an attempted upgrade for every profile, full root snapshots before and after each attempt, and raw-schema probes for metadata, duplicate keys, ordering, unused definitions, and required cycles. Every refusal-matrix entry retains the compatibility report, measured attempt result, and either `upstream-refusal` or `m4-profile-exclusion`. |
+| `schema-evolution-algebra` | Lossless schema and data operands, the consecutive `v1` → `optional` → `object-union` schema transitions with their revisions, ordered outer composition and inversion, schema/data and schema/schema conflict rebases, empty operands, and inverse-schema encoding refusal. |
+| `schema-evolution-history` | The 19 required causal, concurrent, acknowledgement, rollback, reconnect, summary, and historical-schema scenarios. Each scenario includes executable actions, actual sequence metadata, compressor/session state, and peer-branch revisions. The focused observations include a schema acknowledgement with dependent work still pending, the losing author's `Extra` content and post-conflict state, accepted-op replay, a reopened peer view, and the loaded summary plus replayed tail. |
+| `schema-evolution-codecs` | Old and new Schema V2 bytes, schema-bearing Message V7 evidence, empty outer commits, pending-summary evidence, and a direct decode of the original nonempty historical data change while inbound processing is paused and the receiving tree visibly uses `optional`. |
 
 The source capture is grounded in these pinned files under
 `packages/dds/tree/src/`:
@@ -667,12 +667,16 @@ The pinned source distinguishes compatibility from the supported Watershed
 profile. Narrowing, adding a required field, and changing an optional field to
 required are upstream refusals. Object-to-map replacement, sequences, and
 handles can satisfy the upstream repository-superset relation, but M4 does not
-author or apply them; the corpus labels them `profile-restriction`.
+author or apply them; the corpus labels them `m4-profile-exclusion` while
+preserving the upstream acceptance result and full compatibility discrepancies.
 
 Historical data must be decoded with the schema at its branch or commit
 authoring point, not only the current visible schema. This lets the outer
 schema-conflict rule drop a valid losing change instead of rejecting its bytes
-early. When a schema-bearing branch loses, rollback restores the earlier active
+early. The historical scenario sequences the peer ID allocation first, pauses
+inbound processing, upgrades the receiving view to `optional`, and decodes the
+still-unapplied `v1` data message before inbound processing resumes. When a
+schema-bearing branch loses, rollback restores the earlier active
 schema but keeps detached repair content and its historical schema context.
 Pending empty conflict commits remain available for normal acknowledgement and
 deduplication. Initialization history continues to identify `EmptySchema`

@@ -97,7 +97,37 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
   ].map((schemaId) => ({ id: schemaId, raw: schema }));
   const scenario = (scenarioId) => ({
     id: scenarioId,
-    actions: [{ op: "capture", target: scenarioId }],
+    actions: {
+      "upgrade-then-edit-causal": [
+        { op: "upgrade", schema: "optional" },
+        { op: "set", path: ["score"], value: 7 },
+        { op: "sequence", count: "all" },
+      ],
+      "pending-upgrade-dependent-data-loses": [
+        { op: "set", tree: 1, path: ["title"], value: "wins" },
+        { op: "upgrade", tree: 0, schema: "optional" },
+        { op: "set", tree: 0, path: ["score"], value: 7 },
+      ],
+      "ack-common-prefix-keeps-upgrade": [
+        { op: "upgrade", tree: 0, schema: "optional" },
+        { op: "set", tree: 0, path: ["score"], value: 7 },
+        { op: "sequence-through", change: "schema" },
+      ],
+      "new-view-reopens": [
+        { op: "upgrade", tree: 0, schema: "optional" },
+        { op: "sequence", count: "all" },
+        { op: "dispose-view", tree: 1 },
+        { op: "open-view", tree: 1, schema: "optional" },
+      ],
+      "historical-peer-schema-context": [
+        { op: "set", tree: 1, path: ["title"], value: "historical", schema: "v1" },
+        { op: "sequence-through", change: "id-allocation" },
+        { op: "pause-inbound", tree: 0 },
+        { op: "upgrade", tree: 0, schema: "optional" },
+        { op: "decode", schema: "v1" },
+        { op: "resume-inbound", tree: 0 },
+      ],
+    }[scenarioId] ?? [{ op: "capture", target: scenarioId }],
     sessions: [{
       tree: "tree-0",
       session: "session-0",
@@ -181,8 +211,17 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
     raw.refusalAttempts = input.refusals.map(({ id: profileId }) => ({
       id: profileId,
       attempted: true,
-      outcome: "refused",
-      error: "Refused by pinned upstream",
+      outcome: ["node-kind-replacement", "sequence", "handle"].includes(profileId)
+        ? "accepted"
+        : "refused",
+      classification: ["node-kind-replacement", "sequence", "handle"].includes(profileId)
+        ? "m4-profile-exclusion"
+        : "upstream-refusal",
+      compatibility: { canView: false, canUpgrade: true, isEquivalent: false },
+      error: ["node-kind-replacement", "sequence", "handle"].includes(profileId)
+        ? undefined
+        : "Refused by pinned upstream",
+      submittedMessages: 1,
       beforeRoot: checkpoint(profileId).visibleRoot,
       afterRoot: checkpoint(profileId).visibleRoot,
     }));
@@ -205,11 +244,36 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
           innerChange: { nodeChanges: { $type: "Map", entries: [[0, {}]] } },
         }],
       },
+      secondSchemaChange: {
+        changes: [{
+          type: "schema",
+          innerChange: {
+            schema: {
+              old: { nodeSchema: { $type: "Map", entries: [["optional", {}]] } },
+              new: { nodeSchema: { $type: "Map", entries: [["object-union", {}]] } },
+            },
+          },
+        }],
+      },
     };
+    input.revisions = { schema: 1, data: 2, secondData: 3, secondSchema: 4, inverse: 5 };
     input.transitions = [
-      { from: "data-1", to: "schema-1" },
-      { from: "schema-1", to: "data-2" },
-      { from: "data-2", to: "schema-2" },
+      {
+        from: "data",
+        to: "schema",
+        revision: 1,
+        before: "v1",
+        after: "optional",
+        change: input.operands.schemaChange,
+      },
+      {
+        from: "secondData",
+        to: "secondSchema",
+        revision: 4,
+        before: "optional",
+        after: "object-union",
+        change: input.operands.secondSchemaChange,
+      },
     ];
     raw.composed = { changes: [{ type: "schema" }, { type: "data" }] };
     raw.inverted = { changes: [{ type: "schema", revision: 4 }] };
@@ -225,7 +289,9 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
       losingAuthorBefore: checkpoint("rollback").visibleRoot,
       losingAuthorAfter: checkpoint("rollback").visibleRoot,
       losingAuthorSchema: "new-node",
+      losingAuthorSchemaAfter: "v1",
       losingAuthorPending: [{ revision: 2, kinds: ["schema", "data"] }],
+      pendingAfterCompetingEdit: [{ revision: 3, kinds: ["schema"] }],
       retainedExtra: { type: "org.watershed.shared-tree.m4.Extra", value: "retained" },
     });
     Object.assign(observations.find(({ id: scenarioId }) =>
@@ -249,6 +315,8 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
       scenarioId === "summary-upgrade-plus-tail"), {
       continuation: {
         loadedSummary: true,
+        summary: { type: 1, tree: { indexes: { type: 1, tree: {} } } },
+        before: checkpoint("summary-before").visibleRoot,
         tailBytes: ["{\"tail\":true}"],
         replayed: true,
         root: checkpoint("summary").visibleRoot,
@@ -257,10 +325,26 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
     Object.assign(observations.find(({ id: scenarioId }) =>
       scenarioId === "historical-peer-schema-context"), {
       historicalDecode: {
+        operation: "decode",
         bytes: "{\"data\":true}",
-        decoded: { changes: [{ type: "data" }] },
+        decoded: {
+          changes: [{
+            type: "data",
+            innerChange: {
+              fieldChanges: { $type: "Map", entries: [["rootFieldKey", {}]] },
+            },
+          }],
+        },
+        envelope: { type: "commit", commit: { revision: 1 } },
         authoringSchema: "v1",
         visibleSchema: "optional",
+        visibleSchemaAfterSynchronization: "v1",
+        decodedBeforeInboundResume: true,
+        context: {
+          authoringSchema: "v1",
+          visibleSchema: "optional",
+          inboundProcessing: "paused",
+        },
       },
     });
   } else if (id === "schema-evolution-codecs") {
@@ -269,8 +353,22 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
       operations: [{
         operation: "decode",
         bytes: "{\"data\":true}",
-        decoded: { changes: [{ type: "data" }] },
-        context: { authoringSchema: "v1", visibleSchema: "optional" },
+        decoded: {
+          changes: [{
+            type: "data",
+            innerChange: {
+              fieldChanges: { $type: "Map", entries: [["rootFieldKey", {}]] },
+            },
+          }],
+        },
+        envelope: { type: "commit", commit: { revision: 1 } },
+        visibleSchemaAfterSynchronization: "v1",
+        decodedBeforeInboundResume: true,
+        context: {
+          authoringSchema: "v1",
+          visibleSchema: "optional",
+          inboundProcessing: "paused",
+        },
       }],
     });
   }
@@ -1550,11 +1648,20 @@ test("schema evolution validation rejects label-only evidence", () => {
       (value) => { value.expected.observations[0].attempt.beforeRoot.tree[0].fields = {}; },
       (value) => { value.input.rawProbes.pop(); },
       (value) => { value.raw.rawProbeResults[0].compatibility = {}; },
+      (value) => { delete value.raw.refusalAttempts[0].compatibility; },
+      (value) => {
+        value.raw.refusalAttempts.find(({ id }) =>
+          id === "node-kind-replacement").classification = "upstream-refusal";
+      },
     ],
     "schema-evolution-algebra": [
       (value) => { delete value.input.operands; },
       (value) => { value.input.operands.schemaChange.changes[0].innerChange.schema.old.nodeSchema = {}; },
       (value) => { value.input.transitions = []; },
+      (value) => { value.input.transitions[1].before = "v1"; },
+      (value) => {
+        value.input.operands.secondSchemaChange.changes[0].innerChange.schema.old.nodeSchema = {};
+      },
       (value) => { delete value.raw.revisionResults; },
     ],
     "schema-evolution-history": [
@@ -1563,6 +1670,19 @@ test("schema evolution validation rejects label-only evidence", () => {
       (value) => { delete value.input.scenarios[0].sequencePoints[0].sequenceNumber; },
       (value) => { value.expected.observations[0].peerRevisions = []; },
       (value) => { value.expected.observations[0].visibleRoot.tree[0].fields.point = []; },
+      (value) => { value.expected.observations[0].visibleRoot.tree[0].fields.title = [{}]; },
+      (value) => {
+        value.input.scenarios.find(({ id }) =>
+          id === "upgrade-then-edit-causal").actions[1].value = 1;
+      },
+      (value) => {
+        value.input.scenarios.find(({ id }) =>
+          id === "new-view-reopens").actions.shift();
+      },
+      (value) => {
+        value.input.scenarios.find(({ id }) =>
+          id === "historical-peer-schema-context").actions.shift();
+      },
       (value) => {
         value.expected.observations.find(({ id }) =>
           id === "ack-common-prefix-keeps-upgrade").acknowledgedSchema = false;
@@ -1574,6 +1694,14 @@ test("schema evolution validation rejects label-only evidence", () => {
       (value) => {
         delete value.expected.observations.find(({ id }) =>
           id === "rollback-retains-new-type-content").losingAuthorPending;
+      },
+      (value) => {
+        delete value.expected.observations.find(({ id }) =>
+          id === "rollback-retains-new-type-content").losingAuthorSchemaAfter;
+      },
+      (value) => {
+        delete value.expected.observations.find(({ id }) =>
+          id === "rollback-retains-new-type-content").pendingAfterCompetingEdit;
       },
       (value) => {
         delete value.expected.observations.find(({ id }) =>
@@ -1600,8 +1728,23 @@ test("schema evolution validation rejects label-only evidence", () => {
           id === "summary-upgrade-plus-tail").continuation.loadedSummary = false;
       },
       (value) => {
+        delete value.expected.observations.find(({ id }) =>
+          id === "summary-upgrade-plus-tail").continuation.summary;
+      },
+      (value) => {
         value.expected.observations.find(({ id }) =>
           id === "historical-peer-schema-context").historicalDecode.decoded = { changes: [] };
+      },
+      (value) => {
+        value.expected.observations.find(({ id }) =>
+          id === "historical-peer-schema-context").historicalDecode.decoded = {
+            changes: [{ type: "data" }],
+          };
+      },
+      (value) => {
+        value.expected.observations.find(({ id }) =>
+          id === "historical-peer-schema-context").historicalDecode.decodedBeforeInboundResume =
+            false;
       },
     ],
     "schema-evolution-codecs": [
@@ -1612,6 +1755,12 @@ test("schema evolution validation rejects label-only evidence", () => {
       (value) => {
         delete value.expected.observations.find(({ id }) =>
           id === "historical-schema-decode").operations[0].context;
+      },
+      (value) => {
+        value.expected.observations.find(({ id }) =>
+          id === "historical-schema-decode").operations[0].decoded = {
+            changes: [{ type: "data" }],
+          };
       },
       (value) => { value.raw.schemaMessageBytes = [""]; },
     ],

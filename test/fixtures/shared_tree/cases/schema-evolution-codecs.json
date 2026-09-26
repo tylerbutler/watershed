@@ -514,9 +514,12 @@
             },
             "authoringSchema": "v1",
             "visibleSchema": "optional",
+            "visibleSchemaAfterSynchronization": "v1",
+            "decodedBeforeInboundResume": true,
             "context": {
               "authoringSchema": "v1",
-              "visibleSchema": "optional"
+              "visibleSchema": "optional",
+              "inboundProcessing": "paused"
             }
           }
         ]
@@ -1121,6 +1124,18 @@
                                     ]
                                   }
                                 }
+                              ],
+                              [
+                                "score",
+                                {
+                                  "kind": "Optional",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.number"
+                                    ]
+                                  }
+                                }
                               ]
                             ]
                           }
@@ -1240,7 +1255,8 @@
                                   "types": {
                                     "$type": "Set",
                                     "values": [
-                                      "com.fluidframework.leaf.string"
+                                      "com.fluidframework.leaf.string",
+                                      "com.fluidframework.leaf.number"
                                     ]
                                   }
                                 }
@@ -1253,18 +1269,6 @@
                                     "$type": "Set",
                                     "values": [
                                       "org.watershed.shared-tree.m4.Items"
-                                    ]
-                                  }
-                                }
-                              ],
-                              [
-                                "score",
-                                {
-                                  "kind": "Optional",
-                                  "types": {
-                                    "$type": "Set",
-                                    "values": [
-                                      "com.fluidframework.leaf.number"
                                     ]
                                   }
                                 }
@@ -2388,9 +2392,12 @@
       },
       "authoringSchema": "v1",
       "visibleSchema": "optional",
+      "visibleSchemaAfterSynchronization": "v1",
+      "decodedBeforeInboundResume": true,
       "context": {
         "authoringSchema": "v1",
-        "visibleSchema": "optional"
+        "visibleSchema": "optional",
+        "inboundProcessing": "paused"
       }
     }
   }

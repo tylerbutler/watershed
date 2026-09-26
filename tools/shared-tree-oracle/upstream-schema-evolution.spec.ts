@@ -360,10 +360,19 @@ async function compatibilityCases() {
 		requested: id,
 		operation: "prepare-upgrade",
 	}));
+	const classification = (id: string) =>
+		["node-kind-replacement", "sequence", "handle"].includes(id)
+			? "m4-profile-exclusion"
+			: "upstream-refusal";
 	const refusalAttempts = await Promise.all(Object.entries(refusalProfiles).map(
 		async ([id, config]) => {
 			const result = await attempt(id, config);
-			return { id, ...result.attempt };
+			return {
+				id,
+				classification: classification(id),
+				compatibility: result.compatibility,
+				...result.attempt,
+			};
 		},
 	));
 
@@ -1033,6 +1042,7 @@ async function captureHistoryRuntime(
 				...checkpoint(provider, view, [...messages, ...tailMessages], log),
 				continuation: {
 					loadedSummary: true,
+					summary: summary.summary,
 					before: loadedBefore,
 					tailBytes: tailMessages.filter(dataChange).map((message) => JSON.stringify(message)),
 					replayed: loadedView.root.title === "tail",
@@ -1045,23 +1055,33 @@ async function captureHistoryRuntime(
 	{
 		const { provider, left, right } = initialized();
 		const log = events(left);
-		provider.trees[0].containerRuntime.pauseInboundProcessing();
 		const authoringSchema = schemaId(provider.trees[1]);
 		right.root.title = "historical";
-		const historicalMessages = drain(provider);
+		const allocationMessage = provider.peekNextMessage()
+			?? assert.fail("Historical edit did not submit an ID allocation");
+		assert.equal(
+			Reflect.get(Reflect.get(allocationMessage, "contents") as object, "type"),
+			"idAllocation",
+		);
+		const capturedAllocation = json(allocationMessage) as unknown as Record<string, unknown>;
+		provider.synchronizeMessages({ count: 1 });
+		capturedAllocation.sequenceNumber = provider.sequenceNumber;
+		capturedAllocation.minimumSequenceNumber ??= provider.minimumSequenceNumber;
+		capturedAllocation.indexInBatch = 0;
+		provider.trees[0].containerRuntime.pauseInboundProcessing();
+		const historicalMessages = [capturedAllocation, ...drain(provider)];
 		const historicalMessage = historicalMessages.find(dataChange);
 		assert(historicalMessage !== undefined, "Historical data message was not captured");
 		left.dispose();
 		const view = provider.trees[0].viewWith(applicationSchema(true).config);
 		view.upgradeSchema();
 		const first = drain(provider);
-		const visibleSchema = schemaId(provider.trees[0]);
 		const kernel: unknown = Reflect.get(provider.trees[0], "kernel");
 		const messageCodec: unknown = Reflect.get(kernel as object, "messageCodec");
 		assert(messageCodec !== null && typeof messageCodec === "object"
 			&& "decode" in messageCodec && typeof messageCodec.decode === "function");
-		provider.trees[0].containerRuntime.resumeInboundProcessing();
-		provider.synchronizeMessages();
+		const visibleSchema = schemaId(provider.trees[0]);
+		assert.equal(visibleSchema, "optional");
 		const decoded = messageCodec.decode(
 			Reflect.get(historicalMessage, "contents"),
 			{ idCompressor: provider.getCompressor(provider.trees[0]) },
@@ -1069,6 +1089,9 @@ async function captureHistoryRuntime(
 		const decodedChange = decoded.commit?.change;
 		assert(Array.isArray(decodedChange?.changes) && decodedChange.changes.length > 0,
 			"Historical data must decode before rebase");
+		provider.trees[0].containerRuntime.resumeInboundProcessing();
+		provider.synchronizeMessages();
+		const visibleSchemaAfterSynchronization = schemaId(provider.trees[0]);
 		const messages = [...historicalMessages, ...first];
 		observations.set(
 			"historical-peer-schema-context",
@@ -1081,7 +1104,13 @@ async function captureHistoryRuntime(
 					envelope: losslessJson(decoded),
 					authoringSchema,
 					visibleSchema,
-					context: { authoringSchema, visibleSchema },
+					visibleSchemaAfterSynchronization,
+					decodedBeforeInboundResume: true,
+					context: {
+						authoringSchema,
+						visibleSchema,
+						inboundProcessing: "paused",
+					},
 				},
 			},
 		);
@@ -1104,7 +1133,11 @@ async function captureHistoryRuntime(
 	};
 }
 
-async function captureAlgebra(oldSchema: TreeStoredSchema, newSchema: TreeStoredSchema) {
+async function captureAlgebra(
+	oldSchema: TreeStoredSchema,
+	newSchema: TreeStoredSchema,
+	secondSchema: TreeStoredSchema,
+) {
 	const options: CodecWriteOptions = {
 		jsonValidator: FormatValidatorBasic,
 		minVersionForCollab: FluidClientVersion.v2_117,
@@ -1128,6 +1161,15 @@ async function captureAlgebra(oldSchema: TreeStoredSchema, newSchema: TreeStored
 		changes: [{
 			type: "schema" as const,
 			innerChange: { schema: { old: oldSchema, new: newSchema }, isInverse: false },
+		}],
+	};
+	const secondSchemaChange = {
+		changes: [{
+			type: "schema" as const,
+			innerChange: {
+				schema: { old: newSchema, new: secondSchema },
+				isInverse: false,
+			},
 		}],
 	};
 	const dataProvider = new TestTreeProviderLite(1, configuredSharedTreeInternal({
@@ -1173,7 +1215,7 @@ async function captureAlgebra(oldSchema: TreeStoredSchema, newSchema: TreeStored
 		tagChange(dataChange, dataRevision),
 		tagChange(schemaChange, schemaRevision),
 		tagChange(dataChange, secondDataRevision),
-		tagChange(schemaChange, secondSchemaRevision),
+		tagChange(secondSchemaChange, secondSchemaRevision),
 	]);
 	const inverted = family.invert(tagChange(composed, secondSchemaRevision), true, inverseRevision);
 	const schemaCodec = makeSchemaChangeCodec(options);
@@ -1197,12 +1239,22 @@ async function captureAlgebra(oldSchema: TreeStoredSchema, newSchema: TreeStored
 			operands: {
 				schemaChange: losslessJson(schemaChange),
 				dataChange: losslessJson(dataChange),
+				secondSchemaChange: losslessJson(secondSchemaChange),
 				emptyChange: losslessJson(SharedTreeChangeFamily.emptyChange),
 			},
 			transitions: [
-				{ from: "data", to: "schema" },
-				{ from: "schema", to: "secondData" },
-				{ from: "secondData", to: "secondSchema" },
+				{
+					revision: Number(schemaRevision),
+					before: "v1",
+					after: "optional",
+					change: losslessJson(schemaChange),
+				},
+				{
+					revision: Number(secondSchemaRevision),
+					before: "optional",
+					after: "object-union",
+					change: losslessJson(secondSchemaChange),
+				},
 			],
 			scenarios: [
 				{ id: "schema-over-data" },
@@ -1274,28 +1326,29 @@ describe("Watershed schema evolution oracle", () => {
 		const upgrade = await captureUpgrade();
 		const oldSchema = toUpgradeSchema(compatibility.profiles.v1.config.schema);
 		const newSchema = toUpgradeSchema(compatibility.profiles.optional.config.schema);
-		const algebra = await captureAlgebra(oldSchema, newSchema);
+		const secondSchema = toUpgradeSchema(compatibility.profiles["object-union"].config.schema);
+		const algebra = await captureAlgebra(oldSchema, newSchema, secondSchema);
 		const historyRuntime = await captureHistoryRuntime(compatibility.profiles);
 		const historyPlans = {
-			"upgrade-then-edit-causal": [{ op: "upgrade", schema: "optional" }, { op: "set", path: ["score"], value: 1 }, { op: "sequence", count: "all" }],
+			"upgrade-then-edit-causal": [{ op: "upgrade", schema: "optional" }, { op: "set", path: ["score"], value: 7 }, { op: "sequence", count: "all" }],
 			"edit-then-upgrade-causal": [{ op: "set", path: ["title"], value: "edited" }, { op: "sequence", count: "all" }, { op: "upgrade", schema: "optional" }],
 			"schema-data-schema-first": [{ op: "upgrade", tree: 0, schema: "optional" }, { op: "set", tree: 1, path: ["title"], value: "data" }, { op: "sequence", order: "schema-first" }],
 			"schema-data-data-first": [{ op: "set", tree: 1, path: ["title"], value: "data" }, { op: "upgrade", tree: 0, schema: "optional" }, { op: "sequence", order: "data-first" }],
 			"schema-schema-left-first": [{ op: "upgrade", tree: 0, schema: "optional" }, { op: "upgrade", tree: 1, schema: "object-union" }, { op: "sequence", order: "left-first" }],
 			"schema-schema-right-first": [{ op: "upgrade", tree: 1, schema: "object-union" }, { op: "upgrade", tree: 0, schema: "optional" }, { op: "sequence", order: "right-first" }],
 			"same-upgrade-concurrent": [{ op: "upgrade", tree: 0, schema: "optional" }, { op: "upgrade", tree: 1, schema: "optional" }],
-			"pending-upgrade-dependent-data-loses": [{ op: "set", tree: 1, path: ["title"], value: "wins" }, { op: "upgrade", tree: 0, schema: "optional" }, { op: "set", tree: 0, path: ["score"], value: 1 }],
+			"pending-upgrade-dependent-data-loses": [{ op: "set", tree: 1, path: ["title"], value: "wins" }, { op: "upgrade", tree: 0, schema: "optional" }, { op: "set", tree: 0, path: ["score"], value: 7 }],
 			"pending-data-remote-upgrade": [{ op: "disconnect", tree: 0 }, { op: "set", tree: 0, path: ["title"], value: "pending" }, { op: "upgrade", tree: 1, schema: "optional" }, { op: "reconnect", tree: 0 }],
-			"ack-common-prefix-keeps-upgrade": [{ op: "upgrade", tree: 0, schema: "optional" }, { op: "set", tree: 0, path: ["score"], value: 1 }, { op: "sequence-through", change: "schema" }],
+			"ack-common-prefix-keeps-upgrade": [{ op: "upgrade", tree: 0, schema: "optional" }, { op: "set", tree: 0, path: ["score"], value: 7 }, { op: "sequence-through", change: "schema" }],
 			"empty-conflict-acknowledged": [{ op: "upgrade", tree: 0, schema: "optional" }, { op: "set", tree: 1, path: ["title"], value: "conflict" }, { op: "sequence", count: "all" }],
 			"rollback-retains-new-type-content": [{ op: "upgrade", tree: 1, schema: "new-node" }, { op: "set", tree: 1, path: ["extra", "value"], value: "retained" }, { op: "set", tree: 0, path: ["title"], value: "wins" }, { op: "sequence", order: "tree-0-first" }],
 			"old-view-invalidated": [{ op: "upgrade", tree: 0, schema: "optional" }, { op: "observe-view", tree: 1, schema: "v1" }],
-			"new-view-reopens": [{ op: "dispose-view", tree: 1 }, { op: "open-view", tree: 1, schema: "optional" }],
+			"new-view-reopens": [{ op: "upgrade", tree: 0, schema: "optional" }, { op: "sequence", count: "all" }, { op: "dispose-view", tree: 1 }, { op: "open-view", tree: 1, schema: "optional" }],
 			"reconnect-upgrade-unacknowledged": [{ op: "disconnect", tree: 0 }, { op: "upgrade", tree: 0, schema: "optional" }, { op: "reconnect", tree: 0 }, { op: "sequence", count: "all" }],
 			"reconnect-upgrade-accepted-before-drop": [{ op: "pause-inbound", tree: 0 }, { op: "upgrade", tree: 0, schema: "optional" }, { op: "sequence-through", change: "schema" }, { op: "disconnect", tree: 0 }, { op: "reconnect", tree: 0 }, { op: "resume-inbound", tree: 0 }],
 			"summary-before-pending-upgrade": [{ op: "upgrade", tree: 0, schema: "optional" }, { op: "summarize", tree: 1 }],
 			"summary-upgrade-plus-tail": [{ op: "upgrade", tree: 0, schema: "optional" }, { op: "sequence", count: "all" }, { op: "summarize", tree: 0 }, { op: "set", tree: 0, path: ["title"], value: "tail" }, { op: "load-summary" }, { op: "replay-tail" }],
-			"historical-peer-schema-context": [{ op: "pause-inbound", tree: 0 }, { op: "set", tree: 1, path: ["title"], value: "historical", schema: "v1" }, { op: "upgrade", tree: 0, schema: "optional" }, { op: "decode", schema: "v1" }, { op: "resume-inbound", tree: 0 }],
+			"historical-peer-schema-context": [{ op: "set", tree: 1, path: ["title"], value: "historical", schema: "v1" }, { op: "sequence-through", change: "id-allocation" }, { op: "pause-inbound", tree: 0 }, { op: "upgrade", tree: 0, schema: "optional" }, { op: "decode", schema: "v1" }, { op: "resume-inbound", tree: 0 }],
 		} as const;
 		const historyScenarios = historyScenarioIds.map((id) => {
 			const observation = historyRuntime.observations.get(id)

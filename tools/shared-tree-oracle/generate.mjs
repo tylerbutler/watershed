@@ -763,14 +763,40 @@ function validateSchemaEvolutionCase(value) {
     && value.raw.schemaMessageBytes.every((bytes) => typeof bytes === "string" && bytes.length > 0),
   "missing raw schema bytes");
 
-  const fullRoot = (root) => object(root)
-    && nonemptyArray(root.tree)
-    && object(root.tree[0])
-    && object(root.tree[0].fields)
-    && ["title", "point", "items"].every((field) => nonemptyArray(root.tree[0].fields[field]));
+  const leaf = (field, type, valueType) => nonemptyArray(field)
+    && field.every((item) => object(item) && item.type === type
+      && typeof item.value === valueType);
+  const fullRoot = (root) => {
+    const node = root?.tree?.[0];
+    const fields = node?.fields;
+    const point = fields?.point?.[0];
+    const items = fields?.items?.[0];
+    return object(root)
+      && nonemptyArray(root.tree)
+      && object(node)
+      && node.type === "org.watershed.shared-tree.m4.Root"
+      && object(fields)
+      && leaf(fields.title, "com.fluidframework.leaf.string", "string")
+      && object(point)
+      && point.type === "org.watershed.shared-tree.m4.Point"
+      && object(point.fields)
+      && leaf(point.fields.x, "com.fluidframework.leaf.number", "number")
+      && leaf(point.fields.y, "com.fluidframework.leaf.number", "number")
+      && object(items)
+      && items.type === "org.watershed.shared-tree.m4.Items"
+      && object(items.fields)
+      && nonemptyArray(items.fields.label)
+      && Array.isArray(root.removed);
+  };
   const compatibility = (status) => object(status)
     && ["canView", "canUpgrade", "isEquivalent"].every((key) =>
       typeof status[key] === "boolean");
+  const hasEntries = (item) => {
+    if (Array.isArray(item)) return item.some(hasEntries);
+    if (!object(item)) return false;
+    if (item.$type === "Map" && nonemptyArray(item.entries)) return true;
+    return Object.values(item).some(hasEntries);
+  };
   const checkpoint = (observation) => object(observation)
     && typeof observation.visibleSchema === "string"
     && typeof observation.sequencedSchema === "string"
@@ -798,10 +824,17 @@ function validateSchemaEvolutionCase(value) {
       && value.raw.refusalAttempts.length === value.input.refusals.length,
     "missing refusal attempts");
     for (const attempt of value.raw.refusalAttempts) {
+      const profileExclusion = ["node-kind-replacement", "sequence", "handle"].includes(attempt.id);
       check(attempt.attempted === true && ["accepted", "refused"].includes(attempt.outcome)
+        && compatibility(attempt.compatibility)
+        && attempt.classification === (profileExclusion
+          ? "m4-profile-exclusion"
+          : "upstream-refusal")
+        && attempt.outcome === (profileExclusion ? "accepted" : "refused")
         && (attempt.outcome === "accepted"
           ? attempt.error === undefined
           : typeof attempt.error === "string" && attempt.error.length > 0)
+        && Number.isSafeInteger(attempt.submittedMessages)
         && fullRoot(attempt.beforeRoot) && fullRoot(attempt.afterRoot),
       `incomplete refusal attempt ${attempt.id}`);
     }
@@ -819,12 +852,6 @@ function validateSchemaEvolutionCase(value) {
         `incomplete raw schema probe ${probe.id}`);
     }
   } else if (label === "schema-evolution-algebra") {
-    const hasEntries = (item) => {
-      if (Array.isArray(item)) return item.some(hasEntries);
-      if (!object(item)) return false;
-      if (item.$type === "Map" && nonemptyArray(item.entries)) return true;
-      return Object.values(item).some(hasEntries);
-    };
     const operands = value.input.operands;
     check(object(operands) && object(operands.schemaChange) && object(operands.dataChange),
       "missing algebra operands");
@@ -833,10 +860,28 @@ function validateSchemaEvolutionCase(value) {
       "lossy schema operand");
     check(hasEntries(operands?.dataChange?.changes?.[0]?.innerChange),
       "lossy data operand");
-    check(nonemptyArray(value.input.transitions)
-      && value.input.transitions.every(({ from, to }) =>
-        typeof from === "string" && typeof to === "string"),
+    const transitions = value.input.transitions;
+    check(Array.isArray(transitions) && transitions.length === 2
+      && transitions.every(({ revision, before, after, change }) =>
+        Number.isSafeInteger(revision)
+        && typeof before === "string"
+        && typeof after === "string"
+        && object(change))
+      && transitions[0].before === "v1"
+      && transitions[0].after === transitions[1].before
+      && transitions[1].after === "object-union"
+      && transitions[0].revision === value.input.revisions?.schema
+      && transitions[1].revision === value.input.revisions?.secondSchema
+      && JSON.stringify(transitions[0].change) === JSON.stringify(operands.schemaChange)
+      && JSON.stringify(transitions[1].change) === JSON.stringify(operands.secondSchemaChange),
     "missing consecutive transitions");
+    const secondOldNodes =
+      operands?.secondSchemaChange?.changes?.[0]?.innerChange?.schema?.old?.nodeSchema;
+    const secondNewNodes =
+      operands?.secondSchemaChange?.changes?.[0]?.innerChange?.schema?.new?.nodeSchema;
+    check(secondOldNodes?.$type === "Map" && nonemptyArray(secondOldNodes.entries)
+      && secondNewNodes?.$type === "Map" && nonemptyArray(secondNewNodes.entries),
+    "lossy second schema transition");
     check(object(value.raw.composed) && nonemptyArray(value.raw.composed.changes),
       "missing composed result");
     check(object(value.raw.inverted) && nonemptyArray(value.raw.inverted.changes),
@@ -869,6 +914,36 @@ function validateSchemaEvolutionCase(value) {
           && typeof point.clientId === "string"),
       `missing actual sequence metadata ${scenario.id}`);
     }
+    const actions = (id) => value.input.scenarios.find((item) => item.id === id)?.actions;
+    assert.deepEqual(actions("upgrade-then-edit-causal"), [
+      { op: "upgrade", schema: "optional" },
+      { op: "set", path: ["score"], value: 7 },
+      { op: "sequence", count: "all" },
+    ], `${label}: replayable upgrade-then-edit actions`);
+    assert.deepEqual(actions("pending-upgrade-dependent-data-loses"), [
+      { op: "set", tree: 1, path: ["title"], value: "wins" },
+      { op: "upgrade", tree: 0, schema: "optional" },
+      { op: "set", tree: 0, path: ["score"], value: 7 },
+    ], `${label}: replayable dependent-data actions`);
+    assert.deepEqual(actions("ack-common-prefix-keeps-upgrade"), [
+      { op: "upgrade", tree: 0, schema: "optional" },
+      { op: "set", tree: 0, path: ["score"], value: 7 },
+      { op: "sequence-through", change: "schema" },
+    ], `${label}: replayable acknowledgement actions`);
+    assert.deepEqual(actions("new-view-reopens"), [
+      { op: "upgrade", tree: 0, schema: "optional" },
+      { op: "sequence", count: "all" },
+      { op: "dispose-view", tree: 1 },
+      { op: "open-view", tree: 1, schema: "optional" },
+    ], `${label}: replayable reopening actions`);
+    assert.deepEqual(actions("historical-peer-schema-context"), [
+      { op: "set", tree: 1, path: ["title"], value: "historical", schema: "v1" },
+      { op: "sequence-through", change: "id-allocation" },
+      { op: "pause-inbound", tree: 0 },
+      { op: "upgrade", tree: 0, schema: "optional" },
+      { op: "decode", schema: "v1" },
+      { op: "resume-inbound", tree: 0 },
+    ], `${label}: replayable historical decode actions`);
     for (const item of value.expected.observations) {
       check(checkpoint(item), `incomplete checkpoint ${item.id}`);
     }
@@ -881,7 +956,9 @@ function validateSchemaEvolutionCase(value) {
     const rollback = observation("rollback-retains-new-type-content");
     check(fullRoot(rollback.losingAuthorBefore) && fullRoot(rollback.losingAuthorAfter)
       && typeof rollback.losingAuthorSchema === "string"
+      && typeof rollback.losingAuthorSchemaAfter === "string"
       && nonemptyArray(rollback.losingAuthorPending)
+      && nonemptyArray(rollback.pendingAfterCompetingEdit)
       && object(rollback.retainedExtra)
       && typeof rollback.retainedExtra.value === "string",
     "missing losing-author rollback evidence");
@@ -906,25 +983,41 @@ function validateSchemaEvolutionCase(value) {
     "missing reopened peer evidence");
     const continuation = observation("summary-upgrade-plus-tail")?.continuation;
     check(object(continuation) && continuation.loadedSummary === true
+      && summary(continuation.summary)
+      && fullRoot(continuation.before)
       && continuation.replayed === true && nonemptyArray(continuation.tailBytes)
       && continuation.tailBytes.every((bytes) => typeof bytes === "string" && bytes.length > 0)
       && fullRoot(continuation.root),
     "missing summary continuation evidence");
     const historical = observation("historical-peer-schema-context")?.historicalDecode;
+    const decodedData = historical?.decoded?.changes?.find(({ type }) => type === "data");
     check(object(historical) && typeof historical.bytes === "string" && historical.bytes.length > 0
-      && nonemptyArray(historical.decoded?.changes)
-      && typeof historical.authoringSchema === "string"
-      && typeof historical.visibleSchema === "string",
+      && object(decodedData?.innerChange)
+      && Object.values(decodedData.innerChange).some(hasEntries)
+      && object(historical.envelope)
+      && historical.authoringSchema === "v1"
+      && historical.visibleSchema === "optional"
+      && historical.visibleSchemaAfterSynchronization === "v1"
+      && historical.decodedBeforeInboundResume === true
+      && historical.context?.authoringSchema === historical.authoringSchema
+      && historical.context?.visibleSchema === historical.visibleSchema
+      && historical.context?.inboundProcessing === "paused",
     "missing historical decode evidence");
   } else {
     const historical = observation("historical-schema-decode");
     check(nonemptyArray(historical.operations), "missing historical codec operations");
     for (const operation of historical.operations) {
+      const decodedData = operation.decoded?.changes?.find(({ type }) => type === "data");
       check(operation.operation === "decode"
         && typeof operation.bytes === "string" && operation.bytes.length > 0
-        && nonemptyArray(operation.decoded?.changes)
-        && typeof operation.context?.authoringSchema === "string"
-        && typeof operation.context?.visibleSchema === "string",
+        && object(decodedData?.innerChange)
+        && Object.values(decodedData.innerChange).some(hasEntries)
+        && object(operation.envelope)
+        && operation.decodedBeforeInboundResume === true
+        && operation.visibleSchemaAfterSynchronization === "v1"
+        && operation.context?.authoringSchema === "v1"
+        && operation.context?.visibleSchema === "optional"
+        && operation.context?.inboundProcessing === "paused",
       "incomplete historical codec operation");
     }
   }
