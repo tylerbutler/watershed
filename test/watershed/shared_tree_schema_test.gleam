@@ -269,11 +269,39 @@ pub fn shared_tree_schema_required_cycles_are_never_types_test() -> Nil {
     "{\"version\":2,\"nodes\":{\"A\":{\"kind\":{\"object\":{\"next\":{\"kind\":\"Value\",\"types\":[\"B\"]}}}},\"B\":{\"kind\":{\"object\":{\"next\":{\"kind\":\"Value\",\"types\":[\"A\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"A\"]}}"
   let empty =
     "{\"version\":2,\"nodes\":{},\"root\":{\"kind\":\"Optional\",\"types\":[]}}"
-  allows_superset(cycle, empty) |> expect.to_equal(Ok(True))
+  allows_superset(cycle, empty) |> expect.to_equal(Ok(False))
 
   let optional_cycle =
     string.replace(cycle, "\"kind\":\"Value\"", "\"kind\":\"Optional\"")
   allows_superset(optional_cycle, empty) |> expect.to_equal(Ok(False))
+}
+
+pub fn shared_tree_schema_never_map_definitions_can_be_removed_test() -> Nil {
+  let impossible_map =
+    string.replace(
+      string_schema,
+      "\"nodes\":{",
+      "\"nodes\":{\"Impossible\":{\"kind\":{\"map\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}},",
+    )
+  allows_superset(impossible_map, string_schema) |> expect.to_equal(Ok(True))
+}
+
+pub fn shared_tree_schema_missing_field_differs_from_optional_empty_test() -> Nil {
+  let explicit_empty =
+    string.replace(
+      object_schema,
+      "\"note\":",
+      "\"empty\":{\"kind\":\"Optional\",\"types\":[]},\"note\":",
+    )
+  compatibility(object_schema, explicit_empty)
+  |> expect.to_equal(Ok(schema.Compatibility(False, True, False)))
+  compatibility(explicit_empty, object_schema)
+  |> expect.to_equal(Ok(schema.Compatibility(False, False, False)))
+
+  let assert Ok(stored) = schema.stored_from_string(object_schema)
+  let assert Ok(view) = schema.view_from_string(explicit_empty)
+  let assert Ok(Some(_)) = schema.prepare_upgrade(stored, view)
+  Nil
 }
 
 pub fn shared_tree_schema_prepares_checked_upgrades_test() -> Nil {
@@ -346,6 +374,62 @@ pub fn shared_tree_schema_classifies_excluded_profile_expansions_test() -> Nil {
       schema.prepare_upgrade(stored, view)
     string.contains(detail, "supported profile") |> expect.to_be_true
   })
+}
+
+pub fn shared_tree_schema_preserves_excluded_comparison_semantics_test() -> Nil {
+  let forbidden =
+    string.replace(
+      object_schema,
+      "\"note\":",
+      "\"reserved\":{\"kind\":\"Forbidden\",\"types\":[]},\"note\":",
+    )
+  let identifier =
+    string.replace(
+      object_schema,
+      "\"x\":{\"kind\":\"Value\"",
+      "\"x\":{\"kind\":\"Identifier\"",
+    )
+  let sequence =
+    string.replace(
+      object_schema,
+      "\"note\":{\"kind\":\"Optional\"",
+      "\"note\":{\"kind\":\"Sequence\"",
+    )
+  let handle = string.replace(object_schema, "\"leaf\":1", "\"leaf\":3")
+  let assert Ok(stored) = schema.stored_from_string(object_schema)
+
+  [identifier, handle]
+  |> list.each(fn(raw) {
+    let assert Ok(view) = schema.view_from_string(raw)
+    schema.compatibility(stored, view)
+    |> expect.to_equal(Ok(schema.Compatibility(False, False, False)))
+  })
+
+  let assert Ok(forbidden_view) = schema.view_from_string(forbidden)
+  schema.compatibility(stored, forbidden_view)
+  |> expect.to_equal(Ok(schema.Compatibility(False, True, False)))
+  schema.prepare_upgrade(stored, forbidden_view) |> expect.to_equal(Ok(None))
+
+  let assert Ok(sequence_view) = schema.view_from_string(sequence)
+  schema.compatibility(stored, sequence_view)
+  |> expect.to_equal(Ok(schema.Compatibility(False, True, False)))
+  let assert Error(types.InvalidSchema(detail)) =
+    schema.prepare_upgrade(stored, sequence_view)
+  string.contains(detail, "supported profile") |> expect.to_be_true
+}
+
+pub fn shared_tree_schema_ignores_unused_impossible_excluded_definitions_test() -> Nil {
+  let forbidden =
+    string.replace(
+      object_schema,
+      "\"nodes\":{",
+      "\"nodes\":{\"Unused\":{\"kind\":{\"object\":{\"reserved\":{\"kind\":\"Identifier\",\"types\":[]}}}},",
+    )
+  let assert Ok(stored) = schema.stored_from_string(object_schema)
+  let assert Ok(view) = schema.view_from_string(forbidden)
+  schema.compatibility(stored, view)
+  |> expect.to_equal(Ok(schema.Compatibility(False, True, False)))
+  schema.prepare_upgrade(stored, view) |> expect.to_equal(Ok(None))
 }
 
 pub fn shared_tree_schema_rejects_non_monotonic_field_changes_test() -> Nil {

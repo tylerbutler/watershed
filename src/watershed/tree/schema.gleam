@@ -46,10 +46,39 @@ pub type NodeSchema {
   Array(elements: FieldSchema)
 }
 
+type FieldKind {
+  ForbiddenKind
+  OptionalKind
+  RequiredKind
+  SequenceKind
+  IdentifierKind
+}
+
+type ComparisonField {
+  ComparisonField(kind: FieldKind, allowed_types: List(String))
+}
+
+type ComparisonLeafKind {
+  ComparisonStringLeaf
+  ComparisonNumberLeaf
+  ComparisonBooleanLeaf
+  ComparisonHandleLeaf
+  ComparisonNullLeaf
+}
+
+type ComparisonNode {
+  ComparisonLeaf(kind: ComparisonLeafKind)
+  ComparisonObject(fields: List(#(String, ComparisonField)))
+  ComparisonMap(entries: ComparisonField)
+  ComparisonArray(elements: ComparisonField)
+}
+
 type Repository {
   Repository(
     root: FieldSchema,
     nodes: Dict(String, NodeSchema),
+    comparison_root: ComparisonField,
+    comparison_nodes: Dict(String, ComparisonNode),
     persisted: JsonValue,
     profile_supported: Bool,
   )
@@ -371,6 +400,10 @@ pub fn can_view(
   stored: StoredSchema,
   view: ViewSchema,
 ) -> Result(Nil, TreeError) {
+  use _ <- result.try(case repository_view_supported(view.repository) {
+    True -> Ok(Nil)
+    False -> Error(InvalidSchema("view is outside the supported profile"))
+  })
   use _ <- result.try(compare_field(
     stored.repository.root,
     view.repository.root,
@@ -408,37 +441,25 @@ pub fn allows_superset(
   original: StoredSchema,
   candidate: StoredSchema,
 ) -> Result(Bool, TreeError) {
-  case
-    original.repository.profile_supported,
-    candidate.repository.profile_supported
-  {
-    False, True -> Ok(False)
-    _, _ ->
-      Ok(
-        field_allows_superset(
-          original.repository,
-          original.repository.root,
-          candidate.repository.root,
-        )
-        && original.repository.nodes
-        |> dict.to_list
-        |> list.all(fn(entry) {
-          case node_can_exist(original.repository, entry.0, []) {
-            False -> True
-            True ->
-              case dict.get(candidate.repository.nodes, entry.0) {
-                Error(Nil) -> False
-                Ok(candidate_node) ->
-                  node_allows_superset(
-                    original.repository,
-                    entry.1,
-                    candidate_node,
-                  )
-              }
-          }
-        }),
+  Ok(
+    field_allows_superset(
+      original.repository.comparison_root,
+      candidate.repository.comparison_root,
+    )
+    && original.repository.nodes
+    |> dict.keys
+    |> list.all(fn(entry) {
+      let assert Ok(original_node) =
+        dict.get(original.repository.comparison_nodes, entry)
+      tree_allows_superset(
+        original.repository,
+        entry,
+        original_node,
+        dict.get(candidate.repository.comparison_nodes, entry)
+          |> option.from_result,
       )
-  }
+    }),
+  )
 }
 
 /// Prepare one supported schema upgrade without changing stored data.
@@ -510,89 +531,350 @@ fn same_node_kind(left: NodeSchema, right: NodeSchema) -> Bool {
   }
 }
 
-fn node_allows_superset(
+fn tree_allows_superset(
   repository: Repository,
-  original: NodeSchema,
-  candidate: NodeSchema,
+  identifier: String,
+  original: ComparisonNode,
+  candidate: Option(ComparisonNode),
+) -> Bool {
+  case node_is_never(repository, identifier, original, []) {
+    True -> True
+    False ->
+      case candidate {
+        None -> False
+        Some(candidate) ->
+          case node_is_never(repository, identifier, candidate, []) {
+            True -> False
+            False -> node_allows_superset(original, candidate)
+          }
+      }
+  }
+}
+
+fn node_allows_superset(
+  original: ComparisonNode,
+  candidate: ComparisonNode,
 ) -> Bool {
   case original, candidate {
-    Leaf(left), Leaf(right) -> left == right
-    Map(left), Map(right) -> field_allows_superset(repository, left, right)
-    Array(left), Array(right) -> field_allows_superset(repository, left, right)
-    Object(left), Object(right) ->
-      list.append(
-        list.map(left, fn(field) { field.0 }),
-        list.map(right, fn(field) { field.0 }),
-      )
-      |> list.unique
-      |> list.all(fn(key) {
-        let original_field =
-          list.key_find(left, key)
-          |> result.unwrap(FieldSchema(Optional, []))
-        let candidate_field =
-          list.key_find(right, key)
-          |> result.unwrap(FieldSchema(Optional, []))
-        field_allows_superset(repository, original_field, candidate_field)
-      })
-    Object(fields), Map(entries) ->
-      list.all(fields, fn(field) {
-        field_allows_superset(repository, field.1, entries)
-      })
+    ComparisonLeaf(left), ComparisonLeaf(right) -> left == right
+    ComparisonMap(left), ComparisonMap(right) ->
+      field_allows_superset(left, right)
+    ComparisonArray(left), ComparisonArray(right) ->
+      field_allows_superset(left, right)
+    ComparisonObject(left), ComparisonObject(right) ->
+      object_fields_allow_superset(left, right)
+    ComparisonObject(fields), ComparisonMap(entries) ->
+      list.all(fields, fn(field) { field_allows_superset(field.1, entries) })
     _, _ -> False
   }
 }
 
-fn node_can_exist(
+fn node_is_never(
   repository: Repository,
   identifier: String,
+  node: ComparisonNode,
   stack: List(String),
 ) -> Bool {
   case list.contains(stack, identifier) {
-    True -> False
+    True -> True
     False ->
-      case dict.get(repository.nodes, identifier) {
-        Error(Nil) -> False
-        Ok(Leaf(_)) | Ok(Map(_)) | Ok(Array(_)) -> True
-        Ok(Object(fields)) ->
-          list.all(fields, fn(field) {
-            case field.1.cardinality {
-              Optional | Sequence -> True
-              Required ->
-                list.any(field.1.allowed_types, fn(child) {
-                  node_can_exist(repository, child, [identifier, ..stack])
-                })
-            }
+      case node {
+        ComparisonLeaf(_) -> False
+        ComparisonMap(entries) -> field_requires_one(entries.kind)
+        ComparisonArray(_) -> False
+        ComparisonObject(fields) ->
+          list.any(fields, fn(field) {
+            field_is_never(repository, field.1, [identifier, ..stack])
           })
       }
   }
 }
 
-fn field_allows_superset(
+fn field_is_never(
   repository: Repository,
-  original: FieldSchema,
-  candidate: FieldSchema,
+  field: ComparisonField,
+  stack: List(String),
 ) -> Bool {
-  let possible_original_types =
-    list.filter(original.allowed_types, fn(identifier) {
-      node_can_exist(repository, identifier, [])
-    })
-  case original.cardinality, possible_original_types {
-    Required, [] -> True
-    _, _ -> {
-      let cardinality_allows = case
-        original.cardinality,
-        candidate.cardinality
-      {
-        Required, Required | Required, Optional | Optional, Optional -> True
-        Sequence, Sequence -> True
-        _, _ -> False
-      }
-      cardinality_allows
-      && list.all(possible_original_types, fn(identifier) {
-        list.contains(candidate.allowed_types, identifier)
-      })
+  field_requires_one(field.kind)
+  && list.all(field.allowed_types, fn(identifier) {
+    case dict.get(repository.comparison_nodes, identifier) {
+      Error(Nil) -> True
+      Ok(node) -> node_is_never(repository, identifier, node, stack)
     }
+  })
+}
+
+fn field_requires_one(kind: FieldKind) -> Bool {
+  case kind {
+    RequiredKind | IdentifierKind -> True
+    ForbiddenKind | OptionalKind | SequenceKind -> False
   }
+}
+
+fn field_allows_superset(
+  original: ComparisonField,
+  candidate: ComparisonField,
+) -> Bool {
+  list.all(original.allowed_types, fn(identifier) {
+    list.contains(candidate.allowed_types, identifier)
+  })
+  && case original.kind == candidate.kind {
+    True -> True
+    False ->
+      case candidate.kind {
+        ForbiddenKind | IdentifierKind -> False
+        OptionalKind ->
+          list.contains(
+            [IdentifierKind, RequiredKind, ForbiddenKind],
+            original.kind,
+          )
+        RequiredKind -> original.kind == IdentifierKind
+        SequenceKind ->
+          list.contains(
+            [IdentifierKind, RequiredKind, OptionalKind, ForbiddenKind],
+            original.kind,
+          )
+      }
+  }
+}
+
+fn public_leaf_kind(kind: ComparisonLeafKind) -> LeafKind {
+  case kind {
+    ComparisonStringLeaf | ComparisonHandleLeaf -> StringLeaf
+    ComparisonNumberLeaf -> NumberLeaf
+    ComparisonBooleanLeaf -> BooleanLeaf
+    ComparisonNullLeaf -> NullLeaf
+  }
+}
+
+fn public_field(field: ComparisonField) -> FieldSchema {
+  FieldSchema(
+    case field.kind {
+      RequiredKind | IdentifierKind -> Required
+      ForbiddenKind | OptionalKind -> Optional
+      SequenceKind -> Sequence
+    },
+    field.allowed_types,
+  )
+}
+
+fn profile_field_kind(kind: FieldKind) -> Bool {
+  case kind {
+    RequiredKind | OptionalKind -> True
+    ForbiddenKind | SequenceKind | IdentifierKind -> False
+  }
+}
+
+fn repository_view_supported(repository: Repository) -> Bool {
+  case repository.comparison_root.kind {
+    RequiredKind | OptionalKind ->
+      repository.comparison_nodes
+      |> dict.values
+      |> list.all(comparison_node_view_supported)
+    ForbiddenKind | SequenceKind | IdentifierKind -> False
+  }
+}
+
+fn comparison_node_view_supported(node: ComparisonNode) -> Bool {
+  case node {
+    ComparisonLeaf(ComparisonHandleLeaf) -> False
+    ComparisonLeaf(_) -> True
+    ComparisonObject(fields) ->
+      list.all(fields, fn(field) {
+        case field.1.kind {
+          RequiredKind | OptionalKind -> True
+          ForbiddenKind | SequenceKind | IdentifierKind -> False
+        }
+      })
+    ComparisonMap(entries) ->
+      case entries.kind {
+        RequiredKind | OptionalKind -> True
+        ForbiddenKind | SequenceKind | IdentifierKind -> False
+      }
+    ComparisonArray(elements) -> elements.kind == SequenceKind
+  }
+}
+
+fn comparison_leaf_kind(code: JsonValue) -> Result(ComparisonLeafKind, Nil) {
+  case code {
+    VNumber(NInt(0)) | VNumber(NFloat(0.0)) -> Ok(ComparisonNumberLeaf)
+    VNumber(NInt(1)) | VNumber(NFloat(1.0)) -> Ok(ComparisonStringLeaf)
+    VNumber(NInt(2)) | VNumber(NFloat(2.0)) -> Ok(ComparisonBooleanLeaf)
+    VNumber(NInt(3)) | VNumber(NFloat(3.0)) -> Ok(ComparisonHandleLeaf)
+    VNumber(NInt(4)) | VNumber(NFloat(4.0)) -> Ok(ComparisonNullLeaf)
+    _ -> Error(Nil)
+  }
+}
+
+fn comparison_field_kind(kind: String) -> Result(FieldKind, Nil) {
+  case kind {
+    "Forbidden" -> Ok(ForbiddenKind)
+    "Optional" -> Ok(OptionalKind)
+    "Value" -> Ok(RequiredKind)
+    "Sequence" -> Ok(SequenceKind)
+    "Identifier" -> Ok(IdentifierKind)
+    _ -> Error(Nil)
+  }
+}
+
+fn field_kind_name(kind: FieldKind) -> String {
+  case kind {
+    ForbiddenKind -> "Forbidden"
+    OptionalKind -> "Optional"
+    RequiredKind -> "Value"
+    SequenceKind -> "Sequence"
+    IdentifierKind -> "Identifier"
+  }
+}
+
+fn field_types(field: ComparisonField) -> List(String) {
+  field.allowed_types
+}
+
+fn comparison_node_types(node: ComparisonNode) -> List(ComparisonField) {
+  case node {
+    ComparisonLeaf(_) -> []
+    ComparisonObject(fields) -> list.map(fields, fn(field) { field.1 })
+    ComparisonMap(entries) -> [entries]
+    ComparisonArray(elements) -> [elements]
+  }
+}
+
+fn comparison_node_supported(node: ComparisonNode) -> Bool {
+  case node {
+    ComparisonLeaf(ComparisonHandleLeaf) -> False
+    ComparisonLeaf(_) -> True
+    ComparisonObject(fields) ->
+      list.all(fields, fn(field) { profile_field_kind(field.1.kind) })
+    ComparisonMap(entries) -> profile_field_kind(entries.kind)
+    ComparisonArray(_) -> False
+  }
+}
+
+fn comparison_node_to_public(node: ComparisonNode) -> NodeSchema {
+  case node {
+    ComparisonLeaf(kind) -> Leaf(public_leaf_kind(kind))
+    ComparisonObject(fields) ->
+      Object(list.map(fields, fn(field) { #(field.0, public_field(field.1)) }))
+    ComparisonMap(entries) -> Map(public_field(entries))
+    ComparisonArray(elements) -> Array(public_field(elements))
+  }
+}
+
+fn comparison_nodes_to_public(
+  nodes: List(#(String, ComparisonNode)),
+) -> Dict(String, NodeSchema) {
+  nodes
+  |> list.map(fn(entry) { #(entry.0, comparison_node_to_public(entry.1)) })
+  |> dict.from_list
+}
+
+fn comparison_nodes_supported(nodes: List(#(String, ComparisonNode))) -> Bool {
+  list.all(nodes, fn(entry) { comparison_node_supported(entry.1) })
+}
+
+fn check_comparison_references(
+  repository: Repository,
+  field: ComparisonField,
+  path: String,
+) -> Result(Nil, TreeError) {
+  field_types(field)
+  |> list.try_each(fn(identifier) {
+    case dict.has_key(repository.comparison_nodes, identifier) {
+      True -> Ok(Nil)
+      False -> Error(InvalidSchema(path <> ": missing schema " <> identifier))
+    }
+  })
+}
+
+fn check_comparison_node_references(
+  repository: Repository,
+  identifier: String,
+  node: ComparisonNode,
+) -> Result(Nil, TreeError) {
+  comparison_node_types(node)
+  |> list.try_each(fn(field) {
+    check_comparison_references(repository, field, identifier)
+  })
+}
+
+fn decode_comparison_field_kind(
+  value: JsonValue,
+  path: String,
+  allow_excluded: Bool,
+) -> Result(FieldKind, TreeError) {
+  case value {
+    VString(kind) ->
+      case comparison_field_kind(kind) {
+        Ok(kind) ->
+          case
+            kind == SequenceKind || profile_field_kind(kind) || allow_excluded
+          {
+            True -> Ok(kind)
+            False ->
+              Error(InvalidSchema(
+                path <> ": unsupported field kind " <> field_kind_name(kind),
+              ))
+          }
+        Error(Nil) ->
+          Error(InvalidSchema(path <> ": unsupported field kind " <> kind))
+      }
+    _ -> Error(CorruptData(path <> ".kind", "expected a field kind string"))
+  }
+}
+
+fn decode_comparison_leaf_kind(
+  value: JsonValue,
+  path: String,
+  allow_excluded: Bool,
+) -> Result(ComparisonLeafKind, TreeError) {
+  case comparison_leaf_kind(value) {
+    Ok(ComparisonHandleLeaf) if !allow_excluded ->
+      Error(InvalidSchema(path <> ": unsupported leaf kind"))
+    Ok(kind) -> Ok(kind)
+    Error(Nil) ->
+      case value {
+        VNumber(_) -> Error(InvalidSchema(path <> ": unsupported leaf kind"))
+        _ -> Error(CorruptData(path <> ".kind.leaf", "expected a leaf code"))
+      }
+  }
+}
+
+fn leaf_identifier_matches(
+  identifier: String,
+  kind: ComparisonLeafKind,
+) -> Bool {
+  case kind {
+    ComparisonHandleLeaf -> True
+    _ -> identifier == leaf_identifier(public_leaf_kind(kind))
+  }
+}
+
+fn field_allows_missing(field: ComparisonField) -> Bool {
+  field_allows_superset(ComparisonField(ForbiddenKind, []), field)
+}
+
+fn field_allows_removal(field: ComparisonField) -> Bool {
+  field_allows_superset(field, ComparisonField(ForbiddenKind, []))
+}
+
+fn object_fields_allow_superset(
+  original: List(#(String, ComparisonField)),
+  candidate: List(#(String, ComparisonField)),
+) -> Bool {
+  list.append(
+    list.map(original, fn(field) { field.0 }),
+    list.map(candidate, fn(field) { field.0 }),
+  )
+  |> list.unique
+  |> list.all(fn(key) {
+    case list.key_find(original, key), list.key_find(candidate, key) {
+      Error(Nil), Ok(field) -> field_allows_missing(field)
+      Ok(field), Error(Nil) -> field_allows_removal(field)
+      Ok(left), Ok(right) -> field_allows_superset(left, right)
+      Error(Nil), Error(Nil) -> True
+    }
+  })
 }
 
 fn compare_field(
@@ -663,31 +945,32 @@ fn decode_repository(
     list.try_map(nodes, fn(entry) {
       let #(identifier, definition) = entry
       use node <- result.try(decode_node(identifier, definition, allow_excluded))
-      Ok(#(identifier, node.0, node.1))
+      Ok(#(identifier, node))
     }),
   )
   use root <- result.try(member(members, "root", "$"))
   use root <- result.try(decode_field(root, "$.root", allow_excluded))
-  use _ <- result.try(reject_sequence(root.0, "$.root"))
+  use _ <- result.try(case root.kind {
+    SequenceKind ->
+      Error(InvalidSchema(
+        "$.root: sequence field is only valid as an array primary field",
+      ))
+    _ -> Ok(Nil)
+  })
+  let comparison_nodes = dict.from_list(nodes)
   let repository =
     Repository(
-      root.0,
-      nodes |> list.map(fn(entry) { #(entry.0, entry.1) }) |> dict.from_list,
+      public_field(root),
+      comparison_nodes_to_public(nodes),
+      root,
+      comparison_nodes,
       data,
-      root.1 && list.all(nodes, fn(entry) { entry.2 }),
+      profile_field_kind(root.kind) && comparison_nodes_supported(nodes),
     )
-  use _ <- result.try(check_references(repository, root.0, "$.root"))
+  use _ <- result.try(check_comparison_references(repository, root, "$.root"))
   use _ <- result.try(
     list.try_each(nodes, fn(entry) {
-      case entry.1 {
-        Leaf(_) -> Ok(Nil)
-        Object(fields) ->
-          list.try_each(fields, fn(field) {
-            check_references(repository, field.1, key_path(entry.0, field.0))
-          })
-        Map(entries) -> check_references(repository, entries, entry.0)
-        Array(elements) -> check_references(repository, elements, entry.0)
-      }
+      check_comparison_node_references(repository, entry.0, entry.1)
     }),
   )
   Ok(repository)
@@ -697,7 +980,7 @@ fn decode_node(
   identifier: String,
   data: JsonValue,
   allow_excluded: Bool,
-) -> Result(#(NodeSchema, Bool), TreeError) {
+) -> Result(ComparisonNode, TreeError) {
   let path = key_path("$.nodes", identifier)
   use members <- result.try(object(data, path))
   use _ <- result.try(check_metadata(members, path))
@@ -705,18 +988,13 @@ fn decode_node(
   use kind <- result.try(object(kind, path <> ".kind"))
   case kind {
     [#("leaf", value)] -> {
-      use leaf <- result.try(case value {
-        VNumber(NInt(0)) | VNumber(NFloat(0.0)) -> Ok(#(NumberLeaf, True))
-        VNumber(NInt(1)) | VNumber(NFloat(1.0)) -> Ok(#(StringLeaf, True))
-        VNumber(NInt(2)) | VNumber(NFloat(2.0)) -> Ok(#(BooleanLeaf, True))
-        VNumber(NInt(3)) | VNumber(NFloat(3.0)) if allow_excluded ->
-          Ok(#(StringLeaf, False))
-        VNumber(NInt(4)) | VNumber(NFloat(4.0)) -> Ok(#(NullLeaf, True))
-        VNumber(_) -> Error(InvalidSchema(path <> ": unsupported leaf kind"))
-        _ -> Error(CorruptData(path <> ".kind.leaf", "expected a leaf code"))
-      })
-      case leaf.1 == False || identifier == leaf_identifier(leaf.0) {
-        True -> Ok(#(Leaf(leaf.0), leaf.1))
+      use leaf <- result.try(decode_comparison_leaf_kind(
+        value,
+        path,
+        allow_excluded,
+      ))
+      case leaf_identifier_matches(identifier, leaf) {
+        True -> Ok(ComparisonLeaf(leaf))
         False ->
           Error(InvalidSchema(
             path <> ": leaf identifier does not match its kind",
@@ -736,18 +1014,24 @@ fn decode_node(
         }),
       )
       case fields {
-        [#("", #(FieldSchema(Sequence, _) as elements, _))] ->
-          Ok(#(Array(elements), False))
+        [#("", ComparisonField(SequenceKind, _) as elements)] ->
+          Ok(ComparisonArray(elements))
         _ -> {
-          use _ <- result.try(
-            list.try_each(fields, fn(field) {
-              reject_sequence(field.1.0, key_path(path, field.0))
-            }),
-          )
-          Ok(#(
-            Object(list.map(fields, fn(field) { #(field.0, field.1.0) })),
-            list.all(fields, fn(field) { field.1.1 }),
-          ))
+          use _ <- result.try(case allow_excluded {
+            True -> Ok(Nil)
+            False ->
+              list.try_each(fields, fn(field) {
+                case field.1.kind {
+                  SequenceKind ->
+                    Error(InvalidSchema(
+                      key_path(path, field.0)
+                      <> ": sequence field is only valid as an array primary field",
+                    ))
+                  _ -> Ok(Nil)
+                }
+              })
+          })
+          Ok(ComparisonObject(fields))
         }
       }
     }
@@ -757,8 +1041,15 @@ fn decode_node(
         path <> ".kind.map",
         allow_excluded,
       ))
-      use _ <- result.try(reject_sequence(entries.0, path <> ".kind.map"))
-      Ok(#(Map(entries.0), entries.1))
+      use _ <- result.try(case entries.kind, allow_excluded {
+        SequenceKind, False ->
+          Error(InvalidSchema(
+            path
+            <> ".kind.map: sequence field is only valid as an array primary field",
+          ))
+        _, _ -> Ok(Nil)
+      })
+      Ok(ComparisonMap(entries))
     }
     [#(kind, _)] ->
       Error(InvalidSchema(path <> ": unsupported node kind " <> kind))
@@ -770,20 +1061,15 @@ fn decode_field(
   data: JsonValue,
   path: String,
   allow_excluded: Bool,
-) -> Result(#(FieldSchema, Bool), TreeError) {
+) -> Result(ComparisonField, TreeError) {
   use members <- result.try(object(data, path))
   use _ <- result.try(check_metadata(members, path))
   use kind <- result.try(member(members, "kind", path))
-  use cardinality <- result.try(case kind {
-    VString("Value") -> Ok(#(Required, True))
-    VString("Optional") -> Ok(#(Optional, True))
-    VString("Sequence") -> Ok(#(Sequence, False))
-    VString("Forbidden") if allow_excluded -> Ok(#(Optional, False))
-    VString("Identifier") if allow_excluded -> Ok(#(Required, False))
-    VString(kind) ->
-      Error(InvalidSchema(path <> ": unsupported field kind " <> kind))
-    _ -> Error(CorruptData(path <> ".kind", "expected a field kind string"))
-  })
+  use kind <- result.try(decode_comparison_field_kind(
+    kind,
+    path,
+    allow_excluded,
+  ))
   use types <- result.try(member(members, "types", path))
   use types <- result.try(case types {
     VArray(types) ->
@@ -796,23 +1082,10 @@ fn decode_field(
       })
     _ -> Error(CorruptData(path <> ".types", "expected allowed types"))
   })
-  Ok(#(
-    FieldSchema(
-      cardinality.0,
-      types |> list.unique |> list.sort(canonical_json.compare),
-    ),
-    cardinality.1,
+  Ok(ComparisonField(
+    kind,
+    types |> list.unique |> list.sort(canonical_json.compare),
   ))
-}
-
-fn reject_sequence(field: FieldSchema, path: String) -> Result(Nil, TreeError) {
-  case field.cardinality {
-    Sequence ->
-      Error(InvalidSchema(
-        path <> ": sequence field is only valid as an array primary field",
-      ))
-    Required | Optional -> Ok(Nil)
-  }
 }
 
 fn check_metadata(
@@ -824,19 +1097,6 @@ fn check_metadata(
     Ok(VObject(_)) -> Ok(Nil)
     Ok(_) -> Error(CorruptData(path <> ".metadata", "expected metadata object"))
   }
-}
-
-fn check_references(
-  repository: Repository,
-  field: FieldSchema,
-  path: String,
-) -> Result(Nil, TreeError) {
-  list.try_each(field.allowed_types, fn(identifier) {
-    case dict.has_key(repository.nodes, identifier) {
-      True -> Ok(Nil)
-      False -> Error(InvalidSchema(path <> ": missing schema " <> identifier))
-    }
-  })
 }
 
 fn leaf_identifier(kind: LeafKind) -> String {
