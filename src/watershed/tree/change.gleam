@@ -811,6 +811,14 @@ fn compare_move_keys(
   }
 }
 
+pub fn revision_infos(change: TaggedChange) -> List(RevisionInfo) {
+  tagged_revision_infos(change)
+}
+
+pub fn max_local_id(change: Changeset) -> Int {
+  change.data.max_local_id
+}
+
 pub fn rebase_context(
   revisions: List(RevisionInfo),
 ) -> Result(RebaseContext, TreeError) {
