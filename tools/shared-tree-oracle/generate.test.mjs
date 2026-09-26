@@ -725,6 +725,16 @@ test("array validation rejects malformed endpoints and wrong references", () => 
   }
 });
 
+test("array validation rejects missing operation endpoints", () => {
+  const broken = arrayCaseFixture();
+  delete broken.input.scenarios[0].destination;
+  delete broken.raw.scenarios[0].input.destination;
+  assert.throws(
+    () => validateArrayCase(broken, broken.input.scenarios.map(({ id }) => id)),
+    /move-interior.*destination endpoint/i,
+  );
+});
+
 test("array validation rejects raw and normalized input inconsistencies", () => {
   const broken = arrayCaseFixture();
   broken.raw.scenarios[0].input.destination.gap = 2;

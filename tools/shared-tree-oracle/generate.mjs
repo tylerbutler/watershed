@@ -1240,6 +1240,12 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     if (!gap) check(value.start <= value.end, `${detail} endpoint range`);
   };
   for (const [index, input] of inputs.entries()) {
+    if (input.operation === "move" || input.operation === "move-endpoints") {
+      endpoint(input.source, `${input.id} source`);
+      endpoint(input.destination, `${input.id} destination`, true);
+    } else if (input.operation === "remove") {
+      endpoint(input.source, `${input.id} source`);
+    }
     if (input.source !== undefined) endpoint(input.source, input.id);
     if (input.destination !== undefined) endpoint(input.destination, input.id, true);
     check(object(raw[index].input), `${input.id} raw input`);
