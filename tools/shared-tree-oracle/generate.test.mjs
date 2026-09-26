@@ -662,8 +662,12 @@ function arrayCaseFixture() {
       source: { path: ["left"], start: 0, end: 2 },
       destination: { path: ["left"], gap: 1 },
       operands: {
-        source: { path: ["left"], start: 0, end: 2 },
-        destination: { path: ["left"], gap: 1 },
+        sourceIndex: 0,
+        count: 2,
+        destinationIndex: 1,
+        detachId: 5,
+        attachId: { revision: "revision-a", localId: 7 },
+        revision: "revision-a",
       },
       revisions: ["revision-a"],
       allocator: { nextLocalId: 0 },
@@ -676,7 +680,12 @@ function arrayCaseFixture() {
       operation: "remove",
       initialState: { left: [], right: ["A", "B"] },
       source: { path: ["right"], start: 1, end: 1 },
-      operands: { source: { path: ["right"], start: 1, end: 1 } },
+      operands: {
+        sourceIndex: 1,
+        count: 0,
+        detachId: 4,
+        revision: "revision-b",
+      },
       revisions: ["revision-b"],
       allocator: { nextLocalId: 0 },
       compressor: { mode: "test", session: "session-a" },
@@ -761,6 +770,68 @@ test("array validation rejects raw and normalized input inconsistencies", () => 
     () => validateArrayCase(broken, broken.input.scenarios.map(({ id }) => id)),
     /raw.*input|normalized/i,
   );
+});
+
+test("sequence replay validation requires source call operands", () => {
+  const valid = arrayCaseFixture();
+  Object.assign(valid.input.scenarios[0], {
+    detachId: 5,
+    attachId: { revision: "revision-a", localId: 7 },
+    revision: "revision-a",
+  });
+  valid.input.scenarios[0].operands = {
+    sourceIndex: 0,
+    count: 2,
+    destinationIndex: 1,
+    detachId: 5,
+    attachId: { revision: "revision-a", localId: 7 },
+    revision: "revision-a",
+  };
+  valid.raw.scenarios[0].input = structuredClone(valid.input.scenarios[0]);
+  assert.doesNotThrow(() =>
+    validateArrayCase(valid, valid.input.scenarios.map(({ id }) => id)));
+
+  for (const name of ["detachId", "attachId", "revision"]) {
+    const broken = structuredClone(valid);
+    delete broken.input.scenarios[0].operands[name];
+    delete broken.raw.scenarios[0].input.operands[name];
+    assert.throws(
+      () => validateArrayCase(broken, broken.input.scenarios.map(({ id }) => id)),
+      /move-interior.*operand/i,
+    );
+  }
+});
+
+test("forest replay validation rejects lossy deltas", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/array-forest-delta.json", import.meta.url),
+    "utf8",
+  ));
+  const scenario = value.input.scenarios[0];
+  scenario.operation = "apply-deltas";
+  scenario.operands = {
+    retainIndex: null,
+    deltas: [{
+      build: [{
+        id: { major: scenario.revisions[0], minor: 0 },
+        trees: [
+          { type: "com.fluidframework.leaf.string", value: "A", fields: [] },
+          { type: "com.fluidframework.leaf.string", value: "B", fields: [] },
+          { type: "com.fluidframework.leaf.string", value: "C", fields: [] },
+        ],
+      }],
+      fields: [["root", { marks: [{
+        count: 3,
+        attach: { major: scenario.revisions[0], minor: 0 },
+      }] }]],
+    }],
+  };
+  value.raw.scenarios[0].input = structuredClone(scenario);
+  assert.doesNotThrow(() => validateArrayCase(value));
+
+  scenario.operands.deltas[0].fields = [];
+  value.raw.scenarios[0].input = structuredClone(scenario);
+  assert.throws(() => validateArrayCase(value), /counted-build.*delta fields/i);
 });
 
 test("M3 cases require complete replay inputs and executed observations", () => {

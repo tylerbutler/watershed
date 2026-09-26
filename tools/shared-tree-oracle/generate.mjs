@@ -1239,6 +1239,47 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     }
     if (!gap) check(value.start <= value.end, `${detail} endpoint range`);
   };
+  const atomId = (value) => object(value)
+    && (value.revision === null || typeof value.revision === "string"
+      || Number.isSafeInteger(value.revision))
+    && Number.isSafeInteger(value.localId ?? value.minor);
+  const plainDelta = (value, detail) => {
+    check(object(value), `${detail} delta`);
+    if (value.fields !== undefined) {
+      check(nonemptyArray(value.fields), `${detail} delta fields`);
+      for (const entry of value.fields) {
+        check(Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string"
+          && object(entry[1]) && nonemptyArray(entry[1].marks), `${detail} delta fields`);
+      }
+    }
+    for (const name of ["build", "refreshers", "destroy", "global", "rename"]) {
+      if (value[name] !== undefined) check(nonemptyArray(value[name]), `${detail} delta ${name}`);
+    }
+  };
+  const hasCountedRange = (value) => {
+    if (!object(value)) return false;
+    for (const name of ["build", "refreshers"]) {
+      if (value[name]?.some((entry) => entry.trees?.length > 1)) return true;
+    }
+    for (const name of ["destroy", "rename"]) {
+      if (value[name]?.some((entry) => entry.count > 1)) return true;
+    }
+    return value.fields?.some(([, field]) => field.marks.some((mark) =>
+      mark.count > 1 || mark.fields !== undefined && hasCountedRange({ fields: mark.fields })))
+      ?? false;
+  };
+  const changeset = (value, detail) => {
+    check(Array.isArray(value), `${detail} changeset`);
+    for (const mark of value) {
+      check(object(mark) && Number.isSafeInteger(mark.count), `${detail} mark`);
+    }
+  };
+  const tagged = (value, detail) => {
+    check(object(value)
+      && (typeof value.revision === "string" || Number.isSafeInteger(value.revision)),
+    `${detail} tagged revision`);
+    changeset(value.change, detail);
+  };
   for (const [index, input] of inputs.entries()) {
     check(Object.hasOwn(input, "initialState")
       && object(input.operands)
@@ -1255,6 +1296,107 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     }
     if (input.source !== undefined) endpoint(input.source, input.id);
     if (input.destination !== undefined) endpoint(input.destination, input.id, true);
+    if (label === "sequence-field-editor") {
+      const op = input.operands;
+      if (input.operation === "insert") {
+        check(Number.isSafeInteger(op.index) && Number.isSafeInteger(op.count)
+          && atomId(op.firstId)
+          && (typeof op.revision === "string" || Number.isSafeInteger(op.revision)),
+        `${input.id} insert operands`);
+      } else if (input.operation === "remove") {
+        check(Number.isSafeInteger(op.sourceIndex) && Number.isSafeInteger(op.count)
+          && Number.isSafeInteger(op.detachId)
+          && (typeof op.revision === "string" || Number.isSafeInteger(op.revision)),
+        `${input.id} remove operands`);
+      } else if (input.operation === "move") {
+        check(Number.isSafeInteger(op.sourceIndex)
+          && Number.isSafeInteger(op.count)
+          && Number.isSafeInteger(op.destinationIndex)
+          && Number.isSafeInteger(op.detachId)
+          && atomId(op.attachId)
+          && (typeof op.revision === "string" || Number.isSafeInteger(op.revision)),
+        `${input.id} move operands`);
+      } else if (input.operation === "move-endpoints") {
+        check(Number.isSafeInteger(op.sourceIndex) && Number.isSafeInteger(op.count)
+          && Number.isSafeInteger(op.destinationIndex) && Number.isSafeInteger(op.moveId)
+          && atomId(op.attachId)
+          && (typeof op.revision === "string" || Number.isSafeInteger(op.revision)),
+        `${input.id} move endpoint operands`);
+      } else if (input.operation === "child-changes") {
+        check(nonemptyArray(op.children)
+          && op.children.every((child) => object(child) && Number.isSafeInteger(child.index)
+            && object(child.node) && Number.isSafeInteger(child.node.localId)
+            && object(child.node.testChange) && Array.isArray(child.node.testChange.intentions)),
+        `${input.id} child operands`);
+      } else {
+        check(false, `${input.id} editor operation`);
+      }
+    }
+    if (label === "array-forest-delta" && input.operation === "apply-deltas") {
+      check(Array.isArray(input.initialState.field), `${input.id} initial forest`);
+      check(nonemptyArray(input.operands.deltas), `${input.id} delta sequence`);
+      for (const delta of input.operands.deltas) plainDelta(delta, input.id);
+    } else if (label === "array-forest-delta") {
+      check(input.operation === "public-move-cycle" && Array.isArray(input.initialState)
+        && object(input.operands.move)
+        && Array.isArray(input.operands.move.sourcePath)
+        && Array.isArray(input.operands.move.destinationPath)
+        && Number.isSafeInteger(input.operands.move.sourceStart)
+        && Number.isSafeInteger(input.operands.move.sourceEnd)
+        && Number.isSafeInteger(input.operands.move.destinationGap),
+      `${input.id} public move input`);
+    }
+    if (label === "sequence-compose-invert") {
+      const op = input.operands;
+      if (op.maxLocalId !== undefined) {
+        check(Number.isSafeInteger(op.maxLocalId)
+          && op.maxLocalId === input.allocator.maxLocalId,
+        `${input.id} allocator watermark`);
+      }
+      if (input.operation === "compose") {
+        check(nonemptyArray(op.changes), `${input.id} compose operands`);
+        for (const [changeIndex, change] of op.changes.entries()) {
+          tagged(change, `${input.id} compose operand ${changeIndex}`);
+        }
+        check(op.childComposer === "test-node", `${input.id} child composer`);
+      } else if (input.operation === "compose-invert") {
+        tagged(op.change, `${input.id} split operand`);
+        check(typeof op.isRollback === "boolean"
+          && (typeof op.inverseRevision === "string"
+            || Number.isSafeInteger(op.inverseRevision))
+          && Number.isSafeInteger(op.maxLocalId), `${input.id} inverse operands`);
+      } else if (input.operation === "invert") {
+        tagged(op.change, `${input.id} inverse operand`);
+        check(typeof op.isRollback === "boolean"
+          && (typeof op.inverseRevision === "string"
+            || Number.isSafeInteger(op.inverseRevision))
+          && Number.isSafeInteger(op.maxLocalId), `${input.id} inverse operands`);
+      } else if (input.operation === "replace-revisions") {
+        changeset(op.change, `${input.id} replacement`);
+        check(nonemptyArray(op.obsolete)
+          && (typeof op.replacement === "string" || Number.isSafeInteger(op.replacement)),
+        `${input.id} replacement mapping`);
+      } else if (input.operation === "prune") {
+        changeset(op.change, `${input.id} prune`);
+        check(op.childPruner === "drop", `${input.id} prune callback`);
+      } else if (input.operation === "removed-roots") {
+        changeset(op.change, `${input.id} removed roots`);
+        check(Array.isArray(op.childRemovedRoots), `${input.id} removed-root callback`);
+      } else if (input.operation === "codec") {
+        changeset(op.change, `${input.id} codec`);
+      } else {
+        check(false, `${input.id} algebra operation`);
+      }
+    }
+    if (label === "sequence-rebase") {
+      check(input.operation === "rebase" && input.operands.childRebaser === "test-node",
+        `${input.id} rebase callback`);
+      check(Number.isSafeInteger(input.operands.maxLocalId)
+        && input.operands.maxLocalId === input.allocator.maxLocalId,
+      `${input.id} allocator watermark`);
+      tagged(input.operands.change, `${input.id} change`);
+      tagged(input.operands.base, `${input.id} base`);
+    }
     check(object(raw[index].input), `${input.id} raw input`);
     assert.deepEqual(raw[index].input, input, `${label}: ${input.id} raw and normalized input`);
     check(Object.hasOwn(raw[index], "output"), `${input.id} raw output`);
@@ -1304,11 +1446,23 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     const counted = ["counted-build", "counted-detach", "counted-attach",
       "counted-rename", "counted-destroy", "repair"];
     for (const id of counted) {
-      check(output.get(id).change.some((mark) => mark.count > 1), `${id} counted range`);
+      check(input.get(id).operands.deltas.some(hasCountedRange), `${id} counted range`);
     }
-    const retained = output.get("retained-identity").change;
-    check(retained.some((mark) => mark.type === "MoveOut")
-      && retained.some((mark) => mark.type === "MoveIn"), "retained move identity");
+    const retained = input.get("retained-identity").operands.deltas[0].fields[0][1].marks;
+    check(retained.some((mark) => mark.detach)
+      && retained.some((mark) => mark.attach), "retained move identity");
+    for (const id of requiredIds.filter((id) => id !== "invalid-cycle")) {
+      check(nonemptyArray(output.get(id)), `${id} forest checkpoints`);
+      for (const checkpoint of output.get(id)) {
+        check(object(checkpoint.before) && object(checkpoint.after)
+          && object(checkpoint.result) && object(checkpoint.delta),
+        `${id} forest observation`);
+      }
+    }
+    check(output.get("invalid-overlap").at(-1)?.result?.accepted === false,
+      "invalid overlap rejection");
+    check(output.get("invalid-cycle")?.result?.accepted === false,
+      "invalid cycle rejection");
   } else if (label === "sequence-field-editor") {
     successfulSequenceOutput();
     const interior = output.get("move-interior").change;
@@ -1343,7 +1497,7 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
   } else if (label === "sequence-rebase") {
     successfulSequenceOutput();
     for (const id of requiredIds) {
-      check(output.get(id).accepted === true && Array.isArray(output.get(id).value),
+      check(Array.isArray(output.get(id).value) && Array.isArray(output.get(id).callbacks),
         `${id} rebase result`);
     }
     check(output.get("endpoint-invalidation").value.some((mark) =>

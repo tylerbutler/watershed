@@ -12,21 +12,26 @@
       {
         "id": "insert",
         "operation": "insert",
-        "index": 1,
-        "count": 2,
-        "firstId": 0,
         "initialState": {
-          "field": []
+          "field": [
+            "A",
+            "B"
+          ]
         },
         "operands": {
-          "operation": "insert",
           "index": 1,
           "count": 2,
-          "firstId": 0
+          "firstId": {
+            "revision": 0,
+            "localId": 0
+          },
+          "revision": 0
         },
-        "revisions": [],
+        "revisions": [
+          0
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 1
         },
         "compressor": {
           "mode": "test",
@@ -46,27 +51,25 @@
       {
         "id": "remove",
         "operation": "remove",
-        "source": {
-          "path": [],
-          "start": 1,
-          "end": 3
-        },
-        "detachId": 2,
         "initialState": {
-          "field": []
+          "field": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
         },
         "operands": {
-          "operation": "remove",
-          "source": {
-            "path": [],
-            "start": 1,
-            "end": 3
-          },
-          "detachId": 2
+          "sourceIndex": 1,
+          "count": 2,
+          "detachId": 2,
+          "revision": 1
         },
-        "revisions": [],
+        "revisions": [
+          1
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 3
         },
         "compressor": {
           "mode": "test",
@@ -81,26 +84,36 @@
           {
             "step": "remove"
           }
-        ]
+        ],
+        "source": {
+          "path": [],
+          "start": 1,
+          "end": 3
+        }
       },
       {
         "id": "empty-insert",
         "operation": "insert",
-        "index": 1,
-        "count": 0,
-        "firstId": 3,
         "initialState": {
-          "field": []
+          "field": [
+            "A",
+            "B"
+          ]
         },
         "operands": {
-          "operation": "insert",
           "index": 1,
           "count": 0,
-          "firstId": 3
+          "firstId": {
+            "revision": 2,
+            "localId": 3
+          },
+          "revision": 2
         },
-        "revisions": [],
+        "revisions": [
+          2
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 3
         },
         "compressor": {
           "mode": "test",
@@ -120,27 +133,23 @@
       {
         "id": "empty-remove",
         "operation": "remove",
-        "source": {
-          "path": [],
-          "start": 1,
-          "end": 1
-        },
-        "detachId": 4,
         "initialState": {
-          "field": []
+          "field": [
+            "A",
+            "B"
+          ]
         },
         "operands": {
-          "operation": "remove",
-          "source": {
-            "path": [],
-            "start": 1,
-            "end": 1
-          },
-          "detachId": 4
+          "sourceIndex": 1,
+          "count": 0,
+          "detachId": 4,
+          "revision": 3
         },
-        "revisions": [],
+        "revisions": [
+          3
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 4
         },
         "compressor": {
           "mode": "test",
@@ -155,11 +164,56 @@
           {
             "step": "remove"
           }
-        ]
+        ],
+        "source": {
+          "path": [],
+          "start": 1,
+          "end": 1
+        }
       },
       {
         "id": "move-before",
         "operation": "move",
+        "initialState": {
+          "field": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ]
+        },
+        "operands": {
+          "sourceIndex": 2,
+          "count": 2,
+          "destinationIndex": 0,
+          "detachId": 5,
+          "attachId": {
+            "revision": 4,
+            "localId": 7
+          },
+          "revision": 4
+        },
+        "revisions": [
+          4
+        ],
+        "allocator": {
+          "maxLocalId": 8
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "move"
+          }
+        ],
         "source": {
           "path": [],
           "start": 2,
@@ -168,25 +222,36 @@
         "destination": {
           "path": [],
           "gap": 0
-        },
+        }
+      },
+      {
+        "id": "move-after",
+        "operation": "move",
         "initialState": {
-          "field": []
+          "field": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ]
         },
         "operands": {
-          "operation": "move",
-          "source": {
-            "path": [],
-            "start": 2,
-            "end": 4
+          "sourceIndex": 0,
+          "count": 2,
+          "destinationIndex": 4,
+          "detachId": 8,
+          "attachId": {
+            "revision": 5,
+            "localId": 10
           },
-          "destination": {
-            "path": [],
-            "gap": 0
-          }
+          "revision": 5
         },
-        "revisions": [],
+        "revisions": [
+          5
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 11
         },
         "compressor": {
           "mode": "test",
@@ -201,11 +266,7 @@
           {
             "step": "move"
           }
-        ]
-      },
-      {
-        "id": "move-after",
-        "operation": "move",
+        ],
         "source": {
           "path": [],
           "start": 0,
@@ -214,25 +275,36 @@
         "destination": {
           "path": [],
           "gap": 4
-        },
+        }
+      },
+      {
+        "id": "move-interior",
+        "operation": "move",
         "initialState": {
-          "field": []
+          "field": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ]
         },
         "operands": {
-          "operation": "move",
-          "source": {
-            "path": [],
-            "start": 0,
-            "end": 2
+          "sourceIndex": 0,
+          "count": 3,
+          "destinationIndex": 1,
+          "detachId": 11,
+          "attachId": {
+            "revision": 6,
+            "localId": 14
           },
-          "destination": {
-            "path": [],
-            "gap": 4
-          }
+          "revision": 6
         },
-        "revisions": [],
+        "revisions": [
+          6
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 16
         },
         "compressor": {
           "mode": "test",
@@ -247,11 +319,7 @@
           {
             "step": "move"
           }
-        ]
-      },
-      {
-        "id": "move-interior",
-        "operation": "move",
+        ],
         "source": {
           "path": [],
           "start": 0,
@@ -260,25 +328,36 @@
         "destination": {
           "path": [],
           "gap": 1
-        },
+        }
+      },
+      {
+        "id": "empty-move",
+        "operation": "move",
         "initialState": {
-          "field": []
+          "field": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ]
         },
         "operands": {
-          "operation": "move",
-          "source": {
-            "path": [],
-            "start": 0,
-            "end": 3
+          "sourceIndex": 1,
+          "count": 0,
+          "destinationIndex": 1,
+          "detachId": 15,
+          "attachId": {
+            "revision": 7,
+            "localId": 15
           },
-          "destination": {
-            "path": [],
-            "gap": 1
-          }
+          "revision": 7
         },
-        "revisions": [],
+        "revisions": [
+          7
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 14
         },
         "compressor": {
           "mode": "test",
@@ -293,11 +372,7 @@
           {
             "step": "move"
           }
-        ]
-      },
-      {
-        "id": "empty-move",
-        "operation": "move",
+        ],
         "source": {
           "path": [],
           "start": 1,
@@ -306,79 +381,36 @@
         "destination": {
           "path": [],
           "gap": 1
-        },
-        "initialState": {
-          "field": []
-        },
-        "operands": {
-          "operation": "move",
-          "source": {
-            "path": [],
-            "start": 1,
-            "end": 1
-          },
-          "destination": {
-            "path": [],
-            "gap": 1
-          }
-        },
-        "revisions": [],
-        "allocator": {
-          "nextLocalId": 0
-        },
-        "compressor": {
-          "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
-        },
-        "sequencing": {
-          "sequenceNumber": 0,
-          "referenceSequenceNumber": 0,
-          "minimumSequenceNumber": 0
-        },
-        "schedule": [
-          {
-            "step": "move"
-          }
-        ]
+        }
       },
       {
         "id": "paired-endpoints",
         "operation": "move-endpoints",
-        "source": {
-          "path": [
-            "left"
-          ],
-          "start": 0,
-          "end": 2
-        },
-        "destination": {
-          "path": [
-            "right"
-          ],
-          "gap": 1
-        },
         "initialState": {
-          "field": []
+          "left": [
+            "A",
+            "B"
+          ],
+          "right": [
+            "C"
+          ]
         },
         "operands": {
-          "operation": "move-endpoints",
-          "source": {
-            "path": [
-              "left"
-            ],
-            "start": 0,
-            "end": 2
+          "sourceIndex": 0,
+          "count": 2,
+          "destinationIndex": 1,
+          "moveId": 16,
+          "attachId": {
+            "revision": 8,
+            "localId": 18
           },
-          "destination": {
-            "path": [
-              "right"
-            ],
-            "gap": 1
-          }
+          "revision": 8
         },
-        "revisions": [],
+        "revisions": [
+          8
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 19
         },
         "compressor": {
           "mode": "test",
@@ -393,28 +425,70 @@
           {
             "step": "move-endpoints"
           }
-        ]
+        ],
+        "source": {
+          "path": [
+            "left"
+          ],
+          "start": 0,
+          "end": 2
+        },
+        "destination": {
+          "path": [
+            "right"
+          ],
+          "gap": 1
+        }
       },
       {
         "id": "indexed-children",
         "operation": "child-changes",
-        "indices": [
-          1,
-          4
-        ],
         "initialState": {
-          "field": []
+          "field": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E"
+          ]
         },
         "operands": {
-          "operation": "child-changes",
-          "indices": [
-            1,
-            4
+          "children": [
+            {
+              "index": 1,
+              "node": {
+                "localId": 20,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    1
+                  ],
+                  "outputContext": [
+                    1
+                  ]
+                }
+              }
+            },
+            {
+              "index": 4,
+              "node": {
+                "localId": 21,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    2
+                  ],
+                  "outputContext": [
+                    2
+                  ]
+                }
+              }
+            }
           ]
         },
         "revisions": [],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 21
         },
         "compressor": {
           "mode": "test",
@@ -449,8 +523,8 @@
               "id": 0,
               "count": 2,
               "cellId": {
-                "localId": 0,
-                "revision": 0
+                "revision": 0,
+                "localId": 0
               },
               "revision": 0
             }
@@ -482,8 +556,8 @@
               "id": 0,
               "count": 2,
               "cellId": {
-                "localId": 0,
-                "revision": 0
+                "revision": 0,
+                "localId": 0
               },
               "revision": 0
             }
@@ -583,8 +657,8 @@
               "id": 3,
               "count": 0,
               "cellId": {
-                "localId": 3,
-                "revision": 2
+                "revision": 2,
+                "localId": 3
               },
               "revision": 2
             }
@@ -616,8 +690,8 @@
               "id": 3,
               "count": 0,
               "cellId": {
-                "localId": 3,
-                "revision": 2
+                "revision": 2,
+                "localId": 3
               },
               "revision": 2
             }
@@ -664,8 +738,8 @@
               "id": 5,
               "count": 2,
               "cellId": {
-                "localId": 7,
-                "revision": 4
+                "revision": 4,
+                "localId": 7
               },
               "revision": 4
             },
@@ -710,8 +784,8 @@
               "id": 5,
               "count": 2,
               "cellId": {
-                "localId": 7,
-                "revision": 4
+                "revision": 4,
+                "localId": 7
               },
               "revision": 4
             },
@@ -770,8 +844,8 @@
               "id": 8,
               "count": 2,
               "cellId": {
-                "localId": 10,
-                "revision": 5
+                "revision": 5,
+                "localId": 10
               },
               "revision": 5
             }
@@ -816,8 +890,8 @@
               "id": 8,
               "count": 2,
               "cellId": {
-                "localId": 10,
-                "revision": 5
+                "revision": 5,
+                "localId": 10
               },
               "revision": 5
             }
@@ -864,8 +938,8 @@
               "id": 11,
               "count": 3,
               "cellId": {
-                "localId": 14,
-                "revision": 6
+                "revision": 6,
+                "localId": 14
               },
               "revision": 6
             },
@@ -917,8 +991,8 @@
               "id": 11,
               "count": 3,
               "cellId": {
-                "localId": 14,
-                "revision": 6
+                "revision": 6,
+                "localId": 14
               },
               "revision": 6
             },
@@ -994,8 +1068,8 @@
                 "id": 16,
                 "count": 2,
                 "cellId": {
-                  "localId": 18,
-                  "revision": 8
+                  "revision": 8,
+                  "localId": 18
                 },
                 "revision": 8
               }
@@ -1052,8 +1126,8 @@
                 "id": 16,
                 "count": 2,
                 "cellId": {
-                  "localId": 18,
-                  "revision": 8
+                  "revision": 8,
+                  "localId": 18
                 },
                 "revision": 8
               }
@@ -1226,21 +1300,26 @@
         "input": {
           "id": "insert",
           "operation": "insert",
-          "index": 1,
-          "count": 2,
-          "firstId": 0,
           "initialState": {
-            "field": []
+            "field": [
+              "A",
+              "B"
+            ]
           },
           "operands": {
-            "operation": "insert",
             "index": 1,
             "count": 2,
-            "firstId": 0
+            "firstId": {
+              "revision": 0,
+              "localId": 0
+            },
+            "revision": 0
           },
-          "revisions": [],
+          "revisions": [
+            0
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 1
           },
           "compressor": {
             "mode": "test",
@@ -1267,8 +1346,8 @@
               "id": 0,
               "count": 2,
               "cellId": {
-                "localId": 0,
-                "revision": 0
+                "revision": 0,
+                "localId": 0
               },
               "revision": 0
             }
@@ -1296,27 +1375,25 @@
         "input": {
           "id": "remove",
           "operation": "remove",
-          "source": {
-            "path": [],
-            "start": 1,
-            "end": 3
-          },
-          "detachId": 2,
           "initialState": {
-            "field": []
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
           },
           "operands": {
-            "operation": "remove",
-            "source": {
-              "path": [],
-              "start": 1,
-              "end": 3
-            },
-            "detachId": 2
+            "sourceIndex": 1,
+            "count": 2,
+            "detachId": 2,
+            "revision": 1
           },
-          "revisions": [],
+          "revisions": [
+            1
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 3
           },
           "compressor": {
             "mode": "test",
@@ -1331,7 +1408,12 @@
             {
               "step": "remove"
             }
-          ]
+          ],
+          "source": {
+            "path": [],
+            "start": 1,
+            "end": 3
+          }
         },
         "output": {
           "change": [
@@ -1368,21 +1450,26 @@
         "input": {
           "id": "empty-insert",
           "operation": "insert",
-          "index": 1,
-          "count": 0,
-          "firstId": 3,
           "initialState": {
-            "field": []
+            "field": [
+              "A",
+              "B"
+            ]
           },
           "operands": {
-            "operation": "insert",
             "index": 1,
             "count": 0,
-            "firstId": 3
+            "firstId": {
+              "revision": 2,
+              "localId": 3
+            },
+            "revision": 2
           },
-          "revisions": [],
+          "revisions": [
+            2
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 3
           },
           "compressor": {
             "mode": "test",
@@ -1409,8 +1496,8 @@
               "id": 3,
               "count": 0,
               "cellId": {
-                "localId": 3,
-                "revision": 2
+                "revision": 2,
+                "localId": 3
               },
               "revision": 2
             }
@@ -1438,27 +1525,23 @@
         "input": {
           "id": "empty-remove",
           "operation": "remove",
-          "source": {
-            "path": [],
-            "start": 1,
-            "end": 1
-          },
-          "detachId": 4,
           "initialState": {
-            "field": []
+            "field": [
+              "A",
+              "B"
+            ]
           },
           "operands": {
-            "operation": "remove",
-            "source": {
-              "path": [],
-              "start": 1,
-              "end": 1
-            },
-            "detachId": 4
+            "sourceIndex": 1,
+            "count": 0,
+            "detachId": 4,
+            "revision": 3
           },
-          "revisions": [],
+          "revisions": [
+            3
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 4
           },
           "compressor": {
             "mode": "test",
@@ -1473,7 +1556,12 @@
             {
               "step": "remove"
             }
-          ]
+          ],
+          "source": {
+            "path": [],
+            "start": 1,
+            "end": 1
+          }
         },
         "output": {
           "change": [],
@@ -1485,33 +1573,31 @@
         "input": {
           "id": "move-before",
           "operation": "move",
-          "source": {
-            "path": [],
-            "start": 2,
-            "end": 4
-          },
-          "destination": {
-            "path": [],
-            "gap": 0
-          },
           "initialState": {
-            "field": []
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D",
+              "E"
+            ]
           },
           "operands": {
-            "operation": "move",
-            "source": {
-              "path": [],
-              "start": 2,
-              "end": 4
+            "sourceIndex": 2,
+            "count": 2,
+            "destinationIndex": 0,
+            "detachId": 5,
+            "attachId": {
+              "revision": 4,
+              "localId": 7
             },
-            "destination": {
-              "path": [],
-              "gap": 0
-            }
+            "revision": 4
           },
-          "revisions": [],
+          "revisions": [
+            4
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 8
           },
           "compressor": {
             "mode": "test",
@@ -1526,7 +1612,16 @@
             {
               "step": "move"
             }
-          ]
+          ],
+          "source": {
+            "path": [],
+            "start": 2,
+            "end": 4
+          },
+          "destination": {
+            "path": [],
+            "gap": 0
+          }
         },
         "output": {
           "change": [
@@ -1535,8 +1630,8 @@
               "id": 5,
               "count": 2,
               "cellId": {
-                "localId": 7,
-                "revision": 4
+                "revision": 4,
+                "localId": 7
               },
               "revision": 4
             },
@@ -1580,33 +1675,31 @@
         "input": {
           "id": "move-after",
           "operation": "move",
-          "source": {
-            "path": [],
-            "start": 0,
-            "end": 2
-          },
-          "destination": {
-            "path": [],
-            "gap": 4
-          },
           "initialState": {
-            "field": []
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D",
+              "E"
+            ]
           },
           "operands": {
-            "operation": "move",
-            "source": {
-              "path": [],
-              "start": 0,
-              "end": 2
+            "sourceIndex": 0,
+            "count": 2,
+            "destinationIndex": 4,
+            "detachId": 8,
+            "attachId": {
+              "revision": 5,
+              "localId": 10
             },
-            "destination": {
-              "path": [],
-              "gap": 4
-            }
+            "revision": 5
           },
-          "revisions": [],
+          "revisions": [
+            5
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 11
           },
           "compressor": {
             "mode": "test",
@@ -1621,7 +1714,16 @@
             {
               "step": "move"
             }
-          ]
+          ],
+          "source": {
+            "path": [],
+            "start": 0,
+            "end": 2
+          },
+          "destination": {
+            "path": [],
+            "gap": 4
+          }
         },
         "output": {
           "change": [
@@ -1639,8 +1741,8 @@
               "id": 8,
               "count": 2,
               "cellId": {
-                "localId": 10,
-                "revision": 5
+                "revision": 5,
+                "localId": 10
               },
               "revision": 5
             }
@@ -1675,33 +1777,31 @@
         "input": {
           "id": "move-interior",
           "operation": "move",
-          "source": {
-            "path": [],
-            "start": 0,
-            "end": 3
-          },
-          "destination": {
-            "path": [],
-            "gap": 1
-          },
           "initialState": {
-            "field": []
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D",
+              "E"
+            ]
           },
           "operands": {
-            "operation": "move",
-            "source": {
-              "path": [],
-              "start": 0,
-              "end": 3
+            "sourceIndex": 0,
+            "count": 3,
+            "destinationIndex": 1,
+            "detachId": 11,
+            "attachId": {
+              "revision": 6,
+              "localId": 14
             },
-            "destination": {
-              "path": [],
-              "gap": 1
-            }
+            "revision": 6
           },
-          "revisions": [],
+          "revisions": [
+            6
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 16
           },
           "compressor": {
             "mode": "test",
@@ -1716,7 +1816,16 @@
             {
               "step": "move"
             }
-          ]
+          ],
+          "source": {
+            "path": [],
+            "start": 0,
+            "end": 3
+          },
+          "destination": {
+            "path": [],
+            "gap": 1
+          }
         },
         "output": {
           "change": [
@@ -1731,8 +1840,8 @@
               "id": 11,
               "count": 3,
               "cellId": {
-                "localId": 14,
-                "revision": 6
+                "revision": 6,
+                "localId": 14
               },
               "revision": 6
             },
@@ -1777,33 +1886,31 @@
         "input": {
           "id": "empty-move",
           "operation": "move",
-          "source": {
-            "path": [],
-            "start": 1,
-            "end": 1
-          },
-          "destination": {
-            "path": [],
-            "gap": 1
-          },
           "initialState": {
-            "field": []
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D",
+              "E"
+            ]
           },
           "operands": {
-            "operation": "move",
-            "source": {
-              "path": [],
-              "start": 1,
-              "end": 1
+            "sourceIndex": 1,
+            "count": 0,
+            "destinationIndex": 1,
+            "detachId": 15,
+            "attachId": {
+              "revision": 7,
+              "localId": 15
             },
-            "destination": {
-              "path": [],
-              "gap": 1
-            }
+            "revision": 7
           },
-          "revisions": [],
+          "revisions": [
+            7
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 14
           },
           "compressor": {
             "mode": "test",
@@ -1818,7 +1925,16 @@
             {
               "step": "move"
             }
-          ]
+          ],
+          "source": {
+            "path": [],
+            "start": 1,
+            "end": 1
+          },
+          "destination": {
+            "path": [],
+            "gap": 1
+          }
         },
         "output": {
           "change": [],
@@ -1830,41 +1946,31 @@
         "input": {
           "id": "paired-endpoints",
           "operation": "move-endpoints",
-          "source": {
-            "path": [
-              "left"
-            ],
-            "start": 0,
-            "end": 2
-          },
-          "destination": {
-            "path": [
-              "right"
-            ],
-            "gap": 1
-          },
           "initialState": {
-            "field": []
+            "left": [
+              "A",
+              "B"
+            ],
+            "right": [
+              "C"
+            ]
           },
           "operands": {
-            "operation": "move-endpoints",
-            "source": {
-              "path": [
-                "left"
-              ],
-              "start": 0,
-              "end": 2
+            "sourceIndex": 0,
+            "count": 2,
+            "destinationIndex": 1,
+            "moveId": 16,
+            "attachId": {
+              "revision": 8,
+              "localId": 18
             },
-            "destination": {
-              "path": [
-                "right"
-              ],
-              "gap": 1
-            }
+            "revision": 8
           },
-          "revisions": [],
+          "revisions": [
+            8
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 19
           },
           "compressor": {
             "mode": "test",
@@ -1879,7 +1985,20 @@
             {
               "step": "move-endpoints"
             }
-          ]
+          ],
+          "source": {
+            "path": [
+              "left"
+            ],
+            "start": 0,
+            "end": 2
+          },
+          "destination": {
+            "path": [
+              "right"
+            ],
+            "gap": 1
+          }
         },
         "output": {
           "change": {
@@ -1900,8 +2019,8 @@
                 "id": 16,
                 "count": 2,
                 "cellId": {
-                  "localId": 18,
-                  "revision": 8
+                  "revision": 8,
+                  "localId": 18
                 },
                 "revision": 8
               }
@@ -1945,23 +2064,52 @@
         "input": {
           "id": "indexed-children",
           "operation": "child-changes",
-          "indices": [
-            1,
-            4
-          ],
           "initialState": {
-            "field": []
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D",
+              "E"
+            ]
           },
           "operands": {
-            "operation": "child-changes",
-            "indices": [
-              1,
-              4
+            "children": [
+              {
+                "index": 1,
+                "node": {
+                  "localId": 20,
+                  "testChange": {
+                    "inputContext": [],
+                    "intentions": [
+                      1
+                    ],
+                    "outputContext": [
+                      1
+                    ]
+                  }
+                }
+              },
+              {
+                "index": 4,
+                "node": {
+                  "localId": 21,
+                  "testChange": {
+                    "inputContext": [],
+                    "intentions": [
+                      2
+                    ],
+                    "outputContext": [
+                      2
+                    ]
+                  }
+                }
+              }
             ]
           },
           "revisions": [],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 21
           },
           "compressor": {
             "mode": "test",

@@ -11,41 +11,85 @@
     "scenarios": [
       {
         "id": "mark-families",
-        "operation": "mark-families",
-        "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5,
-          6,
-          7,
-          8,
-          9,
-          10
-        ],
+        "operation": "codec",
         "initialState": {
           "field": []
         },
         "operands": {
-          "operation": "mark-families",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
-          ]
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Insert",
+              "count": 1,
+              "id": 0,
+              "cellId": {
+                "revision": 0,
+                "localId": 0
+              },
+              "revision": 0
+            },
+            {
+              "type": "Remove",
+              "count": 1,
+              "id": 2,
+              "revision": 1
+            },
+            {
+              "type": "MoveOut",
+              "count": 1,
+              "id": 4,
+              "revision": 2
+            },
+            {
+              "type": "MoveIn",
+              "count": 1,
+              "id": 4,
+              "revision": 2,
+              "cellId": {
+                "revision": 2,
+                "localId": 5
+              }
+            },
+            {
+              "type": "AttachAndDetach",
+              "count": 1,
+              "cellId": {
+                "revision": 2,
+                "localId": 5
+              },
+              "attach": {
+                "type": "MoveIn",
+                "id": 4,
+                "revision": 2
+              },
+              "detach": {
+                "type": "Remove",
+                "id": 6,
+                "revision": 3
+              }
+            },
+            {
+              "type": "Rename",
+              "count": 1,
+              "cellId": {
+                "revision": 4,
+                "localId": 7
+              },
+              "idOverride": {
+                "revision": 5,
+                "localId": 8
+              }
+            }
+          ],
+          "revision": 9
         },
+        "revisions": [
+          9
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 8
         },
         "compressor": {
           "mode": "test",
@@ -58,47 +102,58 @@
         },
         "schedule": [
           {
-            "step": "mark-families"
+            "step": "codec"
           }
         ]
       },
       {
         "id": "split-ranges",
-        "operation": "split-ranges",
-        "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5,
-          6,
-          7,
-          8,
-          9,
-          10
-        ],
+        "operation": "compose-invert",
         "initialState": {
-          "field": []
-        },
-        "operands": {
-          "operation": "split-ranges",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
+          "field": [
+            "A",
+            "B",
+            "C"
           ]
         },
+        "operands": {
+          "change": {
+            "change": [
+              {
+                "type": "MoveOut",
+                "id": 20,
+                "count": 1,
+                "revision": 10
+              },
+              {
+                "type": "MoveIn",
+                "id": 20,
+                "count": 3,
+                "cellId": {
+                  "revision": 10,
+                  "localId": 23
+                },
+                "revision": 10
+              },
+              {
+                "type": "MoveOut",
+                "id": 21,
+                "count": 2,
+                "revision": 10
+              }
+            ],
+            "revision": 10
+          },
+          "inverseRevision": 11,
+          "isRollback": false,
+          "maxLocalId": 25
+        },
+        "revisions": [
+          10,
+          11
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 25
         },
         "compressor": {
           "mode": "test",
@@ -111,47 +166,54 @@
         },
         "schedule": [
           {
-            "step": "split-ranges"
+            "step": "compose-invert"
           }
         ]
       },
       {
         "id": "cancellation",
-        "operation": "cancellation",
-        "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5,
-          6,
-          7,
-          8,
-          9,
-          10
-        ],
+        "operation": "compose",
         "initialState": {
           "field": []
         },
         "operands": {
-          "operation": "cancellation",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
-          ]
+          "changes": [
+            {
+              "change": [
+                {
+                  "type": "Insert",
+                  "id": 0,
+                  "count": 2,
+                  "cellId": {
+                    "localId": 0,
+                    "revision": 0
+                  },
+                  "revision": 0
+                }
+              ],
+              "revision": 0
+            },
+            {
+              "change": [
+                {
+                  "type": "Remove",
+                  "count": 2,
+                  "id": 2,
+                  "revision": 1
+                }
+              ],
+              "revision": 1
+            }
+          ],
+          "childComposer": "test-node",
+          "maxLocalId": 3
         },
+        "revisions": [
+          0,
+          1
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 3
         },
         "compressor": {
           "mode": "test",
@@ -164,47 +226,81 @@
         },
         "schedule": [
           {
-            "step": "cancellation"
+            "step": "compose"
           }
         ]
       },
       {
         "id": "move-chains",
-        "operation": "move-chains",
-        "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5,
-          6,
-          7,
-          8,
-          9,
-          10
-        ],
+        "operation": "compose",
         "initialState": {
-          "field": []
-        },
-        "operands": {
-          "operation": "move-chains",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
+          "field": [
+            "A",
+            "B",
+            "C",
+            "D"
           ]
         },
+        "operands": {
+          "changes": [
+            {
+              "change": [
+                {
+                  "type": "MoveOut",
+                  "id": 4,
+                  "count": 2,
+                  "revision": 2
+                },
+                {
+                  "count": 1
+                },
+                {
+                  "type": "MoveIn",
+                  "id": 4,
+                  "count": 2,
+                  "cellId": {
+                    "revision": 2,
+                    "localId": 6
+                  },
+                  "revision": 2
+                }
+              ],
+              "revision": 2
+            },
+            {
+              "change": [
+                {
+                  "type": "MoveIn",
+                  "id": 8,
+                  "count": 1,
+                  "cellId": {
+                    "revision": 3,
+                    "localId": 9
+                  },
+                  "revision": 3
+                },
+                {
+                  "count": 1
+                },
+                {
+                  "type": "MoveOut",
+                  "id": 8,
+                  "count": 1,
+                  "revision": 3
+                }
+              ],
+              "revision": 3
+            }
+          ],
+          "childComposer": "test-node",
+          "maxLocalId": 9
+        },
+        "revisions": [
+          2,
+          3
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 9
         },
         "compressor": {
           "mode": "test",
@@ -217,47 +313,81 @@
         },
         "schedule": [
           {
-            "step": "move-chains"
+            "step": "compose"
           }
         ]
       },
       {
         "id": "child-changes",
-        "operation": "child-changes",
-        "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5,
-          6,
-          7,
-          8,
-          9,
-          10
-        ],
+        "operation": "compose",
         "initialState": {
-          "field": []
-        },
-        "operands": {
-          "operation": "child-changes",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
+          "field": [
+            "A",
+            "B",
+            "C"
           ]
         },
+        "operands": {
+          "changes": [
+            {
+              "change": [
+                {
+                  "count": 2
+                },
+                {
+                  "count": 1,
+                  "changes": {
+                    "localId": 30,
+                    "testChange": {
+                      "inputContext": [],
+                      "intentions": [
+                        3
+                      ],
+                      "outputContext": [
+                        3
+                      ]
+                    }
+                  }
+                }
+              ],
+              "revision": 4
+            },
+            {
+              "change": [
+                {
+                  "count": 2
+                },
+                {
+                  "count": 1,
+                  "changes": {
+                    "localId": 31,
+                    "testChange": {
+                      "inputContext": [
+                        3
+                      ],
+                      "intentions": [
+                        4
+                      ],
+                      "outputContext": [
+                        3,
+                        4
+                      ]
+                    }
+                  }
+                }
+              ],
+              "revision": 5
+            }
+          ],
+          "childComposer": "test-node",
+          "maxLocalId": 31
+        },
+        "revisions": [
+          4,
+          5
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 31
         },
         "compressor": {
           "mode": "test",
@@ -270,47 +400,41 @@
         },
         "schedule": [
           {
-            "step": "child-changes"
+            "step": "compose"
           }
         ]
       },
       {
         "id": "rollback",
-        "operation": "rollback",
-        "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5,
-          6,
-          7,
-          8,
-          9,
-          10
-        ],
+        "operation": "invert",
         "initialState": {
-          "field": []
-        },
-        "operands": {
-          "operation": "rollback",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
+          "field": [
+            "A",
+            "B"
           ]
         },
+        "operands": {
+          "change": {
+            "change": [
+              {
+                "type": "Remove",
+                "count": 2,
+                "id": 2,
+                "revision": 1
+              }
+            ],
+            "revision": 1
+          },
+          "inverseRevision": 4,
+          "isRollback": true,
+          "maxLocalId": 3
+        },
+        "revisions": [
+          1,
+          4
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 3
         },
         "compressor": {
           "mode": "test",
@@ -323,47 +447,41 @@
         },
         "schedule": [
           {
-            "step": "rollback"
+            "step": "invert"
           }
         ]
       },
       {
         "id": "undo",
-        "operation": "undo",
-        "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5,
-          6,
-          7,
-          8,
-          9,
-          10
-        ],
+        "operation": "invert",
         "initialState": {
-          "field": []
-        },
-        "operands": {
-          "operation": "undo",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
+          "field": [
+            "A",
+            "B"
           ]
         },
+        "operands": {
+          "change": {
+            "change": [
+              {
+                "type": "Remove",
+                "count": 2,
+                "id": 2,
+                "revision": 1
+              }
+            ],
+            "revision": 1
+          },
+          "inverseRevision": 5,
+          "isRollback": false,
+          "maxLocalId": 3
+        },
+        "revisions": [
+          1,
+          5
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 3
         },
         "compressor": {
           "mode": "test",
@@ -376,47 +494,41 @@
         },
         "schedule": [
           {
-            "step": "undo"
+            "step": "invert"
           }
         ]
       },
       {
         "id": "revision-replacement",
-        "operation": "revision-replacement",
-        "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5,
-          6,
-          7,
-          8,
-          9,
-          10
-        ],
+        "operation": "replace-revisions",
         "initialState": {
           "field": []
         },
         "operands": {
-          "operation": "revision-replacement",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
-          ]
+          "change": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 2,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            }
+          ],
+          "obsolete": [
+            0
+          ],
+          "replacement": 6,
+          "maxLocalId": 1
         },
+        "revisions": [
+          0,
+          6
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 1
         },
         "compressor": {
           "mode": "test",
@@ -429,47 +541,54 @@
         },
         "schedule": [
           {
-            "step": "revision-replacement"
+            "step": "replace-revisions"
           }
         ]
       },
       {
         "id": "pruning",
-        "operation": "pruning",
-        "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5,
-          6,
-          7,
-          8,
-          9,
-          10
-        ],
+        "operation": "prune",
         "initialState": {
-          "field": []
-        },
-        "operands": {
-          "operation": "pruning",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
+          "field": [
+            "A"
           ]
         },
+        "operands": {
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "count": 1,
+              "changes": {
+                "localId": 30,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    3
+                  ],
+                  "outputContext": [
+                    3
+                  ]
+                }
+              }
+            },
+            {
+              "count": 1,
+              "cellId": {
+                "revision": 7,
+                "localId": 12
+              }
+            }
+          ],
+          "childPruner": "drop",
+          "maxLocalId": 30
+        },
+        "revisions": [
+          7
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 30
         },
         "compressor": {
           "mode": "test",
@@ -482,47 +601,37 @@
         },
         "schedule": [
           {
-            "step": "pruning"
+            "step": "prune"
           }
         ]
       },
       {
         "id": "removed-roots",
         "operation": "removed-roots",
-        "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5,
-          6,
-          7,
-          8,
-          9,
-          10
-        ],
         "initialState": {
           "field": []
         },
         "operands": {
-          "operation": "removed-roots",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
-          ]
+          "change": [
+            {
+              "type": "Insert",
+              "count": 1,
+              "id": 13,
+              "cellId": {
+                "revision": 8,
+                "localId": 13
+              },
+              "revision": 8
+            }
+          ],
+          "childRemovedRoots": [],
+          "maxLocalId": 13
         },
+        "revisions": [
+          8
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 13
         },
         "compressor": {
           "mode": "test",
@@ -1209,149 +1318,293 @@
         "id": "cancellation",
         "executed": true,
         "accepted": true,
-        "value": [
-          {
-            "type": "Remove",
-            "id": 2,
-            "revision": 1,
-            "count": 2,
-            "cellId": {
-              "localId": 0,
-              "revision": 0
+        "value": {
+          "operands": [
+            [
+              {
+                "type": "Insert",
+                "id": 0,
+                "count": 2,
+                "cellId": {
+                  "revision": 0,
+                  "localId": 0
+                },
+                "revision": 0
+              }
+            ],
+            [
+              {
+                "type": "Remove",
+                "count": 2,
+                "id": 2,
+                "revision": 1
+              }
+            ]
+          ],
+          "callbacks": [],
+          "composed": [
+            {
+              "type": "Remove",
+              "id": 2,
+              "revision": 1,
+              "count": 2,
+              "cellId": {
+                "revision": 0,
+                "localId": 0
+              }
             }
-          }
-        ],
-        "result": [
-          {
-            "type": "Remove",
-            "id": 2,
-            "revision": 1,
-            "count": 2,
-            "cellId": {
-              "localId": 0,
-              "revision": 0
+          ]
+        },
+        "result": {
+          "operands": [
+            [
+              {
+                "type": "Insert",
+                "id": 0,
+                "count": 2,
+                "cellId": {
+                  "revision": 0,
+                  "localId": 0
+                },
+                "revision": 0
+              }
+            ],
+            [
+              {
+                "type": "Remove",
+                "count": 2,
+                "id": 2,
+                "revision": 1
+              }
+            ]
+          ],
+          "callbacks": [],
+          "composed": [
+            {
+              "type": "Remove",
+              "id": 2,
+              "revision": 1,
+              "count": 2,
+              "cellId": {
+                "revision": 0,
+                "localId": 0
+              }
             }
-          }
-        ]
+          ]
+        }
       },
       {
         "id": "move-chains",
         "executed": true,
         "accepted": true,
-        "value": [
-          {
-            "type": "MoveIn",
-            "id": 8,
-            "count": 1,
-            "cellId": {
+        "value": {
+          "operands": [
+            [
+              {
+                "type": "MoveOut",
+                "id": 4,
+                "count": 2,
+                "revision": 2
+              },
+              {
+                "count": 1
+              },
+              {
+                "type": "MoveIn",
+                "id": 4,
+                "count": 2,
+                "cellId": {
+                  "revision": 2,
+                  "localId": 6
+                },
+                "revision": 2
+              }
+            ],
+            [
+              {
+                "type": "MoveIn",
+                "id": 8,
+                "count": 1,
+                "cellId": {
+                  "revision": 3,
+                  "localId": 9
+                },
+                "revision": 3
+              },
+              {
+                "count": 1
+              },
+              {
+                "type": "MoveOut",
+                "id": 8,
+                "count": 1,
+                "revision": 3
+              }
+            ]
+          ],
+          "callbacks": [],
+          "composed": [
+            {
+              "type": "MoveIn",
+              "id": 8,
+              "count": 1,
+              "cellId": {
+                "revision": 3,
+                "localId": 9
+              },
               "revision": 3,
-              "localId": 9
+              "finalEndpoint": {
+                "revision": 2,
+                "localId": 4
+              }
             },
-            "revision": 3,
-            "finalEndpoint": {
+            {
+              "type": "MoveOut",
+              "id": 4,
+              "count": 1,
               "revision": 2,
-              "localId": 4
+              "finalEndpoint": {
+                "revision": 3,
+                "localId": 8
+              }
+            },
+            {
+              "type": "MoveOut",
+              "id": 5,
+              "count": 1,
+              "revision": 2
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "Rename",
+              "count": 1,
+              "cellId": {
+                "revision": 2,
+                "localId": 6
+              },
+              "idOverride": {
+                "revision": 3,
+                "localId": 8
+              }
+            },
+            {
+              "type": "MoveIn",
+              "id": 5,
+              "count": 1,
+              "cellId": {
+                "revision": 2,
+                "localId": 7
+              },
+              "revision": 2
             }
-          },
-          {
-            "type": "MoveOut",
-            "id": 4,
-            "count": 1,
-            "revision": 2,
-            "finalEndpoint": {
+          ]
+        },
+        "result": {
+          "operands": [
+            [
+              {
+                "type": "MoveOut",
+                "id": 4,
+                "count": 2,
+                "revision": 2
+              },
+              {
+                "count": 1
+              },
+              {
+                "type": "MoveIn",
+                "id": 4,
+                "count": 2,
+                "cellId": {
+                  "revision": 2,
+                  "localId": 6
+                },
+                "revision": 2
+              }
+            ],
+            [
+              {
+                "type": "MoveIn",
+                "id": 8,
+                "count": 1,
+                "cellId": {
+                  "revision": 3,
+                  "localId": 9
+                },
+                "revision": 3
+              },
+              {
+                "count": 1
+              },
+              {
+                "type": "MoveOut",
+                "id": 8,
+                "count": 1,
+                "revision": 3
+              }
+            ]
+          ],
+          "callbacks": [],
+          "composed": [
+            {
+              "type": "MoveIn",
+              "id": 8,
+              "count": 1,
+              "cellId": {
+                "revision": 3,
+                "localId": 9
+              },
               "revision": 3,
-              "localId": 8
-            }
-          },
-          {
-            "type": "MoveOut",
-            "id": 5,
-            "count": 1,
-            "revision": 2
-          },
-          {
-            "count": 1
-          },
-          {
-            "type": "Rename",
-            "count": 1,
-            "cellId": {
-              "revision": 2,
-              "localId": 6
+              "finalEndpoint": {
+                "revision": 2,
+                "localId": 4
+              }
             },
-            "idOverride": {
-              "revision": 3,
-              "localId": 8
-            }
-          },
-          {
-            "type": "MoveIn",
-            "id": 5,
-            "count": 1,
-            "cellId": {
+            {
+              "type": "MoveOut",
+              "id": 4,
+              "count": 1,
               "revision": 2,
-              "localId": 7
+              "finalEndpoint": {
+                "revision": 3,
+                "localId": 8
+              }
             },
-            "revision": 2
-          }
-        ],
-        "result": [
-          {
-            "type": "MoveIn",
-            "id": 8,
-            "count": 1,
-            "cellId": {
-              "revision": 3,
-              "localId": 9
+            {
+              "type": "MoveOut",
+              "id": 5,
+              "count": 1,
+              "revision": 2
             },
-            "revision": 3,
-            "finalEndpoint": {
-              "revision": 2,
-              "localId": 4
+            {
+              "count": 1
+            },
+            {
+              "type": "Rename",
+              "count": 1,
+              "cellId": {
+                "revision": 2,
+                "localId": 6
+              },
+              "idOverride": {
+                "revision": 3,
+                "localId": 8
+              }
+            },
+            {
+              "type": "MoveIn",
+              "id": 5,
+              "count": 1,
+              "cellId": {
+                "revision": 2,
+                "localId": 7
+              },
+              "revision": 2
             }
-          },
-          {
-            "type": "MoveOut",
-            "id": 4,
-            "count": 1,
-            "revision": 2,
-            "finalEndpoint": {
-              "revision": 3,
-              "localId": 8
-            }
-          },
-          {
-            "type": "MoveOut",
-            "id": 5,
-            "count": 1,
-            "revision": 2
-          },
-          {
-            "count": 1
-          },
-          {
-            "type": "Rename",
-            "count": 1,
-            "cellId": {
-              "revision": 2,
-              "localId": 6
-            },
-            "idOverride": {
-              "revision": 3,
-              "localId": 8
-            }
-          },
-          {
-            "type": "MoveIn",
-            "id": 5,
-            "count": 1,
-            "cellId": {
-              "revision": 2,
-              "localId": 7
-            },
-            "revision": 2
-          }
-        ]
+          ]
+        }
       },
       {
         "id": "child-changes",
@@ -1657,8 +1910,8 @@
               "id": 0,
               "count": 2,
               "cellId": {
-                "localId": 0,
-                "revision": 0
+                "revision": 0,
+                "localId": 0
               },
               "revision": 0
             }
@@ -1673,8 +1926,8 @@
               "id": 0,
               "count": 2,
               "cellId": {
-                "localId": 0,
-                "revision": 6
+                "revision": 6,
+                "localId": 0
               },
               "revision": 6
             }
@@ -1687,8 +1940,8 @@
               "id": 0,
               "count": 2,
               "cellId": {
-                "localId": 0,
-                "revision": 0
+                "revision": 0,
+                "localId": 0
               },
               "revision": 0
             }
@@ -1703,8 +1956,8 @@
               "id": 0,
               "count": 2,
               "cellId": {
-                "localId": 0,
-                "revision": 6
+                "revision": 6,
+                "localId": 0
               },
               "revision": 6
             }
@@ -1765,41 +2018,85 @@
         "id": "mark-families",
         "input": {
           "id": "mark-families",
-          "operation": "mark-families",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
-          ],
+          "operation": "codec",
           "initialState": {
             "field": []
           },
           "operands": {
-            "operation": "mark-families",
-            "revisions": [
-              0,
-              1,
-              2,
-              3,
-              4,
-              5,
-              6,
-              7,
-              8,
-              9,
-              10
-            ]
+            "change": [
+              {
+                "count": 1
+              },
+              {
+                "type": "Insert",
+                "count": 1,
+                "id": 0,
+                "cellId": {
+                  "revision": 0,
+                  "localId": 0
+                },
+                "revision": 0
+              },
+              {
+                "type": "Remove",
+                "count": 1,
+                "id": 2,
+                "revision": 1
+              },
+              {
+                "type": "MoveOut",
+                "count": 1,
+                "id": 4,
+                "revision": 2
+              },
+              {
+                "type": "MoveIn",
+                "count": 1,
+                "id": 4,
+                "revision": 2,
+                "cellId": {
+                  "revision": 2,
+                  "localId": 5
+                }
+              },
+              {
+                "type": "AttachAndDetach",
+                "count": 1,
+                "cellId": {
+                  "revision": 2,
+                  "localId": 5
+                },
+                "attach": {
+                  "type": "MoveIn",
+                  "id": 4,
+                  "revision": 2
+                },
+                "detach": {
+                  "type": "Remove",
+                  "id": 6,
+                  "revision": 3
+                }
+              },
+              {
+                "type": "Rename",
+                "count": 1,
+                "cellId": {
+                  "revision": 4,
+                  "localId": 7
+                },
+                "idOverride": {
+                  "revision": 5,
+                  "localId": 8
+                }
+              }
+            ],
+            "revision": 9
           },
+          "revisions": [
+            9
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 8
           },
           "compressor": {
             "mode": "test",
@@ -1812,7 +2109,7 @@
           },
           "schedule": [
             {
-              "step": "mark-families"
+              "step": "codec"
             }
           ]
         },
@@ -2046,41 +2343,52 @@
         "id": "split-ranges",
         "input": {
           "id": "split-ranges",
-          "operation": "split-ranges",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
-          ],
+          "operation": "compose-invert",
           "initialState": {
-            "field": []
-          },
-          "operands": {
-            "operation": "split-ranges",
-            "revisions": [
-              0,
-              1,
-              2,
-              3,
-              4,
-              5,
-              6,
-              7,
-              8,
-              9,
-              10
+            "field": [
+              "A",
+              "B",
+              "C"
             ]
           },
+          "operands": {
+            "change": {
+              "change": [
+                {
+                  "type": "MoveOut",
+                  "id": 20,
+                  "count": 1,
+                  "revision": 10
+                },
+                {
+                  "type": "MoveIn",
+                  "id": 20,
+                  "count": 3,
+                  "cellId": {
+                    "revision": 10,
+                    "localId": 23
+                  },
+                  "revision": 10
+                },
+                {
+                  "type": "MoveOut",
+                  "id": 21,
+                  "count": 2,
+                  "revision": 10
+                }
+              ],
+              "revision": 10
+            },
+            "inverseRevision": 11,
+            "isRollback": false,
+            "maxLocalId": 25
+          },
+          "revisions": [
+            10,
+            11
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 25
           },
           "compressor": {
             "mode": "test",
@@ -2093,7 +2401,7 @@
           },
           "schedule": [
             {
-              "step": "split-ranges"
+              "step": "compose-invert"
             }
           ]
         },
@@ -2203,41 +2511,48 @@
         "id": "cancellation",
         "input": {
           "id": "cancellation",
-          "operation": "cancellation",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
-          ],
+          "operation": "compose",
           "initialState": {
             "field": []
           },
           "operands": {
-            "operation": "cancellation",
-            "revisions": [
-              0,
-              1,
-              2,
-              3,
-              4,
-              5,
-              6,
-              7,
-              8,
-              9,
-              10
-            ]
+            "changes": [
+              {
+                "change": [
+                  {
+                    "type": "Insert",
+                    "id": 0,
+                    "count": 2,
+                    "cellId": {
+                      "localId": 0,
+                      "revision": 0
+                    },
+                    "revision": 0
+                  }
+                ],
+                "revision": 0
+              },
+              {
+                "change": [
+                  {
+                    "type": "Remove",
+                    "count": 2,
+                    "id": 2,
+                    "revision": 1
+                  }
+                ],
+                "revision": 1
+              }
+            ],
+            "childComposer": "test-node",
+            "maxLocalId": 3
           },
+          "revisions": [
+            0,
+            1
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 3
           },
           "compressor": {
             "mode": "test",
@@ -2250,62 +2565,121 @@
           },
           "schedule": [
             {
-              "step": "cancellation"
+              "step": "compose"
             }
           ]
         },
-        "output": [
-          {
-            "type": "Remove",
-            "id": 2,
-            "revision": 1,
-            "count": 2,
-            "cellId": {
-              "localId": 0,
-              "revision": 0
+        "output": {
+          "operands": [
+            [
+              {
+                "type": "Insert",
+                "id": 0,
+                "count": 2,
+                "cellId": {
+                  "revision": 0,
+                  "localId": 0
+                },
+                "revision": 0
+              }
+            ],
+            [
+              {
+                "type": "Remove",
+                "count": 2,
+                "id": 2,
+                "revision": 1
+              }
+            ]
+          ],
+          "callbacks": [],
+          "composed": [
+            {
+              "type": "Remove",
+              "id": 2,
+              "revision": 1,
+              "count": 2,
+              "cellId": {
+                "revision": 0,
+                "localId": 0
+              }
             }
-          }
-        ]
+          ]
+        }
       },
       {
         "id": "move-chains",
         "input": {
           "id": "move-chains",
-          "operation": "move-chains",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
-          ],
+          "operation": "compose",
           "initialState": {
-            "field": []
-          },
-          "operands": {
-            "operation": "move-chains",
-            "revisions": [
-              0,
-              1,
-              2,
-              3,
-              4,
-              5,
-              6,
-              7,
-              8,
-              9,
-              10
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D"
             ]
           },
+          "operands": {
+            "changes": [
+              {
+                "change": [
+                  {
+                    "type": "MoveOut",
+                    "id": 4,
+                    "count": 2,
+                    "revision": 2
+                  },
+                  {
+                    "count": 1
+                  },
+                  {
+                    "type": "MoveIn",
+                    "id": 4,
+                    "count": 2,
+                    "cellId": {
+                      "revision": 2,
+                      "localId": 6
+                    },
+                    "revision": 2
+                  }
+                ],
+                "revision": 2
+              },
+              {
+                "change": [
+                  {
+                    "type": "MoveIn",
+                    "id": 8,
+                    "count": 1,
+                    "cellId": {
+                      "revision": 3,
+                      "localId": 9
+                    },
+                    "revision": 3
+                  },
+                  {
+                    "count": 1
+                  },
+                  {
+                    "type": "MoveOut",
+                    "id": 8,
+                    "count": 1,
+                    "revision": 3
+                  }
+                ],
+                "revision": 3
+              }
+            ],
+            "childComposer": "test-node",
+            "maxLocalId": 9
+          },
+          "revisions": [
+            2,
+            3
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 9
           },
           "compressor": {
             "mode": "test",
@@ -2318,107 +2692,188 @@
           },
           "schedule": [
             {
-              "step": "move-chains"
+              "step": "compose"
             }
           ]
         },
-        "output": [
-          {
-            "type": "MoveIn",
-            "id": 8,
-            "count": 1,
-            "cellId": {
+        "output": {
+          "operands": [
+            [
+              {
+                "type": "MoveOut",
+                "id": 4,
+                "count": 2,
+                "revision": 2
+              },
+              {
+                "count": 1
+              },
+              {
+                "type": "MoveIn",
+                "id": 4,
+                "count": 2,
+                "cellId": {
+                  "revision": 2,
+                  "localId": 6
+                },
+                "revision": 2
+              }
+            ],
+            [
+              {
+                "type": "MoveIn",
+                "id": 8,
+                "count": 1,
+                "cellId": {
+                  "revision": 3,
+                  "localId": 9
+                },
+                "revision": 3
+              },
+              {
+                "count": 1
+              },
+              {
+                "type": "MoveOut",
+                "id": 8,
+                "count": 1,
+                "revision": 3
+              }
+            ]
+          ],
+          "callbacks": [],
+          "composed": [
+            {
+              "type": "MoveIn",
+              "id": 8,
+              "count": 1,
+              "cellId": {
+                "revision": 3,
+                "localId": 9
+              },
               "revision": 3,
-              "localId": 9
+              "finalEndpoint": {
+                "revision": 2,
+                "localId": 4
+              }
             },
-            "revision": 3,
-            "finalEndpoint": {
+            {
+              "type": "MoveOut",
+              "id": 4,
+              "count": 1,
               "revision": 2,
-              "localId": 4
-            }
-          },
-          {
-            "type": "MoveOut",
-            "id": 4,
-            "count": 1,
-            "revision": 2,
-            "finalEndpoint": {
-              "revision": 3,
-              "localId": 8
-            }
-          },
-          {
-            "type": "MoveOut",
-            "id": 5,
-            "count": 1,
-            "revision": 2
-          },
-          {
-            "count": 1
-          },
-          {
-            "type": "Rename",
-            "count": 1,
-            "cellId": {
-              "revision": 2,
-              "localId": 6
+              "finalEndpoint": {
+                "revision": 3,
+                "localId": 8
+              }
             },
-            "idOverride": {
-              "revision": 3,
-              "localId": 8
-            }
-          },
-          {
-            "type": "MoveIn",
-            "id": 5,
-            "count": 1,
-            "cellId": {
-              "revision": 2,
-              "localId": 7
+            {
+              "type": "MoveOut",
+              "id": 5,
+              "count": 1,
+              "revision": 2
             },
-            "revision": 2
-          }
-        ]
+            {
+              "count": 1
+            },
+            {
+              "type": "Rename",
+              "count": 1,
+              "cellId": {
+                "revision": 2,
+                "localId": 6
+              },
+              "idOverride": {
+                "revision": 3,
+                "localId": 8
+              }
+            },
+            {
+              "type": "MoveIn",
+              "id": 5,
+              "count": 1,
+              "cellId": {
+                "revision": 2,
+                "localId": 7
+              },
+              "revision": 2
+            }
+          ]
+        }
       },
       {
         "id": "child-changes",
         "input": {
           "id": "child-changes",
-          "operation": "child-changes",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
-          ],
+          "operation": "compose",
           "initialState": {
-            "field": []
-          },
-          "operands": {
-            "operation": "child-changes",
-            "revisions": [
-              0,
-              1,
-              2,
-              3,
-              4,
-              5,
-              6,
-              7,
-              8,
-              9,
-              10
+            "field": [
+              "A",
+              "B",
+              "C"
             ]
           },
+          "operands": {
+            "changes": [
+              {
+                "change": [
+                  {
+                    "count": 2
+                  },
+                  {
+                    "count": 1,
+                    "changes": {
+                      "localId": 30,
+                      "testChange": {
+                        "inputContext": [],
+                        "intentions": [
+                          3
+                        ],
+                        "outputContext": [
+                          3
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "revision": 4
+              },
+              {
+                "change": [
+                  {
+                    "count": 2
+                  },
+                  {
+                    "count": 1,
+                    "changes": {
+                      "localId": 31,
+                      "testChange": {
+                        "inputContext": [
+                          3
+                        ],
+                        "intentions": [
+                          4
+                        ],
+                        "outputContext": [
+                          3,
+                          4
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "revision": 5
+              }
+            ],
+            "childComposer": "test-node",
+            "maxLocalId": 31
+          },
+          "revisions": [
+            4,
+            5
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 31
           },
           "compressor": {
             "mode": "test",
@@ -2431,7 +2886,7 @@
           },
           "schedule": [
             {
-              "step": "child-changes"
+              "step": "compose"
             }
           ]
         },
@@ -2555,41 +3010,35 @@
         "id": "rollback",
         "input": {
           "id": "rollback",
-          "operation": "rollback",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
-          ],
+          "operation": "invert",
           "initialState": {
-            "field": []
-          },
-          "operands": {
-            "operation": "rollback",
-            "revisions": [
-              0,
-              1,
-              2,
-              3,
-              4,
-              5,
-              6,
-              7,
-              8,
-              9,
-              10
+            "field": [
+              "A",
+              "B"
             ]
           },
+          "operands": {
+            "change": {
+              "change": [
+                {
+                  "type": "Remove",
+                  "count": 2,
+                  "id": 2,
+                  "revision": 1
+                }
+              ],
+              "revision": 1
+            },
+            "inverseRevision": 4,
+            "isRollback": true,
+            "maxLocalId": 3
+          },
+          "revisions": [
+            1,
+            4
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 3
           },
           "compressor": {
             "mode": "test",
@@ -2602,7 +3051,7 @@
           },
           "schedule": [
             {
-              "step": "rollback"
+              "step": "invert"
             }
           ]
         },
@@ -2623,41 +3072,35 @@
         "id": "undo",
         "input": {
           "id": "undo",
-          "operation": "undo",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
-          ],
+          "operation": "invert",
           "initialState": {
-            "field": []
-          },
-          "operands": {
-            "operation": "undo",
-            "revisions": [
-              0,
-              1,
-              2,
-              3,
-              4,
-              5,
-              6,
-              7,
-              8,
-              9,
-              10
+            "field": [
+              "A",
+              "B"
             ]
           },
+          "operands": {
+            "change": {
+              "change": [
+                {
+                  "type": "Remove",
+                  "count": 2,
+                  "id": 2,
+                  "revision": 1
+                }
+              ],
+              "revision": 1
+            },
+            "inverseRevision": 5,
+            "isRollback": false,
+            "maxLocalId": 3
+          },
+          "revisions": [
+            1,
+            5
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 3
           },
           "compressor": {
             "mode": "test",
@@ -2670,7 +3113,7 @@
           },
           "schedule": [
             {
-              "step": "undo"
+              "step": "invert"
             }
           ]
         },
@@ -2691,41 +3134,35 @@
         "id": "revision-replacement",
         "input": {
           "id": "revision-replacement",
-          "operation": "revision-replacement",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
-          ],
+          "operation": "replace-revisions",
           "initialState": {
             "field": []
           },
           "operands": {
-            "operation": "revision-replacement",
-            "revisions": [
-              0,
-              1,
-              2,
-              3,
-              4,
-              5,
-              6,
-              7,
-              8,
-              9,
-              10
-            ]
+            "change": [
+              {
+                "type": "Insert",
+                "id": 0,
+                "count": 2,
+                "cellId": {
+                  "localId": 0,
+                  "revision": 0
+                },
+                "revision": 0
+              }
+            ],
+            "obsolete": [
+              0
+            ],
+            "replacement": 6,
+            "maxLocalId": 1
           },
+          "revisions": [
+            0,
+            6
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 1
           },
           "compressor": {
             "mode": "test",
@@ -2738,7 +3175,7 @@
           },
           "schedule": [
             {
-              "step": "revision-replacement"
+              "step": "replace-revisions"
             }
           ]
         },
@@ -2749,8 +3186,8 @@
               "id": 0,
               "count": 2,
               "cellId": {
-                "localId": 0,
-                "revision": 0
+                "revision": 0,
+                "localId": 0
               },
               "revision": 0
             }
@@ -2765,8 +3202,8 @@
               "id": 0,
               "count": 2,
               "cellId": {
-                "localId": 0,
-                "revision": 6
+                "revision": 6,
+                "localId": 0
               },
               "revision": 6
             }
@@ -2777,41 +3214,48 @@
         "id": "pruning",
         "input": {
           "id": "pruning",
-          "operation": "pruning",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
-          ],
+          "operation": "prune",
           "initialState": {
-            "field": []
-          },
-          "operands": {
-            "operation": "pruning",
-            "revisions": [
-              0,
-              1,
-              2,
-              3,
-              4,
-              5,
-              6,
-              7,
-              8,
-              9,
-              10
+            "field": [
+              "A"
             ]
           },
+          "operands": {
+            "change": [
+              {
+                "count": 1
+              },
+              {
+                "count": 1,
+                "changes": {
+                  "localId": 30,
+                  "testChange": {
+                    "inputContext": [],
+                    "intentions": [
+                      3
+                    ],
+                    "outputContext": [
+                      3
+                    ]
+                  }
+                }
+              },
+              {
+                "count": 1,
+                "cellId": {
+                  "revision": 7,
+                  "localId": 12
+                }
+              }
+            ],
+            "childPruner": "drop",
+            "maxLocalId": 30
+          },
+          "revisions": [
+            7
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 30
           },
           "compressor": {
             "mode": "test",
@@ -2824,7 +3268,7 @@
           },
           "schedule": [
             {
-              "step": "pruning"
+              "step": "prune"
             }
           ]
         },
@@ -2846,40 +3290,30 @@
         "input": {
           "id": "removed-roots",
           "operation": "removed-roots",
-          "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10
-          ],
           "initialState": {
             "field": []
           },
           "operands": {
-            "operation": "removed-roots",
-            "revisions": [
-              0,
-              1,
-              2,
-              3,
-              4,
-              5,
-              6,
-              7,
-              8,
-              9,
-              10
-            ]
+            "change": [
+              {
+                "type": "Insert",
+                "count": 1,
+                "id": 13,
+                "cellId": {
+                  "revision": 8,
+                  "localId": 13
+                },
+                "revision": 8
+              }
+            ],
+            "childRemovedRoots": [],
+            "maxLocalId": 13
           },
+          "revisions": [
+            8
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 13
           },
           "compressor": {
             "mode": "test",

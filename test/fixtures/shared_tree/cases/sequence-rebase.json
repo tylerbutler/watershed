@@ -12,67 +12,49 @@
       {
         "id": "insert-insert",
         "operation": "rebase",
-        "change": [
-          {
-            "type": "Insert",
-            "id": 0,
-            "count": 1,
-            "cellId": {
-              "localId": 0,
-              "revision": 0
-            },
-            "revision": 0
-          }
-        ],
-        "changeRevision": 0,
-        "base": [
-          {
-            "type": "Insert",
-            "id": 1,
-            "count": 1,
-            "cellId": {
-              "localId": 1,
-              "revision": 1
-            },
-            "revision": 1
-          }
-        ],
-        "baseRevision": 1,
         "initialState": {
           "field": []
         },
         "operands": {
-          "operation": "rebase",
-          "change": [
-            {
-              "type": "Insert",
-              "id": 0,
-              "count": 1,
-              "cellId": {
-                "localId": 0,
+          "change": {
+            "change": [
+              {
+                "type": "Insert",
+                "id": 0,
+                "count": 1,
+                "cellId": {
+                  "localId": 0,
+                  "revision": 0
+                },
                 "revision": 0
-              },
-              "revision": 0
-            }
-          ],
-          "changeRevision": 0,
-          "base": [
-            {
-              "type": "Insert",
-              "id": 1,
-              "count": 1,
-              "cellId": {
-                "localId": 1,
+              }
+            ],
+            "revision": 0
+          },
+          "base": {
+            "change": [
+              {
+                "type": "Insert",
+                "id": 1,
+                "count": 1,
+                "cellId": {
+                  "localId": 1,
+                  "revision": 1
+                },
                 "revision": 1
-              },
-              "revision": 1
-            }
-          ],
-          "baseRevision": 1
+              }
+            ],
+            "revision": 1
+          },
+          "childRebaser": "test-node",
+          "maxLocalId": 37
         },
-        "revisions": [],
+        "revisions": [
+          0,
+          1
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 37
         },
         "compressor": {
           "mode": "test",
@@ -92,59 +74,45 @@
       {
         "id": "insert-remove",
         "operation": "rebase",
-        "change": [
-          {
-            "type": "Insert",
-            "id": 0,
-            "count": 1,
-            "cellId": {
-              "localId": 0,
-              "revision": 0
-            },
-            "revision": 0
-          }
-        ],
-        "changeRevision": 0,
-        "base": [
-          {
-            "type": "Remove",
-            "count": 2,
-            "id": 2,
-            "revision": 2
-          }
-        ],
-        "baseRevision": 2,
         "initialState": {
           "field": []
         },
         "operands": {
-          "operation": "rebase",
-          "change": [
-            {
-              "type": "Insert",
-              "id": 0,
-              "count": 1,
-              "cellId": {
-                "localId": 0,
+          "change": {
+            "change": [
+              {
+                "type": "Insert",
+                "id": 0,
+                "count": 1,
+                "cellId": {
+                  "localId": 0,
+                  "revision": 0
+                },
                 "revision": 0
-              },
-              "revision": 0
-            }
-          ],
-          "changeRevision": 0,
-          "base": [
-            {
-              "type": "Remove",
-              "count": 2,
-              "id": 2,
-              "revision": 2
-            }
-          ],
-          "baseRevision": 2
+              }
+            ],
+            "revision": 0
+          },
+          "base": {
+            "change": [
+              {
+                "type": "Remove",
+                "count": 2,
+                "id": 2,
+                "revision": 2
+              }
+            ],
+            "revision": 2
+          },
+          "childRebaser": "test-node",
+          "maxLocalId": 37
         },
-        "revisions": [],
+        "revisions": [
+          0,
+          2
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 37
         },
         "compressor": {
           "mode": "test",
@@ -164,57 +132,44 @@
       {
         "id": "remove-remove",
         "operation": "rebase",
-        "change": [
-          {
-            "type": "Remove",
-            "count": 2,
-            "id": 2,
-            "revision": 2
-          }
-        ],
-        "changeRevision": 2,
-        "base": [
-          {
-            "count": 1
-          },
-          {
-            "type": "Remove",
-            "count": 2,
-            "id": 4,
-            "revision": 3
-          }
-        ],
-        "baseRevision": 3,
         "initialState": {
           "field": []
         },
         "operands": {
-          "operation": "rebase",
-          "change": [
-            {
-              "type": "Remove",
-              "count": 2,
-              "id": 2,
-              "revision": 2
-            }
-          ],
-          "changeRevision": 2,
-          "base": [
-            {
-              "count": 1
-            },
-            {
-              "type": "Remove",
-              "count": 2,
-              "id": 4,
-              "revision": 3
-            }
-          ],
-          "baseRevision": 3
+          "change": {
+            "change": [
+              {
+                "type": "Remove",
+                "count": 2,
+                "id": 2,
+                "revision": 2
+              }
+            ],
+            "revision": 2
+          },
+          "base": {
+            "change": [
+              {
+                "count": 1
+              },
+              {
+                "type": "Remove",
+                "count": 2,
+                "id": 4,
+                "revision": 3
+              }
+            ],
+            "revision": 3
+          },
+          "childRebaser": "test-node",
+          "maxLocalId": 37
         },
-        "revisions": [],
+        "revisions": [
+          2,
+          3
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 37
         },
         "compressor": {
           "mode": "test",
@@ -234,101 +189,66 @@
       {
         "id": "move-edit",
         "operation": "rebase",
-        "change": [
-          {
-            "count": 1
-          },
-          {
-            "count": 1,
-            "changes": {
-              "localId": 40,
-              "testChange": {
-                "inputContext": [],
-                "intentions": [
-                  4
-                ],
-                "outputContext": [
-                  4
-                ]
-              }
-            }
-          }
-        ],
-        "changeRevision": 6,
-        "base": [
-          {
-            "type": "MoveOut",
-            "id": 6,
-            "count": 2,
-            "revision": 4
-          },
-          {
-            "count": 2
-          },
-          {
-            "type": "MoveIn",
-            "id": 6,
-            "count": 2,
-            "cellId": {
-              "revision": 4,
-              "localId": 8
-            },
-            "revision": 4
-          }
-        ],
-        "baseRevision": 4,
         "initialState": {
           "field": []
         },
         "operands": {
-          "operation": "rebase",
-          "change": [
-            {
-              "count": 1
-            },
-            {
-              "count": 1,
-              "changes": {
-                "localId": 40,
-                "testChange": {
-                  "inputContext": [],
-                  "intentions": [
-                    4
-                  ],
-                  "outputContext": [
-                    4
-                  ]
+          "change": {
+            "change": [
+              {
+                "count": 1
+              },
+              {
+                "count": 1,
+                "changes": {
+                  "localId": 40,
+                  "testChange": {
+                    "inputContext": [],
+                    "intentions": [
+                      4
+                    ],
+                    "outputContext": [
+                      4
+                    ]
+                  }
                 }
               }
-            }
-          ],
-          "changeRevision": 6,
-          "base": [
-            {
-              "type": "MoveOut",
-              "id": 6,
-              "count": 2,
-              "revision": 4
-            },
-            {
-              "count": 2
-            },
-            {
-              "type": "MoveIn",
-              "id": 6,
-              "count": 2,
-              "cellId": {
-                "revision": 4,
-                "localId": 8
+            ],
+            "revision": 6
+          },
+          "base": {
+            "change": [
+              {
+                "type": "MoveOut",
+                "id": 6,
+                "count": 2,
+                "revision": 4
               },
-              "revision": 4
-            }
-          ],
-          "baseRevision": 4
+              {
+                "count": 2
+              },
+              {
+                "type": "MoveIn",
+                "id": 6,
+                "count": 2,
+                "cellId": {
+                  "revision": 4,
+                  "localId": 8
+                },
+                "revision": 4
+              }
+            ],
+            "revision": 4
+          },
+          "childRebaser": "test-node",
+          "maxLocalId": 37
         },
-        "revisions": [],
+        "revisions": [
+          6,
+          4
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 37
         },
         "compressor": {
           "mode": "test",
@@ -348,83 +268,57 @@
       {
         "id": "move-delete",
         "operation": "rebase",
-        "change": [
-          {
-            "type": "MoveOut",
-            "id": 6,
-            "count": 2,
-            "revision": 4
-          },
-          {
-            "count": 2
-          },
-          {
-            "type": "MoveIn",
-            "id": 6,
-            "count": 2,
-            "cellId": {
-              "revision": 4,
-              "localId": 8
-            },
-            "revision": 4
-          }
-        ],
-        "changeRevision": 4,
-        "base": [
-          {
-            "count": 1
-          },
-          {
-            "type": "Remove",
-            "count": 2,
-            "id": 4,
-            "revision": 3
-          }
-        ],
-        "baseRevision": 3,
         "initialState": {
           "field": []
         },
         "operands": {
-          "operation": "rebase",
-          "change": [
-            {
-              "type": "MoveOut",
-              "id": 6,
-              "count": 2,
-              "revision": 4
-            },
-            {
-              "count": 2
-            },
-            {
-              "type": "MoveIn",
-              "id": 6,
-              "count": 2,
-              "cellId": {
-                "revision": 4,
-                "localId": 8
+          "change": {
+            "change": [
+              {
+                "type": "MoveOut",
+                "id": 6,
+                "count": 2,
+                "revision": 4
               },
-              "revision": 4
-            }
-          ],
-          "changeRevision": 4,
-          "base": [
-            {
-              "count": 1
-            },
-            {
-              "type": "Remove",
-              "count": 2,
-              "id": 4,
-              "revision": 3
-            }
-          ],
-          "baseRevision": 3
+              {
+                "count": 2
+              },
+              {
+                "type": "MoveIn",
+                "id": 6,
+                "count": 2,
+                "cellId": {
+                  "revision": 4,
+                  "localId": 8
+                },
+                "revision": 4
+              }
+            ],
+            "revision": 4
+          },
+          "base": {
+            "change": [
+              {
+                "count": 1
+              },
+              {
+                "type": "Remove",
+                "count": 2,
+                "id": 4,
+                "revision": 3
+              }
+            ],
+            "revision": 3
+          },
+          "childRebaser": "test-node",
+          "maxLocalId": 37
         },
-        "revisions": [],
+        "revisions": [
+          4,
+          3
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 37
         },
         "compressor": {
           "mode": "test",
@@ -444,103 +338,67 @@
       {
         "id": "competing-moves",
         "operation": "rebase",
-        "change": [
-          {
-            "type": "MoveOut",
-            "id": 6,
-            "count": 2,
-            "revision": 4
-          },
-          {
-            "count": 2
-          },
-          {
-            "type": "MoveIn",
-            "id": 6,
-            "count": 2,
-            "cellId": {
-              "revision": 4,
-              "localId": 8
-            },
-            "revision": 4
-          }
-        ],
-        "changeRevision": 4,
-        "base": [
-          {
-            "type": "MoveIn",
-            "id": 10,
-            "count": 2,
-            "cellId": {
-              "revision": 5,
-              "localId": 12
-            },
-            "revision": 5
-          },
-          {
-            "count": 1
-          },
-          {
-            "type": "MoveOut",
-            "id": 10,
-            "count": 2,
-            "revision": 5
-          }
-        ],
-        "baseRevision": 5,
         "initialState": {
           "field": []
         },
         "operands": {
-          "operation": "rebase",
-          "change": [
-            {
-              "type": "MoveOut",
-              "id": 6,
-              "count": 2,
-              "revision": 4
-            },
-            {
-              "count": 2
-            },
-            {
-              "type": "MoveIn",
-              "id": 6,
-              "count": 2,
-              "cellId": {
-                "revision": 4,
-                "localId": 8
+          "change": {
+            "change": [
+              {
+                "type": "MoveOut",
+                "id": 6,
+                "count": 2,
+                "revision": 4
               },
-              "revision": 4
-            }
-          ],
-          "changeRevision": 4,
-          "base": [
-            {
-              "type": "MoveIn",
-              "id": 10,
-              "count": 2,
-              "cellId": {
-                "revision": 5,
-                "localId": 12
+              {
+                "count": 2
               },
-              "revision": 5
-            },
-            {
-              "count": 1
-            },
-            {
-              "type": "MoveOut",
-              "id": 10,
-              "count": 2,
-              "revision": 5
-            }
-          ],
-          "baseRevision": 5
+              {
+                "type": "MoveIn",
+                "id": 6,
+                "count": 2,
+                "cellId": {
+                  "revision": 4,
+                  "localId": 8
+                },
+                "revision": 4
+              }
+            ],
+            "revision": 4
+          },
+          "base": {
+            "change": [
+              {
+                "type": "MoveIn",
+                "id": 10,
+                "count": 2,
+                "cellId": {
+                  "revision": 5,
+                  "localId": 12
+                },
+                "revision": 5
+              },
+              {
+                "count": 1
+              },
+              {
+                "type": "MoveOut",
+                "id": 10,
+                "count": 2,
+                "revision": 5
+              }
+            ],
+            "revision": 5
+          },
+          "childRebaser": "test-node",
+          "maxLocalId": 37
         },
-        "revisions": [],
+        "revisions": [
+          4,
+          5
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 37
         },
         "compressor": {
           "mode": "test",
@@ -560,103 +418,67 @@
       {
         "id": "partial-overlap-moves",
         "operation": "rebase",
-        "change": [
-          {
-            "type": "MoveOut",
-            "id": 14,
-            "count": 3,
-            "revision": 7
-          },
-          {
-            "count": 2
-          },
-          {
-            "type": "MoveIn",
-            "id": 14,
-            "count": 3,
-            "cellId": {
-              "revision": 7,
-              "localId": 17
-            },
-            "revision": 7
-          }
-        ],
-        "changeRevision": 7,
-        "base": [
-          {
-            "type": "MoveIn",
-            "id": 20,
-            "count": 3,
-            "cellId": {
-              "revision": 8,
-              "localId": 23
-            },
-            "revision": 8
-          },
-          {
-            "count": 2
-          },
-          {
-            "type": "MoveOut",
-            "id": 20,
-            "count": 3,
-            "revision": 8
-          }
-        ],
-        "baseRevision": 8,
         "initialState": {
           "field": []
         },
         "operands": {
-          "operation": "rebase",
-          "change": [
-            {
-              "type": "MoveOut",
-              "id": 14,
-              "count": 3,
-              "revision": 7
-            },
-            {
-              "count": 2
-            },
-            {
-              "type": "MoveIn",
-              "id": 14,
-              "count": 3,
-              "cellId": {
-                "revision": 7,
-                "localId": 17
+          "change": {
+            "change": [
+              {
+                "type": "MoveOut",
+                "id": 14,
+                "count": 3,
+                "revision": 7
               },
-              "revision": 7
-            }
-          ],
-          "changeRevision": 7,
-          "base": [
-            {
-              "type": "MoveIn",
-              "id": 20,
-              "count": 3,
-              "cellId": {
-                "revision": 8,
-                "localId": 23
+              {
+                "count": 2
               },
-              "revision": 8
-            },
-            {
-              "count": 2
-            },
-            {
-              "type": "MoveOut",
-              "id": 20,
-              "count": 3,
-              "revision": 8
-            }
-          ],
-          "baseRevision": 8
+              {
+                "type": "MoveIn",
+                "id": 14,
+                "count": 3,
+                "cellId": {
+                  "revision": 7,
+                  "localId": 17
+                },
+                "revision": 7
+              }
+            ],
+            "revision": 7
+          },
+          "base": {
+            "change": [
+              {
+                "type": "MoveIn",
+                "id": 20,
+                "count": 3,
+                "cellId": {
+                  "revision": 8,
+                  "localId": 23
+                },
+                "revision": 8
+              },
+              {
+                "count": 2
+              },
+              {
+                "type": "MoveOut",
+                "id": 20,
+                "count": 3,
+                "revision": 8
+              }
+            ],
+            "revision": 8
+          },
+          "childRebaser": "test-node",
+          "maxLocalId": 37
         },
-        "revisions": [],
+        "revisions": [
+          7,
+          8
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 37
         },
         "compressor": {
           "mode": "test",
@@ -676,59 +498,45 @@
       {
         "id": "empty-cells",
         "operation": "rebase",
-        "change": [
-          {
-            "count": 1,
-            "cellId": {
-              "revision": 2,
-              "localId": 2
-            }
-          }
-        ],
-        "changeRevision": 9,
-        "base": [
-          {
-            "type": "Insert",
-            "count": 1,
-            "id": 2,
-            "cellId": {
-              "revision": 2,
-              "localId": 2
-            }
-          }
-        ],
-        "baseRevision": 10,
         "initialState": {
           "field": []
         },
         "operands": {
-          "operation": "rebase",
-          "change": [
-            {
-              "count": 1,
-              "cellId": {
-                "revision": 2,
-                "localId": 2
+          "change": {
+            "change": [
+              {
+                "count": 1,
+                "cellId": {
+                  "revision": 2,
+                  "localId": 2
+                }
               }
-            }
-          ],
-          "changeRevision": 9,
-          "base": [
-            {
-              "type": "Insert",
-              "count": 1,
-              "id": 2,
-              "cellId": {
-                "revision": 2,
-                "localId": 2
+            ],
+            "revision": 9
+          },
+          "base": {
+            "change": [
+              {
+                "type": "Insert",
+                "count": 1,
+                "id": 2,
+                "cellId": {
+                  "revision": 2,
+                  "localId": 2
+                }
               }
-            }
-          ],
-          "baseRevision": 10
+            ],
+            "revision": 10
+          },
+          "childRebaser": "test-node",
+          "maxLocalId": 37
         },
-        "revisions": [],
+        "revisions": [
+          9,
+          10
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 37
         },
         "compressor": {
           "mode": "test",
@@ -748,77 +556,54 @@
       {
         "id": "detached-children",
         "operation": "rebase",
-        "change": [
-          {
-            "count": 1,
-            "changes": {
-              "localId": 40,
-              "testChange": {
-                "inputContext": [],
-                "intentions": [
-                  4
-                ],
-                "outputContext": [
-                  4
-                ]
-              }
-            },
-            "cellId": {
-              "revision": 2,
-              "localId": 2
-            }
-          }
-        ],
-        "changeRevision": 11,
-        "base": [
-          {
-            "type": "Remove",
-            "count": 2,
-            "id": 2,
-            "revision": 2
-          }
-        ],
-        "baseRevision": 2,
         "initialState": {
           "field": []
         },
         "operands": {
-          "operation": "rebase",
-          "change": [
-            {
-              "count": 1,
-              "changes": {
-                "localId": 40,
-                "testChange": {
-                  "inputContext": [],
-                  "intentions": [
-                    4
-                  ],
-                  "outputContext": [
-                    4
-                  ]
+          "change": {
+            "change": [
+              {
+                "count": 1,
+                "changes": {
+                  "localId": 40,
+                  "testChange": {
+                    "inputContext": [],
+                    "intentions": [
+                      4
+                    ],
+                    "outputContext": [
+                      4
+                    ]
+                  }
+                },
+                "cellId": {
+                  "revision": 2,
+                  "localId": 2
                 }
-              },
-              "cellId": {
-                "revision": 2,
-                "localId": 2
               }
-            }
-          ],
-          "changeRevision": 11,
-          "base": [
-            {
-              "type": "Remove",
-              "count": 2,
-              "id": 2,
-              "revision": 2
-            }
-          ],
-          "baseRevision": 2
+            ],
+            "revision": 11
+          },
+          "base": {
+            "change": [
+              {
+                "type": "Remove",
+                "count": 2,
+                "id": 2,
+                "revision": 2
+              }
+            ],
+            "revision": 2
+          },
+          "childRebaser": "test-node",
+          "maxLocalId": 37
         },
-        "revisions": [],
+        "revisions": [
+          11,
+          2
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 37
         },
         "compressor": {
           "mode": "test",
@@ -838,103 +623,67 @@
       {
         "id": "endpoint-invalidation",
         "operation": "rebase",
-        "change": [
-          {
-            "type": "MoveOut",
-            "id": 30,
-            "count": 2,
-            "revision": 12
-          },
-          {
-            "count": 2
-          },
-          {
-            "type": "MoveIn",
-            "id": 30,
-            "count": 2,
-            "cellId": {
-              "revision": 12,
-              "localId": 32
-            },
-            "revision": 12
-          }
-        ],
-        "changeRevision": 12,
-        "base": [
-          {
-            "type": "MoveIn",
-            "id": 34,
-            "count": 2,
-            "cellId": {
-              "revision": 13,
-              "localId": 36
-            },
-            "revision": 13
-          },
-          {
-            "count": 2
-          },
-          {
-            "type": "MoveOut",
-            "id": 34,
-            "count": 2,
-            "revision": 13
-          }
-        ],
-        "baseRevision": 13,
         "initialState": {
           "field": []
         },
         "operands": {
-          "operation": "rebase",
-          "change": [
-            {
-              "type": "MoveOut",
-              "id": 30,
-              "count": 2,
-              "revision": 12
-            },
-            {
-              "count": 2
-            },
-            {
-              "type": "MoveIn",
-              "id": 30,
-              "count": 2,
-              "cellId": {
-                "revision": 12,
-                "localId": 32
+          "change": {
+            "change": [
+              {
+                "type": "MoveOut",
+                "id": 30,
+                "count": 2,
+                "revision": 12
               },
-              "revision": 12
-            }
-          ],
-          "changeRevision": 12,
-          "base": [
-            {
-              "type": "MoveIn",
-              "id": 34,
-              "count": 2,
-              "cellId": {
-                "revision": 13,
-                "localId": 36
+              {
+                "count": 2
               },
-              "revision": 13
-            },
-            {
-              "count": 2
-            },
-            {
-              "type": "MoveOut",
-              "id": 34,
-              "count": 2,
-              "revision": 13
-            }
-          ],
-          "baseRevision": 13
+              {
+                "type": "MoveIn",
+                "id": 30,
+                "count": 2,
+                "cellId": {
+                  "revision": 12,
+                  "localId": 32
+                },
+                "revision": 12
+              }
+            ],
+            "revision": 12
+          },
+          "base": {
+            "change": [
+              {
+                "type": "MoveIn",
+                "id": 34,
+                "count": 2,
+                "cellId": {
+                  "revision": 13,
+                  "localId": 36
+                },
+                "revision": 13
+              },
+              {
+                "count": 2
+              },
+              {
+                "type": "MoveOut",
+                "id": 34,
+                "count": 2,
+                "revision": 13
+              }
+            ],
+            "revision": 13
+          },
+          "childRebaser": "test-node",
+          "maxLocalId": 37
         },
-        "revisions": [],
+        "revisions": [
+          12,
+          13
+        ],
         "allocator": {
-          "nextLocalId": 0
+          "maxLocalId": 37
         },
         "compressor": {
           "mode": "test",
@@ -960,34 +709,34 @@
         "executed": true,
         "accepted": true,
         "value": {
-          "accepted": true,
           "value": [
             {
               "type": "Insert",
               "id": 0,
               "count": 1,
               "cellId": {
-                "localId": 0,
-                "revision": 0
+                "revision": 0,
+                "localId": 0
               },
               "revision": 0
             }
-          ]
+          ],
+          "callbacks": []
         },
         "result": {
-          "accepted": true,
           "value": [
             {
               "type": "Insert",
               "id": 0,
               "count": 1,
               "cellId": {
-                "localId": 0,
-                "revision": 0
+                "revision": 0,
+                "localId": 0
               },
               "revision": 0
             }
-          ]
+          ],
+          "callbacks": []
         }
       },
       {
@@ -995,15 +744,14 @@
         "executed": true,
         "accepted": true,
         "value": {
-          "accepted": true,
           "value": [
             {
               "type": "Insert",
               "id": 0,
               "count": 1,
               "cellId": {
-                "localId": 0,
-                "revision": 0
+                "revision": 0,
+                "localId": 0
               },
               "revision": 0
             },
@@ -1014,18 +762,18 @@
                 "localId": 2
               }
             }
-          ]
+          ],
+          "callbacks": []
         },
         "result": {
-          "accepted": true,
           "value": [
             {
               "type": "Insert",
               "id": 0,
               "count": 1,
               "cellId": {
-                "localId": 0,
-                "revision": 0
+                "revision": 0,
+                "localId": 0
               },
               "revision": 0
             },
@@ -1036,7 +784,8 @@
                 "localId": 2
               }
             }
-          ]
+          ],
+          "callbacks": []
         }
       },
       {
@@ -1044,7 +793,6 @@
         "executed": true,
         "accepted": true,
         "value": {
-          "accepted": true,
           "value": [
             {
               "type": "Remove",
@@ -1069,10 +817,10 @@
                 "localId": 5
               }
             }
-          ]
+          ],
+          "callbacks": []
         },
         "result": {
-          "accepted": true,
           "value": [
             {
               "type": "Remove",
@@ -1097,7 +845,8 @@
                 "localId": 5
               }
             }
-          ]
+          ],
+          "callbacks": []
         }
       },
       {
@@ -1105,7 +854,6 @@
         "executed": true,
         "accepted": true,
         "value": {
-          "accepted": true,
           "value": [
             {
               "count": 2,
@@ -1132,10 +880,26 @@
                 }
               }
             }
+          ],
+          "callbacks": [
+            {
+              "change": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              },
+              "base": null
+            }
           ]
         },
         "result": {
-          "accepted": true,
           "value": [
             {
               "count": 2,
@@ -1161,6 +925,23 @@
                   ]
                 }
               }
+            }
+          ],
+          "callbacks": [
+            {
+              "change": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              },
+              "base": null
             }
           ]
         }
@@ -1170,7 +951,6 @@
         "executed": true,
         "accepted": true,
         "value": {
-          "accepted": true,
           "value": [
             {
               "type": "MoveOut",
@@ -1208,10 +988,10 @@
               },
               "revision": 4
             }
-          ]
+          ],
+          "callbacks": []
         },
         "result": {
-          "accepted": true,
           "value": [
             {
               "type": "MoveOut",
@@ -1249,7 +1029,8 @@
               },
               "revision": 4
             }
-          ]
+          ],
+          "callbacks": []
         }
       },
       {
@@ -1257,7 +1038,6 @@
         "executed": true,
         "accepted": true,
         "value": {
-          "accepted": true,
           "value": [
             {
               "count": 1,
@@ -1294,10 +1074,10 @@
               },
               "revision": 4
             }
-          ]
+          ],
+          "callbacks": []
         },
         "result": {
-          "accepted": true,
           "value": [
             {
               "count": 1,
@@ -1334,7 +1114,8 @@
               },
               "revision": 4
             }
-          ]
+          ],
+          "callbacks": []
         }
       },
       {
@@ -1342,7 +1123,6 @@
         "executed": true,
         "accepted": true,
         "value": {
-          "accepted": true,
           "value": [
             {
               "count": 1,
@@ -1376,10 +1156,10 @@
               },
               "revision": 7
             }
-          ]
+          ],
+          "callbacks": []
         },
         "result": {
-          "accepted": true,
           "value": [
             {
               "count": 1,
@@ -1413,7 +1193,8 @@
               },
               "revision": 7
             }
-          ]
+          ],
+          "callbacks": []
         }
       },
       {
@@ -1421,12 +1202,12 @@
         "executed": true,
         "accepted": true,
         "value": {
-          "accepted": true,
-          "value": []
+          "value": [],
+          "callbacks": []
         },
         "result": {
-          "accepted": true,
-          "value": []
+          "value": [],
+          "callbacks": []
         }
       },
       {
@@ -1434,7 +1215,6 @@
         "executed": true,
         "accepted": true,
         "value": {
-          "accepted": true,
           "value": [
             {
               "count": 1,
@@ -1462,10 +1242,26 @@
                 "localId": 2
               }
             }
+          ],
+          "callbacks": [
+            {
+              "change": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              },
+              "base": null
+            }
           ]
         },
         "result": {
-          "accepted": true,
           "value": [
             {
               "count": 1,
@@ -1492,6 +1288,23 @@
                 "revision": 2,
                 "localId": 2
               }
+            }
+          ],
+          "callbacks": [
+            {
+              "change": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              },
+              "base": null
             }
           ]
         }
@@ -1501,7 +1314,6 @@
         "executed": true,
         "accepted": true,
         "value": {
-          "accepted": true,
           "value": [
             {
               "count": 2
@@ -1529,10 +1341,10 @@
               },
               "revision": 12
             }
-          ]
+          ],
+          "callbacks": []
         },
         "result": {
-          "accepted": true,
           "value": [
             {
               "count": 2
@@ -1560,7 +1372,8 @@
               },
               "revision": 12
             }
-          ]
+          ],
+          "callbacks": []
         }
       }
     ]
@@ -1572,67 +1385,49 @@
         "input": {
           "id": "insert-insert",
           "operation": "rebase",
-          "change": [
-            {
-              "type": "Insert",
-              "id": 0,
-              "count": 1,
-              "cellId": {
-                "localId": 0,
-                "revision": 0
-              },
-              "revision": 0
-            }
-          ],
-          "changeRevision": 0,
-          "base": [
-            {
-              "type": "Insert",
-              "id": 1,
-              "count": 1,
-              "cellId": {
-                "localId": 1,
-                "revision": 1
-              },
-              "revision": 1
-            }
-          ],
-          "baseRevision": 1,
           "initialState": {
             "field": []
           },
           "operands": {
-            "operation": "rebase",
-            "change": [
-              {
-                "type": "Insert",
-                "id": 0,
-                "count": 1,
-                "cellId": {
-                  "localId": 0,
+            "change": {
+              "change": [
+                {
+                  "type": "Insert",
+                  "id": 0,
+                  "count": 1,
+                  "cellId": {
+                    "localId": 0,
+                    "revision": 0
+                  },
                   "revision": 0
-                },
-                "revision": 0
-              }
-            ],
-            "changeRevision": 0,
-            "base": [
-              {
-                "type": "Insert",
-                "id": 1,
-                "count": 1,
-                "cellId": {
-                  "localId": 1,
+                }
+              ],
+              "revision": 0
+            },
+            "base": {
+              "change": [
+                {
+                  "type": "Insert",
+                  "id": 1,
+                  "count": 1,
+                  "cellId": {
+                    "localId": 1,
+                    "revision": 1
+                  },
                   "revision": 1
-                },
-                "revision": 1
-              }
-            ],
-            "baseRevision": 1
+                }
+              ],
+              "revision": 1
+            },
+            "childRebaser": "test-node",
+            "maxLocalId": 37
           },
-          "revisions": [],
+          "revisions": [
+            0,
+            1
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 37
           },
           "compressor": {
             "mode": "test",
@@ -1650,19 +1445,19 @@
           ]
         },
         "output": {
-          "accepted": true,
           "value": [
             {
               "type": "Insert",
               "id": 0,
               "count": 1,
               "cellId": {
-                "localId": 0,
-                "revision": 0
+                "revision": 0,
+                "localId": 0
               },
               "revision": 0
             }
-          ]
+          ],
+          "callbacks": []
         }
       },
       {
@@ -1670,59 +1465,45 @@
         "input": {
           "id": "insert-remove",
           "operation": "rebase",
-          "change": [
-            {
-              "type": "Insert",
-              "id": 0,
-              "count": 1,
-              "cellId": {
-                "localId": 0,
-                "revision": 0
-              },
-              "revision": 0
-            }
-          ],
-          "changeRevision": 0,
-          "base": [
-            {
-              "type": "Remove",
-              "count": 2,
-              "id": 2,
-              "revision": 2
-            }
-          ],
-          "baseRevision": 2,
           "initialState": {
             "field": []
           },
           "operands": {
-            "operation": "rebase",
-            "change": [
-              {
-                "type": "Insert",
-                "id": 0,
-                "count": 1,
-                "cellId": {
-                  "localId": 0,
+            "change": {
+              "change": [
+                {
+                  "type": "Insert",
+                  "id": 0,
+                  "count": 1,
+                  "cellId": {
+                    "localId": 0,
+                    "revision": 0
+                  },
                   "revision": 0
-                },
-                "revision": 0
-              }
-            ],
-            "changeRevision": 0,
-            "base": [
-              {
-                "type": "Remove",
-                "count": 2,
-                "id": 2,
-                "revision": 2
-              }
-            ],
-            "baseRevision": 2
+                }
+              ],
+              "revision": 0
+            },
+            "base": {
+              "change": [
+                {
+                  "type": "Remove",
+                  "count": 2,
+                  "id": 2,
+                  "revision": 2
+                }
+              ],
+              "revision": 2
+            },
+            "childRebaser": "test-node",
+            "maxLocalId": 37
           },
-          "revisions": [],
+          "revisions": [
+            0,
+            2
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 37
           },
           "compressor": {
             "mode": "test",
@@ -1740,15 +1521,14 @@
           ]
         },
         "output": {
-          "accepted": true,
           "value": [
             {
               "type": "Insert",
               "id": 0,
               "count": 1,
               "cellId": {
-                "localId": 0,
-                "revision": 0
+                "revision": 0,
+                "localId": 0
               },
               "revision": 0
             },
@@ -1759,7 +1539,8 @@
                 "localId": 2
               }
             }
-          ]
+          ],
+          "callbacks": []
         }
       },
       {
@@ -1767,57 +1548,44 @@
         "input": {
           "id": "remove-remove",
           "operation": "rebase",
-          "change": [
-            {
-              "type": "Remove",
-              "count": 2,
-              "id": 2,
-              "revision": 2
-            }
-          ],
-          "changeRevision": 2,
-          "base": [
-            {
-              "count": 1
-            },
-            {
-              "type": "Remove",
-              "count": 2,
-              "id": 4,
-              "revision": 3
-            }
-          ],
-          "baseRevision": 3,
           "initialState": {
             "field": []
           },
           "operands": {
-            "operation": "rebase",
-            "change": [
-              {
-                "type": "Remove",
-                "count": 2,
-                "id": 2,
-                "revision": 2
-              }
-            ],
-            "changeRevision": 2,
-            "base": [
-              {
-                "count": 1
-              },
-              {
-                "type": "Remove",
-                "count": 2,
-                "id": 4,
-                "revision": 3
-              }
-            ],
-            "baseRevision": 3
+            "change": {
+              "change": [
+                {
+                  "type": "Remove",
+                  "count": 2,
+                  "id": 2,
+                  "revision": 2
+                }
+              ],
+              "revision": 2
+            },
+            "base": {
+              "change": [
+                {
+                  "count": 1
+                },
+                {
+                  "type": "Remove",
+                  "count": 2,
+                  "id": 4,
+                  "revision": 3
+                }
+              ],
+              "revision": 3
+            },
+            "childRebaser": "test-node",
+            "maxLocalId": 37
           },
-          "revisions": [],
+          "revisions": [
+            2,
+            3
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 37
           },
           "compressor": {
             "mode": "test",
@@ -1835,7 +1603,6 @@
           ]
         },
         "output": {
-          "accepted": true,
           "value": [
             {
               "type": "Remove",
@@ -1860,7 +1627,8 @@
                 "localId": 5
               }
             }
-          ]
+          ],
+          "callbacks": []
         }
       },
       {
@@ -1868,101 +1636,66 @@
         "input": {
           "id": "move-edit",
           "operation": "rebase",
-          "change": [
-            {
-              "count": 1
-            },
-            {
-              "count": 1,
-              "changes": {
-                "localId": 40,
-                "testChange": {
-                  "inputContext": [],
-                  "intentions": [
-                    4
-                  ],
-                  "outputContext": [
-                    4
-                  ]
-                }
-              }
-            }
-          ],
-          "changeRevision": 6,
-          "base": [
-            {
-              "type": "MoveOut",
-              "id": 6,
-              "count": 2,
-              "revision": 4
-            },
-            {
-              "count": 2
-            },
-            {
-              "type": "MoveIn",
-              "id": 6,
-              "count": 2,
-              "cellId": {
-                "revision": 4,
-                "localId": 8
-              },
-              "revision": 4
-            }
-          ],
-          "baseRevision": 4,
           "initialState": {
             "field": []
           },
           "operands": {
-            "operation": "rebase",
-            "change": [
-              {
-                "count": 1
-              },
-              {
-                "count": 1,
-                "changes": {
-                  "localId": 40,
-                  "testChange": {
-                    "inputContext": [],
-                    "intentions": [
-                      4
-                    ],
-                    "outputContext": [
-                      4
-                    ]
+            "change": {
+              "change": [
+                {
+                  "count": 1
+                },
+                {
+                  "count": 1,
+                  "changes": {
+                    "localId": 40,
+                    "testChange": {
+                      "inputContext": [],
+                      "intentions": [
+                        4
+                      ],
+                      "outputContext": [
+                        4
+                      ]
+                    }
                   }
                 }
-              }
-            ],
-            "changeRevision": 6,
-            "base": [
-              {
-                "type": "MoveOut",
-                "id": 6,
-                "count": 2,
-                "revision": 4
-              },
-              {
-                "count": 2
-              },
-              {
-                "type": "MoveIn",
-                "id": 6,
-                "count": 2,
-                "cellId": {
-                  "revision": 4,
-                  "localId": 8
+              ],
+              "revision": 6
+            },
+            "base": {
+              "change": [
+                {
+                  "type": "MoveOut",
+                  "id": 6,
+                  "count": 2,
+                  "revision": 4
                 },
-                "revision": 4
-              }
-            ],
-            "baseRevision": 4
+                {
+                  "count": 2
+                },
+                {
+                  "type": "MoveIn",
+                  "id": 6,
+                  "count": 2,
+                  "cellId": {
+                    "revision": 4,
+                    "localId": 8
+                  },
+                  "revision": 4
+                }
+              ],
+              "revision": 4
+            },
+            "childRebaser": "test-node",
+            "maxLocalId": 37
           },
-          "revisions": [],
+          "revisions": [
+            6,
+            4
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 37
           },
           "compressor": {
             "mode": "test",
@@ -1980,7 +1713,6 @@
           ]
         },
         "output": {
-          "accepted": true,
           "value": [
             {
               "count": 2,
@@ -2007,6 +1739,23 @@
                 }
               }
             }
+          ],
+          "callbacks": [
+            {
+              "change": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              },
+              "base": null
+            }
           ]
         }
       },
@@ -2015,83 +1764,57 @@
         "input": {
           "id": "move-delete",
           "operation": "rebase",
-          "change": [
-            {
-              "type": "MoveOut",
-              "id": 6,
-              "count": 2,
-              "revision": 4
-            },
-            {
-              "count": 2
-            },
-            {
-              "type": "MoveIn",
-              "id": 6,
-              "count": 2,
-              "cellId": {
-                "revision": 4,
-                "localId": 8
-              },
-              "revision": 4
-            }
-          ],
-          "changeRevision": 4,
-          "base": [
-            {
-              "count": 1
-            },
-            {
-              "type": "Remove",
-              "count": 2,
-              "id": 4,
-              "revision": 3
-            }
-          ],
-          "baseRevision": 3,
           "initialState": {
             "field": []
           },
           "operands": {
-            "operation": "rebase",
-            "change": [
-              {
-                "type": "MoveOut",
-                "id": 6,
-                "count": 2,
-                "revision": 4
-              },
-              {
-                "count": 2
-              },
-              {
-                "type": "MoveIn",
-                "id": 6,
-                "count": 2,
-                "cellId": {
-                  "revision": 4,
-                  "localId": 8
+            "change": {
+              "change": [
+                {
+                  "type": "MoveOut",
+                  "id": 6,
+                  "count": 2,
+                  "revision": 4
                 },
-                "revision": 4
-              }
-            ],
-            "changeRevision": 4,
-            "base": [
-              {
-                "count": 1
-              },
-              {
-                "type": "Remove",
-                "count": 2,
-                "id": 4,
-                "revision": 3
-              }
-            ],
-            "baseRevision": 3
+                {
+                  "count": 2
+                },
+                {
+                  "type": "MoveIn",
+                  "id": 6,
+                  "count": 2,
+                  "cellId": {
+                    "revision": 4,
+                    "localId": 8
+                  },
+                  "revision": 4
+                }
+              ],
+              "revision": 4
+            },
+            "base": {
+              "change": [
+                {
+                  "count": 1
+                },
+                {
+                  "type": "Remove",
+                  "count": 2,
+                  "id": 4,
+                  "revision": 3
+                }
+              ],
+              "revision": 3
+            },
+            "childRebaser": "test-node",
+            "maxLocalId": 37
           },
-          "revisions": [],
+          "revisions": [
+            4,
+            3
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 37
           },
           "compressor": {
             "mode": "test",
@@ -2109,7 +1832,6 @@
           ]
         },
         "output": {
-          "accepted": true,
           "value": [
             {
               "type": "MoveOut",
@@ -2147,7 +1869,8 @@
               },
               "revision": 4
             }
-          ]
+          ],
+          "callbacks": []
         }
       },
       {
@@ -2155,103 +1878,67 @@
         "input": {
           "id": "competing-moves",
           "operation": "rebase",
-          "change": [
-            {
-              "type": "MoveOut",
-              "id": 6,
-              "count": 2,
-              "revision": 4
-            },
-            {
-              "count": 2
-            },
-            {
-              "type": "MoveIn",
-              "id": 6,
-              "count": 2,
-              "cellId": {
-                "revision": 4,
-                "localId": 8
-              },
-              "revision": 4
-            }
-          ],
-          "changeRevision": 4,
-          "base": [
-            {
-              "type": "MoveIn",
-              "id": 10,
-              "count": 2,
-              "cellId": {
-                "revision": 5,
-                "localId": 12
-              },
-              "revision": 5
-            },
-            {
-              "count": 1
-            },
-            {
-              "type": "MoveOut",
-              "id": 10,
-              "count": 2,
-              "revision": 5
-            }
-          ],
-          "baseRevision": 5,
           "initialState": {
             "field": []
           },
           "operands": {
-            "operation": "rebase",
-            "change": [
-              {
-                "type": "MoveOut",
-                "id": 6,
-                "count": 2,
-                "revision": 4
-              },
-              {
-                "count": 2
-              },
-              {
-                "type": "MoveIn",
-                "id": 6,
-                "count": 2,
-                "cellId": {
-                  "revision": 4,
-                  "localId": 8
+            "change": {
+              "change": [
+                {
+                  "type": "MoveOut",
+                  "id": 6,
+                  "count": 2,
+                  "revision": 4
                 },
-                "revision": 4
-              }
-            ],
-            "changeRevision": 4,
-            "base": [
-              {
-                "type": "MoveIn",
-                "id": 10,
-                "count": 2,
-                "cellId": {
-                  "revision": 5,
-                  "localId": 12
+                {
+                  "count": 2
                 },
-                "revision": 5
-              },
-              {
-                "count": 1
-              },
-              {
-                "type": "MoveOut",
-                "id": 10,
-                "count": 2,
-                "revision": 5
-              }
-            ],
-            "baseRevision": 5
+                {
+                  "type": "MoveIn",
+                  "id": 6,
+                  "count": 2,
+                  "cellId": {
+                    "revision": 4,
+                    "localId": 8
+                  },
+                  "revision": 4
+                }
+              ],
+              "revision": 4
+            },
+            "base": {
+              "change": [
+                {
+                  "type": "MoveIn",
+                  "id": 10,
+                  "count": 2,
+                  "cellId": {
+                    "revision": 5,
+                    "localId": 12
+                  },
+                  "revision": 5
+                },
+                {
+                  "count": 1
+                },
+                {
+                  "type": "MoveOut",
+                  "id": 10,
+                  "count": 2,
+                  "revision": 5
+                }
+              ],
+              "revision": 5
+            },
+            "childRebaser": "test-node",
+            "maxLocalId": 37
           },
-          "revisions": [],
+          "revisions": [
+            4,
+            5
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 37
           },
           "compressor": {
             "mode": "test",
@@ -2269,7 +1956,6 @@
           ]
         },
         "output": {
-          "accepted": true,
           "value": [
             {
               "count": 1,
@@ -2306,7 +1992,8 @@
               },
               "revision": 4
             }
-          ]
+          ],
+          "callbacks": []
         }
       },
       {
@@ -2314,103 +2001,67 @@
         "input": {
           "id": "partial-overlap-moves",
           "operation": "rebase",
-          "change": [
-            {
-              "type": "MoveOut",
-              "id": 14,
-              "count": 3,
-              "revision": 7
-            },
-            {
-              "count": 2
-            },
-            {
-              "type": "MoveIn",
-              "id": 14,
-              "count": 3,
-              "cellId": {
-                "revision": 7,
-                "localId": 17
-              },
-              "revision": 7
-            }
-          ],
-          "changeRevision": 7,
-          "base": [
-            {
-              "type": "MoveIn",
-              "id": 20,
-              "count": 3,
-              "cellId": {
-                "revision": 8,
-                "localId": 23
-              },
-              "revision": 8
-            },
-            {
-              "count": 2
-            },
-            {
-              "type": "MoveOut",
-              "id": 20,
-              "count": 3,
-              "revision": 8
-            }
-          ],
-          "baseRevision": 8,
           "initialState": {
             "field": []
           },
           "operands": {
-            "operation": "rebase",
-            "change": [
-              {
-                "type": "MoveOut",
-                "id": 14,
-                "count": 3,
-                "revision": 7
-              },
-              {
-                "count": 2
-              },
-              {
-                "type": "MoveIn",
-                "id": 14,
-                "count": 3,
-                "cellId": {
-                  "revision": 7,
-                  "localId": 17
+            "change": {
+              "change": [
+                {
+                  "type": "MoveOut",
+                  "id": 14,
+                  "count": 3,
+                  "revision": 7
                 },
-                "revision": 7
-              }
-            ],
-            "changeRevision": 7,
-            "base": [
-              {
-                "type": "MoveIn",
-                "id": 20,
-                "count": 3,
-                "cellId": {
-                  "revision": 8,
-                  "localId": 23
+                {
+                  "count": 2
                 },
-                "revision": 8
-              },
-              {
-                "count": 2
-              },
-              {
-                "type": "MoveOut",
-                "id": 20,
-                "count": 3,
-                "revision": 8
-              }
-            ],
-            "baseRevision": 8
+                {
+                  "type": "MoveIn",
+                  "id": 14,
+                  "count": 3,
+                  "cellId": {
+                    "revision": 7,
+                    "localId": 17
+                  },
+                  "revision": 7
+                }
+              ],
+              "revision": 7
+            },
+            "base": {
+              "change": [
+                {
+                  "type": "MoveIn",
+                  "id": 20,
+                  "count": 3,
+                  "cellId": {
+                    "revision": 8,
+                    "localId": 23
+                  },
+                  "revision": 8
+                },
+                {
+                  "count": 2
+                },
+                {
+                  "type": "MoveOut",
+                  "id": 20,
+                  "count": 3,
+                  "revision": 8
+                }
+              ],
+              "revision": 8
+            },
+            "childRebaser": "test-node",
+            "maxLocalId": 37
           },
-          "revisions": [],
+          "revisions": [
+            7,
+            8
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 37
           },
           "compressor": {
             "mode": "test",
@@ -2428,7 +2079,6 @@
           ]
         },
         "output": {
-          "accepted": true,
           "value": [
             {
               "count": 1,
@@ -2462,7 +2112,8 @@
               },
               "revision": 7
             }
-          ]
+          ],
+          "callbacks": []
         }
       },
       {
@@ -2470,59 +2121,45 @@
         "input": {
           "id": "empty-cells",
           "operation": "rebase",
-          "change": [
-            {
-              "count": 1,
-              "cellId": {
-                "revision": 2,
-                "localId": 2
-              }
-            }
-          ],
-          "changeRevision": 9,
-          "base": [
-            {
-              "type": "Insert",
-              "count": 1,
-              "id": 2,
-              "cellId": {
-                "revision": 2,
-                "localId": 2
-              }
-            }
-          ],
-          "baseRevision": 10,
           "initialState": {
             "field": []
           },
           "operands": {
-            "operation": "rebase",
-            "change": [
-              {
-                "count": 1,
-                "cellId": {
-                  "revision": 2,
-                  "localId": 2
+            "change": {
+              "change": [
+                {
+                  "count": 1,
+                  "cellId": {
+                    "revision": 2,
+                    "localId": 2
+                  }
                 }
-              }
-            ],
-            "changeRevision": 9,
-            "base": [
-              {
-                "type": "Insert",
-                "count": 1,
-                "id": 2,
-                "cellId": {
-                  "revision": 2,
-                  "localId": 2
+              ],
+              "revision": 9
+            },
+            "base": {
+              "change": [
+                {
+                  "type": "Insert",
+                  "count": 1,
+                  "id": 2,
+                  "cellId": {
+                    "revision": 2,
+                    "localId": 2
+                  }
                 }
-              }
-            ],
-            "baseRevision": 10
+              ],
+              "revision": 10
+            },
+            "childRebaser": "test-node",
+            "maxLocalId": 37
           },
-          "revisions": [],
+          "revisions": [
+            9,
+            10
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 37
           },
           "compressor": {
             "mode": "test",
@@ -2540,8 +2177,8 @@
           ]
         },
         "output": {
-          "accepted": true,
-          "value": []
+          "value": [],
+          "callbacks": []
         }
       },
       {
@@ -2549,77 +2186,54 @@
         "input": {
           "id": "detached-children",
           "operation": "rebase",
-          "change": [
-            {
-              "count": 1,
-              "changes": {
-                "localId": 40,
-                "testChange": {
-                  "inputContext": [],
-                  "intentions": [
-                    4
-                  ],
-                  "outputContext": [
-                    4
-                  ]
-                }
-              },
-              "cellId": {
-                "revision": 2,
-                "localId": 2
-              }
-            }
-          ],
-          "changeRevision": 11,
-          "base": [
-            {
-              "type": "Remove",
-              "count": 2,
-              "id": 2,
-              "revision": 2
-            }
-          ],
-          "baseRevision": 2,
           "initialState": {
             "field": []
           },
           "operands": {
-            "operation": "rebase",
-            "change": [
-              {
-                "count": 1,
-                "changes": {
-                  "localId": 40,
-                  "testChange": {
-                    "inputContext": [],
-                    "intentions": [
-                      4
-                    ],
-                    "outputContext": [
-                      4
-                    ]
+            "change": {
+              "change": [
+                {
+                  "count": 1,
+                  "changes": {
+                    "localId": 40,
+                    "testChange": {
+                      "inputContext": [],
+                      "intentions": [
+                        4
+                      ],
+                      "outputContext": [
+                        4
+                      ]
+                    }
+                  },
+                  "cellId": {
+                    "revision": 2,
+                    "localId": 2
                   }
-                },
-                "cellId": {
-                  "revision": 2,
-                  "localId": 2
                 }
-              }
-            ],
-            "changeRevision": 11,
-            "base": [
-              {
-                "type": "Remove",
-                "count": 2,
-                "id": 2,
-                "revision": 2
-              }
-            ],
-            "baseRevision": 2
+              ],
+              "revision": 11
+            },
+            "base": {
+              "change": [
+                {
+                  "type": "Remove",
+                  "count": 2,
+                  "id": 2,
+                  "revision": 2
+                }
+              ],
+              "revision": 2
+            },
+            "childRebaser": "test-node",
+            "maxLocalId": 37
           },
-          "revisions": [],
+          "revisions": [
+            11,
+            2
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 37
           },
           "compressor": {
             "mode": "test",
@@ -2637,7 +2251,6 @@
           ]
         },
         "output": {
-          "accepted": true,
           "value": [
             {
               "count": 1,
@@ -2665,6 +2278,23 @@
                 "localId": 2
               }
             }
+          ],
+          "callbacks": [
+            {
+              "change": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              },
+              "base": null
+            }
           ]
         }
       },
@@ -2673,103 +2303,67 @@
         "input": {
           "id": "endpoint-invalidation",
           "operation": "rebase",
-          "change": [
-            {
-              "type": "MoveOut",
-              "id": 30,
-              "count": 2,
-              "revision": 12
-            },
-            {
-              "count": 2
-            },
-            {
-              "type": "MoveIn",
-              "id": 30,
-              "count": 2,
-              "cellId": {
-                "revision": 12,
-                "localId": 32
-              },
-              "revision": 12
-            }
-          ],
-          "changeRevision": 12,
-          "base": [
-            {
-              "type": "MoveIn",
-              "id": 34,
-              "count": 2,
-              "cellId": {
-                "revision": 13,
-                "localId": 36
-              },
-              "revision": 13
-            },
-            {
-              "count": 2
-            },
-            {
-              "type": "MoveOut",
-              "id": 34,
-              "count": 2,
-              "revision": 13
-            }
-          ],
-          "baseRevision": 13,
           "initialState": {
             "field": []
           },
           "operands": {
-            "operation": "rebase",
-            "change": [
-              {
-                "type": "MoveOut",
-                "id": 30,
-                "count": 2,
-                "revision": 12
-              },
-              {
-                "count": 2
-              },
-              {
-                "type": "MoveIn",
-                "id": 30,
-                "count": 2,
-                "cellId": {
-                  "revision": 12,
-                  "localId": 32
+            "change": {
+              "change": [
+                {
+                  "type": "MoveOut",
+                  "id": 30,
+                  "count": 2,
+                  "revision": 12
                 },
-                "revision": 12
-              }
-            ],
-            "changeRevision": 12,
-            "base": [
-              {
-                "type": "MoveIn",
-                "id": 34,
-                "count": 2,
-                "cellId": {
-                  "revision": 13,
-                  "localId": 36
+                {
+                  "count": 2
                 },
-                "revision": 13
-              },
-              {
-                "count": 2
-              },
-              {
-                "type": "MoveOut",
-                "id": 34,
-                "count": 2,
-                "revision": 13
-              }
-            ],
-            "baseRevision": 13
+                {
+                  "type": "MoveIn",
+                  "id": 30,
+                  "count": 2,
+                  "cellId": {
+                    "revision": 12,
+                    "localId": 32
+                  },
+                  "revision": 12
+                }
+              ],
+              "revision": 12
+            },
+            "base": {
+              "change": [
+                {
+                  "type": "MoveIn",
+                  "id": 34,
+                  "count": 2,
+                  "cellId": {
+                    "revision": 13,
+                    "localId": 36
+                  },
+                  "revision": 13
+                },
+                {
+                  "count": 2
+                },
+                {
+                  "type": "MoveOut",
+                  "id": 34,
+                  "count": 2,
+                  "revision": 13
+                }
+              ],
+              "revision": 13
+            },
+            "childRebaser": "test-node",
+            "maxLocalId": 37
           },
-          "revisions": [],
+          "revisions": [
+            12,
+            13
+          ],
           "allocator": {
-            "nextLocalId": 0
+            "maxLocalId": 37
           },
           "compressor": {
             "mode": "test",
@@ -2787,7 +2381,6 @@
           ]
         },
         "output": {
-          "accepted": true,
           "value": [
             {
               "count": 2
@@ -2815,7 +2408,8 @@
               },
               "revision": 12
             }
-          ]
+          ],
+          "callbacks": []
         }
       }
     ]
