@@ -67,6 +67,10 @@ results for later native runners; they do not constitute M3 acceptance.
   no commit, change event, node event, pending edit, revision, or message.
   Low-level editor behavior is not identical: a zero-count insert retains an
   Insert mark, while zero-count remove and move produce empty changes.
+- Equal-valued moves and moves whose destination lies inside the source range
+  can leave visible values unchanged while still emitting a commit and change
+  event. They are not public no-ops; identity order and emitted move endpoints
+  remain part of the contract.
 - Same-array destinations are pre-edit gaps. A destination strictly inside the
   source range produces split low-level marks: `MoveOut(1)`, `MoveIn(3)`,
   `MoveOut(2)` for the captured three-item range.
@@ -75,10 +79,17 @@ results for later native runners; they do not constitute M3 acceptance.
 - Pinned `removeRange(1, 99)` clamps to the array end. Watershed intentionally
   rejects `end > length`; this is a native validation rule, not a parity claim
   for invalid upstream input.
+- Schema compatibility evidence initializes the declared stored schema and
+  requests the declared view schema. The `objectArrays` to `objectArrays`
+  scenario no longer substitutes an `Items` root.
+- The source replay boundary accepts only JSON data. Codec cases provide
+  encoded messages or summaries plus compressor context; history cases provide
+  ordered actions and complete summary-tail envelopes and creation ranges.
+  Expected observations are never reused as replay operands.
 
 These fixtures are source evidence, not native coverage. Add a case to the
 native semantic-runner lists only after an input-only runner passes on both
-targets.
+targets. Task 1 remains pending independent review.
 
 ## 3. API and path behavior
 

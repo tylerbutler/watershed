@@ -412,14 +412,15 @@ If `source:verify` reports absent dependencies or checkout, use the documented
 `npm ci` / `source:prepare` workflow and repeat. A capture without the real
 source execution does not pass.
 
-- [x] **Step 7: Review the contract before native implementation.**
+- [ ] **Step 7: Review the contract before native implementation.**
 
 Record in this task's execution notes the confirmed schema shape, primary
 field key, Sequence V3 variants, field-batch shapes, no-op semantics,
 compatible cross-array movement, cycle rejection, and cross-field dependency
 rules. Confirm the proposed interfaces in Tasks 2-8 against that evidence.
 Revise the plan before proceeding if any interface cannot represent a
-captured result. Obtain review approval of this gate.
+captured result. Obtain independent review approval of this gate. The source
+correction rounds do not satisfy this gate by themselves.
 
 - [x] **Step 8: Commit the oracle and generated evidence.**
 
@@ -450,6 +451,22 @@ Use `git commit -m "test(tree): capture array and sequence contracts"`.
 - Cross-field sequence work must use changeset-scoped, range-aware effects.
   Compose, invert, and rebase receive a normalized field identity so reads,
   including absent-range reads, can invalidate every dependent field.
+- The array schema, codec, history, and invalid-input cases now replay only
+  JSON-round-tripped inputs through exported source helpers. The compatibility
+  case executes the declared `objectArrays` stored and view schemas.
+- Codec inputs contain Message V7 bytes or complete summary trees and the
+  required compressor context. Decoded Sequence V3 and modular graph
+  observations are outputs, not operands.
+- History inputs contain ordered local-edit, delivery, acknowledgement,
+  reconnect, minimum-sequence, summary-load, tail, and continuation actions.
+  Checkpoints preserve pending, trunk, peer, envelope, sequence, compressor,
+  and retained-content evidence. Summary-tail input includes both wire
+  envelopes and the continuation creation range used by an independent peer.
+- Equal-valued and interior public moves are not no-ops even when visible
+  values compare equal: they emit commits and change events. Only empty insert,
+  empty remove, and empty same-array move are suppressed by the public wrapper.
+- Task 1 remains pending independent review. Fixture regeneration against its
+  own generator is not acceptance and does not establish native coverage.
 
 ### Task 2: Support read-only array schemas, values, paths, and content
 

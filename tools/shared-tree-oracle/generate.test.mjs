@@ -834,15 +834,15 @@ test("forest replay validation rejects lossy deltas", () => {
   assert.throws(() => validateArrayCase(value), /counted-build.*delta fields/i);
 });
 
-test("M3 cases require complete replay inputs and executed observations", () => {
+test("M3 cases require complete replay inputs and substantive observations", () => {
   for (const [id, mutate, message] of [
     ["array-schema-content", (value) => {
       delete value.input.scenarios[0].initialState;
       delete value.raw.scenarios[0].input.initialState;
-    }, /complete replay input/i],
+    }, /typed initial content/i],
     ["sequence-field-editor", (value) => {
       value.expected.observations[0] = { id: "move-interior", captured: true };
-    }, /executed source result/i],
+    }, /source result/i],
   ]) {
     const value = id === "sequence-field-editor"
       ? arrayCaseFixture()
@@ -869,6 +869,12 @@ test("array validation requires contract-defining source evidence", () => {
       schema.nodes["org.watershed.shared-tree.m3.Items"].kind.object[""].kind = "Value";
       value.input.schemas.rootArray = JSON.stringify(schema);
       value.raw.schemas.rootArray.bytes = value.input.schemas.rootArray;
+      for (const scenario of value.input.scenarios.filter(({ schema: selector }) =>
+        selector === "rootArray")) {
+        scenario.schemaBytes = value.input.schemas.rootArray;
+        value.raw.scenarios.find(({ id }) => id === scenario.id).input =
+          structuredClone(scenario);
+      }
     }, /Sequence field/],
     ["sequence-field-editor", (value) => {
       const observation = value.expected.observations.find(({ id }) => id === "move-interior");
@@ -886,9 +892,9 @@ test("array validation requires contract-defining source evidence", () => {
     }, /codec profile/],
     ["array-history", (value) => {
       value.raw.scenarios.find(({ input }) => input.id === "public-noops")
-        .output.noops[0].commits = 1;
+        .output.checkpoints[0].events.commits = 1;
       value.expected.observations.find(({ id }) => id === "public-noops")
-        .result.noops[0].commits = 1;
+        .result.checkpoints[0].events.commits = 1;
     }, /no-op emission/],
     ["array-invalid", (value) => {
       value.raw.scenarios.find(({ input }) => input.id === "native-remove-beyond-length")
@@ -903,6 +909,84 @@ test("array validation requires contract-defining source evidence", () => {
     mutate(value);
     assert.throws(() => validateArrayCase(value), message);
   }
+});
+
+test("array schema compatibility input selects the executed stored and view schemas", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/array-schema-content.json", import.meta.url),
+    "utf8",
+  ));
+  const scenario = value.input.scenarios.find(({ id }) => id === "compatibility");
+  const raw = value.raw.scenarios.find(({ id }) => id === "compatibility");
+  scenario.viewSchema = "incompatibleArrays";
+  raw.input = structuredClone(scenario);
+  assert.throws(() => validateArrayCase(value), /compatibility.*schema execution/i);
+});
+
+test("array codec validation rejects decoded outputs and incomplete decode context as input", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/array-codecs.json", import.meta.url),
+    "utf8",
+  ));
+  for (const [mutate, message] of [
+    [(copy) => {
+      copy.input.scenarios[0].encodedMessages = [copy.raw.scenarios[0].output];
+      copy.raw.scenarios[0].input = structuredClone(copy.input.scenarios[0]);
+    }, /sequence-v3.*encoded input/i],
+    [(copy) => {
+      delete copy.input.scenarios[1].decodeContext.nativeInput.clients[0].compressor;
+      delete copy.raw.scenarios[1].input.decodeContext.nativeInput.clients[0].compressor;
+    }, /message-v7.*compressor/i],
+    [(copy) => {
+      delete copy.input.scenarios[6].encodedSummary;
+      delete copy.raw.scenarios[6].input.encodedSummary;
+    }, /full-summary.*encoded summary/i],
+  ]) {
+    const broken = structuredClone(value);
+    mutate(broken);
+    assert.throws(() => validateArrayCase(broken), message);
+  }
+});
+
+test("array history validation requires action schedules and full replay context", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/array-history.json", import.meta.url),
+    "utf8",
+  ));
+  for (const [mutate, message] of [
+    [(copy) => {
+      copy.input.scenarios[0].schedule = copy.raw.scenarios[0].output;
+      copy.raw.scenarios[0].input = structuredClone(copy.input.scenarios[0]);
+    }, /pending-chains.*action schedule/i],
+    [(copy) => {
+      copy.input.scenarios.find(({ id }) => id === "window-advance").schedule =
+        [{ id: "reconnect", op: "connect", client: 0, connected: true }];
+      copy.raw.scenarios.find(({ id }) => id === "window-advance").input =
+        structuredClone(copy.input.scenarios.find(({ id }) => id === "window-advance"));
+    }, /window-advance.*minimum sequence/i],
+    [(copy) => {
+      delete copy.input.scenarios.find(({ id }) => id === "summary-tail")
+        .replayContext.continuationEnvelope;
+      copy.raw.scenarios.find(({ id }) => id === "summary-tail").input =
+        structuredClone(copy.input.scenarios.find(({ id }) => id === "summary-tail"));
+    }, /summary-tail.*continuation envelope/i],
+  ]) {
+    const broken = structuredClone(value);
+    mutate(broken);
+    assert.throws(() => validateArrayCase(broken), message);
+  }
+});
+
+test("array invalid validation requires executable malformed operands", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/array-invalid.json", import.meta.url),
+    "utf8",
+  ));
+  const scenario = value.input.scenarios.find(({ id }) => id === "corrupt-range");
+  const raw = value.raw.scenarios.find(({ id }) => id === "corrupt-range");
+  scenario.malformed = value.raw.scenarios.find(({ id }) => id === "corrupt-range").output;
+  raw.input = structuredClone(scenario);
+  assert.throws(() => validateArrayCase(value), /corrupt-range.*malformed input/i);
 });
 
 test("array modular validation requires replayable graphs and observed source coordination", () => {

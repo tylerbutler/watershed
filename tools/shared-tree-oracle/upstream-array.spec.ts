@@ -11,13 +11,21 @@ import {
 	createSessionId,
 	deserializeIdCompressor,
 	serializeIdCompressor,
+	type SerializedIdCompressorWithNoSession,
+	type SerializedIdCompressorWithOngoingSession,
 	toIdCompressorWithCore,
 } from "@fluidframework/id-compressor/internal";
-import type { SessionSpaceCompressedId } from "@fluidframework/id-compressor";
+import type {
+	IIdCompressor,
+	SessionId,
+	SessionSpaceCompressedId,
+} from "@fluidframework/id-compressor";
+import { FlushMode } from "@fluidframework/runtime-definitions/internal";
 import {
 	MockDeltaConnection,
 	MockFluidDataStoreRuntime,
 	MockSharedObjectServices,
+	MockStorage,
 } from "@fluidframework/test-runtime-utils/internal";
 
 import { FluidClientVersion, FormatValidatorNoOp } from "../codec/index.js";
@@ -31,6 +39,7 @@ import {
 	SchemaFactory,
 	TreeViewConfiguration,
 	type ImplicitFieldSchema,
+	type TreeView,
 } from "../simple-tree/index.js";
 import {
 	intoDelta,
@@ -41,10 +50,19 @@ import { Tree } from "../shared-tree/index.js";
 import { configuredSharedTreeInternal } from "../treeFactory.js";
 import {
 	crossFieldCoordinationInput,
+	encodeModularGraph,
 	replayArrayModularInput,
 } from "./watershedArraySupport.js";
-import { MockContainerRuntimeWithOpBunching } from "./mocksForOpBunching.js";
-import { mintRevisionTag, testIdCompressor, TestTreeProviderLite } from "./utils.js";
+import {
+	MockContainerRuntimeFactoryWithOpBunching,
+	MockContainerRuntimeWithOpBunching,
+} from "./mocksForOpBunching.js";
+import {
+	assertIsSessionId,
+	mintRevisionTag,
+	testIdCompressor,
+	TestTreeProviderLite,
+} from "./utils.js";
 
 const formatVersion = 1;
 const reference = {
@@ -273,6 +291,867 @@ function initialRoot() {
 	});
 }
 
+type PlainRoot = ReturnType<typeof visible>;
+
+type ReplayClient = {
+	readonly id: string;
+	readonly sessionId: string;
+	readonly compressor: string;
+};
+
+type ReplayAction = {
+	readonly id: string;
+	readonly op: string;
+	readonly name?: string;
+	readonly client?: number;
+	readonly path?: readonly string[];
+	readonly sourcePath?: readonly string[];
+	readonly index?: number;
+	readonly start?: number;
+	readonly end?: number;
+	readonly gap?: number;
+	readonly values?: readonly unknown[];
+	readonly connected?: boolean;
+	readonly edits?: readonly ReplayAction[];
+};
+
+type ReplayProvider = {
+	readonly trees: readonly ReturnType<ReturnType<typeof treeFactory>["create"]>[];
+	readonly views: readonly TreeView<typeof Root>[];
+	readonly runtimes: readonly MockContainerRuntimeWithOpBunching[];
+	readonly compressors: readonly IIdCompressor[];
+	readonly processed: readonly unknown[][];
+	synchronize(): void;
+	sequenceNumber(): number;
+	minimumSequenceNumber(): number;
+};
+
+const replayClients: readonly ReplayClient[] = [
+	{
+		id: "client-0",
+		sessionId: "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+		compressor:
+			"AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAAGSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+	},
+	{
+		id: "client-1",
+		sessionId: "8cc9b139-f642-4f75-85f7-b5e5297cb6b3",
+		compressor:
+			"AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAACztnwp5bX3Rd0L2efEJjMCAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+	},
+];
+
+function plainInitialRoot(): PlainRoot {
+	return visible(initialRoot());
+}
+
+function hydrate(value: unknown): unknown {
+	if (value === null || typeof value === "string" || typeof value === "number"
+		|| typeof value === "boolean") {
+		return value;
+	}
+	if (Array.isArray(value)) return new Items(value.map(hydrate) as never);
+	assert(value !== null && typeof value === "object", "Tree content must be a plain value.");
+	if ("point" in value) {
+		const point = Reflect.get(value, "point");
+		assert(point !== null && typeof point === "object", "Point content must be an object.");
+		assert(typeof Reflect.get(point, "label") === "string", "Point label must be a string.");
+		assert(typeof Reflect.get(point, "x") === "number", "Point x must be a number.");
+		return new Point({
+			label: Reflect.get(point, "label") as string,
+			x: Reflect.get(point, "x") as number,
+		});
+	}
+	if ("map" in value) {
+		const entries = Reflect.get(value, "map");
+		assert(Array.isArray(entries), "Map content must contain entries.");
+		return new ArrayMap(entries.map((entry) => {
+			assert(Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string",
+				"Map content entry must contain a string key and value.");
+			return [entry[0], hydrate(entry[1])];
+		}) as never);
+	}
+	if ("left" in value && "right" in value && "byKey" in value && "narrow" in value) {
+		const left = hydrate(Reflect.get(value, "left"));
+		const right = hydrate(Reflect.get(value, "right"));
+		const byKey = hydrate(Reflect.get(value, "byKey"));
+		const narrow = Reflect.get(value, "narrow");
+		assert(left instanceof Items && right instanceof Items && byKey instanceof ArrayMap
+			&& Array.isArray(narrow), "Root content has the wrong shape.");
+		return new Root({
+			left,
+			right,
+			byKey,
+			narrow: new Points(narrow.map((item) => {
+				const point = hydrate(item);
+				assert(point instanceof Point, "Points content must contain points.");
+				return point;
+			})),
+		});
+	}
+	assert.fail("Unsupported tree content.");
+}
+
+function configurationFor(selector: unknown): TreeViewConfiguration {
+	switch (selector) {
+		case "rootArray":
+		case "recursiveArrays":
+			return new TreeViewConfiguration({ schema: Items });
+		case "objectArrays":
+			return new TreeViewConfiguration({ schema: Root });
+		case "mapArrays":
+			return new TreeViewConfiguration({ schema: ArrayMap });
+		case "incompatibleArrays":
+			return new TreeViewConfiguration({ schema: Points });
+		default:
+			assert.fail(`Unknown schema selector: ${String(selector)}`);
+	}
+}
+
+function schemaFor(selector: unknown): ImplicitFieldSchema {
+	switch (selector) {
+		case "rootArray":
+		case "recursiveArrays":
+			return Items;
+		case "objectArrays":
+			return Root;
+		case "mapArrays":
+			return ArrayMap;
+		case "incompatibleArrays":
+			return Points;
+		default:
+			assert.fail(`Unknown schema selector: ${String(selector)}`);
+	}
+}
+
+function contentFor(selector: unknown, value: unknown): Root | Items | Points | ArrayMap {
+	if (selector === "incompatibleArrays") {
+		assert(Array.isArray(value), "Points content must be an array.");
+		return new Points(value.map((item) => {
+			const point = hydrate(item);
+			assert(point instanceof Point, "Points content must contain points.");
+			return point;
+		}));
+	}
+	const content = hydrate(value);
+	if (selector === "objectArrays") {
+		assert(content instanceof Root, "Object-array content must contain a Root.");
+	} else if (selector === "mapArrays") {
+		assert(content instanceof ArrayMap, "Map-array content must contain an ArrayMap.");
+	} else {
+		assert(content instanceof Items, "Root-array content must contain Items.");
+	}
+	return content;
+}
+
+function readPath(root: unknown, path: readonly string[]): unknown {
+	let value = root;
+	for (const segment of path) {
+		if (value instanceof ArrayMap) {
+			value = value.get(segment);
+		} else if (value instanceof Items || value instanceof Points) {
+			const index = Number(segment);
+			assert(Number.isSafeInteger(index), `Array path segment must be an integer: ${segment}`);
+			value = value[index];
+		} else {
+			assert(value !== null && typeof value === "object", `Cannot traverse ${segment}.`);
+			value = Reflect.get(value, segment);
+		}
+	}
+	return value;
+}
+
+export async function replayArraySchemaInput(input: Record<string, unknown>): Promise<unknown> {
+	assert(typeof input.operation === "string", "Schema replay needs an operation.");
+	assert(typeof input.schema === "string", "Schema replay needs a schema selector.");
+	assert(typeof input.schemaBytes === "string", "Schema replay needs raw schema bytes.");
+	assert.equal(
+		schemaString(schemaFor(input.schema)),
+		input.schemaBytes,
+		"Schema replay bytes must match the selected schema.",
+	);
+	const provider = new TestTreeProviderLite(1, treeFactory());
+	const view = provider.trees[0].viewWith(configurationFor(input.schema));
+	if (input.operation === "canView") {
+		assert(typeof input.viewSchema === "string", "Compatibility replay needs a view schema.");
+		assert(typeof input.viewSchemaBytes === "string", "Compatibility replay needs view bytes.");
+		assert.equal(
+			schemaString(schemaFor(input.viewSchema)),
+			input.viewSchemaBytes,
+			"Compatibility view bytes must match the selected schema.",
+		);
+		view.initialize(contentFor(input.schema, input.initialState) as never);
+		provider.synchronizeMessages();
+		view.dispose();
+		const requested = provider.trees[0].viewWith(configurationFor(input.viewSchema));
+		return {
+			storedSchema: input.schema,
+			viewSchema: input.viewSchema,
+			compatibility: copy(requested.compatibility),
+			content: visible(requested.root),
+		};
+	}
+	view.initialize(contentFor(input.schema, input.initialState) as never);
+	provider.synchronizeMessages();
+	switch (input.operation) {
+		case "schema":
+			return { schema: JSON.parse(input.schemaBytes), content: visible(view.root) };
+		case "initialize":
+			return { content: visible(view.root), compatibility: copy(view.compatibility) };
+		case "read": {
+			assert(Array.isArray(input.path), "Read replay needs a path.");
+			const value = readPath(view.root, input.path as string[]);
+			return { value: visible(value), container: visible(view.root) };
+		}
+		case "move": {
+			assert(input.source !== null && typeof input.source === "object",
+				"Move replay needs a source.");
+			assert(input.destination !== null && typeof input.destination === "object",
+				"Move replay needs a destination.");
+			const source = input.source as { path: string[]; start: number; end: number };
+			const destination = input.destination as { path: string[]; gap: number };
+			const sourceArray = readPath(view.root, source.path);
+			const destinationArray = readPath(view.root, destination.path);
+			assert(sourceArray instanceof Items || sourceArray instanceof Points,
+				"Move source must be an array.");
+			assert(destinationArray instanceof Items || destinationArray instanceof Points,
+				"Move destination must be an array.");
+			return executed(() => {
+				destinationArray.moveRangeToIndex(
+					destination.gap,
+					source.start,
+					source.end,
+					sourceArray as never,
+				);
+				return visible(view.root);
+			});
+		}
+		case "summarize": {
+			const summary = (await provider.trees[0].summarize(true)).summary;
+			return {
+				schema: summaryBlob(summary, "indexes", "Schema", "SchemaString"),
+				forest: summaryBlob(summary, "indexes", "Forest", "contents"),
+			};
+		}
+		default:
+			assert.fail(`Unknown schema replay operation: ${input.operation}`);
+	}
+}
+
+function decodeOngoingCompressor(value: ReplayClient): IIdCompressor {
+	const compressor = deserializeIdCompressor(
+		value.compressor as SerializedIdCompressorWithOngoingSession,
+	);
+	assert.equal(compressor.localSessionId, value.sessionId, `${value.id}: compressor session`);
+	return compressor;
+}
+
+function createReplayProvider(input: {
+	readonly clients: readonly ReplayClient[];
+	readonly initialState: unknown;
+}): ReplayProvider {
+	assert(input.clients.length >= 1, "History replay needs at least one client.");
+	const runtimeFactory = new MockContainerRuntimeFactoryWithOpBunching({
+		flushMode: FlushMode.Immediate,
+	});
+	const trees: ReturnType<ReturnType<typeof treeFactory>["create"]>[] = [];
+	const views: TreeView<typeof Root>[] = [];
+	const runtimes: MockContainerRuntimeWithOpBunching[] = [];
+	const compressors: IIdCompressor[] = [];
+	const processed: unknown[][] = [];
+	const factory = treeFactory();
+	for (const [index, client] of input.clients.entries()) {
+		const idCompressor = decodeOngoingCompressor(client);
+		const runtime = new MockFluidDataStoreRuntime({
+			clientId: client.id,
+			id: `array-replay-${index}`,
+			idCompressor,
+		});
+		const tree = factory.create(runtime, `array-replay-${index}`);
+		const containerRuntime = runtimeFactory.createContainerRuntime(runtime);
+		tree.connect({
+			deltaConnection: runtime.createDeltaConnection(),
+			objectStorage: new MockStorage(),
+		});
+		const messages: unknown[] = [];
+		const process = containerRuntime.process.bind(containerRuntime);
+		containerRuntime.process = (message) => {
+			messages.push(copy(message));
+			process(message);
+		};
+		const processMessages = containerRuntime.processMessages.bind(containerRuntime);
+		containerRuntime.processMessages = (batch) => {
+			messages.push(...copy(batch));
+			processMessages(batch);
+		};
+		trees.push(tree);
+		runtimes.push(containerRuntime);
+		compressors.push(idCompressor);
+		processed.push(messages);
+	}
+	const first = trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
+	first.initialize(contentFor("objectArrays", input.initialState) as Root);
+	for (const tree of trees) {
+		runtimeFactory.processAllMessages();
+		if (tree !== trees[0]) views.push(tree.viewWith(new TreeViewConfiguration({ schema: Root })));
+	}
+	views.unshift(first);
+	for (const items of processed) items.length = 0;
+	return {
+		trees,
+		views,
+		runtimes,
+		compressors,
+		processed,
+		synchronize() {
+			for (const runtime of runtimes) runtime.flush();
+			runtimeFactory.processAllMessages();
+		},
+		sequenceNumber: () => runtimeFactory.sequenceNumber,
+		minimumSequenceNumber: () => runtimeFactory.getMinSeq(),
+	};
+}
+
+function arrayAt(root: Root, path: readonly string[]): Items | Points {
+	const value = readPath(root, path);
+	assert(value instanceof Items || value instanceof Points, "The action path must select an array.");
+	return value;
+}
+
+function compressorState(compressor: IIdCompressor) {
+	return {
+		sessionId: compressor.localSessionId,
+		serialized: serializeIdCompressor(compressor, true),
+	};
+}
+
+function replayCheckpoint(provider: ReplayProvider, id: string, messageStarts: readonly number[]) {
+	return {
+		id,
+		visible: provider.views.map((view) => visible(view.root)),
+		history: provider.trees.map((tree) =>
+			managerState(tree as TestTreeProviderLite["trees"][number])),
+		sequenceNumber: provider.sequenceNumber(),
+		minimumSequenceNumber: provider.minimumSequenceNumber(),
+		compressors: provider.compressors.map(compressorState),
+		messages: provider.processed.map((items, index) => copy(items.slice(messageStarts[index]))),
+	};
+}
+
+function runEdit(view: ReplayProvider["views"][number], action: ReplayAction): void {
+	assert(Array.isArray(action.path), `${action.id}: edit path`);
+	const target = arrayAt(view.root, action.path);
+	switch (action.op) {
+		case "insert": {
+			assert(typeof action.index === "number" && Number.isSafeInteger(action.index),
+				`${action.id}: insert index`);
+			assert(Array.isArray(action.values), `${action.id}: insert values`);
+			target.insertAt(action.index, ...action.values.map(hydrate) as never[]);
+			return;
+		}
+		case "remove":
+			assert(typeof action.start === "number" && Number.isSafeInteger(action.start)
+				&& typeof action.end === "number" && Number.isSafeInteger(action.end),
+				`${action.id}: remove range`);
+			target.removeRange(action.start, action.end);
+			return;
+		case "move": {
+			assert(typeof action.start === "number" && Number.isSafeInteger(action.start)
+				&& typeof action.end === "number" && Number.isSafeInteger(action.end)
+				&& typeof action.gap === "number" && Number.isSafeInteger(action.gap),
+			`${action.id}: move range`);
+			const sourcePath = Reflect.get(action, "sourcePath");
+			assert(Array.isArray(sourcePath), `${action.id}: move source path`);
+			const source = arrayAt(view.root, sourcePath);
+			target.moveRangeToIndex(action.gap, action.start, action.end, source as never);
+			return;
+		}
+		default:
+			assert.fail(`${action.id}: unsupported edit ${action.op}`);
+	}
+}
+
+function actionWithEvents(
+	provider: ReplayProvider,
+	action: ReplayAction,
+	run: () => void,
+): Record<string, unknown> {
+	const client = action.client ?? 0;
+	const view = provider.views[client];
+	assert(view !== undefined, `${action.id}: unknown client`);
+	let commits = 0;
+	let changed = 0;
+	let nodeEvents = 0;
+	const offCommit = view.events.on("commitApplied", () => { commits += 1; });
+	const checkout = Reflect.get(view, "checkout") as {
+		events: { on(name: "changed", listener: () => void): () => void };
+	};
+	const offChanged = checkout.events.on("changed", () => { changed += 1; });
+	const eventNode = Array.isArray(action.path) ? arrayAt(view.root, action.path) : view.root;
+	const identities = eventNode instanceof Items || eventNode instanceof Points
+		? Array.from({ length: eventNode.length }, (_, index) => eventNode[index])
+		: [];
+	const offNode = Tree.on(eventNode, "nodeChanged", () => { nodeEvents += 1; });
+	const before = visible(view.root);
+	run();
+	const after = visible(view.root);
+	const identityOrder = eventNode instanceof Items || eventNode instanceof Points
+		? Array.from({ length: eventNode.length }, (_, index) => identities.indexOf(eventNode[index]))
+		: [];
+	offCommit();
+	offChanged();
+	offNode();
+	return { before, after, identityOrder, commits, changed, nodeEvents };
+}
+
+async function replayScheduledHistory(input: Record<string, unknown>) {
+	assert(Array.isArray(input.clients), "History replay needs client compressor states.");
+	assert(Array.isArray(input.schedule), "History replay needs an action schedule.");
+	const provider = createReplayProvider({
+		clients: input.clients as ReplayClient[],
+		initialState: input.initialState,
+	});
+	const checkpoints: Record<string, unknown>[] = [];
+	const retained = new Map<string, unknown>();
+	for (const value of input.schedule) {
+		assert(value !== null && typeof value === "object", "History actions must be objects.");
+		const action = value as ReplayAction;
+		assert(typeof action.id === "string" && typeof action.op === "string",
+			"History actions need IDs and operations.");
+		const messageStarts = provider.processed.map((items) => items.length);
+		let events: Record<string, unknown> | undefined;
+		let summary: unknown;
+		switch (action.op) {
+			case "insert":
+			case "remove":
+			case "move":
+				events = actionWithEvents(provider, action, () =>
+					runEdit(provider.views[action.client ?? 0], action));
+				break;
+			case "transaction": {
+				assert(Array.isArray(action.edits), `${action.id}: transaction edits`);
+				events = actionWithEvents(provider, action, () => {
+					Tree.runTransaction(provider.views[action.client ?? 0], () => {
+						for (const edit of action.edits ?? []) {
+							runEdit(provider.views[action.client ?? 0], edit);
+						}
+					});
+				});
+				break;
+			}
+			case "connect":
+				assert(typeof action.connected === "boolean", `${action.id}: connection state`);
+				provider.runtimes[action.client ?? 0].connected = action.connected;
+				break;
+			case "reconnect":
+				provider.runtimes[action.client ?? 0].connected = true;
+				break;
+			case "retain": {
+				assert(typeof Reflect.get(action, "name") === "string", `${action.id}: retain name`);
+				assert(Array.isArray(action.path), `${action.id}: retain path`);
+				retained.set(
+					Reflect.get(action, "name") as string,
+					readPath(provider.views[action.client ?? 0].root, action.path),
+				);
+				break;
+			}
+			case "deliver":
+			case "ack":
+			case "advance-minimum":
+				provider.synchronize();
+				break;
+			case "summarize":
+				summary = (await provider.trees[action.client ?? 0].summarize(true)).summary;
+				break;
+			case "checkpoint":
+				break;
+			default:
+				assert.fail(`${action.id}: unknown history action ${action.op}`);
+		}
+		checkpoints.push({
+			...replayCheckpoint(provider, action.id, messageStarts),
+			...(events === undefined ? {} : { events }),
+			...(summary === undefined ? {} : { summary: copy(summary) }),
+			retained: [...retained].map(([name, node]) => ({
+				name,
+				status: String(Tree.status(node as never)),
+				value: executed(() => visible(node)),
+			})),
+			removed: provider.trees.map((tree) => {
+				const snapshot = Reflect.get(tree, "contentSnapshot") as () => { removed: unknown[] };
+				return copy(snapshot.call(tree).removed);
+			}),
+		});
+	}
+	return {
+		checkpoints,
+		final: replayCheckpoint(
+			provider,
+			"final",
+			provider.processed.map(() => 0),
+		),
+	};
+}
+
+type DeliveryEnvelope = {
+	readonly clientId: string;
+	readonly clientSequenceNumber: number;
+	readonly referenceSequenceNumber: number;
+	readonly sequenceNumber: number;
+	readonly minimumSequenceNumber: number;
+	readonly contents: unknown;
+};
+
+type IdCreationRange = ReturnType<
+	ReturnType<typeof toIdCompressorWithCore>["takeNextCreationRange"]
+>;
+
+function deliverEnvelope(
+	tree: unknown,
+	envelope: DeliveryEnvelope,
+): void {
+	const kernel = Reflect.get(tree as object, "kernel") as {
+		processMessagesCore(batch: unknown, local: boolean): void;
+	};
+	kernel.processMessagesCore({
+		envelope: {
+			...copy(envelope),
+			timestamp: 0,
+			type: "op",
+		},
+		messagesContent: [{
+			contents: copy(envelope.contents),
+			localOpMetadata: undefined,
+			clientSequenceNumber: envelope.clientSequenceNumber,
+		}],
+	}, false);
+}
+
+async function replaySummaryTail(input: Record<string, unknown>) {
+	const context = input.replayContext;
+	assert(context !== null && typeof context === "object", "Summary-tail replay context is required.");
+	const replayContext = context as {
+		initialSummary: Parameters<typeof MockSharedObjectServices.createFromSummary>[0];
+		startingCompressors: {
+			reader: { serialized: string; sessionId: string };
+			peer: { serialized: string; sessionId: string };
+		};
+		tailEnvelope: DeliveryEnvelope;
+		continuationEnvelope: DeliveryEnvelope;
+		continuationCreationRange: unknown;
+	};
+	const load = async (
+		name: string,
+		item: { serialized: string; sessionId: string },
+		submit: (message: unknown) => number,
+	) => {
+		const runtime = new MockFluidDataStoreRuntime({
+			idCompressor: deserializeIdCompressor(
+				item.serialized as SerializedIdCompressorWithNoSession,
+				assertIsSessionId(item.sessionId),
+			),
+		});
+		const services = MockSharedObjectServices.createFromSummary(replayContext.initialSummary);
+		services.deltaConnection = new MockDeltaConnection(submit, () => {});
+		const factory = treeFactory();
+		const tree = await factory.load(runtime, name, services, factory.attributes);
+		return { runtime, tree, view: tree.viewWith(new TreeViewConfiguration({ schema: Root })) };
+	};
+	assert(Array.isArray(input.schedule), "Summary-tail replay needs an action schedule.");
+	let reader: Awaited<ReturnType<typeof load>> | undefined;
+	let peer: Awaited<ReturnType<typeof load>> | undefined;
+	let readerAfterTail: unknown;
+	let readerAfterContinuation: unknown;
+	let creationRange: IdCreationRange | undefined;
+	const submitted: unknown[] = [];
+	for (const value of input.schedule) {
+		assert(value !== null && typeof value === "object", "Summary-tail actions must be objects.");
+		const action = value as ReplayAction;
+		switch (action.op) {
+			case "load-summary":
+				reader = await load(
+					"array-history-reader",
+					replayContext.startingCompressors.reader,
+					(message) => {
+						submitted.push(copy(message));
+						return replayContext.continuationEnvelope.clientSequenceNumber;
+					},
+				);
+				break;
+			case "deliver-tail":
+				assert(reader !== undefined, "Summary-tail reader must load before tail delivery.");
+				deliverEnvelope(reader.tree, replayContext.tailEnvelope);
+				readerAfterTail = visible(reader.view.root);
+				break;
+			case "continue":
+				assert(reader !== undefined, "Summary-tail reader must load before continuation.");
+				assert(Array.isArray(action.path) && Number.isSafeInteger(action.index)
+					&& Array.isArray(action.values), "Summary-tail continuation edit is incomplete.");
+				runEdit(reader.view, { ...action, op: "insert" });
+				const continuation = messagesIn(submitted);
+				assert.equal(continuation.length, 1,
+					"The reader must submit one continuation message.");
+				assert.deepEqual(
+					continuation[0],
+					replayContext.continuationEnvelope.contents,
+					"The continuation bytes must match the replay input.",
+				);
+				assert(reader.runtime.idCompressor !== undefined,
+					"The reader needs an ID compressor.");
+				creationRange =
+					toIdCompressorWithCore(reader.runtime.idCompressor).takeNextCreationRange();
+				assert.deepEqual(
+					copy(creationRange),
+					replayContext.continuationCreationRange,
+					"The continuation creation range must match the replay input.",
+				);
+				readerAfterContinuation = visible(reader.view.root);
+				break;
+			case "load-peer":
+				peer = await load(
+					"array-history-peer",
+					replayContext.startingCompressors.peer,
+					() => 1,
+				);
+				break;
+			case "deliver-continuation":
+				assert(peer !== undefined && peer.runtime.idCompressor !== undefined,
+					"Summary-tail peer must load before continuation delivery.");
+				assert(creationRange !== undefined,
+					"Summary-tail continuation must allocate before peer delivery.");
+				toIdCompressorWithCore(peer.runtime.idCompressor)
+					.finalizeCreationRange(creationRange);
+				deliverEnvelope(peer.tree, replayContext.tailEnvelope);
+				deliverEnvelope(peer.tree, replayContext.continuationEnvelope);
+				break;
+			default:
+				assert.fail(`Unknown summary-tail action: ${action.op}`);
+		}
+	}
+	assert(reader !== undefined && peer !== undefined,
+		"Summary-tail replay must load the reader and peer.");
+	assert(reader.runtime.idCompressor !== undefined && peer.runtime.idCompressor !== undefined,
+		"Summary-tail replay must retain both ID compressors.");
+	return {
+		readerAfterTail,
+		readerAfterContinuation,
+		peer: visible(peer.view.root),
+		tailEnvelope: copy(replayContext.tailEnvelope),
+		continuationEnvelope: copy(replayContext.continuationEnvelope),
+		continuationCreationRange: copy(creationRange),
+		readerCompressor: compressorState(reader.runtime.idCompressor),
+		peerCompressor: compressorState(peer.runtime.idCompressor),
+	};
+}
+
+export async function replayArrayHistoryInput(input: Record<string, unknown>): Promise<unknown> {
+	assert(typeof input.operation === "string", "History replay needs an operation.");
+	if (input.operation === "summary-tail") return replaySummaryTail(input);
+	return replayScheduledHistory(input);
+}
+
+function replayCodecAuthoring(input: Record<string, unknown>): ReplayProvider {
+	assert(Array.isArray(input.clients), "Codec authoring needs client compressor states.");
+	assert(Array.isArray(input.schedule), "Codec authoring needs an edit schedule.");
+	const provider = createReplayProvider({
+		clients: input.clients as ReplayClient[],
+		initialState: input.initialState,
+	});
+	for (const value of input.schedule) {
+		assert(value !== null && typeof value === "object", "Codec actions must be objects.");
+		const action = value as ReplayAction;
+		if (action.op === "deliver") {
+			provider.synchronize();
+		} else {
+			runEdit(provider.views[action.client ?? 0], action);
+		}
+	}
+	return provider;
+}
+
+async function loadSummaryInput(input: Record<string, unknown>) {
+	assert(input.decodeContext !== null && typeof input.decodeContext === "object",
+		"Summary decode context is required.");
+	const context = input.decodeContext as { compressor: string; sessionId: string };
+	assert(typeof context.compressor === "string", "Summary decode compressor is required.");
+	assert(typeof context.sessionId === "string", "Summary decode session is required.");
+	assert(input.encodedSummary !== null && typeof input.encodedSummary === "object",
+		"Encoded summary is required.");
+	const runtime = new MockFluidDataStoreRuntime({
+		idCompressor: deserializeIdCompressor(
+			context.compressor as SerializedIdCompressorWithNoSession,
+			assertIsSessionId(context.sessionId),
+		),
+	});
+	const factory = treeFactory();
+	const tree = await factory.load(
+		runtime,
+		`array-codec-${String(input.operation)}`,
+		MockSharedObjectServices.createFromSummary(
+			input.encodedSummary as Parameters<typeof MockSharedObjectServices.createFromSummary>[0],
+		),
+		factory.attributes,
+	);
+	return {
+		tree,
+		view: tree.viewWith(new TreeViewConfiguration({ schema: Root })),
+		runtime,
+	};
+}
+
+function normalizedDecodedMessage(value: unknown) {
+	assert(value !== null && typeof value === "object", "Decoded message must be an object.");
+	const commit = Reflect.get(value, "commit") as {
+		revision?: unknown;
+		change?: { changes?: readonly { type?: unknown; innerChange?: unknown }[] };
+	};
+	const changes = commit.change?.changes ?? [];
+	return {
+		type: Reflect.get(value, "type"),
+		branchId: Reflect.get(value, "branchId"),
+		revision: commit.revision,
+		sessionId: Reflect.get(value, "sessionId"),
+		changes: changes.map((change) => ({
+			type: change.type,
+			data: change.type === "data"
+				? encodeModularGraph(change.innerChange as ModularChangeset)
+				: copy(change.innerChange),
+		})),
+	};
+}
+
+export async function replayArrayCodecInput(input: Record<string, unknown>): Promise<unknown> {
+	assert(typeof input.operation === "string", "Codec replay needs an operation.");
+	if (input.operation === "sequence-v3" || input.operation === "message-v7"
+		|| input.operation === "builds") {
+		assert(Array.isArray(input.encodedMessages) && input.encodedMessages.length > 0,
+			`${input.operation}: encoded input messages`);
+		assert(input.decodeContext !== null && typeof input.decodeContext === "object",
+			`${input.operation}: decode context`);
+		const context = input.decodeContext as {
+			nativeInput: Record<string, unknown>;
+		};
+		assert(context.nativeInput !== null && typeof context.nativeInput === "object",
+			`${input.operation}: native typed input`);
+		const authoring = replayCodecAuthoring(context.nativeInput);
+		const authoredMessages = messagesIn(authoring.processed[0]);
+		assert.deepEqual(
+			authoredMessages,
+			input.encodedMessages,
+			`${input.operation}: encoded input must match the typed authoring input.`,
+		);
+		const kernel = Reflect.get(authoring.trees[0], "kernel") as {
+			messageCodec: { decode(value: unknown, context: { idCompressor: IIdCompressor }): unknown };
+		};
+		const decoded = input.encodedMessages.map((message) =>
+			kernel.messageCodec.decode(message, { idCompressor: authoring.compressors[0] }));
+		const normalized = decoded.map(normalizedDecodedMessage);
+		return input.operation === "sequence-v3"
+			? {
+					encoded: copy(input.encodedMessages),
+					sequenceChanges: normalized.flatMap(({ changes }) =>
+						changes.filter(({ type }) => type === "data")
+							.flatMap(({ data }) =>
+								(data as ReturnType<typeof modularStructure>).fields)),
+					decoded: normalized,
+				}
+			: {
+					encoded: copy(input.encodedMessages),
+					decoded: normalized,
+				};
+	}
+	const loaded = await loadSummaryInput(input);
+	const summary = input.encodedSummary as { tree: Record<string, unknown> };
+	assert(loaded.runtime.idCompressor !== undefined, "Summary runtime needs an ID compressor.");
+	const result = {
+		visible: visible(loaded.view.root),
+		summary: copy(summary),
+		schema: summaryBlob(summary, "indexes", "Schema", "SchemaString"),
+		forest: summaryBlob(summary, "indexes", "Forest", "contents"),
+		detached: summaryBlob(summary, "indexes", "DetachedFieldIndex", "DetachedFieldIndexBlob"),
+		history: summaryBlob(summary, "indexes", "EditManager", "String"),
+		compressor: compressorState(loaded.runtime.idCompressor),
+	};
+	if (input.operation === "empty-arrays" || input.operation === "retained-history"
+		|| input.operation === "detached-index" || input.operation === "full-summary") {
+		return result;
+	}
+	assert.fail(`Unknown codec replay operation: ${input.operation}`);
+}
+
+export async function replayArrayInvalidInput(input: Record<string, unknown>): Promise<unknown> {
+	assert(typeof input.operation === "string", "Invalid replay needs an operation.");
+	switch (input.operation) {
+		case "corrupt-schema":
+			return executed(() => schemaCodecBuilder
+				.buildDecoder({ jsonValidator: FormatValidatorNoOp })
+				.decode(input.malformed as never));
+		case "corrupt-mark":
+		case "corrupt-revision": {
+			assert(input.malformed !== null && typeof input.malformed === "object",
+				`${input.operation}: malformed input`);
+			const codecInput = {
+				operation: "message-v7",
+				encodedMessages: [input.malformed],
+				initialSummary: input.initialSummary,
+				summaryCompressor: input.summaryCompressor,
+				summarySessionId: input.summarySessionId,
+				decodeContext: input.decodeContext,
+			};
+			return executedAsync(() => replayArrayCodecInput(codecInput));
+		}
+		case "corrupt-range": {
+			assert(input.malformed !== null && typeof input.malformed === "object",
+				"corrupt-range: malformed input");
+			const range = input.malformed as { start: number; end: number };
+			const provider = new TestTreeProviderLite(1, treeFactory());
+			const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Items }));
+			view.initialize(contentFor("rootArray", input.initialState) as Items);
+			return executed(() => {
+				view.root.removeRange(range.start, range.end);
+				return visible(view.root);
+			});
+		}
+		case "corrupt-ownership": {
+			assert(Array.isArray(input.initialStates) && input.initialStates.length === 2,
+				"corrupt-ownership: initial states");
+			const providers = input.initialStates.map((state) => {
+				const provider = new TestTreeProviderLite(1, treeFactory());
+				const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
+				view.initialize(contentFor("objectArrays", state) as Root);
+				return { provider, view };
+			});
+			const foreign = providers[1].view.root.narrow[0];
+			assert(foreign instanceof Point, "corrupt-ownership: foreign point");
+			return executed(() => {
+				providers[0].view.root.narrow.insertAt(0, foreign);
+				return visible(providers[0].view.root);
+			});
+		}
+		case "corrupt-summary":
+			return executedAsync(async () => {
+				await loadSummaryInput({
+					operation: input.operation,
+					encodedSummary: input.malformed,
+					decodeContext: input.decodeContext,
+				});
+				return true;
+			});
+		case "native-remove-beyond-length": {
+			assert(input.malformed !== null && typeof input.malformed === "object",
+				"native-remove-beyond-length: malformed input");
+			const range = input.malformed as { start: number; end: number };
+			const provider = new TestTreeProviderLite(1, treeFactory());
+			const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Items }));
+			view.initialize(contentFor("rootArray", input.initialState) as Items);
+			view.root.removeRange(range.start, range.end);
+			return { accepted: true, value: visible(view.root), nativeContract: "error" };
+		}
+		default:
+			assert.fail(`Unknown invalid replay operation: ${input.operation}`);
+	}
+}
+
 type Scenario = {
 	readonly id: string;
 	readonly input: Record<string, unknown>;
@@ -302,26 +1181,12 @@ function oracleCase(
 			scenarios: scenarios.map((scenario) => ({
 				id: scenario.id,
 				...copy(scenario.input),
-				operation: scenario.input.operation,
-				initialState: scenario.input.initialState ?? null,
-				operands: id === "array-modular-algebra"
-					? copy(scenario.input.operands)
-					: copy(scenario.input),
-				revisions: scenario.input.revisions ?? [],
-				allocator: scenario.input.allocator ?? { nextLocalId: 0 },
-				compressor: scenario.input.compressor ?? { mode: "ongoing", session: null },
-				sequencing: scenario.input.sequencing ?? {
-					sequenceNumber: 0,
-					referenceSequenceNumber: 0,
-					minimumSequenceNumber: 0,
-				},
-				schedule: scenario.input.schedule ?? [{ step: scenario.input.operation }],
 			})),
 		},
 		expected: {
 			observations: scenarios.map((scenario) => ({
 				id: scenario.id,
-				executed: true,
+				...(id === "array-modular-algebra" ? { executed: true } : {}),
 				...scenario.observation,
 				result: copy(scenario.output),
 			})),
@@ -333,20 +1198,6 @@ function oracleCase(
 				input: {
 					id: scenario.id,
 					...copy(scenario.input),
-					operation: scenario.input.operation,
-					initialState: copy(scenario.input.initialState ?? null),
-					operands: id === "array-modular-algebra"
-					? copy(scenario.input.operands)
-					: copy(scenario.input),
-					revisions: copy(scenario.input.revisions ?? []),
-					allocator: copy(scenario.input.allocator ?? { nextLocalId: 0 }),
-					compressor: copy(scenario.input.compressor ?? { mode: "ongoing", session: null }),
-					sequencing: copy(scenario.input.sequencing ?? {
-						sequenceNumber: 0,
-						referenceSequenceNumber: 0,
-						minimumSequenceNumber: 0,
-					}),
-					schedule: copy(scenario.input.schedule ?? [{ step: scenario.input.operation }]),
 				},
 				output: copy(scenario.output),
 			})),
@@ -359,11 +1210,37 @@ function managerState(tree: TestTreeProviderLite["trees"][number]) {
 		getLocalCommits(branch: string): { revision: unknown }[];
 		getTrunkCommits(branch: string): { revision: unknown }[];
 		getLongestBranchLength(): number;
+		sharedBranches: Map<string, object>;
 	};
 	assert(manager !== undefined, "The public tree must expose its test edit manager.");
+	const main = manager.sharedBranches.get("main") as {
+		commitMetadata: Map<
+			unknown,
+			{ sequenceId: { sequenceNumber: number; indexInBatch?: number }; sessionId: unknown }
+		>;
+		peerLocalBranches: Map<unknown, { getHead(): { revision: unknown; parent?: unknown } }>;
+	};
+	assert(main !== undefined, "The public tree must expose its main branch.");
 	return {
 		pending: manager.getLocalCommits("main").map((commit) => commit.revision),
-		sequenced: manager.getTrunkCommits("main").map((commit) => commit.revision),
+		trunk: manager.getTrunkCommits("main").map((commit) => {
+			const metadata = main.commitMetadata.get(commit.revision);
+			return {
+				revision: commit.revision,
+				sessionId: metadata?.sessionId ?? null,
+				sequenceNumber: metadata?.sequenceId.sequenceNumber ?? null,
+				indexInBatch: metadata?.sequenceId.indexInBatch ?? null,
+			};
+		}),
+		peers: [...main.peerLocalBranches].map(([sessionId, branch]) => {
+			const revisions: unknown[] = [];
+			let commit: { revision: unknown; parent?: unknown } | undefined = branch.getHead();
+			while (commit !== undefined && commit.revision !== "root") {
+				revisions.push(commit.revision);
+				commit = commit.parent as typeof commit;
+			}
+			return { sessionId, revisions };
+		}),
 		longestBranchLength: manager.getLongestBranchLength(),
 	};
 }
@@ -395,6 +1272,14 @@ async function capturePublicEvidence() {
 	provider.synchronizeMessages();
 	const peer = provider.trees[1].viewWith(configuration);
 	const initialSummary = (await provider.trees[0].summarize(true)).summary;
+	const initialSummaryCompressor = serializeIdCompressor(
+		provider.getCompressor(provider.trees[0]),
+		false,
+	);
+	const initialOngoingCompressor = serializeIdCompressor(
+		provider.getCompressor(provider.trees[0]),
+		true,
+	);
 
 	const operationStart = processed.length;
 	view.root.left.insertAt(1, "inserted", new Point({ label: "new", x: 2 }));
@@ -424,8 +1309,13 @@ async function capturePublicEvidence() {
 		};
 	});
 	provider.synchronizeMessages();
-	const operationMessages = messagesIn(processed.slice(operationStart));
+	const operationEnvelopes = copy(processed.slice(operationStart));
+	const operationMessages = messagesIn(operationEnvelopes);
 	assert(operationMessages.length > 0, "Array edits must produce SharedTree messages.");
+	const operationCompressor = serializeIdCompressor(
+		provider.getCompressor(provider.trees[1]),
+		false,
+	);
 	const identityPreserved = view.root.right.at(-1) === identityBefore;
 	assert(identityPreserved, "Cross-array movement must preserve object identity.");
 
@@ -611,6 +1501,10 @@ async function capturePublicEvidence() {
 	}));
 	emptyProvider.synchronizeMessages();
 	const emptySummary = (await emptyProvider.trees[0].summarize(true)).summary;
+	const emptySummaryCompressor = serializeIdCompressor(
+		emptyProvider.getCompressor(emptyProvider.trees[0]),
+		false,
+	);
 
 	const retainedProvider = new TestTreeProviderLite(2, factory);
 	const retainedView = retainedProvider.trees[0].viewWith(configuration);
@@ -620,6 +1514,10 @@ async function capturePublicEvidence() {
 	retainedView.root.left.removeRange(0, 2);
 	retainedProvider.synchronizeMessages();
 	const retainedSummary = (await retainedProvider.trees[0].summarize(true)).summary;
+	const retainedSummaryCompressor = serializeIdCompressor(
+		retainedProvider.getCompressor(retainedProvider.trees[0]),
+		false,
+	);
 
 	const tailProvider = new TestTreeProviderLite(2, factory);
 	const tailView = tailProvider.trees[0].viewWith(configuration);
@@ -645,17 +1543,18 @@ async function capturePublicEvidence() {
 	assert(tailProcessed.length > 0, "The summary-tail probe must capture a remote delivery.");
 	const tailMessages = messagesIn(tailProcessed);
 	assert.equal(tailMessages.length, 1, "The summary-tail probe must capture one tree message.");
+	const tailCompressor = serializeIdCompressor(
+		tailProvider.getCompressor(tailProvider.trees[0]),
+		false,
+	);
 	const tailEnvelope = tailProcessed.find((item) =>
 		item !== null && typeof item === "object"
 		&& Reflect.get(Reflect.get(item, "contents") as object, "version") === 7
 	) as Record<string, unknown> | undefined;
 	assert(tailEnvelope !== undefined, "The summary-tail probe must retain the tree envelope.");
-	const tailCompressor = serializeIdCompressor(
-		tailProvider.getCompressor(tailProvider.trees[0]),
-		false,
-	);
+	const readerSession = createSessionId();
 	const tailRuntime = new MockFluidDataStoreRuntime({
-		idCompressor: deserializeIdCompressor(tailCompressor, createSessionId()),
+		idCompressor: deserializeIdCompressor(tailCompressor, readerSession),
 	});
 	const continuationSubmitted: unknown[] = [];
 	const tailServices = MockSharedObjectServices.createFromSummary(tailSummary);
@@ -716,13 +1615,17 @@ async function capturePublicEvidence() {
 		"The fresh reader runtime must retain its ID compressor.");
 	const continuationSession = tailRuntime.idCompressor.localSessionId;
 	const continuationCompressorCore = toIdCompressorWithCore(tailRuntime.idCompressor);
-	continuationCompressorCore.finalizeCreationRange(
-		continuationCompressorCore.takeNextCreationRange(),
-	);
+	const continuationCreationRange = continuationCompressorCore.takeNextCreationRange();
+	continuationCompressorCore.finalizeCreationRange(continuationCreationRange);
 	const continuationCompressor = serializeIdCompressor(tailRuntime.idCompressor, false);
+	const verifierSession = createSessionId();
 	const verifierRuntime = new MockFluidDataStoreRuntime({
-		idCompressor: deserializeIdCompressor(continuationCompressor, createSessionId()),
+		idCompressor: deserializeIdCompressor(tailCompressor, verifierSession),
 	});
+	assert(verifierRuntime.idCompressor !== undefined,
+		"The independent verifier runtime must retain its ID compressor.");
+	toIdCompressorWithCore(verifierRuntime.idCompressor)
+		.finalizeCreationRange(continuationCreationRange);
 	const verifierTree = await factory.load(
 		verifierRuntime,
 		"watershed-array-tail-verifier",
@@ -741,6 +1644,14 @@ async function capturePublicEvidence() {
 		sequenceNumber: tailSequence.sequenceNumber + 1,
 		minimumSequenceNumber: tailSequence.minimumSequenceNumber,
 	});
+	const continuationEnvelope = {
+		clientId: continuationSession,
+		clientSequenceNumber: 1,
+		referenceSequenceNumber: tailSequence.sequenceNumber,
+		sequenceNumber: tailSequence.sequenceNumber + 1,
+		minimumSequenceNumber: tailSequence.minimumSequenceNumber,
+		contents: continuationMessages[0],
+	};
 	assert.deepEqual(visible(verifierView.root), readerAfterContinuation,
 		"An independently loaded reader must apply the tail and continuation.");
 
@@ -748,6 +1659,10 @@ async function capturePublicEvidence() {
 		provider,
 		view,
 		initialSummary,
+		initialSummaryCompressor,
+		initialOngoingCompressor,
+		operationCompressor,
+		operationEnvelopes,
 		settledSummary,
 		operationMessages,
 		noops,
@@ -768,14 +1683,27 @@ async function capturePublicEvidence() {
 			peer: visible(batchProvider.trees[1].viewWith(configuration).root),
 		},
 		emptySummary,
+		emptySummaryCompressor,
 		retainedSummary,
+		retainedSummaryCompressor,
 		summaryTail: {
 			snapshot: tailSummary,
+			startingCompressors: {
+				reader: { serialized: tailCompressor, sessionId: readerSession },
+				peer: { serialized: tailCompressor, sessionId: verifierSession },
+			},
 			tail: tailProcessed,
+			tailEnvelope: {
+				...tailSequence,
+				contents: tailMessages[0],
+			},
 			writer: visible(tailView.root),
 			readerAfterTail,
 			readerMessages: tailMessages,
 			continuationMessages,
+			continuationEnvelope,
+			continuationCreationRange: copy(continuationCreationRange),
+			continuationCompressor,
 			readerAfterContinuation,
 			verifier: visible(verifierView.root),
 		},
@@ -784,33 +1712,8 @@ async function capturePublicEvidence() {
 
 async function makeCases() {
 	const publicEvidence = await capturePublicEvidence();
-	async function initializeItems(content: Items) {
-		const provider = new TestTreeProviderLite(1, treeFactory());
-		const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Items }));
-		view.initialize(content);
-		provider.synchronizeMessages();
-		return {
-			visible: visible(view.root),
-			compatibility: copy(view.compatibility),
-		};
-	}
-	async function initializeMap(content: ArrayMap) {
-		const provider = new TestTreeProviderLite(1, treeFactory());
-		const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: ArrayMap }));
-		view.initialize(content);
-		provider.synchronizeMessages();
-		return {
-			visible: visible(view.root),
-			compatibility: copy(view.compatibility),
-		};
-	}
-	const rootArrayEvidence = await initializeItems(new Items(["root", new Items(["nested"])]));
-	const emptyArrayEvidence = await initializeItems(new Items([]));
-	const leavesEvidence = await initializeItems(new Items(["string", 1, true, null]));
-	const mapRootEvidence = await initializeMap(new ArrayMap([
-		["0", new Items(["zero"])],
-		["", new Items([])],
-	]));
+	const rootArrayContent = ["root", ["nested"]];
+	const mapRootContent = { map: [["0", ["zero"]], ["", []]] };
 	const schemas = {
 		rootArray: schemaString(Items),
 		objectArrays: schemaString(Root),
@@ -818,46 +1721,95 @@ async function makeCases() {
 		recursiveArrays: schemaString(Items),
 		incompatibleArrays: schemaString(Points),
 	};
-	const parsedSchemas = Object.fromEntries(
-		Object.entries(schemas).map(([name, bytes]) => [name, JSON.parse(bytes)]),
+	const schemaInputs: Record<string, Record<string, unknown>> = {
+		"root-array": {
+			operation: "schema",
+			schema: "rootArray",
+			schemaBytes: schemas.rootArray,
+			initialState: rootArrayContent,
+		},
+		"object-arrays": {
+			operation: "schema",
+			schema: "objectArrays",
+			schemaBytes: schemas.objectArrays,
+			initialState: plainInitialRoot(),
+		},
+		"map-arrays": {
+			operation: "schema",
+			schema: "mapArrays",
+			schemaBytes: schemas.mapArrays,
+			initialState: mapRootContent,
+		},
+		"nested-arrays": {
+			operation: "read",
+			schema: "objectArrays",
+			schemaBytes: schemas.objectArrays,
+			initialState: plainInitialRoot(),
+			path: ["left", "3", "0"],
+		},
+		"recursive-arrays": {
+			operation: "read",
+			schema: "objectArrays",
+			schemaBytes: schemas.objectArrays,
+			initialState: plainInitialRoot(),
+			path: ["byKey", "0", "1", "0"],
+		},
+		"incompatible-arrays": {
+			operation: "move",
+			schema: "objectArrays",
+			schemaBytes: schemas.objectArrays,
+			initialState: plainInitialRoot(),
+			source: { path: ["left"], start: 0, end: 1 },
+			destination: { path: ["narrow"], gap: 0 },
+		},
+		"empty-content": {
+			operation: "initialize",
+			schema: "rootArray",
+			schemaBytes: schemas.rootArray,
+			initialState: [],
+		},
+		"allowed-leaves": {
+			operation: "initialize",
+			schema: "rootArray",
+			schemaBytes: schemas.rootArray,
+			initialState: ["string", 1, true, null],
+		},
+		compatibility: {
+			operation: "canView",
+			schema: "objectArrays",
+			schemaBytes: schemas.objectArrays,
+			viewSchema: "objectArrays",
+			viewSchemaBytes: schemas.objectArrays,
+			initialState: plainInitialRoot(),
+		},
+		"schema-content-bytes": {
+			operation: "summarize",
+			schema: "objectArrays",
+			schemaBytes: schemas.objectArrays,
+			initialState: plainInitialRoot(),
+		},
+	};
+	const schemaScenarios: Scenario[] = [];
+	for (const id of scenarioIds["array-schema-content"]) {
+		const input = copy(schemaInputs[id]);
+		const output = await replayArraySchemaInput(copy(input));
+		schemaScenarios.push({
+			id,
+			input,
+			observation: id === "incompatible-arrays"
+				? { accepted: Reflect.get(output as object, "accepted") }
+				: {},
+			output,
+		});
+	}
+	const incompatibleCompatibility = copy(schemaInputs.compatibility);
+	incompatibleCompatibility.viewSchema = "incompatibleArrays";
+	const compatibilityMutation = await executedAsync(() =>
+		replayArraySchemaInput(incompatibleCompatibility));
+	assert(
+		compatibilityMutation.accepted === false,
+		"Changing the compatibility schema selector without its bytes must reject replay.",
 	);
-	const schemaScenarios: Scenario[] = [
-		{ id: "root-array", input: { operation: "schema", schema: "rootArray" },
-			observation: { accepted: true }, output: {
-				schema: parsedSchemas.rootArray,
-				content: rootArrayEvidence.visible,
-			} },
-		{ id: "object-arrays", input: { operation: "schema", schema: "objectArrays" },
-			observation: { accepted: true }, output: {
-				schema: parsedSchemas.objectArrays,
-				content: visible(publicEvidence.view.root),
-			} },
-		{ id: "map-arrays", input: { operation: "schema", schema: "mapArrays" },
-			observation: { accepted: true }, output: {
-				schema: parsedSchemas.mapArrays,
-				content: mapRootEvidence.visible,
-			} },
-		{ id: "nested-arrays", input: { operation: "read", path: ["left", "3", "0"] },
-			observation: { value: "nested" }, output: visible(publicEvidence.view.root.left[3]) },
-		{ id: "recursive-arrays", input: { operation: "read", path: ["byKey", "0", "1", "0"] },
-			observation: { value: "deep" }, output: visible(publicEvidence.view.root.byKey.get("0")) },
-		{ id: "incompatible-arrays", input: { operation: "move", source: { path: ["left"], start: 0, end: 1 },
-			destination: { path: ["narrow"], gap: 0 } },
-			observation: { accepted: false }, output: publicEvidence.incompatible },
-		{ id: "empty-content", input: { operation: "initialize", schema: "rootArray", values: [] },
-			observation: { value: emptyArrayEvidence.visible }, output: emptyArrayEvidence.visible },
-		{ id: "allowed-leaves", input: { operation: "initialize", schema: "rootArray",
-			values: ["string", 1, true, null] },
-			observation: { accepted: true }, output: leavesEvidence.visible },
-		{ id: "compatibility", input: { operation: "canView", stored: "objectArrays", view: "objectArrays" },
-			observation: { accepted: true }, output: rootArrayEvidence.compatibility },
-		{ id: "schema-content-bytes", input: { operation: "summarize" },
-			observation: { schemaVersion: 2, forestVersion: 2 },
-			output: {
-				schema: summaryBlob(publicEvidence.initialSummary, "indexes", "Schema", "SchemaString"),
-				forest: summaryBlob(publicEvidence.initialSummary, "indexes", "Forest", "contents"),
-			} },
-	];
 
 	const message = publicEvidence.operationMessages.at(-1);
 	assert(message !== undefined, "Array operations must yield a final message.");
@@ -866,28 +1818,6 @@ async function makeCases() {
 	const modular = Reflect.get(changeset[0], "data");
 	const modularKinds = fieldKinds(modular);
 	assert(modularKinds.includes("Sequence"), "Array operations must encode a Sequence field.");
-	const kernel = Reflect.get(publicEvidence.provider.trees[0], "kernel") as unknown as {
-		messageCodec: { decode(value: unknown, context: unknown): unknown };
-	};
-	const decodeMessage = (value: unknown) => kernel.messageCodec.decode(value, {
-		idCompressor: publicEvidence.provider.getCompressor(publicEvidence.provider.trees[0]),
-	});
-	const decodedMessage = decodeMessage(message) as Record<string, unknown>;
-	const decodedCommit = Reflect.get(decodedMessage, "commit") as {
-		revision?: unknown;
-		change?: {
-			changes?: readonly { type?: unknown }[];
-		};
-	};
-	const decodedChange = decodedCommit.change as {
-		changes?: readonly { type?: unknown; innerChange?: unknown }[];
-	};
-	const decodedFieldKinds = [
-		...new Set((decodedChange.changes ?? [])
-			.filter(({ type }) => type === "data")
-			.flatMap(({ innerChange }) =>
-				modularStructure(innerChange as ModularChangeset).fields.map(({ kind }) => kind))),
-	].sort();
 	const modularRevisions = Array.from({ length: 11 }, () => mintRevisionTag());
 	const revisionMap = modularRevisions.map((revision) => ({
 		encoded: Number(revision),
@@ -1170,91 +2100,255 @@ async function makeCases() {
 		};
 	});
 
-	const summary = publicEvidence.settledSummary;
-	const codecOutputs: Record<string, unknown> = {
-		"sequence-v3": {
-			encoded: modular,
-			fieldKinds: modularKinds,
+	const codecProfile = {
+		message: 7,
+		sharedTreeChange: 5,
+		modularChange: 5,
+		sequence: 3,
+		schema: 2,
+		forest: 2,
+		detachedFieldIndex: 2,
+		editManager: 7,
+	};
+	const codecAuthoring = {
+		initialState: plainInitialRoot(),
+		clients: [copy(replayClients[0])],
+		schedule: [
+			{ id: "insert", op: "insert", client: 0, path: ["left"], index: 1,
+				values: ["inserted", { point: { label: "new", x: 2 } }] },
+			{ id: "remove", op: "remove", client: 0, path: ["left"], start: 0, end: 1 },
+			{ id: "interior-move", op: "move", client: 0, path: ["left"],
+				sourcePath: ["left"], start: 1, end: 3, gap: 2 },
+			{ id: "cross-array-move", op: "move", client: 0, path: ["right"],
+				sourcePath: ["left"], start: 1, end: 2, gap: 1 },
+			{ id: "deliver", op: "deliver" },
+		],
+	};
+	const messageDecodeContext = { nativeInput: codecAuthoring };
+	const summaryInput = (
+		operation: string,
+		encodedSummary: unknown,
+		compressor: string,
+	) => ({
+		operation,
+		profile: codecProfile,
+		encodedSummary,
+		decodeContext: {
+			compressor,
+			sessionId: createSessionId(),
 		},
-		"message-v7": {
-			encoded: message,
-			decoded: {
-				type: Reflect.get(decodedMessage, "type"),
-				branchId: Reflect.get(decodedMessage, "branchId"),
-				revision: decodedCommit.revision,
-				sessionId: Reflect.get(decodedMessage, "sessionId"),
-				changeTypes: decodedChange.changes?.map(({ type }) => type) ?? [],
-				fieldKinds: decodedFieldKinds,
+	});
+	const messageInput = (operation: string, encodedMessages: unknown[]) => ({
+		operation,
+		profile: codecProfile,
+		encodedMessages,
+		decodeContext: messageDecodeContext,
+		sequencing: (publicEvidence.operationEnvelopes as Record<string, unknown>[]).map((envelope) => ({
+			clientId: envelope.clientId,
+			clientSequenceNumber: envelope.clientSequenceNumber,
+			referenceSequenceNumber: envelope.referenceSequenceNumber,
+			sequenceNumber: envelope.sequenceNumber,
+			minimumSequenceNumber: envelope.minimumSequenceNumber,
+		})),
+	});
+	const codecInputs: Record<string, Record<string, unknown>> = {
+		"sequence-v3": messageInput("sequence-v3", publicEvidence.operationMessages),
+		"message-v7": messageInput("message-v7", publicEvidence.operationMessages),
+		builds: messageInput("builds", publicEvidence.operationMessages),
+		"empty-arrays": summaryInput(
+			"empty-arrays",
+			publicEvidence.emptySummary,
+			publicEvidence.emptySummaryCompressor,
+		),
+		"retained-history": summaryInput(
+			"retained-history",
+			publicEvidence.retainedSummary,
+			publicEvidence.retainedSummaryCompressor,
+		),
+		"detached-index": summaryInput(
+			"detached-index",
+			publicEvidence.retainedSummary,
+			publicEvidence.retainedSummaryCompressor,
+		),
+		"full-summary": summaryInput(
+			"full-summary",
+			publicEvidence.settledSummary,
+			serializeIdCompressor(
+				publicEvidence.provider.getCompressor(publicEvidence.provider.trees[0]),
+				false,
+			),
+		),
+	};
+	const codecScenarios: Scenario[] = [];
+	for (const id of scenarioIds["array-codecs"]) {
+		const input = copy(codecInputs[id]);
+		const output = await replayArrayCodecInput(copy(input));
+		codecScenarios.push({ id, input, observation: {}, output });
+	}
+	const codecMutation = copy(codecInputs["message-v7"]);
+	const nativeCodecInput = Reflect.get(
+		Reflect.get(codecMutation, "decodeContext") as object,
+		"nativeInput",
+	) as { schedule: { index?: number }[] };
+	assert(typeof nativeCodecInput.schedule[0].index === "number",
+		"The codec mutation needs an insert index.");
+	nativeCodecInput.schedule[0].index += 1;
+	const changedCodec = await executedAsync(() => replayArrayCodecInput(codecMutation));
+	assert(
+		changedCodec.accepted === false,
+		"Changing a codec authoring argument must reject the supplied encoded messages.",
+	);
+
+	const historyInput = (
+		operation: string,
+		schedule: ReplayAction[],
+		initialState: unknown = plainInitialRoot(),
+	) => ({
+		operation,
+		initialState,
+		clients: copy(replayClients),
+		schedule,
+	});
+	const windowSchedule: ReplayAction[] = [
+		{ id: "retain-left-1", op: "retain", name: "removed-left-1", client: 0,
+			path: ["left", "1"] },
+		{ id: "remove-retained", op: "remove", client: 0, path: ["left"], start: 1, end: 2 },
+		{ id: "deliver-removal", op: "advance-minimum" },
+	];
+	for (let index = 0; index < 8; index += 1) {
+		windowSchedule.push(
+			{
+				id: `advance-${index}`,
+				op: "insert",
+				client: index % 2,
+				path: ["right"],
+				index: index + 1,
+				values: [`advance-${index}`],
+			},
+			{ id: `deliver-advance-${index}`, op: "advance-minimum" },
+		);
+	}
+	const equalRoot = plainInitialRoot() as Record<string, unknown>;
+	equalRoot.left = [
+		{ point: { label: "equal", x: 1 } },
+		{ point: { label: "equal", x: 1 } },
+		{ point: { label: "equal", x: 1 } },
+	];
+	const historyInputs: Record<string, Record<string, unknown>> = {
+		"pending-chains": historyInput("pending-chains", [
+			{ id: "disconnect-local", op: "connect", client: 0, connected: false },
+			{ id: "local-a", op: "insert", client: 0, path: ["left"], index: 4,
+				values: ["pending-a"] },
+			{ id: "local-b", op: "insert", client: 0, path: ["left"], index: 5,
+				values: ["pending-b"] },
+			{ id: "remote", op: "insert", client: 1, path: ["right"], index: 1,
+				values: ["remote"] },
+			{ id: "deliver-remote", op: "deliver" },
+			{ id: "pending-checkpoint", op: "checkpoint" },
+			{ id: "reconnect-local", op: "connect", client: 0, connected: true },
+			{ id: "settle", op: "deliver" },
+		]),
+		batching: historyInput("batching", [
+			{
+				id: "transaction",
+				op: "transaction",
+				client: 0,
+				edits: [
+					{ id: "batch-left", op: "insert", path: ["left"], index: 4,
+						values: ["batch-a"] },
+					{ id: "batch-right", op: "insert", path: ["right"], index: 1,
+						values: ["batch-b"] },
+				],
+			},
+			{ id: "deliver-batch", op: "deliver" },
+		]),
+		acknowledgements: historyInput("acknowledgements", [
+			{ id: "local-edit", op: "insert", client: 0, path: ["left"], index: 4,
+				values: ["ack"] },
+			{ id: "before-ack", op: "checkpoint" },
+			{ id: "ack", op: "ack" },
+		]),
+		reconnect: historyInput("reconnect", [
+			{ id: "disconnect", op: "connect", client: 0, connected: false },
+			{ id: "local-edit", op: "insert", client: 0, path: ["left"], index: 4,
+				values: ["offline"] },
+			{ id: "remote-edit", op: "insert", client: 1, path: ["right"], index: 1,
+				values: ["remote"] },
+			{ id: "deliver-remote", op: "deliver" },
+			{ id: "reconnect", op: "reconnect", client: 0 },
+			{ id: "deliver-resubmission", op: "deliver" },
+		]),
+		"window-advance": historyInput("window-advance", windowSchedule),
+		"summary-tail": {
+			operation: "summary-tail",
+			initialState: plainInitialRoot(),
+			schedule: [
+				{ id: "load-summary", op: "load-summary" },
+				{ id: "deliver-tail", op: "deliver-tail" },
+				{ id: "author-continuation", op: "continue", client: 0, path: ["left"],
+					index: 4, values: ["reader-continuation"] },
+				{ id: "load-peer", op: "load-peer" },
+				{ id: "deliver-continuation-to-peer", op: "deliver-continuation" },
+			],
+			replayContext: {
+				initialSummary: publicEvidence.summaryTail.snapshot,
+				startingCompressors: publicEvidence.summaryTail.startingCompressors,
+				tailEnvelope: publicEvidence.summaryTail.tailEnvelope,
+				continuationEnvelope: publicEvidence.summaryTail.continuationEnvelope,
+				continuationCreationRange: publicEvidence.summaryTail.continuationCreationRange,
 			},
 		},
-		builds: {
-			messages: publicEvidence.operationMessages,
-			buildCount: JSON.stringify(publicEvidence.operationMessages).match(/"builds?"/g)?.length ?? 0,
-		},
-		"empty-arrays": {
-			summary: publicEvidence.emptySummary,
-			forest: summaryBlob(publicEvidence.emptySummary, "indexes", "Forest", "contents"),
-			schema: summaryBlob(publicEvidence.emptySummary, "indexes", "Schema", "SchemaString"),
-		},
-		"retained-history": {
-			history: summaryBlob(publicEvidence.retainedSummary, "indexes", "EditManager", "String"),
-		},
-		"detached-index": {
-			detached: summaryBlob(
-				publicEvidence.retainedSummary,
-				"indexes",
-				"DetachedFieldIndex",
-				"DetachedFieldIndexBlob",
-			),
-		},
-		"full-summary": {
-			summary,
-			schema: summaryBlob(summary, "indexes", "Schema", "SchemaString"),
-			forest: summaryBlob(summary, "indexes", "Forest", "contents"),
-			detached: summaryBlob(summary, "indexes", "DetachedFieldIndex", "DetachedFieldIndexBlob"),
-			history: summaryBlob(summary, "indexes", "EditManager", "String"),
-		},
+		"public-noops": historyInput("public-noops", [
+			{ id: "empty-insert", op: "insert", client: 0, path: ["left"], index: 0, values: [] },
+			{ id: "empty-remove", op: "remove", client: 0, path: ["left"], start: 1, end: 1 },
+			{ id: "empty-move", op: "move", client: 0, path: ["left"], sourcePath: ["left"],
+				start: 1, end: 1, gap: 1 },
+			{ id: "equal-value-swap", op: "move", client: 0, path: ["left"],
+				sourcePath: ["left"], start: 1, end: 2, gap: 3 },
+			{ id: "deliver-swap", op: "deliver" },
+			{ id: "public-interior-move", op: "move", client: 0, path: ["left"],
+				sourcePath: ["left"], start: 0, end: 3, gap: 1 },
+			{ id: "deliver-interior", op: "deliver" },
+		], equalRoot),
 	};
-	const codecScenarios: Scenario[] = scenarioIds["array-codecs"].map((id) => ({
-		id,
-		input: {
-			operation: id,
-			initialState: visible(initialRoot()),
-			profile: { message: 7, modularChange: 5, sequence: 3 },
-			operands: codecOutputs[id],
-			revisions: publicEvidence.operationCommits.map(({ revision }) => revision),
-		},
-		observation: { codecExecuted: true },
-		output: codecOutputs[id],
-	}));
-
-	const historyOutputs: Record<string, unknown> = {
-		"pending-chains": publicEvidence.pending,
-		batching: {
-			...publicEvidence.batching,
-			identityPreserved: publicEvidence.identityPreserved,
-		},
-		acknowledgements: publicEvidence.settled,
-		reconnect: publicEvidence.reconnectMessages,
-		"window-advance": { before: publicEvidence.pending, after: publicEvidence.settled },
-		"summary-tail": publicEvidence.summaryTail,
-		"public-noops": {
-			noops: publicEvidence.noops,
-			identityEdits: publicEvidence.identityEdits,
-		},
-	};
-	const historyScenarios: Scenario[] = scenarioIds["array-history"].map((id) => ({
-		id,
-		input: {
-			operation: id,
-			initialState: visible(initialRoot()),
-			operands: historyOutputs[id],
-			revisions: publicEvidence.operationCommits.map(({ revision }) => revision),
-			schedule: [{ step: id, deliveries: historyOutputs[id] }],
-		},
-		observation: { historyExecuted: true },
-		output: historyOutputs[id],
-	}));
+	const historyScenarios: Scenario[] = [];
+	for (const id of scenarioIds["array-history"]) {
+		const input = copy(historyInputs[id]);
+		const output = await replayArrayHistoryInput(copy(input));
+		if (id === "summary-tail") {
+			assert.deepEqual(
+				Reflect.get(output as object, "readerAfterContinuation"),
+				Reflect.get(output as object, "peer"),
+				"Summary-tail replay must converge with an independent peer.",
+			);
+		}
+		historyScenarios.push({ id, input, observation: {}, output });
+	}
+	const historyMutation = copy(historyInputs["pending-chains"]);
+	const historyInsert = (historyMutation.schedule as { op: string; values?: unknown[] }[])
+		.find(({ op }) => op === "insert");
+	assert(historyInsert?.values !== undefined, "The history mutation needs an insert action.");
+	historyInsert.values[0] = "mutated-pending";
+	const originalHistory = historyScenarios.find(({ id }) => id === "pending-chains")?.output;
+	const changedHistory = await replayArrayHistoryInput(historyMutation);
+	assert.notDeepEqual(
+		changedHistory,
+		originalHistory,
+		"Changing a history edit argument must change replay.",
+	);
+	const tailMutation = copy(historyInputs["summary-tail"]);
+	const continuationEnvelope = Reflect.get(
+		Reflect.get(tailMutation, "replayContext") as object,
+		"continuationEnvelope",
+	) as { sequenceNumber: number };
+	continuationEnvelope.sequenceNumber += 1;
+	const changedTail = await executedAsync(() => replayArrayHistoryInput(tailMutation));
+	assert(
+		changedTail.accepted === false
+			|| JSON.stringify(changedTail.value)
+				!== JSON.stringify(historyScenarios.find(({ id }) => id === "summary-tail")?.output),
+		"Changing continuation sequencing metadata must change or reject replay.",
+	);
 
 	const corruptMarkMessage = copy(message);
 	let changedMark = false;
@@ -1278,56 +2372,75 @@ async function makeCases() {
 	assert(changedMark, "The corrupt-mark probe needs an actual move mark.");
 	const corruptRevisionMessage = copy(message);
 	Reflect.set(corruptRevisionMessage, "revision", "not-a-revision");
-	const invalidRange = executed(() => publicEvidence.view.root.left.removeRange(2, 1));
-	const ownershipProvider = new TestTreeProviderLite(1, treeFactory());
-	const ownershipView = ownershipProvider.trees[0].viewWith(
-		new TreeViewConfiguration({ schema: Root }),
-	);
-	ownershipView.initialize(initialRoot());
-	const foreignPoint = ownershipView.root.narrow[0];
-	assert(foreignPoint instanceof Point, "The ownership probe needs a foreign point.");
-	const ownership = executed(() => publicEvidence.view.root.narrow.insertAt(0, foreignPoint));
+	const summary = publicEvidence.settledSummary;
 	const corruptSummary = { ...copy(summary), tree: {} };
-	const invalidFactory = treeFactory();
-	const summaryFailure = await executedAsync(async () => invalidFactory.load(
-		new MockFluidDataStoreRuntime({
-			idCompressor: deserializeIdCompressor(
-				serializeIdCompressor(publicEvidence.provider.getCompressor(publicEvidence.provider.trees[0]), false),
-				createSessionId(),
-			),
-		}),
-		"watershed-corrupt-summary",
-		MockSharedObjectServices.createFromSummary(corruptSummary),
-		invalidFactory.attributes,
-	));
-	const schemaFailure = executed(() => schemaCodecBuilder
-		.buildDecoder({ jsonValidator: FormatValidatorNoOp })
-		.decode({ version: 99 } as never));
-	const invalidOutputs: Record<string, unknown> = {
-		"corrupt-schema": { input: { version: 99 }, outcome: schemaFailure },
-		"corrupt-mark": { input: corruptMarkMessage, outcome: executed(() => decodeMessage(corruptMarkMessage)) },
-		"corrupt-range": { input: { start: 2, end: 1 }, outcome: invalidRange },
-		"corrupt-revision": {
-			input: corruptRevisionMessage,
-			outcome: executed(() => decodeMessage(corruptRevisionMessage)),
+	const invalidMessageContext = {
+		decodeContext: messageDecodeContext,
+		initialSummary: publicEvidence.initialSummary,
+		summaryCompressor: publicEvidence.initialSummaryCompressor,
+		summarySessionId: createSessionId(),
+	};
+	const invalidInputs: Record<string, Record<string, unknown>> = {
+		"corrupt-schema": {
+			operation: "corrupt-schema",
+			malformed: { version: 99 },
 		},
-		"corrupt-ownership": { input: { foreign: true }, outcome: ownership },
-		"corrupt-summary": { input: corruptSummary, outcome: summaryFailure },
+		"corrupt-mark": {
+			operation: "corrupt-mark",
+			malformed: corruptMarkMessage,
+			...invalidMessageContext,
+		},
+		"corrupt-range": {
+			operation: "corrupt-range",
+			initialState: ["A", "B", "C"],
+			malformed: { start: 2, end: 1 },
+		},
+		"corrupt-revision": {
+			operation: "corrupt-revision",
+			malformed: corruptRevisionMessage,
+			...invalidMessageContext,
+		},
+		"corrupt-ownership": {
+			operation: "corrupt-ownership",
+			initialStates: [plainInitialRoot(), plainInitialRoot()],
+			malformed: {
+				source: { client: 1, path: ["narrow", "0"] },
+				destination: { client: 0, path: ["narrow"], gap: 0 },
+			},
+		},
+		"corrupt-summary": {
+			operation: "corrupt-summary",
+			malformed: corruptSummary,
+			decodeContext: {
+				compressor: serializeIdCompressor(
+					publicEvidence.provider.getCompressor(publicEvidence.provider.trees[0]),
+					false,
+				),
+				sessionId: createSessionId(),
+			},
+		},
 		"native-remove-beyond-length": {
-			upstream: { input: { start: 1, end: 99 }, value: publicEvidence.clampedRemoval },
+			operation: "native-remove-beyond-length",
+			initialState: ["A", "B"],
+			malformed: { start: 1, end: 99 },
 			nativeContract: "error",
 		},
 	};
-	const invalidScenarios: Scenario[] = scenarioIds["array-invalid"].map((id) => ({
-		id,
-		input: { operation: id, initialState: visible(initialRoot()), operands: invalidOutputs[id] },
-		observation: {
-			rejected: id === "native-remove-beyond-length"
-				? false
-				: Reflect.get(invalidOutputs[id] as object, "outcome")?.accepted === false,
-		},
-		output: invalidOutputs[id],
-	}));
+	const invalidScenarios: Scenario[] = [];
+	for (const id of scenarioIds["array-invalid"]) {
+		const input = copy(invalidInputs[id]);
+		const output = await replayArrayInvalidInput(copy(input));
+		invalidScenarios.push({
+			id,
+			input,
+			observation: {
+				rejected: id === "native-remove-beyond-length"
+					? false
+					: Reflect.get(output as object, "accepted") === false,
+			},
+			output,
+		});
+	}
 
 	return [
 		oracleCase("array-schema-content", "schema", schemaScenarios, {

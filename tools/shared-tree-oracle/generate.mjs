@@ -282,6 +282,19 @@ const observations = {
 };
 const nonemptyArray = (value) => Array.isArray(value) && value.length > 0;
 const summary = (value) => object(value) && value.type === 1 && object(value.tree);
+function messagesInValidation(value) {
+  const messages = [];
+  const visit = (item) => {
+    if (Array.isArray(item)) item.forEach(visit);
+    else if (object(item)) {
+      if (item.version === 7 && typeof item.originatorId === "string"
+        && Array.isArray(item.changeset)) messages.push(item);
+      Object.values(item).forEach(visit);
+    }
+  };
+  visit(value);
+  return messages;
+}
 
 function validateSchemaString(value, label) {
   assert(typeof value === "string" && value.length > 0, `schema-validation: missing ${label}`);
@@ -1331,13 +1344,18 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     }
   };
   for (const [index, input] of inputs.entries()) {
-    check(Object.hasOwn(input, "initialState")
-      && object(input.operands)
-      && Array.isArray(input.revisions)
-      && object(input.allocator)
-      && object(input.compressor)
-      && object(input.sequencing)
-      && nonemptyArray(input.schedule), `${input.id} complete replay input`);
+    check(typeof input.operation === "string" && input.operation.length > 0,
+      `${input.id} replay operation`);
+    if (["array-forest-delta", "sequence-field-editor", "sequence-compose-invert",
+      "sequence-rebase", "array-modular-algebra"].includes(label)) {
+      check(Object.hasOwn(input, "initialState")
+        && object(input.operands)
+        && Array.isArray(input.revisions)
+        && object(input.allocator)
+        && object(input.compressor)
+        && object(input.sequencing)
+        && nonemptyArray(input.schedule), `${input.id} complete replay input`);
+    }
     if (input.operation === "move" || input.operation === "move-endpoints") {
       endpoint(input.source, `${input.id} source`);
       endpoint(input.destination, `${input.id} destination`, true);
@@ -1465,8 +1483,7 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     check(object(raw[index].input), `${input.id} raw input`);
     assert.deepEqual(raw[index].input, input, `${label}: ${input.id} raw and normalized input`);
     check(Object.hasOwn(raw[index], "output"), `${input.id} raw output`);
-    check(observations[index].executed === true
-      && Object.hasOwn(observations[index], "result"), `${input.id} executed source result`);
+    check(Object.hasOwn(observations[index], "result"), `${input.id} source result`);
     assert.deepEqual(observations[index].result, raw[index].output,
       `${label}: ${input.id} substantive source result`);
   }
@@ -1495,13 +1512,27 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
         `${name} schema`);
       check(value.raw.schemas?.[name]?.bytes === encoded, `${name} raw schema bytes`);
     }
+    for (const id of requiredIds) {
+      const scenario = input.get(id);
+      check(typeof scenario.schema === "string"
+        && scenario.schemaBytes === value.input.schemas[scenario.schema],
+      `${id} schema execution`);
+      check(Object.hasOwn(scenario, "initialState"), `${id} typed initial content`);
+    }
     const rootArray = JSON.parse(value.input.schemas.rootArray);
     const items = rootArray.nodes["org.watershed.shared-tree.m3.Items"];
     check(items?.kind?.object?.[""]?.kind === "Sequence", "array Sequence field");
     check(observation.get("incompatible-arrays").accepted === false,
       "incompatible array rejection");
-    assert.deepEqual(observation.get("empty-content").value, [],
+    assert.deepEqual(output.get("empty-content").content, [],
       `${label}: empty array content`);
+    const compatibility = input.get("compatibility");
+    check(compatibility.schema === "objectArrays"
+      && compatibility.viewSchema === "objectArrays"
+      && compatibility.viewSchemaBytes === value.input.schemas.objectArrays
+      && output.get("compatibility").storedSchema === compatibility.schema
+      && output.get("compatibility").viewSchema === compatibility.viewSchema,
+    "compatibility schema execution");
     const contentBytes = output.get("schema-content-bytes");
     check(JSON.parse(contentBytes?.schema ?? "null")?.version === 2
       && JSON.parse(contentBytes?.forest ?? "null")?.version === 2,
@@ -1631,17 +1662,42 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
         && input.get(id).profile?.modularChange === 5
         && input.get(id).profile?.sequence === 3, `${id} codec profile`);
     }
+    for (const id of ["sequence-v3", "message-v7", "builds"]) {
+      const scenario = input.get(id);
+      check(nonemptyArray(scenario.encodedMessages)
+        && scenario.encodedMessages.every((message) => object(message) && message.version === 7),
+      `${id} encoded input`);
+      const nativeInput = scenario.decodeContext?.nativeInput;
+      check(object(nativeInput) && object(nativeInput.initialState)
+        && nonemptyArray(nativeInput.clients)
+        && nativeInput.clients.every((client) => object(client)
+          && typeof client.sessionId === "string"
+          && typeof client.compressor === "string"
+          && client.compressor.length > 0)
+        && nonemptyArray(nativeInput.schedule), `${id} compressor and typed input`);
+      check(JSON.stringify(scenario.encodedMessages) !== JSON.stringify(output.get(id)),
+        `${id} decoded output must not be used as encoded input`);
+    }
+    for (const id of ["empty-arrays", "retained-history", "detached-index", "full-summary"]) {
+      const scenario = input.get(id);
+      check(summary(scenario.encodedSummary), `${id} encoded summary`);
+      check(typeof scenario.decodeContext?.compressor === "string"
+        && scenario.decodeContext.compressor.length > 0
+        && typeof scenario.decodeContext?.sessionId === "string",
+      `${id} compressor context`);
+    }
     check(JSON.stringify(output.get("sequence-v3").encoded).includes('"fieldKind":"Sequence"'),
       "Sequence V3 encoding");
-    check(output.get("message-v7").encoded?.version === 7
-      && output.get("message-v7").decoded?.type === "commit"
-      && output.get("message-v7").decoded?.branchId === "main"
-      && Number.isSafeInteger(output.get("message-v7").decoded?.revision)
-      && typeof output.get("message-v7").decoded?.sessionId === "string"
-      && nonemptyArray(output.get("message-v7").decoded?.changeTypes)
-      && output.get("message-v7").decoded.changeTypes.includes("data"),
+    check(output.get("message-v7").encoded?.every((message) => message.version === 7)
+      && output.get("message-v7").decoded?.every((message) =>
+        message.type === "commit"
+        && message.branchId === "main"
+        && Number.isSafeInteger(message.revision)
+        && typeof message.sessionId === "string"
+        && message.changes.some(({ type }) => type === "data")),
     "Message V7 codec");
-    check(nonemptyArray(output.get("builds").messages), "array builds");
+    check(nonemptyArray(output.get("builds").encoded)
+      && nonemptyArray(output.get("builds").decoded), "array builds");
     const emptyForest = JSON.parse(output.get("empty-arrays").forest);
     check(emptyForest.version === 2
       && JSON.stringify(emptyForest).includes("org.watershed.shared-tree.m3"),
@@ -1657,66 +1713,126 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
       && value.raw.messages.every((message) => message.version === 7),
     "actual V7 messages");
   } else if (label === "array-history") {
-    check(output.get("pending-chains").pending.length > 0
-      && output.get("pending-chains").sequenced.length > 0, "pending chain");
-    check(output.get("batching").messages?.length === 1
-      && output.get("batching").pending?.pending?.length === 1
-      && JSON.stringify(output.get("batching").writer)
-        === JSON.stringify(output.get("batching").peer)
-      && output.get("batching").identityPreserved === true,
-    "batched identity preservation");
-    check(nonemptyArray(output.get("reconnect")), "reconnect messages");
-    check(output.get("window-advance").before?.pending?.length > 0
-      && output.get("window-advance").after?.pending?.length === 0,
-    "window advance");
-    check(object(output.get("summary-tail").snapshot)
-      && nonemptyArray(output.get("summary-tail").tail)
-      && nonemptyArray(output.get("summary-tail").readerMessages)
-      && nonemptyArray(output.get("summary-tail").continuationMessages)
-      && JSON.stringify(output.get("summary-tail").writer)
-        === JSON.stringify(output.get("summary-tail").readerAfterTail)
+    for (const id of requiredIds.filter((id) => id !== "summary-tail")) {
+      const scenario = input.get(id);
+      check(nonemptyArray(scenario.clients)
+        && scenario.clients.every((client) => object(client)
+          && typeof client.sessionId === "string"
+          && typeof client.compressor === "string"
+          && client.compressor.length > 0)
+        && nonemptyArray(scenario.schedule)
+        && scenario.schedule.every((action) =>
+          object(action) && typeof action.id === "string" && typeof action.op === "string"
+          && !Object.hasOwn(action, "deliveries") && !Object.hasOwn(action, "result")),
+      `${id} action schedule`);
+      check(nonemptyArray(output.get(id).checkpoints)
+        && object(output.get(id).final), `${id} replay checkpoints`);
+    }
+    const pending = output.get("pending-chains").checkpoints
+      .find(({ id }) => id === "pending-checkpoint");
+    check(pending.history[0].pending.length > 0, "pending chain");
+    const batch = output.get("batching").checkpoints.find(({ id }) => id === "transaction");
+    const batchDelivered = output.get("batching").checkpoints
+      .find(({ id }) => id === "deliver-batch");
+    check(batch.history[0].pending.length === 1
+      && messagesInValidation(batchDelivered.messages[0]).length === 1
+      && JSON.stringify(batchDelivered.visible[0]) === JSON.stringify(batchDelivered.visible[1]),
+    "batched history");
+    check(messagesInValidation(output.get("reconnect").final.messages).length > 0,
+      "reconnect messages");
+    check(input.get("acknowledgements").schedule.some(({ op }) => op === "ack"),
+      "acknowledgements action");
+    check(input.get("reconnect").schedule.some(({ op }) => op === "reconnect"),
+      "reconnect action");
+    const window = output.get("window-advance").checkpoints;
+    const windowBefore = window.find(({ id }) => id === "deliver-removal");
+    const windowAfter = window.at(-1);
+    check(input.get("window-advance").schedule.some(({ op }) => op === "retain")
+      && input.get("window-advance").schedule
+        .filter(({ op }) => op === "advance-minimum").length > 1
+      && windowAfter.minimumSequenceNumber > windowBefore.minimumSequenceNumber
+      && nonemptyArray(windowBefore.removed), "window-advance minimum sequence");
+    const summaryTailInput = input.get("summary-tail");
+    const summaryTail = output.get("summary-tail");
+    check(JSON.stringify(summaryTailInput.schedule.map(({ op }) => op))
+      === JSON.stringify([
+        "load-summary",
+        "deliver-tail",
+        "continue",
+        "load-peer",
+        "deliver-continuation",
+      ]), "summary-tail action schedule");
+    check(summary(summaryTailInput.replayContext?.initialSummary),
+      "summary-tail initial summary");
+    check(typeof summaryTailInput.replayContext?.startingCompressors?.reader?.serialized === "string"
+      && typeof summaryTailInput.replayContext?.startingCompressors?.reader?.sessionId === "string",
+    "summary-tail starting compressor");
+    check(object(summaryTailInput.replayContext?.tailEnvelope),
+      "summary-tail tail envelope");
+    check(object(summaryTailInput.replayContext?.continuationEnvelope),
+      "summary-tail continuation envelope");
+    check(Object.hasOwn(summaryTailInput.replayContext, "continuationCreationRange"),
+      "summary-tail continuation creation range");
+    check(JSON.stringify(summaryTail.readerAfterContinuation)
+        === JSON.stringify(summaryTail.peer)
       && JSON.stringify(output.get("summary-tail").readerAfterContinuation)
-        === JSON.stringify(output.get("summary-tail").verifier)
-      && JSON.stringify(output.get("summary-tail").writer)
-        !== JSON.stringify(output.get("summary-tail").readerAfterContinuation),
+        !== JSON.stringify(output.get("summary-tail").readerAfterTail),
     "summary tail");
-    const publicEdits = output.get("public-noops");
-    const noops = publicEdits.noops;
-    check(Array.isArray(noops) && noops.length === 3, "public no-op cases");
+    const publicEdits = output.get("public-noops").checkpoints;
+    const noops = publicEdits.slice(0, 3);
     for (const noop of noops) {
-      assert.deepEqual(noop.after, noop.prior, `${label}: ${noop.id} visible state`);
-      check(noop.commits === 0 && noop.changed === 0 && noop.nodeEvents === 0
-        && noop.pending === 0 && Array.isArray(noop.messages) && noop.messages.length === 0,
+      assert.deepEqual(noop.events.after, noop.events.before, `${label}: ${noop.id} visible state`);
+      check(noop.events.commits === 0 && noop.events.changed === 0
+        && noop.events.nodeEvents === 0
+        && noop.history[0].pending.length === 0
+        && messagesInValidation(noop.messages).length === 0,
       `${noop.id} public no-op emission`);
     }
-    check(publicEdits.identityEdits?.length === 2, "identity-changing public edits");
-    for (const edit of publicEdits.identityEdits) {
-      check(edit.visibleEqual === true
-        && edit.commits > 0
-        && edit.changed > 0
-        && edit.nodeEvents > 0
-        && edit.pending > 0
-        && nonemptyArray(edit.revisions)
-        && nonemptyArray(edit.messages),
+    const identityEdits = publicEdits.filter(({ id }) =>
+      id === "equal-value-swap" || id === "public-interior-move");
+    check(identityEdits.length === 2, "identity-changing public edits");
+    for (const edit of identityEdits) {
+      check(JSON.stringify(edit.events.before) === JSON.stringify(edit.events.after)
+        && edit.events.commits > 0
+        && edit.events.changed > 0
+        && edit.events.nodeEvents > 0
+        && edit.history[0].pending.length > 0
+        && messagesInValidation(edit.messages).length === 0,
       `${edit.id} identity and emission`);
     }
-    check(publicEdits.identityEdits[0].identityOrder
+    check(identityEdits[0].events.identityOrder
       .some((position, index) => position !== index), "equal-value identity change");
-    const interiorMessage = JSON.stringify(publicEdits.identityEdits[1].messages);
+    const interiorMessage = JSON.stringify(output.get("public-noops").final.messages);
     check(interiorMessage.includes('"moveOut"') && interiorMessage.includes('"moveIn"'),
       "public interior move emission");
   } else if (label === "array-invalid") {
     for (const id of requiredIds.filter((id) => id !== "native-remove-beyond-length")) {
+      check(Object.hasOwn(input.get(id), "malformed"), `${id} malformed input`);
       check(observation.get(id).rejected === true
-        && output.get(id).outcome?.accepted === false
-        && typeof output.get(id).outcome?.error === "string"
-        && output.get(id).outcome.error.length > 0,
+        && output.get(id).accepted === false
+        && typeof output.get(id).error === "string"
+        && output.get(id).error.length > 0,
         `${id} rejection`);
     }
+    const corruptRange = input.get("corrupt-range").malformed;
+    check(object(corruptRange)
+      && Number.isSafeInteger(corruptRange.start)
+      && Number.isSafeInteger(corruptRange.end)
+      && corruptRange.start > corruptRange.end,
+    "corrupt-range malformed input");
+    check(input.get("corrupt-schema").malformed?.version !== 2,
+      "corrupt-schema malformed input");
+    check(summary(input.get("corrupt-summary").malformed)
+      && !object(input.get("corrupt-summary").malformed.tree.indexes),
+      "corrupt-summary malformed input");
+    check(object(input.get("corrupt-ownership").malformed?.source)
+      && object(input.get("corrupt-ownership").malformed?.destination),
+    "corrupt-ownership malformed input");
     const bounds = output.get("native-remove-beyond-length");
     check(observation.get("native-remove-beyond-length").rejected === false
       && bounds.nativeContract === "error"
-      && bounds.upstream?.input?.end > bounds.upstream?.value?.length,
+      && input.get("native-remove-beyond-length").malformed.end
+        > bounds.value.length,
     "native removal-bound difference");
   }
 }

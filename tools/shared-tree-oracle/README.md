@@ -156,10 +156,28 @@ identity. Public empty insert, empty remove, and empty same-array move emit no
 commit, events, pending edit, revision, or message, although the low-level
 editor retains a zero-count Insert mark.
 
+The schema, codec, history, and invalid-input scenarios now pass their JSON
+round-tripped inputs through exported source replayers. Schema scenarios carry
+the exact selected schema bytes and typed initial content; the compatibility
+case initializes and views `objectArrays` on both sides. Codec scenarios carry
+Message V7 bytes or complete summaries together with the authoring or decode
+compressor context, and decoded modular changes retain their ordered graph
+tables and Sequence marks.
+
+History scenarios carry ordered edit, delivery, acknowledgement, reconnect,
+and window-advance actions. Their checkpoints include pending, trunk, and peer
+state, full processed envelopes, sequence numbers, and serialized compressor
+state. Summary-tail replay includes the starting summary compressors, the tail
+and continuation envelopes, and the continuation creation range; a fresh
+reader authors the continuation and an independent fresh peer applies both
+envelopes. Equal-valued and interior moves still emit commits and change
+events even when their visible values do not change.
+
 Pinned upstream removal clamps an end beyond the array length. The planned
 native API deliberately rejects that invalid range. The nine M3 fixtures are
 source evidence only; they are absent from `nativeSemanticRunners` until
-input-only runners pass on JavaScript and BEAM.
+input-only runners pass on JavaScript and BEAM. Task 1 remains pending
+independent review.
 
 ### Permanent gates
 

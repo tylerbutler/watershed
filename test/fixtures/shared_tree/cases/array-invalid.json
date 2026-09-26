@@ -12,910 +12,626 @@
       {
         "id": "corrupt-schema",
         "operation": "corrupt-schema",
-        "initialState": {
-          "left": [
-            "A",
-            {
-              "point": {
-                "label": "same",
-                "x": 1
-              }
-            },
-            {
-              "point": {
-                "label": "same",
-                "x": 1
-              }
-            },
-            [
-              "nested",
-              {
-                "map": [
-                  [
-                    "",
-                    "empty-key"
-                  ],
-                  [
-                    "0",
-                    "numeric-key"
-                  ]
-                ]
-              }
-            ]
-          ],
-          "right": [
-            "R"
-          ],
-          "byKey": {
-            "map": [
-              [
-                "",
-                [
-                  "empty"
-                ]
-              ],
-              [
-                "0",
-                [
-                  "zero",
-                  [
-                    "deep"
-                  ]
-                ]
-              ],
-              [
-                "01",
-                "leading-zero"
-              ]
-            ]
-          },
-          "narrow": [
-            {
-              "point": {
-                "label": "narrow",
-                "x": 9
-              }
-            }
-          ]
-        },
-        "operands": {
-          "operation": "corrupt-schema",
-          "initialState": {
-            "left": [
-              "A",
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              [
-                "nested",
-                {
-                  "map": [
-                    [
-                      "",
-                      "empty-key"
-                    ],
-                    [
-                      "0",
-                      "numeric-key"
-                    ]
-                  ]
-                }
-              ]
-            ],
-            "right": [
-              "R"
-            ],
-            "byKey": {
-              "map": [
-                [
-                  "",
-                  [
-                    "empty"
-                  ]
-                ],
-                [
-                  "0",
-                  [
-                    "zero",
-                    [
-                      "deep"
-                    ]
-                  ]
-                ],
-                [
-                  "01",
-                  "leading-zero"
-                ]
-              ]
-            },
-            "narrow": [
-              {
-                "point": {
-                  "label": "narrow",
-                  "x": 9
-                }
-              }
-            ]
-          },
-          "operands": {
-            "input": {
-              "version": 99
-            },
-            "outcome": {
-              "accepted": false,
-              "error": "Error: Unsupported version 99 encountered while decoding Schema data. Supported versions for this data are: [1,2].\nThe client which encoded this data likely specified an \"minVersionForCollab\" value which corresponds to a version newer than the version of this client (\"3.1.0\")."
-            }
-          }
-        },
-        "revisions": [],
-        "allocator": {
-          "nextLocalId": 0
-        },
-        "compressor": {
-          "mode": "ongoing",
-          "session": null
-        },
-        "sequencing": {
-          "sequenceNumber": 0,
-          "referenceSequenceNumber": 0,
-          "minimumSequenceNumber": 0
-        },
-        "schedule": [
-          {
-            "step": "corrupt-schema"
-          }
-        ]
+        "malformed": {
+          "version": 99
+        }
       },
       {
         "id": "corrupt-mark",
         "operation": "corrupt-mark",
-        "initialState": {
-          "left": [
-            "A",
+        "malformed": {
+          "revision": 4,
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "changeset": [
             {
-              "point": {
-                "label": "same",
-                "x": 1
-              }
-            },
-            {
-              "point": {
-                "label": "same",
-                "x": 1
-              }
-            },
-            [
-              "nested",
-              {
-                "map": [
-                  [
-                    "",
-                    "empty-key"
-                  ],
-                  [
-                    "0",
-                    "numeric-key"
-                  ]
-                ]
-              }
-            ]
-          ],
-          "right": [
-            "R"
-          ],
-          "byKey": {
-            "map": [
-              [
-                "",
-                [
-                  "empty"
-                ]
-              ],
-              [
-                "0",
-                [
-                  "zero",
-                  [
-                    "deep"
-                  ]
-                ]
-              ],
-              [
-                "01",
-                "leading-zero"
-              ]
-            ]
-          },
-          "narrow": [
-            {
-              "point": {
-                "label": "narrow",
-                "x": 9
-              }
-            }
-          ]
-        },
-        "operands": {
-          "operation": "corrupt-mark",
-          "initialState": {
-            "left": [
-              "A",
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              [
-                "nested",
-                {
-                  "map": [
-                    [
-                      "",
-                      "empty-key"
-                    ],
-                    [
-                      "0",
-                      "numeric-key"
-                    ]
-                  ]
-                }
-              ]
-            ],
-            "right": [
-              "R"
-            ],
-            "byKey": {
-              "map": [
-                [
-                  "",
-                  [
-                    "empty"
-                  ]
-                ],
-                [
-                  "0",
-                  [
-                    "zero",
-                    [
-                      "deep"
-                    ]
-                  ]
-                ],
-                [
-                  "01",
-                  "leading-zero"
-                ]
-              ]
-            },
-            "narrow": [
-              {
-                "point": {
-                  "label": "narrow",
-                  "x": 9
-                }
-              }
-            ]
-          },
-          "operands": {
-            "input": {
-              "revision": 4,
-              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
-              "changeset": [
-                {
-                  "data": {
-                    "maxId": 18,
-                    "changes": [
-                      {
-                        "fieldKey": "rootFieldKey",
-                        "fieldKind": "ModularEditBuilder.Generic",
-                        "change": [
-                          [
-                            0,
+              "data": {
+                "maxId": 18,
+                "changes": [
+                  {
+                    "fieldKey": "rootFieldKey",
+                    "fieldKind": "ModularEditBuilder.Generic",
+                    "change": [
+                      [
+                        0,
+                        {
+                          "fieldChanges": [
                             {
-                              "fieldChanges": [
-                                {
-                                  "fieldKey": "left",
-                                  "fieldKind": "ModularEditBuilder.Generic",
-                                  "change": [
-                                    [
-                                      0,
+                              "fieldKey": "left",
+                              "fieldKind": "ModularEditBuilder.Generic",
+                              "change": [
+                                [
+                                  0,
+                                  {
+                                    "fieldChanges": [
                                       {
-                                        "fieldChanges": [
+                                        "fieldKey": "",
+                                        "fieldKind": "Sequence",
+                                        "change": [
                                           {
-                                            "fieldKey": "",
-                                            "fieldKind": "Sequence",
-                                            "change": [
-                                              {
-                                                "count": 1
-                                              },
-                                              {
-                                                "count": 1,
-                                                "effect": {
-                                                  "unknownMove": {
-                                                    "id": 13
-                                                  }
-                                                }
+                                            "count": 1
+                                          },
+                                          {
+                                            "count": 1,
+                                            "effect": {
+                                              "unknownMove": {
+                                                "id": 13
                                               }
-                                            ]
+                                            }
                                           }
                                         ]
                                       }
                                     ]
-                                  ]
-                                },
-                                {
-                                  "fieldKey": "right",
-                                  "fieldKind": "ModularEditBuilder.Generic",
-                                  "change": [
-                                    [
-                                      0,
+                                  }
+                                ]
+                              ]
+                            },
+                            {
+                              "fieldKey": "right",
+                              "fieldKind": "ModularEditBuilder.Generic",
+                              "change": [
+                                [
+                                  0,
+                                  {
+                                    "fieldChanges": [
                                       {
-                                        "fieldChanges": [
+                                        "fieldKey": "",
+                                        "fieldKind": "Sequence",
+                                        "change": [
                                           {
-                                            "fieldKey": "",
-                                            "fieldKind": "Sequence",
-                                            "change": [
-                                              {
-                                                "count": 1
-                                              },
-                                              {
-                                                "count": 1,
-                                                "effect": {
-                                                  "moveIn": {
-                                                    "id": 13
-                                                  }
-                                                },
-                                                "cellId": 14
+                                            "count": 1
+                                          },
+                                          {
+                                            "count": 1,
+                                            "effect": {
+                                              "moveIn": {
+                                                "id": 13
                                               }
-                                            ]
+                                            },
+                                            "cellId": 14
                                           }
                                         ]
                                       }
                                     ]
-                                  ]
-                                }
+                                  }
+                                ]
                               ]
                             }
                           ]
-                        ]
-                      }
+                        }
+                      ]
                     ]
                   }
-                }
+                ]
+              }
+            }
+          ],
+          "version": 7
+        },
+        "decodeContext": {
+          "nativeInput": {
+            "initialState": {
+              "left": [
+                "A",
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                [
+                  "nested",
+                  {
+                    "map": [
+                      [
+                        "",
+                        "empty-key"
+                      ],
+                      [
+                        "0",
+                        "numeric-key"
+                      ]
+                    ]
+                  }
+                ]
               ],
-              "version": 7
+              "right": [
+                "R"
+              ],
+              "byKey": {
+                "map": [
+                  [
+                    "",
+                    [
+                      "empty"
+                    ]
+                  ],
+                  [
+                    "0",
+                    [
+                      "zero",
+                      [
+                        "deep"
+                      ]
+                    ]
+                  ],
+                  [
+                    "01",
+                    "leading-zero"
+                  ]
+                ]
+              },
+              "narrow": [
+                {
+                  "point": {
+                    "label": "narrow",
+                    "x": 9
+                  }
+                }
+              ]
             },
-            "outcome": {
-              "accepted": false,
-              "error": "Error: 0xac2"
+            "clients": [
+              {
+                "id": "client-0",
+                "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "compressor": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAAGSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA"
+              }
+            ],
+            "schedule": [
+              {
+                "id": "insert",
+                "op": "insert",
+                "client": 0,
+                "path": [
+                  "left"
+                ],
+                "index": 1,
+                "values": [
+                  "inserted",
+                  {
+                    "point": {
+                      "label": "new",
+                      "x": 2
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "remove",
+                "op": "remove",
+                "client": 0,
+                "path": [
+                  "left"
+                ],
+                "start": 0,
+                "end": 1
+              },
+              {
+                "id": "interior-move",
+                "op": "move",
+                "client": 0,
+                "path": [
+                  "left"
+                ],
+                "sourcePath": [
+                  "left"
+                ],
+                "start": 1,
+                "end": 3,
+                "gap": 2
+              },
+              {
+                "id": "cross-array-move",
+                "op": "move",
+                "client": 0,
+                "path": [
+                  "right"
+                ],
+                "sourcePath": [
+                  "left"
+                ],
+                "start": 1,
+                "end": 2,
+                "gap": 1
+              },
+              {
+                "id": "deliver",
+                "op": "deliver"
+              }
+            ]
+          }
+        },
+        "initialSummary": {
+          "type": 1,
+          "tree": {
+            ".metadata": {
+              "type": 2,
+              "content": "{\"version\":2}"
+            },
+            "indexes": {
+              "type": 1,
+              "tree": {
+                "EditManager": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "String": {
+                      "type": 2,
+                      "content": "{\"trunk\":[{\"change\":[{\"schema\":{\"new\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}},\"old\":{\"version\":2,\"nodes\":{},\"root\":{\"kind\":\"Forbidden\",\"types\":[]}}}},{\"data\":{\"maxId\":1,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":0,\"s\":1}}}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[\"\"],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Items\",\"value\":false,\"fields\":[[0,4]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Point\",\"value\":false,\"fields\":[[\"label\",0],[\"x\",7]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.ArrayMap\",\"value\":false,\"extraFields\":4}},{\"a\":6},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Root\",\"value\":false,\"fields\":[[\"left\",1],[\"right\",1],[\"byKey\",3],[\"narrow\",8]]}},{\"d\":0},{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Points\",\"value\":false,\"fields\":[[0,9]]}},{\"a\":2}],\"data\":[[5,[0,\"A\",2,\"same\",1,2,\"same\",1,1,[0,\"nested\",3,[0,[0,\"empty-key\"],\"0\",[0,\"numeric-key\"]]]],[0,\"R\"],[0,[1,[0,\"empty\"]],\"0\",[1,[0,\"zero\",1,[0,\"deep\"]]],\"01\",[0,\"leading-zero\"]],[\"narrow\",9]]]}}}},{\"schema\":{\"new\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}},\"old\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}}}}],\"revision\":0,\"sessionId\":\"8f95be09-8376-4ff7-8755-ccd7e8124b06\",\"sequenceNumber\":2}],\"branches\":[],\"version\":7}"
+                    }
+                  }
+                },
+                "Schema": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "SchemaString": {
+                      "type": 2,
+                      "content": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}}"
+                    }
+                  }
+                },
+                "Forest": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":3}"
+                    },
+                    "contents": {
+                      "type": 2,
+                      "content": "{\"keys\":[\"rootFieldKey\"],\"fields\":{\"version\":2,\"identifiers\":[\"\"],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Items\",\"value\":false,\"fields\":[[0,4]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Point\",\"value\":false,\"fields\":[[\"label\",0],[\"x\",7]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.ArrayMap\",\"value\":false,\"extraFields\":4}},{\"a\":6},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Root\",\"value\":false,\"fields\":[[\"left\",1],[\"right\",1],[\"byKey\",3],[\"narrow\",8]]}},{\"d\":0},{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Points\",\"value\":false,\"fields\":[[0,9]]}},{\"a\":2}],\"data\":[[5,[0,\"A\",2,\"same\",1,2,\"same\",1,1,[0,\"nested\",3,[0,[0,\"empty-key\"],\"0\",[0,\"numeric-key\"]]]],[0,\"R\"],[0,[1,[0,\"empty\"]],\"0\",[1,[0,\"zero\",1,[0,\"deep\"]]],\"01\",[0,\"leading-zero\"]],[\"narrow\",9]]]},\"version\":2}"
+                    }
+                  }
+                },
+                "DetachedFieldIndex": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "DetachedFieldIndexBlob": {
+                      "type": 2,
+                      "content": "{\"version\":2,\"data\":[],\"maxId\":0}"
+                    }
+                  }
+                }
+              }
             }
           }
         },
-        "revisions": [],
-        "allocator": {
-          "nextLocalId": 0
-        },
-        "compressor": {
-          "mode": "ongoing",
-          "session": null
-        },
-        "sequencing": {
-          "sequenceNumber": 0,
-          "referenceSequenceNumber": 0,
-          "minimumSequenceNumber": 0
-        },
-        "schedule": [
-          {
-            "step": "corrupt-mark"
-          }
-        ]
+        "summaryCompressor": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/",
+        "summarySessionId": "839cc8f2-ec6d-4d55-b923-dd955e051d02"
       },
       {
         "id": "corrupt-range",
         "operation": "corrupt-range",
-        "initialState": {
-          "left": [
-            "A",
-            {
-              "point": {
-                "label": "same",
-                "x": 1
-              }
-            },
-            {
-              "point": {
-                "label": "same",
-                "x": 1
-              }
-            },
-            [
-              "nested",
-              {
-                "map": [
-                  [
-                    "",
-                    "empty-key"
-                  ],
-                  [
-                    "0",
-                    "numeric-key"
-                  ]
-                ]
-              }
-            ]
-          ],
-          "right": [
-            "R"
-          ],
-          "byKey": {
-            "map": [
-              [
-                "",
-                [
-                  "empty"
-                ]
-              ],
-              [
-                "0",
-                [
-                  "zero",
-                  [
-                    "deep"
-                  ]
-                ]
-              ],
-              [
-                "01",
-                "leading-zero"
-              ]
-            ]
-          },
-          "narrow": [
-            {
-              "point": {
-                "label": "narrow",
-                "x": 9
-              }
-            }
-          ]
-        },
-        "operands": {
-          "operation": "corrupt-range",
-          "initialState": {
-            "left": [
-              "A",
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              [
-                "nested",
-                {
-                  "map": [
-                    [
-                      "",
-                      "empty-key"
-                    ],
-                    [
-                      "0",
-                      "numeric-key"
-                    ]
-                  ]
-                }
-              ]
-            ],
-            "right": [
-              "R"
-            ],
-            "byKey": {
-              "map": [
-                [
-                  "",
-                  [
-                    "empty"
-                  ]
-                ],
-                [
-                  "0",
-                  [
-                    "zero",
-                    [
-                      "deep"
-                    ]
-                  ]
-                ],
-                [
-                  "01",
-                  "leading-zero"
-                ]
-              ]
-            },
-            "narrow": [
-              {
-                "point": {
-                  "label": "narrow",
-                  "x": 9
-                }
-              }
-            ]
-          },
-          "operands": {
-            "input": {
-              "start": 2,
-              "end": 1
-            },
-            "outcome": {
-              "accepted": false,
-              "error": "Error: Malformed range passed to TreeArrayNode.removeRange. Start index 2 is greater than end index 1."
-            }
-          }
-        },
-        "revisions": [],
-        "allocator": {
-          "nextLocalId": 0
-        },
-        "compressor": {
-          "mode": "ongoing",
-          "session": null
-        },
-        "sequencing": {
-          "sequenceNumber": 0,
-          "referenceSequenceNumber": 0,
-          "minimumSequenceNumber": 0
-        },
-        "schedule": [
-          {
-            "step": "corrupt-range"
-          }
-        ]
+        "initialState": [
+          "A",
+          "B",
+          "C"
+        ],
+        "malformed": {
+          "start": 2,
+          "end": 1
+        }
       },
       {
         "id": "corrupt-revision",
         "operation": "corrupt-revision",
-        "initialState": {
-          "left": [
-            "A",
+        "malformed": {
+          "revision": "not-a-revision",
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "changeset": [
             {
-              "point": {
-                "label": "same",
-                "x": 1
-              }
-            },
-            {
-              "point": {
-                "label": "same",
-                "x": 1
-              }
-            },
-            [
-              "nested",
-              {
-                "map": [
-                  [
-                    "",
-                    "empty-key"
-                  ],
-                  [
-                    "0",
-                    "numeric-key"
-                  ]
-                ]
-              }
-            ]
-          ],
-          "right": [
-            "R"
-          ],
-          "byKey": {
-            "map": [
-              [
-                "",
-                [
-                  "empty"
-                ]
-              ],
-              [
-                "0",
-                [
-                  "zero",
-                  [
-                    "deep"
-                  ]
-                ]
-              ],
-              [
-                "01",
-                "leading-zero"
-              ]
-            ]
-          },
-          "narrow": [
-            {
-              "point": {
-                "label": "narrow",
-                "x": 9
-              }
-            }
-          ]
-        },
-        "operands": {
-          "operation": "corrupt-revision",
-          "initialState": {
-            "left": [
-              "A",
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              [
-                "nested",
-                {
-                  "map": [
-                    [
-                      "",
-                      "empty-key"
-                    ],
-                    [
-                      "0",
-                      "numeric-key"
-                    ]
-                  ]
-                }
-              ]
-            ],
-            "right": [
-              "R"
-            ],
-            "byKey": {
-              "map": [
-                [
-                  "",
-                  [
-                    "empty"
-                  ]
-                ],
-                [
-                  "0",
-                  [
-                    "zero",
-                    [
-                      "deep"
-                    ]
-                  ]
-                ],
-                [
-                  "01",
-                  "leading-zero"
-                ]
-              ]
-            },
-            "narrow": [
-              {
-                "point": {
-                  "label": "narrow",
-                  "x": 9
-                }
-              }
-            ]
-          },
-          "operands": {
-            "input": {
-              "revision": "not-a-revision",
-              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
-              "changeset": [
-                {
-                  "data": {
-                    "maxId": 18,
-                    "changes": [
-                      {
-                        "fieldKey": "rootFieldKey",
-                        "fieldKind": "ModularEditBuilder.Generic",
-                        "change": [
-                          [
-                            0,
+              "data": {
+                "maxId": 18,
+                "changes": [
+                  {
+                    "fieldKey": "rootFieldKey",
+                    "fieldKind": "ModularEditBuilder.Generic",
+                    "change": [
+                      [
+                        0,
+                        {
+                          "fieldChanges": [
                             {
-                              "fieldChanges": [
-                                {
-                                  "fieldKey": "left",
-                                  "fieldKind": "ModularEditBuilder.Generic",
-                                  "change": [
-                                    [
-                                      0,
+                              "fieldKey": "left",
+                              "fieldKind": "ModularEditBuilder.Generic",
+                              "change": [
+                                [
+                                  0,
+                                  {
+                                    "fieldChanges": [
                                       {
-                                        "fieldChanges": [
+                                        "fieldKey": "",
+                                        "fieldKind": "Sequence",
+                                        "change": [
                                           {
-                                            "fieldKey": "",
-                                            "fieldKind": "Sequence",
-                                            "change": [
-                                              {
-                                                "count": 1
-                                              },
-                                              {
-                                                "count": 1,
-                                                "effect": {
-                                                  "moveOut": {
-                                                    "id": 13
-                                                  }
-                                                }
+                                            "count": 1
+                                          },
+                                          {
+                                            "count": 1,
+                                            "effect": {
+                                              "moveOut": {
+                                                "id": 13
                                               }
-                                            ]
+                                            }
                                           }
                                         ]
                                       }
                                     ]
-                                  ]
-                                },
-                                {
-                                  "fieldKey": "right",
-                                  "fieldKind": "ModularEditBuilder.Generic",
-                                  "change": [
-                                    [
-                                      0,
+                                  }
+                                ]
+                              ]
+                            },
+                            {
+                              "fieldKey": "right",
+                              "fieldKind": "ModularEditBuilder.Generic",
+                              "change": [
+                                [
+                                  0,
+                                  {
+                                    "fieldChanges": [
                                       {
-                                        "fieldChanges": [
+                                        "fieldKey": "",
+                                        "fieldKind": "Sequence",
+                                        "change": [
                                           {
-                                            "fieldKey": "",
-                                            "fieldKind": "Sequence",
-                                            "change": [
-                                              {
-                                                "count": 1
-                                              },
-                                              {
-                                                "count": 1,
-                                                "effect": {
-                                                  "moveIn": {
-                                                    "id": 13
-                                                  }
-                                                },
-                                                "cellId": 14
+                                            "count": 1
+                                          },
+                                          {
+                                            "count": 1,
+                                            "effect": {
+                                              "moveIn": {
+                                                "id": 13
                                               }
-                                            ]
+                                            },
+                                            "cellId": 14
                                           }
                                         ]
                                       }
                                     ]
-                                  ]
-                                }
+                                  }
+                                ]
                               ]
                             }
                           ]
-                        ]
-                      }
+                        }
+                      ]
                     ]
                   }
-                }
+                ]
+              }
+            }
+          ],
+          "version": 7
+        },
+        "decodeContext": {
+          "nativeInput": {
+            "initialState": {
+              "left": [
+                "A",
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                [
+                  "nested",
+                  {
+                    "map": [
+                      [
+                        "",
+                        "empty-key"
+                      ],
+                      [
+                        "0",
+                        "numeric-key"
+                      ]
+                    ]
+                  }
+                ]
               ],
-              "version": 7
+              "right": [
+                "R"
+              ],
+              "byKey": {
+                "map": [
+                  [
+                    "",
+                    [
+                      "empty"
+                    ]
+                  ],
+                  [
+                    "0",
+                    [
+                      "zero",
+                      [
+                        "deep"
+                      ]
+                    ]
+                  ],
+                  [
+                    "01",
+                    "leading-zero"
+                  ]
+                ]
+              },
+              "narrow": [
+                {
+                  "point": {
+                    "label": "narrow",
+                    "x": 9
+                  }
+                }
+              ]
             },
-            "outcome": {
-              "accepted": false,
-              "error": "Error: 0x88d"
+            "clients": [
+              {
+                "id": "client-0",
+                "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "compressor": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAAGSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA"
+              }
+            ],
+            "schedule": [
+              {
+                "id": "insert",
+                "op": "insert",
+                "client": 0,
+                "path": [
+                  "left"
+                ],
+                "index": 1,
+                "values": [
+                  "inserted",
+                  {
+                    "point": {
+                      "label": "new",
+                      "x": 2
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "remove",
+                "op": "remove",
+                "client": 0,
+                "path": [
+                  "left"
+                ],
+                "start": 0,
+                "end": 1
+              },
+              {
+                "id": "interior-move",
+                "op": "move",
+                "client": 0,
+                "path": [
+                  "left"
+                ],
+                "sourcePath": [
+                  "left"
+                ],
+                "start": 1,
+                "end": 3,
+                "gap": 2
+              },
+              {
+                "id": "cross-array-move",
+                "op": "move",
+                "client": 0,
+                "path": [
+                  "right"
+                ],
+                "sourcePath": [
+                  "left"
+                ],
+                "start": 1,
+                "end": 2,
+                "gap": 1
+              },
+              {
+                "id": "deliver",
+                "op": "deliver"
+              }
+            ]
+          }
+        },
+        "initialSummary": {
+          "type": 1,
+          "tree": {
+            ".metadata": {
+              "type": 2,
+              "content": "{\"version\":2}"
+            },
+            "indexes": {
+              "type": 1,
+              "tree": {
+                "EditManager": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "String": {
+                      "type": 2,
+                      "content": "{\"trunk\":[{\"change\":[{\"schema\":{\"new\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}},\"old\":{\"version\":2,\"nodes\":{},\"root\":{\"kind\":\"Forbidden\",\"types\":[]}}}},{\"data\":{\"maxId\":1,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":0,\"s\":1}}}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[\"\"],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Items\",\"value\":false,\"fields\":[[0,4]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Point\",\"value\":false,\"fields\":[[\"label\",0],[\"x\",7]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.ArrayMap\",\"value\":false,\"extraFields\":4}},{\"a\":6},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Root\",\"value\":false,\"fields\":[[\"left\",1],[\"right\",1],[\"byKey\",3],[\"narrow\",8]]}},{\"d\":0},{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Points\",\"value\":false,\"fields\":[[0,9]]}},{\"a\":2}],\"data\":[[5,[0,\"A\",2,\"same\",1,2,\"same\",1,1,[0,\"nested\",3,[0,[0,\"empty-key\"],\"0\",[0,\"numeric-key\"]]]],[0,\"R\"],[0,[1,[0,\"empty\"]],\"0\",[1,[0,\"zero\",1,[0,\"deep\"]]],\"01\",[0,\"leading-zero\"]],[\"narrow\",9]]]}}}},{\"schema\":{\"new\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}},\"old\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}}}}],\"revision\":0,\"sessionId\":\"8f95be09-8376-4ff7-8755-ccd7e8124b06\",\"sequenceNumber\":2}],\"branches\":[],\"version\":7}"
+                    }
+                  }
+                },
+                "Schema": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "SchemaString": {
+                      "type": 2,
+                      "content": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}}"
+                    }
+                  }
+                },
+                "Forest": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":3}"
+                    },
+                    "contents": {
+                      "type": 2,
+                      "content": "{\"keys\":[\"rootFieldKey\"],\"fields\":{\"version\":2,\"identifiers\":[\"\"],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Items\",\"value\":false,\"fields\":[[0,4]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Point\",\"value\":false,\"fields\":[[\"label\",0],[\"x\",7]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.ArrayMap\",\"value\":false,\"extraFields\":4}},{\"a\":6},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Root\",\"value\":false,\"fields\":[[\"left\",1],[\"right\",1],[\"byKey\",3],[\"narrow\",8]]}},{\"d\":0},{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Points\",\"value\":false,\"fields\":[[0,9]]}},{\"a\":2}],\"data\":[[5,[0,\"A\",2,\"same\",1,2,\"same\",1,1,[0,\"nested\",3,[0,[0,\"empty-key\"],\"0\",[0,\"numeric-key\"]]]],[0,\"R\"],[0,[1,[0,\"empty\"]],\"0\",[1,[0,\"zero\",1,[0,\"deep\"]]],\"01\",[0,\"leading-zero\"]],[\"narrow\",9]]]},\"version\":2}"
+                    }
+                  }
+                },
+                "DetachedFieldIndex": {
+                  "type": 1,
+                  "tree": {
+                    ".metadata": {
+                      "type": 2,
+                      "content": "{\"version\":2}"
+                    },
+                    "DetachedFieldIndexBlob": {
+                      "type": 2,
+                      "content": "{\"version\":2,\"data\":[],\"maxId\":0}"
+                    }
+                  }
+                }
+              }
             }
           }
         },
-        "revisions": [],
-        "allocator": {
-          "nextLocalId": 0
-        },
-        "compressor": {
-          "mode": "ongoing",
-          "session": null
-        },
-        "sequencing": {
-          "sequenceNumber": 0,
-          "referenceSequenceNumber": 0,
-          "minimumSequenceNumber": 0
-        },
-        "schedule": [
-          {
-            "step": "corrupt-revision"
-          }
-        ]
+        "summaryCompressor": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/",
+        "summarySessionId": "839cc8f2-ec6d-4d55-b923-dd955e051d02"
       },
       {
         "id": "corrupt-ownership",
         "operation": "corrupt-ownership",
-        "initialState": {
-          "left": [
-            "A",
-            {
-              "point": {
-                "label": "same",
-                "x": 1
-              }
-            },
-            {
-              "point": {
-                "label": "same",
-                "x": 1
-              }
-            },
-            [
-              "nested",
-              {
-                "map": [
-                  [
-                    "",
-                    "empty-key"
-                  ],
-                  [
-                    "0",
-                    "numeric-key"
-                  ]
-                ]
-              }
-            ]
-          ],
-          "right": [
-            "R"
-          ],
-          "byKey": {
-            "map": [
-              [
-                "",
-                [
-                  "empty"
-                ]
-              ],
-              [
-                "0",
-                [
-                  "zero",
-                  [
-                    "deep"
-                  ]
-                ]
-              ],
-              [
-                "01",
-                "leading-zero"
-              ]
-            ]
-          },
-          "narrow": [
-            {
-              "point": {
-                "label": "narrow",
-                "x": 9
-              }
-            }
-          ]
-        },
-        "operands": {
-          "operation": "corrupt-ownership",
-          "initialState": {
+        "initialStates": [
+          {
             "left": [
               "A",
               {
@@ -981,370 +697,114 @@
               }
             ]
           },
-          "operands": {
-            "input": {
-              "foreign": true
-            },
-            "outcome": {
-              "accepted": false,
-              "error": "Error: A node with schema \"org.watershed.shared-tree.m3.Point\" (name: \"Point\") was inserted into the tree more than once. This is not supported."
-            }
-          }
-        },
-        "revisions": [],
-        "allocator": {
-          "nextLocalId": 0
-        },
-        "compressor": {
-          "mode": "ongoing",
-          "session": null
-        },
-        "sequencing": {
-          "sequenceNumber": 0,
-          "referenceSequenceNumber": 0,
-          "minimumSequenceNumber": 0
-        },
-        "schedule": [
           {
-            "step": "corrupt-ownership"
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
           }
-        ]
+        ],
+        "malformed": {
+          "source": {
+            "client": 1,
+            "path": [
+              "narrow",
+              "0"
+            ]
+          },
+          "destination": {
+            "client": 0,
+            "path": [
+              "narrow"
+            ],
+            "gap": 0
+          }
+        }
       },
       {
         "id": "corrupt-summary",
         "operation": "corrupt-summary",
-        "initialState": {
-          "left": [
-            "A",
-            {
-              "point": {
-                "label": "same",
-                "x": 1
-              }
-            },
-            {
-              "point": {
-                "label": "same",
-                "x": 1
-              }
-            },
-            [
-              "nested",
-              {
-                "map": [
-                  [
-                    "",
-                    "empty-key"
-                  ],
-                  [
-                    "0",
-                    "numeric-key"
-                  ]
-                ]
-              }
-            ]
-          ],
-          "right": [
-            "R"
-          ],
-          "byKey": {
-            "map": [
-              [
-                "",
-                [
-                  "empty"
-                ]
-              ],
-              [
-                "0",
-                [
-                  "zero",
-                  [
-                    "deep"
-                  ]
-                ]
-              ],
-              [
-                "01",
-                "leading-zero"
-              ]
-            ]
-          },
-          "narrow": [
-            {
-              "point": {
-                "label": "narrow",
-                "x": 9
-              }
-            }
-          ]
+        "malformed": {
+          "type": 1,
+          "tree": {}
         },
-        "operands": {
-          "operation": "corrupt-summary",
-          "initialState": {
-            "left": [
-              "A",
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              [
-                "nested",
-                {
-                  "map": [
-                    [
-                      "",
-                      "empty-key"
-                    ],
-                    [
-                      "0",
-                      "numeric-key"
-                    ]
-                  ]
-                }
-              ]
-            ],
-            "right": [
-              "R"
-            ],
-            "byKey": {
-              "map": [
-                [
-                  "",
-                  [
-                    "empty"
-                  ]
-                ],
-                [
-                  "0",
-                  [
-                    "zero",
-                    [
-                      "deep"
-                    ]
-                  ]
-                ],
-                [
-                  "01",
-                  "leading-zero"
-                ]
-              ]
-            },
-            "narrow": [
-              {
-                "point": {
-                  "label": "narrow",
-                  "x": 9
-                }
-              }
-            ]
-          },
-          "operands": {
-            "input": {
-              "type": 1,
-              "tree": {}
-            },
-            "outcome": {
-              "accepted": false,
-              "error": "Error: Invalid use of SharedTree after it was put into an invalid state by another error.\nOriginal Error:\nError: 0xc21"
-            }
-          }
-        },
-        "revisions": [],
-        "allocator": {
-          "nextLocalId": 0
-        },
-        "compressor": {
-          "mode": "ongoing",
-          "session": null
-        },
-        "sequencing": {
-          "sequenceNumber": 0,
-          "referenceSequenceNumber": 0,
-          "minimumSequenceNumber": 0
-        },
-        "schedule": [
-          {
-            "step": "corrupt-summary"
-          }
-        ]
+        "decodeContext": {
+          "compressor": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEAGSxLo18xVx/3bDSb4Vj4C4q0c3CCt94blqCSy+qSBAgAAAAAAAAAAAAAAAAAIgEAAAAAAAAAiQAAAAAAAAPA/AAAAAAAIgEAAAAAAAADwPw==",
+          "sessionId": "12859567-8fea-42d3-a34a-cc2bab6b6196"
+        }
       },
       {
         "id": "native-remove-beyond-length",
         "operation": "native-remove-beyond-length",
-        "initialState": {
-          "left": [
-            "A",
-            {
-              "point": {
-                "label": "same",
-                "x": 1
-              }
-            },
-            {
-              "point": {
-                "label": "same",
-                "x": 1
-              }
-            },
-            [
-              "nested",
-              {
-                "map": [
-                  [
-                    "",
-                    "empty-key"
-                  ],
-                  [
-                    "0",
-                    "numeric-key"
-                  ]
-                ]
-              }
-            ]
-          ],
-          "right": [
-            "R"
-          ],
-          "byKey": {
-            "map": [
-              [
-                "",
-                [
-                  "empty"
-                ]
-              ],
-              [
-                "0",
-                [
-                  "zero",
-                  [
-                    "deep"
-                  ]
-                ]
-              ],
-              [
-                "01",
-                "leading-zero"
-              ]
-            ]
-          },
-          "narrow": [
-            {
-              "point": {
-                "label": "narrow",
-                "x": 9
-              }
-            }
-          ]
+        "initialState": [
+          "A",
+          "B"
+        ],
+        "malformed": {
+          "start": 1,
+          "end": 99
         },
-        "operands": {
-          "operation": "native-remove-beyond-length",
-          "initialState": {
-            "left": [
-              "A",
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              [
-                "nested",
-                {
-                  "map": [
-                    [
-                      "",
-                      "empty-key"
-                    ],
-                    [
-                      "0",
-                      "numeric-key"
-                    ]
-                  ]
-                }
-              ]
-            ],
-            "right": [
-              "R"
-            ],
-            "byKey": {
-              "map": [
-                [
-                  "",
-                  [
-                    "empty"
-                  ]
-                ],
-                [
-                  "0",
-                  [
-                    "zero",
-                    [
-                      "deep"
-                    ]
-                  ]
-                ],
-                [
-                  "01",
-                  "leading-zero"
-                ]
-              ]
-            },
-            "narrow": [
-              {
-                "point": {
-                  "label": "narrow",
-                  "x": 9
-                }
-              }
-            ]
-          },
-          "operands": {
-            "upstream": {
-              "input": {
-                "start": 1,
-                "end": 99
-              },
-              "value": [
-                "A"
-              ]
-            },
-            "nativeContract": "error"
-          }
-        },
-        "revisions": [],
-        "allocator": {
-          "nextLocalId": 0
-        },
-        "compressor": {
-          "mode": "ongoing",
-          "session": null
-        },
-        "sequencing": {
-          "sequenceNumber": 0,
-          "referenceSequenceNumber": 0,
-          "minimumSequenceNumber": 0
-        },
-        "schedule": [
-          {
-            "step": "native-remove-beyond-length"
-          }
-        ]
+        "nativeContract": "error"
       }
     ]
   },
@@ -1352,274 +812,60 @@
     "observations": [
       {
         "id": "corrupt-schema",
-        "executed": true,
         "rejected": true,
         "result": {
-          "input": {
-            "version": 99
-          },
-          "outcome": {
-            "accepted": false,
-            "error": "Error: Unsupported version 99 encountered while decoding Schema data. Supported versions for this data are: [1,2].\nThe client which encoded this data likely specified an \"minVersionForCollab\" value which corresponds to a version newer than the version of this client (\"3.1.0\")."
-          }
+          "accepted": false,
+          "error": "Error: Unsupported version 99 encountered while decoding Schema data. Supported versions for this data are: [1,2].\nThe client which encoded this data likely specified an \"minVersionForCollab\" value which corresponds to a version newer than the version of this client (\"3.1.0\")."
         }
       },
       {
         "id": "corrupt-mark",
-        "executed": true,
         "rejected": true,
         "result": {
-          "input": {
-            "revision": 4,
-            "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
-            "changeset": [
-              {
-                "data": {
-                  "maxId": 18,
-                  "changes": [
-                    {
-                      "fieldKey": "rootFieldKey",
-                      "fieldKind": "ModularEditBuilder.Generic",
-                      "change": [
-                        [
-                          0,
-                          {
-                            "fieldChanges": [
-                              {
-                                "fieldKey": "left",
-                                "fieldKind": "ModularEditBuilder.Generic",
-                                "change": [
-                                  [
-                                    0,
-                                    {
-                                      "fieldChanges": [
-                                        {
-                                          "fieldKey": "",
-                                          "fieldKind": "Sequence",
-                                          "change": [
-                                            {
-                                              "count": 1
-                                            },
-                                            {
-                                              "count": 1,
-                                              "effect": {
-                                                "unknownMove": {
-                                                  "id": 13
-                                                }
-                                              }
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                ]
-                              },
-                              {
-                                "fieldKey": "right",
-                                "fieldKind": "ModularEditBuilder.Generic",
-                                "change": [
-                                  [
-                                    0,
-                                    {
-                                      "fieldChanges": [
-                                        {
-                                          "fieldKey": "",
-                                          "fieldKind": "Sequence",
-                                          "change": [
-                                            {
-                                              "count": 1
-                                            },
-                                            {
-                                              "count": 1,
-                                              "effect": {
-                                                "moveIn": {
-                                                  "id": 13
-                                                }
-                                              },
-                                              "cellId": 14
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                ]
-                              }
-                            ]
-                          }
-                        ]
-                      ]
-                    }
-                  ]
-                }
-              }
-            ],
-            "version": 7
-          },
-          "outcome": {
-            "accepted": false,
-            "error": "Error: 0xac2"
-          }
+          "accepted": false,
+          "error": "AssertionError: message-v7: encoded input must match the typed authoring input.\n+ actual - expected\n... Skipped lines\n\n  [\n    {\n      changeset: [\n        {\n          data: {\n+           builds: {\n+             builds: [\n+               [\n+                 [\n+                   [\n+                     0,\n+                     0\n+                   ]\n+                 ]\n+               ]\n+             ],\n+             trees: {\n+               data: [\n+                 [\n+                   1,\n+                   [\n+                     0,\n+                     'inserted',\n+                     2,\n+                     'new',\n+                     2\n+                   ]\n+                 ]\n+               ],\n+               identifiers: [],\n+               shapes: [\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.string',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   a: 4\n+                 },\n+                 {\n+                   c: {\n+                     fields: [\n+                       [\n+                         'label',\n+                         0\n+                       ],\n+                       [\n+                         'x',\n+                         3\n+                       ]\n+                     ],\n+                     type: 'org.watershed.shared-tree.m3.Point',\n+                     value: false\n+                   }\n+                 },\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.number',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   d: 0\n+                 }\n+               ],\n+               version: 2\n+             }\n+           },\n            changes: [\n              {\n                change: [\n                  [\n                    0,\n...\n                                      {\n+                                       cellId: 0,\n+                                       count: 2,\n+                                       effect: {\n+                                         insert: {\n+                                           id: 0\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 3\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 1,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n                                        count: 1,\n                                        effect: {\n+                                         remove: {\n+                                           id: 4\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 6\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 2,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       cellId: 9,\n+                                       count: 2,\n+                                       effect: {\n+                                         moveIn: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n+                                           id: 8\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 12\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 3,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n-                                         unknownMove: {\n                                            id: 13\n                                          }\n                                        }\n                                      }\n                                    ],\n"
         }
       },
       {
         "id": "corrupt-range",
-        "executed": true,
         "rejected": true,
         "result": {
-          "input": {
-            "start": 2,
-            "end": 1
-          },
-          "outcome": {
-            "accepted": false,
-            "error": "Error: Malformed range passed to TreeArrayNode.removeRange. Start index 2 is greater than end index 1."
-          }
+          "accepted": false,
+          "error": "Error: Malformed range passed to TreeArrayNode.removeRange. Start index 2 is greater than end index 1."
         }
       },
       {
         "id": "corrupt-revision",
-        "executed": true,
         "rejected": true,
         "result": {
-          "input": {
-            "revision": "not-a-revision",
-            "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
-            "changeset": [
-              {
-                "data": {
-                  "maxId": 18,
-                  "changes": [
-                    {
-                      "fieldKey": "rootFieldKey",
-                      "fieldKind": "ModularEditBuilder.Generic",
-                      "change": [
-                        [
-                          0,
-                          {
-                            "fieldChanges": [
-                              {
-                                "fieldKey": "left",
-                                "fieldKind": "ModularEditBuilder.Generic",
-                                "change": [
-                                  [
-                                    0,
-                                    {
-                                      "fieldChanges": [
-                                        {
-                                          "fieldKey": "",
-                                          "fieldKind": "Sequence",
-                                          "change": [
-                                            {
-                                              "count": 1
-                                            },
-                                            {
-                                              "count": 1,
-                                              "effect": {
-                                                "moveOut": {
-                                                  "id": 13
-                                                }
-                                              }
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                ]
-                              },
-                              {
-                                "fieldKey": "right",
-                                "fieldKind": "ModularEditBuilder.Generic",
-                                "change": [
-                                  [
-                                    0,
-                                    {
-                                      "fieldChanges": [
-                                        {
-                                          "fieldKey": "",
-                                          "fieldKind": "Sequence",
-                                          "change": [
-                                            {
-                                              "count": 1
-                                            },
-                                            {
-                                              "count": 1,
-                                              "effect": {
-                                                "moveIn": {
-                                                  "id": 13
-                                                }
-                                              },
-                                              "cellId": 14
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    }
-                                  ]
-                                ]
-                              }
-                            ]
-                          }
-                        ]
-                      ]
-                    }
-                  ]
-                }
-              }
-            ],
-            "version": 7
-          },
-          "outcome": {
-            "accepted": false,
-            "error": "Error: 0x88d"
-          }
+          "accepted": false,
+          "error": "AssertionError: message-v7: encoded input must match the typed authoring input.\n+ actual - expected\n... Skipped lines\n\n  [\n    {\n      changeset: [\n        {\n          data: {\n+           builds: {\n+             builds: [\n+               [\n+                 [\n+                   [\n+                     0,\n+                     0\n+                   ]\n+                 ]\n+               ]\n+             ],\n+             trees: {\n+               data: [\n+                 [\n+                   1,\n+                   [\n+                     0,\n+                     'inserted',\n+                     2,\n+                     'new',\n+                     2\n+                   ]\n+                 ]\n+               ],\n+               identifiers: [],\n+               shapes: [\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.string',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   a: 4\n+                 },\n+                 {\n+                   c: {\n+                     fields: [\n+                       [\n+                         'label',\n+                         0\n+                       ],\n+                       [\n+                         'x',\n+                         3\n+                       ]\n+                     ],\n+                     type: 'org.watershed.shared-tree.m3.Point',\n+                     value: false\n+                   }\n+                 },\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.number',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   d: 0\n+                 }\n+               ],\n+               version: 2\n+             }\n+           },\n            changes: [\n              {\n                change: [\n                  [\n                    0,\n...\n                                      {\n+                                       cellId: 0,\n+                                       count: 2,\n+                                       effect: {\n+                                         insert: {\n+                                           id: 0\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 3\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 1,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n                                        count: 1,\n                                        effect: {\n+                                         remove: {\n+                                           id: 4\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 6\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 2,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n                                          moveOut: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       cellId: 9,\n+                                       count: 2,\n+                                       effect: {\n+                                         moveIn: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n+                                           id: 8\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 12\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 3,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n                                            id: 13\n                                          }\n                                        }\n                                      }\n                                    ],\n...\n      originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 4,\n-     revision: 'not-a-revision',\n      version: 7\n    }\n  ]\n"
         }
       },
       {
         "id": "corrupt-ownership",
-        "executed": true,
         "rejected": true,
         "result": {
-          "input": {
-            "foreign": true
-          },
-          "outcome": {
-            "accepted": false,
-            "error": "Error: A node with schema \"org.watershed.shared-tree.m3.Point\" (name: \"Point\") was inserted into the tree more than once. This is not supported."
-          }
+          "accepted": false,
+          "error": "Error: A node with schema \"org.watershed.shared-tree.m3.Point\" (name: \"Point\") was inserted into the tree more than once. This is not supported."
         }
       },
       {
         "id": "corrupt-summary",
-        "executed": true,
         "rejected": true,
         "result": {
-          "input": {
-            "type": 1,
-            "tree": {}
-          },
-          "outcome": {
-            "accepted": false,
-            "error": "Error: Invalid use of SharedTree after it was put into an invalid state by another error.\nOriginal Error:\nError: 0xc21"
-          }
+          "accepted": false,
+          "error": "Error: Invalid use of SharedTree after it was put into an invalid state by another error.\nOriginal Error:\nError: 0xc21"
         }
       },
       {
         "id": "native-remove-beyond-length",
-        "executed": true,
         "rejected": false,
         "result": {
-          "upstream": {
-            "input": {
-              "start": 1,
-              "end": 99
-            },
-            "value": [
-              "A"
-            ]
-          },
+          "accepted": true,
+          "value": [
+            "A"
+          ],
           "nativeContract": "error"
         }
       }
@@ -1632,177 +878,13 @@
         "input": {
           "id": "corrupt-schema",
           "operation": "corrupt-schema",
-          "initialState": {
-            "left": [
-              "A",
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              [
-                "nested",
-                {
-                  "map": [
-                    [
-                      "",
-                      "empty-key"
-                    ],
-                    [
-                      "0",
-                      "numeric-key"
-                    ]
-                  ]
-                }
-              ]
-            ],
-            "right": [
-              "R"
-            ],
-            "byKey": {
-              "map": [
-                [
-                  "",
-                  [
-                    "empty"
-                  ]
-                ],
-                [
-                  "0",
-                  [
-                    "zero",
-                    [
-                      "deep"
-                    ]
-                  ]
-                ],
-                [
-                  "01",
-                  "leading-zero"
-                ]
-              ]
-            },
-            "narrow": [
-              {
-                "point": {
-                  "label": "narrow",
-                  "x": 9
-                }
-              }
-            ]
-          },
-          "operands": {
-            "operation": "corrupt-schema",
-            "initialState": {
-              "left": [
-                "A",
-                {
-                  "point": {
-                    "label": "same",
-                    "x": 1
-                  }
-                },
-                {
-                  "point": {
-                    "label": "same",
-                    "x": 1
-                  }
-                },
-                [
-                  "nested",
-                  {
-                    "map": [
-                      [
-                        "",
-                        "empty-key"
-                      ],
-                      [
-                        "0",
-                        "numeric-key"
-                      ]
-                    ]
-                  }
-                ]
-              ],
-              "right": [
-                "R"
-              ],
-              "byKey": {
-                "map": [
-                  [
-                    "",
-                    [
-                      "empty"
-                    ]
-                  ],
-                  [
-                    "0",
-                    [
-                      "zero",
-                      [
-                        "deep"
-                      ]
-                    ]
-                  ],
-                  [
-                    "01",
-                    "leading-zero"
-                  ]
-                ]
-              },
-              "narrow": [
-                {
-                  "point": {
-                    "label": "narrow",
-                    "x": 9
-                  }
-                }
-              ]
-            },
-            "operands": {
-              "input": {
-                "version": 99
-              },
-              "outcome": {
-                "accepted": false,
-                "error": "Error: Unsupported version 99 encountered while decoding Schema data. Supported versions for this data are: [1,2].\nThe client which encoded this data likely specified an \"minVersionForCollab\" value which corresponds to a version newer than the version of this client (\"3.1.0\")."
-              }
-            }
-          },
-          "revisions": [],
-          "allocator": {
-            "nextLocalId": 0
-          },
-          "compressor": {
-            "mode": "ongoing",
-            "session": null
-          },
-          "sequencing": {
-            "sequenceNumber": 0,
-            "referenceSequenceNumber": 0,
-            "minimumSequenceNumber": 0
-          },
-          "schedule": [
-            {
-              "step": "corrupt-schema"
-            }
-          ]
+          "malformed": {
+            "version": 99
+          }
         },
         "output": {
-          "input": {
-            "version": 99
-          },
-          "outcome": {
-            "accepted": false,
-            "error": "Error: Unsupported version 99 encountered while decoding Schema data. Supported versions for this data are: [1,2].\nThe client which encoded this data likely specified an \"minVersionForCollab\" value which corresponds to a version newer than the version of this client (\"3.1.0\")."
-          }
+          "accepted": false,
+          "error": "Error: Unsupported version 99 encountered while decoding Schema data. Supported versions for this data are: [1,2].\nThe client which encoded this data likely specified an \"minVersionForCollab\" value which corresponds to a version newer than the version of this client (\"3.1.0\")."
         }
       },
       {
@@ -1810,256 +892,7 @@
         "input": {
           "id": "corrupt-mark",
           "operation": "corrupt-mark",
-          "initialState": {
-            "left": [
-              "A",
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              [
-                "nested",
-                {
-                  "map": [
-                    [
-                      "",
-                      "empty-key"
-                    ],
-                    [
-                      "0",
-                      "numeric-key"
-                    ]
-                  ]
-                }
-              ]
-            ],
-            "right": [
-              "R"
-            ],
-            "byKey": {
-              "map": [
-                [
-                  "",
-                  [
-                    "empty"
-                  ]
-                ],
-                [
-                  "0",
-                  [
-                    "zero",
-                    [
-                      "deep"
-                    ]
-                  ]
-                ],
-                [
-                  "01",
-                  "leading-zero"
-                ]
-              ]
-            },
-            "narrow": [
-              {
-                "point": {
-                  "label": "narrow",
-                  "x": 9
-                }
-              }
-            ]
-          },
-          "operands": {
-            "operation": "corrupt-mark",
-            "initialState": {
-              "left": [
-                "A",
-                {
-                  "point": {
-                    "label": "same",
-                    "x": 1
-                  }
-                },
-                {
-                  "point": {
-                    "label": "same",
-                    "x": 1
-                  }
-                },
-                [
-                  "nested",
-                  {
-                    "map": [
-                      [
-                        "",
-                        "empty-key"
-                      ],
-                      [
-                        "0",
-                        "numeric-key"
-                      ]
-                    ]
-                  }
-                ]
-              ],
-              "right": [
-                "R"
-              ],
-              "byKey": {
-                "map": [
-                  [
-                    "",
-                    [
-                      "empty"
-                    ]
-                  ],
-                  [
-                    "0",
-                    [
-                      "zero",
-                      [
-                        "deep"
-                      ]
-                    ]
-                  ],
-                  [
-                    "01",
-                    "leading-zero"
-                  ]
-                ]
-              },
-              "narrow": [
-                {
-                  "point": {
-                    "label": "narrow",
-                    "x": 9
-                  }
-                }
-              ]
-            },
-            "operands": {
-              "input": {
-                "revision": 4,
-                "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
-                "changeset": [
-                  {
-                    "data": {
-                      "maxId": 18,
-                      "changes": [
-                        {
-                          "fieldKey": "rootFieldKey",
-                          "fieldKind": "ModularEditBuilder.Generic",
-                          "change": [
-                            [
-                              0,
-                              {
-                                "fieldChanges": [
-                                  {
-                                    "fieldKey": "left",
-                                    "fieldKind": "ModularEditBuilder.Generic",
-                                    "change": [
-                                      [
-                                        0,
-                                        {
-                                          "fieldChanges": [
-                                            {
-                                              "fieldKey": "",
-                                              "fieldKind": "Sequence",
-                                              "change": [
-                                                {
-                                                  "count": 1
-                                                },
-                                                {
-                                                  "count": 1,
-                                                  "effect": {
-                                                    "unknownMove": {
-                                                      "id": 13
-                                                    }
-                                                  }
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    ]
-                                  },
-                                  {
-                                    "fieldKey": "right",
-                                    "fieldKind": "ModularEditBuilder.Generic",
-                                    "change": [
-                                      [
-                                        0,
-                                        {
-                                          "fieldChanges": [
-                                            {
-                                              "fieldKey": "",
-                                              "fieldKind": "Sequence",
-                                              "change": [
-                                                {
-                                                  "count": 1
-                                                },
-                                                {
-                                                  "count": 1,
-                                                  "effect": {
-                                                    "moveIn": {
-                                                      "id": 13
-                                                    }
-                                                  },
-                                                  "cellId": 14
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    ]
-                                  }
-                                ]
-                              }
-                            ]
-                          ]
-                        }
-                      ]
-                    }
-                  }
-                ],
-                "version": 7
-              },
-              "outcome": {
-                "accepted": false,
-                "error": "Error: 0xac2"
-              }
-            }
-          },
-          "revisions": [],
-          "allocator": {
-            "nextLocalId": 0
-          },
-          "compressor": {
-            "mode": "ongoing",
-            "session": null
-          },
-          "sequencing": {
-            "sequenceNumber": 0,
-            "referenceSequenceNumber": 0,
-            "minimumSequenceNumber": 0
-          },
-          "schedule": [
-            {
-              "step": "corrupt-mark"
-            }
-          ]
-        },
-        "output": {
-          "input": {
+          "malformed": {
             "revision": 4,
             "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
             "changeset": [
@@ -2147,10 +980,217 @@
             ],
             "version": 7
           },
-          "outcome": {
-            "accepted": false,
-            "error": "Error: 0xac2"
-          }
+          "decodeContext": {
+            "nativeInput": {
+              "initialState": {
+                "left": [
+                  "A",
+                  {
+                    "point": {
+                      "label": "same",
+                      "x": 1
+                    }
+                  },
+                  {
+                    "point": {
+                      "label": "same",
+                      "x": 1
+                    }
+                  },
+                  [
+                    "nested",
+                    {
+                      "map": [
+                        [
+                          "",
+                          "empty-key"
+                        ],
+                        [
+                          "0",
+                          "numeric-key"
+                        ]
+                      ]
+                    }
+                  ]
+                ],
+                "right": [
+                  "R"
+                ],
+                "byKey": {
+                  "map": [
+                    [
+                      "",
+                      [
+                        "empty"
+                      ]
+                    ],
+                    [
+                      "0",
+                      [
+                        "zero",
+                        [
+                          "deep"
+                        ]
+                      ]
+                    ],
+                    [
+                      "01",
+                      "leading-zero"
+                    ]
+                  ]
+                },
+                "narrow": [
+                  {
+                    "point": {
+                      "label": "narrow",
+                      "x": 9
+                    }
+                  }
+                ]
+              },
+              "clients": [
+                {
+                  "id": "client-0",
+                  "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                  "compressor": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAAGSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA"
+                }
+              ],
+              "schedule": [
+                {
+                  "id": "insert",
+                  "op": "insert",
+                  "client": 0,
+                  "path": [
+                    "left"
+                  ],
+                  "index": 1,
+                  "values": [
+                    "inserted",
+                    {
+                      "point": {
+                        "label": "new",
+                        "x": 2
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "remove",
+                  "op": "remove",
+                  "client": 0,
+                  "path": [
+                    "left"
+                  ],
+                  "start": 0,
+                  "end": 1
+                },
+                {
+                  "id": "interior-move",
+                  "op": "move",
+                  "client": 0,
+                  "path": [
+                    "left"
+                  ],
+                  "sourcePath": [
+                    "left"
+                  ],
+                  "start": 1,
+                  "end": 3,
+                  "gap": 2
+                },
+                {
+                  "id": "cross-array-move",
+                  "op": "move",
+                  "client": 0,
+                  "path": [
+                    "right"
+                  ],
+                  "sourcePath": [
+                    "left"
+                  ],
+                  "start": 1,
+                  "end": 2,
+                  "gap": 1
+                },
+                {
+                  "id": "deliver",
+                  "op": "deliver"
+                }
+              ]
+            }
+          },
+          "initialSummary": {
+            "type": 1,
+            "tree": {
+              ".metadata": {
+                "type": 2,
+                "content": "{\"version\":2}"
+              },
+              "indexes": {
+                "type": 1,
+                "tree": {
+                  "EditManager": {
+                    "type": 1,
+                    "tree": {
+                      ".metadata": {
+                        "type": 2,
+                        "content": "{\"version\":2}"
+                      },
+                      "String": {
+                        "type": 2,
+                        "content": "{\"trunk\":[{\"change\":[{\"schema\":{\"new\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}},\"old\":{\"version\":2,\"nodes\":{},\"root\":{\"kind\":\"Forbidden\",\"types\":[]}}}},{\"data\":{\"maxId\":1,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":0,\"s\":1}}}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[\"\"],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Items\",\"value\":false,\"fields\":[[0,4]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Point\",\"value\":false,\"fields\":[[\"label\",0],[\"x\",7]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.ArrayMap\",\"value\":false,\"extraFields\":4}},{\"a\":6},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Root\",\"value\":false,\"fields\":[[\"left\",1],[\"right\",1],[\"byKey\",3],[\"narrow\",8]]}},{\"d\":0},{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Points\",\"value\":false,\"fields\":[[0,9]]}},{\"a\":2}],\"data\":[[5,[0,\"A\",2,\"same\",1,2,\"same\",1,1,[0,\"nested\",3,[0,[0,\"empty-key\"],\"0\",[0,\"numeric-key\"]]]],[0,\"R\"],[0,[1,[0,\"empty\"]],\"0\",[1,[0,\"zero\",1,[0,\"deep\"]]],\"01\",[0,\"leading-zero\"]],[\"narrow\",9]]]}}}},{\"schema\":{\"new\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}},\"old\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}}}}],\"revision\":0,\"sessionId\":\"8f95be09-8376-4ff7-8755-ccd7e8124b06\",\"sequenceNumber\":2}],\"branches\":[],\"version\":7}"
+                      }
+                    }
+                  },
+                  "Schema": {
+                    "type": 1,
+                    "tree": {
+                      ".metadata": {
+                        "type": 2,
+                        "content": "{\"version\":2}"
+                      },
+                      "SchemaString": {
+                        "type": 2,
+                        "content": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}}"
+                      }
+                    }
+                  },
+                  "Forest": {
+                    "type": 1,
+                    "tree": {
+                      ".metadata": {
+                        "type": 2,
+                        "content": "{\"version\":3}"
+                      },
+                      "contents": {
+                        "type": 2,
+                        "content": "{\"keys\":[\"rootFieldKey\"],\"fields\":{\"version\":2,\"identifiers\":[\"\"],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Items\",\"value\":false,\"fields\":[[0,4]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Point\",\"value\":false,\"fields\":[[\"label\",0],[\"x\",7]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.ArrayMap\",\"value\":false,\"extraFields\":4}},{\"a\":6},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Root\",\"value\":false,\"fields\":[[\"left\",1],[\"right\",1],[\"byKey\",3],[\"narrow\",8]]}},{\"d\":0},{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Points\",\"value\":false,\"fields\":[[0,9]]}},{\"a\":2}],\"data\":[[5,[0,\"A\",2,\"same\",1,2,\"same\",1,1,[0,\"nested\",3,[0,[0,\"empty-key\"],\"0\",[0,\"numeric-key\"]]]],[0,\"R\"],[0,[1,[0,\"empty\"]],\"0\",[1,[0,\"zero\",1,[0,\"deep\"]]],\"01\",[0,\"leading-zero\"]],[\"narrow\",9]]]},\"version\":2}"
+                      }
+                    }
+                  },
+                  "DetachedFieldIndex": {
+                    "type": 1,
+                    "tree": {
+                      ".metadata": {
+                        "type": 2,
+                        "content": "{\"version\":2}"
+                      },
+                      "DetachedFieldIndexBlob": {
+                        "type": 2,
+                        "content": "{\"version\":2,\"data\":[],\"maxId\":0}"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "summaryCompressor": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/",
+          "summarySessionId": "839cc8f2-ec6d-4d55-b923-dd955e051d02"
+        },
+        "output": {
+          "accepted": false,
+          "error": "AssertionError: message-v7: encoded input must match the typed authoring input.\n+ actual - expected\n... Skipped lines\n\n  [\n    {\n      changeset: [\n        {\n          data: {\n+           builds: {\n+             builds: [\n+               [\n+                 [\n+                   [\n+                     0,\n+                     0\n+                   ]\n+                 ]\n+               ]\n+             ],\n+             trees: {\n+               data: [\n+                 [\n+                   1,\n+                   [\n+                     0,\n+                     'inserted',\n+                     2,\n+                     'new',\n+                     2\n+                   ]\n+                 ]\n+               ],\n+               identifiers: [],\n+               shapes: [\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.string',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   a: 4\n+                 },\n+                 {\n+                   c: {\n+                     fields: [\n+                       [\n+                         'label',\n+                         0\n+                       ],\n+                       [\n+                         'x',\n+                         3\n+                       ]\n+                     ],\n+                     type: 'org.watershed.shared-tree.m3.Point',\n+                     value: false\n+                   }\n+                 },\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.number',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   d: 0\n+                 }\n+               ],\n+               version: 2\n+             }\n+           },\n            changes: [\n              {\n                change: [\n                  [\n                    0,\n...\n                                      {\n+                                       cellId: 0,\n+                                       count: 2,\n+                                       effect: {\n+                                         insert: {\n+                                           id: 0\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 3\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 1,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n                                        count: 1,\n                                        effect: {\n+                                         remove: {\n+                                           id: 4\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 6\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 2,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       cellId: 9,\n+                                       count: 2,\n+                                       effect: {\n+                                         moveIn: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n+                                           id: 8\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 12\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 3,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n-                                         unknownMove: {\n                                            id: 13\n                                          }\n                                        }\n                                      }\n                                    ],\n"
         }
       },
       {
@@ -2158,179 +1198,19 @@
         "input": {
           "id": "corrupt-range",
           "operation": "corrupt-range",
-          "initialState": {
-            "left": [
-              "A",
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              [
-                "nested",
-                {
-                  "map": [
-                    [
-                      "",
-                      "empty-key"
-                    ],
-                    [
-                      "0",
-                      "numeric-key"
-                    ]
-                  ]
-                }
-              ]
-            ],
-            "right": [
-              "R"
-            ],
-            "byKey": {
-              "map": [
-                [
-                  "",
-                  [
-                    "empty"
-                  ]
-                ],
-                [
-                  "0",
-                  [
-                    "zero",
-                    [
-                      "deep"
-                    ]
-                  ]
-                ],
-                [
-                  "01",
-                  "leading-zero"
-                ]
-              ]
-            },
-            "narrow": [
-              {
-                "point": {
-                  "label": "narrow",
-                  "x": 9
-                }
-              }
-            ]
-          },
-          "operands": {
-            "operation": "corrupt-range",
-            "initialState": {
-              "left": [
-                "A",
-                {
-                  "point": {
-                    "label": "same",
-                    "x": 1
-                  }
-                },
-                {
-                  "point": {
-                    "label": "same",
-                    "x": 1
-                  }
-                },
-                [
-                  "nested",
-                  {
-                    "map": [
-                      [
-                        "",
-                        "empty-key"
-                      ],
-                      [
-                        "0",
-                        "numeric-key"
-                      ]
-                    ]
-                  }
-                ]
-              ],
-              "right": [
-                "R"
-              ],
-              "byKey": {
-                "map": [
-                  [
-                    "",
-                    [
-                      "empty"
-                    ]
-                  ],
-                  [
-                    "0",
-                    [
-                      "zero",
-                      [
-                        "deep"
-                      ]
-                    ]
-                  ],
-                  [
-                    "01",
-                    "leading-zero"
-                  ]
-                ]
-              },
-              "narrow": [
-                {
-                  "point": {
-                    "label": "narrow",
-                    "x": 9
-                  }
-                }
-              ]
-            },
-            "operands": {
-              "input": {
-                "start": 2,
-                "end": 1
-              },
-              "outcome": {
-                "accepted": false,
-                "error": "Error: Malformed range passed to TreeArrayNode.removeRange. Start index 2 is greater than end index 1."
-              }
-            }
-          },
-          "revisions": [],
-          "allocator": {
-            "nextLocalId": 0
-          },
-          "compressor": {
-            "mode": "ongoing",
-            "session": null
-          },
-          "sequencing": {
-            "sequenceNumber": 0,
-            "referenceSequenceNumber": 0,
-            "minimumSequenceNumber": 0
-          },
-          "schedule": [
-            {
-              "step": "corrupt-range"
-            }
-          ]
-        },
-        "output": {
-          "input": {
+          "initialState": [
+            "A",
+            "B",
+            "C"
+          ],
+          "malformed": {
             "start": 2,
             "end": 1
-          },
-          "outcome": {
-            "accepted": false,
-            "error": "Error: Malformed range passed to TreeArrayNode.removeRange. Start index 2 is greater than end index 1."
           }
+        },
+        "output": {
+          "accepted": false,
+          "error": "Error: Malformed range passed to TreeArrayNode.removeRange. Start index 2 is greater than end index 1."
         }
       },
       {
@@ -2338,256 +1218,7 @@
         "input": {
           "id": "corrupt-revision",
           "operation": "corrupt-revision",
-          "initialState": {
-            "left": [
-              "A",
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              [
-                "nested",
-                {
-                  "map": [
-                    [
-                      "",
-                      "empty-key"
-                    ],
-                    [
-                      "0",
-                      "numeric-key"
-                    ]
-                  ]
-                }
-              ]
-            ],
-            "right": [
-              "R"
-            ],
-            "byKey": {
-              "map": [
-                [
-                  "",
-                  [
-                    "empty"
-                  ]
-                ],
-                [
-                  "0",
-                  [
-                    "zero",
-                    [
-                      "deep"
-                    ]
-                  ]
-                ],
-                [
-                  "01",
-                  "leading-zero"
-                ]
-              ]
-            },
-            "narrow": [
-              {
-                "point": {
-                  "label": "narrow",
-                  "x": 9
-                }
-              }
-            ]
-          },
-          "operands": {
-            "operation": "corrupt-revision",
-            "initialState": {
-              "left": [
-                "A",
-                {
-                  "point": {
-                    "label": "same",
-                    "x": 1
-                  }
-                },
-                {
-                  "point": {
-                    "label": "same",
-                    "x": 1
-                  }
-                },
-                [
-                  "nested",
-                  {
-                    "map": [
-                      [
-                        "",
-                        "empty-key"
-                      ],
-                      [
-                        "0",
-                        "numeric-key"
-                      ]
-                    ]
-                  }
-                ]
-              ],
-              "right": [
-                "R"
-              ],
-              "byKey": {
-                "map": [
-                  [
-                    "",
-                    [
-                      "empty"
-                    ]
-                  ],
-                  [
-                    "0",
-                    [
-                      "zero",
-                      [
-                        "deep"
-                      ]
-                    ]
-                  ],
-                  [
-                    "01",
-                    "leading-zero"
-                  ]
-                ]
-              },
-              "narrow": [
-                {
-                  "point": {
-                    "label": "narrow",
-                    "x": 9
-                  }
-                }
-              ]
-            },
-            "operands": {
-              "input": {
-                "revision": "not-a-revision",
-                "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
-                "changeset": [
-                  {
-                    "data": {
-                      "maxId": 18,
-                      "changes": [
-                        {
-                          "fieldKey": "rootFieldKey",
-                          "fieldKind": "ModularEditBuilder.Generic",
-                          "change": [
-                            [
-                              0,
-                              {
-                                "fieldChanges": [
-                                  {
-                                    "fieldKey": "left",
-                                    "fieldKind": "ModularEditBuilder.Generic",
-                                    "change": [
-                                      [
-                                        0,
-                                        {
-                                          "fieldChanges": [
-                                            {
-                                              "fieldKey": "",
-                                              "fieldKind": "Sequence",
-                                              "change": [
-                                                {
-                                                  "count": 1
-                                                },
-                                                {
-                                                  "count": 1,
-                                                  "effect": {
-                                                    "moveOut": {
-                                                      "id": 13
-                                                    }
-                                                  }
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    ]
-                                  },
-                                  {
-                                    "fieldKey": "right",
-                                    "fieldKind": "ModularEditBuilder.Generic",
-                                    "change": [
-                                      [
-                                        0,
-                                        {
-                                          "fieldChanges": [
-                                            {
-                                              "fieldKey": "",
-                                              "fieldKind": "Sequence",
-                                              "change": [
-                                                {
-                                                  "count": 1
-                                                },
-                                                {
-                                                  "count": 1,
-                                                  "effect": {
-                                                    "moveIn": {
-                                                      "id": 13
-                                                    }
-                                                  },
-                                                  "cellId": 14
-                                                }
-                                              ]
-                                            }
-                                          ]
-                                        }
-                                      ]
-                                    ]
-                                  }
-                                ]
-                              }
-                            ]
-                          ]
-                        }
-                      ]
-                    }
-                  }
-                ],
-                "version": 7
-              },
-              "outcome": {
-                "accepted": false,
-                "error": "Error: 0x88d"
-              }
-            }
-          },
-          "revisions": [],
-          "allocator": {
-            "nextLocalId": 0
-          },
-          "compressor": {
-            "mode": "ongoing",
-            "session": null
-          },
-          "sequencing": {
-            "sequenceNumber": 0,
-            "referenceSequenceNumber": 0,
-            "minimumSequenceNumber": 0
-          },
-          "schedule": [
-            {
-              "step": "corrupt-revision"
-            }
-          ]
-        },
-        "output": {
-          "input": {
+          "malformed": {
             "revision": "not-a-revision",
             "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
             "changeset": [
@@ -2675,10 +1306,217 @@
             ],
             "version": 7
           },
-          "outcome": {
-            "accepted": false,
-            "error": "Error: 0x88d"
-          }
+          "decodeContext": {
+            "nativeInput": {
+              "initialState": {
+                "left": [
+                  "A",
+                  {
+                    "point": {
+                      "label": "same",
+                      "x": 1
+                    }
+                  },
+                  {
+                    "point": {
+                      "label": "same",
+                      "x": 1
+                    }
+                  },
+                  [
+                    "nested",
+                    {
+                      "map": [
+                        [
+                          "",
+                          "empty-key"
+                        ],
+                        [
+                          "0",
+                          "numeric-key"
+                        ]
+                      ]
+                    }
+                  ]
+                ],
+                "right": [
+                  "R"
+                ],
+                "byKey": {
+                  "map": [
+                    [
+                      "",
+                      [
+                        "empty"
+                      ]
+                    ],
+                    [
+                      "0",
+                      [
+                        "zero",
+                        [
+                          "deep"
+                        ]
+                      ]
+                    ],
+                    [
+                      "01",
+                      "leading-zero"
+                    ]
+                  ]
+                },
+                "narrow": [
+                  {
+                    "point": {
+                      "label": "narrow",
+                      "x": 9
+                    }
+                  }
+                ]
+              },
+              "clients": [
+                {
+                  "id": "client-0",
+                  "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                  "compressor": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAAGSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA"
+                }
+              ],
+              "schedule": [
+                {
+                  "id": "insert",
+                  "op": "insert",
+                  "client": 0,
+                  "path": [
+                    "left"
+                  ],
+                  "index": 1,
+                  "values": [
+                    "inserted",
+                    {
+                      "point": {
+                        "label": "new",
+                        "x": 2
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "remove",
+                  "op": "remove",
+                  "client": 0,
+                  "path": [
+                    "left"
+                  ],
+                  "start": 0,
+                  "end": 1
+                },
+                {
+                  "id": "interior-move",
+                  "op": "move",
+                  "client": 0,
+                  "path": [
+                    "left"
+                  ],
+                  "sourcePath": [
+                    "left"
+                  ],
+                  "start": 1,
+                  "end": 3,
+                  "gap": 2
+                },
+                {
+                  "id": "cross-array-move",
+                  "op": "move",
+                  "client": 0,
+                  "path": [
+                    "right"
+                  ],
+                  "sourcePath": [
+                    "left"
+                  ],
+                  "start": 1,
+                  "end": 2,
+                  "gap": 1
+                },
+                {
+                  "id": "deliver",
+                  "op": "deliver"
+                }
+              ]
+            }
+          },
+          "initialSummary": {
+            "type": 1,
+            "tree": {
+              ".metadata": {
+                "type": 2,
+                "content": "{\"version\":2}"
+              },
+              "indexes": {
+                "type": 1,
+                "tree": {
+                  "EditManager": {
+                    "type": 1,
+                    "tree": {
+                      ".metadata": {
+                        "type": 2,
+                        "content": "{\"version\":2}"
+                      },
+                      "String": {
+                        "type": 2,
+                        "content": "{\"trunk\":[{\"change\":[{\"schema\":{\"new\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}},\"old\":{\"version\":2,\"nodes\":{},\"root\":{\"kind\":\"Forbidden\",\"types\":[]}}}},{\"data\":{\"maxId\":1,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"Optional\",\"change\":{\"r\":{\"e\":true,\"d\":0,\"s\":1}}}],\"builds\":{\"builds\":[[[[1,0]]]],\"trees\":{\"version\":2,\"identifiers\":[\"\"],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Items\",\"value\":false,\"fields\":[[0,4]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Point\",\"value\":false,\"fields\":[[\"label\",0],[\"x\",7]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.ArrayMap\",\"value\":false,\"extraFields\":4}},{\"a\":6},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Root\",\"value\":false,\"fields\":[[\"left\",1],[\"right\",1],[\"byKey\",3],[\"narrow\",8]]}},{\"d\":0},{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Points\",\"value\":false,\"fields\":[[0,9]]}},{\"a\":2}],\"data\":[[5,[0,\"A\",2,\"same\",1,2,\"same\",1,1,[0,\"nested\",3,[0,[0,\"empty-key\"],\"0\",[0,\"numeric-key\"]]]],[0,\"R\"],[0,[1,[0,\"empty\"]],\"0\",[1,[0,\"zero\",1,[0,\"deep\"]]],\"01\",[0,\"leading-zero\"]],[\"narrow\",9]]]}}}},{\"schema\":{\"new\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}},\"old\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}}}}],\"revision\":0,\"sessionId\":\"8f95be09-8376-4ff7-8755-ccd7e8124b06\",\"sequenceNumber\":2}],\"branches\":[],\"version\":7}"
+                      }
+                    }
+                  },
+                  "Schema": {
+                    "type": 1,
+                    "tree": {
+                      ".metadata": {
+                        "type": 2,
+                        "content": "{\"version\":2}"
+                      },
+                      "SchemaString": {
+                        "type": 2,
+                        "content": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ArrayMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}},\"org.watershed.shared-tree.m3.Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ArrayMap\",\"org.watershed.shared-tree.m3.Items\",\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Point\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m3.Points\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"org.watershed.shared-tree.m3.Point\"]}}}},\"org.watershed.shared-tree.m3.Root\":{\"kind\":{\"object\":{\"byKey\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ArrayMap\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]},\"narrow\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Points\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Items\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.Root\"]}}"
+                      }
+                    }
+                  },
+                  "Forest": {
+                    "type": 1,
+                    "tree": {
+                      ".metadata": {
+                        "type": 2,
+                        "content": "{\"version\":3}"
+                      },
+                      "contents": {
+                        "type": 2,
+                        "content": "{\"keys\":[\"rootFieldKey\"],\"fields\":{\"version\":2,\"identifiers\":[\"\"],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Items\",\"value\":false,\"fields\":[[0,4]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Point\",\"value\":false,\"fields\":[[\"label\",0],[\"x\",7]]}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.ArrayMap\",\"value\":false,\"extraFields\":4}},{\"a\":6},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Root\",\"value\":false,\"fields\":[[\"left\",1],[\"right\",1],[\"byKey\",3],[\"narrow\",8]]}},{\"d\":0},{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m3.Points\",\"value\":false,\"fields\":[[0,9]]}},{\"a\":2}],\"data\":[[5,[0,\"A\",2,\"same\",1,2,\"same\",1,1,[0,\"nested\",3,[0,[0,\"empty-key\"],\"0\",[0,\"numeric-key\"]]]],[0,\"R\"],[0,[1,[0,\"empty\"]],\"0\",[1,[0,\"zero\",1,[0,\"deep\"]]],\"01\",[0,\"leading-zero\"]],[\"narrow\",9]]]},\"version\":2}"
+                      }
+                    }
+                  },
+                  "DetachedFieldIndex": {
+                    "type": 1,
+                    "tree": {
+                      ".metadata": {
+                        "type": 2,
+                        "content": "{\"version\":2}"
+                      },
+                      "DetachedFieldIndexBlob": {
+                        "type": 2,
+                        "content": "{\"version\":2,\"data\":[],\"maxId\":0}"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "summaryCompressor": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/",
+          "summarySessionId": "839cc8f2-ec6d-4d55-b923-dd955e051d02"
+        },
+        "output": {
+          "accepted": false,
+          "error": "AssertionError: message-v7: encoded input must match the typed authoring input.\n+ actual - expected\n... Skipped lines\n\n  [\n    {\n      changeset: [\n        {\n          data: {\n+           builds: {\n+             builds: [\n+               [\n+                 [\n+                   [\n+                     0,\n+                     0\n+                   ]\n+                 ]\n+               ]\n+             ],\n+             trees: {\n+               data: [\n+                 [\n+                   1,\n+                   [\n+                     0,\n+                     'inserted',\n+                     2,\n+                     'new',\n+                     2\n+                   ]\n+                 ]\n+               ],\n+               identifiers: [],\n+               shapes: [\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.string',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   a: 4\n+                 },\n+                 {\n+                   c: {\n+                     fields: [\n+                       [\n+                         'label',\n+                         0\n+                       ],\n+                       [\n+                         'x',\n+                         3\n+                       ]\n+                     ],\n+                     type: 'org.watershed.shared-tree.m3.Point',\n+                     value: false\n+                   }\n+                 },\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.number',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   d: 0\n+                 }\n+               ],\n+               version: 2\n+             }\n+           },\n            changes: [\n              {\n                change: [\n                  [\n                    0,\n...\n                                      {\n+                                       cellId: 0,\n+                                       count: 2,\n+                                       effect: {\n+                                         insert: {\n+                                           id: 0\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 3\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 1,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n                                        count: 1,\n                                        effect: {\n+                                         remove: {\n+                                           id: 4\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 6\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 2,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n                                          moveOut: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       cellId: 9,\n+                                       count: 2,\n+                                       effect: {\n+                                         moveIn: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n+                                           id: 8\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 12\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 3,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n                                            id: 13\n                                          }\n                                        }\n                                      }\n                                    ],\n...\n      originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 4,\n-     revision: 'not-a-revision',\n      version: 7\n    }\n  ]\n"
         }
       },
       {
@@ -2686,75 +1524,8 @@
         "input": {
           "id": "corrupt-ownership",
           "operation": "corrupt-ownership",
-          "initialState": {
-            "left": [
-              "A",
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              [
-                "nested",
-                {
-                  "map": [
-                    [
-                      "",
-                      "empty-key"
-                    ],
-                    [
-                      "0",
-                      "numeric-key"
-                    ]
-                  ]
-                }
-              ]
-            ],
-            "right": [
-              "R"
-            ],
-            "byKey": {
-              "map": [
-                [
-                  "",
-                  [
-                    "empty"
-                  ]
-                ],
-                [
-                  "0",
-                  [
-                    "zero",
-                    [
-                      "deep"
-                    ]
-                  ]
-                ],
-                [
-                  "01",
-                  "leading-zero"
-                ]
-              ]
-            },
-            "narrow": [
-              {
-                "point": {
-                  "label": "narrow",
-                  "x": 9
-                }
-              }
-            ]
-          },
-          "operands": {
-            "operation": "corrupt-ownership",
-            "initialState": {
+          "initialStates": [
+            {
               "left": [
                 "A",
                 {
@@ -2820,43 +1591,93 @@
                 }
               ]
             },
-            "operands": {
-              "input": {
-                "foreign": true
-              },
-              "outcome": {
-                "accepted": false,
-                "error": "Error: A node with schema \"org.watershed.shared-tree.m3.Point\" (name: \"Point\") was inserted into the tree more than once. This is not supported."
-              }
-            }
-          },
-          "revisions": [],
-          "allocator": {
-            "nextLocalId": 0
-          },
-          "compressor": {
-            "mode": "ongoing",
-            "session": null
-          },
-          "sequencing": {
-            "sequenceNumber": 0,
-            "referenceSequenceNumber": 0,
-            "minimumSequenceNumber": 0
-          },
-          "schedule": [
             {
-              "step": "corrupt-ownership"
+              "left": [
+                "A",
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                [
+                  "nested",
+                  {
+                    "map": [
+                      [
+                        "",
+                        "empty-key"
+                      ],
+                      [
+                        "0",
+                        "numeric-key"
+                      ]
+                    ]
+                  }
+                ]
+              ],
+              "right": [
+                "R"
+              ],
+              "byKey": {
+                "map": [
+                  [
+                    "",
+                    [
+                      "empty"
+                    ]
+                  ],
+                  [
+                    "0",
+                    [
+                      "zero",
+                      [
+                        "deep"
+                      ]
+                    ]
+                  ],
+                  [
+                    "01",
+                    "leading-zero"
+                  ]
+                ]
+              },
+              "narrow": [
+                {
+                  "point": {
+                    "label": "narrow",
+                    "x": 9
+                  }
+                }
+              ]
             }
-          ]
+          ],
+          "malformed": {
+            "source": {
+              "client": 1,
+              "path": [
+                "narrow",
+                "0"
+              ]
+            },
+            "destination": {
+              "client": 0,
+              "path": [
+                "narrow"
+              ],
+              "gap": 0
+            }
+          }
         },
         "output": {
-          "input": {
-            "foreign": true
-          },
-          "outcome": {
-            "accepted": false,
-            "error": "Error: A node with schema \"org.watershed.shared-tree.m3.Point\" (name: \"Point\") was inserted into the tree more than once. This is not supported."
-          }
+          "accepted": false,
+          "error": "Error: A node with schema \"org.watershed.shared-tree.m3.Point\" (name: \"Point\") was inserted into the tree more than once. This is not supported."
         }
       },
       {
@@ -2864,179 +1685,18 @@
         "input": {
           "id": "corrupt-summary",
           "operation": "corrupt-summary",
-          "initialState": {
-            "left": [
-              "A",
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              [
-                "nested",
-                {
-                  "map": [
-                    [
-                      "",
-                      "empty-key"
-                    ],
-                    [
-                      "0",
-                      "numeric-key"
-                    ]
-                  ]
-                }
-              ]
-            ],
-            "right": [
-              "R"
-            ],
-            "byKey": {
-              "map": [
-                [
-                  "",
-                  [
-                    "empty"
-                  ]
-                ],
-                [
-                  "0",
-                  [
-                    "zero",
-                    [
-                      "deep"
-                    ]
-                  ]
-                ],
-                [
-                  "01",
-                  "leading-zero"
-                ]
-              ]
-            },
-            "narrow": [
-              {
-                "point": {
-                  "label": "narrow",
-                  "x": 9
-                }
-              }
-            ]
-          },
-          "operands": {
-            "operation": "corrupt-summary",
-            "initialState": {
-              "left": [
-                "A",
-                {
-                  "point": {
-                    "label": "same",
-                    "x": 1
-                  }
-                },
-                {
-                  "point": {
-                    "label": "same",
-                    "x": 1
-                  }
-                },
-                [
-                  "nested",
-                  {
-                    "map": [
-                      [
-                        "",
-                        "empty-key"
-                      ],
-                      [
-                        "0",
-                        "numeric-key"
-                      ]
-                    ]
-                  }
-                ]
-              ],
-              "right": [
-                "R"
-              ],
-              "byKey": {
-                "map": [
-                  [
-                    "",
-                    [
-                      "empty"
-                    ]
-                  ],
-                  [
-                    "0",
-                    [
-                      "zero",
-                      [
-                        "deep"
-                      ]
-                    ]
-                  ],
-                  [
-                    "01",
-                    "leading-zero"
-                  ]
-                ]
-              },
-              "narrow": [
-                {
-                  "point": {
-                    "label": "narrow",
-                    "x": 9
-                  }
-                }
-              ]
-            },
-            "operands": {
-              "input": {
-                "type": 1,
-                "tree": {}
-              },
-              "outcome": {
-                "accepted": false,
-                "error": "Error: Invalid use of SharedTree after it was put into an invalid state by another error.\nOriginal Error:\nError: 0xc21"
-              }
-            }
-          },
-          "revisions": [],
-          "allocator": {
-            "nextLocalId": 0
-          },
-          "compressor": {
-            "mode": "ongoing",
-            "session": null
-          },
-          "sequencing": {
-            "sequenceNumber": 0,
-            "referenceSequenceNumber": 0,
-            "minimumSequenceNumber": 0
-          },
-          "schedule": [
-            {
-              "step": "corrupt-summary"
-            }
-          ]
-        },
-        "output": {
-          "input": {
+          "malformed": {
             "type": 1,
             "tree": {}
           },
-          "outcome": {
-            "accepted": false,
-            "error": "Error: Invalid use of SharedTree after it was put into an invalid state by another error.\nOriginal Error:\nError: 0xc21"
+          "decodeContext": {
+            "compressor": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEAGSxLo18xVx/3bDSb4Vj4C4q0c3CCt94blqCSy+qSBAgAAAAAAAAAAAAAAAAAIgEAAAAAAAAAiQAAAAAAAAPA/AAAAAAAIgEAAAAAAAADwPw==",
+            "sessionId": "12859567-8fea-42d3-a34a-cc2bab6b6196"
           }
+        },
+        "output": {
+          "accepted": false,
+          "error": "Error: Invalid use of SharedTree after it was put into an invalid state by another error.\nOriginal Error:\nError: 0xc21"
         }
       },
       {
@@ -3044,182 +1704,21 @@
         "input": {
           "id": "native-remove-beyond-length",
           "operation": "native-remove-beyond-length",
-          "initialState": {
-            "left": [
-              "A",
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              {
-                "point": {
-                  "label": "same",
-                  "x": 1
-                }
-              },
-              [
-                "nested",
-                {
-                  "map": [
-                    [
-                      "",
-                      "empty-key"
-                    ],
-                    [
-                      "0",
-                      "numeric-key"
-                    ]
-                  ]
-                }
-              ]
-            ],
-            "right": [
-              "R"
-            ],
-            "byKey": {
-              "map": [
-                [
-                  "",
-                  [
-                    "empty"
-                  ]
-                ],
-                [
-                  "0",
-                  [
-                    "zero",
-                    [
-                      "deep"
-                    ]
-                  ]
-                ],
-                [
-                  "01",
-                  "leading-zero"
-                ]
-              ]
-            },
-            "narrow": [
-              {
-                "point": {
-                  "label": "narrow",
-                  "x": 9
-                }
-              }
-            ]
+          "initialState": [
+            "A",
+            "B"
+          ],
+          "malformed": {
+            "start": 1,
+            "end": 99
           },
-          "operands": {
-            "operation": "native-remove-beyond-length",
-            "initialState": {
-              "left": [
-                "A",
-                {
-                  "point": {
-                    "label": "same",
-                    "x": 1
-                  }
-                },
-                {
-                  "point": {
-                    "label": "same",
-                    "x": 1
-                  }
-                },
-                [
-                  "nested",
-                  {
-                    "map": [
-                      [
-                        "",
-                        "empty-key"
-                      ],
-                      [
-                        "0",
-                        "numeric-key"
-                      ]
-                    ]
-                  }
-                ]
-              ],
-              "right": [
-                "R"
-              ],
-              "byKey": {
-                "map": [
-                  [
-                    "",
-                    [
-                      "empty"
-                    ]
-                  ],
-                  [
-                    "0",
-                    [
-                      "zero",
-                      [
-                        "deep"
-                      ]
-                    ]
-                  ],
-                  [
-                    "01",
-                    "leading-zero"
-                  ]
-                ]
-              },
-              "narrow": [
-                {
-                  "point": {
-                    "label": "narrow",
-                    "x": 9
-                  }
-                }
-              ]
-            },
-            "operands": {
-              "upstream": {
-                "input": {
-                  "start": 1,
-                  "end": 99
-                },
-                "value": [
-                  "A"
-                ]
-              },
-              "nativeContract": "error"
-            }
-          },
-          "revisions": [],
-          "allocator": {
-            "nextLocalId": 0
-          },
-          "compressor": {
-            "mode": "ongoing",
-            "session": null
-          },
-          "sequencing": {
-            "sequenceNumber": 0,
-            "referenceSequenceNumber": 0,
-            "minimumSequenceNumber": 0
-          },
-          "schedule": [
-            {
-              "step": "native-remove-beyond-length"
-            }
-          ]
+          "nativeContract": "error"
         },
         "output": {
-          "upstream": {
-            "input": {
-              "start": 1,
-              "end": 99
-            },
-            "value": [
-              "A"
-            ]
-          },
+          "accepted": true,
+          "value": [
+            "A"
+          ],
           "nativeContract": "error"
         }
       }

@@ -404,7 +404,7 @@ function encodeFieldChanges(value: FieldChangeMap): (readonly [string, PlainFiel
 	});
 }
 
-function graph(change: ModularChangeset): PlainModularChange {
+export function encodeModularGraph(change: ModularChangeset): PlainModularChange {
 	return {
 		maxLocalId: Number(change.maxId ?? -1),
 		revisions: (change.revisions ?? []).map((info) => ({
@@ -789,7 +789,7 @@ export function replayArrayModularInput(input: Record<string, unknown>): unknown
 		);
 	}
 	return {
-		graph: graph(result),
+		graph: encodeModularGraph(result),
 		delta: delta(intoDelta(tagChange(result, resultRevision))),
 		conversion: {
 			directions: instrumentation.conversionCalls.map((call) => call.direction),
@@ -840,7 +840,7 @@ function crossFieldChange(
 		fieldKinds,
 		newChangeAtomIdBTree(),
 	);
-	return graph(
+	return encodeModularGraph(
 		makeModularChangeset({
 			maxId: 42,
 			revisions: [{ revision }],
@@ -881,7 +881,7 @@ export function crossFieldCoordinationInput(revision: RevisionTag): ReplayInput 
 		fieldKinds,
 		newChangeAtomIdBTree(),
 	);
-	const second = graph(
+	const second = encodeModularGraph(
 		makeModularChangeset({
 			maxId: 50,
 			revisions: [{ revision }],
