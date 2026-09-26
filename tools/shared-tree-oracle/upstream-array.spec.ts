@@ -32,6 +32,7 @@ import {
 import { FluidClientVersion, FormatValidatorNoOp } from "../codec/index.js";
 import {
 	tagChange,
+	type GraphCommit,
 	type RevisionTag,
 	type TaggedChange,
 } from "../core/index.js";
@@ -47,7 +48,7 @@ import {
 	schemaCodecBuilder,
 	type ModularChangeset,
 } from "../feature-libraries/index.js";
-import { Tree } from "../shared-tree/index.js";
+import { Tree, type SharedTreeChange } from "../shared-tree/index.js";
 import { configuredSharedTreeInternal } from "../treeFactory.js";
 import {
 	crossFieldCoordinationInput,
@@ -1317,9 +1318,10 @@ function oracleCase(
 }
 
 function managerState(tree: TestTreeProviderLite["trees"][number]) {
+	type Commit = GraphCommit<SharedTreeChange>;
 	const manager = Reflect.get(tree.kernel, "editManager") as {
-		getLocalCommits(branch: string): { revision: unknown }[];
-		getTrunkCommits(branch: string): { revision: unknown }[];
+		getLocalCommits(branch: string): Commit[];
+		getTrunkCommits(branch: string): Commit[];
 		getLongestBranchLength(): number;
 		sharedBranches: Map<string, object>;
 	};
@@ -1329,28 +1331,34 @@ function managerState(tree: TestTreeProviderLite["trees"][number]) {
 			unknown,
 			{ sequenceId: { sequenceNumber: number; indexInBatch?: number }; sessionId: unknown }
 		>;
-		peerLocalBranches: Map<unknown, { getHead(): { revision: unknown; parent?: unknown } }>;
+		peerLocalBranches: Map<unknown, { getHead(): Commit }>;
 	};
 	assert(main !== undefined, "The public tree must expose its main branch.");
+	const observeCommit = (commit: Commit) => ({
+		revision: commit.revision,
+		changes: normalizedDecodedMessage({ commit }).changes,
+	});
+	const trunk = manager.getTrunkCommits("main");
+	const trunkRevisions = new Set(trunk.map(({ revision }) => revision));
 	return {
-		pending: manager.getLocalCommits("main").map((commit) => commit.revision),
-		trunk: manager.getTrunkCommits("main").map((commit) => {
+		pending: manager.getLocalCommits("main").map(observeCommit),
+		trunk: trunk.map((commit) => {
 			const metadata = main.commitMetadata.get(commit.revision);
 			return {
-				revision: commit.revision,
+				...observeCommit(commit),
 				sessionId: metadata?.sessionId ?? null,
 				sequenceNumber: metadata?.sequenceId.sequenceNumber ?? null,
 				indexInBatch: metadata?.sequenceId.indexInBatch ?? null,
 			};
 		}),
 		peers: [...main.peerLocalBranches].map(([sessionId, branch]) => {
-			const revisions: unknown[] = [];
-			let commit: { revision: unknown; parent?: unknown } | undefined = branch.getHead();
-			while (commit !== undefined && commit.revision !== "root") {
-				revisions.push(commit.revision);
-				commit = commit.parent as typeof commit;
+			const commits: ReturnType<typeof observeCommit>[] = [];
+			let commit = branch.getHead();
+			while (commit.parent !== undefined && !trunkRevisions.has(commit.revision)) {
+				commits.push(observeCommit(commit));
+				commit = commit.parent;
 			}
-			return { sessionId, revisions };
+			return { sessionId, base: commit.revision, commits };
 		}),
 		longestBranchLength: manager.getLongestBranchLength(),
 	};

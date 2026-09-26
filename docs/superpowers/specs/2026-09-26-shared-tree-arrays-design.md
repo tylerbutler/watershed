@@ -102,7 +102,10 @@ results for later native runners; they do not constitute M3 acceptance.
 
 These fixtures are source evidence, not native coverage. Add a case to the
 native semantic-runner lists only after an input-only runner passes on both
-targets. Task 1 remains pending independent review.
+targets. Task 1 source-contract review is complete, including the internal
+signature corrections below. A retained-history mutation regression checks
+decoded commit changes alongside metadata; the native implementation and M3
+acceptance gates remain open.
 
 ## 3. API and path behavior
 

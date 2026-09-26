@@ -76,7 +76,7 @@ type PlainFieldId = {
 };
 
 type PlainFieldChange = {
-	readonly kind: "Generic" | "Sequence";
+	readonly kind: "Generic" | "Sequence" | "Value" | "Optional";
 	readonly change: unknown;
 };
 
@@ -333,6 +333,15 @@ function decodeFieldChanges(
 				fieldKind: genericFieldKind.identifier,
 				change: brand(change),
 			});
+		} else if (entry[1].kind === "Value" || entry[1].kind === "Optional") {
+			object(entry[1].change, "The register change must be an object.");
+			assert(Array.isArray(entry[1].change.moves)
+				&& Array.isArray(entry[1].change.childChanges),
+				"The register change must contain moves and child changes.");
+			fields.set(field, {
+				fieldKind: brand(entry[1].kind),
+				change: brand(copy(entry[1].change)),
+			});
 		} else {
 			assert.equal(entry[1].kind, "Sequence", "Unsupported modular field kind.");
 			const change = decodeSequence(entry[1].change, "The Sequence change must be valid.");
@@ -479,6 +488,15 @@ function encodeFieldChanges(value: FieldChangeMap): (readonly [string, PlainFiel
 					change: {
 						children: [...change.entries()].map(([index, id]) => [index, plainAtom(id)]),
 					},
+				},
+			] as const;
+		}
+		if (field.fieldKind === "Value" || field.fieldKind === "Optional") {
+			return [
+				String(key),
+				{
+					kind: field.fieldKind === "Value" ? "Value" : "Optional",
+					change: copy(field.change),
 				},
 			] as const;
 		}

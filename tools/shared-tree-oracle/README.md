@@ -179,6 +179,10 @@ and window-advance actions. Their checkpoints include pending, trunk, and peer
 state, full processed envelopes, sequence numbers, and serialized compressor
 state. Fixture-provided reconnect identities normalize the source mock
 runtime's incidental client IDs, so repeated replay is deterministic.
+History observations include decoded pending, trunk, and peer commit changes.
+Peer branches reference their shared trunk base rather than duplicate its
+commits. The replay check mutates a retained removal count and requires a
+different decoded history while the stored forest remains unchanged.
 Summary-tail replay includes the starting summary compressors, the tail and
 continuation envelopes, and the continuation creation range; observations come
 from the restored source history and detached index. A fresh reader authors the

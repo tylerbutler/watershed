@@ -479,8 +479,14 @@ Use `git commit -m "test(tree): capture array and sequence contracts"`.
 - Equal-valued and interior public moves are not no-ops even when visible
   values compare equal: they emit commits and change events. Only empty insert,
   empty remove, and empty same-array move are suppressed by the public wrapper.
-- Task 1 remains pending independent review. Fixture regeneration against its
-  own generator is not acceptance and does not establish native coverage.
+- Task 1 source-contract review is complete. Independent review accepted the
+  replay context, actual decoder controls, decoded content tables, and native
+  signature corrections. The remaining history omission has a regression:
+  changing a retained removal count changes the decoded history, with unchanged
+  revision metadata and stored forest. Pending, trunk, and peer observations
+  include commit changes, with peer bases referencing the shared trunk.
+  Fresh-process replay and all 38 source cases pass; native coverage remains
+  unclaimed.
 
 ### Task 2: Support read-only array schemas, values, paths, and content
 
