@@ -11,6 +11,7 @@ import {
 	createSessionId,
 	deserializeIdCompressor,
 	serializeIdCompressor,
+	toIdCompressorWithCore,
 } from "@fluidframework/id-compressor/internal";
 import {
 	MockDeltaConnection,
@@ -18,17 +19,30 @@ import {
 	MockSharedObjectServices,
 } from "@fluidframework/test-runtime-utils/internal";
 
-import { FluidClientVersion } from "../codec/index.js";
+import { FluidClientVersion, FormatValidatorNoOp } from "../codec/index.js";
+import {
+	revisionMetadataSourceFromInfo,
+	tagChange,
+	type RevisionTag,
+	type TaggedChange,
+} from "../core/index.js";
 import {
 	extractPersistedSchema,
 	SchemaFactory,
 	TreeViewConfiguration,
 	type ImplicitFieldSchema,
 } from "../simple-tree/index.js";
+import {
+	intoDelta,
+	schemaCodecBuilder,
+	type ModularChangeset,
+} from "../feature-libraries/index.js";
 import { Tree } from "../shared-tree/index.js";
 import { configuredSharedTreeInternal } from "../treeFactory.js";
+import { makeArrayModularFamily } from "./watershedArraySupport.js";
 import { MockContainerRuntimeWithOpBunching } from "./mocksForOpBunching.js";
 import { TestTreeProviderLite } from "./utils.js";
+import { captureCrossFieldCoordination } from "./watershedSequence.spec.js";
 
 const formatVersion = 1;
 const reference = {
@@ -98,6 +112,33 @@ function copy<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value));
 }
 
+function executed(run: () => unknown): { accepted: true; value: unknown } | {
+	accepted: false;
+	error: string;
+} {
+	try {
+		return { accepted: true, value: copy(run()) };
+	} catch (error) {
+		return {
+			accepted: false,
+			error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+		};
+	}
+}
+
+async function executedAsync(run: () => Promise<unknown>): Promise<
+	{ accepted: true; value: unknown } | { accepted: false; error: string }
+> {
+	try {
+		return { accepted: true, value: copy(await run()) };
+	} catch (error) {
+		return {
+			accepted: false,
+			error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+		};
+	}
+}
+
 function schemaString(schema: ImplicitFieldSchema): string {
 	return JSON.stringify(extractPersistedSchema(
 		schema,
@@ -154,9 +195,50 @@ function fieldKinds(value: unknown): string[] {
 	return [...kinds].sort();
 }
 
+function modularStructure(change: ModularChangeset) {
+	const delta = intoDelta(tagChange(change, undefined));
+	return {
+		maxId: change.maxId ?? null,
+		revisions: (change.revisions ?? []).map((item) => ({
+			revision: item.revision,
+			rollbackOf: item.rollbackOf ?? null,
+		})),
+		fieldKinds: fieldKinds(change),
+		fields: [...change.fieldChanges].map(([key, field]) => ({
+			key: String(key),
+			kind: String(field.fieldKind),
+		})),
+		nodes: [...change.nodeChanges.entries()].length,
+		parents: [...change.nodeToParent.entries()].length,
+		aliases: [...change.nodeAliases.entries()].length,
+		crossFieldKeys: change.crossFieldKeys.entries().map((entry) => ({
+			key: copy(entry.start),
+			count: entry.length,
+			field: copy(entry.value),
+		})),
+		delta: {
+			fields: [...(delta.fields ?? [])].map(([key, field]) => ({
+				key: String(key),
+				marks: field.marks.map((mark) => ({
+					count: mark.count,
+					attach: mark.attach === undefined ? null : copy(mark.attach),
+					detach: mark.detach === undefined ? null : copy(mark.detach),
+					nestedFields: mark.fields?.size ?? 0,
+				})),
+			})),
+			builds: delta.build?.length ?? 0,
+			refreshers: delta.refreshers?.length ?? 0,
+			renames: delta.rename?.length ?? 0,
+			destroys: delta.destroy?.length ?? 0,
+		},
+	};
+}
+
 function visible(value: unknown): unknown {
 	if (value instanceof Point) return { point: { label: value.label, x: value.x } };
-	if (value instanceof Items || value instanceof Points) return [...value].map(visible);
+	if (value instanceof Items || value instanceof Points) {
+		return Array.from({ length: value.length }, (_, index) => visible(value[index]));
+	}
 	if (value instanceof ArrayMap) {
 		return { map: [...value.entries()].map(([key, item]) => [key, visible(item)]) };
 	}
@@ -213,15 +295,53 @@ function oracleCase(
 		reference,
 		id,
 		domain,
-		input: { ...extraInput, scenarios: scenarios.map((scenario) => ({ id: scenario.id, ...scenario.input })) },
+		input: {
+			...extraInput,
+			scenarios: scenarios.map((scenario) => ({
+				id: scenario.id,
+				...copy(scenario.input),
+				operation: scenario.input.operation,
+				initialState: scenario.input.initialState ?? null,
+				operands: copy(scenario.input),
+				revisions: scenario.input.revisions ?? [],
+				allocator: scenario.input.allocator ?? { nextLocalId: 0 },
+				compressor: scenario.input.compressor ?? { mode: "ongoing", session: null },
+				sequencing: scenario.input.sequencing ?? {
+					sequenceNumber: 0,
+					referenceSequenceNumber: 0,
+					minimumSequenceNumber: 0,
+				},
+				schedule: scenario.input.schedule ?? [{ step: scenario.input.operation }],
+			})),
+		},
 		expected: {
-			observations: scenarios.map((scenario) => ({ id: scenario.id, ...scenario.observation })),
+			observations: scenarios.map((scenario) => ({
+				id: scenario.id,
+				executed: true,
+				...scenario.observation,
+				result: copy(scenario.output),
+			})),
 		},
 		raw: {
 			...extraRaw,
 			scenarios: scenarios.map((scenario) => ({
 				id: scenario.id,
-				input: { id: scenario.id, ...copy(scenario.input) },
+				input: {
+					id: scenario.id,
+					...copy(scenario.input),
+					operation: scenario.input.operation,
+					initialState: copy(scenario.input.initialState ?? null),
+					operands: copy(scenario.input),
+					revisions: copy(scenario.input.revisions ?? []),
+					allocator: copy(scenario.input.allocator ?? { nextLocalId: 0 }),
+					compressor: copy(scenario.input.compressor ?? { mode: "ongoing", session: null }),
+					sequencing: copy(scenario.input.sequencing ?? {
+						sequenceNumber: 0,
+						referenceSequenceNumber: 0,
+						minimumSequenceNumber: 0,
+					}),
+					schedule: copy(scenario.input.schedule ?? [{ step: scenario.input.operation }]),
+				},
 				output: copy(scenario.output),
 			})),
 		},
@@ -279,6 +399,24 @@ async function capturePublicEvidence() {
 	const identityBefore = view.root.left[pointIndex];
 	assert(identityBefore instanceof Point, "Expected a point at the selected move index.");
 	view.root.right.moveRangeToEnd(pointIndex, pointIndex + 1, view.root.left);
+	const operationCommits = (Reflect.get(provider.trees[0].kernel, "editManager") as {
+		getLocalCommits(branch: string): {
+			revision: RevisionTag;
+			change: {
+				changes: readonly {
+					type: "data" | "schema";
+					innerChange: unknown;
+				}[];
+			};
+		}[];
+	}).getLocalCommits("main").map((commit) => {
+		const data = commit.change.changes.filter(({ type }) => type === "data");
+		assert.equal(data.length, 1, "Each array edit must contain one modular data change.");
+		return {
+			revision: commit.revision,
+			change: data[0].innerChange as ModularChangeset,
+		};
+	});
 	provider.synchronizeMessages();
 	const operationMessages = messagesIn(processed.slice(operationStart));
 	assert(operationMessages.length > 0, "Array edits must produce SharedTree messages.");
@@ -371,6 +509,235 @@ async function capturePublicEvidence() {
 	}
 	assert(incompatible.length > 0, "An incompatible cross-array move must be rejected.");
 
+	async function captureIdentityEdit(id: string, edit: (items: Items) => void) {
+		const editProvider = new TestTreeProviderLite(2, factory);
+		const editView = editProvider.trees[0].viewWith(
+			new TreeViewConfiguration({ schema: Items }),
+		);
+		editView.initialize(new Items([
+			new Point({ label: "equal", x: 1 }),
+			new Point({ label: "equal", x: 1 }),
+			new Point({ label: "equal", x: 1 }),
+		]));
+		editProvider.synchronizeMessages();
+		const editProcessed: unknown[] = [];
+		for (const [index, tree] of editProvider.trees.entries()) {
+			const editRuntime = tree.containerRuntime;
+			assert(editRuntime instanceof MockContainerRuntimeWithOpBunching,
+				"Expected the bunching test runtime.");
+			const process = editRuntime.process.bind(editRuntime);
+			editRuntime.process = (item) => {
+				if (index === 0) editProcessed.push(copy(item));
+				process(item);
+			};
+		}
+		const identities = Array.from({ length: editView.root.length }, (_, index) =>
+			editView.root[index]);
+		const before = visible(editView.root);
+		let commits = 0;
+		let changed = 0;
+		let nodeEvents = 0;
+		const offCommit = editView.events.on("commitApplied", () => { commits += 1; });
+		const checkout = Reflect.get(editView, "checkout") as {
+			events: { on(name: "changed", listener: () => void): () => void };
+		};
+		const offChanged = checkout.events.on("changed", () => { changed += 1; });
+		const offNode = Tree.on(editView.root, "nodeChanged", () => { nodeEvents += 1; });
+		edit(editView.root);
+		const pendingState = managerState(editProvider.trees[0]);
+		editProvider.synchronizeMessages();
+		const after = visible(editView.root);
+		const identityOrder = Array.from({ length: editView.root.length }, (_, index) =>
+			identities.indexOf(editView.root[index]));
+		offCommit();
+		offChanged();
+		offNode();
+		return {
+			id,
+			before,
+			after,
+			identityOrder,
+			visibleEqual: JSON.stringify(before) === JSON.stringify(after),
+			commits,
+			changed,
+			nodeEvents,
+			pending: pendingState.pending.length,
+			revisions: pendingState.pending,
+			messages: messagesIn(editProcessed),
+		};
+	}
+	const identityEdits = [
+		await captureIdentityEdit("equal-value-swap", (items) =>
+			items.moveRangeToIndex(3, 1, 2)),
+		await captureIdentityEdit("public-interior-move", (items) =>
+			items.moveRangeToIndex(1, 0, 3)),
+	];
+
+	const batchProvider = new TestTreeProviderLite(2, factory);
+	const batchView = batchProvider.trees[0].viewWith(configuration);
+	batchView.initialize(initialRoot());
+	batchProvider.synchronizeMessages();
+	const batchProcessed: unknown[] = [];
+	const batchRuntime = batchProvider.trees[0].containerRuntime;
+	assert(batchRuntime instanceof MockContainerRuntimeWithOpBunching,
+		"Expected the bunching test runtime.");
+	const batchProcess = batchRuntime.process.bind(batchRuntime);
+	batchRuntime.process = (item) => {
+		batchProcessed.push(copy(item));
+		batchProcess(item);
+	};
+	Tree.runTransaction(batchView, () => {
+		batchView.root.left.insertAtEnd("batch-a");
+		batchView.root.right.insertAtEnd("batch-b");
+	});
+	const batchPending = managerState(batchProvider.trees[0]);
+	batchProvider.synchronizeMessages();
+	const batchMessages = messagesIn(batchProcessed);
+	assert.equal(batchMessages.length, 1, "A transaction must submit one SharedTree message.");
+
+	const emptyProvider = new TestTreeProviderLite(1, factory);
+	const emptyView = emptyProvider.trees[0].viewWith(configuration);
+	emptyView.initialize(new Root({
+		left: new Items([]),
+		right: new Items([]),
+		byKey: new ArrayMap([["empty", new Items([])]]),
+		narrow: new Points([]),
+	}));
+	emptyProvider.synchronizeMessages();
+	const emptySummary = (await emptyProvider.trees[0].summarize(true)).summary;
+
+	const retainedProvider = new TestTreeProviderLite(2, factory);
+	const retainedView = retainedProvider.trees[0].viewWith(configuration);
+	retainedView.initialize(initialRoot());
+	retainedProvider.synchronizeMessages();
+	retainedProvider.trees[1].containerRuntime.connected = false;
+	retainedView.root.left.removeRange(0, 2);
+	retainedProvider.synchronizeMessages();
+	const retainedSummary = (await retainedProvider.trees[0].summarize(true)).summary;
+
+	const tailProvider = new TestTreeProviderLite(2, factory);
+	const tailView = tailProvider.trees[0].viewWith(configuration);
+	tailView.initialize(initialRoot());
+	tailProvider.synchronizeMessages();
+	const tailSummary = (await tailProvider.trees[0].summarize(true)).summary;
+	const tailProcessed: unknown[] = [];
+	const tailPeerRuntime = tailProvider.trees[1].containerRuntime;
+	assert(tailPeerRuntime instanceof MockContainerRuntimeWithOpBunching,
+		"Expected the bunching test runtime.");
+	const tailProcessMessages = tailPeerRuntime.processMessages.bind(tailPeerRuntime);
+	const tailProcess = tailPeerRuntime.process.bind(tailPeerRuntime);
+	tailPeerRuntime.process = (message) => {
+		tailProcessed.push(copy(message));
+		tailProcess(message);
+	};
+	tailPeerRuntime.processMessages = (batch) => {
+		tailProcessed.push(copy(batch));
+		tailProcessMessages(batch);
+	};
+	tailView.root.right.insertAtEnd("tail");
+	tailProvider.synchronizeMessages();
+	assert(tailProcessed.length > 0, "The summary-tail probe must capture a remote delivery.");
+	const tailMessages = messagesIn(tailProcessed);
+	assert.equal(tailMessages.length, 1, "The summary-tail probe must capture one tree message.");
+	const tailEnvelope = tailProcessed.find((item) =>
+		item !== null && typeof item === "object"
+		&& Reflect.get(Reflect.get(item, "contents") as object, "version") === 7
+	) as Record<string, unknown> | undefined;
+	assert(tailEnvelope !== undefined, "The summary-tail probe must retain the tree envelope.");
+	const tailCompressor = serializeIdCompressor(
+		tailProvider.getCompressor(tailProvider.trees[0]),
+		false,
+	);
+	const tailRuntime = new MockFluidDataStoreRuntime({
+		idCompressor: deserializeIdCompressor(tailCompressor, createSessionId()),
+	});
+	const continuationSubmitted: unknown[] = [];
+	const tailServices = MockSharedObjectServices.createFromSummary(tailSummary);
+	tailServices.deltaConnection = new MockDeltaConnection((message) => {
+		continuationSubmitted.push(copy(message));
+		return 3;
+	}, () => {});
+	const tailTree = await factory.load(
+		tailRuntime,
+		"watershed-array-tail",
+		tailServices,
+		factory.attributes,
+	);
+	const tailReader = tailTree.viewWith(configuration);
+	const tailKernel = Reflect.get(tailTree, "kernel") as unknown as {
+		processMessagesCore(batch: unknown, local: boolean): void;
+	};
+	function deliver(
+		kernel: { processMessagesCore(batch: unknown, local: boolean): void },
+		contents: unknown,
+		envelope: {
+			clientId: string;
+			clientSequenceNumber: number;
+			referenceSequenceNumber: number;
+			sequenceNumber: number;
+			minimumSequenceNumber: number;
+		},
+	) {
+		kernel.processMessagesCore({
+			envelope: {
+				contents,
+				...envelope,
+				timestamp: 0,
+				type: "op",
+			},
+			messagesContent: [{
+				contents,
+				localOpMetadata: undefined,
+				clientSequenceNumber: envelope.clientSequenceNumber,
+			}],
+		}, false);
+	}
+	const tailSequence = {
+		clientId: String(tailEnvelope.clientId),
+		clientSequenceNumber: Number(tailEnvelope.clientSequenceNumber),
+		referenceSequenceNumber: Number(tailEnvelope.referenceSequenceNumber),
+		sequenceNumber: Number(tailEnvelope.sequenceNumber),
+		minimumSequenceNumber: Number(tailEnvelope.minimumSequenceNumber),
+	};
+	deliver(tailKernel, tailMessages[0], tailSequence);
+	const readerAfterTail = visible(tailReader.root);
+	tailReader.root.left.insertAtEnd("reader-continuation");
+	const readerAfterContinuation = visible(tailReader.root);
+	const continuationMessages = messagesIn(continuationSubmitted);
+	assert.equal(continuationMessages.length, 1,
+		"The fresh reader must submit one continuation message.");
+	assert(tailRuntime.idCompressor !== undefined,
+		"The fresh reader runtime must retain its ID compressor.");
+	const continuationSession = tailRuntime.idCompressor.localSessionId;
+	const continuationCompressorCore = toIdCompressorWithCore(tailRuntime.idCompressor);
+	continuationCompressorCore.finalizeCreationRange(
+		continuationCompressorCore.takeNextCreationRange(),
+	);
+	const continuationCompressor = serializeIdCompressor(tailRuntime.idCompressor, false);
+	const verifierRuntime = new MockFluidDataStoreRuntime({
+		idCompressor: deserializeIdCompressor(continuationCompressor, createSessionId()),
+	});
+	const verifierTree = await factory.load(
+		verifierRuntime,
+		"watershed-array-tail-verifier",
+		MockSharedObjectServices.createFromSummary(tailSummary),
+		factory.attributes,
+	);
+	const verifierView = verifierTree.viewWith(configuration);
+	const verifierKernel = Reflect.get(verifierTree, "kernel") as unknown as {
+		processMessagesCore(batch: unknown, local: boolean): void;
+	};
+	deliver(verifierKernel, tailMessages[0], tailSequence);
+	deliver(verifierKernel, continuationMessages[0], {
+		clientId: continuationSession,
+		clientSequenceNumber: 1,
+		referenceSequenceNumber: tailSequence.sequenceNumber,
+		sequenceNumber: tailSequence.sequenceNumber + 1,
+		minimumSequenceNumber: tailSequence.minimumSequenceNumber,
+	});
+	assert.deepEqual(visible(verifierView.root), readerAfterContinuation,
+		"An independently loaded reader must apply the tail and continuation.");
+
 	return {
 		provider,
 		view,
@@ -386,11 +753,58 @@ async function capturePublicEvidence() {
 		incompatible,
 		clampedRemoval: visible(removalView.root),
 		identityPreserved,
+		operationCommits,
+		identityEdits,
+		batching: {
+			pending: batchPending,
+			messages: batchMessages,
+			writer: visible(batchView.root),
+			peer: visible(batchProvider.trees[1].viewWith(configuration).root),
+		},
+		emptySummary,
+		retainedSummary,
+		summaryTail: {
+			snapshot: tailSummary,
+			tail: tailProcessed,
+			writer: visible(tailView.root),
+			readerAfterTail,
+			readerMessages: tailMessages,
+			continuationMessages,
+			readerAfterContinuation,
+			verifier: visible(verifierView.root),
+		},
 	};
 }
 
 async function makeCases() {
 	const publicEvidence = await capturePublicEvidence();
+	async function initializeItems(content: Items) {
+		const provider = new TestTreeProviderLite(1, treeFactory());
+		const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Items }));
+		view.initialize(content);
+		provider.synchronizeMessages();
+		return {
+			visible: visible(view.root),
+			compatibility: copy(view.compatibility),
+		};
+	}
+	async function initializeMap(content: ArrayMap) {
+		const provider = new TestTreeProviderLite(1, treeFactory());
+		const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: ArrayMap }));
+		view.initialize(content);
+		provider.synchronizeMessages();
+		return {
+			visible: visible(view.root),
+			compatibility: copy(view.compatibility),
+		};
+	}
+	const rootArrayEvidence = await initializeItems(new Items(["root", new Items(["nested"])]));
+	const emptyArrayEvidence = await initializeItems(new Items([]));
+	const leavesEvidence = await initializeItems(new Items(["string", 1, true, null]));
+	const mapRootEvidence = await initializeMap(new ArrayMap([
+		["0", new Items(["zero"])],
+		["", new Items([])],
+	]));
 	const schemas = {
 		rootArray: schemaString(Items),
 		objectArrays: schemaString(Root),
@@ -403,11 +817,20 @@ async function makeCases() {
 	);
 	const schemaScenarios: Scenario[] = [
 		{ id: "root-array", input: { operation: "schema", schema: "rootArray" },
-			observation: { accepted: true }, output: parsedSchemas.rootArray },
+			observation: { accepted: true }, output: {
+				schema: parsedSchemas.rootArray,
+				content: rootArrayEvidence.visible,
+			} },
 		{ id: "object-arrays", input: { operation: "schema", schema: "objectArrays" },
-			observation: { accepted: true }, output: parsedSchemas.objectArrays },
+			observation: { accepted: true }, output: {
+				schema: parsedSchemas.objectArrays,
+				content: visible(publicEvidence.view.root),
+			} },
 		{ id: "map-arrays", input: { operation: "schema", schema: "mapArrays" },
-			observation: { accepted: true }, output: parsedSchemas.mapArrays },
+			observation: { accepted: true }, output: {
+				schema: parsedSchemas.mapArrays,
+				content: mapRootEvidence.visible,
+			} },
 		{ id: "nested-arrays", input: { operation: "read", path: ["left", "3", "0"] },
 			observation: { value: "nested" }, output: visible(publicEvidence.view.root.left[3]) },
 		{ id: "recursive-arrays", input: { operation: "read", path: ["byKey", "0", "1", "0"] },
@@ -416,12 +839,12 @@ async function makeCases() {
 			destination: { path: ["narrow"], gap: 0 } },
 			observation: { accepted: false }, output: publicEvidence.incompatible },
 		{ id: "empty-content", input: { operation: "initialize", schema: "rootArray", values: [] },
-			observation: { value: [] }, output: [] },
+			observation: { value: emptyArrayEvidence.visible }, output: emptyArrayEvidence.visible },
 		{ id: "allowed-leaves", input: { operation: "initialize", schema: "rootArray",
 			values: ["string", 1, true, null] },
-			observation: { accepted: true }, output: ["string", 1, true, null] },
+			observation: { accepted: true }, output: leavesEvidence.visible },
 		{ id: "compatibility", input: { operation: "canView", stored: "objectArrays", view: "objectArrays" },
-			observation: { accepted: true }, output: true },
+			observation: { accepted: true }, output: rootArrayEvidence.compatibility },
 		{ id: "schema-content-bytes", input: { operation: "summarize" },
 			observation: { schemaVersion: 2, forestVersion: 2 },
 			output: {
@@ -437,62 +860,246 @@ async function makeCases() {
 	const modular = Reflect.get(changeset[0], "data");
 	const modularKinds = fieldKinds(modular);
 	assert(modularKinds.includes("Sequence"), "Array operations must encode a Sequence field.");
+	const kernel = Reflect.get(publicEvidence.provider.trees[0], "kernel") as unknown as {
+		messageCodec: { decode(value: unknown, context: unknown): unknown };
+	};
+	const decodeMessage = (value: unknown) => kernel.messageCodec.decode(value, {
+		idCompressor: publicEvidence.provider.getCompressor(publicEvidence.provider.trees[0]),
+	});
+	const decodedMessage = decodeMessage(message) as Record<string, unknown>;
+	const decodedCommit = Reflect.get(decodedMessage, "commit") as {
+		revision?: unknown;
+		change?: {
+			changes?: readonly { type?: unknown }[];
+		};
+	};
+	const decodedChange = decodedCommit.change as {
+		changes?: readonly { type?: unknown; innerChange?: unknown }[];
+	};
+	const decodedFieldKinds = [
+		...new Set((decodedChange.changes ?? [])
+			.filter(({ type }) => type === "data")
+			.flatMap(({ innerChange }) =>
+				modularStructure(innerChange as ModularChangeset).fields.map(({ kind }) => kind))),
+	].sort();
+	const { family } = makeArrayModularFamily();
+	const commits = publicEvidence.operationCommits;
+	assert(commits.length >= 4, "Array operations must produce modular commits.");
+	const commitRevisions = commits.map(({ revision }) => {
+		assert(revision !== undefined, "Every local modular commit must have a revision.");
+		return revision;
+	});
+	const composeForward = family.compose([
+		tagChange(commits[0].change, commits[0].revision),
+		tagChange(commits[2].change, commits[2].revision),
+	]);
+	const composeReverse = family.compose([
+		tagChange(commits[2].change, commits[2].revision),
+		tagChange(commits[0].change, commits[0].revision),
+	]);
+	const inverse = family.invert(
+		tagChange(commits[1].change, commits[1].revision),
+		false,
+		commitRevisions[3],
+	);
+	const rebased = family.rebase(
+		tagChange(commits[2].change, commits[2].revision),
+		tagChange(commits[1].change, commits[1].revision),
+		revisionMetadataSourceFromInfo(commitRevisions.map((revision) => ({ revision }))),
+	);
+	const coordination = captureCrossFieldCoordination(commitRevisions[3] as RevisionTag);
+	const modularOutputs: Record<string, unknown> = {
+		"generic-to-sequence": {
+			operation: "compose",
+			order: ["generic-parent", "sequence-child"],
+			result: modularStructure(composeForward),
+		},
+		"sequence-to-generic": {
+			operation: "compose",
+			order: ["sequence-child", "generic-parent"],
+			result: modularStructure(composeReverse),
+		},
+		"nested-ancestors": {
+			operation: "invert",
+			result: modularStructure(inverse),
+		},
+		"common-ancestors": {
+			operation: "rebase",
+			result: modularStructure(rebased),
+		},
+		"cross-field-endpoints": coordination,
+		"node-table": {
+			changes: commits.map(({ change }) => modularStructure(change)),
+			result: modularStructure(composeForward),
+		},
+		"parent-table": {
+			changes: commits.map(({ change }) => modularStructure(change)),
+			result: modularStructure(composeReverse),
+		},
+		"alias-table": {
+			inverse: modularStructure(inverse),
+			rebased: modularStructure(rebased),
+		},
+	};
 	const modularScenarios: Scenario[] = scenarioIds["array-modular-algebra"].map((id) => ({
 		id,
-		input: { operation: id, messageIndex: publicEvidence.operationMessages.length - 1 },
+		input: {
+			operation: modularOutputs[id] !== undefined ? id : "unknown",
+			initialState: visible(initialRoot()),
+			messageIndex: publicEvidence.operationMessages.length - 1,
+			operands: commits.map(({ revision, change }) => ({
+				revision,
+				change: modularStructure(change),
+			})),
+			revisions: commits.map(({ revision }) => revision),
+		},
 		observation: { fieldKinds: modularKinds },
-		output: modular,
+		output: modularOutputs[id],
 	}));
 
 	const summary = publicEvidence.settledSummary;
-	const codecOutputs = {
-		sequence: modular,
-		message,
-		schema: summaryBlob(summary, "indexes", "Schema", "SchemaString"),
-		forest: summaryBlob(summary, "indexes", "Forest", "contents"),
-		detached: summaryBlob(summary, "indexes", "DetachedFieldIndex", "DetachedFieldIndexBlob"),
-		history: summaryBlob(summary, "indexes", "EditManager", "String"),
-		summary,
+	const codecOutputs: Record<string, unknown> = {
+		"sequence-v3": {
+			encoded: modular,
+			fieldKinds: modularKinds,
+		},
+		"message-v7": {
+			encoded: message,
+			decoded: {
+				type: Reflect.get(decodedMessage, "type"),
+				branchId: Reflect.get(decodedMessage, "branchId"),
+				revision: decodedCommit.revision,
+				sessionId: Reflect.get(decodedMessage, "sessionId"),
+				changeTypes: decodedChange.changes?.map(({ type }) => type) ?? [],
+				fieldKinds: decodedFieldKinds,
+			},
+		},
+		builds: {
+			messages: publicEvidence.operationMessages,
+			buildCount: JSON.stringify(publicEvidence.operationMessages).match(/"builds?"/g)?.length ?? 0,
+		},
+		"empty-arrays": {
+			summary: publicEvidence.emptySummary,
+			forest: summaryBlob(publicEvidence.emptySummary, "indexes", "Forest", "contents"),
+			schema: summaryBlob(publicEvidence.emptySummary, "indexes", "Schema", "SchemaString"),
+		},
+		"retained-history": {
+			history: summaryBlob(publicEvidence.retainedSummary, "indexes", "EditManager", "String"),
+		},
+		"detached-index": {
+			detached: summaryBlob(
+				publicEvidence.retainedSummary,
+				"indexes",
+				"DetachedFieldIndex",
+				"DetachedFieldIndexBlob",
+			),
+		},
+		"full-summary": {
+			summary,
+			schema: summaryBlob(summary, "indexes", "Schema", "SchemaString"),
+			forest: summaryBlob(summary, "indexes", "Forest", "contents"),
+			detached: summaryBlob(summary, "indexes", "DetachedFieldIndex", "DetachedFieldIndexBlob"),
+			history: summaryBlob(summary, "indexes", "EditManager", "String"),
+		},
 	};
 	const codecScenarios: Scenario[] = scenarioIds["array-codecs"].map((id) => ({
 		id,
-		input: { operation: id, profile: { message: 7, modularChange: 5, sequence: 3 } },
-		observation: { captured: true },
-		output: codecOutputs,
+		input: {
+			operation: id,
+			initialState: visible(initialRoot()),
+			profile: { message: 7, modularChange: 5, sequence: 3 },
+			operands: codecOutputs[id],
+			revisions: publicEvidence.operationCommits.map(({ revision }) => revision),
+		},
+		observation: { codecExecuted: true },
+		output: codecOutputs[id],
 	}));
 
 	const historyOutputs: Record<string, unknown> = {
 		"pending-chains": publicEvidence.pending,
 		batching: {
-			messages: publicEvidence.operationMessages,
+			...publicEvidence.batching,
 			identityPreserved: publicEvidence.identityPreserved,
 		},
 		acknowledgements: publicEvidence.settled,
 		reconnect: publicEvidence.reconnectMessages,
-		"window-advance": publicEvidence.settled,
-		"summary-tail": {
-			summary,
-			reloaded: publicEvidence.reloaded,
-			messages: publicEvidence.reloadMessages,
+		"window-advance": { before: publicEvidence.pending, after: publicEvidence.settled },
+		"summary-tail": publicEvidence.summaryTail,
+		"public-noops": {
+			noops: publicEvidence.noops,
+			identityEdits: publicEvidence.identityEdits,
 		},
-		"public-noops": publicEvidence.noops,
 	};
 	const historyScenarios: Scenario[] = scenarioIds["array-history"].map((id) => ({
 		id,
-		input: { operation: id },
-		observation: { captured: true },
+		input: {
+			operation: id,
+			initialState: visible(initialRoot()),
+			operands: historyOutputs[id],
+			revisions: publicEvidence.operationCommits.map(({ revision }) => revision),
+			schedule: [{ step: id, deliveries: historyOutputs[id] }],
+		},
+		observation: { historyExecuted: true },
 		output: historyOutputs[id],
 	}));
 
-	const corruptMessage = copy(message);
-	Reflect.set(corruptMessage, "version", 99);
+	const corruptMarkMessage = copy(message);
+	let changedMark = false;
+	function corruptFirstMove(value: unknown): void {
+		if (changedMark) return;
+		if (Array.isArray(value)) {
+			value.forEach(corruptFirstMove);
+		} else if (value !== null && typeof value === "object") {
+			const object = value as Record<string, unknown>;
+			if (object.moveOut !== undefined || object.moveIn !== undefined) {
+				object.unknownMove = object.moveOut ?? object.moveIn;
+				delete object.moveOut;
+				delete object.moveIn;
+				changedMark = true;
+				return;
+			}
+			Object.values(object).forEach(corruptFirstMove);
+		}
+	}
+	corruptFirstMove(corruptMarkMessage);
+	assert(changedMark, "The corrupt-mark probe needs an actual move mark.");
+	const corruptRevisionMessage = copy(message);
+	Reflect.set(corruptRevisionMessage, "revision", "not-a-revision");
+	const invalidRange = executed(() => publicEvidence.view.root.left.removeRange(2, 1));
+	const ownershipProvider = new TestTreeProviderLite(1, treeFactory());
+	const ownershipView = ownershipProvider.trees[0].viewWith(
+		new TreeViewConfiguration({ schema: Root }),
+	);
+	ownershipView.initialize(initialRoot());
+	const foreignPoint = ownershipView.root.narrow[0];
+	assert(foreignPoint instanceof Point, "The ownership probe needs a foreign point.");
+	const ownership = executed(() => publicEvidence.view.root.narrow.insertAt(0, foreignPoint));
+	const corruptSummary = { ...copy(summary), tree: {} };
+	const invalidFactory = treeFactory();
+	const summaryFailure = await executedAsync(async () => invalidFactory.load(
+		new MockFluidDataStoreRuntime({
+			idCompressor: deserializeIdCompressor(
+				serializeIdCompressor(publicEvidence.provider.getCompressor(publicEvidence.provider.trees[0]), false),
+				createSessionId(),
+			),
+		}),
+		"watershed-corrupt-summary",
+		MockSharedObjectServices.createFromSummary(corruptSummary),
+		invalidFactory.attributes,
+	));
+	const schemaFailure = executed(() => schemaCodecBuilder
+		.buildDecoder({ jsonValidator: FormatValidatorNoOp })
+		.decode({ version: 99 } as never));
 	const invalidOutputs: Record<string, unknown> = {
-		"corrupt-schema": { schema: "{", rejected: true },
-		"corrupt-mark": { message: corruptMessage, rejected: true },
-		"corrupt-range": { start: 2, end: 1, rejected: true },
-		"corrupt-revision": { revision: "not-a-revision", rejected: true },
-		"corrupt-ownership": { error: publicEvidence.incompatible, rejected: true },
-		"corrupt-summary": { summary: { ...copy(summary), tree: {} }, rejected: true },
+		"corrupt-schema": { input: { version: 99 }, outcome: schemaFailure },
+		"corrupt-mark": { input: corruptMarkMessage, outcome: executed(() => decodeMessage(corruptMarkMessage)) },
+		"corrupt-range": { input: { start: 2, end: 1 }, outcome: invalidRange },
+		"corrupt-revision": {
+			input: corruptRevisionMessage,
+			outcome: executed(() => decodeMessage(corruptRevisionMessage)),
+		},
+		"corrupt-ownership": { input: { foreign: true }, outcome: ownership },
+		"corrupt-summary": { input: corruptSummary, outcome: summaryFailure },
 		"native-remove-beyond-length": {
 			upstream: { input: { start: 1, end: 99 }, value: publicEvidence.clampedRemoval },
 			nativeContract: "error",
@@ -500,8 +1107,12 @@ async function makeCases() {
 	};
 	const invalidScenarios: Scenario[] = scenarioIds["array-invalid"].map((id) => ({
 		id,
-		input: { operation: id },
-		observation: { rejected: id !== "native-remove-beyond-length" },
+		input: { operation: id, initialState: visible(initialRoot()), operands: invalidOutputs[id] },
+		observation: {
+			rejected: id === "native-remove-beyond-length"
+				? false
+				: Reflect.get(invalidOutputs[id] as object, "outcome")?.accepted === false,
+		},
 		output: invalidOutputs[id],
 	}));
 

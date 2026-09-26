@@ -15,6 +15,7 @@ const historySource = join(directory, "upstream-history.spec.ts");
 const codecsSource = join(directory, "upstream-codecs.spec.ts");
 const mapSource = join(directory, "upstream-map.spec.ts");
 const arraySource = join(directory, "upstream-array.spec.ts");
+const arraySupportSource = join(directory, "upstream-array-support.ts");
 const sequenceSource = join(directory, "upstream-sequence.spec.ts");
 
 export const reference = {
@@ -43,6 +44,7 @@ export const historyInjectedTestPath = "packages/dds/tree/src/test/watershedHist
 export const codecsInjectedTestPath = "packages/dds/tree/src/test/watershedCodecs.spec.ts";
 export const mapInjectedTestPath = "packages/dds/tree/src/test/watershedMap.spec.ts";
 export const arrayInjectedTestPath = "packages/dds/tree/src/test/watershedArray.spec.ts";
+export const arraySupportInjectedPath = "packages/dds/tree/src/test/watershedArraySupport.ts";
 export const sequenceInjectedTestPath = "packages/dds/tree/src/test/watershedSequence.spec.ts";
 const injections = new Map([
   [injectedTestPath, oracleSource],
@@ -53,6 +55,7 @@ const injections = new Map([
   [codecsInjectedTestPath, codecsSource],
   [mapInjectedTestPath, mapSource],
   [arrayInjectedTestPath, arraySource],
+  [arraySupportInjectedPath, arraySupportSource],
   [sequenceInjectedTestPath, sequenceSource],
 ]);
 

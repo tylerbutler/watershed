@@ -1240,6 +1240,13 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     if (!gap) check(value.start <= value.end, `${detail} endpoint range`);
   };
   for (const [index, input] of inputs.entries()) {
+    check(Object.hasOwn(input, "initialState")
+      && object(input.operands)
+      && Array.isArray(input.revisions)
+      && object(input.allocator)
+      && object(input.compressor)
+      && object(input.sequencing)
+      && nonemptyArray(input.schedule), `${input.id} complete replay input`);
     if (input.operation === "move" || input.operation === "move-endpoints") {
       endpoint(input.source, `${input.id} source`);
       endpoint(input.destination, `${input.id} destination`, true);
@@ -1251,7 +1258,10 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     check(object(raw[index].input), `${input.id} raw input`);
     assert.deepEqual(raw[index].input, input, `${label}: ${input.id} raw and normalized input`);
     check(Object.hasOwn(raw[index], "output"), `${input.id} raw output`);
-    check(Object.keys(observations[index]).length > 1, `${input.id} observation`);
+    check(observations[index].executed === true
+      && Object.hasOwn(observations[index], "result"), `${input.id} executed source result`);
+    assert.deepEqual(observations[index].result, raw[index].output,
+      `${label}: ${input.id} substantive source result`);
   }
 
   const input = new Map(inputs.map((item) => [item.id, item]));
@@ -1321,7 +1331,14 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
       "AttachAndDetach", "Rename"]) {
       check(families.has(family), `${family} mark family`);
     }
-    check(output.get("split-ranges").length === 3, "split range evidence");
+    check(output.get("split-ranges").operands?.[0]?.length === 3
+      && Array.isArray(output.get("split-ranges").inverted)
+      && Array.isArray(output.get("split-ranges").composed), "split range evidence");
+    check(nonemptyArray(output.get("child-changes").callbacks)
+      && Array.isArray(output.get("child-changes").composed), "child composition callbacks");
+    check(JSON.stringify(output.get("revision-replacement").input)
+      !== JSON.stringify(output.get("revision-replacement").result),
+    "revision replacement");
     check(output.get("removed-roots").length > 0, "removed roots");
   } else if (label === "sequence-rebase") {
     successfulSequenceOutput();
@@ -1337,23 +1354,56 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     for (const id of requiredIds) {
       assert.deepEqual(observation.get(id).fieldKinds,
         ["ModularEditBuilder.Generic", "Sequence"], `${label}: ${id} field kinds`);
-      const encoded = JSON.stringify(output.get(id));
-      check(encoded.includes('"fieldKind":"Sequence"')
-        && encoded.includes('"moveOut"') && encoded.includes('"moveIn"'),
-      `${id} cross-field sequence change`);
+      check(object(output.get(id)), `${id} modular result`);
     }
+    check(output.get("generic-to-sequence").operation === "compose"
+      && output.get("generic-to-sequence").order[0] === "generic-parent",
+    "Generic to Sequence conversion");
+    check(output.get("sequence-to-generic").operation === "compose"
+      && output.get("sequence-to-generic").order[0] === "sequence-child",
+    "Sequence to Generic conversion");
+    check(output.get("nested-ancestors").operation === "invert"
+      && output.get("common-ancestors").operation === "rebase",
+    "modular invert and rebase");
+    const coordination = output.get("cross-field-endpoints");
+    check(nonemptyArray(coordination.reads)
+      && nonemptyArray(coordination.writes)
+      && nonemptyArray(coordination.dependencies)
+      && coordination.invalidated === true
+      && coordination.reprocessed === true,
+    "cross-field dependency and reprocessing");
+    check(nonemptyArray(output.get("node-table").changes)
+      && nonemptyArray(output.get("parent-table").changes)
+      && object(output.get("alias-table").inverse)
+      && object(output.get("alias-table").rebased),
+    "modular node parent alias tables");
   } else if (label === "array-codecs") {
     for (const id of requiredIds) {
       check(input.get(id).profile?.message === 7
         && input.get(id).profile?.modularChange === 5
         && input.get(id).profile?.sequence === 3, `${id} codec profile`);
-      const evidence = output.get(id);
-      check(evidence.message?.version === 7
-        && JSON.stringify(evidence.sequence).includes('"fieldKind":"Sequence"'),
-      `${id} Sequence V3 message`);
-      for (const section of ["schema", "forest", "detached", "history", "summary"]) {
-        check(evidence[section] !== undefined, `${id} ${section} bytes`);
-      }
+    }
+    check(JSON.stringify(output.get("sequence-v3").encoded).includes('"fieldKind":"Sequence"'),
+      "Sequence V3 encoding");
+    check(output.get("message-v7").encoded?.version === 7
+      && output.get("message-v7").decoded?.type === "commit"
+      && output.get("message-v7").decoded?.branchId === "main"
+      && Number.isSafeInteger(output.get("message-v7").decoded?.revision)
+      && typeof output.get("message-v7").decoded?.sessionId === "string"
+      && nonemptyArray(output.get("message-v7").decoded?.changeTypes)
+      && output.get("message-v7").decoded.changeTypes.includes("data"),
+    "Message V7 codec");
+    check(nonemptyArray(output.get("builds").messages), "array builds");
+    const emptyForest = JSON.parse(output.get("empty-arrays").forest);
+    check(emptyForest.version === 2
+      && JSON.stringify(emptyForest).includes("org.watershed.shared-tree.m3"),
+    "empty array forest");
+    check(JSON.parse(output.get("retained-history").history).version === 7,
+      "retained history");
+    check(nonemptyArray(JSON.parse(output.get("detached-index").detached).data),
+      "retained detached ranges");
+    for (const section of ["schema", "forest", "detached", "history", "summary"]) {
+      check(output.get("full-summary")[section] !== undefined, `full-summary ${section}`);
     }
     check(nonemptyArray(value.raw.messages)
       && value.raw.messages.every((message) => message.version === 7),
@@ -1361,14 +1411,29 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
   } else if (label === "array-history") {
     check(output.get("pending-chains").pending.length > 0
       && output.get("pending-chains").sequenced.length > 0, "pending chain");
-    check(nonemptyArray(output.get("batching").messages)
+    check(output.get("batching").messages?.length === 1
+      && output.get("batching").pending?.pending?.length === 1
+      && JSON.stringify(output.get("batching").writer)
+        === JSON.stringify(output.get("batching").peer)
       && output.get("batching").identityPreserved === true,
     "batched identity preservation");
     check(nonemptyArray(output.get("reconnect")), "reconnect messages");
-    check(object(output.get("summary-tail").summary)
-      && object(output.get("summary-tail").reloaded)
-      && nonemptyArray(output.get("summary-tail").messages), "summary tail");
-    const noops = output.get("public-noops");
+    check(output.get("window-advance").before?.pending?.length > 0
+      && output.get("window-advance").after?.pending?.length === 0,
+    "window advance");
+    check(object(output.get("summary-tail").snapshot)
+      && nonemptyArray(output.get("summary-tail").tail)
+      && nonemptyArray(output.get("summary-tail").readerMessages)
+      && nonemptyArray(output.get("summary-tail").continuationMessages)
+      && JSON.stringify(output.get("summary-tail").writer)
+        === JSON.stringify(output.get("summary-tail").readerAfterTail)
+      && JSON.stringify(output.get("summary-tail").readerAfterContinuation)
+        === JSON.stringify(output.get("summary-tail").verifier)
+      && JSON.stringify(output.get("summary-tail").writer)
+        !== JSON.stringify(output.get("summary-tail").readerAfterContinuation),
+    "summary tail");
+    const publicEdits = output.get("public-noops");
+    const noops = publicEdits.noops;
     check(Array.isArray(noops) && noops.length === 3, "public no-op cases");
     for (const noop of noops) {
       assert.deepEqual(noop.after, noop.prior, `${label}: ${noop.id} visible state`);
@@ -1376,9 +1441,28 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
         && noop.pending === 0 && Array.isArray(noop.messages) && noop.messages.length === 0,
       `${noop.id} public no-op emission`);
     }
+    check(publicEdits.identityEdits?.length === 2, "identity-changing public edits");
+    for (const edit of publicEdits.identityEdits) {
+      check(edit.visibleEqual === true
+        && edit.commits > 0
+        && edit.changed > 0
+        && edit.nodeEvents > 0
+        && edit.pending > 0
+        && nonemptyArray(edit.revisions)
+        && nonemptyArray(edit.messages),
+      `${edit.id} identity and emission`);
+    }
+    check(publicEdits.identityEdits[0].identityOrder
+      .some((position, index) => position !== index), "equal-value identity change");
+    const interiorMessage = JSON.stringify(publicEdits.identityEdits[1].messages);
+    check(interiorMessage.includes('"moveOut"') && interiorMessage.includes('"moveIn"'),
+      "public interior move emission");
   } else if (label === "array-invalid") {
     for (const id of requiredIds.filter((id) => id !== "native-remove-beyond-length")) {
-      check(observation.get(id).rejected === true && output.get(id).rejected === true,
+      check(observation.get(id).rejected === true
+        && output.get(id).outcome?.accepted === false
+        && typeof output.get(id).outcome?.error === "string"
+        && output.get(id).outcome.error.length > 0,
         `${id} rejection`);
     }
     const bounds = output.get("native-remove-beyond-length");

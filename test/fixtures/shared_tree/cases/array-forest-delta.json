@@ -12,6 +12,9 @@
       {
         "id": "counted-build",
         "operation": "counted-build",
+        "initialState": {
+          "field": []
+        },
         "change": [
           {
             "type": "Insert",
@@ -23,11 +26,70 @@
             },
             "revision": 0
           }
+        ],
+        "revisions": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "operands": {
+          "operation": "counted-build",
+          "initialState": {
+            "field": []
+          },
+          "change": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 3,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "counted-build"
+          }
         ]
       },
       {
         "id": "counted-detach",
         "operation": "counted-detach",
+        "initialState": {
+          "field": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
         "change": [
           {
             "count": 1
@@ -38,11 +100,74 @@
             "id": 3,
             "revision": 1
           }
+        ],
+        "revisions": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "operands": {
+          "operation": "counted-detach",
+          "initialState": {
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Remove",
+              "count": 3,
+              "id": 3,
+              "revision": 1
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "counted-detach"
+          }
         ]
       },
       {
         "id": "counted-attach",
         "operation": "counted-attach",
+        "initialState": {
+          "field": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
         "change": [
           {
             "type": "Insert",
@@ -54,11 +179,70 @@
             },
             "revision": 2
           }
+        ],
+        "revisions": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "operands": {
+          "operation": "counted-attach",
+          "initialState": {
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "change": [
+            {
+              "type": "Insert",
+              "id": 3,
+              "count": 3,
+              "cellId": {
+                "revision": 1,
+                "localId": 3
+              },
+              "revision": 2
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "counted-attach"
+          }
         ]
       },
       {
         "id": "counted-rename",
         "operation": "counted-rename",
+        "initialState": {
+          "field": []
+        },
         "change": [
           {
             "type": "Rename",
@@ -72,11 +256,67 @@
               "localId": 6
             }
           }
+        ],
+        "revisions": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "operands": {
+          "operation": "counted-rename",
+          "initialState": {
+            "field": []
+          },
+          "change": [
+            {
+              "type": "Rename",
+              "count": 3,
+              "cellId": {
+                "revision": 1,
+                "localId": 3
+              },
+              "idOverride": {
+                "revision": 2,
+                "localId": 6
+              }
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "counted-rename"
+          }
         ]
       },
       {
         "id": "counted-destroy",
         "operation": "counted-destroy",
+        "initialState": {
+          "field": []
+        },
         "change": [
           {
             "type": "Remove",
@@ -84,11 +324,61 @@
             "id": 9,
             "revision": 3
           }
+        ],
+        "revisions": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "operands": {
+          "operation": "counted-destroy",
+          "initialState": {
+            "field": []
+          },
+          "change": [
+            {
+              "type": "Remove",
+              "count": 3,
+              "id": 9,
+              "revision": 3
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "counted-destroy"
+          }
         ]
       },
       {
         "id": "repair",
         "operation": "repair",
+        "initialState": {
+          "field": []
+        },
         "change": [
           {
             "type": "Insert",
@@ -100,11 +390,70 @@
             },
             "revision": 4
           }
+        ],
+        "revisions": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "operands": {
+          "operation": "repair",
+          "initialState": {
+            "field": []
+          },
+          "change": [
+            {
+              "type": "Insert",
+              "id": 9,
+              "count": 2,
+              "cellId": {
+                "revision": 3,
+                "localId": 9
+              },
+              "revision": 4
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "repair"
+          }
         ]
       },
       {
         "id": "indexed-children",
         "operation": "indexed-children",
+        "initialState": {
+          "field": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
         "change": [
           {
             "count": 2
@@ -124,11 +473,83 @@
               }
             }
           }
+        ],
+        "revisions": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "operands": {
+          "operation": "indexed-children",
+          "initialState": {
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "change": [
+            {
+              "count": 2
+            },
+            {
+              "count": 1,
+              "changes": {
+                "localId": 50,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    5
+                  ],
+                  "outputContext": [
+                    5
+                  ]
+                }
+              }
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "indexed-children"
+          }
         ]
       },
       {
         "id": "retained-identity",
         "operation": "retained-identity",
+        "initialState": {
+          "field": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
         "change": [
           {
             "type": "MoveOut",
@@ -149,11 +570,79 @@
             },
             "revision": 5
           }
+        ],
+        "revisions": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "operands": {
+          "operation": "retained-identity",
+          "initialState": {
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 12,
+              "count": 2,
+              "revision": 5
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveIn",
+              "id": 12,
+              "count": 2,
+              "cellId": {
+                "revision": 5,
+                "localId": 14
+              },
+              "revision": 5
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "retained-identity"
+          }
         ]
       },
       {
         "id": "invalid-overlap",
         "operation": "invalid-overlap",
+        "initialState": {
+          "field": []
+        },
         "change": [
           {
             "type": "MoveOut",
@@ -177,11 +666,82 @@
             "count": 2,
             "revision": 6
           }
+        ],
+        "revisions": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "operands": {
+          "operation": "invalid-overlap",
+          "initialState": {
+            "field": []
+          },
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 16,
+              "count": 1,
+              "revision": 6
+            },
+            {
+              "type": "MoveIn",
+              "id": 16,
+              "count": 3,
+              "cellId": {
+                "revision": 6,
+                "localId": 19
+              },
+              "revision": 6
+            },
+            {
+              "type": "MoveOut",
+              "id": 17,
+              "count": 2,
+              "revision": 6
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "invalid-overlap"
+          }
         ]
       },
       {
         "id": "invalid-cycle",
         "operation": "invalid-cycle",
+        "initialState": {
+          "field": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
         "change": [
           {
             "type": "MoveOut",
@@ -207,6 +767,76 @@
               "localId": 20
             }
           }
+        ],
+        "revisions": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "operands": {
+          "operation": "invalid-cycle",
+          "initialState": {
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "change": [
+            {
+              "type": "MoveOut",
+              "count": 2,
+              "id": 20,
+              "revision": 7,
+              "finalEndpoint": {
+                "revision": 7,
+                "localId": 22
+              }
+            },
+            {
+              "type": "MoveIn",
+              "count": 2,
+              "id": 20,
+              "revision": 7,
+              "cellId": {
+                "revision": 7,
+                "localId": 22
+              },
+              "finalEndpoint": {
+                "revision": 7,
+                "localId": 20
+              }
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        },
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "invalid-cycle"
+          }
         ]
       }
     ]
@@ -215,6 +845,7 @@
     "observations": [
       {
         "id": "counted-build",
+        "executed": true,
         "accepted": true,
         "value": {
           "change": [
@@ -261,11 +892,173 @@
                 "major": 0
               }
             ]
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [],
+                "detached": []
+              },
+              "delta": {
+                "build": [
+                  {
+                    "id": {
+                      "minor": 0,
+                      "major": 0
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "fields": {}
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "A",
+                  "B",
+                  "C"
+                ],
+                "detached": [],
+                "identity": null
+              }
+            }
+          ]
+        },
+        "result": {
+          "change": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 3,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 3,
+                    "attach": {
+                      "minor": 0,
+                      "major": 0
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": [
+              {
+                "minor": 0,
+                "major": 0
+              },
+              {
+                "minor": 1,
+                "major": 0
+              },
+              {
+                "minor": 2,
+                "major": 0
+              }
+            ]
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [],
+                "detached": []
+              },
+              "delta": {
+                "build": [
+                  {
+                    "id": {
+                      "minor": 0,
+                      "major": 0
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "fields": {}
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "A",
+                  "B",
+                  "C"
+                ],
+                "detached": [],
+                "identity": null
+              }
+            }
+          ]
         }
       },
       {
         "id": "counted-detach",
+        "executed": true,
         "accepted": true,
         "value": {
           "change": [
@@ -301,11 +1094,164 @@
           "removedRoots": {
             "accepted": true,
             "value": []
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [
+                  "A",
+                  "B",
+                  "C",
+                  "D"
+                ],
+                "detached": []
+              },
+              "delta": {
+                "fields": {}
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "A"
+                ],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "D"
+                    ]
+                  }
+                ],
+                "identity": {
+                  "field": "watershed-array-forest-1",
+                  "index": 0,
+                  "parent": null
+                }
+              }
+            }
+          ]
+        },
+        "result": {
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Remove",
+              "count": 3,
+              "id": 3,
+              "revision": 1
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1
+                  },
+                  {
+                    "count": 3,
+                    "detach": {
+                      "minor": 3,
+                      "major": 1
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [
+                  "A",
+                  "B",
+                  "C",
+                  "D"
+                ],
+                "detached": []
+              },
+              "delta": {
+                "fields": {}
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "A"
+                ],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "D"
+                    ]
+                  }
+                ],
+                "identity": {
+                  "field": "watershed-array-forest-1",
+                  "index": 0,
+                  "parent": null
+                }
+              }
+            }
+          ]
         }
       },
       {
         "id": "counted-attach",
+        "executed": true,
         "accepted": true,
         "value": {
           "change": [
@@ -352,11 +1298,347 @@
                 "major": 1
               }
             ]
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [
+                  "D"
+                ],
+                "detached": []
+              },
+              "delta": {
+                "build": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "D"
+                ],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ],
+                "identity": {
+                  "field": "rootFieldKey",
+                  "index": 0,
+                  "parent": null
+                }
+              }
+            },
+            {
+              "before": {
+                "root": [
+                  "D"
+                ],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ]
+              },
+              "delta": {
+                "fields": {}
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "A",
+                  "B",
+                  "C",
+                  "D"
+                ],
+                "detached": [],
+                "identity": {
+                  "field": "rootFieldKey",
+                  "index": 3,
+                  "parent": null
+                }
+              }
+            }
+          ]
+        },
+        "result": {
+          "change": [
+            {
+              "type": "Insert",
+              "id": 3,
+              "count": 3,
+              "cellId": {
+                "revision": 1,
+                "localId": 3
+              },
+              "revision": 2
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 3,
+                    "attach": {
+                      "minor": 3,
+                      "major": 1
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": [
+              {
+                "minor": 3,
+                "major": 1
+              },
+              {
+                "minor": 4,
+                "major": 1
+              },
+              {
+                "minor": 5,
+                "major": 1
+              }
+            ]
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [
+                  "D"
+                ],
+                "detached": []
+              },
+              "delta": {
+                "build": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "D"
+                ],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ],
+                "identity": {
+                  "field": "rootFieldKey",
+                  "index": 0,
+                  "parent": null
+                }
+              }
+            },
+            {
+              "before": {
+                "root": [
+                  "D"
+                ],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ]
+              },
+              "delta": {
+                "fields": {}
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "A",
+                  "B",
+                  "C",
+                  "D"
+                ],
+                "detached": [],
+                "identity": {
+                  "field": "rootFieldKey",
+                  "index": 3,
+                  "parent": null
+                }
+              }
+            }
+          ]
         }
       },
       {
         "id": "counted-rename",
+        "executed": true,
         "accepted": true,
         "value": {
           "change": [
@@ -380,11 +1662,366 @@
           "removedRoots": {
             "accepted": true,
             "value": []
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [],
+                "detached": []
+              },
+              "delta": {
+                "build": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ],
+                "identity": null
+              }
+            },
+            {
+              "before": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ]
+              },
+              "delta": {
+                "rename": [
+                  {
+                    "oldId": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "newId": {
+                      "minor": 6,
+                      "major": 2
+                    },
+                    "count": 3
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 2,
+                      "minor": 6
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 2,
+                      "minor": 7
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 2,
+                      "minor": 8
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ],
+                "identity": null
+              }
+            }
+          ]
+        },
+        "result": {
+          "change": [
+            {
+              "type": "Rename",
+              "count": 3,
+              "cellId": {
+                "revision": 1,
+                "localId": 3
+              },
+              "idOverride": {
+                "revision": 2,
+                "localId": 6
+              }
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {}
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [],
+                "detached": []
+              },
+              "delta": {
+                "build": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ],
+                "identity": null
+              }
+            },
+            {
+              "before": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ]
+              },
+              "delta": {
+                "rename": [
+                  {
+                    "oldId": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "newId": {
+                      "minor": 6,
+                      "major": 2
+                    },
+                    "count": 3
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 2,
+                      "minor": 6
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 2,
+                      "minor": 7
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 2,
+                      "minor": 8
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ],
+                "identity": null
+              }
+            }
+          ]
         }
       },
       {
         "id": "counted-destroy",
+        "executed": true,
         "accepted": true,
         "value": {
           "change": [
@@ -414,11 +2051,308 @@
           "removedRoots": {
             "accepted": true,
             "value": []
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [],
+                "detached": []
+              },
+              "delta": {
+                "build": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ],
+                "identity": null
+              }
+            },
+            {
+              "before": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ]
+              },
+              "delta": {
+                "destroy": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "count": 3
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [],
+                "detached": [],
+                "identity": null
+              }
+            }
+          ]
+        },
+        "result": {
+          "change": [
+            {
+              "type": "Remove",
+              "count": 3,
+              "id": 9,
+              "revision": 3
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 3,
+                    "detach": {
+                      "minor": 9,
+                      "major": 3
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [],
+                "detached": []
+              },
+              "delta": {
+                "build": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ],
+                "identity": null
+              }
+            },
+            {
+              "before": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ]
+              },
+              "delta": {
+                "destroy": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "count": 3
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [],
+                "detached": [],
+                "identity": null
+              }
+            }
+          ]
         }
       },
       {
         "id": "repair",
+        "executed": true,
         "accepted": true,
         "value": {
           "change": [
@@ -461,11 +2395,169 @@
                 "major": 3
               }
             ]
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [],
+                "detached": []
+              },
+              "delta": {
+                "refreshers": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "fields": {}
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "A",
+                  "B",
+                  "C"
+                ],
+                "detached": [],
+                "identity": null
+              }
+            }
+          ]
+        },
+        "result": {
+          "change": [
+            {
+              "type": "Insert",
+              "id": 9,
+              "count": 2,
+              "cellId": {
+                "revision": 3,
+                "localId": 9
+              },
+              "revision": 4
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 2,
+                    "attach": {
+                      "minor": 9,
+                      "major": 3
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": [
+              {
+                "minor": 9,
+                "major": 3
+              },
+              {
+                "minor": 10,
+                "major": 3
+              }
+            ]
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [],
+                "detached": []
+              },
+              "delta": {
+                "refreshers": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "fields": {}
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "A",
+                  "B",
+                  "C"
+                ],
+                "detached": [],
+                "identity": null
+              }
+            }
+          ]
         }
       },
       {
         "id": "indexed-children",
+        "executed": true,
         "accepted": true,
         "value": {
           "change": [
@@ -507,11 +2599,302 @@
           "removedRoots": {
             "accepted": true,
             "value": []
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "A"
+                        ]
+                      ]
+                    ]
+                  },
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "B"
+                        ]
+                      ]
+                    ]
+                  },
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "C"
+                        ]
+                      ],
+                      [
+                        "child",
+                        [
+                          "old"
+                        ]
+                      ]
+                    ]
+                  }
+                ],
+                "detached": []
+              },
+              "delta": {
+                "fields": {},
+                "build": [
+                  {
+                    "id": {
+                      "minor": 10,
+                      "major": 3
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "type": "com.fluidframework.leaf.string",
+                      "fields": {},
+                      "value": "new",
+                      "topLevelLength": 1
+                    }
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "A"
+                        ]
+                      ]
+                    ]
+                  },
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "B"
+                        ]
+                      ]
+                    ]
+                  },
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "C"
+                        ]
+                      ],
+                      [
+                        "child",
+                        [
+                          "new"
+                        ]
+                      ]
+                    ]
+                  }
+                ],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 3,
+                      "minor": 9
+                    },
+                    "values": [
+                      "old"
+                    ]
+                  }
+                ],
+                "identity": null
+              }
+            }
+          ]
+        },
+        "result": {
+          "change": [
+            {
+              "count": 2
+            },
+            {
+              "count": 1,
+              "changes": {
+                "localId": 50,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    5
+                  ],
+                  "outputContext": [
+                    5
+                  ]
+                }
+              }
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 2
+                  },
+                  {
+                    "count": 1,
+                    "fields": {}
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "A"
+                        ]
+                      ]
+                    ]
+                  },
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "B"
+                        ]
+                      ]
+                    ]
+                  },
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "C"
+                        ]
+                      ],
+                      [
+                        "child",
+                        [
+                          "old"
+                        ]
+                      ]
+                    ]
+                  }
+                ],
+                "detached": []
+              },
+              "delta": {
+                "fields": {},
+                "build": [
+                  {
+                    "id": {
+                      "minor": 10,
+                      "major": 3
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "type": "com.fluidframework.leaf.string",
+                      "fields": {},
+                      "value": "new",
+                      "topLevelLength": 1
+                    }
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "A"
+                        ]
+                      ]
+                    ]
+                  },
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "B"
+                        ]
+                      ]
+                    ]
+                  },
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "C"
+                        ]
+                      ],
+                      [
+                        "child",
+                        [
+                          "new"
+                        ]
+                      ]
+                    ]
+                  }
+                ],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 3,
+                      "minor": 9
+                    },
+                    "values": [
+                      "old"
+                    ]
+                  }
+                ],
+                "identity": null
+              }
+            }
+          ]
         }
       },
       {
         "id": "retained-identity",
+        "executed": true,
         "accepted": true,
         "value": {
           "change": [
@@ -564,11 +2947,127 @@
           "removedRoots": {
             "accepted": true,
             "value": []
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [
+                  "A",
+                  "B",
+                  "C"
+                ],
+                "detached": []
+              },
+              "delta": {
+                "fields": {}
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "C",
+                  "A",
+                  "B"
+                ],
+                "detached": [],
+                "identity": {
+                  "field": "rootFieldKey",
+                  "index": 1,
+                  "parent": null
+                }
+              }
+            }
+          ]
+        },
+        "result": {
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 12,
+              "count": 2,
+              "revision": 5
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveIn",
+              "id": 12,
+              "count": 2,
+              "cellId": {
+                "revision": 5,
+                "localId": 14
+              },
+              "revision": 5
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 2,
+                    "detach": {
+                      "minor": 12,
+                      "major": 5
+                    }
+                  },
+                  {
+                    "count": 1
+                  },
+                  {
+                    "attach": {
+                      "minor": 12,
+                      "major": 5
+                    },
+                    "count": 2
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [
+                  "A",
+                  "B",
+                  "C"
+                ],
+                "detached": []
+              },
+              "delta": {
+                "fields": {}
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "C",
+                  "A",
+                  "B"
+                ],
+                "detached": [],
+                "identity": {
+                  "field": "rootFieldKey",
+                  "index": 1,
+                  "parent": null
+                }
+              }
+            }
+          ]
         }
       },
       {
         "id": "invalid-overlap",
+        "executed": true,
         "accepted": true,
         "value": {
           "change": [
@@ -628,11 +3127,320 @@
           "removedRoots": {
             "accepted": true,
             "value": []
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [],
+                "detached": []
+              },
+              "delta": {
+                "build": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ],
+                "identity": null
+              }
+            },
+            {
+              "before": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ]
+              },
+              "delta": {
+                "fields": {}
+              },
+              "result": {
+                "accepted": false,
+                "error": "Error: 0x92a"
+              },
+              "after": {
+                "invalidated": true
+              }
+            }
+          ]
+        },
+        "result": {
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 16,
+              "count": 1,
+              "revision": 6
+            },
+            {
+              "type": "MoveIn",
+              "id": 16,
+              "count": 3,
+              "cellId": {
+                "revision": 6,
+                "localId": 19
+              },
+              "revision": 6
+            },
+            {
+              "type": "MoveOut",
+              "id": 17,
+              "count": 2,
+              "revision": 6
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1,
+                    "detach": {
+                      "minor": 16,
+                      "major": 6
+                    }
+                  },
+                  {
+                    "attach": {
+                      "minor": 16,
+                      "major": 6
+                    },
+                    "count": 3
+                  },
+                  {
+                    "count": 2,
+                    "detach": {
+                      "minor": 17,
+                      "major": 6
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [],
+                "detached": []
+              },
+              "delta": {
+                "build": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ],
+                "identity": null
+              }
+            },
+            {
+              "before": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ]
+              },
+              "delta": {
+                "fields": {}
+              },
+              "result": {
+                "accepted": false,
+                "error": "Error: 0x92a"
+              },
+              "after": {
+                "invalidated": true
+              }
+            }
+          ]
         }
       },
       {
         "id": "invalid-cycle",
+        "executed": true,
         "accepted": true,
         "value": {
           "change": [
@@ -687,6 +3495,97 @@
           "removedRoots": {
             "accepted": true,
             "value": []
+          },
+          "forest": {
+            "before": [
+              [
+                "child"
+              ],
+              "sibling"
+            ],
+            "result": {
+              "accepted": false,
+              "error": "Error: Invalid move operation: the destination is located under one of the moved elements. Consider using the Tree.contains API to detect this."
+            },
+            "after": [
+              [
+                "child"
+              ],
+              "sibling"
+            ]
+          }
+        },
+        "result": {
+          "change": [
+            {
+              "type": "MoveOut",
+              "count": 2,
+              "id": 20,
+              "revision": 7,
+              "finalEndpoint": {
+                "revision": 7,
+                "localId": 22
+              }
+            },
+            {
+              "type": "MoveIn",
+              "count": 2,
+              "id": 20,
+              "revision": 7,
+              "cellId": {
+                "revision": 7,
+                "localId": 22
+              },
+              "finalEndpoint": {
+                "revision": 7,
+                "localId": 20
+              }
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 2,
+                    "detach": {
+                      "minor": 20,
+                      "major": 7
+                    }
+                  },
+                  {
+                    "attach": {
+                      "minor": 20,
+                      "major": 7
+                    },
+                    "count": 2
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          },
+          "forest": {
+            "before": [
+              [
+                "child"
+              ],
+              "sibling"
+            ],
+            "result": {
+              "accepted": false,
+              "error": "Error: Invalid move operation: the destination is located under one of the moved elements. Consider using the Tree.contains API to detect this."
+            },
+            "after": [
+              [
+                "child"
+              ],
+              "sibling"
+            ]
           }
         }
       }
@@ -699,6 +3598,9 @@
         "input": {
           "id": "counted-build",
           "operation": "counted-build",
+          "initialState": {
+            "field": []
+          },
           "change": [
             {
               "type": "Insert",
@@ -709,6 +3611,57 @@
                 "revision": 0
               },
               "revision": 0
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "operands": {
+            "operation": "counted-build",
+            "initialState": {
+              "field": []
+            },
+            "change": [
+              {
+                "type": "Insert",
+                "id": 0,
+                "count": 3,
+                "cellId": {
+                  "localId": 0,
+                  "revision": 0
+                },
+                "revision": 0
+              }
+            ],
+            "revisions": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "counted-build"
             }
           ]
         },
@@ -757,7 +3710,64 @@
                 "major": 0
               }
             ]
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [],
+                "detached": []
+              },
+              "delta": {
+                "build": [
+                  {
+                    "id": {
+                      "minor": 0,
+                      "major": 0
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "fields": {}
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "A",
+                  "B",
+                  "C"
+                ],
+                "detached": [],
+                "identity": null
+              }
+            }
+          ]
         }
       },
       {
@@ -765,6 +3775,14 @@
         "input": {
           "id": "counted-detach",
           "operation": "counted-detach",
+          "initialState": {
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
           "change": [
             {
               "count": 1
@@ -774,6 +3792,61 @@
               "count": 3,
               "id": 3,
               "revision": 1
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "operands": {
+            "operation": "counted-detach",
+            "initialState": {
+              "field": [
+                "A",
+                "B",
+                "C",
+                "D"
+              ]
+            },
+            "change": [
+              {
+                "count": 1
+              },
+              {
+                "type": "Remove",
+                "count": 3,
+                "id": 3,
+                "revision": 1
+              }
+            ],
+            "revisions": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "counted-detach"
             }
           ]
         },
@@ -811,7 +3884,65 @@
           "removedRoots": {
             "accepted": true,
             "value": []
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [
+                  "A",
+                  "B",
+                  "C",
+                  "D"
+                ],
+                "detached": []
+              },
+              "delta": {
+                "fields": {}
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "A"
+                ],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "D"
+                    ]
+                  }
+                ],
+                "identity": {
+                  "field": "watershed-array-forest-1",
+                  "index": 0,
+                  "parent": null
+                }
+              }
+            }
+          ]
         }
       },
       {
@@ -819,6 +3950,14 @@
         "input": {
           "id": "counted-attach",
           "operation": "counted-attach",
+          "initialState": {
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
           "change": [
             {
               "type": "Insert",
@@ -829,6 +3968,62 @@
                 "localId": 3
               },
               "revision": 2
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "operands": {
+            "operation": "counted-attach",
+            "initialState": {
+              "field": [
+                "A",
+                "B",
+                "C",
+                "D"
+              ]
+            },
+            "change": [
+              {
+                "type": "Insert",
+                "id": 3,
+                "count": 3,
+                "cellId": {
+                  "revision": 1,
+                  "localId": 3
+                },
+                "revision": 2
+              }
+            ],
+            "revisions": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "counted-attach"
             }
           ]
         },
@@ -877,7 +4072,151 @@
                 "major": 1
               }
             ]
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [
+                  "D"
+                ],
+                "detached": []
+              },
+              "delta": {
+                "build": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "D"
+                ],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ],
+                "identity": {
+                  "field": "rootFieldKey",
+                  "index": 0,
+                  "parent": null
+                }
+              }
+            },
+            {
+              "before": {
+                "root": [
+                  "D"
+                ],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ]
+              },
+              "delta": {
+                "fields": {}
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "A",
+                  "B",
+                  "C",
+                  "D"
+                ],
+                "detached": [],
+                "identity": {
+                  "field": "rootFieldKey",
+                  "index": 3,
+                  "parent": null
+                }
+              }
+            }
+          ]
         }
       },
       {
@@ -885,6 +4224,9 @@
         "input": {
           "id": "counted-rename",
           "operation": "counted-rename",
+          "initialState": {
+            "field": []
+          },
           "change": [
             {
               "type": "Rename",
@@ -897,6 +4239,59 @@
                 "revision": 2,
                 "localId": 6
               }
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "operands": {
+            "operation": "counted-rename",
+            "initialState": {
+              "field": []
+            },
+            "change": [
+              {
+                "type": "Rename",
+                "count": 3,
+                "cellId": {
+                  "revision": 1,
+                  "localId": 3
+                },
+                "idOverride": {
+                  "revision": 2,
+                  "localId": 6
+                }
+              }
+            ],
+            "revisions": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "counted-rename"
             }
           ]
         },
@@ -922,7 +4317,172 @@
           "removedRoots": {
             "accepted": true,
             "value": []
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [],
+                "detached": []
+              },
+              "delta": {
+                "build": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ],
+                "identity": null
+              }
+            },
+            {
+              "before": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ]
+              },
+              "delta": {
+                "rename": [
+                  {
+                    "oldId": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "newId": {
+                      "minor": 6,
+                      "major": 2
+                    },
+                    "count": 3
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 2,
+                      "minor": 6
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 2,
+                      "minor": 7
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 2,
+                      "minor": 8
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ],
+                "identity": null
+              }
+            }
+          ]
         }
       },
       {
@@ -930,12 +4490,62 @@
         "input": {
           "id": "counted-destroy",
           "operation": "counted-destroy",
+          "initialState": {
+            "field": []
+          },
           "change": [
             {
               "type": "Remove",
               "count": 3,
               "id": 9,
               "revision": 3
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "operands": {
+            "operation": "counted-destroy",
+            "initialState": {
+              "field": []
+            },
+            "change": [
+              {
+                "type": "Remove",
+                "count": 3,
+                "id": 9,
+                "revision": 3
+              }
+            ],
+            "revisions": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "counted-destroy"
             }
           ]
         },
@@ -967,7 +4577,140 @@
           "removedRoots": {
             "accepted": true,
             "value": []
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [],
+                "detached": []
+              },
+              "delta": {
+                "build": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ],
+                "identity": null
+              }
+            },
+            {
+              "before": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ]
+              },
+              "delta": {
+                "destroy": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "count": 3
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [],
+                "detached": [],
+                "identity": null
+              }
+            }
+          ]
         }
       },
       {
@@ -975,6 +4718,9 @@
         "input": {
           "id": "repair",
           "operation": "repair",
+          "initialState": {
+            "field": []
+          },
           "change": [
             {
               "type": "Insert",
@@ -985,6 +4731,57 @@
                 "localId": 9
               },
               "revision": 4
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "operands": {
+            "operation": "repair",
+            "initialState": {
+              "field": []
+            },
+            "change": [
+              {
+                "type": "Insert",
+                "id": 9,
+                "count": 2,
+                "cellId": {
+                  "revision": 3,
+                  "localId": 9
+                },
+                "revision": 4
+              }
+            ],
+            "revisions": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "repair"
             }
           ]
         },
@@ -1029,7 +4826,64 @@
                 "major": 3
               }
             ]
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [],
+                "detached": []
+              },
+              "delta": {
+                "refreshers": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "fields": {}
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "A",
+                  "B",
+                  "C"
+                ],
+                "detached": [],
+                "identity": null
+              }
+            }
+          ]
         }
       },
       {
@@ -1037,6 +4891,14 @@
         "input": {
           "id": "indexed-children",
           "operation": "indexed-children",
+          "initialState": {
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
           "change": [
             {
               "count": 2
@@ -1055,6 +4917,70 @@
                   ]
                 }
               }
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "operands": {
+            "operation": "indexed-children",
+            "initialState": {
+              "field": [
+                "A",
+                "B",
+                "C",
+                "D"
+              ]
+            },
+            "change": [
+              {
+                "count": 2
+              },
+              {
+                "count": 1,
+                "changes": {
+                  "localId": 50,
+                  "testChange": {
+                    "inputContext": [],
+                    "intentions": [
+                      5
+                    ],
+                    "outputContext": [
+                      5
+                    ]
+                  }
+                }
+              }
+            ],
+            "revisions": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "indexed-children"
             }
           ]
         },
@@ -1098,7 +5024,131 @@
           "removedRoots": {
             "accepted": true,
             "value": []
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "A"
+                        ]
+                      ]
+                    ]
+                  },
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "B"
+                        ]
+                      ]
+                    ]
+                  },
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "C"
+                        ]
+                      ],
+                      [
+                        "child",
+                        [
+                          "old"
+                        ]
+                      ]
+                    ]
+                  }
+                ],
+                "detached": []
+              },
+              "delta": {
+                "fields": {},
+                "build": [
+                  {
+                    "id": {
+                      "minor": 10,
+                      "major": 3
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "type": "com.fluidframework.leaf.string",
+                      "fields": {},
+                      "value": "new",
+                      "topLevelLength": 1
+                    }
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "A"
+                        ]
+                      ]
+                    ]
+                  },
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "B"
+                        ]
+                      ]
+                    ]
+                  },
+                  {
+                    "type": "org.watershed.shared-tree.m3.ForestNode",
+                    "fields": [
+                      [
+                        "label",
+                        [
+                          "C"
+                        ]
+                      ],
+                      [
+                        "child",
+                        [
+                          "new"
+                        ]
+                      ]
+                    ]
+                  }
+                ],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 3,
+                      "minor": 9
+                    },
+                    "values": [
+                      "old"
+                    ]
+                  }
+                ],
+                "identity": null
+              }
+            }
+          ]
         }
       },
       {
@@ -1106,6 +5156,14 @@
         "input": {
           "id": "retained-identity",
           "operation": "retained-identity",
+          "initialState": {
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
           "change": [
             {
               "type": "MoveOut",
@@ -1125,6 +5183,71 @@
                 "localId": 14
               },
               "revision": 5
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "operands": {
+            "operation": "retained-identity",
+            "initialState": {
+              "field": [
+                "A",
+                "B",
+                "C",
+                "D"
+              ]
+            },
+            "change": [
+              {
+                "type": "MoveOut",
+                "id": 12,
+                "count": 2,
+                "revision": 5
+              },
+              {
+                "count": 1
+              },
+              {
+                "type": "MoveIn",
+                "id": 12,
+                "count": 2,
+                "cellId": {
+                  "revision": 5,
+                  "localId": 14
+                },
+                "revision": 5
+              }
+            ],
+            "revisions": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "retained-identity"
             }
           ]
         },
@@ -1179,7 +5302,38 @@
           "removedRoots": {
             "accepted": true,
             "value": []
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [
+                  "A",
+                  "B",
+                  "C"
+                ],
+                "detached": []
+              },
+              "delta": {
+                "fields": {}
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [
+                  "C",
+                  "A",
+                  "B"
+                ],
+                "detached": [],
+                "identity": {
+                  "field": "rootFieldKey",
+                  "index": 1,
+                  "parent": null
+                }
+              }
+            }
+          ]
         }
       },
       {
@@ -1187,6 +5341,9 @@
         "input": {
           "id": "invalid-overlap",
           "operation": "invalid-overlap",
+          "initialState": {
+            "field": []
+          },
           "change": [
             {
               "type": "MoveOut",
@@ -1209,6 +5366,69 @@
               "id": 17,
               "count": 2,
               "revision": 6
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "operands": {
+            "operation": "invalid-overlap",
+            "initialState": {
+              "field": []
+            },
+            "change": [
+              {
+                "type": "MoveOut",
+                "id": 16,
+                "count": 1,
+                "revision": 6
+              },
+              {
+                "type": "MoveIn",
+                "id": 16,
+                "count": 3,
+                "cellId": {
+                  "revision": 6,
+                  "localId": 19
+                },
+                "revision": 6
+              },
+              {
+                "type": "MoveOut",
+                "id": 17,
+                "count": 2,
+                "revision": 6
+              }
+            ],
+            "revisions": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "invalid-overlap"
             }
           ]
         },
@@ -1270,7 +5490,131 @@
           "removedRoots": {
             "accepted": true,
             "value": []
-          }
+          },
+          "forest": [
+            {
+              "before": {
+                "root": [],
+                "detached": []
+              },
+              "delta": {
+                "build": [
+                  {
+                    "id": {
+                      "minor": 3,
+                      "major": 1
+                    },
+                    "trees": {
+                      "refCount": 1,
+                      "subChunks": [
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "A",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "B",
+                          "topLevelLength": 1
+                        },
+                        {
+                          "refCount": 1,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {},
+                          "value": "C",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "result": {
+                "accepted": true
+              },
+              "after": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ],
+                "identity": null
+              }
+            },
+            {
+              "before": {
+                "root": [],
+                "detached": [
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 3
+                    },
+                    "values": [
+                      "A"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 4
+                    },
+                    "values": [
+                      "B"
+                    ]
+                  },
+                  {
+                    "id": {
+                      "major": 1,
+                      "minor": 5
+                    },
+                    "values": [
+                      "C"
+                    ]
+                  }
+                ]
+              },
+              "delta": {
+                "fields": {}
+              },
+              "result": {
+                "accepted": false,
+                "error": "Error: 0x92a"
+              },
+              "after": {
+                "invalidated": true
+              }
+            }
+          ]
         }
       },
       {
@@ -1278,6 +5622,14 @@
         "input": {
           "id": "invalid-cycle",
           "operation": "invalid-cycle",
+          "initialState": {
+            "field": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
           "change": [
             {
               "type": "MoveOut",
@@ -1302,6 +5654,76 @@
                 "revision": 7,
                 "localId": 20
               }
+            }
+          ],
+          "revisions": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "operands": {
+            "operation": "invalid-cycle",
+            "initialState": {
+              "field": [
+                "A",
+                "B",
+                "C",
+                "D"
+              ]
+            },
+            "change": [
+              {
+                "type": "MoveOut",
+                "count": 2,
+                "id": 20,
+                "revision": 7,
+                "finalEndpoint": {
+                  "revision": 7,
+                  "localId": 22
+                }
+              },
+              {
+                "type": "MoveIn",
+                "count": 2,
+                "id": 20,
+                "revision": 7,
+                "cellId": {
+                  "revision": 7,
+                  "localId": 22
+                },
+                "finalEndpoint": {
+                  "revision": 7,
+                  "localId": 20
+                }
+              }
+            ],
+            "revisions": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "invalid-cycle"
             }
           ]
         },
@@ -1358,6 +5780,24 @@
           "removedRoots": {
             "accepted": true,
             "value": []
+          },
+          "forest": {
+            "before": [
+              [
+                "child"
+              ],
+              "sibling"
+            ],
+            "result": {
+              "accepted": false,
+              "error": "Error: Invalid move operation: the destination is located under one of the moved elements. Consider using the Tree.contains API to detect this."
+            },
+            "after": [
+              [
+                "child"
+              ],
+              "sibling"
+            ]
           }
         }
       }

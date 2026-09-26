@@ -8,25 +8,50 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 import type { SessionId } from "@fluidframework/id-compressor";
+import { FluidClientVersion } from "../codec/index.js";
 import {
+	applyDelta,
+	combineVisitors,
+	makeDetachedFieldIndex,
+	makeDetachedNodeId,
+	revisionMetadataSourceFromInfo,
+	rootFieldKey,
 	tagChange,
 	type ChangeAtomId,
 	type ChangesetLocalId,
+	type DeltaDetachedNodeId,
+	type DeltaRoot,
+	type ExclusiveMapTree,
+	type FieldKey,
+	type MapTree,
 	type RevisionTag,
+	type TreeNodeSchemaIdentifier,
 } from "../core/index.js";
 import {
+	chunkField,
+	combineChunks,
+	cursorForMapTreeField,
+	defaultChunkPolicy,
+	DefaultRevisionReplacer,
+	CrossFieldTarget,
+	mapTreeWithField,
+	type CrossFieldManager,
 	type FieldChangeDecodingContext,
 	type FieldChangeEncodingContext,
 } from "../feature-libraries/index.js";
+import { ObjectForest } from "../feature-libraries/object-forest/objectForest.js";
+import { SchemaFactory, TreeViewConfiguration } from "../simple-tree/index.js";
+import { configuredSharedTreeInternal } from "../treeFactory.js";
 import { relevantRemovedRoots } from "../feature-libraries/sequence-field/relevantRemovedRoots.js";
+import { compose as composeSequence } from "../feature-libraries/sequence-field/compose.js";
+import { replaceRevisions } from "../feature-libraries/sequence-field/replaceRevisions.js";
 import { sequenceFieldChangeCodecFactory } from "../feature-libraries/sequence-field/sequenceFieldCodecs.js";
 import { sequenceFieldEditor } from "../feature-libraries/sequence-field/sequenceFieldEditor.js";
 import type { Changeset } from "../feature-libraries/sequence-field/types.js";
-import { brand } from "../util/index.js";
+import { brand, idAllocatorFromMaxId } from "../util/index.js";
 import { TestChange } from "./testChange.js";
 import { TestNodeId } from "./testNodeId.js";
 import {
-	inlineRevision,
 	prune,
 	testCompose,
 	testInvert,
@@ -38,6 +63,7 @@ import {
 	testIdCompressor,
 	testRevisionTagCodec,
 } from "./utils.js";
+import { buildTestForest, TestTreeProviderLite } from "./utils.js";
 
 const formatVersion = 1;
 const reference = {
@@ -232,17 +258,57 @@ function oracleCase(id: keyof typeof scenarioIds, domain: string, scenarios: Sce
 		reference,
 		id,
 		domain,
-		input: { scenarios: scenarios.map((scenario) => ({ id: scenario.id, ...scenario.input })) },
+		input: {
+			scenarios: scenarios.map((scenario) => ({
+				id: scenario.id,
+				...copy(scenario.input),
+				operation: scenario.input.operation,
+				initialState: scenario.input.initialState ?? { field: [] },
+				operands: copy(scenario.input),
+				revisions: copy(scenario.input.revisions ?? []),
+				allocator: copy(scenario.input.allocator ?? { nextLocalId: 0 }),
+				compressor: copy(scenario.input.compressor ?? {
+					mode: "test",
+					session: String(testIdCompressor.localSessionId),
+				}),
+				sequencing: copy(scenario.input.sequencing ?? {
+					sequenceNumber: 0,
+					referenceSequenceNumber: 0,
+					minimumSequenceNumber: 0,
+				}),
+				schedule: copy(scenario.input.schedule ?? [{ step: scenario.input.operation }]),
+			})),
+		},
 		expected: {
 			observations: scenarios.map((scenario) => ({
 				id: scenario.id,
+				executed: true,
 				...outcome(() => scenario.output),
+				result: copy(scenario.output),
 			})),
 		},
 		raw: {
 			scenarios: scenarios.map((scenario) => ({
 				id: scenario.id,
-				input: { id: scenario.id, ...copy(scenario.input) },
+				input: {
+					id: scenario.id,
+					...copy(scenario.input),
+					operation: scenario.input.operation,
+					initialState: copy(scenario.input.initialState ?? { field: [] }),
+					operands: copy(scenario.input),
+					revisions: copy(scenario.input.revisions ?? []),
+					allocator: copy(scenario.input.allocator ?? { nextLocalId: 0 }),
+					compressor: copy(scenario.input.compressor ?? {
+						mode: "test",
+						session: String(testIdCompressor.localSessionId),
+					}),
+					sequencing: copy(scenario.input.sequencing ?? {
+						sequenceNumber: 0,
+						referenceSequenceNumber: 0,
+						minimumSequenceNumber: 0,
+					}),
+					schedule: copy(scenario.input.schedule ?? [{ step: scenario.input.operation }]),
+				},
 				output: copy(scenario.output),
 			})),
 		},
@@ -325,7 +391,21 @@ function composeCase(revs: RevisionTag[]) {
 	const remove = Change.remove(0, 2, revs[1], brand(2));
 	const move = Change.move(0, 2, 3, revs[2], brand(4));
 	const child = TestNodeId.create({ localId: brand(30) }, TestChange.mint([], 3));
+	const childSecond = TestNodeId.create({ localId: brand(31) }, TestChange.mint([3], 4));
 	const childChange = Change.modify(2, child);
+	const childChangeSecond = Change.modify(2, childSecond);
+	const childCallbacks: unknown[] = [];
+	const composedChildren = testCompose(
+		[tagChange(childChange, revs[4]), tagChange(childChangeSecond, revs[5])],
+		undefined,
+		(left, right) => {
+			childCallbacks.push({
+				left: left === undefined ? null : copy(left),
+				right: right === undefined ? null : copy(right),
+			});
+			return TestNodeId.composeChild(left, right);
+		},
+	);
 	const composed = testCompose([tagChange(insert, revs[0]), tagChange(remove, revs[1])]);
 	const moveChain = testCompose([
 		tagChange(move, revs[2]),
@@ -333,7 +413,24 @@ function composeCase(revs: RevisionTag[]) {
 	]);
 	const rollback = testInvert(tagChange(remove, revs[1]), revs[4], true);
 	const undo = testInvert(tagChange(remove, revs[1]), revs[5], false);
-	const revised = inlineRevision(insert, revs[6]);
+	const revisionReplacementInput = Change.insert(
+		0,
+		2,
+		revs[0],
+		{ localId: brand(0), revision: revs[0] },
+	);
+	const revised = replaceRevisions(
+		revisionReplacementInput,
+		new DefaultRevisionReplacer(revs[6], new Set([revs[0]])),
+	);
+	assert.notDeepEqual(revised, revisionReplacementInput, "Revision replacement must change references.");
+	const splitInput = sequenceFieldEditor.move(0, 3, 1, brand(20),
+		{ revision: revs[10], localId: brand(23) }, revs[10]);
+	const splitInverse = testInvert(tagChange(splitInput, revs[10]), revs[11], false);
+	const splitComposed = testCompose([
+		tagChange(splitInput, revs[10]),
+		tagChange(splitInverse, revs[11]),
+	]);
 	const pruned = prune([
 		Mark.skip(1),
 		Mark.modify(child),
@@ -357,14 +454,26 @@ function composeCase(revs: RevisionTag[]) {
 	];
 	const values: Record<string, unknown> = {
 		"mark-families": { changes: families, codec: codecOutput(families, revs[9]) },
-		"split-ranges": sequenceFieldEditor.move(0, 3, 1, brand(20),
-			{ revision: revs[10], localId: brand(23) }, revs[10]),
+		"split-ranges": {
+			operands: [splitInput, splitInverse],
+			composed: splitComposed,
+			inverted: splitInverse,
+		},
 		cancellation: composed,
 		"move-chains": moveChain,
-		"child-changes": childChange,
+		"child-changes": {
+			operands: [childChange, childChangeSecond],
+			callbacks: childCallbacks,
+			composed: composedChildren,
+		},
 		rollback,
 		undo,
-		"revision-replacement": revised,
+		"revision-replacement": {
+			input: revisionReplacementInput,
+			obsolete: [revs[0]],
+			replacement: revs[6],
+			result: revised,
+		},
 		pruning: pruned,
 		"removed-roots": removed,
 	};
@@ -437,6 +546,98 @@ function rebaseCase(revs: RevisionTag[]) {
 		}));
 }
 
+export function captureCrossFieldCoordination(revision: RevisionTag) {
+		const reads: unknown[] = [];
+		const writes: unknown[] = [];
+		const moveIns: unknown[] = [];
+		const movedKeys: unknown[] = [];
+		const dependencies = new Set<string>();
+		const stored = new Map<string, { value: unknown; length: number }>();
+		let invalidated = false;
+		const key = (
+			target: CrossFieldTarget,
+			itemRevision: RevisionTag | undefined,
+			id: ChangesetLocalId,
+		) => `${target}:${String(itemRevision)}:${id}`;
+		const manager: CrossFieldManager = {
+			get(target, itemRevision, id, count, addDependency) {
+				const selected = key(target, itemRevision, id);
+				if (addDependency) dependencies.add(selected);
+				const result = stored.get(selected) ?? { value: undefined, length: count };
+				reads.push({
+					target,
+					revision: itemRevision ?? null,
+					id,
+					count,
+					addDependency,
+					found: result.value !== undefined,
+				});
+				return result;
+			},
+			set(target, itemRevision, id, count, value, invalidateDependents) {
+				const selected = key(target, itemRevision, id);
+				stored.set(selected, { value, length: count });
+				const didInvalidate = invalidateDependents && dependencies.has(selected);
+				invalidated ||= didInvalidate;
+				writes.push({
+					target,
+					revision: itemRevision ?? null,
+					id,
+					count,
+					invalidateDependents,
+					didInvalidate,
+				});
+			},
+			onMoveIn(id) {
+				moveIns.push(copy(id));
+			},
+			moveKey(target, itemRevision, id, count) {
+				movedKeys.push({ target, revision: itemRevision ?? null, id, count });
+			},
+		};
+		const moveId = brand<ChangesetLocalId>(40);
+		const destinationCellId = { revision, localId: brand<ChangesetLocalId>(42) };
+		const source = sequenceFieldEditor.moveOut(0, 2, moveId, revision);
+		const destination = sequenceFieldEditor.moveIn(0, 2, moveId, destinationCellId, revision);
+		const competing = sequenceFieldEditor.move(
+			1,
+			2,
+			0,
+			brand<ChangesetLocalId>(44),
+			{ revision, localId: brand<ChangesetLocalId>(46) },
+			revision,
+		);
+		const metadata = revisionMetadataSourceFromInfo([{ revision }]);
+		const run = (base: Changeset, change: Changeset) => composeSequence(
+			base,
+			change,
+			TestNodeId.composeChild,
+			idAllocatorFromMaxId(),
+			manager,
+			metadata,
+		);
+		const firstDestination = run(destination, competing);
+		const sourceResult = run(source, competing);
+		const reprocessedDestination = invalidated ? run(destination, competing) : null;
+		return {
+			input: {
+				source,
+				destination,
+				competing,
+				revision,
+				order: ["destination", "source", "destination-if-invalidated"],
+			},
+			reads,
+			writes,
+			dependencies: [...dependencies],
+			invalidated,
+			reprocessed: reprocessedDestination !== null,
+			moveIns,
+			movedKeys,
+			results: { firstDestination, source: sourceResult, reprocessedDestination },
+		};
+}
+
 function forestCase(revs: RevisionTag[]) {
 	const changes: Record<string, Changeset> = {
 		"counted-build": Change.insert(0, 3, revs[0], { localId: brand(0), revision: revs[0] }),
@@ -462,14 +663,226 @@ function forestCase(revs: RevisionTag[]) {
 			}),
 		],
 	};
+	const stringType = brand<TreeNodeSchemaIdentifier>("com.fluidframework.leaf.string");
+	const node = (value: string): ExclusiveMapTree => ({
+		type: stringType,
+		value,
+		fields: new Map(),
+	});
+	const objectType = brand<TreeNodeSchemaIdentifier>("org.watershed.shared-tree.m3.ForestNode");
+	const objectNode = (label: string, children: ExclusiveMapTree[] = []): ExclusiveMapTree => ({
+		type: objectType,
+		fields: new Map([
+			[brand<FieldKey>("label"), [node(label)]],
+			...(children.length === 0
+				? []
+				: [[brand<FieldKey>("child"), children] as [FieldKey, ExclusiveMapTree[]]]),
+		]),
+	});
+	const chunk = (values: string[]) => combineChunks(chunkField(
+		cursorForMapTreeField(values.map(node)),
+		{ policy: defaultChunkPolicy, idCompressor: testIdCompressor },
+	));
+	const detachedId = (revision: RevisionTag, localId: number): DeltaDetachedNodeId =>
+		makeDetachedNodeId(revision, brand<ChangesetLocalId>(localId));
+	const treeValue = (tree: MapTree): unknown => {
+		if (tree.type === stringType) {
+			assert(typeof tree.value === "string", "The array forest probe expects string values.");
+			return tree.value;
+		}
+		return {
+			type: String(tree.type),
+			fields: [...tree.fields].map(([key, children]) => [
+				String(key),
+				children.map(treeValue),
+			]),
+		};
+	};
+	const values = (forest: ObjectForest, key: FieldKey): unknown[] =>
+		(forest.roots.fields.get(key) ?? []).map(treeValue);
+	const runDelta = (
+		initial: (string | ExclusiveMapTree)[],
+		deltas: DeltaRoot[],
+		retainIndex?: number,
+	) => {
+		const roots = mapTreeWithField(initial.map((value) =>
+			typeof value === "string" ? node(value) : value));
+		const forest = buildTestForest({ additionalAsserts: true, roots });
+		assert(forest instanceof ObjectForest, "The array probe requires ObjectForest.");
+		const index = makeDetachedFieldIndex("watershed-array-forest");
+		const anchor = retainIndex === undefined ? undefined : (() => {
+			const cursor = forest.allocateCursor("watershed array identity");
+			try {
+				forest.moveCursorToPath({
+					parent: undefined,
+					parentField: rootFieldKey,
+					parentIndex: retainIndex,
+				}, cursor);
+				return cursor.buildAnchor();
+			} finally {
+				cursor.free();
+			}
+		})();
+		const checkpoints: unknown[] = [];
+		const pathData = (path: ReturnType<typeof forest.anchors.locate>): unknown =>
+			path === undefined
+				? null
+				: {
+						field: String(path.parentField),
+						index: path.parentIndex,
+						parent: pathData(path.parent),
+					};
+		for (const delta of deltas) {
+			const before = {
+				root: values(forest, rootFieldKey),
+				detached: [...index.entries()].map((entry) => ({
+					id: { major: entry.id.major ?? null, minor: entry.id.minor },
+					values: values(forest, brand(index.toFieldKey(entry.root))),
+				})),
+			};
+			let result: { accepted: true } | { accepted: false; error: string };
+			try {
+				applyDelta(
+					delta,
+					undefined,
+					{ acquireVisitor: () => combineVisitors([
+						forest.acquireVisitor(),
+						forest.anchors.acquireVisitor(),
+					]) },
+					index,
+				);
+				result = { accepted: true };
+			} catch (error) {
+				result = {
+					accepted: false,
+					error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+				};
+			}
+			const after = result.accepted
+				? {
+						root: values(forest, rootFieldKey),
+						detached: [...index.entries()].map((entry) => ({
+							id: { major: entry.id.major ?? null, minor: entry.id.minor },
+							values: values(forest, brand(index.toFieldKey(entry.root))),
+						})),
+						identity: anchor === undefined ? null : pathData(forest.anchors.locate(anchor)),
+					}
+				: { invalidated: true };
+			checkpoints.push({ before, delta: copy(delta), result, after });
+			if (!result.accepted) break;
+		}
+		return checkpoints;
+	};
+	const buildId = detachedId(revs[0], 0);
+	const detachId = detachedId(revs[1], 3);
+	const renamedId = detachedId(revs[2], 6);
+	const cycleSchema = new SchemaFactory("org.watershed.shared-tree.m3.cycle");
+	class CycleItems extends cycleSchema.arrayRecursive("Items", [
+		cycleSchema.string,
+		() => CycleItems,
+	]) {}
+	const cycleProvider = new TestTreeProviderLite(1, configuredSharedTreeInternal({
+		minVersionForCollab: FluidClientVersion.v2_117,
+	}).getFactory());
+	const cycleView = cycleProvider.trees[0].viewWith(
+		new TreeViewConfiguration({ schema: CycleItems }),
+	);
+	cycleView.initialize(new CycleItems([new CycleItems(["child"]), "sibling"]));
+	const nestedCycleTarget = cycleView.root[0];
+	assert(nestedCycleTarget instanceof CycleItems, "The cycle target must be a nested array.");
+	const cycleBefore = visibleArray(cycleView.root);
+	const cycleResult = outcome(() => {
+		nestedCycleTarget.moveRangeToEnd(0, 1, cycleView.root);
+		return visibleArray(cycleView.root);
+	});
+	const cycleAfter = visibleArray(cycleView.root);
+	function visibleArray(value: CycleItems): unknown[] {
+		return [...value].map((item) => item instanceof CycleItems ? visibleArray(item) : item);
+	}
+	const forestOutputs: Record<string, unknown> = {
+		"counted-build": runDelta([], [{
+			build: [{ id: buildId, trees: chunk(["A", "B", "C"]) }],
+			fields: new Map([[rootFieldKey, { marks: [{ count: 3, attach: buildId }] }]]),
+		}]),
+		"counted-detach": runDelta(["A", "B", "C", "D"], [{
+			fields: new Map([[rootFieldKey, {
+				marks: [{ count: 1 }, { count: 3, detach: detachId }],
+			}]]),
+		}], 2),
+		"counted-attach": runDelta(["D"], [
+			{ build: [{ id: detachId, trees: chunk(["A", "B", "C"]) }] },
+			{ fields: new Map([[rootFieldKey, { marks: [{ count: 3, attach: detachId }] }]]) },
+		], 0),
+		"counted-rename": runDelta([], [
+			{ build: [{ id: detachId, trees: chunk(["A", "B", "C"]) }] },
+			{ rename: [{ oldId: detachId, newId: renamedId, count: 3 }] },
+		]),
+		"counted-destroy": runDelta([], [
+			{ build: [{ id: detachId, trees: chunk(["A", "B", "C"]) }] },
+			{ destroy: [{ id: detachId, count: 3 }] },
+		]),
+		repair: runDelta([], [{
+			refreshers: [{ id: detachId, trees: chunk(["A", "B", "C"]) }],
+			fields: new Map([[rootFieldKey, { marks: [{ count: 3, attach: detachId }] }]]),
+		}]),
+		"indexed-children": runDelta([
+			objectNode("A"), objectNode("B"), objectNode("C", [node("old")]),
+		], [{
+			fields: new Map([[rootFieldKey, {
+				marks: [{ count: 2 }, {
+					count: 1,
+					fields: new Map([[brand("child"), {
+						marks: [{
+							count: 1,
+							attach: detachedId(revs[3], 10),
+							detach: detachedId(revs[3], 9),
+						}],
+					}]]),
+				}],
+			}]]),
+			build: [{ id: detachedId(revs[3], 10), trees: chunk(["new"]) }],
+		}]),
+		"retained-identity": runDelta(["A", "B", "C"], [{
+			fields: new Map([[rootFieldKey, {
+				marks: [
+					{ count: 2, detach: detachedId(revs[4], 12) },
+					{ count: 1 },
+					{ count: 2, attach: detachedId(revs[4], 12) },
+				],
+			}]]),
+		}], 0),
+		"invalid-overlap": runDelta([], [
+			{ build: [{ id: detachId, trees: chunk(["A", "B", "C"]) }] },
+			{ fields: new Map([[rootFieldKey, {
+				marks: [
+					{ count: 3, attach: detachId },
+					{ count: 2, attach: detachedId(revs[1], 4) },
+				],
+			}]]) },
+		]),
+		"invalid-cycle": {
+			before: cycleBefore,
+			result: cycleResult,
+			after: cycleAfter,
+		},
+	};
 	return oracleCase("array-forest-delta", "forest",
 		scenarioIds["array-forest-delta"].map((id) => ({
 			id,
-			input: { operation: id, change: changes[id] },
+			input: {
+				operation: id,
+				initialState: id === "counted-build" || id === "counted-rename"
+					|| id === "counted-destroy" || id === "repair" || id === "invalid-overlap"
+					? { field: [] }
+					: { field: ["A", "B", "C", "D"] },
+				change: changes[id],
+				revisions: revs.slice(0, 6),
+			},
 			output: {
 				change: changes[id],
 				delta: outcome(() => toDelta(changes[id])),
 				removedRoots: outcome(() => [...relevantRemovedRoots(changes[id], () => [])]),
+				forest: forestOutputs[id],
 			},
 		})));
 }

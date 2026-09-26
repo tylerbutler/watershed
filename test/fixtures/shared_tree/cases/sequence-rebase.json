@@ -37,7 +37,57 @@
             "revision": 1
           }
         ],
-        "baseRevision": 1
+        "baseRevision": 1,
+        "initialState": {
+          "field": []
+        },
+        "operands": {
+          "operation": "rebase",
+          "change": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 1,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            }
+          ],
+          "changeRevision": 0,
+          "base": [
+            {
+              "type": "Insert",
+              "id": 1,
+              "count": 1,
+              "cellId": {
+                "localId": 1,
+                "revision": 1
+              },
+              "revision": 1
+            }
+          ],
+          "baseRevision": 1
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "rebase"
+          }
+        ]
       },
       {
         "id": "insert-remove",
@@ -63,7 +113,53 @@
             "revision": 2
           }
         ],
-        "baseRevision": 2
+        "baseRevision": 2,
+        "initialState": {
+          "field": []
+        },
+        "operands": {
+          "operation": "rebase",
+          "change": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 1,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            }
+          ],
+          "changeRevision": 0,
+          "base": [
+            {
+              "type": "Remove",
+              "count": 2,
+              "id": 2,
+              "revision": 2
+            }
+          ],
+          "baseRevision": 2
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "rebase"
+          }
+        ]
       },
       {
         "id": "remove-remove",
@@ -88,7 +184,52 @@
             "revision": 3
           }
         ],
-        "baseRevision": 3
+        "baseRevision": 3,
+        "initialState": {
+          "field": []
+        },
+        "operands": {
+          "operation": "rebase",
+          "change": [
+            {
+              "type": "Remove",
+              "count": 2,
+              "id": 2,
+              "revision": 2
+            }
+          ],
+          "changeRevision": 2,
+          "base": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Remove",
+              "count": 2,
+              "id": 4,
+              "revision": 3
+            }
+          ],
+          "baseRevision": 3
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "rebase"
+          }
+        ]
       },
       {
         "id": "move-edit",
@@ -135,7 +276,74 @@
             "revision": 4
           }
         ],
-        "baseRevision": 4
+        "baseRevision": 4,
+        "initialState": {
+          "field": []
+        },
+        "operands": {
+          "operation": "rebase",
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "count": 1,
+              "changes": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              }
+            }
+          ],
+          "changeRevision": 6,
+          "base": [
+            {
+              "type": "MoveOut",
+              "id": 6,
+              "count": 2,
+              "revision": 4
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveIn",
+              "id": 6,
+              "count": 2,
+              "cellId": {
+                "revision": 4,
+                "localId": 8
+              },
+              "revision": 4
+            }
+          ],
+          "baseRevision": 4
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "rebase"
+          }
+        ]
       },
       {
         "id": "move-delete",
@@ -173,7 +381,65 @@
             "revision": 3
           }
         ],
-        "baseRevision": 3
+        "baseRevision": 3,
+        "initialState": {
+          "field": []
+        },
+        "operands": {
+          "operation": "rebase",
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 6,
+              "count": 2,
+              "revision": 4
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveIn",
+              "id": 6,
+              "count": 2,
+              "cellId": {
+                "revision": 4,
+                "localId": 8
+              },
+              "revision": 4
+            }
+          ],
+          "changeRevision": 4,
+          "base": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Remove",
+              "count": 2,
+              "id": 4,
+              "revision": 3
+            }
+          ],
+          "baseRevision": 3
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "rebase"
+          }
+        ]
       },
       {
         "id": "competing-moves",
@@ -221,7 +487,75 @@
             "revision": 5
           }
         ],
-        "baseRevision": 5
+        "baseRevision": 5,
+        "initialState": {
+          "field": []
+        },
+        "operands": {
+          "operation": "rebase",
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 6,
+              "count": 2,
+              "revision": 4
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveIn",
+              "id": 6,
+              "count": 2,
+              "cellId": {
+                "revision": 4,
+                "localId": 8
+              },
+              "revision": 4
+            }
+          ],
+          "changeRevision": 4,
+          "base": [
+            {
+              "type": "MoveIn",
+              "id": 10,
+              "count": 2,
+              "cellId": {
+                "revision": 5,
+                "localId": 12
+              },
+              "revision": 5
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveOut",
+              "id": 10,
+              "count": 2,
+              "revision": 5
+            }
+          ],
+          "baseRevision": 5
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "rebase"
+          }
+        ]
       },
       {
         "id": "partial-overlap-moves",
@@ -269,7 +603,75 @@
             "revision": 8
           }
         ],
-        "baseRevision": 8
+        "baseRevision": 8,
+        "initialState": {
+          "field": []
+        },
+        "operands": {
+          "operation": "rebase",
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 14,
+              "count": 3,
+              "revision": 7
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveIn",
+              "id": 14,
+              "count": 3,
+              "cellId": {
+                "revision": 7,
+                "localId": 17
+              },
+              "revision": 7
+            }
+          ],
+          "changeRevision": 7,
+          "base": [
+            {
+              "type": "MoveIn",
+              "id": 20,
+              "count": 3,
+              "cellId": {
+                "revision": 8,
+                "localId": 23
+              },
+              "revision": 8
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveOut",
+              "id": 20,
+              "count": 3,
+              "revision": 8
+            }
+          ],
+          "baseRevision": 8
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "rebase"
+          }
+        ]
       },
       {
         "id": "empty-cells",
@@ -295,7 +697,53 @@
             }
           }
         ],
-        "baseRevision": 10
+        "baseRevision": 10,
+        "initialState": {
+          "field": []
+        },
+        "operands": {
+          "operation": "rebase",
+          "change": [
+            {
+              "count": 1,
+              "cellId": {
+                "revision": 2,
+                "localId": 2
+              }
+            }
+          ],
+          "changeRevision": 9,
+          "base": [
+            {
+              "type": "Insert",
+              "count": 1,
+              "id": 2,
+              "cellId": {
+                "revision": 2,
+                "localId": 2
+              }
+            }
+          ],
+          "baseRevision": 10
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "rebase"
+          }
+        ]
       },
       {
         "id": "detached-children",
@@ -330,7 +778,62 @@
             "revision": 2
           }
         ],
-        "baseRevision": 2
+        "baseRevision": 2,
+        "initialState": {
+          "field": []
+        },
+        "operands": {
+          "operation": "rebase",
+          "change": [
+            {
+              "count": 1,
+              "changes": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              },
+              "cellId": {
+                "revision": 2,
+                "localId": 2
+              }
+            }
+          ],
+          "changeRevision": 11,
+          "base": [
+            {
+              "type": "Remove",
+              "count": 2,
+              "id": 2,
+              "revision": 2
+            }
+          ],
+          "baseRevision": 2
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "rebase"
+          }
+        ]
       },
       {
         "id": "endpoint-invalidation",
@@ -378,7 +881,75 @@
             "revision": 13
           }
         ],
-        "baseRevision": 13
+        "baseRevision": 13,
+        "initialState": {
+          "field": []
+        },
+        "operands": {
+          "operation": "rebase",
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 30,
+              "count": 2,
+              "revision": 12
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveIn",
+              "id": 30,
+              "count": 2,
+              "cellId": {
+                "revision": 12,
+                "localId": 32
+              },
+              "revision": 12
+            }
+          ],
+          "changeRevision": 12,
+          "base": [
+            {
+              "type": "MoveIn",
+              "id": 34,
+              "count": 2,
+              "cellId": {
+                "revision": 13,
+                "localId": 36
+              },
+              "revision": 13
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveOut",
+              "id": 34,
+              "count": 2,
+              "revision": 13
+            }
+          ],
+          "baseRevision": 13
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "rebase"
+          }
+        ]
       }
     ]
   },
@@ -386,8 +957,24 @@
     "observations": [
       {
         "id": "insert-insert",
+        "executed": true,
         "accepted": true,
         "value": {
+          "accepted": true,
+          "value": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 1,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            }
+          ]
+        },
+        "result": {
           "accepted": true,
           "value": [
             {
@@ -405,8 +992,31 @@
       },
       {
         "id": "insert-remove",
+        "executed": true,
         "accepted": true,
         "value": {
+          "accepted": true,
+          "value": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 1,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            },
+            {
+              "count": 2,
+              "cellId": {
+                "revision": 2,
+                "localId": 2
+              }
+            }
+          ]
+        },
+        "result": {
           "accepted": true,
           "value": [
             {
@@ -431,8 +1041,37 @@
       },
       {
         "id": "remove-remove",
+        "executed": true,
         "accepted": true,
         "value": {
+          "accepted": true,
+          "value": [
+            {
+              "type": "Remove",
+              "count": 1,
+              "id": 2,
+              "revision": 2
+            },
+            {
+              "type": "Remove",
+              "count": 1,
+              "id": 3,
+              "revision": 2,
+              "cellId": {
+                "revision": 3,
+                "localId": 4
+              }
+            },
+            {
+              "count": 1,
+              "cellId": {
+                "revision": 3,
+                "localId": 5
+              }
+            }
+          ]
+        },
+        "result": {
           "accepted": true,
           "value": [
             {
@@ -463,8 +1102,39 @@
       },
       {
         "id": "move-edit",
+        "executed": true,
         "accepted": true,
         "value": {
+          "accepted": true,
+          "value": [
+            {
+              "count": 2,
+              "cellId": {
+                "revision": 4,
+                "localId": 6
+              }
+            },
+            {
+              "count": 3
+            },
+            {
+              "count": 1,
+              "changes": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "result": {
           "accepted": true,
           "value": [
             {
@@ -497,8 +1167,50 @@
       },
       {
         "id": "move-delete",
+        "executed": true,
         "accepted": true,
         "value": {
+          "accepted": true,
+          "value": [
+            {
+              "type": "MoveOut",
+              "id": 6,
+              "count": 1,
+              "revision": 4
+            },
+            {
+              "type": "MoveOut",
+              "id": 7,
+              "count": 1,
+              "revision": 4,
+              "cellId": {
+                "revision": 3,
+                "localId": 4
+              }
+            },
+            {
+              "count": 1,
+              "cellId": {
+                "revision": 3,
+                "localId": 5
+              }
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveIn",
+              "id": 6,
+              "count": 2,
+              "cellId": {
+                "revision": 4,
+                "localId": 8
+              },
+              "revision": 4
+            }
+          ]
+        },
+        "result": {
           "accepted": true,
           "value": [
             {
@@ -542,8 +1254,49 @@
       },
       {
         "id": "competing-moves",
+        "executed": true,
         "accepted": true,
         "value": {
+          "accepted": true,
+          "value": [
+            {
+              "count": 1,
+              "type": "MoveOut",
+              "id": 7,
+              "revision": 4
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveOut",
+              "id": 6,
+              "count": 1,
+              "revision": 4
+            },
+            {
+              "count": 2,
+              "cellId": {
+                "revision": 5,
+                "localId": 10
+              }
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveIn",
+              "id": 6,
+              "count": 2,
+              "cellId": {
+                "revision": 4,
+                "localId": 8
+              },
+              "revision": 4
+            }
+          ]
+        },
+        "result": {
           "accepted": true,
           "value": [
             {
@@ -586,8 +1339,46 @@
       },
       {
         "id": "partial-overlap-moves",
+        "executed": true,
         "accepted": true,
         "value": {
+          "accepted": true,
+          "value": [
+            {
+              "count": 1,
+              "type": "MoveOut",
+              "id": 16,
+              "revision": 7
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveOut",
+              "id": 14,
+              "count": 2,
+              "revision": 7
+            },
+            {
+              "count": 3,
+              "cellId": {
+                "revision": 8,
+                "localId": 20
+              }
+            },
+            {
+              "type": "MoveIn",
+              "id": 14,
+              "count": 3,
+              "cellId": {
+                "revision": 7,
+                "localId": 17
+              },
+              "revision": 7
+            }
+          ]
+        },
+        "result": {
           "accepted": true,
           "value": [
             {
@@ -627,16 +1418,53 @@
       },
       {
         "id": "empty-cells",
+        "executed": true,
         "accepted": true,
         "value": {
+          "accepted": true,
+          "value": []
+        },
+        "result": {
           "accepted": true,
           "value": []
         }
       },
       {
         "id": "detached-children",
+        "executed": true,
         "accepted": true,
         "value": {
+          "accepted": true,
+          "value": [
+            {
+              "count": 1,
+              "changes": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              },
+              "cellId": {
+                "revision": 2,
+                "localId": 2
+              }
+            },
+            {
+              "count": 2,
+              "cellId": {
+                "revision": 2,
+                "localId": 2
+              }
+            }
+          ]
+        },
+        "result": {
           "accepted": true,
           "value": [
             {
@@ -670,8 +1498,40 @@
       },
       {
         "id": "endpoint-invalidation",
+        "executed": true,
         "accepted": true,
         "value": {
+          "accepted": true,
+          "value": [
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveOut",
+              "id": 30,
+              "count": 2,
+              "revision": 12
+            },
+            {
+              "count": 2,
+              "cellId": {
+                "revision": 13,
+                "localId": 34
+              }
+            },
+            {
+              "type": "MoveIn",
+              "id": 30,
+              "count": 2,
+              "cellId": {
+                "revision": 12,
+                "localId": 32
+              },
+              "revision": 12
+            }
+          ]
+        },
+        "result": {
           "accepted": true,
           "value": [
             {
@@ -737,7 +1597,57 @@
               "revision": 1
             }
           ],
-          "baseRevision": 1
+          "baseRevision": 1,
+          "initialState": {
+            "field": []
+          },
+          "operands": {
+            "operation": "rebase",
+            "change": [
+              {
+                "type": "Insert",
+                "id": 0,
+                "count": 1,
+                "cellId": {
+                  "localId": 0,
+                  "revision": 0
+                },
+                "revision": 0
+              }
+            ],
+            "changeRevision": 0,
+            "base": [
+              {
+                "type": "Insert",
+                "id": 1,
+                "count": 1,
+                "cellId": {
+                  "localId": 1,
+                  "revision": 1
+                },
+                "revision": 1
+              }
+            ],
+            "baseRevision": 1
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "rebase"
+            }
+          ]
         },
         "output": {
           "accepted": true,
@@ -781,7 +1691,53 @@
               "revision": 2
             }
           ],
-          "baseRevision": 2
+          "baseRevision": 2,
+          "initialState": {
+            "field": []
+          },
+          "operands": {
+            "operation": "rebase",
+            "change": [
+              {
+                "type": "Insert",
+                "id": 0,
+                "count": 1,
+                "cellId": {
+                  "localId": 0,
+                  "revision": 0
+                },
+                "revision": 0
+              }
+            ],
+            "changeRevision": 0,
+            "base": [
+              {
+                "type": "Remove",
+                "count": 2,
+                "id": 2,
+                "revision": 2
+              }
+            ],
+            "baseRevision": 2
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "rebase"
+            }
+          ]
         },
         "output": {
           "accepted": true,
@@ -831,7 +1787,52 @@
               "revision": 3
             }
           ],
-          "baseRevision": 3
+          "baseRevision": 3,
+          "initialState": {
+            "field": []
+          },
+          "operands": {
+            "operation": "rebase",
+            "change": [
+              {
+                "type": "Remove",
+                "count": 2,
+                "id": 2,
+                "revision": 2
+              }
+            ],
+            "changeRevision": 2,
+            "base": [
+              {
+                "count": 1
+              },
+              {
+                "type": "Remove",
+                "count": 2,
+                "id": 4,
+                "revision": 3
+              }
+            ],
+            "baseRevision": 3
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "rebase"
+            }
+          ]
         },
         "output": {
           "accepted": true,
@@ -909,7 +1910,74 @@
               "revision": 4
             }
           ],
-          "baseRevision": 4
+          "baseRevision": 4,
+          "initialState": {
+            "field": []
+          },
+          "operands": {
+            "operation": "rebase",
+            "change": [
+              {
+                "count": 1
+              },
+              {
+                "count": 1,
+                "changes": {
+                  "localId": 40,
+                  "testChange": {
+                    "inputContext": [],
+                    "intentions": [
+                      4
+                    ],
+                    "outputContext": [
+                      4
+                    ]
+                  }
+                }
+              }
+            ],
+            "changeRevision": 6,
+            "base": [
+              {
+                "type": "MoveOut",
+                "id": 6,
+                "count": 2,
+                "revision": 4
+              },
+              {
+                "count": 2
+              },
+              {
+                "type": "MoveIn",
+                "id": 6,
+                "count": 2,
+                "cellId": {
+                  "revision": 4,
+                  "localId": 8
+                },
+                "revision": 4
+              }
+            ],
+            "baseRevision": 4
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "rebase"
+            }
+          ]
         },
         "output": {
           "accepted": true,
@@ -980,7 +2048,65 @@
               "revision": 3
             }
           ],
-          "baseRevision": 3
+          "baseRevision": 3,
+          "initialState": {
+            "field": []
+          },
+          "operands": {
+            "operation": "rebase",
+            "change": [
+              {
+                "type": "MoveOut",
+                "id": 6,
+                "count": 2,
+                "revision": 4
+              },
+              {
+                "count": 2
+              },
+              {
+                "type": "MoveIn",
+                "id": 6,
+                "count": 2,
+                "cellId": {
+                  "revision": 4,
+                  "localId": 8
+                },
+                "revision": 4
+              }
+            ],
+            "changeRevision": 4,
+            "base": [
+              {
+                "count": 1
+              },
+              {
+                "type": "Remove",
+                "count": 2,
+                "id": 4,
+                "revision": 3
+              }
+            ],
+            "baseRevision": 3
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "rebase"
+            }
+          ]
         },
         "output": {
           "accepted": true,
@@ -1072,7 +2198,75 @@
               "revision": 5
             }
           ],
-          "baseRevision": 5
+          "baseRevision": 5,
+          "initialState": {
+            "field": []
+          },
+          "operands": {
+            "operation": "rebase",
+            "change": [
+              {
+                "type": "MoveOut",
+                "id": 6,
+                "count": 2,
+                "revision": 4
+              },
+              {
+                "count": 2
+              },
+              {
+                "type": "MoveIn",
+                "id": 6,
+                "count": 2,
+                "cellId": {
+                  "revision": 4,
+                  "localId": 8
+                },
+                "revision": 4
+              }
+            ],
+            "changeRevision": 4,
+            "base": [
+              {
+                "type": "MoveIn",
+                "id": 10,
+                "count": 2,
+                "cellId": {
+                  "revision": 5,
+                  "localId": 12
+                },
+                "revision": 5
+              },
+              {
+                "count": 1
+              },
+              {
+                "type": "MoveOut",
+                "id": 10,
+                "count": 2,
+                "revision": 5
+              }
+            ],
+            "baseRevision": 5
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "rebase"
+            }
+          ]
         },
         "output": {
           "accepted": true,
@@ -1163,7 +2357,75 @@
               "revision": 8
             }
           ],
-          "baseRevision": 8
+          "baseRevision": 8,
+          "initialState": {
+            "field": []
+          },
+          "operands": {
+            "operation": "rebase",
+            "change": [
+              {
+                "type": "MoveOut",
+                "id": 14,
+                "count": 3,
+                "revision": 7
+              },
+              {
+                "count": 2
+              },
+              {
+                "type": "MoveIn",
+                "id": 14,
+                "count": 3,
+                "cellId": {
+                  "revision": 7,
+                  "localId": 17
+                },
+                "revision": 7
+              }
+            ],
+            "changeRevision": 7,
+            "base": [
+              {
+                "type": "MoveIn",
+                "id": 20,
+                "count": 3,
+                "cellId": {
+                  "revision": 8,
+                  "localId": 23
+                },
+                "revision": 8
+              },
+              {
+                "count": 2
+              },
+              {
+                "type": "MoveOut",
+                "id": 20,
+                "count": 3,
+                "revision": 8
+              }
+            ],
+            "baseRevision": 8
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "rebase"
+            }
+          ]
         },
         "output": {
           "accepted": true,
@@ -1229,7 +2491,53 @@
               }
             }
           ],
-          "baseRevision": 10
+          "baseRevision": 10,
+          "initialState": {
+            "field": []
+          },
+          "operands": {
+            "operation": "rebase",
+            "change": [
+              {
+                "count": 1,
+                "cellId": {
+                  "revision": 2,
+                  "localId": 2
+                }
+              }
+            ],
+            "changeRevision": 9,
+            "base": [
+              {
+                "type": "Insert",
+                "count": 1,
+                "id": 2,
+                "cellId": {
+                  "revision": 2,
+                  "localId": 2
+                }
+              }
+            ],
+            "baseRevision": 10
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "rebase"
+            }
+          ]
         },
         "output": {
           "accepted": true,
@@ -1271,7 +2579,62 @@
               "revision": 2
             }
           ],
-          "baseRevision": 2
+          "baseRevision": 2,
+          "initialState": {
+            "field": []
+          },
+          "operands": {
+            "operation": "rebase",
+            "change": [
+              {
+                "count": 1,
+                "changes": {
+                  "localId": 40,
+                  "testChange": {
+                    "inputContext": [],
+                    "intentions": [
+                      4
+                    ],
+                    "outputContext": [
+                      4
+                    ]
+                  }
+                },
+                "cellId": {
+                  "revision": 2,
+                  "localId": 2
+                }
+              }
+            ],
+            "changeRevision": 11,
+            "base": [
+              {
+                "type": "Remove",
+                "count": 2,
+                "id": 2,
+                "revision": 2
+              }
+            ],
+            "baseRevision": 2
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "rebase"
+            }
+          ]
         },
         "output": {
           "accepted": true,
@@ -1353,7 +2716,75 @@
               "revision": 13
             }
           ],
-          "baseRevision": 13
+          "baseRevision": 13,
+          "initialState": {
+            "field": []
+          },
+          "operands": {
+            "operation": "rebase",
+            "change": [
+              {
+                "type": "MoveOut",
+                "id": 30,
+                "count": 2,
+                "revision": 12
+              },
+              {
+                "count": 2
+              },
+              {
+                "type": "MoveIn",
+                "id": 30,
+                "count": 2,
+                "cellId": {
+                  "revision": 12,
+                  "localId": 32
+                },
+                "revision": 12
+              }
+            ],
+            "changeRevision": 12,
+            "base": [
+              {
+                "type": "MoveIn",
+                "id": 34,
+                "count": 2,
+                "cellId": {
+                  "revision": 13,
+                  "localId": 36
+                },
+                "revision": 13
+              },
+              {
+                "count": 2
+              },
+              {
+                "type": "MoveOut",
+                "id": 34,
+                "count": 2,
+                "revision": 13
+              }
+            ],
+            "baseRevision": 13
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "rebase"
+            }
+          ]
         },
         "output": {
           "accepted": true,

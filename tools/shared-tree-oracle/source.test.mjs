@@ -7,6 +7,7 @@ import test from "node:test";
 import * as source from "./source.mjs";
 import {
   arrayInjectedTestPath,
+  arraySupportInjectedPath,
   forestInjectedTestPath,
   historyInjectedTestPath,
   injectedTestPath,
@@ -163,11 +164,16 @@ test("source runner declares the owned M3 injections", () => {
     sequenceInjectedTestPath,
     "packages/dds/tree/src/test/watershedSequence.spec.ts",
   );
+  assert.equal(
+    arraySupportInjectedPath,
+    "packages/dds/tree/src/test/watershedArraySupport.ts",
+  );
 });
 
 test("source verification byte-checks the owned M3 injections", async (t) => {
   for (const [injectedPath, sourceName] of [
     [arrayInjectedTestPath, "upstream-array.spec.ts"],
+    [arraySupportInjectedPath, "upstream-array-support.ts"],
     [sequenceInjectedTestPath, "upstream-sequence.spec.ts"],
   ]) {
     const { directory, commit } = await checkoutFixture(t);

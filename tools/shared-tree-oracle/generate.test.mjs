@@ -658,13 +658,30 @@ function arrayCaseFixture() {
     {
       id: "move-interior",
       operation: "move",
+      initialState: { left: ["A", "B"], right: [] },
       source: { path: ["left"], start: 0, end: 2 },
       destination: { path: ["left"], gap: 1 },
+      operands: {
+        source: { path: ["left"], start: 0, end: 2 },
+        destination: { path: ["left"], gap: 1 },
+      },
+      revisions: ["revision-a"],
+      allocator: { nextLocalId: 0 },
+      compressor: { mode: "test", session: "session-a" },
+      sequencing: { sequenceNumber: 0, referenceSequenceNumber: 0, minimumSequenceNumber: 0 },
+      schedule: [{ step: "move" }],
     },
     {
       id: "empty-remove",
       operation: "remove",
+      initialState: { left: [], right: ["A", "B"] },
       source: { path: ["right"], start: 1, end: 1 },
+      operands: { source: { path: ["right"], start: 1, end: 1 } },
+      revisions: ["revision-b"],
+      allocator: { nextLocalId: 0 },
+      compressor: { mode: "test", session: "session-a" },
+      sequencing: { sequenceNumber: 0, referenceSequenceNumber: 0, minimumSequenceNumber: 0 },
+      schedule: [{ step: "remove" }],
     },
   ];
   return {
@@ -680,8 +697,10 @@ function arrayCaseFixture() {
     expected: {
       observations: scenarios.map(({ id }) => ({
         id,
+        executed: true,
         emitted: [],
         visible: ["A", "B"],
+        result: [],
       })),
     },
     raw: {
@@ -744,6 +763,34 @@ test("array validation rejects raw and normalized input inconsistencies", () => 
   );
 });
 
+test("M3 cases require complete replay inputs and executed observations", () => {
+  for (const [id, mutate, message] of [
+    ["array-schema-content", (value) => {
+      delete value.input.scenarios[0].initialState;
+      delete value.raw.scenarios[0].input.initialState;
+    }, /complete replay input/i],
+    ["sequence-field-editor", (value) => {
+      value.expected.observations[0] = { id: "move-interior", captured: true };
+    }, /executed source result/i],
+  ]) {
+    const value = id === "sequence-field-editor"
+      ? arrayCaseFixture()
+      : JSON.parse(readFileSync(
+          new URL(`../../test/fixtures/shared_tree/cases/${id}.json`, import.meta.url), "utf8",
+        ));
+    mutate(value);
+    assert.throws(
+      () => validateArrayCase(
+        value,
+        id === "sequence-field-editor"
+          ? value.input.scenarios.map(({ id: scenarioId }) => scenarioId)
+          : undefined,
+      ),
+      message,
+    );
+  }
+});
+
 test("array validation requires contract-defining source evidence", () => {
   for (const [id, mutate, message] of [
     ["array-schema-content", (value) => {
@@ -753,8 +800,9 @@ test("array validation requires contract-defining source evidence", () => {
       value.raw.schemas.rootArray.bytes = value.input.schemas.rootArray;
     }, /Sequence field/],
     ["sequence-field-editor", (value) => {
-      value.expected.observations.find(({ id }) => id === "move-interior")
-        .value.change[1].type = "MoveOut";
+      const observation = value.expected.observations.find(({ id }) => id === "move-interior");
+      observation.value.change[1].type = "MoveOut";
+      observation.result.change[1].type = "MoveOut";
       value.raw.scenarios.find(({ id }) => id === "move-interior")
         .output.change[1].type = "MoveOut";
     }, /interior move split/],
@@ -766,12 +814,16 @@ test("array validation requires contract-defining source evidence", () => {
       value.raw.scenarios[0].input.profile.sequence = 2;
     }, /codec profile/],
     ["array-history", (value) => {
-      value.raw.scenarios.find(({ id }) => id === "public-noops")
-        .output[0].commits = 1;
+      value.raw.scenarios.find(({ input }) => input.id === "public-noops")
+        .output.noops[0].commits = 1;
+      value.expected.observations.find(({ id }) => id === "public-noops")
+        .result.noops[0].commits = 1;
     }, /no-op emission/],
     ["array-invalid", (value) => {
-      value.raw.scenarios.find(({ id }) => id === "native-remove-beyond-length")
+      value.raw.scenarios.find(({ input }) => input.id === "native-remove-beyond-length")
         .output.nativeContract = "clamp";
+      value.expected.observations.find(({ id }) => id === "native-remove-beyond-length")
+        .result.nativeContract = "clamp";
     }, /removal-bound difference/],
   ]) {
     const value = JSON.parse(readFileSync(

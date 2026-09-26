@@ -11,31 +11,1340 @@
     "scenarios": [
       {
         "id": "corrupt-schema",
-        "operation": "corrupt-schema"
+        "operation": "corrupt-schema",
+        "initialState": {
+          "left": [
+            "A",
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            [
+              "nested",
+              {
+                "map": [
+                  [
+                    "",
+                    "empty-key"
+                  ],
+                  [
+                    "0",
+                    "numeric-key"
+                  ]
+                ]
+              }
+            ]
+          ],
+          "right": [
+            "R"
+          ],
+          "byKey": {
+            "map": [
+              [
+                "",
+                [
+                  "empty"
+                ]
+              ],
+              [
+                "0",
+                [
+                  "zero",
+                  [
+                    "deep"
+                  ]
+                ]
+              ],
+              [
+                "01",
+                "leading-zero"
+              ]
+            ]
+          },
+          "narrow": [
+            {
+              "point": {
+                "label": "narrow",
+                "x": 9
+              }
+            }
+          ]
+        },
+        "operands": {
+          "operation": "corrupt-schema",
+          "initialState": {
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
+          },
+          "operands": {
+            "input": {
+              "version": 99
+            },
+            "outcome": {
+              "accepted": false,
+              "error": "Error: Unsupported version 99 encountered while decoding Schema data. Supported versions for this data are: [1,2].\nThe client which encoded this data likely specified an \"minVersionForCollab\" value which corresponds to a version newer than the version of this client (\"3.1.0\")."
+            }
+          }
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "ongoing",
+          "session": null
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "corrupt-schema"
+          }
+        ]
       },
       {
         "id": "corrupt-mark",
-        "operation": "corrupt-mark"
+        "operation": "corrupt-mark",
+        "initialState": {
+          "left": [
+            "A",
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            [
+              "nested",
+              {
+                "map": [
+                  [
+                    "",
+                    "empty-key"
+                  ],
+                  [
+                    "0",
+                    "numeric-key"
+                  ]
+                ]
+              }
+            ]
+          ],
+          "right": [
+            "R"
+          ],
+          "byKey": {
+            "map": [
+              [
+                "",
+                [
+                  "empty"
+                ]
+              ],
+              [
+                "0",
+                [
+                  "zero",
+                  [
+                    "deep"
+                  ]
+                ]
+              ],
+              [
+                "01",
+                "leading-zero"
+              ]
+            ]
+          },
+          "narrow": [
+            {
+              "point": {
+                "label": "narrow",
+                "x": 9
+              }
+            }
+          ]
+        },
+        "operands": {
+          "operation": "corrupt-mark",
+          "initialState": {
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
+          },
+          "operands": {
+            "input": {
+              "revision": 4,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "changeset": [
+                {
+                  "data": {
+                    "maxId": 18,
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "left",
+                                  "fieldKind": "ModularEditBuilder.Generic",
+                                  "change": [
+                                    [
+                                      0,
+                                      {
+                                        "fieldChanges": [
+                                          {
+                                            "fieldKey": "",
+                                            "fieldKind": "Sequence",
+                                            "change": [
+                                              {
+                                                "count": 1
+                                              },
+                                              {
+                                                "count": 1,
+                                                "effect": {
+                                                  "unknownMove": {
+                                                    "id": 13
+                                                  }
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                },
+                                {
+                                  "fieldKey": "right",
+                                  "fieldKind": "ModularEditBuilder.Generic",
+                                  "change": [
+                                    [
+                                      0,
+                                      {
+                                        "fieldChanges": [
+                                          {
+                                            "fieldKey": "",
+                                            "fieldKind": "Sequence",
+                                            "change": [
+                                              {
+                                                "count": 1
+                                              },
+                                              {
+                                                "count": 1,
+                                                "effect": {
+                                                  "moveIn": {
+                                                    "id": 13
+                                                  }
+                                                },
+                                                "cellId": 14
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "version": 7
+            },
+            "outcome": {
+              "accepted": false,
+              "error": "Error: 0xac2"
+            }
+          }
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "ongoing",
+          "session": null
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "corrupt-mark"
+          }
+        ]
       },
       {
         "id": "corrupt-range",
-        "operation": "corrupt-range"
+        "operation": "corrupt-range",
+        "initialState": {
+          "left": [
+            "A",
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            [
+              "nested",
+              {
+                "map": [
+                  [
+                    "",
+                    "empty-key"
+                  ],
+                  [
+                    "0",
+                    "numeric-key"
+                  ]
+                ]
+              }
+            ]
+          ],
+          "right": [
+            "R"
+          ],
+          "byKey": {
+            "map": [
+              [
+                "",
+                [
+                  "empty"
+                ]
+              ],
+              [
+                "0",
+                [
+                  "zero",
+                  [
+                    "deep"
+                  ]
+                ]
+              ],
+              [
+                "01",
+                "leading-zero"
+              ]
+            ]
+          },
+          "narrow": [
+            {
+              "point": {
+                "label": "narrow",
+                "x": 9
+              }
+            }
+          ]
+        },
+        "operands": {
+          "operation": "corrupt-range",
+          "initialState": {
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
+          },
+          "operands": {
+            "input": {
+              "start": 2,
+              "end": 1
+            },
+            "outcome": {
+              "accepted": false,
+              "error": "Error: Malformed range passed to TreeArrayNode.removeRange. Start index 2 is greater than end index 1."
+            }
+          }
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "ongoing",
+          "session": null
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "corrupt-range"
+          }
+        ]
       },
       {
         "id": "corrupt-revision",
-        "operation": "corrupt-revision"
+        "operation": "corrupt-revision",
+        "initialState": {
+          "left": [
+            "A",
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            [
+              "nested",
+              {
+                "map": [
+                  [
+                    "",
+                    "empty-key"
+                  ],
+                  [
+                    "0",
+                    "numeric-key"
+                  ]
+                ]
+              }
+            ]
+          ],
+          "right": [
+            "R"
+          ],
+          "byKey": {
+            "map": [
+              [
+                "",
+                [
+                  "empty"
+                ]
+              ],
+              [
+                "0",
+                [
+                  "zero",
+                  [
+                    "deep"
+                  ]
+                ]
+              ],
+              [
+                "01",
+                "leading-zero"
+              ]
+            ]
+          },
+          "narrow": [
+            {
+              "point": {
+                "label": "narrow",
+                "x": 9
+              }
+            }
+          ]
+        },
+        "operands": {
+          "operation": "corrupt-revision",
+          "initialState": {
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
+          },
+          "operands": {
+            "input": {
+              "revision": "not-a-revision",
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "changeset": [
+                {
+                  "data": {
+                    "maxId": 18,
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "left",
+                                  "fieldKind": "ModularEditBuilder.Generic",
+                                  "change": [
+                                    [
+                                      0,
+                                      {
+                                        "fieldChanges": [
+                                          {
+                                            "fieldKey": "",
+                                            "fieldKind": "Sequence",
+                                            "change": [
+                                              {
+                                                "count": 1
+                                              },
+                                              {
+                                                "count": 1,
+                                                "effect": {
+                                                  "moveOut": {
+                                                    "id": 13
+                                                  }
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                },
+                                {
+                                  "fieldKey": "right",
+                                  "fieldKind": "ModularEditBuilder.Generic",
+                                  "change": [
+                                    [
+                                      0,
+                                      {
+                                        "fieldChanges": [
+                                          {
+                                            "fieldKey": "",
+                                            "fieldKind": "Sequence",
+                                            "change": [
+                                              {
+                                                "count": 1
+                                              },
+                                              {
+                                                "count": 1,
+                                                "effect": {
+                                                  "moveIn": {
+                                                    "id": 13
+                                                  }
+                                                },
+                                                "cellId": 14
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "version": 7
+            },
+            "outcome": {
+              "accepted": false,
+              "error": "Error: 0x88d"
+            }
+          }
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "ongoing",
+          "session": null
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "corrupt-revision"
+          }
+        ]
       },
       {
         "id": "corrupt-ownership",
-        "operation": "corrupt-ownership"
+        "operation": "corrupt-ownership",
+        "initialState": {
+          "left": [
+            "A",
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            [
+              "nested",
+              {
+                "map": [
+                  [
+                    "",
+                    "empty-key"
+                  ],
+                  [
+                    "0",
+                    "numeric-key"
+                  ]
+                ]
+              }
+            ]
+          ],
+          "right": [
+            "R"
+          ],
+          "byKey": {
+            "map": [
+              [
+                "",
+                [
+                  "empty"
+                ]
+              ],
+              [
+                "0",
+                [
+                  "zero",
+                  [
+                    "deep"
+                  ]
+                ]
+              ],
+              [
+                "01",
+                "leading-zero"
+              ]
+            ]
+          },
+          "narrow": [
+            {
+              "point": {
+                "label": "narrow",
+                "x": 9
+              }
+            }
+          ]
+        },
+        "operands": {
+          "operation": "corrupt-ownership",
+          "initialState": {
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
+          },
+          "operands": {
+            "input": {
+              "foreign": true
+            },
+            "outcome": {
+              "accepted": false,
+              "error": "Error: A node with schema \"org.watershed.shared-tree.m3.Point\" (name: \"Point\") was inserted into the tree more than once. This is not supported."
+            }
+          }
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "ongoing",
+          "session": null
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "corrupt-ownership"
+          }
+        ]
       },
       {
         "id": "corrupt-summary",
-        "operation": "corrupt-summary"
+        "operation": "corrupt-summary",
+        "initialState": {
+          "left": [
+            "A",
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            [
+              "nested",
+              {
+                "map": [
+                  [
+                    "",
+                    "empty-key"
+                  ],
+                  [
+                    "0",
+                    "numeric-key"
+                  ]
+                ]
+              }
+            ]
+          ],
+          "right": [
+            "R"
+          ],
+          "byKey": {
+            "map": [
+              [
+                "",
+                [
+                  "empty"
+                ]
+              ],
+              [
+                "0",
+                [
+                  "zero",
+                  [
+                    "deep"
+                  ]
+                ]
+              ],
+              [
+                "01",
+                "leading-zero"
+              ]
+            ]
+          },
+          "narrow": [
+            {
+              "point": {
+                "label": "narrow",
+                "x": 9
+              }
+            }
+          ]
+        },
+        "operands": {
+          "operation": "corrupt-summary",
+          "initialState": {
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
+          },
+          "operands": {
+            "input": {
+              "type": 1,
+              "tree": {}
+            },
+            "outcome": {
+              "accepted": false,
+              "error": "Error: Invalid use of SharedTree after it was put into an invalid state by another error.\nOriginal Error:\nError: 0xc21"
+            }
+          }
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "ongoing",
+          "session": null
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "corrupt-summary"
+          }
+        ]
       },
       {
         "id": "native-remove-beyond-length",
-        "operation": "native-remove-beyond-length"
+        "operation": "native-remove-beyond-length",
+        "initialState": {
+          "left": [
+            "A",
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            [
+              "nested",
+              {
+                "map": [
+                  [
+                    "",
+                    "empty-key"
+                  ],
+                  [
+                    "0",
+                    "numeric-key"
+                  ]
+                ]
+              }
+            ]
+          ],
+          "right": [
+            "R"
+          ],
+          "byKey": {
+            "map": [
+              [
+                "",
+                [
+                  "empty"
+                ]
+              ],
+              [
+                "0",
+                [
+                  "zero",
+                  [
+                    "deep"
+                  ]
+                ]
+              ],
+              [
+                "01",
+                "leading-zero"
+              ]
+            ]
+          },
+          "narrow": [
+            {
+              "point": {
+                "label": "narrow",
+                "x": 9
+              }
+            }
+          ]
+        },
+        "operands": {
+          "operation": "native-remove-beyond-length",
+          "initialState": {
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
+          },
+          "operands": {
+            "upstream": {
+              "input": {
+                "start": 1,
+                "end": 99
+              },
+              "value": [
+                "A"
+              ]
+            },
+            "nativeContract": "error"
+          }
+        },
+        "revisions": [],
+        "allocator": {
+          "nextLocalId": 0
+        },
+        "compressor": {
+          "mode": "ongoing",
+          "session": null
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "native-remove-beyond-length"
+          }
+        ]
       }
     ]
   },
@@ -43,56 +1352,139 @@
     "observations": [
       {
         "id": "corrupt-schema",
-        "rejected": true
-      },
-      {
-        "id": "corrupt-mark",
-        "rejected": true
-      },
-      {
-        "id": "corrupt-range",
-        "rejected": true
-      },
-      {
-        "id": "corrupt-revision",
-        "rejected": true
-      },
-      {
-        "id": "corrupt-ownership",
-        "rejected": true
-      },
-      {
-        "id": "corrupt-summary",
-        "rejected": true
-      },
-      {
-        "id": "native-remove-beyond-length",
-        "rejected": false
-      }
-    ]
-  },
-  "raw": {
-    "scenarios": [
-      {
-        "id": "corrupt-schema",
-        "input": {
-          "id": "corrupt-schema",
-          "operation": "corrupt-schema"
-        },
-        "output": {
-          "schema": "{",
-          "rejected": true
+        "executed": true,
+        "rejected": true,
+        "result": {
+          "input": {
+            "version": 99
+          },
+          "outcome": {
+            "accepted": false,
+            "error": "Error: Unsupported version 99 encountered while decoding Schema data. Supported versions for this data are: [1,2].\nThe client which encoded this data likely specified an \"minVersionForCollab\" value which corresponds to a version newer than the version of this client (\"3.1.0\")."
+          }
         }
       },
       {
         "id": "corrupt-mark",
-        "input": {
-          "id": "corrupt-mark",
-          "operation": "corrupt-mark"
-        },
-        "output": {
-          "message": {
+        "executed": true,
+        "rejected": true,
+        "result": {
+          "input": {
             "revision": 4,
+            "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 18,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
+                          {
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "left",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "unknownMove": {
+                                                  "id": 13
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              },
+                              {
+                                "fieldKey": "right",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "moveIn": {
+                                                  "id": 13
+                                                }
+                                              },
+                                              "cellId": 14
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "version": 7
+          },
+          "outcome": {
+            "accepted": false,
+            "error": "Error: 0xac2"
+          }
+        }
+      },
+      {
+        "id": "corrupt-range",
+        "executed": true,
+        "rejected": true,
+        "result": {
+          "input": {
+            "start": 2,
+            "end": 1
+          },
+          "outcome": {
+            "accepted": false,
+            "error": "Error: Malformed range passed to TreeArrayNode.removeRange. Start index 2 is greater than end index 1."
+          }
+        }
+      },
+      {
+        "id": "corrupt-revision",
+        "executed": true,
+        "rejected": true,
+        "result": {
+          "input": {
+            "revision": "not-a-revision",
             "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
             "changeset": [
               {
@@ -177,64 +1569,1646 @@
                 }
               }
             ],
+            "version": 7
+          },
+          "outcome": {
+            "accepted": false,
+            "error": "Error: 0x88d"
+          }
+        }
+      },
+      {
+        "id": "corrupt-ownership",
+        "executed": true,
+        "rejected": true,
+        "result": {
+          "input": {
+            "foreign": true
+          },
+          "outcome": {
+            "accepted": false,
+            "error": "Error: A node with schema \"org.watershed.shared-tree.m3.Point\" (name: \"Point\") was inserted into the tree more than once. This is not supported."
+          }
+        }
+      },
+      {
+        "id": "corrupt-summary",
+        "executed": true,
+        "rejected": true,
+        "result": {
+          "input": {
+            "type": 1,
+            "tree": {}
+          },
+          "outcome": {
+            "accepted": false,
+            "error": "Error: Invalid use of SharedTree after it was put into an invalid state by another error.\nOriginal Error:\nError: 0xc21"
+          }
+        }
+      },
+      {
+        "id": "native-remove-beyond-length",
+        "executed": true,
+        "rejected": false,
+        "result": {
+          "upstream": {
+            "input": {
+              "start": 1,
+              "end": 99
+            },
+            "value": [
+              "A"
+            ]
+          },
+          "nativeContract": "error"
+        }
+      }
+    ]
+  },
+  "raw": {
+    "scenarios": [
+      {
+        "id": "corrupt-schema",
+        "input": {
+          "id": "corrupt-schema",
+          "operation": "corrupt-schema",
+          "initialState": {
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
+          },
+          "operands": {
+            "operation": "corrupt-schema",
+            "initialState": {
+              "left": [
+                "A",
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                [
+                  "nested",
+                  {
+                    "map": [
+                      [
+                        "",
+                        "empty-key"
+                      ],
+                      [
+                        "0",
+                        "numeric-key"
+                      ]
+                    ]
+                  }
+                ]
+              ],
+              "right": [
+                "R"
+              ],
+              "byKey": {
+                "map": [
+                  [
+                    "",
+                    [
+                      "empty"
+                    ]
+                  ],
+                  [
+                    "0",
+                    [
+                      "zero",
+                      [
+                        "deep"
+                      ]
+                    ]
+                  ],
+                  [
+                    "01",
+                    "leading-zero"
+                  ]
+                ]
+              },
+              "narrow": [
+                {
+                  "point": {
+                    "label": "narrow",
+                    "x": 9
+                  }
+                }
+              ]
+            },
+            "operands": {
+              "input": {
+                "version": 99
+              },
+              "outcome": {
+                "accepted": false,
+                "error": "Error: Unsupported version 99 encountered while decoding Schema data. Supported versions for this data are: [1,2].\nThe client which encoded this data likely specified an \"minVersionForCollab\" value which corresponds to a version newer than the version of this client (\"3.1.0\")."
+              }
+            }
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "ongoing",
+            "session": null
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "corrupt-schema"
+            }
+          ]
+        },
+        "output": {
+          "input": {
             "version": 99
           },
-          "rejected": true
+          "outcome": {
+            "accepted": false,
+            "error": "Error: Unsupported version 99 encountered while decoding Schema data. Supported versions for this data are: [1,2].\nThe client which encoded this data likely specified an \"minVersionForCollab\" value which corresponds to a version newer than the version of this client (\"3.1.0\")."
+          }
+        }
+      },
+      {
+        "id": "corrupt-mark",
+        "input": {
+          "id": "corrupt-mark",
+          "operation": "corrupt-mark",
+          "initialState": {
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
+          },
+          "operands": {
+            "operation": "corrupt-mark",
+            "initialState": {
+              "left": [
+                "A",
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                [
+                  "nested",
+                  {
+                    "map": [
+                      [
+                        "",
+                        "empty-key"
+                      ],
+                      [
+                        "0",
+                        "numeric-key"
+                      ]
+                    ]
+                  }
+                ]
+              ],
+              "right": [
+                "R"
+              ],
+              "byKey": {
+                "map": [
+                  [
+                    "",
+                    [
+                      "empty"
+                    ]
+                  ],
+                  [
+                    "0",
+                    [
+                      "zero",
+                      [
+                        "deep"
+                      ]
+                    ]
+                  ],
+                  [
+                    "01",
+                    "leading-zero"
+                  ]
+                ]
+              },
+              "narrow": [
+                {
+                  "point": {
+                    "label": "narrow",
+                    "x": 9
+                  }
+                }
+              ]
+            },
+            "operands": {
+              "input": {
+                "revision": 4,
+                "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "changeset": [
+                  {
+                    "data": {
+                      "maxId": 18,
+                      "changes": [
+                        {
+                          "fieldKey": "rootFieldKey",
+                          "fieldKind": "ModularEditBuilder.Generic",
+                          "change": [
+                            [
+                              0,
+                              {
+                                "fieldChanges": [
+                                  {
+                                    "fieldKey": "left",
+                                    "fieldKind": "ModularEditBuilder.Generic",
+                                    "change": [
+                                      [
+                                        0,
+                                        {
+                                          "fieldChanges": [
+                                            {
+                                              "fieldKey": "",
+                                              "fieldKind": "Sequence",
+                                              "change": [
+                                                {
+                                                  "count": 1
+                                                },
+                                                {
+                                                  "count": 1,
+                                                  "effect": {
+                                                    "unknownMove": {
+                                                      "id": 13
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    ]
+                                  },
+                                  {
+                                    "fieldKey": "right",
+                                    "fieldKind": "ModularEditBuilder.Generic",
+                                    "change": [
+                                      [
+                                        0,
+                                        {
+                                          "fieldChanges": [
+                                            {
+                                              "fieldKey": "",
+                                              "fieldKind": "Sequence",
+                                              "change": [
+                                                {
+                                                  "count": 1
+                                                },
+                                                {
+                                                  "count": 1,
+                                                  "effect": {
+                                                    "moveIn": {
+                                                      "id": 13
+                                                    }
+                                                  },
+                                                  "cellId": 14
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "version": 7
+              },
+              "outcome": {
+                "accepted": false,
+                "error": "Error: 0xac2"
+              }
+            }
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "ongoing",
+            "session": null
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "corrupt-mark"
+            }
+          ]
+        },
+        "output": {
+          "input": {
+            "revision": 4,
+            "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 18,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
+                          {
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "left",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "unknownMove": {
+                                                  "id": 13
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              },
+                              {
+                                "fieldKey": "right",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "moveIn": {
+                                                  "id": 13
+                                                }
+                                              },
+                                              "cellId": 14
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "version": 7
+          },
+          "outcome": {
+            "accepted": false,
+            "error": "Error: 0xac2"
+          }
         }
       },
       {
         "id": "corrupt-range",
         "input": {
           "id": "corrupt-range",
-          "operation": "corrupt-range"
+          "operation": "corrupt-range",
+          "initialState": {
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
+          },
+          "operands": {
+            "operation": "corrupt-range",
+            "initialState": {
+              "left": [
+                "A",
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                [
+                  "nested",
+                  {
+                    "map": [
+                      [
+                        "",
+                        "empty-key"
+                      ],
+                      [
+                        "0",
+                        "numeric-key"
+                      ]
+                    ]
+                  }
+                ]
+              ],
+              "right": [
+                "R"
+              ],
+              "byKey": {
+                "map": [
+                  [
+                    "",
+                    [
+                      "empty"
+                    ]
+                  ],
+                  [
+                    "0",
+                    [
+                      "zero",
+                      [
+                        "deep"
+                      ]
+                    ]
+                  ],
+                  [
+                    "01",
+                    "leading-zero"
+                  ]
+                ]
+              },
+              "narrow": [
+                {
+                  "point": {
+                    "label": "narrow",
+                    "x": 9
+                  }
+                }
+              ]
+            },
+            "operands": {
+              "input": {
+                "start": 2,
+                "end": 1
+              },
+              "outcome": {
+                "accepted": false,
+                "error": "Error: Malformed range passed to TreeArrayNode.removeRange. Start index 2 is greater than end index 1."
+              }
+            }
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "ongoing",
+            "session": null
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "corrupt-range"
+            }
+          ]
         },
         "output": {
-          "start": 2,
-          "end": 1,
-          "rejected": true
+          "input": {
+            "start": 2,
+            "end": 1
+          },
+          "outcome": {
+            "accepted": false,
+            "error": "Error: Malformed range passed to TreeArrayNode.removeRange. Start index 2 is greater than end index 1."
+          }
         }
       },
       {
         "id": "corrupt-revision",
         "input": {
           "id": "corrupt-revision",
-          "operation": "corrupt-revision"
+          "operation": "corrupt-revision",
+          "initialState": {
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
+          },
+          "operands": {
+            "operation": "corrupt-revision",
+            "initialState": {
+              "left": [
+                "A",
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                [
+                  "nested",
+                  {
+                    "map": [
+                      [
+                        "",
+                        "empty-key"
+                      ],
+                      [
+                        "0",
+                        "numeric-key"
+                      ]
+                    ]
+                  }
+                ]
+              ],
+              "right": [
+                "R"
+              ],
+              "byKey": {
+                "map": [
+                  [
+                    "",
+                    [
+                      "empty"
+                    ]
+                  ],
+                  [
+                    "0",
+                    [
+                      "zero",
+                      [
+                        "deep"
+                      ]
+                    ]
+                  ],
+                  [
+                    "01",
+                    "leading-zero"
+                  ]
+                ]
+              },
+              "narrow": [
+                {
+                  "point": {
+                    "label": "narrow",
+                    "x": 9
+                  }
+                }
+              ]
+            },
+            "operands": {
+              "input": {
+                "revision": "not-a-revision",
+                "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "changeset": [
+                  {
+                    "data": {
+                      "maxId": 18,
+                      "changes": [
+                        {
+                          "fieldKey": "rootFieldKey",
+                          "fieldKind": "ModularEditBuilder.Generic",
+                          "change": [
+                            [
+                              0,
+                              {
+                                "fieldChanges": [
+                                  {
+                                    "fieldKey": "left",
+                                    "fieldKind": "ModularEditBuilder.Generic",
+                                    "change": [
+                                      [
+                                        0,
+                                        {
+                                          "fieldChanges": [
+                                            {
+                                              "fieldKey": "",
+                                              "fieldKind": "Sequence",
+                                              "change": [
+                                                {
+                                                  "count": 1
+                                                },
+                                                {
+                                                  "count": 1,
+                                                  "effect": {
+                                                    "moveOut": {
+                                                      "id": 13
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    ]
+                                  },
+                                  {
+                                    "fieldKey": "right",
+                                    "fieldKind": "ModularEditBuilder.Generic",
+                                    "change": [
+                                      [
+                                        0,
+                                        {
+                                          "fieldChanges": [
+                                            {
+                                              "fieldKey": "",
+                                              "fieldKind": "Sequence",
+                                              "change": [
+                                                {
+                                                  "count": 1
+                                                },
+                                                {
+                                                  "count": 1,
+                                                  "effect": {
+                                                    "moveIn": {
+                                                      "id": 13
+                                                    }
+                                                  },
+                                                  "cellId": 14
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "version": 7
+              },
+              "outcome": {
+                "accepted": false,
+                "error": "Error: 0x88d"
+              }
+            }
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "ongoing",
+            "session": null
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "corrupt-revision"
+            }
+          ]
         },
         "output": {
-          "revision": "not-a-revision",
-          "rejected": true
+          "input": {
+            "revision": "not-a-revision",
+            "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 18,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
+                          {
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "left",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "moveOut": {
+                                                  "id": 13
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              },
+                              {
+                                "fieldKey": "right",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "moveIn": {
+                                                  "id": 13
+                                                }
+                                              },
+                                              "cellId": 14
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "version": 7
+          },
+          "outcome": {
+            "accepted": false,
+            "error": "Error: 0x88d"
+          }
         }
       },
       {
         "id": "corrupt-ownership",
         "input": {
           "id": "corrupt-ownership",
-          "operation": "corrupt-ownership"
+          "operation": "corrupt-ownership",
+          "initialState": {
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
+          },
+          "operands": {
+            "operation": "corrupt-ownership",
+            "initialState": {
+              "left": [
+                "A",
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                [
+                  "nested",
+                  {
+                    "map": [
+                      [
+                        "",
+                        "empty-key"
+                      ],
+                      [
+                        "0",
+                        "numeric-key"
+                      ]
+                    ]
+                  }
+                ]
+              ],
+              "right": [
+                "R"
+              ],
+              "byKey": {
+                "map": [
+                  [
+                    "",
+                    [
+                      "empty"
+                    ]
+                  ],
+                  [
+                    "0",
+                    [
+                      "zero",
+                      [
+                        "deep"
+                      ]
+                    ]
+                  ],
+                  [
+                    "01",
+                    "leading-zero"
+                  ]
+                ]
+              },
+              "narrow": [
+                {
+                  "point": {
+                    "label": "narrow",
+                    "x": 9
+                  }
+                }
+              ]
+            },
+            "operands": {
+              "input": {
+                "foreign": true
+              },
+              "outcome": {
+                "accepted": false,
+                "error": "Error: A node with schema \"org.watershed.shared-tree.m3.Point\" (name: \"Point\") was inserted into the tree more than once. This is not supported."
+              }
+            }
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "ongoing",
+            "session": null
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "corrupt-ownership"
+            }
+          ]
         },
         "output": {
-          "error": "Error: Type com.fluidframework.leaf.string in source sequence is not allowed in destination.",
-          "rejected": true
+          "input": {
+            "foreign": true
+          },
+          "outcome": {
+            "accepted": false,
+            "error": "Error: A node with schema \"org.watershed.shared-tree.m3.Point\" (name: \"Point\") was inserted into the tree more than once. This is not supported."
+          }
         }
       },
       {
         "id": "corrupt-summary",
         "input": {
           "id": "corrupt-summary",
-          "operation": "corrupt-summary"
+          "operation": "corrupt-summary",
+          "initialState": {
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
+          },
+          "operands": {
+            "operation": "corrupt-summary",
+            "initialState": {
+              "left": [
+                "A",
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                [
+                  "nested",
+                  {
+                    "map": [
+                      [
+                        "",
+                        "empty-key"
+                      ],
+                      [
+                        "0",
+                        "numeric-key"
+                      ]
+                    ]
+                  }
+                ]
+              ],
+              "right": [
+                "R"
+              ],
+              "byKey": {
+                "map": [
+                  [
+                    "",
+                    [
+                      "empty"
+                    ]
+                  ],
+                  [
+                    "0",
+                    [
+                      "zero",
+                      [
+                        "deep"
+                      ]
+                    ]
+                  ],
+                  [
+                    "01",
+                    "leading-zero"
+                  ]
+                ]
+              },
+              "narrow": [
+                {
+                  "point": {
+                    "label": "narrow",
+                    "x": 9
+                  }
+                }
+              ]
+            },
+            "operands": {
+              "input": {
+                "type": 1,
+                "tree": {}
+              },
+              "outcome": {
+                "accepted": false,
+                "error": "Error: Invalid use of SharedTree after it was put into an invalid state by another error.\nOriginal Error:\nError: 0xc21"
+              }
+            }
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "ongoing",
+            "session": null
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "corrupt-summary"
+            }
+          ]
         },
         "output": {
-          "summary": {
+          "input": {
             "type": 1,
             "tree": {}
           },
-          "rejected": true
+          "outcome": {
+            "accepted": false,
+            "error": "Error: Invalid use of SharedTree after it was put into an invalid state by another error.\nOriginal Error:\nError: 0xc21"
+          }
         }
       },
       {
         "id": "native-remove-beyond-length",
         "input": {
           "id": "native-remove-beyond-length",
-          "operation": "native-remove-beyond-length"
+          "operation": "native-remove-beyond-length",
+          "initialState": {
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
+          },
+          "operands": {
+            "operation": "native-remove-beyond-length",
+            "initialState": {
+              "left": [
+                "A",
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                [
+                  "nested",
+                  {
+                    "map": [
+                      [
+                        "",
+                        "empty-key"
+                      ],
+                      [
+                        "0",
+                        "numeric-key"
+                      ]
+                    ]
+                  }
+                ]
+              ],
+              "right": [
+                "R"
+              ],
+              "byKey": {
+                "map": [
+                  [
+                    "",
+                    [
+                      "empty"
+                    ]
+                  ],
+                  [
+                    "0",
+                    [
+                      "zero",
+                      [
+                        "deep"
+                      ]
+                    ]
+                  ],
+                  [
+                    "01",
+                    "leading-zero"
+                  ]
+                ]
+              },
+              "narrow": [
+                {
+                  "point": {
+                    "label": "narrow",
+                    "x": 9
+                  }
+                }
+              ]
+            },
+            "operands": {
+              "upstream": {
+                "input": {
+                  "start": 1,
+                  "end": 99
+                },
+                "value": [
+                  "A"
+                ]
+              },
+              "nativeContract": "error"
+            }
+          },
+          "revisions": [],
+          "allocator": {
+            "nextLocalId": 0
+          },
+          "compressor": {
+            "mode": "ongoing",
+            "session": null
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "native-remove-beyond-length"
+            }
+          ]
         },
         "output": {
           "upstream": {
