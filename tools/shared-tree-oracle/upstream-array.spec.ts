@@ -13,6 +13,7 @@ import {
 	serializeIdCompressor,
 	toIdCompressorWithCore,
 } from "@fluidframework/id-compressor/internal";
+import type { SessionSpaceCompressedId } from "@fluidframework/id-compressor";
 import {
 	MockDeltaConnection,
 	MockFluidDataStoreRuntime,
@@ -20,12 +21,7 @@ import {
 } from "@fluidframework/test-runtime-utils/internal";
 
 import { FluidClientVersion, FormatValidatorNoOp } from "../codec/index.js";
-import {
-	revisionMetadataSourceFromInfo,
-	tagChange,
-	type RevisionTag,
-	type TaggedChange,
-} from "../core/index.js";
+import { tagChange, type RevisionTag, type TaggedChange } from "../core/index.js";
 import {
 	extractPersistedSchema,
 	SchemaFactory,
@@ -39,10 +35,12 @@ import {
 } from "../feature-libraries/index.js";
 import { Tree } from "../shared-tree/index.js";
 import { configuredSharedTreeInternal } from "../treeFactory.js";
-import { makeArrayModularFamily } from "./watershedArraySupport.js";
+import {
+	crossFieldCoordinationInput,
+	replayArrayModularInput,
+} from "./watershedArraySupport.js";
 import { MockContainerRuntimeWithOpBunching } from "./mocksForOpBunching.js";
-import { TestTreeProviderLite } from "./utils.js";
-import { captureCrossFieldCoordination } from "./watershedSequence.spec.js";
+import { mintRevisionTag, testIdCompressor, TestTreeProviderLite } from "./utils.js";
 
 const formatVersion = 1;
 const reference = {
@@ -52,25 +50,53 @@ const reference = {
 };
 const scenarioIds = {
 	"array-schema-content": [
-		"root-array", "object-arrays", "map-arrays", "nested-arrays", "recursive-arrays",
-		"incompatible-arrays", "empty-content", "allowed-leaves", "compatibility",
+		"root-array",
+		"object-arrays",
+		"map-arrays",
+		"nested-arrays",
+		"recursive-arrays",
+		"incompatible-arrays",
+		"empty-content",
+		"allowed-leaves",
+		"compatibility",
 		"schema-content-bytes",
 	],
 	"array-modular-algebra": [
-		"generic-to-sequence", "sequence-to-generic", "nested-ancestors", "common-ancestors",
-		"cross-field-endpoints", "node-table", "parent-table", "alias-table",
+		"generic-to-sequence",
+		"sequence-to-generic",
+		"nested-ancestors",
+		"common-ancestors",
+		"cross-field-endpoints",
+		"node-table",
+		"parent-table",
+		"alias-table",
 	],
 	"array-codecs": [
-		"sequence-v3", "message-v7", "builds", "empty-arrays", "retained-history",
-		"detached-index", "full-summary",
+		"sequence-v3",
+		"message-v7",
+		"builds",
+		"empty-arrays",
+		"retained-history",
+		"detached-index",
+		"full-summary",
 	],
 	"array-history": [
-		"pending-chains", "batching", "acknowledgements", "reconnect", "window-advance",
-		"summary-tail", "public-noops",
+		"pending-chains",
+		"batching",
+		"acknowledgements",
+		"reconnect",
+		"window-advance",
+		"summary-tail",
+		"public-noops",
 	],
 	"array-invalid": [
-		"corrupt-schema", "corrupt-mark", "corrupt-range", "corrupt-revision",
-		"corrupt-ownership", "corrupt-summary", "native-remove-beyond-length",
+		"corrupt-schema",
+		"corrupt-mark",
+		"corrupt-range",
+		"corrupt-revision",
+		"corrupt-ownership",
+		"corrupt-summary",
+		"native-remove-beyond-length",
 	],
 } as const;
 
@@ -112,10 +138,12 @@ function copy<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value));
 }
 
-function executed(run: () => unknown): { accepted: true; value: unknown } | {
-	accepted: false;
-	error: string;
-} {
+function executed(run: () => unknown):
+	| { accepted: true; value: unknown }
+	| {
+			accepted: false;
+			error: string;
+	  } {
 	try {
 		return { accepted: true, value: copy(run()) };
 	} catch (error) {
@@ -126,9 +154,9 @@ function executed(run: () => unknown): { accepted: true; value: unknown } | {
 	}
 }
 
-async function executedAsync(run: () => Promise<unknown>): Promise<
-	{ accepted: true; value: unknown } | { accepted: false; error: string }
-> {
+async function executedAsync(
+	run: () => Promise<unknown>,
+): Promise<{ accepted: true; value: unknown } | { accepted: false; error: string }> {
 	try {
 		return { accepted: true, value: copy(await run()) };
 	} catch (error) {
@@ -140,11 +168,9 @@ async function executedAsync(run: () => Promise<unknown>): Promise<
 }
 
 function schemaString(schema: ImplicitFieldSchema): string {
-	return JSON.stringify(extractPersistedSchema(
-		schema,
-		FluidClientVersion.v2_117,
-		() => false,
-	));
+	return JSON.stringify(
+		extractPersistedSchema(schema, FluidClientVersion.v2_117, () => false),
+	);
 }
 
 function summaryBlob(summary: { tree: Record<string, unknown> }, ...path: string[]): string {
@@ -169,8 +195,11 @@ function messagesIn(value: unknown): Record<string, unknown>[] {
 			item.forEach(visit);
 		} else if (item !== null && typeof item === "object") {
 			const object = item as Record<string, unknown>;
-			if (object.version === 7 && typeof object.originatorId === "string"
-				&& Array.isArray(object.changeset)) {
+			if (
+				object.version === 7 &&
+				typeof object.originatorId === "string" &&
+				Array.isArray(object.changeset)
+			) {
 				messages.push(object);
 			}
 			Object.values(object).forEach(visit);
@@ -259,7 +288,13 @@ function initialRoot() {
 			"A",
 			new Point({ label: "same", x: 1 }),
 			new Point({ label: "same", x: 1 }),
-			new Items(["nested", new ArrayMap([["", "empty-key"], ["0", "numeric-key"]])]),
+			new Items([
+				"nested",
+				new ArrayMap([
+					["", "empty-key"],
+					["0", "numeric-key"],
+				]),
+			]),
 		]),
 		right: new Items(["R"]),
 		byKey: new ArrayMap([
@@ -302,7 +337,10 @@ function oracleCase(
 				...copy(scenario.input),
 				operation: scenario.input.operation,
 				initialState: scenario.input.initialState ?? null,
-				operands: copy(scenario.input),
+				operands:
+					id === "array-modular-algebra"
+						? copy(scenario.input.operands)
+						: copy(scenario.input),
 				revisions: scenario.input.revisions ?? [],
 				allocator: scenario.input.allocator ?? { nextLocalId: 0 },
 				compressor: scenario.input.compressor ?? { mode: "ongoing", session: null },
@@ -331,15 +369,20 @@ function oracleCase(
 					...copy(scenario.input),
 					operation: scenario.input.operation,
 					initialState: copy(scenario.input.initialState ?? null),
-					operands: copy(scenario.input),
+					operands:
+						id === "array-modular-algebra"
+							? copy(scenario.input.operands)
+							: copy(scenario.input),
 					revisions: copy(scenario.input.revisions ?? []),
 					allocator: copy(scenario.input.allocator ?? { nextLocalId: 0 }),
 					compressor: copy(scenario.input.compressor ?? { mode: "ongoing", session: null }),
-					sequencing: copy(scenario.input.sequencing ?? {
-						sequenceNumber: 0,
-						referenceSequenceNumber: 0,
-						minimumSequenceNumber: 0,
-					}),
+					sequencing: copy(
+						scenario.input.sequencing ?? {
+							sequenceNumber: 0,
+							referenceSequenceNumber: 0,
+							minimumSequenceNumber: 0,
+						},
+					),
 					schedule: copy(scenario.input.schedule ?? [{ step: scenario.input.operation }]),
 				},
 				output: copy(scenario.output),
@@ -399,24 +442,28 @@ async function capturePublicEvidence() {
 	const identityBefore = view.root.left[pointIndex];
 	assert(identityBefore instanceof Point, "Expected a point at the selected move index.");
 	view.root.right.moveRangeToEnd(pointIndex, pointIndex + 1, view.root.left);
-	const operationCommits = (Reflect.get(provider.trees[0].kernel, "editManager") as {
-		getLocalCommits(branch: string): {
-			revision: RevisionTag;
-			change: {
-				changes: readonly {
-					type: "data" | "schema";
-					innerChange: unknown;
-				}[];
+	const operationCommits = (
+		Reflect.get(provider.trees[0].kernel, "editManager") as {
+			getLocalCommits(branch: string): {
+				revision: RevisionTag;
+				change: {
+					changes: readonly {
+						type: "data" | "schema";
+						innerChange: unknown;
+					}[];
+				};
+			}[];
+		}
+	)
+		.getLocalCommits("main")
+		.map((commit) => {
+			const data = commit.change.changes.filter(({ type }) => type === "data");
+			assert.equal(data.length, 1, "Each array edit must contain one modular data change.");
+			return {
+				revision: commit.revision,
+				change: data[0].innerChange as ModularChangeset,
 			};
-		}[];
-	}).getLocalCommits("main").map((commit) => {
-		const data = commit.change.changes.filter(({ type }) => type === "data");
-		assert.equal(data.length, 1, "Each array edit must contain one modular data change.");
-		return {
-			revision: commit.revision,
-			change: data[0].innerChange as ModularChangeset,
-		};
-	});
+		});
 	provider.synchronizeMessages();
 	const operationMessages = messagesIn(processed.slice(operationStart));
 	assert(operationMessages.length > 0, "Array edits must produce SharedTree messages.");
@@ -432,12 +479,18 @@ async function capturePublicEvidence() {
 		let commits = 0;
 		let changed = 0;
 		let nodeEvents = 0;
-		const offCommit = view.events.on("commitApplied", () => { commits += 1; });
+		const offCommit = view.events.on("commitApplied", () => {
+			commits += 1;
+		});
 		const checkout = Reflect.get(view, "checkout") as {
 			events: { on(name: "changed", listener: () => void): () => void };
 		};
-		const offChanged = checkout.events.on("changed", () => { changed += 1; });
-		const offNode = Tree.on(view.root.left, "nodeChanged", () => { nodeEvents += 1; });
+		const offChanged = checkout.events.on("changed", () => {
+			changed += 1;
+		});
+		const offNode = Tree.on(view.root.left, "nodeChanged", () => {
+			nodeEvents += 1;
+		});
 		const before = processed.length;
 		const prior = visible(view.root);
 		edit();
@@ -514,41 +567,54 @@ async function capturePublicEvidence() {
 		const editView = editProvider.trees[0].viewWith(
 			new TreeViewConfiguration({ schema: Items }),
 		);
-		editView.initialize(new Items([
-			new Point({ label: "equal", x: 1 }),
-			new Point({ label: "equal", x: 1 }),
-			new Point({ label: "equal", x: 1 }),
-		]));
+		editView.initialize(
+			new Items([
+				new Point({ label: "equal", x: 1 }),
+				new Point({ label: "equal", x: 1 }),
+				new Point({ label: "equal", x: 1 }),
+			]),
+		);
 		editProvider.synchronizeMessages();
 		const editProcessed: unknown[] = [];
 		for (const [index, tree] of editProvider.trees.entries()) {
 			const editRuntime = tree.containerRuntime;
-			assert(editRuntime instanceof MockContainerRuntimeWithOpBunching,
-				"Expected the bunching test runtime.");
+			assert(
+				editRuntime instanceof MockContainerRuntimeWithOpBunching,
+				"Expected the bunching test runtime.",
+			);
 			const process = editRuntime.process.bind(editRuntime);
 			editRuntime.process = (item) => {
 				if (index === 0) editProcessed.push(copy(item));
 				process(item);
 			};
 		}
-		const identities = Array.from({ length: editView.root.length }, (_, index) =>
-			editView.root[index]);
+		const identities = Array.from(
+			{ length: editView.root.length },
+			(_, index) => editView.root[index],
+		);
 		const before = visible(editView.root);
 		let commits = 0;
 		let changed = 0;
 		let nodeEvents = 0;
-		const offCommit = editView.events.on("commitApplied", () => { commits += 1; });
+		const offCommit = editView.events.on("commitApplied", () => {
+			commits += 1;
+		});
 		const checkout = Reflect.get(editView, "checkout") as {
 			events: { on(name: "changed", listener: () => void): () => void };
 		};
-		const offChanged = checkout.events.on("changed", () => { changed += 1; });
-		const offNode = Tree.on(editView.root, "nodeChanged", () => { nodeEvents += 1; });
+		const offChanged = checkout.events.on("changed", () => {
+			changed += 1;
+		});
+		const offNode = Tree.on(editView.root, "nodeChanged", () => {
+			nodeEvents += 1;
+		});
 		edit(editView.root);
 		const pendingState = managerState(editProvider.trees[0]);
 		editProvider.synchronizeMessages();
 		const after = visible(editView.root);
 		const identityOrder = Array.from({ length: editView.root.length }, (_, index) =>
-			identities.indexOf(editView.root[index]));
+			identities.indexOf(editView.root[index]),
+		);
 		offCommit();
 		offChanged();
 		offNode();
@@ -567,10 +633,10 @@ async function capturePublicEvidence() {
 		};
 	}
 	const identityEdits = [
-		await captureIdentityEdit("equal-value-swap", (items) =>
-			items.moveRangeToIndex(3, 1, 2)),
+		await captureIdentityEdit("equal-value-swap", (items) => items.moveRangeToIndex(3, 1, 2)),
 		await captureIdentityEdit("public-interior-move", (items) =>
-			items.moveRangeToIndex(1, 0, 3)),
+			items.moveRangeToIndex(1, 0, 3),
+		),
 	];
 
 	const batchProvider = new TestTreeProviderLite(2, factory);
@@ -579,8 +645,10 @@ async function capturePublicEvidence() {
 	batchProvider.synchronizeMessages();
 	const batchProcessed: unknown[] = [];
 	const batchRuntime = batchProvider.trees[0].containerRuntime;
-	assert(batchRuntime instanceof MockContainerRuntimeWithOpBunching,
-		"Expected the bunching test runtime.");
+	assert(
+		batchRuntime instanceof MockContainerRuntimeWithOpBunching,
+		"Expected the bunching test runtime.",
+	);
 	const batchProcess = batchRuntime.process.bind(batchRuntime);
 	batchRuntime.process = (item) => {
 		batchProcessed.push(copy(item));
@@ -597,12 +665,14 @@ async function capturePublicEvidence() {
 
 	const emptyProvider = new TestTreeProviderLite(1, factory);
 	const emptyView = emptyProvider.trees[0].viewWith(configuration);
-	emptyView.initialize(new Root({
-		left: new Items([]),
-		right: new Items([]),
-		byKey: new ArrayMap([["empty", new Items([])]]),
-		narrow: new Points([]),
-	}));
+	emptyView.initialize(
+		new Root({
+			left: new Items([]),
+			right: new Items([]),
+			byKey: new ArrayMap([["empty", new Items([])]]),
+			narrow: new Points([]),
+		}),
+	);
 	emptyProvider.synchronizeMessages();
 	const emptySummary = (await emptyProvider.trees[0].summarize(true)).summary;
 
@@ -622,8 +692,10 @@ async function capturePublicEvidence() {
 	const tailSummary = (await tailProvider.trees[0].summarize(true)).summary;
 	const tailProcessed: unknown[] = [];
 	const tailPeerRuntime = tailProvider.trees[1].containerRuntime;
-	assert(tailPeerRuntime instanceof MockContainerRuntimeWithOpBunching,
-		"Expected the bunching test runtime.");
+	assert(
+		tailPeerRuntime instanceof MockContainerRuntimeWithOpBunching,
+		"Expected the bunching test runtime.",
+	);
 	const tailProcessMessages = tailPeerRuntime.processMessages.bind(tailPeerRuntime);
 	const tailProcess = tailPeerRuntime.process.bind(tailPeerRuntime);
 	tailPeerRuntime.process = (message) => {
@@ -638,10 +710,16 @@ async function capturePublicEvidence() {
 	tailProvider.synchronizeMessages();
 	assert(tailProcessed.length > 0, "The summary-tail probe must capture a remote delivery.");
 	const tailMessages = messagesIn(tailProcessed);
-	assert.equal(tailMessages.length, 1, "The summary-tail probe must capture one tree message.");
-	const tailEnvelope = tailProcessed.find((item) =>
-		item !== null && typeof item === "object"
-		&& Reflect.get(Reflect.get(item, "contents") as object, "version") === 7
+	assert.equal(
+		tailMessages.length,
+		1,
+		"The summary-tail probe must capture one tree message.",
+	);
+	const tailEnvelope = tailProcessed.find(
+		(item) =>
+			item !== null &&
+			typeof item === "object" &&
+			Reflect.get(Reflect.get(item, "contents") as object, "version") === 7,
 	) as Record<string, unknown> | undefined;
 	assert(tailEnvelope !== undefined, "The summary-tail probe must retain the tree envelope.");
 	const tailCompressor = serializeIdCompressor(
@@ -653,10 +731,13 @@ async function capturePublicEvidence() {
 	});
 	const continuationSubmitted: unknown[] = [];
 	const tailServices = MockSharedObjectServices.createFromSummary(tailSummary);
-	tailServices.deltaConnection = new MockDeltaConnection((message) => {
-		continuationSubmitted.push(copy(message));
-		return 3;
-	}, () => {});
+	tailServices.deltaConnection = new MockDeltaConnection(
+		(message) => {
+			continuationSubmitted.push(copy(message));
+			return 3;
+		},
+		() => {},
+	);
 	const tailTree = await factory.load(
 		tailRuntime,
 		"watershed-array-tail",
@@ -678,19 +759,24 @@ async function capturePublicEvidence() {
 			minimumSequenceNumber: number;
 		},
 	) {
-		kernel.processMessagesCore({
-			envelope: {
-				contents,
-				...envelope,
-				timestamp: 0,
-				type: "op",
+		kernel.processMessagesCore(
+			{
+				envelope: {
+					contents,
+					...envelope,
+					timestamp: 0,
+					type: "op",
+				},
+				messagesContent: [
+					{
+						contents,
+						localOpMetadata: undefined,
+						clientSequenceNumber: envelope.clientSequenceNumber,
+					},
+				],
 			},
-			messagesContent: [{
-				contents,
-				localOpMetadata: undefined,
-				clientSequenceNumber: envelope.clientSequenceNumber,
-			}],
-		}, false);
+			false,
+		);
 	}
 	const tailSequence = {
 		clientId: String(tailEnvelope.clientId),
@@ -704,10 +790,15 @@ async function capturePublicEvidence() {
 	tailReader.root.left.insertAtEnd("reader-continuation");
 	const readerAfterContinuation = visible(tailReader.root);
 	const continuationMessages = messagesIn(continuationSubmitted);
-	assert.equal(continuationMessages.length, 1,
-		"The fresh reader must submit one continuation message.");
-	assert(tailRuntime.idCompressor !== undefined,
-		"The fresh reader runtime must retain its ID compressor.");
+	assert.equal(
+		continuationMessages.length,
+		1,
+		"The fresh reader must submit one continuation message.",
+	);
+	assert(
+		tailRuntime.idCompressor !== undefined,
+		"The fresh reader runtime must retain its ID compressor.",
+	);
 	const continuationSession = tailRuntime.idCompressor.localSessionId;
 	const continuationCompressorCore = toIdCompressorWithCore(tailRuntime.idCompressor);
 	continuationCompressorCore.finalizeCreationRange(
@@ -735,8 +826,11 @@ async function capturePublicEvidence() {
 		sequenceNumber: tailSequence.sequenceNumber + 1,
 		minimumSequenceNumber: tailSequence.minimumSequenceNumber,
 	});
-	assert.deepEqual(visible(verifierView.root), readerAfterContinuation,
-		"An independently loaded reader must apply the tail and continuation.");
+	assert.deepEqual(
+		visible(verifierView.root),
+		readerAfterContinuation,
+		"An independently loaded reader must apply the tail and continuation.",
+	);
 
 	return {
 		provider,
@@ -801,10 +895,12 @@ async function makeCases() {
 	const rootArrayEvidence = await initializeItems(new Items(["root", new Items(["nested"])]));
 	const emptyArrayEvidence = await initializeItems(new Items([]));
 	const leavesEvidence = await initializeItems(new Items(["string", 1, true, null]));
-	const mapRootEvidence = await initializeMap(new ArrayMap([
-		["0", new Items(["zero"])],
-		["", new Items([])],
-	]));
+	const mapRootEvidence = await initializeMap(
+		new ArrayMap([
+			["0", new Items(["zero"])],
+			["", new Items([])],
+		]),
+	);
 	const schemas = {
 		rootArray: schemaString(Items),
 		objectArrays: schemaString(Root),
@@ -816,56 +912,110 @@ async function makeCases() {
 		Object.entries(schemas).map(([name, bytes]) => [name, JSON.parse(bytes)]),
 	);
 	const schemaScenarios: Scenario[] = [
-		{ id: "root-array", input: { operation: "schema", schema: "rootArray" },
-			observation: { accepted: true }, output: {
+		{
+			id: "root-array",
+			input: { operation: "schema", schema: "rootArray" },
+			observation: { accepted: true },
+			output: {
 				schema: parsedSchemas.rootArray,
 				content: rootArrayEvidence.visible,
-			} },
-		{ id: "object-arrays", input: { operation: "schema", schema: "objectArrays" },
-			observation: { accepted: true }, output: {
+			},
+		},
+		{
+			id: "object-arrays",
+			input: { operation: "schema", schema: "objectArrays" },
+			observation: { accepted: true },
+			output: {
 				schema: parsedSchemas.objectArrays,
 				content: visible(publicEvidence.view.root),
-			} },
-		{ id: "map-arrays", input: { operation: "schema", schema: "mapArrays" },
-			observation: { accepted: true }, output: {
+			},
+		},
+		{
+			id: "map-arrays",
+			input: { operation: "schema", schema: "mapArrays" },
+			observation: { accepted: true },
+			output: {
 				schema: parsedSchemas.mapArrays,
 				content: mapRootEvidence.visible,
-			} },
-		{ id: "nested-arrays", input: { operation: "read", path: ["left", "3", "0"] },
-			observation: { value: "nested" }, output: visible(publicEvidence.view.root.left[3]) },
-		{ id: "recursive-arrays", input: { operation: "read", path: ["byKey", "0", "1", "0"] },
-			observation: { value: "deep" }, output: visible(publicEvidence.view.root.byKey.get("0")) },
-		{ id: "incompatible-arrays", input: { operation: "move", source: { path: ["left"], start: 0, end: 1 },
-			destination: { path: ["narrow"], gap: 0 } },
-			observation: { accepted: false }, output: publicEvidence.incompatible },
-		{ id: "empty-content", input: { operation: "initialize", schema: "rootArray", values: [] },
-			observation: { value: emptyArrayEvidence.visible }, output: emptyArrayEvidence.visible },
-		{ id: "allowed-leaves", input: { operation: "initialize", schema: "rootArray",
-			values: ["string", 1, true, null] },
-			observation: { accepted: true }, output: leavesEvidence.visible },
-		{ id: "compatibility", input: { operation: "canView", stored: "objectArrays", view: "objectArrays" },
-			observation: { accepted: true }, output: rootArrayEvidence.compatibility },
-		{ id: "schema-content-bytes", input: { operation: "summarize" },
+			},
+		},
+		{
+			id: "nested-arrays",
+			input: { operation: "read", path: ["left", "3", "0"] },
+			observation: { value: "nested" },
+			output: visible(publicEvidence.view.root.left[3]),
+		},
+		{
+			id: "recursive-arrays",
+			input: { operation: "read", path: ["byKey", "0", "1", "0"] },
+			observation: { value: "deep" },
+			output: visible(publicEvidence.view.root.byKey.get("0")),
+		},
+		{
+			id: "incompatible-arrays",
+			input: {
+				operation: "move",
+				source: { path: ["left"], start: 0, end: 1 },
+				destination: { path: ["narrow"], gap: 0 },
+			},
+			observation: { accepted: false },
+			output: publicEvidence.incompatible,
+		},
+		{
+			id: "empty-content",
+			input: { operation: "initialize", schema: "rootArray", values: [] },
+			observation: { value: emptyArrayEvidence.visible },
+			output: emptyArrayEvidence.visible,
+		},
+		{
+			id: "allowed-leaves",
+			input: {
+				operation: "initialize",
+				schema: "rootArray",
+				values: ["string", 1, true, null],
+			},
+			observation: { accepted: true },
+			output: leavesEvidence.visible,
+		},
+		{
+			id: "compatibility",
+			input: { operation: "canView", stored: "objectArrays", view: "objectArrays" },
+			observation: { accepted: true },
+			output: rootArrayEvidence.compatibility,
+		},
+		{
+			id: "schema-content-bytes",
+			input: { operation: "summarize" },
 			observation: { schemaVersion: 2, forestVersion: 2 },
 			output: {
-				schema: summaryBlob(publicEvidence.initialSummary, "indexes", "Schema", "SchemaString"),
+				schema: summaryBlob(
+					publicEvidence.initialSummary,
+					"indexes",
+					"Schema",
+					"SchemaString",
+				),
 				forest: summaryBlob(publicEvidence.initialSummary, "indexes", "Forest", "contents"),
-			} },
+			},
+		},
 	];
 
 	const message = publicEvidence.operationMessages.at(-1);
 	assert(message !== undefined, "Array operations must yield a final message.");
 	const changeset = Reflect.get(message, "changeset") as unknown[];
-	assert(changeset[0] !== null && typeof changeset[0] === "object", "Message changeset must be an object.");
+	assert(
+		changeset[0] !== null && typeof changeset[0] === "object",
+		"Message changeset must be an object.",
+	);
 	const modular = Reflect.get(changeset[0], "data");
 	const modularKinds = fieldKinds(modular);
 	assert(modularKinds.includes("Sequence"), "Array operations must encode a Sequence field.");
 	const kernel = Reflect.get(publicEvidence.provider.trees[0], "kernel") as unknown as {
 		messageCodec: { decode(value: unknown, context: unknown): unknown };
 	};
-	const decodeMessage = (value: unknown) => kernel.messageCodec.decode(value, {
-		idCompressor: publicEvidence.provider.getCompressor(publicEvidence.provider.trees[0]),
-	});
+	const decodeMessage = (value: unknown) =>
+		kernel.messageCodec.decode(value, {
+			idCompressor: publicEvidence.provider.getCompressor(publicEvidence.provider.trees[0]),
+		});
 	const decodedMessage = decodeMessage(message) as Record<string, unknown>;
 	const decodedCommit = Reflect.get(decodedMessage, "commit") as {
 		revision?: unknown;
@@ -877,85 +1027,295 @@ async function makeCases() {
 		changes?: readonly { type?: unknown; innerChange?: unknown }[];
 	};
 	const decodedFieldKinds = [
-		...new Set((decodedChange.changes ?? [])
-			.filter(({ type }) => type === "data")
-			.flatMap(({ innerChange }) =>
-				modularStructure(innerChange as ModularChangeset).fields.map(({ kind }) => kind))),
+		...new Set(
+			(decodedChange.changes ?? [])
+				.filter(({ type }) => type === "data")
+				.flatMap(({ innerChange }) =>
+					modularStructure(innerChange as ModularChangeset).fields.map(({ kind }) => kind),
+				),
+		),
 	].sort();
-	const { family } = makeArrayModularFamily();
-	const commits = publicEvidence.operationCommits;
-	assert(commits.length >= 4, "Array operations must produce modular commits.");
-	const commitRevisions = commits.map(({ revision }) => {
-		assert(revision !== undefined, "Every local modular commit must have a revision.");
-		return revision;
-	});
-	const composeForward = family.compose([
-		tagChange(commits[0].change, commits[0].revision),
-		tagChange(commits[2].change, commits[2].revision),
-	]);
-	const composeReverse = family.compose([
-		tagChange(commits[2].change, commits[2].revision),
-		tagChange(commits[0].change, commits[0].revision),
-	]);
-	const inverse = family.invert(
-		tagChange(commits[1].change, commits[1].revision),
-		false,
-		commitRevisions[3],
-	);
-	const rebased = family.rebase(
-		tagChange(commits[2].change, commits[2].revision),
-		tagChange(commits[1].change, commits[1].revision),
-		revisionMetadataSourceFromInfo(commitRevisions.map((revision) => ({ revision }))),
-	);
-	const coordination = captureCrossFieldCoordination(commitRevisions[3] as RevisionTag);
-	const modularOutputs: Record<string, unknown> = {
-		"generic-to-sequence": {
-			operation: "compose",
-			order: ["generic-parent", "sequence-child"],
-			result: modularStructure(composeForward),
-		},
-		"sequence-to-generic": {
-			operation: "compose",
-			order: ["sequence-child", "generic-parent"],
-			result: modularStructure(composeReverse),
-		},
-		"nested-ancestors": {
-			operation: "invert",
-			result: modularStructure(inverse),
-		},
-		"common-ancestors": {
-			operation: "rebase",
-			result: modularStructure(rebased),
-		},
-		"cross-field-endpoints": coordination,
-		"node-table": {
-			changes: commits.map(({ change }) => modularStructure(change)),
-			result: modularStructure(composeForward),
-		},
-		"parent-table": {
-			changes: commits.map(({ change }) => modularStructure(change)),
-			result: modularStructure(composeReverse),
-		},
-		"alias-table": {
-			inverse: modularStructure(inverse),
-			rebased: modularStructure(rebased),
-		},
-	};
-	const modularScenarios: Scenario[] = scenarioIds["array-modular-algebra"].map((id) => ({
-		id,
-		input: {
-			operation: modularOutputs[id] !== undefined ? id : "unknown",
-			initialState: visible(initialRoot()),
-			messageIndex: publicEvidence.operationMessages.length - 1,
-			operands: commits.map(({ revision, change }) => ({
-				revision,
-				change: modularStructure(change),
-			})),
-			revisions: commits.map(({ revision }) => revision),
-		},
-		observation: { fieldKinds: modularKinds },
-		output: modularOutputs[id],
+	const modularRevisions = Array.from({ length: 11 }, () => mintRevisionTag());
+	const revisionMap = modularRevisions.map((revision) => ({
+		encoded: Number(revision),
+		stable: testIdCompressor.decompress(revision as SessionSpaceCompressedId),
 	}));
+	const atom = (revision: RevisionTag, localId: number) => ({
+		revision: Number(revision),
+		localId,
+	});
+	const parent = (field: string, node: ReturnType<typeof atom> | null = null) => ({
+		node,
+		field,
+	});
+	const emptyChange = (
+		revision: RevisionTag,
+		fields: unknown[],
+		options: {
+			nodes?: unknown[];
+			parents?: unknown[];
+			aliases?: unknown[];
+			crossFieldKeys?: unknown[];
+			maxLocalId?: number;
+		} = {},
+	) => ({
+		maxLocalId: options.maxLocalId ?? 0,
+		revisions: [{ revision: Number(revision), rollbackOf: null }],
+		fields,
+		nodes: options.nodes ?? [],
+		parents: options.parents ?? [],
+		aliases: options.aliases ?? [],
+		crossFieldKeys: options.crossFieldKeys ?? [],
+	});
+	const generic = (children: unknown[]) => ({ kind: "Generic", change: { children } });
+	const sequence = (change: unknown[]) => ({ kind: "Sequence", change });
+	const replayContext = (
+		operation: "compose" | "invert" | "rebase",
+		changes: unknown[],
+		options: Record<string, unknown> = {},
+	) => {
+		const taggedChanges = changes as { change: { maxLocalId: number } }[];
+		return {
+			operation,
+			initialState: visible(initialRoot()),
+			operands: { changes, ...options },
+			revisions: revisionMap,
+			allocator: {
+				maxLocalId: Math.max(...taggedChanges.map(({ change }) => change.maxLocalId)),
+			},
+			compressor: { sessionId: testIdCompressor.localSessionId },
+			sequencing: { minimumSequenceNumber: 0, sequenceNumber: 0 },
+			schedule:
+				operation === "compose" ? ["left", "right", "invalidated-fields"] : [operation],
+		};
+	};
+	const tagged = (revision: RevisionTag, change: unknown) => ({
+		revision: Number(revision),
+		change,
+	});
+	const [r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10] = modularRevisions;
+	const genericLeft = emptyChange(r0, [["left", generic([[1, atom(r0, 10)]])]], {
+		maxLocalId: 11,
+		nodes: [
+			[
+				atom(r0, 10),
+				{ fields: [["nested", sequence([{ count: 1, changes: atom(r0, 11) }])]] },
+			],
+			[atom(r0, 11), { fields: [] }],
+		],
+		parents: [
+			[atom(r0, 10), parent("left")],
+			[atom(r0, 11), parent("nested", atom(r0, 10))],
+		],
+	});
+	const sequenceLeft = emptyChange(
+		r1,
+		[
+			[
+				"left",
+				sequence([
+					{
+						type: "Insert",
+						count: 1,
+						id: 0,
+						cellId: atom(r1, 0),
+						revision: Number(r1),
+					},
+				]),
+			],
+		],
+		{ maxLocalId: 0 },
+	);
+	const nestedMap = emptyChange(r2, [["byKey", generic([[0, atom(r2, 20)]])]], {
+		maxLocalId: 22,
+		nodes: [
+			[atom(r2, 20), { fields: [["0", generic([[0, atom(r2, 21)]])]] }],
+			[atom(r2, 21), { fields: [["", sequence([{ count: 1, changes: atom(r2, 22) }])]] }],
+			[atom(r2, 22), { fields: [] }],
+		],
+		parents: [
+			[atom(r2, 20), parent("byKey")],
+			[atom(r2, 21), parent("0", atom(r2, 20))],
+			[atom(r2, 22), parent("", atom(r2, 21))],
+		],
+	});
+	const commonLeft = emptyChange(r3, [["left", generic([[0, atom(r3, 30)]])]], {
+		maxLocalId: 31,
+		nodes: [
+			[
+				atom(r3, 30),
+				{ fields: [["nested", sequence([{ count: 1, changes: atom(r3, 31) }])]] },
+			],
+			[atom(r3, 31), { fields: [] }],
+		],
+		parents: [
+			[atom(r3, 30), parent("left")],
+			[atom(r3, 31), parent("nested", atom(r3, 30))],
+		],
+	});
+	const commonRight = emptyChange(r4, [["left", generic([[0, atom(r4, 40)]])]], {
+		maxLocalId: 41,
+		nodes: [
+			[
+				atom(r4, 40),
+				{ fields: [["nested", sequence([{ count: 1, changes: atom(r4, 41) }])]] },
+			],
+			[atom(r4, 41), { fields: [] }],
+		],
+		parents: [
+			[atom(r4, 40), parent("left")],
+			[atom(r4, 41), parent("nested", atom(r4, 40))],
+		],
+	});
+	const aliasLeft = emptyChange(r8, [["left", generic([[0, atom(r8, 60)]])]], {
+		maxLocalId: 60,
+		nodes: [[atom(r8, 60), { fields: [] }]],
+		parents: [[atom(r8, 60), parent("left")]],
+	});
+	const aliasRight = emptyChange(r9, [["left", generic([[0, atom(r9, 61)]])]], {
+		maxLocalId: 61,
+		nodes: [[atom(r9, 61), { fields: [] }]],
+		parents: [[atom(r9, 61), parent("left")]],
+	});
+	const modularInputs: Record<string, Record<string, unknown>> = {
+		"generic-to-sequence": replayContext("compose", [
+			tagged(r0, genericLeft),
+			tagged(r1, sequenceLeft),
+		]),
+		"sequence-to-generic": replayContext("compose", [
+			tagged(r1, sequenceLeft),
+			tagged(r0, genericLeft),
+		]),
+		"nested-ancestors": replayContext("invert", [tagged(r2, nestedMap)], {
+			isRollback: false,
+			inverseRevision: Number(r5),
+		}),
+		"common-ancestors": replayContext(
+			"rebase",
+			[tagged(r3, commonLeft), tagged(r4, commonRight)],
+			{
+				revisionMetadata: [r3, r4].map((revision) => ({
+					revision: Number(revision),
+					rollbackOf: null,
+				})),
+			},
+		),
+		"cross-field-endpoints": crossFieldCoordinationInput(r6) as unknown as Record<
+			string,
+			unknown
+		>,
+		"node-table": replayContext("invert", [tagged(r2, nestedMap)], {
+			isRollback: true,
+			inverseRevision: Number(r7),
+		}),
+		"parent-table": replayContext("invert", [tagged(r2, nestedMap)], {
+			isRollback: false,
+			inverseRevision: Number(r10),
+		}),
+		"alias-table": replayContext("compose", [tagged(r8, aliasLeft), tagged(r9, aliasRight)]),
+	};
+	const modularScenarios: Scenario[] = scenarioIds["array-modular-algebra"].map((id) => {
+		const input = copy(modularInputs[id]);
+		const output = replayArrayModularInput(input);
+		assert(
+			output !== null && typeof output === "object",
+			`${id}: modular replay must return an object.`,
+		);
+		const outputRecord = output as Record<string, unknown>;
+		if (id === "generic-to-sequence" || id === "sequence-to-generic") {
+			const expectedDirection =
+				id === "generic-to-sequence" ? "generic-left" : "generic-right";
+			const conversion = Reflect.get(outputRecord, "conversion");
+			assert(
+				conversion !== null && typeof conversion === "object",
+				`${id}: modular replay must report conversion calls.`,
+			);
+			assert.deepEqual(
+				Reflect.get(conversion, "directions"),
+				[expectedDirection],
+				`${id}: the source handler must convert the Generic operand.`,
+			);
+			const mutated = copy(input);
+			const operands = Reflect.get(mutated, "operands") as {
+				changes: {
+					change: { fields: [string, { change: { children?: [number, unknown][] } }][] };
+				}[];
+			};
+			const genericOperand = operands.changes.find(({ change }) =>
+				change.fields.some(([, field]) => field.change.children !== undefined),
+			);
+			assert(genericOperand !== undefined, `${id}: a Generic operand is required.`);
+			const genericField = genericOperand.change.fields.find(
+				([, field]) => field.change.children !== undefined,
+			);
+			assert(
+				genericField?.[1].change.children !== undefined,
+				`${id}: the Generic child entries are required.`,
+			);
+			genericField[1].change.children[0][0] += 1;
+			const mutation = executed(() => replayArrayModularInput(mutated));
+			assert(
+				mutation.accepted === false ||
+					JSON.stringify(mutation.value) !== JSON.stringify(output),
+				`${id}: changing the child index must change or reject replay.`,
+			);
+		}
+		if (id === "cross-field-endpoints") {
+			const coordination = Reflect.get(outputRecord, "coordination") as {
+				handlerCalls: { sequence: number; field: { field: string } }[];
+				managerCalls: {
+					sequence: number;
+					method: string;
+					field: { field: string };
+					addDependency?: boolean;
+					invalidateDependents?: boolean;
+					count?: number;
+					returnedLength?: number;
+				}[];
+			};
+			assert.deepEqual(
+				coordination.handlerCalls.slice(0, 3).map(({ field }) => field.field),
+				["right", "left", "right"],
+				"The source manager must reprocess the destination after discovering the source.",
+			);
+			const firstRight = coordination.handlerCalls[0].sequence;
+			const secondRight = coordination.handlerCalls[2].sequence;
+			assert(
+				coordination.managerCalls.some(
+					(call) =>
+						call.method === "get" &&
+						call.field.field === "right" &&
+						call.addDependency === true,
+				),
+				"The destination field must register a source-manager dependency.",
+			);
+			assert(
+				coordination.managerCalls.some(
+					(call) =>
+						call.method === "set" &&
+						call.invalidateDependents === true &&
+						call.sequence > firstRight &&
+						call.sequence < secondRight,
+				),
+				"A later source-manager update must invalidate a registered dependency.",
+			);
+			assert(
+				coordination.managerCalls.some(
+					(call) =>
+						call.count !== undefined &&
+						call.returnedLength !== undefined &&
+						call.count > call.returnedLength,
+				),
+				"The source manager must expose an overlapping partial-range query.",
+			);
+		}
+		return {
+			id,
+			input,
+			observation: { fieldKinds: modularKinds, executed: true, result: output },
+			output,
+		};
+	});
 
 	const summary = publicEvidence.settledSummary;
 	const codecOutputs: Record<string, unknown> = {
@@ -976,7 +1336,8 @@ async function makeCases() {
 		},
 		builds: {
 			messages: publicEvidence.operationMessages,
-			buildCount: JSON.stringify(publicEvidence.operationMessages).match(/"builds?"/g)?.length ?? 0,
+			buildCount:
+				JSON.stringify(publicEvidence.operationMessages).match(/"builds?"/g)?.length ?? 0,
 		},
 		"empty-arrays": {
 			summary: publicEvidence.emptySummary,
@@ -998,7 +1359,12 @@ async function makeCases() {
 			summary,
 			schema: summaryBlob(summary, "indexes", "Schema", "SchemaString"),
 			forest: summaryBlob(summary, "indexes", "Forest", "contents"),
-			detached: summaryBlob(summary, "indexes", "DetachedFieldIndex", "DetachedFieldIndexBlob"),
+			detached: summaryBlob(
+				summary,
+				"indexes",
+				"DetachedFieldIndex",
+				"DetachedFieldIndexBlob",
+			),
 			history: summaryBlob(summary, "indexes", "EditManager", "String"),
 		},
 	};
@@ -1076,23 +1442,33 @@ async function makeCases() {
 	const ownership = executed(() => publicEvidence.view.root.narrow.insertAt(0, foreignPoint));
 	const corruptSummary = { ...copy(summary), tree: {} };
 	const invalidFactory = treeFactory();
-	const summaryFailure = await executedAsync(async () => invalidFactory.load(
-		new MockFluidDataStoreRuntime({
-			idCompressor: deserializeIdCompressor(
-				serializeIdCompressor(publicEvidence.provider.getCompressor(publicEvidence.provider.trees[0]), false),
-				createSessionId(),
-			),
-		}),
-		"watershed-corrupt-summary",
-		MockSharedObjectServices.createFromSummary(corruptSummary),
-		invalidFactory.attributes,
-	));
-	const schemaFailure = executed(() => schemaCodecBuilder
-		.buildDecoder({ jsonValidator: FormatValidatorNoOp })
-		.decode({ version: 99 } as never));
+	const summaryFailure = await executedAsync(async () =>
+		invalidFactory.load(
+			new MockFluidDataStoreRuntime({
+				idCompressor: deserializeIdCompressor(
+					serializeIdCompressor(
+						publicEvidence.provider.getCompressor(publicEvidence.provider.trees[0]),
+						false,
+					),
+					createSessionId(),
+				),
+			}),
+			"watershed-corrupt-summary",
+			MockSharedObjectServices.createFromSummary(corruptSummary),
+			invalidFactory.attributes,
+		),
+	);
+	const schemaFailure = executed(() =>
+		schemaCodecBuilder
+			.buildDecoder({ jsonValidator: FormatValidatorNoOp })
+			.decode({ version: 99 } as never),
+	);
 	const invalidOutputs: Record<string, unknown> = {
 		"corrupt-schema": { input: { version: 99 }, outcome: schemaFailure },
-		"corrupt-mark": { input: corruptMarkMessage, outcome: executed(() => decodeMessage(corruptMarkMessage)) },
+		"corrupt-mark": {
+			input: corruptMarkMessage,
+			outcome: executed(() => decodeMessage(corruptMarkMessage)),
+		},
 		"corrupt-range": { input: { start: 2, end: 1 }, outcome: invalidRange },
 		"corrupt-revision": {
 			input: corruptRevisionMessage,
@@ -1107,30 +1483,49 @@ async function makeCases() {
 	};
 	const invalidScenarios: Scenario[] = scenarioIds["array-invalid"].map((id) => ({
 		id,
-		input: { operation: id, initialState: visible(initialRoot()), operands: invalidOutputs[id] },
+		input: {
+			operation: id,
+			initialState: visible(initialRoot()),
+			operands: invalidOutputs[id],
+		},
 		observation: {
-			rejected: id === "native-remove-beyond-length"
-				? false
-				: Reflect.get(invalidOutputs[id] as object, "outcome")?.accepted === false,
+			rejected:
+				id === "native-remove-beyond-length"
+					? false
+					: Reflect.get(invalidOutputs[id] as object, "outcome")?.accepted === false,
 		},
 		output: invalidOutputs[id],
 	}));
 
 	return [
-		oracleCase("array-schema-content", "schema", schemaScenarios, {
-			profile: { schema: 2, forest: 2 },
-			schemas,
-		}, {
-			schemas: Object.fromEntries(Object.entries(schemas).map(([name, bytes]) => [
-				name,
-				{ bytes, parsed: JSON.parse(bytes) },
-			])),
-			summaries: { initial: publicEvidence.initialSummary },
-		}),
+		oracleCase(
+			"array-schema-content",
+			"schema",
+			schemaScenarios,
+			{
+				profile: { schema: 2, forest: 2 },
+				schemas,
+			},
+			{
+				schemas: Object.fromEntries(
+					Object.entries(schemas).map(([name, bytes]) => [
+						name,
+						{ bytes, parsed: JSON.parse(bytes) },
+					]),
+				),
+				summaries: { initial: publicEvidence.initialSummary },
+			},
+		),
 		oracleCase("array-modular-algebra", "modular", modularScenarios),
-		oracleCase("array-codecs", "codec", codecScenarios, {}, {
-			messages: publicEvidence.operationMessages,
-		}),
+		oracleCase(
+			"array-codecs",
+			"codec",
+			codecScenarios,
+			{},
+			{
+				messages: publicEvidence.operationMessages,
+			},
+		),
 		oracleCase("array-history", "history", historyScenarios),
 		oracleCase("array-invalid", "invalid", invalidScenarios),
 	];
@@ -1140,7 +1535,10 @@ if (process.env.WATERSHED_ORACLE_CORPUS === "1") {
 	describe("Watershed array oracle", () => {
 		it("records public array, codec, history, and invalid-input evidence", async () => {
 			const output = process.env.WATERSHED_ORACLE_OUTPUT;
-			assert(output !== undefined && isAbsolute(output), "WATERSHED_ORACLE_OUTPUT must be absolute.");
+			assert(
+				output !== undefined && isAbsolute(output),
+				"WATERSHED_ORACLE_OUTPUT must be absolute.",
+			);
 			assert.equal(
 				process.env.WATERSHED_ORACLE_COMMIT,
 				reference.commit,

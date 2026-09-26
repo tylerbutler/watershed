@@ -905,6 +905,55 @@ test("array validation requires contract-defining source evidence", () => {
   }
 });
 
+test("array modular validation requires replayable graphs and observed source coordination", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/array-modular-algebra.json", import.meta.url),
+    "utf8",
+  ));
+  const scenarios = new Map(value.input.scenarios.map((scenario) => [scenario.id, scenario]));
+  const outputs = new Map(value.raw.scenarios.map((scenario) => [scenario.id, scenario.output]));
+
+  for (const scenario of scenarios.values()) {
+    assert.match(scenario.operation, /^(compose|invert|rebase)$/);
+    assert(Array.isArray(scenario.operands.changes));
+    for (const tagged of scenario.operands.changes) {
+      assert(Number.isSafeInteger(tagged.revision));
+      for (const table of ["fields", "nodes", "parents", "aliases", "crossFieldKeys"]) {
+        assert(Array.isArray(tagged.change[table]), `${scenario.id}: ${table}`);
+      }
+    }
+    const graph = outputs.get(scenario.id).graph;
+    for (const table of ["fields", "nodes", "parents", "aliases", "crossFieldKeys"]) {
+      assert(Array.isArray(graph[table]), `${scenario.id}: output ${table}`);
+    }
+    assert(Array.isArray(outputs.get(scenario.id).delta.fields));
+  }
+
+  assert.deepEqual(outputs.get("generic-to-sequence").conversion.directions, ["generic-left"]);
+  assert.deepEqual(outputs.get("sequence-to-generic").conversion.directions, ["generic-right"]);
+  const coordination = outputs.get("cross-field-endpoints").coordination;
+  assert(coordination.handlerCalls.filter(({ field }) => field.field === "right").length > 1);
+  assert(coordination.managerCalls.some(({ method, field, addDependency }) =>
+    method === "get" && field.field === "right" && addDependency === true));
+  assert(coordination.managerCalls.some(({ method, field, invalidateDependents }) =>
+    method === "set" && field.field === "right" && invalidateDependents === true));
+  assert(coordination.managerCalls.some(({ count, returnedLength }) =>
+    count > returnedLength && returnedLength > 0));
+  assert.doesNotThrow(() => validateArrayCase(value));
+});
+
+test("array modular validation binds conversion evidence to the serialized child index", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/array-modular-algebra.json", import.meta.url),
+    "utf8",
+  ));
+  const input = value.input.scenarios.find(({ id }) => id === "generic-to-sequence");
+  const raw = value.raw.scenarios.find(({ id }) => id === "generic-to-sequence");
+  input.operands.changes[0].change.fields[0][1].change.children[0][0] += 1;
+  raw.input = structuredClone(input);
+  assert.throws(() => validateArrayCase(value), /generic-to-sequence.*conversion/i);
+});
+
 test("corpus validation requires independent container and summary foundations", () => {
   const originalCases = cases(["container-foundations", "summary-foundations"]);
   assert.throws(() => validateCases(originalCases), /Missing case: container-foundations/);

@@ -1280,6 +1280,56 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     `${detail} tagged revision`);
     changeset(value.change, detail);
   };
+  const modularFields = (value, detail) => {
+    check(Array.isArray(value), `${detail} fields`);
+    for (const entry of value) {
+      check(Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string"
+        && object(entry[1]), `${detail} field entry`);
+      check(entry[1].kind === "Generic" || entry[1].kind === "Sequence",
+        `${detail} field kind`);
+      if (entry[1].kind === "Generic") {
+        check(object(entry[1].change) && Array.isArray(entry[1].change.children),
+          `${detail} Generic children`);
+        for (const child of entry[1].change.children) {
+          check(Array.isArray(child) && child.length === 2
+            && Number.isSafeInteger(child[0]) && atomId(child[1]),
+          `${detail} Generic child`);
+        }
+      } else {
+        changeset(entry[1].change, `${detail} Sequence`);
+      }
+    }
+  };
+  const modularChange = (value, detail) => {
+    check(object(value) && Number.isSafeInteger(value.maxLocalId)
+      && Array.isArray(value.revisions), `${detail} graph`);
+    modularFields(value.fields, detail);
+    for (const table of ["nodes", "parents", "aliases", "crossFieldKeys"]) {
+      check(Array.isArray(value[table]), `${detail} ${table}`);
+    }
+    for (const entry of value.nodes) {
+      check(Array.isArray(entry) && entry.length === 2 && atomId(entry[0])
+        && object(entry[1]), `${detail} node`);
+      modularFields(entry[1].fields, `${detail} node fields`);
+    }
+    for (const entry of value.parents) {
+      check(Array.isArray(entry) && entry.length === 2 && atomId(entry[0])
+        && object(entry[1]) && typeof entry[1].field === "string"
+        && (entry[1].node === null || atomId(entry[1].node)), `${detail} parent`);
+    }
+    for (const entry of value.aliases) {
+      check(Array.isArray(entry) && entry.length === 2 && atomId(entry[0])
+        && atomId(entry[1]), `${detail} alias`);
+    }
+    for (const entry of value.crossFieldKeys) {
+      check(object(entry) && (entry.target === "source" || entry.target === "destination")
+        && (entry.revision === null || Number.isSafeInteger(entry.revision))
+        && Number.isSafeInteger(entry.localId) && Number.isSafeInteger(entry.count)
+        && object(entry.field) && typeof entry.field.field === "string"
+        && (entry.field.node === null || atomId(entry.field.node)),
+      `${detail} cross-field key`);
+    }
+  };
   for (const [index, input] of inputs.entries()) {
     check(Object.hasOwn(input, "initialState")
       && object(input.operands)
@@ -1397,6 +1447,21 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
       tagged(input.operands.change, `${input.id} change`);
       tagged(input.operands.base, `${input.id} base`);
     }
+    if (label === "array-modular-algebra") {
+      check(input.operation === "compose" || input.operation === "invert"
+        || input.operation === "rebase", `${input.id} modular operation`);
+      check(nonemptyArray(input.operands.changes), `${input.id} modular operands`);
+      for (const taggedChange of input.operands.changes) {
+        check(object(taggedChange) && Number.isSafeInteger(taggedChange.revision),
+          `${input.id} tagged modular revision`);
+        modularChange(taggedChange.change, `${input.id} tagged modular change`);
+      }
+      check(nonemptyArray(input.revisions)
+        && input.revisions.every((mapping) => object(mapping)
+          && Number.isSafeInteger(mapping.encoded)
+          && typeof mapping.stable === "string" && mapping.stable.length > 0),
+      `${input.id} modular revision mappings`);
+    }
     check(object(raw[index].input), `${input.id} raw input`);
     assert.deepEqual(raw[index].input, input, `${label}: ${input.id} raw and normalized input`);
     check(Object.hasOwn(raw[index], "output"), `${input.id} raw output`);
@@ -1508,28 +1573,57 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     for (const id of requiredIds) {
       assert.deepEqual(observation.get(id).fieldKinds,
         ["ModularEditBuilder.Generic", "Sequence"], `${label}: ${id} field kinds`);
-      check(object(output.get(id)), `${id} modular result`);
+      const result = output.get(id);
+      check(object(result) && object(result.graph) && object(result.delta)
+        && object(result.conversion) && object(result.coordination),
+      `${id} modular result`);
+      modularChange(result.graph, `${id} output graph`);
+      check(Array.isArray(result.delta.fields)
+        && Array.isArray(result.conversion.directions)
+        && Array.isArray(result.conversion.calls)
+        && Array.isArray(result.coordination.handlerCalls)
+        && Array.isArray(result.coordination.managerCalls),
+      `${id} complete modular evidence`);
     }
-    check(output.get("generic-to-sequence").operation === "compose"
-      && output.get("generic-to-sequence").order[0] === "generic-parent",
-    "Generic to Sequence conversion");
-    check(output.get("sequence-to-generic").operation === "compose"
-      && output.get("sequence-to-generic").order[0] === "sequence-child",
-    "Sequence to Generic conversion");
-    check(output.get("nested-ancestors").operation === "invert"
-      && output.get("common-ancestors").operation === "rebase",
-    "modular invert and rebase");
+    const conversionInput = (id) => input.get(id).operands.changes
+      .flatMap(({ change }) => change.fields)
+      .find(([, field]) => field.kind === "Generic");
+    for (const [id, direction] of [
+      ["generic-to-sequence", "generic-left"],
+      ["sequence-to-generic", "generic-right"],
+    ]) {
+      const genericField = conversionInput(id);
+      const conversion = output.get(id).conversion;
+      check(genericField !== undefined
+        && conversion.directions.length === 1
+        && conversion.directions[0] === direction
+        && conversion.calls.length === 1,
+      `${id} conversion`);
+      assert.deepEqual(conversion.calls[0].children, genericField[1].change.children,
+        `${label}: ${id} conversion child index`);
+    }
+    check(input.get("nested-ancestors").operation === "invert"
+      && input.get("common-ancestors").operation === "rebase",
+    "modular invert and rebase input");
     const coordination = output.get("cross-field-endpoints");
-    check(nonemptyArray(coordination.reads)
-      && nonemptyArray(coordination.writes)
-      && nonemptyArray(coordination.dependencies)
-      && coordination.invalidated === true
-      && coordination.reprocessed === true,
+    const handlerCalls = coordination.coordination.handlerCalls;
+    const managerCalls = coordination.coordination.managerCalls;
+    check(handlerCalls.filter(({ field }) => field.field === "right").length > 1
+      && handlerCalls.some(({ field }) => field.field === "left")
+      && handlerCalls.slice(0, 3).map(({ field }) => field.field).join(",")
+        === "right,left,right"
+      && managerCalls.some(({ method, field, addDependency }) =>
+        method === "get" && field.field === "right" && addDependency === true)
+      && managerCalls.some(({ method, sequence, invalidateDependents }) =>
+        method === "set" && invalidateDependents === true
+          && sequence > handlerCalls[0].sequence
+          && sequence < handlerCalls[2].sequence)
+      && managerCalls.some(({ count, returnedLength }) =>
+        count > returnedLength && returnedLength > 0),
     "cross-field dependency and reprocessing");
-    check(nonemptyArray(output.get("node-table").changes)
-      && nonemptyArray(output.get("parent-table").changes)
-      && object(output.get("alias-table").inverse)
-      && object(output.get("alias-table").rebased),
+    check(nonemptyArray(output.get("node-table").graph.nodes)
+      && nonemptyArray(output.get("parent-table").graph.parents)
+      && nonemptyArray(output.get("alias-table").graph.aliases),
     "modular node parent alias tables");
   } else if (label === "array-codecs") {
     for (const id of requiredIds) {
