@@ -1,8 +1,8 @@
 # SharedTree arrays and moves
 
 **Date:** 2026-09-26
-**Status:** Task 1 source contract captured. Native implementation remains
-pending the source-contract review gate.
+**Status:** Task 1 source evidence captured. M3 acceptance remains pending the
+native implementation and its review gates.
 **Milestone:** M3 in the [SharedTree roadmap](2026-09-21-shared-tree-design.md).
 **Plan:** [Arrays and moves implementation plan](../plans/2026-09-26-shared-tree-arrays.md).
 **Prerequisites:** M1 and M2 release closure, recorded at repository baseline
@@ -52,10 +52,11 @@ The committed profile already records Sequence V3. Adding arrays does not
 justify changing the message profile or upgrading Fluid. Stop for a profile
 decision if the source oracle contradicts these constraints.
 
-### Captured Task 1 contract
+### Captured Task 1 source evidence
 
 The pinned 3.1.0 source corpus contains 38 cases: the prior 29 cases unchanged
-and nine M3 cases. It confirms these points:
+and nine M3 cases. These observations define the upstream inputs and expected
+results for later native runners; they do not constitute M3 acceptance.
 
 - A named array is encoded as an object node with primary field key `""` and
   cardinality `"Sequence"`. There is no separate array node kind on the wire.
@@ -322,10 +323,13 @@ an acceptance report cannot use profile bytes that still exclude arrays.
 
 ## 9. Review gates
 
-Task 1 established the executable oracle contract. Review that output before
-Tasks 2 onward:
+Task 1 provides the source evidence for the executable oracle contract. Review
+that output before Tasks 2 onward:
 schema bytes, counted deltas, Sequence V3 forms, move-effect dependencies,
 no-op behavior, error behavior, and the native module signatures.
+
+M3 acceptance remains blocked until the input-only native runners pass on both
+targets and the remaining review gates in this section are complete.
 
 If the oracle requires additional internal semantics to support the listed
 public operations, include them before proceeding. If it requires a profile
