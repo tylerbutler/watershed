@@ -54,7 +54,8 @@
         ],
         "algorithm": {
           "localIds": "supplied-by-operands",
-          "algebraAllocator": "derived-from-change-max-id"
+          "composeAllocator": "unused-by-pinned-source",
+          "rebaseAllocator": "unused-by-pinned-source"
         },
         "compressor": {
           "mode": "test",
@@ -113,7 +114,8 @@
         ],
         "algorithm": {
           "localIds": "supplied-by-operands",
-          "algebraAllocator": "derived-from-change-max-id"
+          "composeAllocator": "unused-by-pinned-source",
+          "rebaseAllocator": "unused-by-pinned-source"
         },
         "compressor": {
           "mode": "test",
@@ -171,7 +173,8 @@
         ],
         "algorithm": {
           "localIds": "supplied-by-operands",
-          "algebraAllocator": "derived-from-change-max-id"
+          "composeAllocator": "unused-by-pinned-source",
+          "rebaseAllocator": "unused-by-pinned-source"
         },
         "compressor": {
           "mode": "test",
@@ -251,7 +254,8 @@
         ],
         "algorithm": {
           "localIds": "supplied-by-operands",
-          "algebraAllocator": "derived-from-change-max-id"
+          "composeAllocator": "unused-by-pinned-source",
+          "rebaseAllocator": "unused-by-pinned-source"
         },
         "compressor": {
           "mode": "test",
@@ -322,7 +326,8 @@
         ],
         "algorithm": {
           "localIds": "supplied-by-operands",
-          "algebraAllocator": "derived-from-change-max-id"
+          "composeAllocator": "unused-by-pinned-source",
+          "rebaseAllocator": "unused-by-pinned-source"
         },
         "compressor": {
           "mode": "test",
@@ -403,7 +408,8 @@
         ],
         "algorithm": {
           "localIds": "supplied-by-operands",
-          "algebraAllocator": "derived-from-change-max-id"
+          "composeAllocator": "unused-by-pinned-source",
+          "rebaseAllocator": "unused-by-pinned-source"
         },
         "compressor": {
           "mode": "test",
@@ -484,7 +490,8 @@
         ],
         "algorithm": {
           "localIds": "supplied-by-operands",
-          "algebraAllocator": "derived-from-change-max-id"
+          "composeAllocator": "unused-by-pinned-source",
+          "rebaseAllocator": "unused-by-pinned-source"
         },
         "compressor": {
           "mode": "test",
@@ -543,7 +550,8 @@
         ],
         "algorithm": {
           "localIds": "supplied-by-operands",
-          "algebraAllocator": "derived-from-change-max-id"
+          "composeAllocator": "unused-by-pinned-source",
+          "rebaseAllocator": "unused-by-pinned-source"
         },
         "compressor": {
           "mode": "test",
@@ -611,7 +619,8 @@
         ],
         "algorithm": {
           "localIds": "supplied-by-operands",
-          "algebraAllocator": "derived-from-change-max-id"
+          "composeAllocator": "unused-by-pinned-source",
+          "rebaseAllocator": "unused-by-pinned-source"
         },
         "compressor": {
           "mode": "test",
@@ -692,7 +701,8 @@
         ],
         "algorithm": {
           "localIds": "supplied-by-operands",
-          "algebraAllocator": "derived-from-change-max-id"
+          "composeAllocator": "unused-by-pinned-source",
+          "rebaseAllocator": "unused-by-pinned-source"
         },
         "compressor": {
           "mode": "test",
@@ -1437,7 +1447,8 @@
           ],
           "algorithm": {
             "localIds": "supplied-by-operands",
-            "algebraAllocator": "derived-from-change-max-id"
+            "composeAllocator": "unused-by-pinned-source",
+            "rebaseAllocator": "unused-by-pinned-source"
           },
           "compressor": {
             "mode": "test",
@@ -1514,7 +1525,8 @@
           ],
           "algorithm": {
             "localIds": "supplied-by-operands",
-            "algebraAllocator": "derived-from-change-max-id"
+            "composeAllocator": "unused-by-pinned-source",
+            "rebaseAllocator": "unused-by-pinned-source"
           },
           "compressor": {
             "mode": "test",
@@ -1597,7 +1609,8 @@
           ],
           "algorithm": {
             "localIds": "supplied-by-operands",
-            "algebraAllocator": "derived-from-change-max-id"
+            "composeAllocator": "unused-by-pinned-source",
+            "rebaseAllocator": "unused-by-pinned-source"
           },
           "compressor": {
             "mode": "test",
@@ -1708,7 +1721,8 @@
           ],
           "algorithm": {
             "localIds": "supplied-by-operands",
-            "algebraAllocator": "derived-from-change-max-id"
+            "composeAllocator": "unused-by-pinned-source",
+            "rebaseAllocator": "unused-by-pinned-source"
           },
           "compressor": {
             "mode": "test",
@@ -1828,7 +1842,8 @@
           ],
           "algorithm": {
             "localIds": "supplied-by-operands",
-            "algebraAllocator": "derived-from-change-max-id"
+            "composeAllocator": "unused-by-pinned-source",
+            "rebaseAllocator": "unused-by-pinned-source"
           },
           "compressor": {
             "mode": "test",
@@ -1953,7 +1968,8 @@
           ],
           "algorithm": {
             "localIds": "supplied-by-operands",
-            "algebraAllocator": "derived-from-change-max-id"
+            "composeAllocator": "unused-by-pinned-source",
+            "rebaseAllocator": "unused-by-pinned-source"
           },
           "compressor": {
             "mode": "test",
@@ -2077,7 +2093,8 @@
           ],
           "algorithm": {
             "localIds": "supplied-by-operands",
-            "algebraAllocator": "derived-from-change-max-id"
+            "composeAllocator": "unused-by-pinned-source",
+            "rebaseAllocator": "unused-by-pinned-source"
           },
           "compressor": {
             "mode": "test",
@@ -2176,7 +2193,8 @@
           ],
           "algorithm": {
             "localIds": "supplied-by-operands",
-            "algebraAllocator": "derived-from-change-max-id"
+            "composeAllocator": "unused-by-pinned-source",
+            "rebaseAllocator": "unused-by-pinned-source"
           },
           "compressor": {
             "mode": "test",
@@ -2251,7 +2269,8 @@
           ],
           "algorithm": {
             "localIds": "supplied-by-operands",
-            "algebraAllocator": "derived-from-change-max-id"
+            "composeAllocator": "unused-by-pinned-source",
+            "rebaseAllocator": "unused-by-pinned-source"
           },
           "compressor": {
             "mode": "test",
@@ -2382,7 +2401,8 @@
           ],
           "algorithm": {
             "localIds": "supplied-by-operands",
-            "algebraAllocator": "derived-from-change-max-id"
+            "composeAllocator": "unused-by-pinned-source",
+            "rebaseAllocator": "unused-by-pinned-source"
           },
           "compressor": {
             "mode": "test",

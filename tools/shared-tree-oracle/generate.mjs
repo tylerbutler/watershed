@@ -1382,7 +1382,9 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
         check(object(input.allocator), `${input.id} modular allocator`);
       } else {
         check(input.algorithm?.localIds === "supplied-by-operands"
-          && input.algorithm?.algebraAllocator === "derived-from-change-max-id"
+          && input.algorithm?.composeAllocator === "unused-by-pinned-source"
+          && input.algorithm?.rebaseAllocator === "unused-by-pinned-source"
+          && !Object.hasOwn(input.algorithm, "algebraAllocator")
           && !Object.hasOwn(input, "allocator"),
         `${input.id} source allocator contract`);
       }

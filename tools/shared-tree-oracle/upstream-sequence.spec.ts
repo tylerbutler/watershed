@@ -533,7 +533,8 @@ function replayContext(
 		revisions: copy(revisions),
 		algorithm: {
 			localIds: "supplied-by-operands",
-			algebraAllocator: "derived-from-change-max-id",
+			composeAllocator: "unused-by-pinned-source",
+			rebaseAllocator: "unused-by-pinned-source",
 		},
 		compressor: {
 			mode: "test",
@@ -554,8 +555,12 @@ function verifyAlgorithm(input: Record<string, unknown>): void {
 	object(input.algorithm, "The replay input must state its source algorithm contract.");
 	assert.equal(input.algorithm.localIds, "supplied-by-operands",
 		"The replay must use the local IDs supplied by its operands.");
-	assert.equal(input.algorithm.algebraAllocator, "derived-from-change-max-id",
-		"The sequence helpers derive their allocator from changeset IDs.");
+	assert.equal(input.algorithm.composeAllocator, "unused-by-pinned-source",
+		"The pinned sequence compose function does not use its allocator.");
+	assert.equal(input.algorithm.rebaseAllocator, "unused-by-pinned-source",
+		"The pinned sequence rebase function does not use its allocator.");
+	assert(!Object.hasOwn(input.algorithm, "algebraAllocator"),
+		"The replay must not claim that an unused allocator affects source output.");
 }
 
 export function replaySequenceEditorInput(input: Record<string, unknown>): unknown {

@@ -672,7 +672,8 @@ function arrayCaseFixture() {
       revisions: ["revision-a"],
       algorithm: {
         localIds: "supplied-by-operands",
-        algebraAllocator: "derived-from-change-max-id",
+        composeAllocator: "unused-by-pinned-source",
+        rebaseAllocator: "unused-by-pinned-source",
       },
       compressor: { mode: "test", session: "session-a", serialized: "state-a" },
       sequencing: { sequenceNumber: 0, referenceSequenceNumber: 0, minimumSequenceNumber: 0 },
@@ -692,7 +693,8 @@ function arrayCaseFixture() {
       revisions: ["revision-b"],
       algorithm: {
         localIds: "supplied-by-operands",
-        algebraAllocator: "derived-from-change-max-id",
+        composeAllocator: "unused-by-pinned-source",
+        rebaseAllocator: "unused-by-pinned-source",
       },
       compressor: { mode: "test", session: "session-a", serialized: "state-a" },
       sequencing: { sequenceNumber: 0, referenceSequenceNumber: 0, minimumSequenceNumber: 0 },
@@ -1070,6 +1072,24 @@ test("M3 replay observations retain nested deltas and decoded source state", () 
     assert(Array.isArray(output.restoredDetached), `${id}: restored detached roots`);
     assert.equal("history" in output, false, `${id}: echoed history blob`);
     assert.equal("detached" in output, false, `${id}: echoed detached blob`);
+  }
+});
+
+test("M3 sequence inputs record unused compose and rebase allocators", () => {
+  for (const name of [
+    "sequence-field-editor",
+    "sequence-compose-invert",
+    "sequence-rebase",
+  ]) {
+    const value = JSON.parse(readFileSync(
+      new URL(`../../test/fixtures/shared_tree/cases/${name}.json`, import.meta.url),
+      "utf8",
+    ));
+    for (const scenario of value.input.scenarios) {
+      assert.equal(scenario.algorithm.composeAllocator, "unused-by-pinned-source");
+      assert.equal(scenario.algorithm.rebaseAllocator, "unused-by-pinned-source");
+      assert.equal("algebraAllocator" in scenario.algorithm, false);
+    }
   }
 });
 
