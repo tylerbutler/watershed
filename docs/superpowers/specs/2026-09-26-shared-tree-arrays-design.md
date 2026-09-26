@@ -1,10 +1,8 @@
 # SharedTree arrays and moves
 
 **Date:** 2026-09-26
-**Status:** Proposed implementation design. The user confirmed preservation of
-string-list paths with array-aware traversal. Review this document and the
-oracle contract before native implementation; that confirmation does not
-constitute approval of undiscovered wire behavior.
+**Status:** Task 1 source contract captured. Native implementation remains
+pending the source-contract review gate.
 **Milestone:** M3 in the [SharedTree roadmap](2026-09-21-shared-tree-design.md).
 **Plan:** [Arrays and moves implementation plan](../plans/2026-09-26-shared-tree-arrays.md).
 **Prerequisites:** M1 and M2 release closure, recorded at repository baseline
@@ -53,6 +51,33 @@ ordinary pending-commit reconciliation.
 The committed profile already records Sequence V3. Adding arrays does not
 justify changing the message profile or upgrading Fluid. Stop for a profile
 decision if the source oracle contradicts these constraints.
+
+### Captured Task 1 contract
+
+The pinned 3.1.0 source corpus contains 38 cases: the prior 29 cases unchanged
+and nine M3 cases. It confirms these points:
+
+- A named array is encoded as an object node with primary field key `""` and
+  cardinality `"Sequence"`. There is no separate array node kind on the wire.
+- Actual array messages use Sequence V3 inside ModularChange V5 and Message V7.
+  Multi-element builds, empty content, detached indexes, retained history, and
+  full summary blobs are preserved in the captured source evidence.
+- Public hydrated empty insert, empty removal, and empty same-array move emit
+  no commit, change event, node event, pending edit, revision, or message.
+  Low-level editor behavior is not identical: a zero-count insert retains an
+  Insert mark, while zero-count remove and move produce empty changes.
+- Same-array destinations are pre-edit gaps. A destination strictly inside the
+  source range produces split low-level marks: `MoveOut(1)`, `MoveIn(3)`,
+  `MoveOut(2)` for the captured three-item range.
+- A compatible cross-array move preserves the hydrated object identity.
+  Numeric-looking and empty map keys remain literal keys around nested arrays.
+- Pinned `removeRange(1, 99)` clamps to the array end. Watershed intentionally
+  rejects `end > length`; this is a native validation rule, not a parity claim
+  for invalid upstream input.
+
+These fixtures are source evidence, not native coverage. Add a case to the
+native semantic-runner lists only after an input-only runner passes on both
+targets.
 
 ## 3. API and path behavior
 
@@ -131,10 +156,12 @@ They do not assign or clear an array slot: use array insert/remove operations.
 Setting an object field to an entire `ArrayValue` remains a supported field
 replacement with new content identity.
 
-An empty insertion, empty removal, or self-overlapping move can have upstream
-history effects even when its visible value is unchanged. Capture the pinned
-public API's behavior before choosing whether to enqueue a native commit.
-Do not add an early return based only on visible equality.
+An empty insertion, empty removal, or empty same-array move must follow the
+captured public behavior: validate its target and arguments, then suppress the
+revision, commit, events, pending state, and outbound message. Apply this at the
+author/submission boundary; a low-level editor alone cannot enforce it. Do not
+add a general visible-equality shortcut because an interior move can be visibly
+unchanged while still carrying split move marks and identity semantics.
 
 ## 4. Representation and stored schema
 
@@ -288,11 +315,15 @@ an unsupported sequence field placement or corrupt sequence payload.
 M3 must retain the M1/M2 deterministic and seeded coverage. Add 100 required
 array schedules to the existing 200 object/map schedules rather than reducing
 their allocation. The default becomes 300 schedules, with seed `42`.
+Generate and replay one schedule from explicit `(seed, index, profile)` input.
+Do not infer its profile from a truncated iteration total. Regenerate the
+supported profile through the existing preflight path before M3 acceptance;
+an acceptance report cannot use profile bytes that still exclude arrays.
 
 ## 9. Review gates
 
-Review this proposed design before implementation. Task 1 can then establish
-the executable oracle contract. Review that output before Tasks 2 onward:
+Task 1 established the executable oracle contract. Review that output before
+Tasks 2 onward:
 schema bytes, counted deltas, Sequence V3 forms, move-effect dependencies,
 no-op behavior, error behavior, and the native module signatures.
 

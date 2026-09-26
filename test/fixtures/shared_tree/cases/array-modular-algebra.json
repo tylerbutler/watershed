@@ -1,0 +1,814 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "array-modular-algebra",
+  "domain": "modular",
+  "input": {
+    "scenarios": [
+      {
+        "id": "generic-to-sequence",
+        "operation": "generic-to-sequence",
+        "messageIndex": 3
+      },
+      {
+        "id": "sequence-to-generic",
+        "operation": "sequence-to-generic",
+        "messageIndex": 3
+      },
+      {
+        "id": "nested-ancestors",
+        "operation": "nested-ancestors",
+        "messageIndex": 3
+      },
+      {
+        "id": "common-ancestors",
+        "operation": "common-ancestors",
+        "messageIndex": 3
+      },
+      {
+        "id": "cross-field-endpoints",
+        "operation": "cross-field-endpoints",
+        "messageIndex": 3
+      },
+      {
+        "id": "node-table",
+        "operation": "node-table",
+        "messageIndex": 3
+      },
+      {
+        "id": "parent-table",
+        "operation": "parent-table",
+        "messageIndex": 3
+      },
+      {
+        "id": "alias-table",
+        "operation": "alias-table",
+        "messageIndex": 3
+      }
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "generic-to-sequence",
+        "fieldKinds": [
+          "ModularEditBuilder.Generic",
+          "Sequence"
+        ]
+      },
+      {
+        "id": "sequence-to-generic",
+        "fieldKinds": [
+          "ModularEditBuilder.Generic",
+          "Sequence"
+        ]
+      },
+      {
+        "id": "nested-ancestors",
+        "fieldKinds": [
+          "ModularEditBuilder.Generic",
+          "Sequence"
+        ]
+      },
+      {
+        "id": "common-ancestors",
+        "fieldKinds": [
+          "ModularEditBuilder.Generic",
+          "Sequence"
+        ]
+      },
+      {
+        "id": "cross-field-endpoints",
+        "fieldKinds": [
+          "ModularEditBuilder.Generic",
+          "Sequence"
+        ]
+      },
+      {
+        "id": "node-table",
+        "fieldKinds": [
+          "ModularEditBuilder.Generic",
+          "Sequence"
+        ]
+      },
+      {
+        "id": "parent-table",
+        "fieldKinds": [
+          "ModularEditBuilder.Generic",
+          "Sequence"
+        ]
+      },
+      {
+        "id": "alias-table",
+        "fieldKinds": [
+          "ModularEditBuilder.Generic",
+          "Sequence"
+        ]
+      }
+    ]
+  },
+  "raw": {
+    "scenarios": [
+      {
+        "id": "generic-to-sequence",
+        "input": {
+          "id": "generic-to-sequence",
+          "operation": "generic-to-sequence",
+          "messageIndex": 3
+        },
+        "output": {
+          "maxId": 18,
+          "changes": [
+            {
+              "fieldKey": "rootFieldKey",
+              "fieldKind": "ModularEditBuilder.Generic",
+              "change": [
+                [
+                  0,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "left",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveOut": {
+                                          "id": 13
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      },
+                      {
+                        "fieldKey": "right",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveIn": {
+                                          "id": 13
+                                        }
+                                      },
+                                      "cellId": 14
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "sequence-to-generic",
+        "input": {
+          "id": "sequence-to-generic",
+          "operation": "sequence-to-generic",
+          "messageIndex": 3
+        },
+        "output": {
+          "maxId": 18,
+          "changes": [
+            {
+              "fieldKey": "rootFieldKey",
+              "fieldKind": "ModularEditBuilder.Generic",
+              "change": [
+                [
+                  0,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "left",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveOut": {
+                                          "id": 13
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      },
+                      {
+                        "fieldKey": "right",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveIn": {
+                                          "id": 13
+                                        }
+                                      },
+                                      "cellId": 14
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "nested-ancestors",
+        "input": {
+          "id": "nested-ancestors",
+          "operation": "nested-ancestors",
+          "messageIndex": 3
+        },
+        "output": {
+          "maxId": 18,
+          "changes": [
+            {
+              "fieldKey": "rootFieldKey",
+              "fieldKind": "ModularEditBuilder.Generic",
+              "change": [
+                [
+                  0,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "left",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveOut": {
+                                          "id": 13
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      },
+                      {
+                        "fieldKey": "right",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveIn": {
+                                          "id": 13
+                                        }
+                                      },
+                                      "cellId": 14
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "common-ancestors",
+        "input": {
+          "id": "common-ancestors",
+          "operation": "common-ancestors",
+          "messageIndex": 3
+        },
+        "output": {
+          "maxId": 18,
+          "changes": [
+            {
+              "fieldKey": "rootFieldKey",
+              "fieldKind": "ModularEditBuilder.Generic",
+              "change": [
+                [
+                  0,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "left",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveOut": {
+                                          "id": 13
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      },
+                      {
+                        "fieldKey": "right",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveIn": {
+                                          "id": 13
+                                        }
+                                      },
+                                      "cellId": 14
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "cross-field-endpoints",
+        "input": {
+          "id": "cross-field-endpoints",
+          "operation": "cross-field-endpoints",
+          "messageIndex": 3
+        },
+        "output": {
+          "maxId": 18,
+          "changes": [
+            {
+              "fieldKey": "rootFieldKey",
+              "fieldKind": "ModularEditBuilder.Generic",
+              "change": [
+                [
+                  0,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "left",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveOut": {
+                                          "id": 13
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      },
+                      {
+                        "fieldKey": "right",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveIn": {
+                                          "id": 13
+                                        }
+                                      },
+                                      "cellId": 14
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "node-table",
+        "input": {
+          "id": "node-table",
+          "operation": "node-table",
+          "messageIndex": 3
+        },
+        "output": {
+          "maxId": 18,
+          "changes": [
+            {
+              "fieldKey": "rootFieldKey",
+              "fieldKind": "ModularEditBuilder.Generic",
+              "change": [
+                [
+                  0,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "left",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveOut": {
+                                          "id": 13
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      },
+                      {
+                        "fieldKey": "right",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveIn": {
+                                          "id": 13
+                                        }
+                                      },
+                                      "cellId": 14
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "parent-table",
+        "input": {
+          "id": "parent-table",
+          "operation": "parent-table",
+          "messageIndex": 3
+        },
+        "output": {
+          "maxId": 18,
+          "changes": [
+            {
+              "fieldKey": "rootFieldKey",
+              "fieldKind": "ModularEditBuilder.Generic",
+              "change": [
+                [
+                  0,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "left",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveOut": {
+                                          "id": 13
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      },
+                      {
+                        "fieldKey": "right",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveIn": {
+                                          "id": 13
+                                        }
+                                      },
+                                      "cellId": 14
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "alias-table",
+        "input": {
+          "id": "alias-table",
+          "operation": "alias-table",
+          "messageIndex": 3
+        },
+        "output": {
+          "maxId": 18,
+          "changes": [
+            {
+              "fieldKey": "rootFieldKey",
+              "fieldKind": "ModularEditBuilder.Generic",
+              "change": [
+                [
+                  0,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "left",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveOut": {
+                                          "id": 13
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      },
+                      {
+                        "fieldKey": "right",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "",
+                                  "fieldKind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1
+                                    },
+                                    {
+                                      "count": 1,
+                                      "effect": {
+                                        "moveIn": {
+                                          "id": 13
+                                        }
+                                      },
+                                      "cellId": 14
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

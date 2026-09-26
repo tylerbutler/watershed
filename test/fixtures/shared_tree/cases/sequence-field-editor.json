@@ -1,0 +1,1046 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "sequence-field-editor",
+  "domain": "field",
+  "input": {
+    "scenarios": [
+      {
+        "id": "insert",
+        "operation": "insert",
+        "index": 1,
+        "count": 2,
+        "firstId": 0
+      },
+      {
+        "id": "remove",
+        "operation": "remove",
+        "source": {
+          "path": [],
+          "start": 1,
+          "end": 3
+        },
+        "detachId": 2
+      },
+      {
+        "id": "empty-insert",
+        "operation": "insert",
+        "index": 1,
+        "count": 0,
+        "firstId": 3
+      },
+      {
+        "id": "empty-remove",
+        "operation": "remove",
+        "source": {
+          "path": [],
+          "start": 1,
+          "end": 1
+        },
+        "detachId": 4
+      },
+      {
+        "id": "move-before",
+        "operation": "move",
+        "source": {
+          "path": [],
+          "start": 2,
+          "end": 4
+        },
+        "destination": {
+          "path": [],
+          "gap": 0
+        }
+      },
+      {
+        "id": "move-after",
+        "operation": "move",
+        "source": {
+          "path": [],
+          "start": 0,
+          "end": 2
+        },
+        "destination": {
+          "path": [],
+          "gap": 4
+        }
+      },
+      {
+        "id": "move-interior",
+        "operation": "move",
+        "source": {
+          "path": [],
+          "start": 0,
+          "end": 3
+        },
+        "destination": {
+          "path": [],
+          "gap": 1
+        }
+      },
+      {
+        "id": "empty-move",
+        "operation": "move",
+        "source": {
+          "path": [],
+          "start": 1,
+          "end": 1
+        },
+        "destination": {
+          "path": [],
+          "gap": 1
+        }
+      },
+      {
+        "id": "paired-endpoints",
+        "operation": "move-endpoints",
+        "source": {
+          "path": [
+            "left"
+          ],
+          "start": 0,
+          "end": 2
+        },
+        "destination": {
+          "path": [
+            "right"
+          ],
+          "gap": 1
+        }
+      },
+      {
+        "id": "indexed-children",
+        "operation": "child-changes",
+        "indices": [
+          1,
+          4
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "insert",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 2,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            }
+          ],
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "count": 1
+                },
+                {
+                  "count": 2,
+                  "attach": {
+                    "minor": 0,
+                    "major": 0
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": "remove",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Remove",
+              "count": 2,
+              "id": 2,
+              "revision": 1
+            }
+          ],
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "count": 1
+                },
+                {
+                  "count": 2,
+                  "detach": {
+                    "minor": 2,
+                    "major": 1
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": "empty-insert",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Insert",
+              "id": 3,
+              "count": 0,
+              "cellId": {
+                "localId": 3,
+                "revision": 2
+              },
+              "revision": 2
+            }
+          ],
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "count": 1
+                },
+                {
+                  "count": 0,
+                  "attach": {
+                    "minor": 3,
+                    "major": 2
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": "empty-remove",
+        "accepted": true,
+        "value": {
+          "change": [],
+          "delta": {}
+        }
+      },
+      {
+        "id": "move-before",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "type": "MoveIn",
+              "id": 5,
+              "count": 2,
+              "cellId": {
+                "localId": 7,
+                "revision": 4
+              },
+              "revision": 4
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveOut",
+              "id": 5,
+              "count": 2,
+              "revision": 4
+            }
+          ],
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "attach": {
+                    "minor": 5,
+                    "major": 4
+                  },
+                  "count": 2
+                },
+                {
+                  "count": 2
+                },
+                {
+                  "count": 2,
+                  "detach": {
+                    "minor": 5,
+                    "major": 4
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": "move-after",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 8,
+              "count": 2,
+              "revision": 5
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveIn",
+              "id": 8,
+              "count": 2,
+              "cellId": {
+                "localId": 10,
+                "revision": 5
+              },
+              "revision": 5
+            }
+          ],
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "count": 2,
+                  "detach": {
+                    "minor": 8,
+                    "major": 5
+                  }
+                },
+                {
+                  "count": 2
+                },
+                {
+                  "attach": {
+                    "minor": 8,
+                    "major": 5
+                  },
+                  "count": 2
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": "move-interior",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 11,
+              "count": 1,
+              "revision": 6
+            },
+            {
+              "type": "MoveIn",
+              "id": 11,
+              "count": 3,
+              "cellId": {
+                "localId": 14,
+                "revision": 6
+              },
+              "revision": 6
+            },
+            {
+              "type": "MoveOut",
+              "id": 12,
+              "count": 2,
+              "revision": 6
+            }
+          ],
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "count": 1,
+                  "detach": {
+                    "minor": 11,
+                    "major": 6
+                  }
+                },
+                {
+                  "attach": {
+                    "minor": 11,
+                    "major": 6
+                  },
+                  "count": 3
+                },
+                {
+                  "count": 2,
+                  "detach": {
+                    "minor": 12,
+                    "major": 6
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": "empty-move",
+        "accepted": true,
+        "value": {
+          "change": [],
+          "delta": {}
+        }
+      },
+      {
+        "id": "paired-endpoints",
+        "accepted": true,
+        "value": {
+          "change": {
+            "out": [
+              {
+                "type": "MoveOut",
+                "id": 16,
+                "count": 2,
+                "revision": 8
+              }
+            ],
+            "in": [
+              {
+                "count": 1
+              },
+              {
+                "type": "MoveIn",
+                "id": 16,
+                "count": 2,
+                "cellId": {
+                  "localId": 18,
+                  "revision": 8
+                },
+                "revision": 8
+              }
+            ]
+          },
+          "delta": {
+            "out": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 2,
+                    "detach": {
+                      "minor": 16,
+                      "major": 8
+                    }
+                  }
+                ]
+              }
+            },
+            "in": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1
+                  },
+                  {
+                    "attach": {
+                      "minor": 16,
+                      "major": 8
+                    },
+                    "count": 2
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "indexed-children",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "count": 1,
+              "changes": {
+                "localId": 20,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    1
+                  ],
+                  "outputContext": [
+                    1
+                  ]
+                }
+              }
+            },
+            {
+              "count": 2
+            },
+            {
+              "count": 1,
+              "changes": {
+                "localId": 21,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    2
+                  ],
+                  "outputContext": [
+                    2
+                  ]
+                }
+              }
+            }
+          ],
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "count": 1
+                },
+                {
+                  "count": 1,
+                  "fields": {}
+                },
+                {
+                  "count": 2
+                },
+                {
+                  "count": 1,
+                  "fields": {}
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  },
+  "raw": {
+    "scenarios": [
+      {
+        "id": "insert",
+        "input": {
+          "id": "insert",
+          "operation": "insert",
+          "index": 1,
+          "count": 2,
+          "firstId": 0
+        },
+        "output": {
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 2,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            }
+          ],
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "count": 1
+                },
+                {
+                  "count": 2,
+                  "attach": {
+                    "minor": 0,
+                    "major": 0
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": "remove",
+        "input": {
+          "id": "remove",
+          "operation": "remove",
+          "source": {
+            "path": [],
+            "start": 1,
+            "end": 3
+          },
+          "detachId": 2
+        },
+        "output": {
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Remove",
+              "count": 2,
+              "id": 2,
+              "revision": 1
+            }
+          ],
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "count": 1
+                },
+                {
+                  "count": 2,
+                  "detach": {
+                    "minor": 2,
+                    "major": 1
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": "empty-insert",
+        "input": {
+          "id": "empty-insert",
+          "operation": "insert",
+          "index": 1,
+          "count": 0,
+          "firstId": 3
+        },
+        "output": {
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Insert",
+              "id": 3,
+              "count": 0,
+              "cellId": {
+                "localId": 3,
+                "revision": 2
+              },
+              "revision": 2
+            }
+          ],
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "count": 1
+                },
+                {
+                  "count": 0,
+                  "attach": {
+                    "minor": 3,
+                    "major": 2
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": "empty-remove",
+        "input": {
+          "id": "empty-remove",
+          "operation": "remove",
+          "source": {
+            "path": [],
+            "start": 1,
+            "end": 1
+          },
+          "detachId": 4
+        },
+        "output": {
+          "change": [],
+          "delta": {}
+        }
+      },
+      {
+        "id": "move-before",
+        "input": {
+          "id": "move-before",
+          "operation": "move",
+          "source": {
+            "path": [],
+            "start": 2,
+            "end": 4
+          },
+          "destination": {
+            "path": [],
+            "gap": 0
+          }
+        },
+        "output": {
+          "change": [
+            {
+              "type": "MoveIn",
+              "id": 5,
+              "count": 2,
+              "cellId": {
+                "localId": 7,
+                "revision": 4
+              },
+              "revision": 4
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveOut",
+              "id": 5,
+              "count": 2,
+              "revision": 4
+            }
+          ],
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "attach": {
+                    "minor": 5,
+                    "major": 4
+                  },
+                  "count": 2
+                },
+                {
+                  "count": 2
+                },
+                {
+                  "count": 2,
+                  "detach": {
+                    "minor": 5,
+                    "major": 4
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": "move-after",
+        "input": {
+          "id": "move-after",
+          "operation": "move",
+          "source": {
+            "path": [],
+            "start": 0,
+            "end": 2
+          },
+          "destination": {
+            "path": [],
+            "gap": 4
+          }
+        },
+        "output": {
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 8,
+              "count": 2,
+              "revision": 5
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveIn",
+              "id": 8,
+              "count": 2,
+              "cellId": {
+                "localId": 10,
+                "revision": 5
+              },
+              "revision": 5
+            }
+          ],
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "count": 2,
+                  "detach": {
+                    "minor": 8,
+                    "major": 5
+                  }
+                },
+                {
+                  "count": 2
+                },
+                {
+                  "attach": {
+                    "minor": 8,
+                    "major": 5
+                  },
+                  "count": 2
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": "move-interior",
+        "input": {
+          "id": "move-interior",
+          "operation": "move",
+          "source": {
+            "path": [],
+            "start": 0,
+            "end": 3
+          },
+          "destination": {
+            "path": [],
+            "gap": 1
+          }
+        },
+        "output": {
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 11,
+              "count": 1,
+              "revision": 6
+            },
+            {
+              "type": "MoveIn",
+              "id": 11,
+              "count": 3,
+              "cellId": {
+                "localId": 14,
+                "revision": 6
+              },
+              "revision": 6
+            },
+            {
+              "type": "MoveOut",
+              "id": 12,
+              "count": 2,
+              "revision": 6
+            }
+          ],
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "count": 1,
+                  "detach": {
+                    "minor": 11,
+                    "major": 6
+                  }
+                },
+                {
+                  "attach": {
+                    "minor": 11,
+                    "major": 6
+                  },
+                  "count": 3
+                },
+                {
+                  "count": 2,
+                  "detach": {
+                    "minor": 12,
+                    "major": 6
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": "empty-move",
+        "input": {
+          "id": "empty-move",
+          "operation": "move",
+          "source": {
+            "path": [],
+            "start": 1,
+            "end": 1
+          },
+          "destination": {
+            "path": [],
+            "gap": 1
+          }
+        },
+        "output": {
+          "change": [],
+          "delta": {}
+        }
+      },
+      {
+        "id": "paired-endpoints",
+        "input": {
+          "id": "paired-endpoints",
+          "operation": "move-endpoints",
+          "source": {
+            "path": [
+              "left"
+            ],
+            "start": 0,
+            "end": 2
+          },
+          "destination": {
+            "path": [
+              "right"
+            ],
+            "gap": 1
+          }
+        },
+        "output": {
+          "change": {
+            "out": [
+              {
+                "type": "MoveOut",
+                "id": 16,
+                "count": 2,
+                "revision": 8
+              }
+            ],
+            "in": [
+              {
+                "count": 1
+              },
+              {
+                "type": "MoveIn",
+                "id": 16,
+                "count": 2,
+                "cellId": {
+                  "localId": 18,
+                  "revision": 8
+                },
+                "revision": 8
+              }
+            ]
+          },
+          "delta": {
+            "out": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 2,
+                    "detach": {
+                      "minor": 16,
+                      "major": 8
+                    }
+                  }
+                ]
+              }
+            },
+            "in": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1
+                  },
+                  {
+                    "attach": {
+                      "minor": 16,
+                      "major": 8
+                    },
+                    "count": 2
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "indexed-children",
+        "input": {
+          "id": "indexed-children",
+          "operation": "child-changes",
+          "indices": [
+            1,
+            4
+          ]
+        },
+        "output": {
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "count": 1,
+              "changes": {
+                "localId": 20,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    1
+                  ],
+                  "outputContext": [
+                    1
+                  ]
+                }
+              }
+            },
+            {
+              "count": 2
+            },
+            {
+              "count": 1,
+              "changes": {
+                "localId": 21,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    2
+                  ],
+                  "outputContext": [
+                    2
+                  ]
+                }
+              }
+            }
+          ],
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "count": 1
+                },
+                {
+                  "count": 1,
+                  "fields": {}
+                },
+                {
+                  "count": 2
+                },
+                {
+                  "count": 1,
+                  "fields": {}
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

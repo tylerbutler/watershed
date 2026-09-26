@@ -6,12 +6,14 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import * as source from "./source.mjs";
 import {
+  arrayInjectedTestPath,
   forestInjectedTestPath,
   historyInjectedTestPath,
   injectedTestPath,
   modularInjectedTestPath,
   publishCapture,
   reference,
+  sequenceInjectedTestPath,
   validateCapture,
   verifyCheckout,
   verifyPackages,
@@ -150,6 +152,33 @@ test("source runner declares the owned codec injection", () => {
     "packages/dds/tree/src/test/watershedCodecs.spec.ts",
   );
   assert.equal(typeof source.runCodecConsumer, "function");
+});
+
+test("source runner declares the owned M3 injections", () => {
+  assert.equal(
+    arrayInjectedTestPath,
+    "packages/dds/tree/src/test/watershedArray.spec.ts",
+  );
+  assert.equal(
+    sequenceInjectedTestPath,
+    "packages/dds/tree/src/test/watershedSequence.spec.ts",
+  );
+});
+
+test("source verification byte-checks the owned M3 injections", async (t) => {
+  for (const [injectedPath, sourceName] of [
+    [arrayInjectedTestPath, "upstream-array.spec.ts"],
+    [sequenceInjectedTestPath, "upstream-sequence.spec.ts"],
+  ]) {
+    const { directory, commit } = await checkoutFixture(t);
+    const target = join(directory, injectedPath);
+    const contents = await readFile(new URL(`./${sourceName}`, import.meta.url));
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, contents);
+    await verifyCheckout(directory, commit);
+    await writeFile(target, "// unexpected replacement\n");
+    await assert.rejects(verifyCheckout(directory, commit), /injected/);
+  }
 });
 
 test("source verification byte-checks the owned codec injection", async (t) => {

@@ -1,0 +1,1392 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "sequence-rebase",
+  "domain": "field",
+  "input": {
+    "scenarios": [
+      {
+        "id": "insert-insert",
+        "operation": "rebase",
+        "change": [
+          {
+            "type": "Insert",
+            "id": 0,
+            "count": 1,
+            "cellId": {
+              "localId": 0,
+              "revision": 0
+            },
+            "revision": 0
+          }
+        ],
+        "changeRevision": 0,
+        "base": [
+          {
+            "type": "Insert",
+            "id": 1,
+            "count": 1,
+            "cellId": {
+              "localId": 1,
+              "revision": 1
+            },
+            "revision": 1
+          }
+        ],
+        "baseRevision": 1
+      },
+      {
+        "id": "insert-remove",
+        "operation": "rebase",
+        "change": [
+          {
+            "type": "Insert",
+            "id": 0,
+            "count": 1,
+            "cellId": {
+              "localId": 0,
+              "revision": 0
+            },
+            "revision": 0
+          }
+        ],
+        "changeRevision": 0,
+        "base": [
+          {
+            "type": "Remove",
+            "count": 2,
+            "id": 2,
+            "revision": 2
+          }
+        ],
+        "baseRevision": 2
+      },
+      {
+        "id": "remove-remove",
+        "operation": "rebase",
+        "change": [
+          {
+            "type": "Remove",
+            "count": 2,
+            "id": 2,
+            "revision": 2
+          }
+        ],
+        "changeRevision": 2,
+        "base": [
+          {
+            "count": 1
+          },
+          {
+            "type": "Remove",
+            "count": 2,
+            "id": 4,
+            "revision": 3
+          }
+        ],
+        "baseRevision": 3
+      },
+      {
+        "id": "move-edit",
+        "operation": "rebase",
+        "change": [
+          {
+            "count": 1
+          },
+          {
+            "count": 1,
+            "changes": {
+              "localId": 40,
+              "testChange": {
+                "inputContext": [],
+                "intentions": [
+                  4
+                ],
+                "outputContext": [
+                  4
+                ]
+              }
+            }
+          }
+        ],
+        "changeRevision": 6,
+        "base": [
+          {
+            "type": "MoveOut",
+            "id": 6,
+            "count": 2,
+            "revision": 4
+          },
+          {
+            "count": 2
+          },
+          {
+            "type": "MoveIn",
+            "id": 6,
+            "count": 2,
+            "cellId": {
+              "revision": 4,
+              "localId": 8
+            },
+            "revision": 4
+          }
+        ],
+        "baseRevision": 4
+      },
+      {
+        "id": "move-delete",
+        "operation": "rebase",
+        "change": [
+          {
+            "type": "MoveOut",
+            "id": 6,
+            "count": 2,
+            "revision": 4
+          },
+          {
+            "count": 2
+          },
+          {
+            "type": "MoveIn",
+            "id": 6,
+            "count": 2,
+            "cellId": {
+              "revision": 4,
+              "localId": 8
+            },
+            "revision": 4
+          }
+        ],
+        "changeRevision": 4,
+        "base": [
+          {
+            "count": 1
+          },
+          {
+            "type": "Remove",
+            "count": 2,
+            "id": 4,
+            "revision": 3
+          }
+        ],
+        "baseRevision": 3
+      },
+      {
+        "id": "competing-moves",
+        "operation": "rebase",
+        "change": [
+          {
+            "type": "MoveOut",
+            "id": 6,
+            "count": 2,
+            "revision": 4
+          },
+          {
+            "count": 2
+          },
+          {
+            "type": "MoveIn",
+            "id": 6,
+            "count": 2,
+            "cellId": {
+              "revision": 4,
+              "localId": 8
+            },
+            "revision": 4
+          }
+        ],
+        "changeRevision": 4,
+        "base": [
+          {
+            "type": "MoveIn",
+            "id": 10,
+            "count": 2,
+            "cellId": {
+              "revision": 5,
+              "localId": 12
+            },
+            "revision": 5
+          },
+          {
+            "count": 1
+          },
+          {
+            "type": "MoveOut",
+            "id": 10,
+            "count": 2,
+            "revision": 5
+          }
+        ],
+        "baseRevision": 5
+      },
+      {
+        "id": "partial-overlap-moves",
+        "operation": "rebase",
+        "change": [
+          {
+            "type": "MoveOut",
+            "id": 14,
+            "count": 3,
+            "revision": 7
+          },
+          {
+            "count": 2
+          },
+          {
+            "type": "MoveIn",
+            "id": 14,
+            "count": 3,
+            "cellId": {
+              "revision": 7,
+              "localId": 17
+            },
+            "revision": 7
+          }
+        ],
+        "changeRevision": 7,
+        "base": [
+          {
+            "type": "MoveIn",
+            "id": 20,
+            "count": 3,
+            "cellId": {
+              "revision": 8,
+              "localId": 23
+            },
+            "revision": 8
+          },
+          {
+            "count": 2
+          },
+          {
+            "type": "MoveOut",
+            "id": 20,
+            "count": 3,
+            "revision": 8
+          }
+        ],
+        "baseRevision": 8
+      },
+      {
+        "id": "empty-cells",
+        "operation": "rebase",
+        "change": [
+          {
+            "count": 1,
+            "cellId": {
+              "revision": 2,
+              "localId": 2
+            }
+          }
+        ],
+        "changeRevision": 9,
+        "base": [
+          {
+            "type": "Insert",
+            "count": 1,
+            "id": 2,
+            "cellId": {
+              "revision": 2,
+              "localId": 2
+            }
+          }
+        ],
+        "baseRevision": 10
+      },
+      {
+        "id": "detached-children",
+        "operation": "rebase",
+        "change": [
+          {
+            "count": 1,
+            "changes": {
+              "localId": 40,
+              "testChange": {
+                "inputContext": [],
+                "intentions": [
+                  4
+                ],
+                "outputContext": [
+                  4
+                ]
+              }
+            },
+            "cellId": {
+              "revision": 2,
+              "localId": 2
+            }
+          }
+        ],
+        "changeRevision": 11,
+        "base": [
+          {
+            "type": "Remove",
+            "count": 2,
+            "id": 2,
+            "revision": 2
+          }
+        ],
+        "baseRevision": 2
+      },
+      {
+        "id": "endpoint-invalidation",
+        "operation": "rebase",
+        "change": [
+          {
+            "type": "MoveOut",
+            "id": 30,
+            "count": 2,
+            "revision": 12
+          },
+          {
+            "count": 2
+          },
+          {
+            "type": "MoveIn",
+            "id": 30,
+            "count": 2,
+            "cellId": {
+              "revision": 12,
+              "localId": 32
+            },
+            "revision": 12
+          }
+        ],
+        "changeRevision": 12,
+        "base": [
+          {
+            "type": "MoveIn",
+            "id": 34,
+            "count": 2,
+            "cellId": {
+              "revision": 13,
+              "localId": 36
+            },
+            "revision": 13
+          },
+          {
+            "count": 2
+          },
+          {
+            "type": "MoveOut",
+            "id": 34,
+            "count": 2,
+            "revision": 13
+          }
+        ],
+        "baseRevision": 13
+      }
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "insert-insert",
+        "accepted": true,
+        "value": {
+          "accepted": true,
+          "value": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 1,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "insert-remove",
+        "accepted": true,
+        "value": {
+          "accepted": true,
+          "value": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 1,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            },
+            {
+              "count": 2,
+              "cellId": {
+                "revision": 2,
+                "localId": 2
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "remove-remove",
+        "accepted": true,
+        "value": {
+          "accepted": true,
+          "value": [
+            {
+              "type": "Remove",
+              "count": 1,
+              "id": 2,
+              "revision": 2
+            },
+            {
+              "type": "Remove",
+              "count": 1,
+              "id": 3,
+              "revision": 2,
+              "cellId": {
+                "revision": 3,
+                "localId": 4
+              }
+            },
+            {
+              "count": 1,
+              "cellId": {
+                "revision": 3,
+                "localId": 5
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "move-edit",
+        "accepted": true,
+        "value": {
+          "accepted": true,
+          "value": [
+            {
+              "count": 2,
+              "cellId": {
+                "revision": 4,
+                "localId": 6
+              }
+            },
+            {
+              "count": 3
+            },
+            {
+              "count": 1,
+              "changes": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "move-delete",
+        "accepted": true,
+        "value": {
+          "accepted": true,
+          "value": [
+            {
+              "type": "MoveOut",
+              "id": 6,
+              "count": 1,
+              "revision": 4
+            },
+            {
+              "type": "MoveOut",
+              "id": 7,
+              "count": 1,
+              "revision": 4,
+              "cellId": {
+                "revision": 3,
+                "localId": 4
+              }
+            },
+            {
+              "count": 1,
+              "cellId": {
+                "revision": 3,
+                "localId": 5
+              }
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveIn",
+              "id": 6,
+              "count": 2,
+              "cellId": {
+                "revision": 4,
+                "localId": 8
+              },
+              "revision": 4
+            }
+          ]
+        }
+      },
+      {
+        "id": "competing-moves",
+        "accepted": true,
+        "value": {
+          "accepted": true,
+          "value": [
+            {
+              "count": 1,
+              "type": "MoveOut",
+              "id": 7,
+              "revision": 4
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveOut",
+              "id": 6,
+              "count": 1,
+              "revision": 4
+            },
+            {
+              "count": 2,
+              "cellId": {
+                "revision": 5,
+                "localId": 10
+              }
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveIn",
+              "id": 6,
+              "count": 2,
+              "cellId": {
+                "revision": 4,
+                "localId": 8
+              },
+              "revision": 4
+            }
+          ]
+        }
+      },
+      {
+        "id": "partial-overlap-moves",
+        "accepted": true,
+        "value": {
+          "accepted": true,
+          "value": [
+            {
+              "count": 1,
+              "type": "MoveOut",
+              "id": 16,
+              "revision": 7
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveOut",
+              "id": 14,
+              "count": 2,
+              "revision": 7
+            },
+            {
+              "count": 3,
+              "cellId": {
+                "revision": 8,
+                "localId": 20
+              }
+            },
+            {
+              "type": "MoveIn",
+              "id": 14,
+              "count": 3,
+              "cellId": {
+                "revision": 7,
+                "localId": 17
+              },
+              "revision": 7
+            }
+          ]
+        }
+      },
+      {
+        "id": "empty-cells",
+        "accepted": true,
+        "value": {
+          "accepted": true,
+          "value": []
+        }
+      },
+      {
+        "id": "detached-children",
+        "accepted": true,
+        "value": {
+          "accepted": true,
+          "value": [
+            {
+              "count": 1,
+              "changes": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              },
+              "cellId": {
+                "revision": 2,
+                "localId": 2
+              }
+            },
+            {
+              "count": 2,
+              "cellId": {
+                "revision": 2,
+                "localId": 2
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "endpoint-invalidation",
+        "accepted": true,
+        "value": {
+          "accepted": true,
+          "value": [
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveOut",
+              "id": 30,
+              "count": 2,
+              "revision": 12
+            },
+            {
+              "count": 2,
+              "cellId": {
+                "revision": 13,
+                "localId": 34
+              }
+            },
+            {
+              "type": "MoveIn",
+              "id": 30,
+              "count": 2,
+              "cellId": {
+                "revision": 12,
+                "localId": 32
+              },
+              "revision": 12
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "raw": {
+    "scenarios": [
+      {
+        "id": "insert-insert",
+        "input": {
+          "id": "insert-insert",
+          "operation": "rebase",
+          "change": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 1,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            }
+          ],
+          "changeRevision": 0,
+          "base": [
+            {
+              "type": "Insert",
+              "id": 1,
+              "count": 1,
+              "cellId": {
+                "localId": 1,
+                "revision": 1
+              },
+              "revision": 1
+            }
+          ],
+          "baseRevision": 1
+        },
+        "output": {
+          "accepted": true,
+          "value": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 1,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "insert-remove",
+        "input": {
+          "id": "insert-remove",
+          "operation": "rebase",
+          "change": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 1,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            }
+          ],
+          "changeRevision": 0,
+          "base": [
+            {
+              "type": "Remove",
+              "count": 2,
+              "id": 2,
+              "revision": 2
+            }
+          ],
+          "baseRevision": 2
+        },
+        "output": {
+          "accepted": true,
+          "value": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 1,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            },
+            {
+              "count": 2,
+              "cellId": {
+                "revision": 2,
+                "localId": 2
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "remove-remove",
+        "input": {
+          "id": "remove-remove",
+          "operation": "rebase",
+          "change": [
+            {
+              "type": "Remove",
+              "count": 2,
+              "id": 2,
+              "revision": 2
+            }
+          ],
+          "changeRevision": 2,
+          "base": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Remove",
+              "count": 2,
+              "id": 4,
+              "revision": 3
+            }
+          ],
+          "baseRevision": 3
+        },
+        "output": {
+          "accepted": true,
+          "value": [
+            {
+              "type": "Remove",
+              "count": 1,
+              "id": 2,
+              "revision": 2
+            },
+            {
+              "type": "Remove",
+              "count": 1,
+              "id": 3,
+              "revision": 2,
+              "cellId": {
+                "revision": 3,
+                "localId": 4
+              }
+            },
+            {
+              "count": 1,
+              "cellId": {
+                "revision": 3,
+                "localId": 5
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "move-edit",
+        "input": {
+          "id": "move-edit",
+          "operation": "rebase",
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "count": 1,
+              "changes": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              }
+            }
+          ],
+          "changeRevision": 6,
+          "base": [
+            {
+              "type": "MoveOut",
+              "id": 6,
+              "count": 2,
+              "revision": 4
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveIn",
+              "id": 6,
+              "count": 2,
+              "cellId": {
+                "revision": 4,
+                "localId": 8
+              },
+              "revision": 4
+            }
+          ],
+          "baseRevision": 4
+        },
+        "output": {
+          "accepted": true,
+          "value": [
+            {
+              "count": 2,
+              "cellId": {
+                "revision": 4,
+                "localId": 6
+              }
+            },
+            {
+              "count": 3
+            },
+            {
+              "count": 1,
+              "changes": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "move-delete",
+        "input": {
+          "id": "move-delete",
+          "operation": "rebase",
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 6,
+              "count": 2,
+              "revision": 4
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveIn",
+              "id": 6,
+              "count": 2,
+              "cellId": {
+                "revision": 4,
+                "localId": 8
+              },
+              "revision": 4
+            }
+          ],
+          "changeRevision": 4,
+          "base": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Remove",
+              "count": 2,
+              "id": 4,
+              "revision": 3
+            }
+          ],
+          "baseRevision": 3
+        },
+        "output": {
+          "accepted": true,
+          "value": [
+            {
+              "type": "MoveOut",
+              "id": 6,
+              "count": 1,
+              "revision": 4
+            },
+            {
+              "type": "MoveOut",
+              "id": 7,
+              "count": 1,
+              "revision": 4,
+              "cellId": {
+                "revision": 3,
+                "localId": 4
+              }
+            },
+            {
+              "count": 1,
+              "cellId": {
+                "revision": 3,
+                "localId": 5
+              }
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveIn",
+              "id": 6,
+              "count": 2,
+              "cellId": {
+                "revision": 4,
+                "localId": 8
+              },
+              "revision": 4
+            }
+          ]
+        }
+      },
+      {
+        "id": "competing-moves",
+        "input": {
+          "id": "competing-moves",
+          "operation": "rebase",
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 6,
+              "count": 2,
+              "revision": 4
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveIn",
+              "id": 6,
+              "count": 2,
+              "cellId": {
+                "revision": 4,
+                "localId": 8
+              },
+              "revision": 4
+            }
+          ],
+          "changeRevision": 4,
+          "base": [
+            {
+              "type": "MoveIn",
+              "id": 10,
+              "count": 2,
+              "cellId": {
+                "revision": 5,
+                "localId": 12
+              },
+              "revision": 5
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveOut",
+              "id": 10,
+              "count": 2,
+              "revision": 5
+            }
+          ],
+          "baseRevision": 5
+        },
+        "output": {
+          "accepted": true,
+          "value": [
+            {
+              "count": 1,
+              "type": "MoveOut",
+              "id": 7,
+              "revision": 4
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveOut",
+              "id": 6,
+              "count": 1,
+              "revision": 4
+            },
+            {
+              "count": 2,
+              "cellId": {
+                "revision": 5,
+                "localId": 10
+              }
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveIn",
+              "id": 6,
+              "count": 2,
+              "cellId": {
+                "revision": 4,
+                "localId": 8
+              },
+              "revision": 4
+            }
+          ]
+        }
+      },
+      {
+        "id": "partial-overlap-moves",
+        "input": {
+          "id": "partial-overlap-moves",
+          "operation": "rebase",
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 14,
+              "count": 3,
+              "revision": 7
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveIn",
+              "id": 14,
+              "count": 3,
+              "cellId": {
+                "revision": 7,
+                "localId": 17
+              },
+              "revision": 7
+            }
+          ],
+          "changeRevision": 7,
+          "base": [
+            {
+              "type": "MoveIn",
+              "id": 20,
+              "count": 3,
+              "cellId": {
+                "revision": 8,
+                "localId": 23
+              },
+              "revision": 8
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveOut",
+              "id": 20,
+              "count": 3,
+              "revision": 8
+            }
+          ],
+          "baseRevision": 8
+        },
+        "output": {
+          "accepted": true,
+          "value": [
+            {
+              "count": 1,
+              "type": "MoveOut",
+              "id": 16,
+              "revision": 7
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveOut",
+              "id": 14,
+              "count": 2,
+              "revision": 7
+            },
+            {
+              "count": 3,
+              "cellId": {
+                "revision": 8,
+                "localId": 20
+              }
+            },
+            {
+              "type": "MoveIn",
+              "id": 14,
+              "count": 3,
+              "cellId": {
+                "revision": 7,
+                "localId": 17
+              },
+              "revision": 7
+            }
+          ]
+        }
+      },
+      {
+        "id": "empty-cells",
+        "input": {
+          "id": "empty-cells",
+          "operation": "rebase",
+          "change": [
+            {
+              "count": 1,
+              "cellId": {
+                "revision": 2,
+                "localId": 2
+              }
+            }
+          ],
+          "changeRevision": 9,
+          "base": [
+            {
+              "type": "Insert",
+              "count": 1,
+              "id": 2,
+              "cellId": {
+                "revision": 2,
+                "localId": 2
+              }
+            }
+          ],
+          "baseRevision": 10
+        },
+        "output": {
+          "accepted": true,
+          "value": []
+        }
+      },
+      {
+        "id": "detached-children",
+        "input": {
+          "id": "detached-children",
+          "operation": "rebase",
+          "change": [
+            {
+              "count": 1,
+              "changes": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              },
+              "cellId": {
+                "revision": 2,
+                "localId": 2
+              }
+            }
+          ],
+          "changeRevision": 11,
+          "base": [
+            {
+              "type": "Remove",
+              "count": 2,
+              "id": 2,
+              "revision": 2
+            }
+          ],
+          "baseRevision": 2
+        },
+        "output": {
+          "accepted": true,
+          "value": [
+            {
+              "count": 1,
+              "changes": {
+                "localId": 40,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    4
+                  ],
+                  "outputContext": [
+                    4
+                  ]
+                }
+              },
+              "cellId": {
+                "revision": 2,
+                "localId": 2
+              }
+            },
+            {
+              "count": 2,
+              "cellId": {
+                "revision": 2,
+                "localId": 2
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "endpoint-invalidation",
+        "input": {
+          "id": "endpoint-invalidation",
+          "operation": "rebase",
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 30,
+              "count": 2,
+              "revision": 12
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveIn",
+              "id": 30,
+              "count": 2,
+              "cellId": {
+                "revision": 12,
+                "localId": 32
+              },
+              "revision": 12
+            }
+          ],
+          "changeRevision": 12,
+          "base": [
+            {
+              "type": "MoveIn",
+              "id": 34,
+              "count": 2,
+              "cellId": {
+                "revision": 13,
+                "localId": 36
+              },
+              "revision": 13
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveOut",
+              "id": 34,
+              "count": 2,
+              "revision": 13
+            }
+          ],
+          "baseRevision": 13
+        },
+        "output": {
+          "accepted": true,
+          "value": [
+            {
+              "count": 2
+            },
+            {
+              "type": "MoveOut",
+              "id": 30,
+              "count": 2,
+              "revision": 12
+            },
+            {
+              "count": 2,
+              "cellId": {
+                "revision": 13,
+                "localId": 34
+              }
+            },
+            {
+              "type": "MoveIn",
+              "id": 30,
+              "count": 2,
+              "cellId": {
+                "revision": 12,
+                "localId": 32
+              },
+              "revision": 12
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

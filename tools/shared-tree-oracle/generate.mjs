@@ -40,7 +40,116 @@ export const requiredCases = [
   ["map-schema-content", "schema"],
   ["map-field-algebra", "field"],
   ["map-history-codecs", "codec"],
+  ["array-schema-content", "schema"],
+  ["array-forest-delta", "forest"],
+  ["sequence-field-editor", "field"],
+  ["sequence-compose-invert", "field"],
+  ["sequence-rebase", "field"],
+  ["array-modular-algebra", "modular"],
+  ["array-codecs", "codec"],
+  ["array-history", "history"],
+  ["array-invalid", "invalid"],
 ];
+
+export const arrayScenarioIds = {
+  "array-schema-content": [
+    "root-array",
+    "object-arrays",
+    "map-arrays",
+    "nested-arrays",
+    "recursive-arrays",
+    "incompatible-arrays",
+    "empty-content",
+    "allowed-leaves",
+    "compatibility",
+    "schema-content-bytes",
+  ],
+  "array-forest-delta": [
+    "counted-build",
+    "counted-detach",
+    "counted-attach",
+    "counted-rename",
+    "counted-destroy",
+    "repair",
+    "indexed-children",
+    "retained-identity",
+    "invalid-overlap",
+    "invalid-cycle",
+  ],
+  "sequence-field-editor": [
+    "insert",
+    "remove",
+    "empty-insert",
+    "empty-remove",
+    "move-before",
+    "move-after",
+    "move-interior",
+    "empty-move",
+    "paired-endpoints",
+    "indexed-children",
+  ],
+  "sequence-compose-invert": [
+    "mark-families",
+    "split-ranges",
+    "cancellation",
+    "move-chains",
+    "child-changes",
+    "rollback",
+    "undo",
+    "revision-replacement",
+    "pruning",
+    "removed-roots",
+  ],
+  "sequence-rebase": [
+    "insert-insert",
+    "insert-remove",
+    "remove-remove",
+    "move-edit",
+    "move-delete",
+    "competing-moves",
+    "partial-overlap-moves",
+    "empty-cells",
+    "detached-children",
+    "endpoint-invalidation",
+  ],
+  "array-modular-algebra": [
+    "generic-to-sequence",
+    "sequence-to-generic",
+    "nested-ancestors",
+    "common-ancestors",
+    "cross-field-endpoints",
+    "node-table",
+    "parent-table",
+    "alias-table",
+  ],
+  "array-codecs": [
+    "sequence-v3",
+    "message-v7",
+    "builds",
+    "empty-arrays",
+    "retained-history",
+    "detached-index",
+    "full-summary",
+  ],
+  "array-history": [
+    "pending-chains",
+    "batching",
+    "acknowledgements",
+    "reconnect",
+    "window-advance",
+    "summary-tail",
+    "public-noops",
+  ],
+  "array-invalid": [
+    "corrupt-schema",
+    "corrupt-mark",
+    "corrupt-range",
+    "corrupt-revision",
+    "corrupt-ownership",
+    "corrupt-summary",
+    "native-remove-beyond-length",
+  ],
+};
 
 const forestScenarioIds = [
   "primitives-and-optional-root",
@@ -1068,6 +1177,7 @@ export function validateMapHistoryCase(value) {
   })) {
     check(profile?.[name] === version, `format ${name}`);
   }
+
   for (const name of ["set", "replacement", "delete"]) {
     check(typeof value.input.messageBytes?.[name] === "string"
       && value.input.messageBytes[name].length > 0
@@ -1092,6 +1202,185 @@ export function validateMapHistoryCase(value) {
     && typeof value.raw?.summary?.bytes === "string"
     && value.raw.summary.bytes.length > 0
     && nonemptyArray(value.raw?.reload?.messages), "raw history evidence");
+}
+
+export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.id]) {
+  const label = value?.id ?? "array-case";
+  const check = (condition, detail) => assert(condition, `${label}: ${detail}`);
+  check(object(value) && requiredIds !== undefined, "unknown array case");
+  check(value.formatVersion === 1 && value.reference?.package === "@fluidframework/tree"
+    && value.reference?.version === reference.version
+    && value.reference?.commit === reference.commit, "reference identity");
+  check(value.domain === new Map(requiredCases).get(value.id), "domain");
+  const inputs = value.input?.scenarios;
+  const observations = value.expected?.observations;
+  const raw = value.raw?.scenarios;
+  check(Array.isArray(inputs) && Array.isArray(observations) && Array.isArray(raw),
+    "missing paired scenarios");
+  const ids = (items, section) => {
+    const values = items.map((item) => {
+      check(object(item) && typeof item.id === "string" && item.id.length > 0,
+        `malformed ${section} scenario`);
+      return item.id;
+    });
+    check(new Set(values).size === values.length, `duplicate ${section} scenario`);
+    return values;
+  };
+  assert.deepEqual(ids(inputs, "input"), requiredIds, `${label}: input scenario order`);
+  assert.deepEqual(ids(observations, "observation"), requiredIds,
+    `${label}: observation scenario order`);
+  assert.deepEqual(ids(raw, "raw"), requiredIds, `${label}: raw scenario order`);
+  const endpoint = (value, detail, gap = false) => {
+    check(object(value) && Array.isArray(value.path)
+      && value.path.every((segment) => typeof segment === "string"), `${detail} endpoint`);
+    const names = gap ? ["gap"] : ["start", "end"];
+    for (const name of names) {
+      check(Number.isSafeInteger(value[name]) && value[name] >= 0, `${detail} endpoint ${name}`);
+    }
+    if (!gap) check(value.start <= value.end, `${detail} endpoint range`);
+  };
+  for (const [index, input] of inputs.entries()) {
+    if (input.source !== undefined) endpoint(input.source, input.id);
+    if (input.destination !== undefined) endpoint(input.destination, input.id, true);
+    check(object(raw[index].input), `${input.id} raw input`);
+    assert.deepEqual(raw[index].input, input, `${label}: ${input.id} raw and normalized input`);
+    check(Object.hasOwn(raw[index], "output"), `${input.id} raw output`);
+    check(Object.keys(observations[index]).length > 1, `${input.id} observation`);
+  }
+
+  const input = new Map(inputs.map((item) => [item.id, item]));
+  const observation = new Map(observations.map((item) => [item.id, item]));
+  const output = new Map(raw.map((item) => [item.id, item.output]));
+  if (requiredIds !== arrayScenarioIds[label]) return;
+  const successfulSequenceOutput = () => {
+    for (const id of requiredIds) {
+      check(observation.get(id).accepted === true, `${id} source result`);
+      assert.deepEqual(observation.get(id).value, output.get(id),
+        `${label}: ${id} raw and normalized output`);
+    }
+  };
+
+  if (label === "array-schema-content") {
+    check(value.input.profile?.schema === 2 && value.input.profile?.forest === 2,
+      "schema and forest profiles");
+    for (const name of ["rootArray", "objectArrays", "mapArrays", "recursiveArrays",
+      "incompatibleArrays"]) {
+      const encoded = value.input.schemas?.[name];
+      check(typeof encoded === "string" && encoded.length > 0, `${name} schema bytes`);
+      const schema = JSON.parse(encoded);
+      check(schema.version === 2 && object(schema.nodes) && object(schema.root),
+        `${name} schema`);
+      check(value.raw.schemas?.[name]?.bytes === encoded, `${name} raw schema bytes`);
+    }
+    const rootArray = JSON.parse(value.input.schemas.rootArray);
+    const items = rootArray.nodes["org.watershed.shared-tree.m3.Items"];
+    check(items?.kind?.object?.[""]?.kind === "Sequence", "array Sequence field");
+    check(observation.get("incompatible-arrays").accepted === false,
+      "incompatible array rejection");
+    assert.deepEqual(observation.get("empty-content").value, [],
+      `${label}: empty array content`);
+    const contentBytes = output.get("schema-content-bytes");
+    check(JSON.parse(contentBytes?.schema ?? "null")?.version === 2
+      && JSON.parse(contentBytes?.forest ?? "null")?.version === 2,
+    "schema content bytes");
+  } else if (label === "array-forest-delta") {
+    successfulSequenceOutput();
+    const counted = ["counted-build", "counted-detach", "counted-attach",
+      "counted-rename", "counted-destroy", "repair"];
+    for (const id of counted) {
+      check(output.get(id).change.some((mark) => mark.count > 1), `${id} counted range`);
+    }
+    const retained = output.get("retained-identity").change;
+    check(retained.some((mark) => mark.type === "MoveOut")
+      && retained.some((mark) => mark.type === "MoveIn"), "retained move identity");
+  } else if (label === "sequence-field-editor") {
+    successfulSequenceOutput();
+    const interior = output.get("move-interior").change;
+    assert.deepEqual(interior.map((mark) => mark.type),
+      ["MoveOut", "MoveIn", "MoveOut"], `${label}: interior move split`);
+    assert.deepEqual(interior.map((mark) => mark.count),
+      [1, 3, 2], `${label}: interior move counts`);
+    check(output.get("empty-insert").change.some((mark) => mark.type === "Insert"
+      && mark.count === 0), "empty insert mark");
+    assert.deepEqual(output.get("empty-remove").change, [], `${label}: empty remove`);
+    assert.deepEqual(output.get("empty-move").change, [], `${label}: empty move`);
+    const paired = output.get("paired-endpoints").change;
+    check(paired.out.some((mark) => mark.type === "MoveOut")
+      && paired.in.some((mark) => mark.type === "MoveIn"), "paired move endpoints");
+  } else if (label === "sequence-compose-invert") {
+    successfulSequenceOutput();
+    const families = new Set(output.get("mark-families").changes
+      .map((mark) => mark.type).filter(Boolean));
+    for (const family of ["Insert", "Remove", "MoveOut", "MoveIn",
+      "AttachAndDetach", "Rename"]) {
+      check(families.has(family), `${family} mark family`);
+    }
+    check(output.get("split-ranges").length === 3, "split range evidence");
+    check(output.get("removed-roots").length > 0, "removed roots");
+  } else if (label === "sequence-rebase") {
+    successfulSequenceOutput();
+    for (const id of requiredIds) {
+      check(output.get(id).accepted === true && Array.isArray(output.get(id).value),
+        `${id} rebase result`);
+    }
+    check(output.get("endpoint-invalidation").value.some((mark) =>
+      mark.type === "MoveOut")
+      && output.get("endpoint-invalidation").value.some((mark) =>
+        mark.type === "MoveIn"), "endpoint invalidation");
+  } else if (label === "array-modular-algebra") {
+    for (const id of requiredIds) {
+      assert.deepEqual(observation.get(id).fieldKinds,
+        ["ModularEditBuilder.Generic", "Sequence"], `${label}: ${id} field kinds`);
+      const encoded = JSON.stringify(output.get(id));
+      check(encoded.includes('"fieldKind":"Sequence"')
+        && encoded.includes('"moveOut"') && encoded.includes('"moveIn"'),
+      `${id} cross-field sequence change`);
+    }
+  } else if (label === "array-codecs") {
+    for (const id of requiredIds) {
+      check(input.get(id).profile?.message === 7
+        && input.get(id).profile?.modularChange === 5
+        && input.get(id).profile?.sequence === 3, `${id} codec profile`);
+      const evidence = output.get(id);
+      check(evidence.message?.version === 7
+        && JSON.stringify(evidence.sequence).includes('"fieldKind":"Sequence"'),
+      `${id} Sequence V3 message`);
+      for (const section of ["schema", "forest", "detached", "history", "summary"]) {
+        check(evidence[section] !== undefined, `${id} ${section} bytes`);
+      }
+    }
+    check(nonemptyArray(value.raw.messages)
+      && value.raw.messages.every((message) => message.version === 7),
+    "actual V7 messages");
+  } else if (label === "array-history") {
+    check(output.get("pending-chains").pending.length > 0
+      && output.get("pending-chains").sequenced.length > 0, "pending chain");
+    check(nonemptyArray(output.get("batching").messages)
+      && output.get("batching").identityPreserved === true,
+    "batched identity preservation");
+    check(nonemptyArray(output.get("reconnect")), "reconnect messages");
+    check(object(output.get("summary-tail").summary)
+      && object(output.get("summary-tail").reloaded)
+      && nonemptyArray(output.get("summary-tail").messages), "summary tail");
+    const noops = output.get("public-noops");
+    check(Array.isArray(noops) && noops.length === 3, "public no-op cases");
+    for (const noop of noops) {
+      assert.deepEqual(noop.after, noop.prior, `${label}: ${noop.id} visible state`);
+      check(noop.commits === 0 && noop.changed === 0 && noop.nodeEvents === 0
+        && noop.pending === 0 && Array.isArray(noop.messages) && noop.messages.length === 0,
+      `${noop.id} public no-op emission`);
+    }
+  } else if (label === "array-invalid") {
+    for (const id of requiredIds.filter((id) => id !== "native-remove-beyond-length")) {
+      check(observation.get(id).rejected === true && output.get(id).rejected === true,
+        `${id} rejection`);
+    }
+    const bounds = output.get("native-remove-beyond-length");
+    check(observation.get("native-remove-beyond-length").rejected === false
+      && bounds.nativeContract === "error"
+      && bounds.upstream?.input?.end > bounds.upstream?.value?.length,
+    "native removal-bound difference");
+  }
 }
 
 function validateModularCase(value) {
@@ -1916,7 +2205,7 @@ export function validateCases(cases) {
     if (value.id === "container-foundations") validateContainerFoundationsCase(value);
     if (value.id === "summary-foundations") validateSummaryFoundationsCase(value);
     if ((value.domain === "field" || value.domain === "modular")
-      && value.id !== "map-field-algebra") {
+      && value.id !== "map-field-algebra" && arrayScenarioIds[value.id] === undefined) {
       assert(object(value.input.changes) && Object.keys(value.input.changes).length > 0
         && object(value.raw.encoded) && Object.keys(value.raw.encoded).length > 0,
       `${value.id}: missing algebra inputs or encoded outputs`);
@@ -1928,6 +2217,7 @@ export function validateCases(cases) {
     if (value.id === "map-schema-content") validateMapSchemaCase(value);
     if (value.id === "map-field-algebra") validateMapFieldCase(value);
     if (value.id === "map-history-codecs") validateMapHistoryCase(value);
+    if (arrayScenarioIds[value.id] !== undefined) validateArrayCase(value);
     if (value.id === "summary-writer-matrix") validateSummaryPersistence(value);
     if (value.id === "id-ranges") {
       assert(object(value.input.sessions) && typeof value.input.sessions.summaryRestoration === "string"
@@ -2223,6 +2513,8 @@ export async function generate({ check = false } = {}) {
       ...await read(join(source, "history-cases.json")),
       ...await read(join(source, "codec-cases.json")),
       ...await read(join(source, "map-cases.json")),
+      ...await read(join(source, "array-cases.json")),
+      ...await read(join(source, "sequence-cases.json")),
       ...await read(join(container, "container-cases.json")),
     ];
     const malformed = cases.find((item) => item.id === "id-ranges")?.raw.malformedAllocation;

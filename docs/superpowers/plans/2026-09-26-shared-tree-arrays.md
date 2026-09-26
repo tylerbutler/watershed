@@ -45,7 +45,7 @@ and the [M2 design](../specs/2026-09-24-shared-tree-dynamic-maps-design.md).
 
 ## 1. Starting point and execution rules
 
-Repository baseline: `f42deeca` (`docs(tree): close M1 release gates`).
+Task 1 execution baseline: `8fef0a7f`.
 The M1 completion checklist and M2 final acceptance checklist are closed.
 M3 is the next numbered milestone. M4 and selected M7 work are parallel
 opportunities, not part of this plan.
@@ -60,8 +60,8 @@ Do not stage entire directories or use `git add -A` to commit this work.
 The commit commands below are execution instructions, not claims that this
 planning task created commits.
 
-Use an isolated execution worktree after recording the starting revision and
-local changes. Use the versions in `mise.toml` and the existing lockfiles.
+Work directly on `main` with small tested commits. Do not create an execution
+worktree or branch. Use the versions in `mise.toml` and the existing lockfiles.
 Do not install dependencies during planning. During execution, restore a
 missing dependency after the relevant command reports it, using the existing
 lockfile; do not change versions to bypass a missing tool.
@@ -281,37 +281,25 @@ cases listed above.
   contains raw schema strings under `rootArray`, `objectArrays`, `mapArrays`,
   `recursiveArrays`, and `incompatibleArrays`.
 - Produces: explicit no-op observations with visible state, emitted changes,
-  revisions, events, and pending counts; native Tasks 7 and 9 use those
-  observations rather than assuming all empty edits are suppressed.
+  revisions, events, and pending counts. The public source suppresses empty
+  insert, empty remove, and empty same-array move completely; native Tasks 7
+  and 9 implement this at the author/submission boundary.
 
-- [ ] **Step 1: Add a required-case regression before adding captures.**
+- [x] **Step 1: Add a required-case regression before adding captures.**
 
 Extend `generate.test.mjs` using the generator's existing exported
 `requiredCases`:
 
 ```javascript
-test("M3 requires each array corpus domain", () => {
-  const cases = new Map(requiredCases);
-  for (const [id, domain] of [
-    ["array-schema-content", "schema"],
-    ["array-forest-delta", "forest"],
-    ["sequence-field-editor", "field"],
-    ["sequence-compose-invert", "field"],
-    ["sequence-rebase", "field"],
-    ["array-modular-algebra", "modular"],
-    ["array-codecs", "codec"],
-    ["array-history", "history"],
-    ["array-invalid", "invalid"],
-  ]) {
-    assert.equal(cases.get(id), domain, id);
-  }
+test("M3 requires sequence replay evidence", () => {
+  assert.equal(new Map(requiredCases).get("sequence-rebase"), "field");
 });
 ```
 
 Run `node --test tools/shared-tree-oracle/generate.test.mjs`.
 Expect the new assertion to fail because the array case is absent.
 
-- [ ] **Step 2: Define the named M3 oracle schema.**
+- [x] **Step 2: Define the named M3 oracle schema.**
 
 Keep the M1/M2 schema exports unchanged. Add the following declarations to
 `schema.mjs`, with `arrayFactory = new SchemaFactory("org.watershed.shared-tree.m3")`:
@@ -362,7 +350,7 @@ requires a different initialization wrapper, change the wrapper, not the
 allowed node set. Add separate view configurations for the root-array and
 map-root captures.
 
-- [ ] **Step 3: Inject and execute the source probes.**
+- [x] **Step 3: Inject and execute the source probes.**
 
 Add these exact owned injection paths to `source.mjs` and its ownership tests:
 
@@ -380,7 +368,7 @@ cross-field handlers. The array probe must also author through actual
 SharedTree views, which can suppress or normalize an operation before it
 reaches a low-level editor.
 
-- [ ] **Step 4: Capture the corpus rows in section 3.**
+- [x] **Step 4: Capture the corpus rows in section 3.**
 
 For each row, record the operation arguments, source identities, upstream
 intermediate/final observations, complete deltas, and encoded bytes. Include:
@@ -403,7 +391,7 @@ Also capture a move whose destination lies strictly inside the source range.
 The low-level pinned editor emits split marks in that case; visible equality
 does not prove an empty changeset.
 
-- [ ] **Step 5: Add strict generator refusal tests.**
+- [x] **Step 5: Add strict generator refusal tests.**
 
 Delete one observation, duplicate a scenario ID, replace the source commit,
 remove a move endpoint, and corrupt one expected child value in separate
@@ -411,7 +399,7 @@ test inputs. Require the matching validator to reject each mutation. Check
 that raw and normalized scenario IDs match exactly. Keep the accepted
 format inventory in the generated capture, not a hand-edited fixture.
 
-- [ ] **Step 6: Generate and check from the pinned source.**
+- [x] **Step 6: Generate and check from the pinned source.**
 
 ```sh
 npm --prefix tools/shared-tree-oracle run source:verify
@@ -424,7 +412,7 @@ If `source:verify` reports absent dependencies or checkout, use the documented
 `npm ci` / `source:prepare` workflow and repeat. A capture without the real
 source execution does not pass.
 
-- [ ] **Step 7: Review the contract before native implementation.**
+- [x] **Step 7: Review the contract before native implementation.**
 
 Record in this task's execution notes the confirmed schema shape, primary
 field key, Sequence V3 variants, field-batch shapes, no-op semantics,
@@ -433,11 +421,35 @@ rules. Confirm the proposed interfaces in Tasks 2-8 against that evidence.
 Revise the plan before proceeding if any interface cannot represent a
 captured result. Obtain review approval of this gate.
 
-- [ ] **Step 8: Commit the oracle and generated evidence.**
+- [x] **Step 8: Commit the oracle and generated evidence.**
 
 Stage the named source probes, runner/generator/schema changes, tests, README,
 and the exact generated case/manifest paths.
 Use `git commit -m "test(tree): capture array and sequence contracts"`.
+
+#### Task 1 captured contract
+
+- The corpus now has 38 cases. The 29 M1/M2 fixtures remain byte-for-byte
+  unchanged, and the nine M3 cases are not listed as native semantic coverage.
+- Stored arrays are object nodes whose `""` primary field has kind
+  `"Sequence"`. The source messages carry Sequence V3 inside the pinned
+  ModularChange V5 and Message V7 envelopes.
+- Hydrated empty insert, empty remove, and empty same-array move produce zero
+  commits, events, pending edits, revisions, and messages. The low-level
+  editor still emits a zero-count Insert mark but emits empty changes for
+  zero-count remove and move.
+- Same-array destinations use pre-edit gaps. The captured interior move splits
+  the source into `MoveOut(1)`, `MoveIn(3)`, `MoveOut(2)`.
+- Compatible cross-array movement preserves hydrated object identity.
+  Retained data and identity are recorded independently from visible values.
+- Upstream clamps a removal end beyond the array length. Native code must
+  reject it as documented and must not fabricate parity evidence for it.
+- Existing object/root `tree_set` and `tree_clear` semantics remain separate
+  from explicit map mutation APIs; both families later gain contextual
+  traversal through array elements.
+- Cross-field sequence work must use changeset-scoped, range-aware effects.
+  Compose, invert, and rebase receive a normalized field identity so reads,
+  including absent-range reads, can invalidate every dependent field.
 
 ### Task 2: Support read-only array schemas, values, paths, and content
 
@@ -857,6 +869,9 @@ take_invalidated(Context) -> #(List(FieldId), Context)
 A query returns the first uniform segment within the requested range; callers
 continue with the remaining segment. Offset identity fields from the stored
 range basis. Invalidate dependencies only when their observed effect changes.
+Pass a normalized `FieldId` into compose, invert, and rebase. Register the
+requesting field on present and absent range reads; do not evaluate one
+endpoint of a cross-field move without its changeset-scoped dependency state.
 
 In `sequence_field.gleam`, define the algebra context without importing
 `change.gleam`:
@@ -1245,10 +1260,15 @@ allocation watermarks, compressor serialization, emitted events, and output
 messages. At runtime level, assert no outbound submit occurred.
 
 For valid no-visible-change operations, assert Task 1's event and commit
-policy instead of assuming one event per method call. An acknowledgement
-must not emit a second local event. Malformed remote sequence data must stop
-the affected document through its existing error path before partial
-readiness or partial batch state appears.
+policy instead of assuming one event per method call. Empty insert, empty
+remove, and empty same-array move validate first, then return before accepted
+revision allocation, history insertion, event publication, or outbound
+submission. An all-suppressed batch changes nothing; a mixed batch preserves
+the order of real commits. Do not suppress an operation only because its
+visible values compare equal. An acknowledgement must not emit a second local
+event. Malformed remote sequence data must stop the affected document through
+its existing error path before partial readiness or partial batch state
+appears.
 
 - [ ] **Step 5: Run the regression boundary and commit.**
 
@@ -1445,13 +1465,15 @@ relationships and a later targeted child edit.
 - [ ] **Step 3: Add seeded arrays without reducing M1/M2 coverage.**
 
 Make default `iterations = 300`. Preserve the existing object/map schedule
-prefix and append the array schedules:
+prefix and append the array schedules. Select the profile in the collection
+generator, then generate one schedule from explicit `(seed, index, profile)`:
 
 ```javascript
 const legacyCount = 2 * Math.floor(iterations / 3);
 const profile = index < legacyCount
   ? (index % 2 === 0 ? "object" : "map")
   : "array";
+const schedule = generateSchedule({ seed, index, profile });
 ```
 
 Leave `scheduleSubSeed(seed, index)`, author rotation, old action builders,
@@ -1463,9 +1485,11 @@ counts, append any remainder to the array allocation and report each count.
 
 For the optional deep gate, use 7,500 schedules to retain 2,500 per profile.
 Update generator accounting, CLI defaults, `justfile`, report validation, and
-replay format tests together. An array replay artifact must retain both paths,
-all indices, release order, intermediate checkpoints, and the first
-difference path.
+replay format tests together. Replay regenerates from its stored
+`(seed, index, profile)`, not from `index + 1` or a reconstructed iteration
+total. Validate profile membership before dispatch. An array replay artifact
+must retain both paths, all indices, release order, intermediate checkpoints,
+and the first difference path.
 
 - [ ] **Step 4: Extend refusal scenarios without rejecting supported arrays.**
 
@@ -1507,6 +1531,12 @@ stand in for another. Reuse the current creation harness and strict
 creator/reader validation; require twelve cells in its combined report.
 
 - [ ] **Step 6: Run the complete real-service gate.**
+
+Before the combined service run, update the supported/excluded capability
+declarations and regenerate `test/fixtures/shared_tree/profile.json` through
+the existing preflight capture path. Update digest expectations from those
+bytes. M3 acceptance must reject a profile that still declares arrays
+unsupported.
 
 ```sh
 npm --prefix tools/shared-tree-oracle test

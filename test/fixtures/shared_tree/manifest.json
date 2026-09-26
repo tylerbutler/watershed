@@ -127,6 +127,7 @@
     "observedFieldKinds": [
       "ModularEditBuilder.Generic",
       "Optional",
+      "Sequence",
       "Value"
     ],
     "messages": {
@@ -147,6 +148,7 @@
       "fieldKinds": [
         "ModularEditBuilder.Generic",
         "Optional",
+        "Sequence",
         "Value"
       ]
     },
@@ -386,6 +388,51 @@
       "id": "map-history-codecs",
       "domain": "codec",
       "file": "cases/map-history-codecs.json"
+    },
+    {
+      "id": "array-schema-content",
+      "domain": "schema",
+      "file": "cases/array-schema-content.json"
+    },
+    {
+      "id": "array-forest-delta",
+      "domain": "forest",
+      "file": "cases/array-forest-delta.json"
+    },
+    {
+      "id": "sequence-field-editor",
+      "domain": "field",
+      "file": "cases/sequence-field-editor.json"
+    },
+    {
+      "id": "sequence-compose-invert",
+      "domain": "field",
+      "file": "cases/sequence-compose-invert.json"
+    },
+    {
+      "id": "sequence-rebase",
+      "domain": "field",
+      "file": "cases/sequence-rebase.json"
+    },
+    {
+      "id": "array-modular-algebra",
+      "domain": "modular",
+      "file": "cases/array-modular-algebra.json"
+    },
+    {
+      "id": "array-codecs",
+      "domain": "codec",
+      "file": "cases/array-codecs.json"
+    },
+    {
+      "id": "array-history",
+      "domain": "history",
+      "file": "cases/array-history.json"
+    },
+    {
+      "id": "array-invalid",
+      "domain": "invalid",
+      "file": "cases/array-invalid.json"
     }
   ]
 }

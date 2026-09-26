@@ -1,0 +1,254 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "array-invalid",
+  "domain": "invalid",
+  "input": {
+    "scenarios": [
+      {
+        "id": "corrupt-schema",
+        "operation": "corrupt-schema"
+      },
+      {
+        "id": "corrupt-mark",
+        "operation": "corrupt-mark"
+      },
+      {
+        "id": "corrupt-range",
+        "operation": "corrupt-range"
+      },
+      {
+        "id": "corrupt-revision",
+        "operation": "corrupt-revision"
+      },
+      {
+        "id": "corrupt-ownership",
+        "operation": "corrupt-ownership"
+      },
+      {
+        "id": "corrupt-summary",
+        "operation": "corrupt-summary"
+      },
+      {
+        "id": "native-remove-beyond-length",
+        "operation": "native-remove-beyond-length"
+      }
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "corrupt-schema",
+        "rejected": true
+      },
+      {
+        "id": "corrupt-mark",
+        "rejected": true
+      },
+      {
+        "id": "corrupt-range",
+        "rejected": true
+      },
+      {
+        "id": "corrupt-revision",
+        "rejected": true
+      },
+      {
+        "id": "corrupt-ownership",
+        "rejected": true
+      },
+      {
+        "id": "corrupt-summary",
+        "rejected": true
+      },
+      {
+        "id": "native-remove-beyond-length",
+        "rejected": false
+      }
+    ]
+  },
+  "raw": {
+    "scenarios": [
+      {
+        "id": "corrupt-schema",
+        "input": {
+          "id": "corrupt-schema",
+          "operation": "corrupt-schema"
+        },
+        "output": {
+          "schema": "{",
+          "rejected": true
+        }
+      },
+      {
+        "id": "corrupt-mark",
+        "input": {
+          "id": "corrupt-mark",
+          "operation": "corrupt-mark"
+        },
+        "output": {
+          "message": {
+            "revision": 4,
+            "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 18,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
+                          {
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "left",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "moveOut": {
+                                                  "id": 13
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              },
+                              {
+                                "fieldKey": "right",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "moveIn": {
+                                                  "id": 13
+                                                }
+                                              },
+                                              "cellId": 14
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "version": 99
+          },
+          "rejected": true
+        }
+      },
+      {
+        "id": "corrupt-range",
+        "input": {
+          "id": "corrupt-range",
+          "operation": "corrupt-range"
+        },
+        "output": {
+          "start": 2,
+          "end": 1,
+          "rejected": true
+        }
+      },
+      {
+        "id": "corrupt-revision",
+        "input": {
+          "id": "corrupt-revision",
+          "operation": "corrupt-revision"
+        },
+        "output": {
+          "revision": "not-a-revision",
+          "rejected": true
+        }
+      },
+      {
+        "id": "corrupt-ownership",
+        "input": {
+          "id": "corrupt-ownership",
+          "operation": "corrupt-ownership"
+        },
+        "output": {
+          "error": "Error: Type com.fluidframework.leaf.string in source sequence is not allowed in destination.",
+          "rejected": true
+        }
+      },
+      {
+        "id": "corrupt-summary",
+        "input": {
+          "id": "corrupt-summary",
+          "operation": "corrupt-summary"
+        },
+        "output": {
+          "summary": {
+            "type": 1,
+            "tree": {}
+          },
+          "rejected": true
+        }
+      },
+      {
+        "id": "native-remove-beyond-length",
+        "input": {
+          "id": "native-remove-beyond-length",
+          "operation": "native-remove-beyond-length"
+        },
+        "output": {
+          "upstream": {
+            "input": {
+              "start": 1,
+              "end": 99
+            },
+            "value": [
+              "A"
+            ]
+          },
+          "nativeContract": "error"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,1366 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "array-forest-delta",
+  "domain": "forest",
+  "input": {
+    "scenarios": [
+      {
+        "id": "counted-build",
+        "operation": "counted-build",
+        "change": [
+          {
+            "type": "Insert",
+            "id": 0,
+            "count": 3,
+            "cellId": {
+              "localId": 0,
+              "revision": 0
+            },
+            "revision": 0
+          }
+        ]
+      },
+      {
+        "id": "counted-detach",
+        "operation": "counted-detach",
+        "change": [
+          {
+            "count": 1
+          },
+          {
+            "type": "Remove",
+            "count": 3,
+            "id": 3,
+            "revision": 1
+          }
+        ]
+      },
+      {
+        "id": "counted-attach",
+        "operation": "counted-attach",
+        "change": [
+          {
+            "type": "Insert",
+            "id": 3,
+            "count": 3,
+            "cellId": {
+              "revision": 1,
+              "localId": 3
+            },
+            "revision": 2
+          }
+        ]
+      },
+      {
+        "id": "counted-rename",
+        "operation": "counted-rename",
+        "change": [
+          {
+            "type": "Rename",
+            "count": 3,
+            "cellId": {
+              "revision": 1,
+              "localId": 3
+            },
+            "idOverride": {
+              "revision": 2,
+              "localId": 6
+            }
+          }
+        ]
+      },
+      {
+        "id": "counted-destroy",
+        "operation": "counted-destroy",
+        "change": [
+          {
+            "type": "Remove",
+            "count": 3,
+            "id": 9,
+            "revision": 3
+          }
+        ]
+      },
+      {
+        "id": "repair",
+        "operation": "repair",
+        "change": [
+          {
+            "type": "Insert",
+            "id": 9,
+            "count": 2,
+            "cellId": {
+              "revision": 3,
+              "localId": 9
+            },
+            "revision": 4
+          }
+        ]
+      },
+      {
+        "id": "indexed-children",
+        "operation": "indexed-children",
+        "change": [
+          {
+            "count": 2
+          },
+          {
+            "count": 1,
+            "changes": {
+              "localId": 50,
+              "testChange": {
+                "inputContext": [],
+                "intentions": [
+                  5
+                ],
+                "outputContext": [
+                  5
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "retained-identity",
+        "operation": "retained-identity",
+        "change": [
+          {
+            "type": "MoveOut",
+            "id": 12,
+            "count": 2,
+            "revision": 5
+          },
+          {
+            "count": 1
+          },
+          {
+            "type": "MoveIn",
+            "id": 12,
+            "count": 2,
+            "cellId": {
+              "revision": 5,
+              "localId": 14
+            },
+            "revision": 5
+          }
+        ]
+      },
+      {
+        "id": "invalid-overlap",
+        "operation": "invalid-overlap",
+        "change": [
+          {
+            "type": "MoveOut",
+            "id": 16,
+            "count": 1,
+            "revision": 6
+          },
+          {
+            "type": "MoveIn",
+            "id": 16,
+            "count": 3,
+            "cellId": {
+              "revision": 6,
+              "localId": 19
+            },
+            "revision": 6
+          },
+          {
+            "type": "MoveOut",
+            "id": 17,
+            "count": 2,
+            "revision": 6
+          }
+        ]
+      },
+      {
+        "id": "invalid-cycle",
+        "operation": "invalid-cycle",
+        "change": [
+          {
+            "type": "MoveOut",
+            "count": 2,
+            "id": 20,
+            "revision": 7,
+            "finalEndpoint": {
+              "revision": 7,
+              "localId": 22
+            }
+          },
+          {
+            "type": "MoveIn",
+            "count": 2,
+            "id": 20,
+            "revision": 7,
+            "cellId": {
+              "revision": 7,
+              "localId": 22
+            },
+            "finalEndpoint": {
+              "revision": 7,
+              "localId": 20
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "counted-build",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 3,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 3,
+                    "attach": {
+                      "minor": 0,
+                      "major": 0
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": [
+              {
+                "minor": 0,
+                "major": 0
+              },
+              {
+                "minor": 1,
+                "major": 0
+              },
+              {
+                "minor": 2,
+                "major": 0
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "counted-detach",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Remove",
+              "count": 3,
+              "id": 3,
+              "revision": 1
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1
+                  },
+                  {
+                    "count": 3,
+                    "detach": {
+                      "minor": 3,
+                      "major": 1
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          }
+        }
+      },
+      {
+        "id": "counted-attach",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "type": "Insert",
+              "id": 3,
+              "count": 3,
+              "cellId": {
+                "revision": 1,
+                "localId": 3
+              },
+              "revision": 2
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 3,
+                    "attach": {
+                      "minor": 3,
+                      "major": 1
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": [
+              {
+                "minor": 3,
+                "major": 1
+              },
+              {
+                "minor": 4,
+                "major": 1
+              },
+              {
+                "minor": 5,
+                "major": 1
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "counted-rename",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "type": "Rename",
+              "count": 3,
+              "cellId": {
+                "revision": 1,
+                "localId": 3
+              },
+              "idOverride": {
+                "revision": 2,
+                "localId": 6
+              }
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {}
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          }
+        }
+      },
+      {
+        "id": "counted-destroy",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "type": "Remove",
+              "count": 3,
+              "id": 9,
+              "revision": 3
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 3,
+                    "detach": {
+                      "minor": 9,
+                      "major": 3
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          }
+        }
+      },
+      {
+        "id": "repair",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "type": "Insert",
+              "id": 9,
+              "count": 2,
+              "cellId": {
+                "revision": 3,
+                "localId": 9
+              },
+              "revision": 4
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 2,
+                    "attach": {
+                      "minor": 9,
+                      "major": 3
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": [
+              {
+                "minor": 9,
+                "major": 3
+              },
+              {
+                "minor": 10,
+                "major": 3
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "indexed-children",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "count": 2
+            },
+            {
+              "count": 1,
+              "changes": {
+                "localId": 50,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    5
+                  ],
+                  "outputContext": [
+                    5
+                  ]
+                }
+              }
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 2
+                  },
+                  {
+                    "count": 1,
+                    "fields": {}
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          }
+        }
+      },
+      {
+        "id": "retained-identity",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 12,
+              "count": 2,
+              "revision": 5
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveIn",
+              "id": 12,
+              "count": 2,
+              "cellId": {
+                "revision": 5,
+                "localId": 14
+              },
+              "revision": 5
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 2,
+                    "detach": {
+                      "minor": 12,
+                      "major": 5
+                    }
+                  },
+                  {
+                    "count": 1
+                  },
+                  {
+                    "attach": {
+                      "minor": 12,
+                      "major": 5
+                    },
+                    "count": 2
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          }
+        }
+      },
+      {
+        "id": "invalid-overlap",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 16,
+              "count": 1,
+              "revision": 6
+            },
+            {
+              "type": "MoveIn",
+              "id": 16,
+              "count": 3,
+              "cellId": {
+                "revision": 6,
+                "localId": 19
+              },
+              "revision": 6
+            },
+            {
+              "type": "MoveOut",
+              "id": 17,
+              "count": 2,
+              "revision": 6
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1,
+                    "detach": {
+                      "minor": 16,
+                      "major": 6
+                    }
+                  },
+                  {
+                    "attach": {
+                      "minor": 16,
+                      "major": 6
+                    },
+                    "count": 3
+                  },
+                  {
+                    "count": 2,
+                    "detach": {
+                      "minor": 17,
+                      "major": 6
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          }
+        }
+      },
+      {
+        "id": "invalid-cycle",
+        "accepted": true,
+        "value": {
+          "change": [
+            {
+              "type": "MoveOut",
+              "count": 2,
+              "id": 20,
+              "revision": 7,
+              "finalEndpoint": {
+                "revision": 7,
+                "localId": 22
+              }
+            },
+            {
+              "type": "MoveIn",
+              "count": 2,
+              "id": 20,
+              "revision": 7,
+              "cellId": {
+                "revision": 7,
+                "localId": 22
+              },
+              "finalEndpoint": {
+                "revision": 7,
+                "localId": 20
+              }
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 2,
+                    "detach": {
+                      "minor": 20,
+                      "major": 7
+                    }
+                  },
+                  {
+                    "attach": {
+                      "minor": 20,
+                      "major": 7
+                    },
+                    "count": 2
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          }
+        }
+      }
+    ]
+  },
+  "raw": {
+    "scenarios": [
+      {
+        "id": "counted-build",
+        "input": {
+          "id": "counted-build",
+          "operation": "counted-build",
+          "change": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 3,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            }
+          ]
+        },
+        "output": {
+          "change": [
+            {
+              "type": "Insert",
+              "id": 0,
+              "count": 3,
+              "cellId": {
+                "localId": 0,
+                "revision": 0
+              },
+              "revision": 0
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 3,
+                    "attach": {
+                      "minor": 0,
+                      "major": 0
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": [
+              {
+                "minor": 0,
+                "major": 0
+              },
+              {
+                "minor": 1,
+                "major": 0
+              },
+              {
+                "minor": 2,
+                "major": 0
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "counted-detach",
+        "input": {
+          "id": "counted-detach",
+          "operation": "counted-detach",
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Remove",
+              "count": 3,
+              "id": 3,
+              "revision": 1
+            }
+          ]
+        },
+        "output": {
+          "change": [
+            {
+              "count": 1
+            },
+            {
+              "type": "Remove",
+              "count": 3,
+              "id": 3,
+              "revision": 1
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1
+                  },
+                  {
+                    "count": 3,
+                    "detach": {
+                      "minor": 3,
+                      "major": 1
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          }
+        }
+      },
+      {
+        "id": "counted-attach",
+        "input": {
+          "id": "counted-attach",
+          "operation": "counted-attach",
+          "change": [
+            {
+              "type": "Insert",
+              "id": 3,
+              "count": 3,
+              "cellId": {
+                "revision": 1,
+                "localId": 3
+              },
+              "revision": 2
+            }
+          ]
+        },
+        "output": {
+          "change": [
+            {
+              "type": "Insert",
+              "id": 3,
+              "count": 3,
+              "cellId": {
+                "revision": 1,
+                "localId": 3
+              },
+              "revision": 2
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 3,
+                    "attach": {
+                      "minor": 3,
+                      "major": 1
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": [
+              {
+                "minor": 3,
+                "major": 1
+              },
+              {
+                "minor": 4,
+                "major": 1
+              },
+              {
+                "minor": 5,
+                "major": 1
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "counted-rename",
+        "input": {
+          "id": "counted-rename",
+          "operation": "counted-rename",
+          "change": [
+            {
+              "type": "Rename",
+              "count": 3,
+              "cellId": {
+                "revision": 1,
+                "localId": 3
+              },
+              "idOverride": {
+                "revision": 2,
+                "localId": 6
+              }
+            }
+          ]
+        },
+        "output": {
+          "change": [
+            {
+              "type": "Rename",
+              "count": 3,
+              "cellId": {
+                "revision": 1,
+                "localId": 3
+              },
+              "idOverride": {
+                "revision": 2,
+                "localId": 6
+              }
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {}
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          }
+        }
+      },
+      {
+        "id": "counted-destroy",
+        "input": {
+          "id": "counted-destroy",
+          "operation": "counted-destroy",
+          "change": [
+            {
+              "type": "Remove",
+              "count": 3,
+              "id": 9,
+              "revision": 3
+            }
+          ]
+        },
+        "output": {
+          "change": [
+            {
+              "type": "Remove",
+              "count": 3,
+              "id": 9,
+              "revision": 3
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 3,
+                    "detach": {
+                      "minor": 9,
+                      "major": 3
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          }
+        }
+      },
+      {
+        "id": "repair",
+        "input": {
+          "id": "repair",
+          "operation": "repair",
+          "change": [
+            {
+              "type": "Insert",
+              "id": 9,
+              "count": 2,
+              "cellId": {
+                "revision": 3,
+                "localId": 9
+              },
+              "revision": 4
+            }
+          ]
+        },
+        "output": {
+          "change": [
+            {
+              "type": "Insert",
+              "id": 9,
+              "count": 2,
+              "cellId": {
+                "revision": 3,
+                "localId": 9
+              },
+              "revision": 4
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 2,
+                    "attach": {
+                      "minor": 9,
+                      "major": 3
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": [
+              {
+                "minor": 9,
+                "major": 3
+              },
+              {
+                "minor": 10,
+                "major": 3
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "indexed-children",
+        "input": {
+          "id": "indexed-children",
+          "operation": "indexed-children",
+          "change": [
+            {
+              "count": 2
+            },
+            {
+              "count": 1,
+              "changes": {
+                "localId": 50,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    5
+                  ],
+                  "outputContext": [
+                    5
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "output": {
+          "change": [
+            {
+              "count": 2
+            },
+            {
+              "count": 1,
+              "changes": {
+                "localId": 50,
+                "testChange": {
+                  "inputContext": [],
+                  "intentions": [
+                    5
+                  ],
+                  "outputContext": [
+                    5
+                  ]
+                }
+              }
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 2
+                  },
+                  {
+                    "count": 1,
+                    "fields": {}
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          }
+        }
+      },
+      {
+        "id": "retained-identity",
+        "input": {
+          "id": "retained-identity",
+          "operation": "retained-identity",
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 12,
+              "count": 2,
+              "revision": 5
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveIn",
+              "id": 12,
+              "count": 2,
+              "cellId": {
+                "revision": 5,
+                "localId": 14
+              },
+              "revision": 5
+            }
+          ]
+        },
+        "output": {
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 12,
+              "count": 2,
+              "revision": 5
+            },
+            {
+              "count": 1
+            },
+            {
+              "type": "MoveIn",
+              "id": 12,
+              "count": 2,
+              "cellId": {
+                "revision": 5,
+                "localId": 14
+              },
+              "revision": 5
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 2,
+                    "detach": {
+                      "minor": 12,
+                      "major": 5
+                    }
+                  },
+                  {
+                    "count": 1
+                  },
+                  {
+                    "attach": {
+                      "minor": 12,
+                      "major": 5
+                    },
+                    "count": 2
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          }
+        }
+      },
+      {
+        "id": "invalid-overlap",
+        "input": {
+          "id": "invalid-overlap",
+          "operation": "invalid-overlap",
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 16,
+              "count": 1,
+              "revision": 6
+            },
+            {
+              "type": "MoveIn",
+              "id": 16,
+              "count": 3,
+              "cellId": {
+                "revision": 6,
+                "localId": 19
+              },
+              "revision": 6
+            },
+            {
+              "type": "MoveOut",
+              "id": 17,
+              "count": 2,
+              "revision": 6
+            }
+          ]
+        },
+        "output": {
+          "change": [
+            {
+              "type": "MoveOut",
+              "id": 16,
+              "count": 1,
+              "revision": 6
+            },
+            {
+              "type": "MoveIn",
+              "id": 16,
+              "count": 3,
+              "cellId": {
+                "revision": 6,
+                "localId": 19
+              },
+              "revision": 6
+            },
+            {
+              "type": "MoveOut",
+              "id": 17,
+              "count": 2,
+              "revision": 6
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1,
+                    "detach": {
+                      "minor": 16,
+                      "major": 6
+                    }
+                  },
+                  {
+                    "attach": {
+                      "minor": 16,
+                      "major": 6
+                    },
+                    "count": 3
+                  },
+                  {
+                    "count": 2,
+                    "detach": {
+                      "minor": 17,
+                      "major": 6
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          }
+        }
+      },
+      {
+        "id": "invalid-cycle",
+        "input": {
+          "id": "invalid-cycle",
+          "operation": "invalid-cycle",
+          "change": [
+            {
+              "type": "MoveOut",
+              "count": 2,
+              "id": 20,
+              "revision": 7,
+              "finalEndpoint": {
+                "revision": 7,
+                "localId": 22
+              }
+            },
+            {
+              "type": "MoveIn",
+              "count": 2,
+              "id": 20,
+              "revision": 7,
+              "cellId": {
+                "revision": 7,
+                "localId": 22
+              },
+              "finalEndpoint": {
+                "revision": 7,
+                "localId": 20
+              }
+            }
+          ]
+        },
+        "output": {
+          "change": [
+            {
+              "type": "MoveOut",
+              "count": 2,
+              "id": 20,
+              "revision": 7,
+              "finalEndpoint": {
+                "revision": 7,
+                "localId": 22
+              }
+            },
+            {
+              "type": "MoveIn",
+              "count": 2,
+              "id": 20,
+              "revision": 7,
+              "cellId": {
+                "revision": 7,
+                "localId": 22
+              },
+              "finalEndpoint": {
+                "revision": 7,
+                "localId": 20
+              }
+            }
+          ],
+          "delta": {
+            "accepted": true,
+            "value": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 2,
+                    "detach": {
+                      "minor": 20,
+                      "major": 7
+                    }
+                  },
+                  {
+                    "attach": {
+                      "minor": 20,
+                      "major": 7
+                    },
+                    "count": 2
+                  }
+                ]
+              }
+            }
+          },
+          "removedRoots": {
+            "accepted": true,
+            "value": []
+          }
+        }
+      }
+    ]
+  }
+}

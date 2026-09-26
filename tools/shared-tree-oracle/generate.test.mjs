@@ -6,7 +6,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import * as generator from "./generate.mjs";
-import { compareDirectories, requiredCases, validateCases, writeCorpus } from "./generate.mjs";
+import {
+  compareDirectories,
+  requiredCases,
+  validateArrayCase,
+  validateCases,
+  writeCorpus,
+} from "./generate.mjs";
 
 const schemaValidationCheckIds = [
   "matching-view",
@@ -639,8 +645,131 @@ test("tree codec case validator rejects missing context and observations", () =>
 });
 
 test("corpus requires the tree codecs case", () => {
-  assert.equal(requiredCases.length, 29);
+  assert.equal(requiredCases.length, 38);
   assert(requiredCases.some(([id, domain]) => id === "tree-codecs" && domain === "codec"));
+});
+
+test("M3 requires sequence replay evidence", () => {
+  assert.equal(new Map(requiredCases).get("sequence-rebase"), "field");
+});
+
+function arrayCaseFixture() {
+  const scenarios = [
+    {
+      id: "move-interior",
+      operation: "move",
+      source: { path: ["left"], start: 0, end: 2 },
+      destination: { path: ["left"], gap: 1 },
+    },
+    {
+      id: "empty-remove",
+      operation: "remove",
+      source: { path: ["right"], start: 1, end: 1 },
+    },
+  ];
+  return {
+    formatVersion: 1,
+    reference: {
+      package: "@fluidframework/tree",
+      version: "3.1.0",
+      commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+    },
+    id: "sequence-field-editor",
+    domain: "field",
+    input: { scenarios },
+    expected: {
+      observations: scenarios.map(({ id }) => ({
+        id,
+        emitted: [],
+        visible: ["A", "B"],
+      })),
+    },
+    raw: {
+      scenarios: scenarios.map((input) => ({
+        id: input.id,
+        input: structuredClone(input),
+        output: [],
+      })),
+    },
+  };
+}
+
+test("array validation rejects missing and duplicate scenario IDs", () => {
+  const valid = arrayCaseFixture();
+  assert.doesNotThrow(() => validateArrayCase(valid, valid.input.scenarios.map(({ id }) => id)));
+  for (const mutate of [
+    (value) => { value.expected.observations.pop(); },
+    (value) => { value.raw.scenarios[1].id = value.raw.scenarios[0].id; },
+  ]) {
+    const broken = arrayCaseFixture();
+    mutate(broken);
+    assert.throws(
+      () => validateArrayCase(broken, valid.input.scenarios.map(({ id }) => id)),
+      /scenario|duplicate/i,
+    );
+  }
+});
+
+test("array validation rejects malformed endpoints and wrong references", () => {
+  for (const mutate of [
+    (value) => { value.input.scenarios[0].source.end = -1; },
+    (value) => { value.input.scenarios[0].destination.gap = 1.5; },
+    (value) => { value.reference.commit = "other"; },
+  ]) {
+    const broken = arrayCaseFixture();
+    mutate(broken);
+    assert.throws(
+      () => validateArrayCase(broken, broken.input.scenarios.map(({ id }) => id)),
+      /endpoint|reference/i,
+    );
+  }
+});
+
+test("array validation rejects raw and normalized input inconsistencies", () => {
+  const broken = arrayCaseFixture();
+  broken.raw.scenarios[0].input.destination.gap = 2;
+  assert.throws(
+    () => validateArrayCase(broken, broken.input.scenarios.map(({ id }) => id)),
+    /raw.*input|normalized/i,
+  );
+});
+
+test("array validation requires contract-defining source evidence", () => {
+  for (const [id, mutate, message] of [
+    ["array-schema-content", (value) => {
+      const schema = JSON.parse(value.input.schemas.rootArray);
+      schema.nodes["org.watershed.shared-tree.m3.Items"].kind.object[""].kind = "Value";
+      value.input.schemas.rootArray = JSON.stringify(schema);
+      value.raw.schemas.rootArray.bytes = value.input.schemas.rootArray;
+    }, /Sequence field/],
+    ["sequence-field-editor", (value) => {
+      value.expected.observations.find(({ id }) => id === "move-interior")
+        .value.change[1].type = "MoveOut";
+      value.raw.scenarios.find(({ id }) => id === "move-interior")
+        .output.change[1].type = "MoveOut";
+    }, /interior move split/],
+    ["array-modular-algebra", (value) => {
+      value.expected.observations[0].fieldKinds.pop();
+    }, /field kinds/],
+    ["array-codecs", (value) => {
+      value.input.scenarios[0].profile.sequence = 2;
+      value.raw.scenarios[0].input.profile.sequence = 2;
+    }, /codec profile/],
+    ["array-history", (value) => {
+      value.raw.scenarios.find(({ id }) => id === "public-noops")
+        .output[0].commits = 1;
+    }, /no-op emission/],
+    ["array-invalid", (value) => {
+      value.raw.scenarios.find(({ id }) => id === "native-remove-beyond-length")
+        .output.nativeContract = "clamp";
+    }, /removal-bound difference/],
+  ]) {
+    const value = JSON.parse(readFileSync(
+      new URL(`../../test/fixtures/shared_tree/cases/${id}.json`, import.meta.url), "utf8",
+    ));
+    mutate(value);
+    assert.throws(() => validateArrayCase(value), message);
+  }
 });
 
 test("corpus validation requires independent container and summary foundations", () => {
@@ -825,7 +954,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
   await writeCorpus(output, corpus, smoke);
   const manifest = JSON.parse(readFileSync(join(output, "manifest.json"), "utf8"));
   assert.deepEqual(manifest.inventory.observedFieldKinds,
-    ["ModularEditBuilder.Generic", "Optional", "Value"]);
+    ["ModularEditBuilder.Generic", "Optional", "Sequence", "Value"]);
   for (const target of ["javascript", "erlang"]) {
     assert.deepEqual(manifest.nativeSemanticRunners[target], [
       "id-ranges", "schema-validation", "forest-delta",
@@ -839,7 +968,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
 });
 
 test("corpus validation requires every named case and nonempty observations", () => {
-  assert.equal(requiredCases.length, 29);
+  assert.equal(requiredCases.length, 38);
   assert.doesNotThrow(() => validateCases(cases()));
   assert.throws(() => validateCases([]), /empty|missing/i);
   assert.throws(() => validateCases(cases().slice(1)), /schema-profile/);

@@ -69,3 +69,58 @@ export const mapRootStore = defineTreeDataStore({
   config: mapTreeConfig,
   initializer: initialMapRoot,
 });
+
+const arrayFactory = new SchemaFactory("org.watershed.shared-tree.m3");
+
+export class ArrayPoint extends arrayFactory.object("Point", {
+  label: arrayFactory.string,
+  x: arrayFactory.number,
+}) {}
+
+export class Items extends arrayFactory.arrayRecursive("Items", [
+  arrayFactory.string,
+  arrayFactory.number,
+  arrayFactory.boolean,
+  arrayFactory.null,
+  ArrayPoint,
+  () => Items,
+  () => ArrayMap,
+]) {}
+
+export class ArrayMap extends arrayFactory.mapRecursive("ArrayMap", [
+  arrayFactory.string,
+  arrayFactory.number,
+  arrayFactory.boolean,
+  arrayFactory.null,
+  ArrayPoint,
+  () => Items,
+  () => ArrayMap,
+]) {}
+
+export class Points extends arrayFactory.array("Points", ArrayPoint) {}
+
+export class ArrayRoot extends arrayFactory.object("Root", {
+  left: Items,
+  right: Items,
+  byKey: ArrayMap,
+  narrow: Points,
+}) {}
+
+export const arrayTreeConfig = new TreeViewConfiguration({ schema: ArrayRoot });
+export const rootArrayTreeConfig = new TreeViewConfiguration({ schema: Items });
+export const arrayMapTreeConfig = new TreeViewConfiguration({ schema: ArrayMap });
+
+export function initialArrayRoot() {
+  return new ArrayRoot({
+    left: new Items([]),
+    right: new Items([]),
+    byKey: new ArrayMap([]),
+    narrow: new Points([]),
+  });
+}
+
+export const arrayRootStore = defineTreeDataStore({
+  type: "org.watershed.shared-tree.m3.root",
+  config: arrayTreeConfig,
+  initializer: initialArrayRoot,
+});

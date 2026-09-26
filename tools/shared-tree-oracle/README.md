@@ -135,6 +135,32 @@ that a connected peer observes.
 The generated manifest requires `map-schema-content`, `map-field-algebra`, and
 `map-history-codecs` in the JavaScript and Erlang native semantic-runner lists.
 
+### M3 array source contract
+
+The pinned source generator now retains the 29 M1/M2 cases and adds nine M3
+cases: `array-schema-content`, `array-forest-delta`,
+`sequence-field-editor`, `sequence-compose-invert`, `sequence-rebase`,
+`array-modular-algebra`, `array-codecs`, `array-history`, and
+`array-invalid`. Regenerate and compare them with:
+
+```sh
+npm --prefix tools/shared-tree-oracle run generate
+npm --prefix tools/shared-tree-oracle run check
+```
+
+The capture confirms that array schemas use an object node with `""` as a
+Sequence primary field, and that array messages use Sequence V3 inside the
+pinned ModularChange V5 and Message V7 formats. Same-array move destinations
+are pre-edit gaps. Compatible cross-array moves preserve hydrated object
+identity. Public empty insert, empty remove, and empty same-array move emit no
+commit, events, pending edit, revision, or message, although the low-level
+editor retains a zero-count Insert mark.
+
+Pinned upstream removal clamps an end beyond the array length. The planned
+native API deliberately rejects that invalid range. The nine M3 fixtures are
+source evidence only; they are absent from `nativeSemanticRunners` until
+input-only runners pass on JavaScript and BEAM.
+
 ### Permanent gates
 
 `.github/workflows/shared-tree.yml` runs `SharedTree native` on pull requests,
