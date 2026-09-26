@@ -1,11 +1,14 @@
+import gleam/json
 import gleam/option.{None, Some}
 import startest/expect
 import watershed/fluid_ids
 import watershed/tree/change
 import watershed/tree/fixtures
+import watershed/tree/forest
 import watershed/tree/schema
 import watershed/tree/schema_evolution_fixture
 import watershed/tree/shared_change
+import watershed/tree/types.{AtomId, StringValue}
 
 pub fn shared_tree_outer_empty_is_not_empty_modular_test() -> Nil {
   shared_change.to_changes(shared_change.empty())
@@ -15,10 +18,90 @@ pub fn shared_tree_outer_empty_is_not_empty_modular_test() -> Nil {
 }
 
 pub fn shared_tree_schema_evolution_algebra_test() -> Nil {
-  fixtures.assert_case(
-    "schema-evolution-algebra",
-    schema_evolution_fixture.run_algebra,
+  let assert Ok(fixture) = fixtures.load("schema-evolution-algebra")
+  let assert Ok(expected) =
+    schema_evolution_fixture.project_algebra_expected(
+      fixture.input,
+      fixture.expected,
+    )
+  let assert Ok(actual) = schema_evolution_fixture.run_algebra(fixture.input)
+  fixtures.first_difference(actual, expected) |> expect.to_equal(Ok(Nil))
+}
+
+pub fn shared_tree_algebra_observation_uses_returned_data_test() -> Nil {
+  let revision = stable_id("00000000-0000-4000-8000-000000000008")
+  let order = identity_order([#(revision, 0)])
+  let original =
+    modular_change(
+      order,
+      change.ChangeData(
+        ..empty_data(),
+        max_local_id: 0,
+        revisions: [change.RevisionInfo(revision, None)],
+        builds: [forest.Build(AtomId(Some(revision), 0), [StringValue("one")])],
+      ),
+    )
+  let different =
+    modular_change(
+      order,
+      change.ChangeData(..change.to_data(original), builds: [
+        forest.Build(AtomId(Some(revision), 0), [StringValue("two")]),
+      ]),
+    )
+  schema_evolution_fixture.data_observation(original)
+  |> json.to_string
+  |> expect.to_not_equal(
+    schema_evolution_fixture.data_observation(different) |> json.to_string,
   )
+}
+
+pub fn shared_tree_adjacent_data_normalizes_with_metadata_test() -> Nil {
+  let first_revision = stable_id("00000000-0000-4000-8000-000000000008")
+  let second_revision = stable_id("00000000-0000-4000-8000-000000000009")
+  let rollback_revision = stable_id("00000000-0000-4000-8000-00000000000a")
+  let order =
+    identity_order([
+      #(first_revision, 0),
+      #(second_revision, 1),
+      #(rollback_revision, 2),
+    ])
+  let first_build =
+    forest.Build(AtomId(Some(first_revision), 0), [StringValue("first")])
+  let second_build =
+    forest.Build(AtomId(Some(second_revision), 0), [StringValue("second")])
+  let first =
+    modular_change(
+      order,
+      change.ChangeData(..empty_data(), max_local_id: 0, builds: [first_build]),
+    )
+  let second =
+    modular_change(
+      order,
+      change.ChangeData(..empty_data(), max_local_id: 0, builds: [second_build]),
+    )
+  let assert Ok(composed) =
+    shared_change.compose([
+      shared_change.TaggedChange(
+        Some(first_revision),
+        None,
+        shared_change.from_data(first),
+      ),
+      shared_change.TaggedChange(
+        Some(second_revision),
+        Some(rollback_revision),
+        shared_change.from_data(second),
+      ),
+    ])
+  let assert [shared_change.DataChange(data)] =
+    shared_change.to_changes(composed)
+  let data = change.to_data(data)
+  data.builds |> expect.to_equal([first_build, second_build])
+  data.revisions
+  |> expect.to_equal([
+    change.RevisionInfo(first_revision, None),
+    change.RevisionInfo(second_revision, Some(rollback_revision)),
+    change.RevisionInfo(rollback_revision, None),
+  ])
 }
 
 pub fn shared_tree_schema_change_preserves_metadata_payloads_test() -> Nil {
@@ -110,4 +193,38 @@ pub fn shared_tree_revision_infos_retain_conflicting_metadata_test() -> Nil {
     change.RevisionInfo(revision, Some(original)),
     change.RevisionInfo(revision, None),
   ])
+}
+
+fn empty_data() -> change.ChangeData {
+  change.ChangeData(
+    max_local_id: -1,
+    revisions: [],
+    fields: [],
+    nodes: [],
+    parents: [],
+    aliases: [],
+    builds: [],
+    destroys: [],
+    refreshers: [],
+  )
+}
+
+fn stable_id(raw: String) -> fluid_ids.StableId {
+  let assert Ok(value) = fluid_ids.stable_id(raw)
+  value
+}
+
+fn identity_order(
+  entries: List(#(fluid_ids.StableId, Int)),
+) -> change.IdentityOrder {
+  let assert Ok(value) = change.identity_order(entries)
+  value
+}
+
+fn modular_change(
+  order: change.IdentityOrder,
+  data: change.ChangeData,
+) -> change.Changeset {
+  let assert Ok(value) = change.from_data(data, order)
+  value
 }
