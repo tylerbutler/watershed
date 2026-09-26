@@ -305,11 +305,28 @@ async function compatibilityCases() {
 		narrow: narrowSchema(),
 		"new-required": newRequiredSchema(),
 	};
+	const refusalProfiles = {
+		narrow: profiles.narrow.config,
+		"new-required": profiles["new-required"].config,
+		"optional-to-required": optionalToRequiredSchema().config,
+		"node-kind-replacement": nodeKindReplacementSchema().config,
+		sequence: sequenceSchema(),
+		handle: handleSchema(),
+	};
 	const oldStored = toUpgradeSchema(profiles.v1.config.schema);
 	const catalog = Object.entries(profiles).map(([id, bundle]) => ({
 		id,
 		raw: JSON.stringify(persisted(bundle.config.schema)),
 	}));
+	const compatibilityCatalog = [
+		...catalog,
+		...Object.entries(refusalProfiles)
+			.filter(([id]) => !(id in profiles))
+			.map(([id, config]) => ({
+				id,
+				raw: JSON.stringify(persisted(config.schema)),
+			})),
+	];
 	const scenarios = Object.entries(profiles).map(([id, bundle]) => ({
 		id,
 		stored: "v1",
@@ -346,14 +363,6 @@ async function compatibilityCases() {
 	};
 	const observations = await Promise.all(Object.entries(profiles).map(([id, bundle]) =>
 		attempt(id, bundle.config)));
-	const refusalProfiles = {
-		narrow: profiles.narrow.config,
-		"new-required": profiles["new-required"].config,
-		"optional-to-required": optionalToRequiredSchema().config,
-		"node-kind-replacement": nodeKindReplacementSchema().config,
-		sequence: sequenceSchema(),
-		handle: handleSchema(),
-	};
 	const refusals = Object.entries(refusalProfiles).map(([id]) => ({
 		id,
 		stored: "v1",
@@ -449,6 +458,7 @@ async function compatibilityCases() {
 		refusalAttempts,
 		rawProbes: probes.map(({ input }) => input),
 		rawProbeResults: probes.map(({ result }) => result),
+		compatibilityCatalog,
 		profiles,
 	};
 }
@@ -1375,14 +1385,14 @@ describe("Watershed schema evolution oracle", () => {
 				"schema-evolution-compatibility",
 				"schema",
 				{
-					schemas: compatibility.catalog,
+					schemas: compatibility.compatibilityCatalog,
 					scenarios: compatibility.scenarios,
 					refusals: compatibility.refusals,
 					rawProbes: compatibility.rawProbes,
 				},
 				compatibility.observations,
 				{
-					schemas: compatibility.catalog,
+					schemas: compatibility.compatibilityCatalog,
 					schemaMessages: rawSchemaMessages,
 					schemaMessageBytes: rawSchemaMessages.map((message) => JSON.stringify(message)),
 					initializationMessages: upgrade.initializationMessages,

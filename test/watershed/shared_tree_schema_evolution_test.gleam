@@ -25,13 +25,24 @@ pub fn shared_tree_schema_evolution_compatibility_test() -> Nil {
   string.contains(encoded, "discrepancies") |> expect.to_be_false
   string.contains(encoded, "\"id\":\"narrow\",\"compatibility\"")
   |> expect.to_be_true
-  string.contains(
-    encoded,
-    "\"id\":\"optional-to-required\",\"availability\":\"missing-input\"",
-  )
-  |> expect.to_be_true
-  string.contains(encoded, "\"id\":\"duplicate-keys\",\"parsed\":false")
-  |> expect.to_be_true
+  string.contains(encoded, "\"availability\":\"missing-input\"")
+  |> expect.to_be_false
+  [
+    "\"id\":\"narrow\",\"classification\":\"upstream-refusal\",\"compatibility\":{\"canView\":false,\"canUpgrade\":false,\"isEquivalent\":false},\"preparation\":{\"outcome\":\"refused\"",
+    "\"id\":\"new-required\",\"classification\":\"upstream-refusal\",\"compatibility\":{\"canView\":false,\"canUpgrade\":false,\"isEquivalent\":false},\"preparation\":{\"outcome\":\"refused\"",
+    "\"id\":\"optional-to-required\",\"classification\":\"upstream-refusal\",\"compatibility\":{\"canView\":false,\"canUpgrade\":false,\"isEquivalent\":false},\"preparation\":{\"outcome\":\"refused\"",
+    "\"id\":\"node-kind-replacement\",\"classification\":\"m4-profile-exclusion\",\"compatibility\":{\"canView\":false,\"canUpgrade\":true,\"isEquivalent\":false},\"preparation\":{\"outcome\":\"refused\"",
+    "\"id\":\"sequence\",\"classification\":\"m4-profile-exclusion\",\"compatibility\":{\"canView\":false,\"canUpgrade\":true,\"isEquivalent\":false},\"preparation\":{\"outcome\":\"refused\"",
+    "\"id\":\"handle\",\"classification\":\"m4-profile-exclusion\",\"compatibility\":{\"canView\":false,\"canUpgrade\":true,\"isEquivalent\":false},\"preparation\":{\"outcome\":\"refused\"",
+    "\"id\":\"metadata\",\"parsed\":true,\"classification\":\"compatibility\",\"compatibility\":{\"canView\":true,\"canUpgrade\":true,\"isEquivalent\":true}",
+    "\"id\":\"duplicate-keys\",\"parsed\":false,\"classification\":\"stored-decode-refusal\",\"error\":",
+    "\"id\":\"ordering\",\"parsed\":true,\"classification\":\"compatibility\",\"compatibility\":{\"canView\":true,\"canUpgrade\":true,\"isEquivalent\":true}",
+    "\"id\":\"unused-definitions\",\"parsed\":true,\"classification\":\"compatibility\",\"compatibility\":{\"canView\":true,\"canUpgrade\":false,\"isEquivalent\":false}",
+    "\"id\":\"required-cycle\",\"parsed\":true,\"classification\":\"compatibility\",\"compatibility\":{\"canView\":false,\"canUpgrade\":false,\"isEquivalent\":false}",
+  ]
+  |> list.each(fn(expected) {
+    string.contains(encoded, expected) |> expect.to_be_true
+  })
 }
 
 pub fn shared_tree_schema_evolution_runner_rejects_empty_input_test() -> Nil {

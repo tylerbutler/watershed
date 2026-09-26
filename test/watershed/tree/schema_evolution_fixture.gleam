@@ -59,7 +59,7 @@ pub fn run_compatibility(input: Json) -> Result(Json, String) {
   )
   use refusals <- result.try(
     list.try_map(input.refusals, fn(scenario) {
-      run_optional_scenario(catalog, scenario)
+      run_refusal_scenario(catalog, scenario)
     }),
   )
   let assert [first, ..] = input.scenarios
@@ -139,41 +139,44 @@ fn run_scenario(
   native_observation(scenario.id, stored, view)
 }
 
-fn run_optional_scenario(
+fn run_refusal_scenario(
   catalog: dict.Dict(String, String),
   scenario: Scenario,
 ) -> Result(Json, String) {
   use _ <- result.try(check_operation(scenario, "prepare-upgrade"))
-  case
-    dict.get(catalog, scenario.stored),
-    dict.get(catalog, scenario.requested)
-  {
-    Ok(stored_raw), Ok(requested_raw) -> {
-      use stored <- result.try(
-        schema.stored_from_string(stored_raw)
-        |> result.map_error(fn(error) {
-          scenario.id <> ": invalid stored schema: " <> string.inspect(error)
-        }),
-      )
-      use view <- result.try(
-        schema.view_from_string(requested_raw)
-        |> result.map_error(fn(error) {
-          scenario.id <> ": invalid requested schema: " <> string.inspect(error)
-        }),
-      )
-      native_observation(scenario.id, stored, view)
-    }
-    Error(Nil), _ ->
-      Ok(unavailable_observation(
-        scenario.id,
-        "unknown schema " <> scenario.stored,
-      ))
-    _, Error(Nil) ->
-      Ok(unavailable_observation(
-        scenario.id,
-        "unknown schema " <> scenario.requested,
-      ))
+  use stored_raw <- result.try(find_schema(catalog, scenario.stored))
+  use requested_raw <- result.try(find_schema(catalog, scenario.requested))
+  use stored <- result.try(
+    schema.stored_from_string(stored_raw)
+    |> result.map_error(fn(error) {
+      scenario.id <> ": invalid stored schema: " <> string.inspect(error)
+    }),
+  )
+  use view <- result.try(
+    schema.view_from_string(requested_raw)
+    |> result.map_error(fn(error) {
+      scenario.id <> ": invalid requested schema: " <> string.inspect(error)
+    }),
+  )
+  use status <- result.try(
+    schema.compatibility(stored, view)
+    |> result.map_error(fn(error) {
+      scenario.id <> ": compatibility error: " <> string.inspect(error)
+    }),
+  )
+  use preparation <- result.try(preparation_json(scenario.id, stored, view))
+  let classification = case status.can_upgrade {
+    True -> "m4-profile-exclusion"
+    False -> "upstream-refusal"
   }
+  Ok(
+    json.object([
+      #("id", json.string(scenario.id)),
+      #("classification", json.string(classification)),
+      #("compatibility", compatibility_json(status)),
+      #("preparation", preparation),
+    ]),
+  )
 }
 
 fn native_observation(
@@ -229,14 +232,6 @@ fn preparation_json(
   }
 }
 
-fn unavailable_observation(id: String, detail: String) -> Json {
-  json.object([
-    #("id", json.string(id)),
-    #("availability", json.string("missing-input")),
-    #("error", json.string(detail)),
-  ])
-}
-
 fn run_raw_probe(
   probe: RawProbe,
   baseline: schema.ViewSchema,
@@ -247,6 +242,7 @@ fn run_raw_probe(
         json.object([
           #("id", json.string(probe.id)),
           #("parsed", json.bool(False)),
+          #("classification", json.string("stored-decode-refusal")),
           #("error", json.string(string.inspect(error))),
         ]),
       )
@@ -261,6 +257,7 @@ fn run_raw_probe(
         json.object([
           #("id", json.string(probe.id)),
           #("parsed", json.bool(True)),
+          #("classification", json.string("compatibility")),
           #("compatibility", compatibility_json(status)),
         ]),
       )

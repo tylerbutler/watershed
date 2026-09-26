@@ -91,10 +91,14 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
     nodes: {},
     root: { kind: "Forbidden", types: [] },
   });
-  const schemas = [
+  const schemaIds = [
     "v1", "optional", "object-union", "map-union", "optional-title",
     "root-union", "optional-root", "combined", "narrow", "new-required",
-  ].map((schemaId) => ({ id: schemaId, raw: schema }));
+    ...(id === "schema-evolution-compatibility"
+      ? ["optional-to-required", "node-kind-replacement", "sequence", "handle"]
+      : []),
+  ];
+  const schemas = schemaIds.map((schemaId) => ({ id: schemaId, raw: schema }));
   const scenario = (scenarioId) => ({
     id: scenarioId,
     actions: {
@@ -1552,11 +1556,17 @@ test("corpus requires every schema evolution case", () => {
 });
 
 test("schema evolution cases require complete source-backed contracts", () => {
-  const schemaIds = [
+  const baseSchemaIds = [
     "v1", "optional", "object-union", "map-union", "optional-title",
     "root-union", "optional-root", "combined", "narrow", "new-required",
   ];
   for (const id of schemaEvolutionCaseIds) {
+    const schemaIds = [
+      ...baseSchemaIds,
+      ...(id === "schema-evolution-compatibility"
+        ? ["optional-to-required", "node-kind-replacement", "sequence", "handle"]
+        : []),
+    ];
     for (const mutate of [
       (value) => { value.reference.commit = "other"; },
       (value) => { delete value.input; },

@@ -194,6 +194,14 @@ const schemaEvolutionSchemaIds = [
   "new-required",
 ];
 
+const schemaEvolutionCompatibilitySchemaIds = [
+  ...schemaEvolutionSchemaIds,
+  "optional-to-required",
+  "node-kind-replacement",
+  "sequence",
+  "handle",
+];
+
 const schemaEvolutionScenarioIds = {
   "schema-evolution-compatibility": schemaEvolutionSchemaIds,
   "schema-evolution-algebra": [
@@ -739,10 +747,13 @@ function validateSchemaEvolutionCase(value) {
   const label = value.id;
   const check = (condition, detail) => assert(condition, `${label}: ${detail}`);
   const requiredScenarios = schemaEvolutionScenarioIds[label];
+  const requiredSchemas = label === "schema-evolution-compatibility"
+    ? schemaEvolutionCompatibilitySchemaIds
+    : schemaEvolutionSchemaIds;
   check(Array.isArray(requiredScenarios), "unknown schema evolution case");
   check(object(value.input), "missing input");
   check(Array.isArray(value.input.schemas), "missing schema catalog");
-  assert.deepEqual(value.input.schemas.map(({ id }) => id), schemaEvolutionSchemaIds,
+  assert.deepEqual(value.input.schemas.map(({ id }) => id), requiredSchemas,
     `${label}: required schema catalog`);
   for (const schema of value.input.schemas) {
     validateSchemaString(schema.raw, `${label}.${schema.id}`);
