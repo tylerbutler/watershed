@@ -193,6 +193,225 @@ fn compatible(stored: String, view: String) -> Result(Nil, types.TreeError) {
   schema.can_view(stored, view)
 }
 
+fn compatibility(
+  stored: String,
+  view: String,
+) -> Result(schema.Compatibility, types.TreeError) {
+  let assert Ok(stored) = schema.stored_from_string(stored)
+  let assert Ok(view) = schema.view_from_string(view)
+  schema.compatibility(stored, view)
+}
+
+fn allows_superset(
+  original: String,
+  candidate: String,
+) -> Result(Bool, types.TreeError) {
+  let assert Ok(original) = schema.stored_from_string(original)
+  let assert Ok(candidate) = schema.stored_from_string(candidate)
+  schema.allows_superset(original, candidate)
+}
+
+pub fn shared_tree_schema_optional_addition_is_upgradeable_test() -> Nil {
+  let optional =
+    string.replace(
+      object_schema,
+      "\"note\":",
+      "\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"note\":",
+    )
+  compatibility(object_schema, optional)
+  |> expect.to_equal(Ok(schema.Compatibility(False, True, False)))
+}
+
+pub fn shared_tree_schema_required_field_can_become_optional_test() -> Nil {
+  let optional =
+    string.replace(
+      object_schema,
+      "\"x\":{\"kind\":\"Value\"",
+      "\"x\":{\"kind\":\"Optional\"",
+    )
+  compatibility(object_schema, optional)
+  |> expect.to_equal(Ok(schema.Compatibility(False, True, False)))
+}
+
+pub fn shared_tree_schema_allowed_type_sets_can_widen_test() -> Nil {
+  let object_union =
+    string.replace(
+      object_schema,
+      "\"types\":[\"com.fluidframework.leaf.string\"]}}}},\"Root\"",
+      "\"types\":[\"Point\",\"com.fluidframework.leaf.string\"]}}}},\"Root\"",
+    )
+  compatibility(object_schema, object_union)
+  |> expect.to_equal(Ok(schema.Compatibility(False, True, False)))
+
+  let root_union =
+    string.replace(
+      object_schema,
+      "\"types\":[\"Root\"]}}",
+      "\"types\":[\"Point\",\"Root\"]}}",
+    )
+  compatibility(object_schema, root_union)
+  |> expect.to_equal(Ok(schema.Compatibility(False, True, False)))
+}
+
+pub fn shared_tree_schema_node_kind_replacement_keeps_upstream_status_test() -> Nil {
+  let replacement =
+    string.replace(
+      object_schema,
+      "\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}",
+      "\"Point\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}}",
+    )
+  compatibility(object_schema, replacement)
+  |> expect.to_equal(Ok(schema.Compatibility(False, True, False)))
+}
+
+pub fn shared_tree_schema_required_cycles_are_never_types_test() -> Nil {
+  let cycle =
+    "{\"version\":2,\"nodes\":{\"A\":{\"kind\":{\"object\":{\"next\":{\"kind\":\"Value\",\"types\":[\"B\"]}}}},\"B\":{\"kind\":{\"object\":{\"next\":{\"kind\":\"Value\",\"types\":[\"A\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"A\"]}}"
+  let empty =
+    "{\"version\":2,\"nodes\":{},\"root\":{\"kind\":\"Optional\",\"types\":[]}}"
+  allows_superset(cycle, empty) |> expect.to_equal(Ok(True))
+
+  let optional_cycle =
+    string.replace(cycle, "\"kind\":\"Value\"", "\"kind\":\"Optional\"")
+  allows_superset(optional_cycle, empty) |> expect.to_equal(Ok(False))
+}
+
+pub fn shared_tree_schema_prepares_checked_upgrades_test() -> Nil {
+  let optional =
+    string.replace(
+      object_schema,
+      "\"note\":",
+      "\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"note\":",
+    )
+  let assert Ok(stored) = schema.stored_from_string(object_schema)
+  let assert Ok(same_view) = schema.view_from_string(object_schema)
+  schema.prepare_upgrade(stored, same_view) |> expect.to_equal(Ok(None))
+
+  let assert Ok(optional_view) = schema.view_from_string(optional)
+  let assert Ok(Some(upgraded)) = schema.prepare_upgrade(stored, optional_view)
+  let assert Ok(old_view) = schema.view_from_string(object_schema)
+  schema.can_view(upgraded, old_view) |> expect.to_be_error
+
+  let assert Ok(optional_stored) = schema.stored_from_string(optional)
+  let assert Error(_) = schema.validate_upgrade(optional_stored, stored)
+  Nil
+}
+
+pub fn shared_tree_schema_refuses_node_kind_upgrade_test() -> Nil {
+  let replacement =
+    string.replace(
+      object_schema,
+      "\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}",
+      "\"Point\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}}",
+    )
+  let assert Ok(stored) = schema.stored_from_string(object_schema)
+  let assert Ok(view) = schema.view_from_string(replacement)
+  schema.compatibility(stored, view)
+  |> expect.to_equal(Ok(schema.Compatibility(False, True, False)))
+  let assert Error(types.InvalidSchema(detail)) =
+    schema.prepare_upgrade(stored, view)
+  string.contains(detail, "node kind") |> expect.to_be_true
+}
+
+pub fn shared_tree_schema_classifies_excluded_profile_expansions_test() -> Nil {
+  let sequence =
+    object_schema
+    |> string.replace(
+      "\"nodes\":{",
+      "\"nodes\":{\"Sequence\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\"]}}}},",
+    )
+    |> string.replace(
+      "\"types\":[\"Root\"]}}",
+      "\"types\":[\"Root\",\"Sequence\"]}}",
+    )
+  let handle =
+    object_schema
+    |> string.replace(
+      "\"nodes\":{",
+      "\"nodes\":{\"com.fluidframework.leaf.handle\":{\"kind\":{\"leaf\":3}},",
+    )
+    |> string.replace(
+      "\"types\":[\"Root\"]}}",
+      "\"types\":[\"Root\",\"com.fluidframework.leaf.handle\"]}}",
+    )
+  let assert Ok(stored) = schema.stored_from_string(object_schema)
+  schema.stored_from_string(sequence) |> expect.to_be_ok
+  schema.stored_from_string(handle) |> expect.to_be_error
+  [sequence, handle]
+  |> list.each(fn(raw) {
+    let assert Ok(view) = schema.view_from_string(raw)
+    schema.compatibility(stored, view)
+    |> expect.to_equal(Ok(schema.Compatibility(False, True, False)))
+    let assert Error(types.InvalidSchema(detail)) =
+      schema.prepare_upgrade(stored, view)
+    string.contains(detail, "supported profile") |> expect.to_be_true
+  })
+}
+
+pub fn shared_tree_schema_rejects_non_monotonic_field_changes_test() -> Nil {
+  let optional_to_required =
+    string.replace(
+      object_schema,
+      "\"note\":{\"kind\":\"Optional\"",
+      "\"note\":{\"kind\":\"Value\"",
+    )
+  compatibility(object_schema, optional_to_required)
+  |> expect.to_equal(Ok(schema.Compatibility(False, False, False)))
+
+  let new_required =
+    string.replace(
+      object_schema,
+      "\"note\":",
+      "\"score\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"note\":",
+    )
+  compatibility(object_schema, new_required)
+  |> expect.to_equal(Ok(schema.Compatibility(False, False, False)))
+
+  let optional_addition =
+    string.replace(
+      object_schema,
+      "\"note\":",
+      "\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"note\":",
+    )
+  compatibility(optional_addition, object_schema)
+  |> expect.to_equal(Ok(schema.Compatibility(False, False, False)))
+}
+
+pub fn shared_tree_schema_compatibility_ignores_representation_details_test() -> Nil {
+  let union =
+    string.replace(
+      object_schema,
+      "\"types\":[\"Root\"]",
+      "\"types\":[\"Root\",\"Point\"]",
+    )
+  let reordered =
+    string.replace(union, "\"Root\",\"Point\"", "\"Point\",\"Root\",\"Point\"")
+  compatibility(union, reordered)
+  |> expect.to_equal(Ok(schema.Compatibility(True, True, True)))
+
+  let metadata =
+    string.replace(
+      object_schema,
+      "\"kind\":{\"leaf\":1}",
+      "\"kind\":{\"leaf\":1},\"metadata\":{\"description\":\"text\"}",
+    )
+  compatibility(object_schema, metadata)
+  |> expect.to_equal(Ok(schema.Compatibility(True, True, True)))
+}
+
+pub fn shared_tree_schema_checks_detached_definitions_for_upgrades_test() -> Nil {
+  let extra =
+    string.replace(
+      string_schema,
+      "\"nodes\":{",
+      "\"nodes\":{\"Unused\":{\"kind\":{\"object\":{}}},",
+    )
+  compatibility(string_schema, extra)
+  |> expect.to_equal(Ok(schema.Compatibility(True, True, False)))
+  compatibility(extra, string_schema)
+  |> expect.to_equal(Ok(schema.Compatibility(True, False, False)))
+}
+
 pub fn shared_tree_schema_matching_view_test() -> Nil {
   compatible(object_schema, object_schema) |> expect.to_equal(Ok(Nil))
   let optional = string.replace(string_schema, "\"Value\"", "\"Optional\"")

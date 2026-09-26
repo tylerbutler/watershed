@@ -1,7 +1,7 @@
 //// Fixed schemas for the Fluid 3.1.0 schema-v2 profile.
 ////
 //// Stored and view schemas use the persisted schema format. These functions
-//// do not accept JavaScript view configuration objects or apply schema upgrades.
+//// do not accept JavaScript view configuration objects or mutate stored data.
 
 import gleam/bit_array
 import gleam/dict.{type Dict}
@@ -51,6 +51,7 @@ type Repository {
     root: FieldSchema,
     nodes: Dict(String, NodeSchema),
     persisted: JsonValue,
+    profile_supported: Bool,
   )
 }
 
@@ -60,6 +61,15 @@ pub opaque type StoredSchema {
 
 pub opaque type ViewSchema {
   ViewSchema(repository: Repository)
+}
+
+pub type SchemaState {
+  EmptySchema
+  FixedSchema(StoredSchema)
+}
+
+pub type Compatibility {
+  Compatibility(can_view: Bool, can_upgrade: Bool, is_equivalent: Bool)
 }
 
 /// Read the stored root field definition.
@@ -92,7 +102,7 @@ pub fn view_from_json(data: Json) -> Result(ViewSchema, TreeError) {
 
 /// Decode schema-v2 bytes and reject duplicate declarations.
 pub fn stored_from_string(raw: String) -> Result(StoredSchema, TreeError) {
-  decode_repository(raw) |> result.map(StoredSchema)
+  decode_repository(raw, False) |> result.map(StoredSchema)
 }
 
 /// Return the validated persisted representation without normalization.
@@ -102,7 +112,12 @@ pub fn stored_to_json(schema: StoredSchema) -> Json {
 
 /// Decode a fixed view in schema-v2 form, without view options or upgrades.
 pub fn view_from_string(raw: String) -> Result(ViewSchema, TreeError) {
-  decode_repository(raw) |> result.map(ViewSchema)
+  decode_repository(raw, True) |> result.map(ViewSchema)
+}
+
+/// Convert a fixed view to the same persisted schema representation.
+pub fn view_to_stored(view: ViewSchema) -> StoredSchema {
+  StoredSchema(view.repository)
 }
 
 /// Validate one root value without changing or normalizing it.
@@ -372,6 +387,214 @@ pub fn can_view(
   })
 }
 
+/// Classify a fixed view against the stored schema.
+pub fn compatibility(
+  stored: StoredSchema,
+  view: ViewSchema,
+) -> Result(Compatibility, TreeError) {
+  let target = view_to_stored(view)
+  use can_upgrade <- result.try(allows_superset(stored, target))
+  use reverse <- result.try(allows_superset(target, stored))
+  use can_view <- result.try(case can_view(stored, view) {
+    Ok(Nil) -> Ok(True)
+    Error(InvalidSchema(_)) -> Ok(False)
+    Error(error) -> Error(error)
+  })
+  Ok(Compatibility(can_view, can_upgrade, can_view && can_upgrade && reverse))
+}
+
+/// Check whether a candidate schema accepts every value in the original.
+pub fn allows_superset(
+  original: StoredSchema,
+  candidate: StoredSchema,
+) -> Result(Bool, TreeError) {
+  case
+    original.repository.profile_supported,
+    candidate.repository.profile_supported
+  {
+    False, True -> Ok(False)
+    _, _ ->
+      Ok(
+        field_allows_superset(
+          original.repository,
+          original.repository.root,
+          candidate.repository.root,
+        )
+        && original.repository.nodes
+        |> dict.to_list
+        |> list.all(fn(entry) {
+          case node_can_exist(original.repository, entry.0, []) {
+            False -> True
+            True ->
+              case dict.get(candidate.repository.nodes, entry.0) {
+                Error(Nil) -> False
+                Ok(candidate_node) ->
+                  node_allows_superset(
+                    original.repository,
+                    entry.1,
+                    candidate_node,
+                  )
+              }
+          }
+        }),
+      )
+  }
+}
+
+/// Prepare one supported schema upgrade without changing stored data.
+pub fn prepare_upgrade(
+  stored: StoredSchema,
+  view: ViewSchema,
+) -> Result(Option(StoredSchema), TreeError) {
+  let target = view_to_stored(view)
+  use status <- result.try(compatibility(stored, view))
+  case status.can_upgrade {
+    False -> Error(InvalidSchema("stored schema cannot upgrade to this view"))
+    True -> {
+      use reverse <- result.try(allows_superset(target, stored))
+      case reverse {
+        True -> Ok(None)
+        False ->
+          validate_upgrade(stored, target)
+          |> result.map(fn(_) { Some(target) })
+      }
+    }
+  }
+}
+
+/// Check that a forward schema change is monotonic and in the M4 profile.
+pub fn validate_upgrade(
+  before: StoredSchema,
+  after: StoredSchema,
+) -> Result(Nil, TreeError) {
+  use allowed <- result.try(allows_superset(before, after))
+  case allowed {
+    False -> Error(InvalidSchema("stored schema cannot upgrade to candidate"))
+    True -> check_supported_upgrade(before.repository, after.repository)
+  }
+}
+
+fn check_supported_upgrade(
+  before: Repository,
+  after: Repository,
+) -> Result(Nil, TreeError) {
+  case after.profile_supported {
+    False -> Error(InvalidSchema("upgrade is outside the supported profile"))
+    True ->
+      before.nodes
+      |> dict.to_list
+      |> list.try_each(fn(entry) {
+        case dict.get(after.nodes, entry.0) {
+          Error(Nil) -> Ok(Nil)
+          Ok(node) ->
+            case same_node_kind(entry.1, node) {
+              True -> Ok(Nil)
+              False ->
+                Error(InvalidSchema(
+                  "upgrade changes existing node kind: " <> entry.0,
+                ))
+            }
+        }
+      })
+  }
+}
+
+fn same_node_kind(left: NodeSchema, right: NodeSchema) -> Bool {
+  case left, right {
+    Leaf(_), Leaf(_)
+    | Object(_), Object(_)
+    | Map(_), Map(_)
+    | Array(_), Array(_)
+    -> True
+    _, _ -> False
+  }
+}
+
+fn node_allows_superset(
+  repository: Repository,
+  original: NodeSchema,
+  candidate: NodeSchema,
+) -> Bool {
+  case original, candidate {
+    Leaf(left), Leaf(right) -> left == right
+    Map(left), Map(right) -> field_allows_superset(repository, left, right)
+    Array(left), Array(right) -> field_allows_superset(repository, left, right)
+    Object(left), Object(right) ->
+      list.append(
+        list.map(left, fn(field) { field.0 }),
+        list.map(right, fn(field) { field.0 }),
+      )
+      |> list.unique
+      |> list.all(fn(key) {
+        let original_field =
+          list.key_find(left, key)
+          |> result.unwrap(FieldSchema(Optional, []))
+        let candidate_field =
+          list.key_find(right, key)
+          |> result.unwrap(FieldSchema(Optional, []))
+        field_allows_superset(repository, original_field, candidate_field)
+      })
+    Object(fields), Map(entries) ->
+      list.all(fields, fn(field) {
+        field_allows_superset(repository, field.1, entries)
+      })
+    _, _ -> False
+  }
+}
+
+fn node_can_exist(
+  repository: Repository,
+  identifier: String,
+  stack: List(String),
+) -> Bool {
+  case list.contains(stack, identifier) {
+    True -> False
+    False ->
+      case dict.get(repository.nodes, identifier) {
+        Error(Nil) -> False
+        Ok(Leaf(_)) | Ok(Map(_)) | Ok(Array(_)) -> True
+        Ok(Object(fields)) ->
+          list.all(fields, fn(field) {
+            case field.1.cardinality {
+              Optional | Sequence -> True
+              Required ->
+                list.any(field.1.allowed_types, fn(child) {
+                  node_can_exist(repository, child, [identifier, ..stack])
+                })
+            }
+          })
+      }
+  }
+}
+
+fn field_allows_superset(
+  repository: Repository,
+  original: FieldSchema,
+  candidate: FieldSchema,
+) -> Bool {
+  let possible_original_types =
+    list.filter(original.allowed_types, fn(identifier) {
+      node_can_exist(repository, identifier, [])
+    })
+  case original.cardinality, possible_original_types {
+    Required, [] -> True
+    _, _ -> {
+      let cardinality_allows = case
+        original.cardinality,
+        candidate.cardinality
+      {
+        Required, Required | Required, Optional | Optional, Optional -> True
+        Sequence, Sequence -> True
+        _, _ -> False
+      }
+      cardinality_allows
+      && list.all(possible_original_types, fn(identifier) {
+        list.contains(candidate.allowed_types, identifier)
+      })
+    }
+  }
+}
+
 fn compare_field(
   stored: FieldSchema,
   view: FieldSchema,
@@ -414,7 +637,10 @@ fn compare_node(
   }
 }
 
-fn decode_repository(raw: String) -> Result(Repository, TreeError) {
+fn decode_repository(
+  raw: String,
+  allow_excluded: Bool,
+) -> Result(Repository, TreeError) {
   use data <- result.try(
     json.parse(raw, json_ot.decoder())
     |> result.map_error(fn(_) { CorruptData("$", "invalid schema JSON") }),
@@ -436,15 +662,21 @@ fn decode_repository(raw: String) -> Result(Repository, TreeError) {
   use nodes <- result.try(
     list.try_map(nodes, fn(entry) {
       let #(identifier, definition) = entry
-      use node <- result.try(decode_node(identifier, definition))
-      Ok(#(identifier, node))
+      use node <- result.try(decode_node(identifier, definition, allow_excluded))
+      Ok(#(identifier, node.0, node.1))
     }),
   )
   use root <- result.try(member(members, "root", "$"))
-  use root <- result.try(decode_field(root, "$.root"))
-  use _ <- result.try(reject_sequence(root, "$.root"))
-  let repository = Repository(root, dict.from_list(nodes), data)
-  use _ <- result.try(check_references(repository, root, "$.root"))
+  use root <- result.try(decode_field(root, "$.root", allow_excluded))
+  use _ <- result.try(reject_sequence(root.0, "$.root"))
+  let repository =
+    Repository(
+      root.0,
+      nodes |> list.map(fn(entry) { #(entry.0, entry.1) }) |> dict.from_list,
+      data,
+      root.1 && list.all(nodes, fn(entry) { entry.2 }),
+    )
+  use _ <- result.try(check_references(repository, root.0, "$.root"))
   use _ <- result.try(
     list.try_each(nodes, fn(entry) {
       case entry.1 {
@@ -464,7 +696,8 @@ fn decode_repository(raw: String) -> Result(Repository, TreeError) {
 fn decode_node(
   identifier: String,
   data: JsonValue,
-) -> Result(NodeSchema, TreeError) {
+  allow_excluded: Bool,
+) -> Result(#(NodeSchema, Bool), TreeError) {
   let path = key_path("$.nodes", identifier)
   use members <- result.try(object(data, path))
   use _ <- result.try(check_metadata(members, path))
@@ -473,15 +706,17 @@ fn decode_node(
   case kind {
     [#("leaf", value)] -> {
       use leaf <- result.try(case value {
-        VNumber(NInt(0)) | VNumber(NFloat(0.0)) -> Ok(NumberLeaf)
-        VNumber(NInt(1)) | VNumber(NFloat(1.0)) -> Ok(StringLeaf)
-        VNumber(NInt(2)) | VNumber(NFloat(2.0)) -> Ok(BooleanLeaf)
-        VNumber(NInt(4)) | VNumber(NFloat(4.0)) -> Ok(NullLeaf)
+        VNumber(NInt(0)) | VNumber(NFloat(0.0)) -> Ok(#(NumberLeaf, True))
+        VNumber(NInt(1)) | VNumber(NFloat(1.0)) -> Ok(#(StringLeaf, True))
+        VNumber(NInt(2)) | VNumber(NFloat(2.0)) -> Ok(#(BooleanLeaf, True))
+        VNumber(NInt(3)) | VNumber(NFloat(3.0)) if allow_excluded ->
+          Ok(#(StringLeaf, False))
+        VNumber(NInt(4)) | VNumber(NFloat(4.0)) -> Ok(#(NullLeaf, True))
         VNumber(_) -> Error(InvalidSchema(path <> ": unsupported leaf kind"))
         _ -> Error(CorruptData(path <> ".kind.leaf", "expected a leaf code"))
       })
-      case identifier == leaf_identifier(leaf) {
-        True -> Ok(Leaf(leaf))
+      case leaf.1 == False || identifier == leaf_identifier(leaf.0) {
+        True -> Ok(#(Leaf(leaf.0), leaf.1))
         False ->
           Error(InvalidSchema(
             path <> ": leaf identifier does not match its kind",
@@ -495,26 +730,35 @@ fn decode_node(
           use definition <- result.try(decode_field(
             field.1,
             key_path(path, field.0),
+            allow_excluded,
           ))
           Ok(#(field.0, definition))
         }),
       )
       case fields {
-        [#("", FieldSchema(Sequence, _) as elements)] -> Ok(Array(elements))
+        [#("", #(FieldSchema(Sequence, _) as elements, _))] ->
+          Ok(#(Array(elements), False))
         _ -> {
           use _ <- result.try(
             list.try_each(fields, fn(field) {
-              reject_sequence(field.1, key_path(path, field.0))
+              reject_sequence(field.1.0, key_path(path, field.0))
             }),
           )
-          Ok(Object(fields))
+          Ok(#(
+            Object(list.map(fields, fn(field) { #(field.0, field.1.0) })),
+            list.all(fields, fn(field) { field.1.1 }),
+          ))
         }
       }
     }
     [#("map", entries)] -> {
-      use entries <- result.try(decode_field(entries, path <> ".kind.map"))
-      use _ <- result.try(reject_sequence(entries, path <> ".kind.map"))
-      Ok(Map(entries))
+      use entries <- result.try(decode_field(
+        entries,
+        path <> ".kind.map",
+        allow_excluded,
+      ))
+      use _ <- result.try(reject_sequence(entries.0, path <> ".kind.map"))
+      Ok(#(Map(entries.0), entries.1))
     }
     [#(kind, _)] ->
       Error(InvalidSchema(path <> ": unsupported node kind " <> kind))
@@ -525,14 +769,17 @@ fn decode_node(
 fn decode_field(
   data: JsonValue,
   path: String,
-) -> Result(FieldSchema, TreeError) {
+  allow_excluded: Bool,
+) -> Result(#(FieldSchema, Bool), TreeError) {
   use members <- result.try(object(data, path))
   use _ <- result.try(check_metadata(members, path))
   use kind <- result.try(member(members, "kind", path))
   use cardinality <- result.try(case kind {
-    VString("Value") -> Ok(Required)
-    VString("Optional") -> Ok(Optional)
-    VString("Sequence") -> Ok(Sequence)
+    VString("Value") -> Ok(#(Required, True))
+    VString("Optional") -> Ok(#(Optional, True))
+    VString("Sequence") -> Ok(#(Sequence, False))
+    VString("Forbidden") if allow_excluded -> Ok(#(Optional, False))
+    VString("Identifier") if allow_excluded -> Ok(#(Required, False))
     VString(kind) ->
       Error(InvalidSchema(path <> ": unsupported field kind " <> kind))
     _ -> Error(CorruptData(path <> ".kind", "expected a field kind string"))
@@ -549,9 +796,12 @@ fn decode_field(
       })
     _ -> Error(CorruptData(path <> ".types", "expected allowed types"))
   })
-  Ok(FieldSchema(
-    cardinality,
-    types |> list.unique |> list.sort(canonical_json.compare),
+  Ok(#(
+    FieldSchema(
+      cardinality.0,
+      types |> list.unique |> list.sort(canonical_json.compare),
+    ),
+    cardinality.1,
   ))
 }
 

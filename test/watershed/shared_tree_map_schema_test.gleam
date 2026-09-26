@@ -194,6 +194,38 @@ pub fn shared_tree_map_schema_compares_entry_views_test() -> Nil {
   Nil
 }
 
+pub fn shared_tree_map_schema_entry_types_can_widen_test() -> Nil {
+  let #(_, map_schema) = map_schemas()
+  let widened =
+    map_schema
+    |> string.replace(
+      "\"nodes\":{",
+      "\"nodes\":{\"Extra\":{\"kind\":{\"object\":{}}},",
+    )
+    |> string.replace(
+      "\"org.watershed.shared-tree.m2.DynamicMap\",\"org.watershed.shared-tree.m2.Point\"]",
+      "\"Extra\",\"org.watershed.shared-tree.m2.DynamicMap\",\"org.watershed.shared-tree.m2.Point\"]",
+    )
+  let assert Ok(stored) = schema.stored_from_string(map_schema)
+  let assert Ok(view) = schema.view_from_string(widened)
+  schema.compatibility(stored, view)
+  |> expect.to_equal(Ok(schema.Compatibility(False, True, False)))
+}
+
+pub fn shared_tree_map_schema_entry_types_cannot_narrow_test() -> Nil {
+  let #(_, map_schema) = map_schemas()
+  let narrowed =
+    string.replace(
+      map_schema,
+      "\"com.fluidframework.leaf.boolean\",\"com.fluidframework.leaf.null\",\"com.fluidframework.leaf.number\",",
+      "",
+    )
+  let assert Ok(stored) = schema.stored_from_string(map_schema)
+  let assert Ok(view) = schema.view_from_string(narrowed)
+  schema.compatibility(stored, view)
+  |> expect.to_equal(Ok(schema.Compatibility(False, False, False)))
+}
+
 pub fn shared_tree_map_schema_reports_entry_lookup_errors_test() -> Nil {
   let #(_, map_schema) = map_schemas()
   let assert Ok(stored) = schema.stored_from_string(map_schema)
