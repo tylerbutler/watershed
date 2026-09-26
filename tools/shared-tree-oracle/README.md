@@ -156,22 +156,35 @@ identity. Public empty insert, empty remove, and empty same-array move emit no
 commit, events, pending edit, revision, or message, although the low-level
 editor retains a zero-count Insert mark.
 
-The schema, codec, history, and invalid-input scenarios now pass their JSON
-round-tripped inputs through exported source replayers. Schema scenarios carry
-the exact selected schema bytes and typed initial content; the compatibility
-case initializes and views `objectArrays` on both sides. Codec scenarios carry
-Message V7 bytes or complete summaries together with the authoring or decode
-compressor context, and decoded modular changes retain their ordered graph
-tables and Sequence marks.
+Every M3 scenario now passes its JSON-round-tripped `input` through an exported
+source replayer in a second process after capture. That process runs each input
+twice without prior revision allocation and requires both results to equal the
+captured source output. Sequence and modular inputs carry serialized compressor
+state; replay reconstructs the compressor and revision codec from those bytes.
+Sequence operands supply their own local IDs, while the pinned algebra helpers
+derive allocation from each changeset's maximum ID. The input records that
+algorithm contract instead of an unused allocator watermark.
+
+Schema scenarios carry the exact selected schema bytes and typed initial
+content; the compatibility case initializes and views `objectArrays` on both
+sides. Codec scenarios carry Message V7 bytes or complete summaries together
+with the authoring or decode compressor context. Decoded modular changes retain
+their ordered graph tables, recursive build and refresher content, destroys,
+and Sequence marks. Invalid-message scenarios invoke the real source decoder
+with a valid control under the same context before the corrupt mark or revision
+is checked.
 
 History scenarios carry ordered edit, delivery, acknowledgement, reconnect,
 and window-advance actions. Their checkpoints include pending, trunk, and peer
 state, full processed envelopes, sequence numbers, and serialized compressor
-state. Summary-tail replay includes the starting summary compressors, the tail
-and continuation envelopes, and the continuation creation range; a fresh
-reader authors the continuation and an independent fresh peer applies both
-envelopes. Equal-valued and interior moves still emit commits and change
-events even when their visible values do not change.
+state. Fixture-provided reconnect identities normalize the source mock
+runtime's incidental client IDs, so repeated replay is deterministic.
+Summary-tail replay includes the starting summary compressors, the tail and
+continuation envelopes, and the continuation creation range; observations come
+from the restored source history and detached index. A fresh reader authors the
+continuation and an independent fresh peer applies both envelopes. Equal-valued
+and interior moves still emit commits and change events even when their visible
+values do not change.
 
 Pinned upstream removal clamps an end beyond the array length. The planned
 native API deliberately rejects that invalid range. The nine M3 fixtures are

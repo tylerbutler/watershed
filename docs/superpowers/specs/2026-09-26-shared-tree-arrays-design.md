@@ -86,6 +86,19 @@ results for later native runners; they do not constitute M3 acceptance.
   encoded messages or summaries plus compressor context; history cases provide
   ordered actions and complete summary-tail envelopes and creation ranges.
   Expected observations are never reused as replay operands.
+- A separate process replays every exported M3 domain twice from serialized
+  fixture input without earlier revision allocation. Replay reconstructs the
+  ID compressor and revision codec from input, and both runs must match.
+- Sequence inputs record the pinned source contract: operands supply local IDs,
+  while algebra helpers derive allocation from changeset maximum IDs. They do
+  not carry an unused allocator watermark.
+- Nested deltas and modular build, refresher, and destroy tables retain their
+  recursive source content. Summary and tail observations come from restored
+  source history and detached indexes.
+- Invalid message cases first decode a valid control with the same restored
+  context, then send the malformed mark or revision to the actual source
+  decoder. Reconnect observations use explicit fixture-provided identity
+  mappings so repeated replay remains deterministic.
 
 These fixtures are source evidence, not native coverage. Add a case to the
 native semantic-runner lists only after an input-only runner passes on both

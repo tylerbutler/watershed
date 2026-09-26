@@ -454,13 +454,26 @@ Use `git commit -m "test(tree): capture array and sequence contracts"`.
 - The array schema, codec, history, and invalid-input cases now replay only
   JSON-round-tripped inputs through exported source helpers. The compatibility
   case executes the declared `objectArrays` stored and view schemas.
+- A separate source process replays every exported M3 domain twice without
+  prior revision allocation. Both runs must match the captured result and each
+  other. Sequence and modular replay reconstruct their ID compressor and
+  revision codec only from serialized input.
+- Sequence inputs state the pinned helper contract directly: local IDs come
+  from operands, and compose/rebase helpers derive their allocator from each
+  changeset's maximum ID. They do not expose an unused allocator watermark.
 - Codec inputs contain Message V7 bytes or complete summary trees and the
   required compressor context. Decoded Sequence V3 and modular graph
-  observations are outputs, not operands.
+  observations are outputs, not operands. Modular observations include
+  recursive builds, refreshers, destroys, complete IDs, and range content.
+- Invalid-message cases run a valid control and malformed payload through the
+  actual source decoder with the same restored context. The captured malformed
+  mark and revision reach source assertions `0xac2` and `0x88d`.
 - History inputs contain ordered local-edit, delivery, acknowledgement,
   reconnect, minimum-sequence, summary-load, tail, and continuation actions.
   Checkpoints preserve pending, trunk, peer, envelope, sequence, compressor,
-  and retained-content evidence. Summary-tail input includes both wire
+  and retained-content evidence. Fixture-supplied reconnect identities make
+  repeated source replay deterministic. Summary-tail observations come from
+  restored source history and detached indexes; its input includes both wire
   envelopes and the continuation creation range used by an independent peer.
 - Equal-valued and interior public moves are not no-ops even when visible
   values compare equal: they emit commits and change events. Only empty insert,
