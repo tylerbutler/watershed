@@ -8,6 +8,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 import {
+	createIdCompressor,
 	createSessionId,
 	deserializeIdCompressor,
 	serializeIdCompressor,
@@ -59,8 +60,6 @@ import {
 } from "./mocksForOpBunching.js";
 import {
 	assertIsSessionId,
-	mintRevisionTag,
-	testIdCompressor,
 	TestTreeProviderLite,
 } from "./utils.js";
 
@@ -312,6 +311,7 @@ type ReplayAction = {
 	readonly gap?: number;
 	readonly values?: readonly unknown[];
 	readonly connected?: boolean;
+	readonly reconnectId?: string;
 	readonly edits?: readonly ReplayAction[];
 };
 
@@ -321,6 +321,7 @@ type ReplayProvider = {
 	readonly runtimes: readonly MockContainerRuntimeWithOpBunching[];
 	readonly compressors: readonly IIdCompressor[];
 	readonly processed: readonly unknown[][];
+	readonly transportIds: Map<string, string>;
 	synchronize(): void;
 	sequenceNumber(): number;
 	minimumSequenceNumber(): number;
@@ -559,6 +560,7 @@ function createReplayProvider(input: {
 	const runtimes: MockContainerRuntimeWithOpBunching[] = [];
 	const compressors: IIdCompressor[] = [];
 	const processed: unknown[][] = [];
+	const transportIds = new Map<string, string>();
 	const factory = treeFactory();
 	for (const [index, client] of input.clients.entries()) {
 		const idCompressor = decodeOngoingCompressor(client);
@@ -569,6 +571,7 @@ function createReplayProvider(input: {
 		});
 		const tree = factory.create(runtime, `array-replay-${index}`);
 		const containerRuntime = runtimeFactory.createContainerRuntime(runtime);
+		transportIds.set(containerRuntime.clientId, client.id);
 		tree.connect({
 			deltaConnection: runtime.createDeltaConnection(),
 			objectStorage: new MockStorage(),
@@ -603,6 +606,7 @@ function createReplayProvider(input: {
 		runtimes,
 		compressors,
 		processed,
+		transportIds,
 		synchronize() {
 			for (const runtime of runtimes) runtime.flush();
 			runtimeFactory.processAllMessages();
@@ -626,6 +630,16 @@ function compressorState(compressor: IIdCompressor) {
 }
 
 function replayCheckpoint(provider: ReplayProvider, id: string, messageStarts: readonly number[]) {
+	const normalizeTransportIds = (value: unknown): unknown => {
+		if (typeof value === "string") return provider.transportIds.get(value) ?? value;
+		if (Array.isArray(value)) return value.map(normalizeTransportIds);
+		if (value !== null && typeof value === "object") {
+			return Object.fromEntries(
+				Object.entries(value).map(([key, item]) => [key, normalizeTransportIds(item)]),
+			);
+		}
+		return value;
+	};
 	return {
 		id,
 		visible: provider.views.map((view) => visible(view.root)),
@@ -634,7 +648,8 @@ function replayCheckpoint(provider: ReplayProvider, id: string, messageStarts: r
 		sequenceNumber: provider.sequenceNumber(),
 		minimumSequenceNumber: provider.minimumSequenceNumber(),
 		compressors: provider.compressors.map(compressorState),
-		messages: provider.processed.map((items, index) => copy(items.slice(messageStarts[index]))),
+		messages: provider.processed.map((items, index) =>
+			normalizeTransportIds(copy(items.slice(messageStarts[index])))),
 	};
 }
 
@@ -741,10 +756,24 @@ async function replayScheduledHistory(input: Record<string, unknown>) {
 			}
 			case "connect":
 				assert(typeof action.connected === "boolean", `${action.id}: connection state`);
+				if (action.connected) {
+					assert(typeof action.reconnectId === "string", `${action.id}: reconnect client ID`);
+				}
 				provider.runtimes[action.client ?? 0].connected = action.connected;
+				if (action.connected) {
+					provider.transportIds.set(
+						provider.runtimes[action.client ?? 0].clientId,
+						action.reconnectId as string,
+					);
+				}
 				break;
 			case "reconnect":
+				assert(typeof action.reconnectId === "string", `${action.id}: reconnect client ID`);
 				provider.runtimes[action.client ?? 0].connected = true;
+				provider.transportIds.set(
+					provider.runtimes[action.client ?? 0].clientId,
+					action.reconnectId,
+				);
 				break;
 			case "retain": {
 				assert(typeof Reflect.get(action, "name") === "string", `${action.id}: retain name`);
@@ -862,6 +891,8 @@ async function replaySummaryTail(input: Record<string, unknown>) {
 	let peer: Awaited<ReturnType<typeof load>> | undefined;
 	let readerAfterTail: unknown;
 	let readerAfterContinuation: unknown;
+	let readerHistoryAfterTail: unknown;
+	let readerHistoryAfterContinuation: unknown;
 	let creationRange: IdCreationRange | undefined;
 	const submitted: unknown[] = [];
 	for (const value of input.schedule) {
@@ -882,6 +913,9 @@ async function replaySummaryTail(input: Record<string, unknown>) {
 				assert(reader !== undefined, "Summary-tail reader must load before tail delivery.");
 				deliverEnvelope(reader.tree, replayContext.tailEnvelope);
 				readerAfterTail = visible(reader.view.root);
+				readerHistoryAfterTail = managerState(
+					reader.tree as TestTreeProviderLite["trees"][number],
+				);
 				break;
 			case "continue":
 				assert(reader !== undefined, "Summary-tail reader must load before continuation.");
@@ -906,6 +940,9 @@ async function replaySummaryTail(input: Record<string, unknown>) {
 					"The continuation creation range must match the replay input.",
 				);
 				readerAfterContinuation = visible(reader.view.root);
+				readerHistoryAfterContinuation = managerState(
+					reader.tree as TestTreeProviderLite["trees"][number],
+				);
 				break;
 			case "load-peer":
 				peer = await load(
@@ -936,8 +973,9 @@ async function replaySummaryTail(input: Record<string, unknown>) {
 		readerAfterTail,
 		readerAfterContinuation,
 		peer: visible(peer.view.root),
-		tailEnvelope: copy(replayContext.tailEnvelope),
-		continuationEnvelope: copy(replayContext.continuationEnvelope),
+		readerHistoryAfterTail,
+		readerHistoryAfterContinuation,
+		peerHistory: managerState(peer.tree as TestTreeProviderLite["trees"][number]),
 		continuationCreationRange: copy(creationRange),
 		readerCompressor: compressorState(reader.runtime.idCompressor),
 		peerCompressor: compressorState(peer.runtime.idCompressor),
@@ -1065,11 +1103,12 @@ export async function replayArrayCodecInput(input: Record<string, unknown>): Pro
 	assert(loaded.runtime.idCompressor !== undefined, "Summary runtime needs an ID compressor.");
 	const result = {
 		visible: visible(loaded.view.root),
-		summary: copy(summary),
 		schema: summaryBlob(summary, "indexes", "Schema", "SchemaString"),
 		forest: summaryBlob(summary, "indexes", "Forest", "contents"),
-		detached: summaryBlob(summary, "indexes", "DetachedFieldIndex", "DetachedFieldIndexBlob"),
-		history: summaryBlob(summary, "indexes", "EditManager", "String"),
+		restoredDetached: copy((Reflect.get(loaded.tree, "contentSnapshot") as () => {
+			removed: unknown[];
+		}).call(loaded.tree).removed),
+		restoredHistory: managerState(loaded.tree as TestTreeProviderLite["trees"][number]),
 		compressor: compressorState(loaded.runtime.idCompressor),
 	};
 	if (input.operation === "empty-arrays" || input.operation === "retained-history"
@@ -1090,15 +1129,37 @@ export async function replayArrayInvalidInput(input: Record<string, unknown>): P
 		case "corrupt-revision": {
 			assert(input.malformed !== null && typeof input.malformed === "object",
 				`${input.operation}: malformed input`);
-			const codecInput = {
-				operation: "message-v7",
-				encodedMessages: [input.malformed],
-				initialSummary: input.initialSummary,
-				summaryCompressor: input.summaryCompressor,
-				summarySessionId: input.summarySessionId,
-				decodeContext: input.decodeContext,
+			assert(input.valid !== null && typeof input.valid === "object",
+				`${input.operation}: valid control`);
+			assert(input.decodeContext !== null && typeof input.decodeContext === "object",
+				`${input.operation}: decode context`);
+			const decodeContext = input.decodeContext as {
+				decoder: { compressor: string; sessionId: string };
 			};
-			return executedAsync(() => replayArrayCodecInput(codecInput));
+			const decode = (message: unknown) => {
+				assert(typeof decodeContext.decoder.compressor === "string",
+					`${input.operation}: decoder compressor`);
+				assert(typeof decodeContext.decoder.sessionId === "string",
+					`${input.operation}: decoder session`);
+				const idCompressor = deserializeIdCompressor(
+					decodeContext.decoder.compressor as SerializedIdCompressorWithNoSession,
+					assertIsSessionId(decodeContext.decoder.sessionId),
+				);
+				const runtime = new MockFluidDataStoreRuntime({ idCompressor });
+				const tree = treeFactory().create(runtime, `array-invalid-${input.operation}`);
+				const kernel = Reflect.get(tree, "kernel") as {
+					messageCodec: {
+						decode(value: unknown, context: { idCompressor: IIdCompressor }): unknown;
+					};
+				};
+				return normalizedDecodedMessage(
+					kernel.messageCodec.decode(message, { idCompressor }),
+				);
+			};
+			return {
+				control: executed(() => decode(input.valid)),
+				malformed: executed(() => decode(input.malformed)),
+			};
 		}
 		case "corrupt-range": {
 			assert(input.malformed !== null && typeof input.malformed === "object",
@@ -1115,18 +1176,68 @@ export async function replayArrayInvalidInput(input: Record<string, unknown>): P
 		case "corrupt-ownership": {
 			assert(Array.isArray(input.initialStates) && input.initialStates.length === 2,
 				"corrupt-ownership: initial states");
-			const providers = input.initialStates.map((state) => {
+			const initialStates = input.initialStates;
+			const makeProviders = () => initialStates.map((state: unknown) => {
 				const provider = new TestTreeProviderLite(1, treeFactory());
 				const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
 				view.initialize(contentFor("objectArrays", state) as Root);
 				return { provider, view };
 			});
-			const foreign = providers[1].view.root.narrow[0];
-			assert(foreign instanceof Point, "corrupt-ownership: foreign point");
-			return executed(() => {
-				providers[0].view.root.narrow.insertAt(0, foreign);
-				return visible(providers[0].view.root);
-			});
+			const apply = (specification: unknown) => {
+				assert(specification !== null && typeof specification === "object",
+					"corrupt-ownership: operation specification");
+				const source = Reflect.get(specification, "source");
+				const destination = Reflect.get(specification, "destination");
+				const kind = Reflect.get(specification, "kind");
+				assert(kind === "insert" || kind === "move",
+					"corrupt-ownership: operation kind");
+				assert(source !== null && typeof source === "object",
+					"corrupt-ownership: source");
+				assert(destination !== null && typeof destination === "object",
+					"corrupt-ownership: destination");
+				const sourceClient = Reflect.get(source, "client");
+				const destinationClient = Reflect.get(destination, "client");
+				const sourcePath = Reflect.get(source, "path");
+				const destinationPath = Reflect.get(destination, "path");
+				const sourceIndex = Reflect.get(source, "index");
+				const gap = Reflect.get(destination, "gap");
+				assert(Number.isSafeInteger(sourceClient), "corrupt-ownership: source client");
+				assert(Number.isSafeInteger(destinationClient),
+					"corrupt-ownership: destination client");
+				assert(Array.isArray(sourcePath) && sourcePath.every((item) => typeof item === "string"),
+					"corrupt-ownership: source path");
+				assert(Array.isArray(destinationPath)
+					&& destinationPath.every((item) => typeof item === "string"),
+				"corrupt-ownership: destination path");
+				assert(Number.isSafeInteger(sourceIndex), "corrupt-ownership: source index");
+				assert(Number.isSafeInteger(gap), "corrupt-ownership: destination index");
+				const providers = makeProviders();
+				const sourceArray = arrayAt(
+					providers[sourceClient as number].view.root,
+					sourcePath as string[],
+				);
+				const destinationArray = arrayAt(
+					providers[destinationClient as number].view.root,
+					destinationPath as string[],
+				);
+				const node = sourceArray[sourceIndex as number];
+				assert(node instanceof Point, "corrupt-ownership: source point");
+				if (kind === "move") {
+					destinationArray.moveRangeToIndex(
+						gap as number,
+						sourceIndex as number,
+						(sourceIndex as number) + 1,
+						sourceArray as never,
+					);
+				} else {
+					destinationArray.insertAt(gap as number, node);
+				}
+				return visible(providers[destinationClient as number].view.root);
+			};
+			return {
+				control: executed(() => apply(input.control)),
+				malformed: executed(() => apply(input.malformed)),
+			};
 		}
 		case "corrupt-summary":
 			return executedAsync(async () => {
@@ -1818,10 +1929,16 @@ async function makeCases() {
 	const modular = Reflect.get(changeset[0], "data");
 	const modularKinds = fieldKinds(modular);
 	assert(modularKinds.includes("Sequence"), "Array operations must encode a Sequence field.");
-	const modularRevisions = Array.from({ length: 11 }, () => mintRevisionTag());
+	const modularCompressor = createIdCompressor(
+		"72da8bc7-6340-46de-a690-a911d13bddca" as SessionId,
+	);
+	const modularRevisions = Array.from(
+		{ length: 11 },
+		() => modularCompressor.generateCompressedId() as RevisionTag,
+	);
 	const revisionMap = modularRevisions.map((revision) => ({
 		encoded: Number(revision),
-		stable: testIdCompressor.decompress(revision as SessionSpaceCompressedId),
+		stable: modularCompressor.decompress(revision as SessionSpaceCompressedId),
 	}));
 	const atom = (revision: RevisionTag, localId: number) => ({
 		revision: Number(revision),
@@ -1849,6 +1966,9 @@ async function makeCases() {
 		parents: options.parents ?? [],
 		aliases: options.aliases ?? [],
 		crossFieldKeys: options.crossFieldKeys ?? [],
+		builds: [],
+		refreshers: [],
+		destroys: [],
 	});
 	const generic = (children: unknown[]) => ({ kind: "Generic", change: { children } });
 	const sequence = (change: unknown[]) => ({ kind: "Sequence", change });
@@ -1866,7 +1986,10 @@ async function makeCases() {
 			allocator: {
 				maxLocalId: Math.max(...taggedChanges.map(({ change }) => change.maxLocalId)),
 			},
-			compressor: { sessionId: testIdCompressor.localSessionId },
+			compressor: {
+				sessionId: modularCompressor.localSessionId,
+				serialized: serializeIdCompressor(modularCompressor, true),
+			},
 			sequencing: { minimumSequenceNumber: 0, sequenceNumber: 0 },
 			schedule:
 				operation === "compose" ? ["left", "right", "invalidated-fields"] : [operation],
@@ -1983,7 +2106,7 @@ async function makeCases() {
 				})),
 			},
 		),
-		"cross-field-endpoints": crossFieldCoordinationInput(r6) as unknown as Record<
+		"cross-field-endpoints": crossFieldCoordinationInput(r6, modularCompressor) as unknown as Record<
 			string,
 			unknown
 		>,
@@ -2124,7 +2247,13 @@ async function makeCases() {
 			{ id: "deliver", op: "deliver" },
 		],
 	};
-	const messageDecodeContext = { nativeInput: codecAuthoring };
+	const messageDecodeContext = {
+		nativeInput: codecAuthoring,
+		decoder: {
+			compressor: publicEvidence.operationCompressor,
+			sessionId: "57b377e0-3799-4cec-8d5a-1b204655d87e",
+		},
+	};
 	const summaryInput = (
 		operation: string,
 		encodedSummary: unknown,
@@ -2185,6 +2314,14 @@ async function makeCases() {
 		const output = await replayArrayCodecInput(copy(input));
 		codecScenarios.push({ id, input, observation: {}, output });
 	}
+	const decodedBuild = (Reflect.get(
+		codecScenarios.find(({ id }) => id === "builds")?.output as object,
+		"decoded",
+	) as { changes: { type: string; data: { builds: unknown[] } }[] }[])
+		.flatMap(({ changes }) => changes)
+		.find(({ type, data }) => type === "data" && data.builds.length > 0);
+	assert(decodedBuild !== undefined,
+		"The decoded Message V7 build must retain its modular build table.");
 	const codecMutation = copy(codecInputs["message-v7"]);
 	const nativeCodecInput = Reflect.get(
 		Reflect.get(codecMutation, "decodeContext") as object,
@@ -2245,7 +2382,8 @@ async function makeCases() {
 				values: ["remote"] },
 			{ id: "deliver-remote", op: "deliver" },
 			{ id: "pending-checkpoint", op: "checkpoint" },
-			{ id: "reconnect-local", op: "connect", client: 0, connected: true },
+			{ id: "reconnect-local", op: "connect", client: 0, connected: true,
+				reconnectId: "client-0-reconnect-pending" },
 			{ id: "settle", op: "deliver" },
 		]),
 		batching: historyInput("batching", [
@@ -2275,7 +2413,8 @@ async function makeCases() {
 			{ id: "remote-edit", op: "insert", client: 1, path: ["right"], index: 1,
 				values: ["remote"] },
 			{ id: "deliver-remote", op: "deliver" },
-			{ id: "reconnect", op: "reconnect", client: 0 },
+			{ id: "reconnect", op: "reconnect", client: 0,
+				reconnectId: "client-0-reconnect" },
 			{ id: "deliver-resubmission", op: "deliver" },
 		]),
 		"window-advance": historyInput("window-advance", windowSchedule),
@@ -2345,9 +2484,12 @@ async function makeCases() {
 	const changedTail = await executedAsync(() => replayArrayHistoryInput(tailMutation));
 	assert(
 		changedTail.accepted === false
-			|| JSON.stringify(changedTail.value)
-				!== JSON.stringify(historyScenarios.find(({ id }) => id === "summary-tail")?.output),
-		"Changing continuation sequencing metadata must change or reject replay.",
+			|| JSON.stringify(Reflect.get(changedTail.value as object, "peerHistory"))
+				!== JSON.stringify(Reflect.get(
+					historyScenarios.find(({ id }) => id === "summary-tail")?.output as object,
+					"peerHistory",
+				)),
+		"Changing continuation sequencing metadata must change source history or reject replay.",
 	);
 
 	const corruptMarkMessage = copy(message);
@@ -2387,6 +2529,7 @@ async function makeCases() {
 		},
 		"corrupt-mark": {
 			operation: "corrupt-mark",
+			valid: message,
 			malformed: corruptMarkMessage,
 			...invalidMessageContext,
 		},
@@ -2397,6 +2540,7 @@ async function makeCases() {
 		},
 		"corrupt-revision": {
 			operation: "corrupt-revision",
+			valid: message,
 			malformed: corruptRevisionMessage,
 			...invalidMessageContext,
 		},
@@ -2404,8 +2548,14 @@ async function makeCases() {
 			operation: "corrupt-ownership",
 			initialStates: [plainInitialRoot(), plainInitialRoot()],
 			malformed: {
-				source: { client: 1, path: ["narrow", "0"] },
+				kind: "insert",
+				source: { client: 1, path: ["narrow"], index: 0 },
 				destination: { client: 0, path: ["narrow"], gap: 0 },
+			},
+			control: {
+				kind: "move",
+				source: { client: 0, path: ["narrow"], index: 0 },
+				destination: { client: 0, path: ["narrow"], gap: 1 },
 			},
 		},
 		"corrupt-summary": {
@@ -2430,13 +2580,34 @@ async function makeCases() {
 	for (const id of scenarioIds["array-invalid"]) {
 		const input = copy(invalidInputs[id]);
 		const output = await replayArrayInvalidInput(copy(input));
+		if (id === "corrupt-mark" || id === "corrupt-revision") {
+			assert.equal(Reflect.get(Reflect.get(output as object, "control"), "accepted"), true,
+				`${id}: the valid payload must decode with the same context.`);
+			const malformed = Reflect.get(output as object, "malformed");
+			assert.equal(Reflect.get(malformed, "accepted"), false,
+				`${id}: the malformed payload must be rejected by the source decoder.`);
+			assert.match(
+				String(Reflect.get(malformed, "error")),
+				new RegExp(id === "corrupt-mark" ? "0xac2" : "0x88d"),
+				`${id}: the source decoder must report its pinned assertion.`,
+			);
+		}
+		if (id === "corrupt-ownership") {
+			assert.equal(Reflect.get(Reflect.get(output as object, "control"), "accepted"), true,
+				"Same-context ownership control must succeed.");
+			assert.equal(Reflect.get(Reflect.get(output as object, "malformed"), "accepted"), false,
+				"Cross-context ownership must fail.");
+		}
 		invalidScenarios.push({
 			id,
 			input,
 			observation: {
 				rejected: id === "native-remove-beyond-length"
 					? false
-					: Reflect.get(output as object, "accepted") === false,
+					: id === "corrupt-mark" || id === "corrupt-revision"
+						|| id === "corrupt-ownership"
+						? Reflect.get(Reflect.get(output as object, "malformed"), "accepted") === false
+						: Reflect.get(output as object, "accepted") === false,
 			},
 			output,
 		});

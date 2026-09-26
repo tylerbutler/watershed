@@ -22,20 +22,22 @@
           "index": 1,
           "count": 2,
           "firstId": {
-            "revision": 0,
+            "revision": -1,
             "localId": 0
           },
-          "revision": 0
+          "revision": -1
         },
         "revisions": [
-          0
+          -1
         ],
-        "allocator": {
-          "maxLocalId": 1
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -63,17 +65,19 @@
           "sourceIndex": 1,
           "count": 2,
           "detachId": 2,
-          "revision": 1
+          "revision": -2
         },
         "revisions": [
-          1
+          -2
         ],
-        "allocator": {
-          "maxLocalId": 3
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -104,20 +108,22 @@
           "index": 1,
           "count": 0,
           "firstId": {
-            "revision": 2,
+            "revision": -3,
             "localId": 3
           },
-          "revision": 2
+          "revision": -3
         },
         "revisions": [
-          2
+          -3
         ],
-        "allocator": {
-          "maxLocalId": 3
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -143,17 +149,19 @@
           "sourceIndex": 1,
           "count": 0,
           "detachId": 4,
-          "revision": 3
+          "revision": -4
         },
         "revisions": [
-          3
+          -4
         ],
-        "allocator": {
-          "maxLocalId": 4
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -189,20 +197,22 @@
           "destinationIndex": 0,
           "detachId": 5,
           "attachId": {
-            "revision": 4,
+            "revision": -5,
             "localId": 7
           },
-          "revision": 4
+          "revision": -5
         },
         "revisions": [
-          4
+          -5
         ],
-        "allocator": {
-          "maxLocalId": 8
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -242,20 +252,22 @@
           "destinationIndex": 4,
           "detachId": 8,
           "attachId": {
-            "revision": 5,
+            "revision": -6,
             "localId": 10
           },
-          "revision": 5
+          "revision": -6
         },
         "revisions": [
-          5
+          -6
         ],
-        "allocator": {
-          "maxLocalId": 11
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -295,20 +307,22 @@
           "destinationIndex": 1,
           "detachId": 11,
           "attachId": {
-            "revision": 6,
+            "revision": -7,
             "localId": 14
           },
-          "revision": 6
+          "revision": -7
         },
         "revisions": [
-          6
+          -7
         ],
-        "allocator": {
-          "maxLocalId": 16
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -348,20 +362,22 @@
           "destinationIndex": 1,
           "detachId": 15,
           "attachId": {
-            "revision": 7,
+            "revision": -8,
             "localId": 15
           },
-          "revision": 7
+          "revision": -8
         },
         "revisions": [
-          7
+          -8
         ],
-        "allocator": {
-          "maxLocalId": 14
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -401,20 +417,22 @@
           "destinationIndex": 1,
           "moveId": 16,
           "attachId": {
-            "revision": 8,
+            "revision": -9,
             "localId": 18
           },
-          "revision": 8
+          "revision": -9
         },
         "revisions": [
-          8
+          -9
         ],
-        "allocator": {
-          "maxLocalId": 19
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -487,12 +505,14 @@
           ]
         },
         "revisions": [],
-        "allocator": {
-          "maxLocalId": 21
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -523,10 +543,10 @@
               "id": 0,
               "count": 2,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             }
           ],
           "delta": {
@@ -539,7 +559,7 @@
                   "count": 2,
                   "attach": {
                     "minor": 0,
-                    "major": 0
+                    "major": -1
                   }
                 }
               ]
@@ -556,10 +576,10 @@
               "id": 0,
               "count": 2,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             }
           ],
           "delta": {
@@ -572,7 +592,7 @@
                   "count": 2,
                   "attach": {
                     "minor": 0,
-                    "major": 0
+                    "major": -1
                   }
                 }
               ]
@@ -593,7 +613,7 @@
               "type": "Remove",
               "count": 2,
               "id": 2,
-              "revision": 1
+              "revision": -2
             }
           ],
           "delta": {
@@ -606,7 +626,7 @@
                   "count": 2,
                   "detach": {
                     "minor": 2,
-                    "major": 1
+                    "major": -2
                   }
                 }
               ]
@@ -622,7 +642,7 @@
               "type": "Remove",
               "count": 2,
               "id": 2,
-              "revision": 1
+              "revision": -2
             }
           ],
           "delta": {
@@ -635,7 +655,7 @@
                   "count": 2,
                   "detach": {
                     "minor": 2,
-                    "major": 1
+                    "major": -2
                   }
                 }
               ]
@@ -657,10 +677,10 @@
               "id": 3,
               "count": 0,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 3
               },
-              "revision": 2
+              "revision": -3
             }
           ],
           "delta": {
@@ -673,7 +693,7 @@
                   "count": 0,
                   "attach": {
                     "minor": 3,
-                    "major": 2
+                    "major": -3
                   }
                 }
               ]
@@ -690,10 +710,10 @@
               "id": 3,
               "count": 0,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 3
               },
-              "revision": 2
+              "revision": -3
             }
           ],
           "delta": {
@@ -706,7 +726,7 @@
                   "count": 0,
                   "attach": {
                     "minor": 3,
-                    "major": 2
+                    "major": -3
                   }
                 }
               ]
@@ -738,10 +758,10 @@
               "id": 5,
               "count": 2,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 7
               },
-              "revision": 4
+              "revision": -5
             },
             {
               "count": 2
@@ -750,7 +770,7 @@
               "type": "MoveOut",
               "id": 5,
               "count": 2,
-              "revision": 4
+              "revision": -5
             }
           ],
           "delta": {
@@ -759,7 +779,7 @@
                 {
                   "attach": {
                     "minor": 5,
-                    "major": 4
+                    "major": -5
                   },
                   "count": 2
                 },
@@ -770,7 +790,7 @@
                   "count": 2,
                   "detach": {
                     "minor": 5,
-                    "major": 4
+                    "major": -5
                   }
                 }
               ]
@@ -784,10 +804,10 @@
               "id": 5,
               "count": 2,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 7
               },
-              "revision": 4
+              "revision": -5
             },
             {
               "count": 2
@@ -796,7 +816,7 @@
               "type": "MoveOut",
               "id": 5,
               "count": 2,
-              "revision": 4
+              "revision": -5
             }
           ],
           "delta": {
@@ -805,7 +825,7 @@
                 {
                   "attach": {
                     "minor": 5,
-                    "major": 4
+                    "major": -5
                   },
                   "count": 2
                 },
@@ -816,7 +836,7 @@
                   "count": 2,
                   "detach": {
                     "minor": 5,
-                    "major": 4
+                    "major": -5
                   }
                 }
               ]
@@ -834,7 +854,7 @@
               "type": "MoveOut",
               "id": 8,
               "count": 2,
-              "revision": 5
+              "revision": -6
             },
             {
               "count": 2
@@ -844,10 +864,10 @@
               "id": 8,
               "count": 2,
               "cellId": {
-                "revision": 5,
+                "revision": -6,
                 "localId": 10
               },
-              "revision": 5
+              "revision": -6
             }
           ],
           "delta": {
@@ -857,7 +877,7 @@
                   "count": 2,
                   "detach": {
                     "minor": 8,
-                    "major": 5
+                    "major": -6
                   }
                 },
                 {
@@ -866,7 +886,7 @@
                 {
                   "attach": {
                     "minor": 8,
-                    "major": 5
+                    "major": -6
                   },
                   "count": 2
                 }
@@ -880,7 +900,7 @@
               "type": "MoveOut",
               "id": 8,
               "count": 2,
-              "revision": 5
+              "revision": -6
             },
             {
               "count": 2
@@ -890,10 +910,10 @@
               "id": 8,
               "count": 2,
               "cellId": {
-                "revision": 5,
+                "revision": -6,
                 "localId": 10
               },
-              "revision": 5
+              "revision": -6
             }
           ],
           "delta": {
@@ -903,7 +923,7 @@
                   "count": 2,
                   "detach": {
                     "minor": 8,
-                    "major": 5
+                    "major": -6
                   }
                 },
                 {
@@ -912,7 +932,7 @@
                 {
                   "attach": {
                     "minor": 8,
-                    "major": 5
+                    "major": -6
                   },
                   "count": 2
                 }
@@ -931,23 +951,23 @@
               "type": "MoveOut",
               "id": 11,
               "count": 1,
-              "revision": 6
+              "revision": -7
             },
             {
               "type": "MoveIn",
               "id": 11,
               "count": 3,
               "cellId": {
-                "revision": 6,
+                "revision": -7,
                 "localId": 14
               },
-              "revision": 6
+              "revision": -7
             },
             {
               "type": "MoveOut",
               "id": 12,
               "count": 2,
-              "revision": 6
+              "revision": -7
             }
           ],
           "delta": {
@@ -957,13 +977,13 @@
                   "count": 1,
                   "detach": {
                     "minor": 11,
-                    "major": 6
+                    "major": -7
                   }
                 },
                 {
                   "attach": {
                     "minor": 11,
-                    "major": 6
+                    "major": -7
                   },
                   "count": 3
                 },
@@ -971,7 +991,7 @@
                   "count": 2,
                   "detach": {
                     "minor": 12,
-                    "major": 6
+                    "major": -7
                   }
                 }
               ]
@@ -984,23 +1004,23 @@
               "type": "MoveOut",
               "id": 11,
               "count": 1,
-              "revision": 6
+              "revision": -7
             },
             {
               "type": "MoveIn",
               "id": 11,
               "count": 3,
               "cellId": {
-                "revision": 6,
+                "revision": -7,
                 "localId": 14
               },
-              "revision": 6
+              "revision": -7
             },
             {
               "type": "MoveOut",
               "id": 12,
               "count": 2,
-              "revision": 6
+              "revision": -7
             }
           ],
           "delta": {
@@ -1010,13 +1030,13 @@
                   "count": 1,
                   "detach": {
                     "minor": 11,
-                    "major": 6
+                    "major": -7
                   }
                 },
                 {
                   "attach": {
                     "minor": 11,
-                    "major": 6
+                    "major": -7
                   },
                   "count": 3
                 },
@@ -1024,7 +1044,7 @@
                   "count": 2,
                   "detach": {
                     "minor": 12,
-                    "major": 6
+                    "major": -7
                   }
                 }
               ]
@@ -1056,7 +1076,7 @@
                 "type": "MoveOut",
                 "id": 16,
                 "count": 2,
-                "revision": 8
+                "revision": -9
               }
             ],
             "in": [
@@ -1068,10 +1088,10 @@
                 "id": 16,
                 "count": 2,
                 "cellId": {
-                  "revision": 8,
+                  "revision": -9,
                   "localId": 18
                 },
-                "revision": 8
+                "revision": -9
               }
             ]
           },
@@ -1083,7 +1103,7 @@
                     "count": 2,
                     "detach": {
                       "minor": 16,
-                      "major": 8
+                      "major": -9
                     }
                   }
                 ]
@@ -1098,7 +1118,7 @@
                   {
                     "attach": {
                       "minor": 16,
-                      "major": 8
+                      "major": -9
                     },
                     "count": 2
                   }
@@ -1114,7 +1134,7 @@
                 "type": "MoveOut",
                 "id": 16,
                 "count": 2,
-                "revision": 8
+                "revision": -9
               }
             ],
             "in": [
@@ -1126,10 +1146,10 @@
                 "id": 16,
                 "count": 2,
                 "cellId": {
-                  "revision": 8,
+                  "revision": -9,
                   "localId": 18
                 },
-                "revision": 8
+                "revision": -9
               }
             ]
           },
@@ -1141,7 +1161,7 @@
                     "count": 2,
                     "detach": {
                       "minor": 16,
-                      "major": 8
+                      "major": -9
                     }
                   }
                 ]
@@ -1156,7 +1176,7 @@
                   {
                     "attach": {
                       "minor": 16,
-                      "major": 8
+                      "major": -9
                     },
                     "count": 2
                   }
@@ -1217,14 +1237,36 @@
                 },
                 {
                   "count": 1,
-                  "fields": {}
+                  "fields": [
+                    [
+                      "testIntentions",
+                      {
+                        "marks": [
+                          {
+                            "count": 1
+                          }
+                        ]
+                      }
+                    ]
+                  ]
                 },
                 {
                   "count": 2
                 },
                 {
                   "count": 1,
-                  "fields": {}
+                  "fields": [
+                    [
+                      "testIntentions",
+                      {
+                        "marks": [
+                          {
+                            "count": 2
+                          }
+                        ]
+                      }
+                    ]
+                  ]
                 }
               ]
             }
@@ -1277,14 +1319,36 @@
                 },
                 {
                   "count": 1,
-                  "fields": {}
+                  "fields": [
+                    [
+                      "testIntentions",
+                      {
+                        "marks": [
+                          {
+                            "count": 1
+                          }
+                        ]
+                      }
+                    ]
+                  ]
                 },
                 {
                   "count": 2
                 },
                 {
                   "count": 1,
-                  "fields": {}
+                  "fields": [
+                    [
+                      "testIntentions",
+                      {
+                        "marks": [
+                          {
+                            "count": 2
+                          }
+                        ]
+                      }
+                    ]
+                  ]
                 }
               ]
             }
@@ -1310,20 +1374,22 @@
             "index": 1,
             "count": 2,
             "firstId": {
-              "revision": 0,
+              "revision": -1,
               "localId": 0
             },
-            "revision": 0
+            "revision": -1
           },
           "revisions": [
-            0
+            -1
           ],
-          "allocator": {
-            "maxLocalId": 1
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -1346,10 +1412,10 @@
               "id": 0,
               "count": 2,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             }
           ],
           "delta": {
@@ -1362,7 +1428,7 @@
                   "count": 2,
                   "attach": {
                     "minor": 0,
-                    "major": 0
+                    "major": -1
                   }
                 }
               ]
@@ -1387,17 +1453,19 @@
             "sourceIndex": 1,
             "count": 2,
             "detachId": 2,
-            "revision": 1
+            "revision": -2
           },
           "revisions": [
-            1
+            -2
           ],
-          "allocator": {
-            "maxLocalId": 3
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -1424,7 +1492,7 @@
               "type": "Remove",
               "count": 2,
               "id": 2,
-              "revision": 1
+              "revision": -2
             }
           ],
           "delta": {
@@ -1437,7 +1505,7 @@
                   "count": 2,
                   "detach": {
                     "minor": 2,
-                    "major": 1
+                    "major": -2
                   }
                 }
               ]
@@ -1460,20 +1528,22 @@
             "index": 1,
             "count": 0,
             "firstId": {
-              "revision": 2,
+              "revision": -3,
               "localId": 3
             },
-            "revision": 2
+            "revision": -3
           },
           "revisions": [
-            2
+            -3
           ],
-          "allocator": {
-            "maxLocalId": 3
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -1496,10 +1566,10 @@
               "id": 3,
               "count": 0,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 3
               },
-              "revision": 2
+              "revision": -3
             }
           ],
           "delta": {
@@ -1512,7 +1582,7 @@
                   "count": 0,
                   "attach": {
                     "minor": 3,
-                    "major": 2
+                    "major": -3
                   }
                 }
               ]
@@ -1535,17 +1605,19 @@
             "sourceIndex": 1,
             "count": 0,
             "detachId": 4,
-            "revision": 3
+            "revision": -4
           },
           "revisions": [
-            3
+            -4
           ],
-          "allocator": {
-            "maxLocalId": 4
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -1588,20 +1660,22 @@
             "destinationIndex": 0,
             "detachId": 5,
             "attachId": {
-              "revision": 4,
+              "revision": -5,
               "localId": 7
             },
-            "revision": 4
+            "revision": -5
           },
           "revisions": [
-            4
+            -5
           ],
-          "allocator": {
-            "maxLocalId": 8
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -1630,10 +1704,10 @@
               "id": 5,
               "count": 2,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 7
               },
-              "revision": 4
+              "revision": -5
             },
             {
               "count": 2
@@ -1642,7 +1716,7 @@
               "type": "MoveOut",
               "id": 5,
               "count": 2,
-              "revision": 4
+              "revision": -5
             }
           ],
           "delta": {
@@ -1651,7 +1725,7 @@
                 {
                   "attach": {
                     "minor": 5,
-                    "major": 4
+                    "major": -5
                   },
                   "count": 2
                 },
@@ -1662,7 +1736,7 @@
                   "count": 2,
                   "detach": {
                     "minor": 5,
-                    "major": 4
+                    "major": -5
                   }
                 }
               ]
@@ -1690,20 +1764,22 @@
             "destinationIndex": 4,
             "detachId": 8,
             "attachId": {
-              "revision": 5,
+              "revision": -6,
               "localId": 10
             },
-            "revision": 5
+            "revision": -6
           },
           "revisions": [
-            5
+            -6
           ],
-          "allocator": {
-            "maxLocalId": 11
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -1731,7 +1807,7 @@
               "type": "MoveOut",
               "id": 8,
               "count": 2,
-              "revision": 5
+              "revision": -6
             },
             {
               "count": 2
@@ -1741,10 +1817,10 @@
               "id": 8,
               "count": 2,
               "cellId": {
-                "revision": 5,
+                "revision": -6,
                 "localId": 10
               },
-              "revision": 5
+              "revision": -6
             }
           ],
           "delta": {
@@ -1754,7 +1830,7 @@
                   "count": 2,
                   "detach": {
                     "minor": 8,
-                    "major": 5
+                    "major": -6
                   }
                 },
                 {
@@ -1763,7 +1839,7 @@
                 {
                   "attach": {
                     "minor": 8,
-                    "major": 5
+                    "major": -6
                   },
                   "count": 2
                 }
@@ -1792,20 +1868,22 @@
             "destinationIndex": 1,
             "detachId": 11,
             "attachId": {
-              "revision": 6,
+              "revision": -7,
               "localId": 14
             },
-            "revision": 6
+            "revision": -7
           },
           "revisions": [
-            6
+            -7
           ],
-          "allocator": {
-            "maxLocalId": 16
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -1833,23 +1911,23 @@
               "type": "MoveOut",
               "id": 11,
               "count": 1,
-              "revision": 6
+              "revision": -7
             },
             {
               "type": "MoveIn",
               "id": 11,
               "count": 3,
               "cellId": {
-                "revision": 6,
+                "revision": -7,
                 "localId": 14
               },
-              "revision": 6
+              "revision": -7
             },
             {
               "type": "MoveOut",
               "id": 12,
               "count": 2,
-              "revision": 6
+              "revision": -7
             }
           ],
           "delta": {
@@ -1859,13 +1937,13 @@
                   "count": 1,
                   "detach": {
                     "minor": 11,
-                    "major": 6
+                    "major": -7
                   }
                 },
                 {
                   "attach": {
                     "minor": 11,
-                    "major": 6
+                    "major": -7
                   },
                   "count": 3
                 },
@@ -1873,7 +1951,7 @@
                   "count": 2,
                   "detach": {
                     "minor": 12,
-                    "major": 6
+                    "major": -7
                   }
                 }
               ]
@@ -1901,20 +1979,22 @@
             "destinationIndex": 1,
             "detachId": 15,
             "attachId": {
-              "revision": 7,
+              "revision": -8,
               "localId": 15
             },
-            "revision": 7
+            "revision": -8
           },
           "revisions": [
-            7
+            -8
           ],
-          "allocator": {
-            "maxLocalId": 14
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -1961,20 +2041,22 @@
             "destinationIndex": 1,
             "moveId": 16,
             "attachId": {
-              "revision": 8,
+              "revision": -9,
               "localId": 18
             },
-            "revision": 8
+            "revision": -9
           },
           "revisions": [
-            8
+            -9
           ],
-          "allocator": {
-            "maxLocalId": 19
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -2007,7 +2089,7 @@
                 "type": "MoveOut",
                 "id": 16,
                 "count": 2,
-                "revision": 8
+                "revision": -9
               }
             ],
             "in": [
@@ -2019,10 +2101,10 @@
                 "id": 16,
                 "count": 2,
                 "cellId": {
-                  "revision": 8,
+                  "revision": -9,
                   "localId": 18
                 },
-                "revision": 8
+                "revision": -9
               }
             ]
           },
@@ -2034,7 +2116,7 @@
                     "count": 2,
                     "detach": {
                       "minor": 16,
-                      "major": 8
+                      "major": -9
                     }
                   }
                 ]
@@ -2049,7 +2131,7 @@
                   {
                     "attach": {
                       "minor": 16,
-                      "major": 8
+                      "major": -9
                     },
                     "count": 2
                   }
@@ -2108,12 +2190,14 @@
             ]
           },
           "revisions": [],
-          "allocator": {
-            "maxLocalId": 21
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -2173,14 +2257,36 @@
                 },
                 {
                   "count": 1,
-                  "fields": {}
+                  "fields": [
+                    [
+                      "testIntentions",
+                      {
+                        "marks": [
+                          {
+                            "count": 1
+                          }
+                        ]
+                      }
+                    ]
+                  ]
                 },
                 {
                   "count": 2
                 },
                 {
                   "count": 1,
-                  "fields": {}
+                  "fields": [
+                    [
+                      "testIntentions",
+                      {
+                        "marks": [
+                          {
+                            "count": 2
+                          }
+                        ]
+                      }
+                    ]
+                  ]
                 }
               ]
             }

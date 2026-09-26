@@ -19,6 +19,94 @@
       {
         "id": "corrupt-mark",
         "operation": "corrupt-mark",
+        "valid": {
+          "revision": 4,
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "changeset": [
+            {
+              "data": {
+                "maxId": 18,
+                "changes": [
+                  {
+                    "fieldKey": "rootFieldKey",
+                    "fieldKind": "ModularEditBuilder.Generic",
+                    "change": [
+                      [
+                        0,
+                        {
+                          "fieldChanges": [
+                            {
+                              "fieldKey": "left",
+                              "fieldKind": "ModularEditBuilder.Generic",
+                              "change": [
+                                [
+                                  0,
+                                  {
+                                    "fieldChanges": [
+                                      {
+                                        "fieldKey": "",
+                                        "fieldKind": "Sequence",
+                                        "change": [
+                                          {
+                                            "count": 1
+                                          },
+                                          {
+                                            "count": 1,
+                                            "effect": {
+                                              "moveOut": {
+                                                "id": 13
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              ]
+                            },
+                            {
+                              "fieldKey": "right",
+                              "fieldKind": "ModularEditBuilder.Generic",
+                              "change": [
+                                [
+                                  0,
+                                  {
+                                    "fieldChanges": [
+                                      {
+                                        "fieldKey": "",
+                                        "fieldKind": "Sequence",
+                                        "change": [
+                                          {
+                                            "count": 1
+                                          },
+                                          {
+                                            "count": 1,
+                                            "effect": {
+                                              "moveIn": {
+                                                "id": 13
+                                              }
+                                            },
+                                            "cellId": 14
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "version": 7
+        },
         "malformed": {
           "revision": 4,
           "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
@@ -244,6 +332,10 @@
                 "op": "deliver"
               }
             ]
+          },
+          "decoder": {
+            "compressor": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAAAiAQAAAAAAAABRA",
+            "sessionId": "57b377e0-3799-4cec-8d5a-1b204655d87e"
           }
         },
         "initialSummary": {
@@ -331,6 +423,94 @@
       {
         "id": "corrupt-revision",
         "operation": "corrupt-revision",
+        "valid": {
+          "revision": 4,
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "changeset": [
+            {
+              "data": {
+                "maxId": 18,
+                "changes": [
+                  {
+                    "fieldKey": "rootFieldKey",
+                    "fieldKind": "ModularEditBuilder.Generic",
+                    "change": [
+                      [
+                        0,
+                        {
+                          "fieldChanges": [
+                            {
+                              "fieldKey": "left",
+                              "fieldKind": "ModularEditBuilder.Generic",
+                              "change": [
+                                [
+                                  0,
+                                  {
+                                    "fieldChanges": [
+                                      {
+                                        "fieldKey": "",
+                                        "fieldKind": "Sequence",
+                                        "change": [
+                                          {
+                                            "count": 1
+                                          },
+                                          {
+                                            "count": 1,
+                                            "effect": {
+                                              "moveOut": {
+                                                "id": 13
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              ]
+                            },
+                            {
+                              "fieldKey": "right",
+                              "fieldKind": "ModularEditBuilder.Generic",
+                              "change": [
+                                [
+                                  0,
+                                  {
+                                    "fieldChanges": [
+                                      {
+                                        "fieldKey": "",
+                                        "fieldKind": "Sequence",
+                                        "change": [
+                                          {
+                                            "count": 1
+                                          },
+                                          {
+                                            "count": 1,
+                                            "effect": {
+                                              "moveIn": {
+                                                "id": 13
+                                              }
+                                            },
+                                            "cellId": 14
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "version": 7
+        },
         "malformed": {
           "revision": "not-a-revision",
           "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
@@ -556,6 +736,10 @@
                 "op": "deliver"
               }
             ]
+          },
+          "decoder": {
+            "compressor": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAAAiAQAAAAAAAABRA",
+            "sessionId": "57b377e0-3799-4cec-8d5a-1b204655d87e"
           }
         },
         "initialSummary": {
@@ -765,12 +949,13 @@
           }
         ],
         "malformed": {
+          "kind": "insert",
           "source": {
             "client": 1,
             "path": [
-              "narrow",
-              "0"
-            ]
+              "narrow"
+            ],
+            "index": 0
           },
           "destination": {
             "client": 0,
@@ -778,6 +963,23 @@
               "narrow"
             ],
             "gap": 0
+          }
+        },
+        "control": {
+          "kind": "move",
+          "source": {
+            "client": 0,
+            "path": [
+              "narrow"
+            ],
+            "index": 0
+          },
+          "destination": {
+            "client": 0,
+            "path": [
+              "narrow"
+            ],
+            "gap": 1
           }
         }
       },
@@ -822,8 +1024,226 @@
         "id": "corrupt-mark",
         "rejected": true,
         "result": {
-          "accepted": false,
-          "error": "AssertionError: message-v7: encoded input must match the typed authoring input.\n+ actual - expected\n... Skipped lines\n\n  [\n    {\n      changeset: [\n        {\n          data: {\n+           builds: {\n+             builds: [\n+               [\n+                 [\n+                   [\n+                     0,\n+                     0\n+                   ]\n+                 ]\n+               ]\n+             ],\n+             trees: {\n+               data: [\n+                 [\n+                   1,\n+                   [\n+                     0,\n+                     'inserted',\n+                     2,\n+                     'new',\n+                     2\n+                   ]\n+                 ]\n+               ],\n+               identifiers: [],\n+               shapes: [\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.string',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   a: 4\n+                 },\n+                 {\n+                   c: {\n+                     fields: [\n+                       [\n+                         'label',\n+                         0\n+                       ],\n+                       [\n+                         'x',\n+                         3\n+                       ]\n+                     ],\n+                     type: 'org.watershed.shared-tree.m3.Point',\n+                     value: false\n+                   }\n+                 },\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.number',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   d: 0\n+                 }\n+               ],\n+               version: 2\n+             }\n+           },\n            changes: [\n              {\n                change: [\n                  [\n                    0,\n...\n                                      {\n+                                       cellId: 0,\n+                                       count: 2,\n+                                       effect: {\n+                                         insert: {\n+                                           id: 0\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 3\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 1,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n                                        count: 1,\n                                        effect: {\n+                                         remove: {\n+                                           id: 4\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 6\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 2,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       cellId: 9,\n+                                       count: 2,\n+                                       effect: {\n+                                         moveIn: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n+                                           id: 8\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 12\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 3,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n-                                         unknownMove: {\n                                            id: 13\n                                          }\n                                        }\n                                      }\n                                    ],\n"
+          "control": {
+            "accepted": true,
+            "value": {
+              "type": "commit",
+              "branchId": "main",
+              "revision": 4,
+              "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "changes": [
+                {
+                  "type": "data",
+                  "data": {
+                    "maxLocalId": 18,
+                    "revisions": [
+                      {
+                        "revision": 4,
+                        "rollbackOf": null
+                      }
+                    ],
+                    "fields": [
+                      [
+                        "rootFieldKey",
+                        {
+                          "kind": "Generic",
+                          "change": {
+                            "children": [
+                              [
+                                0,
+                                {
+                                  "revision": 4,
+                                  "localId": 19
+                                }
+                              ]
+                            ]
+                          }
+                        }
+                      ]
+                    ],
+                    "nodes": [
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 19
+                        },
+                        {
+                          "fields": [
+                            [
+                              "left",
+                              {
+                                "kind": "Generic",
+                                "change": {
+                                  "children": [
+                                    [
+                                      0,
+                                      {
+                                        "revision": 4,
+                                        "localId": 20
+                                      }
+                                    ]
+                                  ]
+                                }
+                              }
+                            ],
+                            [
+                              "right",
+                              {
+                                "kind": "Generic",
+                                "change": {
+                                  "children": [
+                                    [
+                                      0,
+                                      {
+                                        "revision": 4,
+                                        "localId": 21
+                                      }
+                                    ]
+                                  ]
+                                }
+                              }
+                            ]
+                          ]
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 20
+                        },
+                        {
+                          "fields": [
+                            [
+                              "",
+                              {
+                                "kind": "Sequence",
+                                "change": [
+                                  {
+                                    "count": 1
+                                  },
+                                  {
+                                    "count": 1,
+                                    "type": "MoveOut",
+                                    "id": 13,
+                                    "revision": 4
+                                  }
+                                ]
+                              }
+                            ]
+                          ]
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 21
+                        },
+                        {
+                          "fields": [
+                            [
+                              "",
+                              {
+                                "kind": "Sequence",
+                                "change": [
+                                  {
+                                    "count": 1
+                                  },
+                                  {
+                                    "count": 1,
+                                    "type": "MoveIn",
+                                    "id": 13,
+                                    "revision": 4,
+                                    "cellId": {
+                                      "localId": 14,
+                                      "revision": 4
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          ]
+                        }
+                      ]
+                    ],
+                    "parents": [
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 19
+                        },
+                        {
+                          "node": null,
+                          "field": "rootFieldKey"
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 20
+                        },
+                        {
+                          "node": {
+                            "revision": 4,
+                            "localId": 19
+                          },
+                          "field": "left"
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 21
+                        },
+                        {
+                          "node": {
+                            "revision": 4,
+                            "localId": 19
+                          },
+                          "field": "right"
+                        }
+                      ]
+                    ],
+                    "aliases": [],
+                    "crossFieldKeys": [
+                      {
+                        "target": "source",
+                        "revision": 4,
+                        "localId": 13,
+                        "count": 1,
+                        "field": {
+                          "node": {
+                            "revision": 4,
+                            "localId": 20
+                          },
+                          "field": ""
+                        }
+                      },
+                      {
+                        "target": "destination",
+                        "revision": 4,
+                        "localId": 13,
+                        "count": 1,
+                        "field": {
+                          "node": {
+                            "revision": 4,
+                            "localId": 21
+                          },
+                          "field": ""
+                        }
+                      }
+                    ],
+                    "builds": [],
+                    "refreshers": [],
+                    "destroys": []
+                  }
+                }
+              ]
+            }
+          },
+          "malformed": {
+            "accepted": false,
+            "error": "Error: 0xac2"
+          }
         }
       },
       {
@@ -838,16 +1258,305 @@
         "id": "corrupt-revision",
         "rejected": true,
         "result": {
-          "accepted": false,
-          "error": "AssertionError: message-v7: encoded input must match the typed authoring input.\n+ actual - expected\n... Skipped lines\n\n  [\n    {\n      changeset: [\n        {\n          data: {\n+           builds: {\n+             builds: [\n+               [\n+                 [\n+                   [\n+                     0,\n+                     0\n+                   ]\n+                 ]\n+               ]\n+             ],\n+             trees: {\n+               data: [\n+                 [\n+                   1,\n+                   [\n+                     0,\n+                     'inserted',\n+                     2,\n+                     'new',\n+                     2\n+                   ]\n+                 ]\n+               ],\n+               identifiers: [],\n+               shapes: [\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.string',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   a: 4\n+                 },\n+                 {\n+                   c: {\n+                     fields: [\n+                       [\n+                         'label',\n+                         0\n+                       ],\n+                       [\n+                         'x',\n+                         3\n+                       ]\n+                     ],\n+                     type: 'org.watershed.shared-tree.m3.Point',\n+                     value: false\n+                   }\n+                 },\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.number',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   d: 0\n+                 }\n+               ],\n+               version: 2\n+             }\n+           },\n            changes: [\n              {\n                change: [\n                  [\n                    0,\n...\n                                      {\n+                                       cellId: 0,\n+                                       count: 2,\n+                                       effect: {\n+                                         insert: {\n+                                           id: 0\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 3\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 1,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n                                        count: 1,\n                                        effect: {\n+                                         remove: {\n+                                           id: 4\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 6\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 2,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n                                          moveOut: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       cellId: 9,\n+                                       count: 2,\n+                                       effect: {\n+                                         moveIn: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n+                                           id: 8\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 12\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 3,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n                                            id: 13\n                                          }\n                                        }\n                                      }\n                                    ],\n...\n      originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 4,\n-     revision: 'not-a-revision',\n      version: 7\n    }\n  ]\n"
+          "control": {
+            "accepted": true,
+            "value": {
+              "type": "commit",
+              "branchId": "main",
+              "revision": 4,
+              "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "changes": [
+                {
+                  "type": "data",
+                  "data": {
+                    "maxLocalId": 18,
+                    "revisions": [
+                      {
+                        "revision": 4,
+                        "rollbackOf": null
+                      }
+                    ],
+                    "fields": [
+                      [
+                        "rootFieldKey",
+                        {
+                          "kind": "Generic",
+                          "change": {
+                            "children": [
+                              [
+                                0,
+                                {
+                                  "revision": 4,
+                                  "localId": 19
+                                }
+                              ]
+                            ]
+                          }
+                        }
+                      ]
+                    ],
+                    "nodes": [
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 19
+                        },
+                        {
+                          "fields": [
+                            [
+                              "left",
+                              {
+                                "kind": "Generic",
+                                "change": {
+                                  "children": [
+                                    [
+                                      0,
+                                      {
+                                        "revision": 4,
+                                        "localId": 20
+                                      }
+                                    ]
+                                  ]
+                                }
+                              }
+                            ],
+                            [
+                              "right",
+                              {
+                                "kind": "Generic",
+                                "change": {
+                                  "children": [
+                                    [
+                                      0,
+                                      {
+                                        "revision": 4,
+                                        "localId": 21
+                                      }
+                                    ]
+                                  ]
+                                }
+                              }
+                            ]
+                          ]
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 20
+                        },
+                        {
+                          "fields": [
+                            [
+                              "",
+                              {
+                                "kind": "Sequence",
+                                "change": [
+                                  {
+                                    "count": 1
+                                  },
+                                  {
+                                    "count": 1,
+                                    "type": "MoveOut",
+                                    "id": 13,
+                                    "revision": 4
+                                  }
+                                ]
+                              }
+                            ]
+                          ]
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 21
+                        },
+                        {
+                          "fields": [
+                            [
+                              "",
+                              {
+                                "kind": "Sequence",
+                                "change": [
+                                  {
+                                    "count": 1
+                                  },
+                                  {
+                                    "count": 1,
+                                    "type": "MoveIn",
+                                    "id": 13,
+                                    "revision": 4,
+                                    "cellId": {
+                                      "localId": 14,
+                                      "revision": 4
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          ]
+                        }
+                      ]
+                    ],
+                    "parents": [
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 19
+                        },
+                        {
+                          "node": null,
+                          "field": "rootFieldKey"
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 20
+                        },
+                        {
+                          "node": {
+                            "revision": 4,
+                            "localId": 19
+                          },
+                          "field": "left"
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 21
+                        },
+                        {
+                          "node": {
+                            "revision": 4,
+                            "localId": 19
+                          },
+                          "field": "right"
+                        }
+                      ]
+                    ],
+                    "aliases": [],
+                    "crossFieldKeys": [
+                      {
+                        "target": "source",
+                        "revision": 4,
+                        "localId": 13,
+                        "count": 1,
+                        "field": {
+                          "node": {
+                            "revision": 4,
+                            "localId": 20
+                          },
+                          "field": ""
+                        }
+                      },
+                      {
+                        "target": "destination",
+                        "revision": 4,
+                        "localId": 13,
+                        "count": 1,
+                        "field": {
+                          "node": {
+                            "revision": 4,
+                            "localId": 21
+                          },
+                          "field": ""
+                        }
+                      }
+                    ],
+                    "builds": [],
+                    "refreshers": [],
+                    "destroys": []
+                  }
+                }
+              ]
+            }
+          },
+          "malformed": {
+            "accepted": false,
+            "error": "Error: 0x88d"
+          }
         }
       },
       {
         "id": "corrupt-ownership",
         "rejected": true,
         "result": {
-          "accepted": false,
-          "error": "Error: A node with schema \"org.watershed.shared-tree.m3.Point\" (name: \"Point\") was inserted into the tree more than once. This is not supported."
+          "control": {
+            "accepted": true,
+            "value": {
+              "left": [
+                "A",
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                [
+                  "nested",
+                  {
+                    "map": [
+                      [
+                        "",
+                        "empty-key"
+                      ],
+                      [
+                        "0",
+                        "numeric-key"
+                      ]
+                    ]
+                  }
+                ]
+              ],
+              "right": [
+                "R"
+              ],
+              "byKey": {
+                "map": [
+                  [
+                    "",
+                    [
+                      "empty"
+                    ]
+                  ],
+                  [
+                    "0",
+                    [
+                      "zero",
+                      [
+                        "deep"
+                      ]
+                    ]
+                  ],
+                  [
+                    "01",
+                    "leading-zero"
+                  ]
+                ]
+              },
+              "narrow": [
+                {
+                  "point": {
+                    "label": "narrow",
+                    "x": 9
+                  }
+                }
+              ]
+            }
+          },
+          "malformed": {
+            "accepted": false,
+            "error": "Error: A node with schema \"org.watershed.shared-tree.m3.Point\" (name: \"Point\") was inserted into the tree more than once. This is not supported."
+          }
         }
       },
       {
@@ -892,6 +1601,94 @@
         "input": {
           "id": "corrupt-mark",
           "operation": "corrupt-mark",
+          "valid": {
+            "revision": 4,
+            "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 18,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
+                          {
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "left",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "moveOut": {
+                                                  "id": 13
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              },
+                              {
+                                "fieldKey": "right",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "moveIn": {
+                                                  "id": 13
+                                                }
+                                              },
+                                              "cellId": 14
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "version": 7
+          },
           "malformed": {
             "revision": 4,
             "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
@@ -1117,6 +1914,10 @@
                   "op": "deliver"
                 }
               ]
+            },
+            "decoder": {
+              "compressor": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAAAiAQAAAAAAAABRA",
+              "sessionId": "57b377e0-3799-4cec-8d5a-1b204655d87e"
             }
           },
           "initialSummary": {
@@ -1189,8 +1990,226 @@
           "summarySessionId": "839cc8f2-ec6d-4d55-b923-dd955e051d02"
         },
         "output": {
-          "accepted": false,
-          "error": "AssertionError: message-v7: encoded input must match the typed authoring input.\n+ actual - expected\n... Skipped lines\n\n  [\n    {\n      changeset: [\n        {\n          data: {\n+           builds: {\n+             builds: [\n+               [\n+                 [\n+                   [\n+                     0,\n+                     0\n+                   ]\n+                 ]\n+               ]\n+             ],\n+             trees: {\n+               data: [\n+                 [\n+                   1,\n+                   [\n+                     0,\n+                     'inserted',\n+                     2,\n+                     'new',\n+                     2\n+                   ]\n+                 ]\n+               ],\n+               identifiers: [],\n+               shapes: [\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.string',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   a: 4\n+                 },\n+                 {\n+                   c: {\n+                     fields: [\n+                       [\n+                         'label',\n+                         0\n+                       ],\n+                       [\n+                         'x',\n+                         3\n+                       ]\n+                     ],\n+                     type: 'org.watershed.shared-tree.m3.Point',\n+                     value: false\n+                   }\n+                 },\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.number',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   d: 0\n+                 }\n+               ],\n+               version: 2\n+             }\n+           },\n            changes: [\n              {\n                change: [\n                  [\n                    0,\n...\n                                      {\n+                                       cellId: 0,\n+                                       count: 2,\n+                                       effect: {\n+                                         insert: {\n+                                           id: 0\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 3\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 1,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n                                        count: 1,\n                                        effect: {\n+                                         remove: {\n+                                           id: 4\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 6\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 2,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       cellId: 9,\n+                                       count: 2,\n+                                       effect: {\n+                                         moveIn: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n+                                           id: 8\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 12\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 3,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n-                                         unknownMove: {\n                                            id: 13\n                                          }\n                                        }\n                                      }\n                                    ],\n"
+          "control": {
+            "accepted": true,
+            "value": {
+              "type": "commit",
+              "branchId": "main",
+              "revision": 4,
+              "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "changes": [
+                {
+                  "type": "data",
+                  "data": {
+                    "maxLocalId": 18,
+                    "revisions": [
+                      {
+                        "revision": 4,
+                        "rollbackOf": null
+                      }
+                    ],
+                    "fields": [
+                      [
+                        "rootFieldKey",
+                        {
+                          "kind": "Generic",
+                          "change": {
+                            "children": [
+                              [
+                                0,
+                                {
+                                  "revision": 4,
+                                  "localId": 19
+                                }
+                              ]
+                            ]
+                          }
+                        }
+                      ]
+                    ],
+                    "nodes": [
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 19
+                        },
+                        {
+                          "fields": [
+                            [
+                              "left",
+                              {
+                                "kind": "Generic",
+                                "change": {
+                                  "children": [
+                                    [
+                                      0,
+                                      {
+                                        "revision": 4,
+                                        "localId": 20
+                                      }
+                                    ]
+                                  ]
+                                }
+                              }
+                            ],
+                            [
+                              "right",
+                              {
+                                "kind": "Generic",
+                                "change": {
+                                  "children": [
+                                    [
+                                      0,
+                                      {
+                                        "revision": 4,
+                                        "localId": 21
+                                      }
+                                    ]
+                                  ]
+                                }
+                              }
+                            ]
+                          ]
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 20
+                        },
+                        {
+                          "fields": [
+                            [
+                              "",
+                              {
+                                "kind": "Sequence",
+                                "change": [
+                                  {
+                                    "count": 1
+                                  },
+                                  {
+                                    "count": 1,
+                                    "type": "MoveOut",
+                                    "id": 13,
+                                    "revision": 4
+                                  }
+                                ]
+                              }
+                            ]
+                          ]
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 21
+                        },
+                        {
+                          "fields": [
+                            [
+                              "",
+                              {
+                                "kind": "Sequence",
+                                "change": [
+                                  {
+                                    "count": 1
+                                  },
+                                  {
+                                    "count": 1,
+                                    "type": "MoveIn",
+                                    "id": 13,
+                                    "revision": 4,
+                                    "cellId": {
+                                      "localId": 14,
+                                      "revision": 4
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          ]
+                        }
+                      ]
+                    ],
+                    "parents": [
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 19
+                        },
+                        {
+                          "node": null,
+                          "field": "rootFieldKey"
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 20
+                        },
+                        {
+                          "node": {
+                            "revision": 4,
+                            "localId": 19
+                          },
+                          "field": "left"
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 21
+                        },
+                        {
+                          "node": {
+                            "revision": 4,
+                            "localId": 19
+                          },
+                          "field": "right"
+                        }
+                      ]
+                    ],
+                    "aliases": [],
+                    "crossFieldKeys": [
+                      {
+                        "target": "source",
+                        "revision": 4,
+                        "localId": 13,
+                        "count": 1,
+                        "field": {
+                          "node": {
+                            "revision": 4,
+                            "localId": 20
+                          },
+                          "field": ""
+                        }
+                      },
+                      {
+                        "target": "destination",
+                        "revision": 4,
+                        "localId": 13,
+                        "count": 1,
+                        "field": {
+                          "node": {
+                            "revision": 4,
+                            "localId": 21
+                          },
+                          "field": ""
+                        }
+                      }
+                    ],
+                    "builds": [],
+                    "refreshers": [],
+                    "destroys": []
+                  }
+                }
+              ]
+            }
+          },
+          "malformed": {
+            "accepted": false,
+            "error": "Error: 0xac2"
+          }
         }
       },
       {
@@ -1218,6 +2237,94 @@
         "input": {
           "id": "corrupt-revision",
           "operation": "corrupt-revision",
+          "valid": {
+            "revision": 4,
+            "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 18,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
+                          {
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "left",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "moveOut": {
+                                                  "id": 13
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              },
+                              {
+                                "fieldKey": "right",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "moveIn": {
+                                                  "id": 13
+                                                }
+                                              },
+                                              "cellId": 14
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "version": 7
+          },
           "malformed": {
             "revision": "not-a-revision",
             "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
@@ -1443,6 +2550,10 @@
                   "op": "deliver"
                 }
               ]
+            },
+            "decoder": {
+              "compressor": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAAAiAQAAAAAAAABRA",
+              "sessionId": "57b377e0-3799-4cec-8d5a-1b204655d87e"
             }
           },
           "initialSummary": {
@@ -1515,8 +2626,226 @@
           "summarySessionId": "839cc8f2-ec6d-4d55-b923-dd955e051d02"
         },
         "output": {
-          "accepted": false,
-          "error": "AssertionError: message-v7: encoded input must match the typed authoring input.\n+ actual - expected\n... Skipped lines\n\n  [\n    {\n      changeset: [\n        {\n          data: {\n+           builds: {\n+             builds: [\n+               [\n+                 [\n+                   [\n+                     0,\n+                     0\n+                   ]\n+                 ]\n+               ]\n+             ],\n+             trees: {\n+               data: [\n+                 [\n+                   1,\n+                   [\n+                     0,\n+                     'inserted',\n+                     2,\n+                     'new',\n+                     2\n+                   ]\n+                 ]\n+               ],\n+               identifiers: [],\n+               shapes: [\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.string',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   a: 4\n+                 },\n+                 {\n+                   c: {\n+                     fields: [\n+                       [\n+                         'label',\n+                         0\n+                       ],\n+                       [\n+                         'x',\n+                         3\n+                       ]\n+                     ],\n+                     type: 'org.watershed.shared-tree.m3.Point',\n+                     value: false\n+                   }\n+                 },\n+                 {\n+                   c: {\n+                     type: 'com.fluidframework.leaf.number',\n+                     value: true\n+                   }\n+                 },\n+                 {\n+                   d: 0\n+                 }\n+               ],\n+               version: 2\n+             }\n+           },\n            changes: [\n              {\n                change: [\n                  [\n                    0,\n...\n                                      {\n+                                       cellId: 0,\n+                                       count: 2,\n+                                       effect: {\n+                                         insert: {\n+                                           id: 0\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 3\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 1,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n                                        count: 1,\n                                        effect: {\n+                                         remove: {\n+                                           id: 4\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 6\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 2,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n                                          moveOut: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       cellId: 9,\n+                                       count: 2,\n+                                       effect: {\n+                                         moveIn: {\n+                                           id: 7\n+                                         }\n+                                       }\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n+                                           id: 8\n+                                         }\n+                                       }\n+                                     }\n+                                   ],\n+                                   fieldKey: '',\n+                                   fieldKind: 'Sequence'\n+                                 }\n+                               ]\n+                             }\n+                           ]\n+                         ],\n+                         fieldKey: 'left',\n+                         fieldKind: 'ModularEditBuilder.Generic'\n+                       }\n+                     ]\n+                   }\n+                 ]\n+               ],\n+               fieldKey: 'rootFieldKey',\n+               fieldKind: 'ModularEditBuilder.Generic'\n+             }\n+           ],\n+           maxId: 12\n+         }\n+       }\n+     ],\n+     originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 3,\n+     version: 7\n+   },\n+   {\n+     changeset: [\n+       {\n+         data: {\n+           changes: [\n+             {\n+               change: [\n+                 [\n+                   0,\n+                   {\n+                     fieldChanges: [\n+                       {\n+                         change: [\n+                           [\n+                             0,\n+                             {\n+                               fieldChanges: [\n+                                 {\n+                                   change: [\n+                                     {\n+                                       count: 1\n+                                     },\n+                                     {\n+                                       count: 1,\n+                                       effect: {\n+                                         moveOut: {\n                                            id: 13\n                                          }\n                                        }\n                                      }\n                                    ],\n...\n      originatorId: '8f95be09-8376-4ff7-8755-ccd7e8124b06',\n+     revision: 4,\n-     revision: 'not-a-revision',\n      version: 7\n    }\n  ]\n"
+          "control": {
+            "accepted": true,
+            "value": {
+              "type": "commit",
+              "branchId": "main",
+              "revision": 4,
+              "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "changes": [
+                {
+                  "type": "data",
+                  "data": {
+                    "maxLocalId": 18,
+                    "revisions": [
+                      {
+                        "revision": 4,
+                        "rollbackOf": null
+                      }
+                    ],
+                    "fields": [
+                      [
+                        "rootFieldKey",
+                        {
+                          "kind": "Generic",
+                          "change": {
+                            "children": [
+                              [
+                                0,
+                                {
+                                  "revision": 4,
+                                  "localId": 19
+                                }
+                              ]
+                            ]
+                          }
+                        }
+                      ]
+                    ],
+                    "nodes": [
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 19
+                        },
+                        {
+                          "fields": [
+                            [
+                              "left",
+                              {
+                                "kind": "Generic",
+                                "change": {
+                                  "children": [
+                                    [
+                                      0,
+                                      {
+                                        "revision": 4,
+                                        "localId": 20
+                                      }
+                                    ]
+                                  ]
+                                }
+                              }
+                            ],
+                            [
+                              "right",
+                              {
+                                "kind": "Generic",
+                                "change": {
+                                  "children": [
+                                    [
+                                      0,
+                                      {
+                                        "revision": 4,
+                                        "localId": 21
+                                      }
+                                    ]
+                                  ]
+                                }
+                              }
+                            ]
+                          ]
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 20
+                        },
+                        {
+                          "fields": [
+                            [
+                              "",
+                              {
+                                "kind": "Sequence",
+                                "change": [
+                                  {
+                                    "count": 1
+                                  },
+                                  {
+                                    "count": 1,
+                                    "type": "MoveOut",
+                                    "id": 13,
+                                    "revision": 4
+                                  }
+                                ]
+                              }
+                            ]
+                          ]
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 21
+                        },
+                        {
+                          "fields": [
+                            [
+                              "",
+                              {
+                                "kind": "Sequence",
+                                "change": [
+                                  {
+                                    "count": 1
+                                  },
+                                  {
+                                    "count": 1,
+                                    "type": "MoveIn",
+                                    "id": 13,
+                                    "revision": 4,
+                                    "cellId": {
+                                      "localId": 14,
+                                      "revision": 4
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          ]
+                        }
+                      ]
+                    ],
+                    "parents": [
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 19
+                        },
+                        {
+                          "node": null,
+                          "field": "rootFieldKey"
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 20
+                        },
+                        {
+                          "node": {
+                            "revision": 4,
+                            "localId": 19
+                          },
+                          "field": "left"
+                        }
+                      ],
+                      [
+                        {
+                          "revision": 4,
+                          "localId": 21
+                        },
+                        {
+                          "node": {
+                            "revision": 4,
+                            "localId": 19
+                          },
+                          "field": "right"
+                        }
+                      ]
+                    ],
+                    "aliases": [],
+                    "crossFieldKeys": [
+                      {
+                        "target": "source",
+                        "revision": 4,
+                        "localId": 13,
+                        "count": 1,
+                        "field": {
+                          "node": {
+                            "revision": 4,
+                            "localId": 20
+                          },
+                          "field": ""
+                        }
+                      },
+                      {
+                        "target": "destination",
+                        "revision": 4,
+                        "localId": 13,
+                        "count": 1,
+                        "field": {
+                          "node": {
+                            "revision": 4,
+                            "localId": 21
+                          },
+                          "field": ""
+                        }
+                      }
+                    ],
+                    "builds": [],
+                    "refreshers": [],
+                    "destroys": []
+                  }
+                }
+              ]
+            }
+          },
+          "malformed": {
+            "accepted": false,
+            "error": "Error: 0x88d"
+          }
         }
       },
       {
@@ -1659,12 +2988,13 @@
             }
           ],
           "malformed": {
+            "kind": "insert",
             "source": {
               "client": 1,
               "path": [
-                "narrow",
-                "0"
-              ]
+                "narrow"
+              ],
+              "index": 0
             },
             "destination": {
               "client": 0,
@@ -1673,11 +3003,99 @@
               ],
               "gap": 0
             }
+          },
+          "control": {
+            "kind": "move",
+            "source": {
+              "client": 0,
+              "path": [
+                "narrow"
+              ],
+              "index": 0
+            },
+            "destination": {
+              "client": 0,
+              "path": [
+                "narrow"
+              ],
+              "gap": 1
+            }
           }
         },
         "output": {
-          "accepted": false,
-          "error": "Error: A node with schema \"org.watershed.shared-tree.m3.Point\" (name: \"Point\") was inserted into the tree more than once. This is not supported."
+          "control": {
+            "accepted": true,
+            "value": {
+              "left": [
+                "A",
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                {
+                  "point": {
+                    "label": "same",
+                    "x": 1
+                  }
+                },
+                [
+                  "nested",
+                  {
+                    "map": [
+                      [
+                        "",
+                        "empty-key"
+                      ],
+                      [
+                        "0",
+                        "numeric-key"
+                      ]
+                    ]
+                  }
+                ]
+              ],
+              "right": [
+                "R"
+              ],
+              "byKey": {
+                "map": [
+                  [
+                    "",
+                    [
+                      "empty"
+                    ]
+                  ],
+                  [
+                    "0",
+                    [
+                      "zero",
+                      [
+                        "deep"
+                      ]
+                    ]
+                  ],
+                  [
+                    "01",
+                    "leading-zero"
+                  ]
+                ]
+              },
+              "narrow": [
+                {
+                  "point": {
+                    "label": "narrow",
+                    "x": 9
+                  }
+                }
+              ]
+            }
+          },
+          "malformed": {
+            "accepted": false,
+            "error": "Error: A node with schema \"org.watershed.shared-tree.m3.Point\" (name: \"Point\") was inserted into the tree more than once. This is not supported."
+          }
         }
       },
       {

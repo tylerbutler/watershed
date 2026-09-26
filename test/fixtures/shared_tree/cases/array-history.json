@@ -145,7 +145,8 @@
             "id": "reconnect-local",
             "op": "connect",
             "client": 0,
-            "connected": true
+            "connected": true,
+            "reconnectId": "client-0-reconnect-pending"
           },
           {
             "id": "settle",
@@ -493,7 +494,8 @@
           {
             "id": "reconnect",
             "op": "reconnect",
-            "client": 0
+            "client": 0,
+            "reconnectId": "client-0-reconnect"
           },
           {
             "id": "deliver-resubmission",
@@ -3708,7 +3710,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                    "clientId": "client-0-reconnect-pending",
                     "sequenceNumber": 5,
                     "minimumSequenceNumber": 2
                   },
@@ -3804,7 +3806,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                    "clientId": "client-0-reconnect-pending",
                     "sequenceNumber": 6,
                     "minimumSequenceNumber": 2
                   },
@@ -3900,7 +3902,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                    "clientId": "client-0-reconnect-pending",
                     "sequenceNumber": 7,
                     "minimumSequenceNumber": 2
                   }
@@ -3922,7 +3924,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                    "clientId": "client-0-reconnect-pending",
                     "sequenceNumber": 5,
                     "minimumSequenceNumber": 2
                   },
@@ -4018,7 +4020,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                    "clientId": "client-0-reconnect-pending",
                     "sequenceNumber": 6,
                     "minimumSequenceNumber": 2
                   },
@@ -4114,7 +4116,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                    "clientId": "client-0-reconnect-pending",
                     "sequenceNumber": 7,
                     "minimumSequenceNumber": 2
                   }
@@ -4611,7 +4613,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                  "clientId": "client-0-reconnect-pending",
                   "sequenceNumber": 5,
                   "minimumSequenceNumber": 2
                 },
@@ -4707,7 +4709,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                  "clientId": "client-0-reconnect-pending",
                   "sequenceNumber": 6,
                   "minimumSequenceNumber": 2
                 },
@@ -4803,7 +4805,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                  "clientId": "client-0-reconnect-pending",
                   "sequenceNumber": 7,
                   "minimumSequenceNumber": 2
                 }
@@ -4946,7 +4948,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                  "clientId": "client-0-reconnect-pending",
                   "sequenceNumber": 5,
                   "minimumSequenceNumber": 2
                 },
@@ -5042,7 +5044,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                  "clientId": "client-0-reconnect-pending",
                   "sequenceNumber": 6,
                   "minimumSequenceNumber": 2
                 },
@@ -5138,7 +5140,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                  "clientId": "client-0-reconnect-pending",
                   "sequenceNumber": 7,
                   "minimumSequenceNumber": 2
                 }
@@ -9780,7 +9782,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                    "clientId": "client-0-reconnect",
                     "sequenceNumber": 5,
                     "minimumSequenceNumber": 2
                   },
@@ -9876,7 +9878,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                    "clientId": "client-0-reconnect",
                     "sequenceNumber": 6,
                     "minimumSequenceNumber": 2
                   }
@@ -9898,7 +9900,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                    "clientId": "client-0-reconnect",
                     "sequenceNumber": 5,
                     "minimumSequenceNumber": 2
                   },
@@ -9994,7 +9996,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                    "clientId": "client-0-reconnect",
                     "sequenceNumber": 6,
                     "minimumSequenceNumber": 2
                   }
@@ -10476,7 +10478,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                  "clientId": "client-0-reconnect",
                   "sequenceNumber": 5,
                   "minimumSequenceNumber": 2
                 },
@@ -10572,7 +10574,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                  "clientId": "client-0-reconnect",
                   "sequenceNumber": 6,
                   "minimumSequenceNumber": 2
                 }
@@ -10715,7 +10717,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                  "clientId": "client-0-reconnect",
                   "sequenceNumber": 5,
                   "minimumSequenceNumber": 2
                 },
@@ -10811,7 +10813,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                  "clientId": "client-0-reconnect",
                   "sequenceNumber": 6,
                   "minimumSequenceNumber": 2
                 }
@@ -20801,195 +20803,84 @@
               }
             ]
           },
-          "tailEnvelope": {
-            "clientId": "test-client-0",
-            "clientSequenceNumber": 2,
-            "referenceSequenceNumber": 2,
-            "sequenceNumber": 4,
-            "minimumSequenceNumber": 2,
-            "contents": {
-              "revision": 1,
-              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
-              "changeset": [
-                {
-                  "data": {
-                    "maxId": 2,
-                    "changes": [
-                      {
-                        "fieldKey": "rootFieldKey",
-                        "fieldKind": "ModularEditBuilder.Generic",
-                        "change": [
-                          [
-                            0,
-                            {
-                              "fieldChanges": [
-                                {
-                                  "fieldKey": "right",
-                                  "fieldKind": "ModularEditBuilder.Generic",
-                                  "change": [
-                                    [
-                                      0,
-                                      {
-                                        "fieldChanges": [
-                                          {
-                                            "fieldKey": "",
-                                            "fieldKind": "Sequence",
-                                            "change": [
-                                              {
-                                                "count": 1
-                                              },
-                                              {
-                                                "count": 1,
-                                                "effect": {
-                                                  "insert": {
-                                                    "id": 0
-                                                  }
-                                                },
-                                                "cellId": 0
-                                              }
-                                            ]
-                                          }
-                                        ]
-                                      }
-                                    ]
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        ]
-                      }
-                    ],
-                    "builds": {
-                      "builds": [
-                        [
-                          [
-                            [
-                              0,
-                              0
-                            ]
-                          ]
-                        ]
-                      ],
-                      "trees": {
-                        "version": 2,
-                        "identifiers": [],
-                        "shapes": [
-                          {
-                            "c": {
-                              "type": "com.fluidframework.leaf.string",
-                              "value": true
-                            }
-                          }
-                        ],
-                        "data": [
-                          [
-                            0,
-                            "tail"
-                          ]
-                        ]
-                      }
-                    }
-                  }
-                }
-              ],
-              "version": 7
-            }
+          "readerHistoryAfterTail": {
+            "pending": [],
+            "trunk": [
+              {
+                "revision": 1,
+                "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "sequenceNumber": 4,
+                "indexInBatch": null
+              }
+            ],
+            "peers": [
+              {
+                "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "revisions": [
+                  1,
+                  0
+                ]
+              }
+            ],
+            "longestBranchLength": 0
           },
-          "continuationEnvelope": {
-            "clientId": "6dfe377b-4863-4de3-a3d3-ddd9f88e2b5f",
-            "clientSequenceNumber": 1,
-            "referenceSequenceNumber": 4,
-            "sequenceNumber": 5,
-            "minimumSequenceNumber": 2,
-            "contents": {
-              "revision": -1,
-              "originatorId": "6dfe377b-4863-4de3-a3d3-ddd9f88e2b5f",
-              "changeset": [
-                {
-                  "data": {
-                    "maxId": 2,
-                    "changes": [
-                      {
-                        "fieldKey": "rootFieldKey",
-                        "fieldKind": "ModularEditBuilder.Generic",
-                        "change": [
-                          [
-                            0,
-                            {
-                              "fieldChanges": [
-                                {
-                                  "fieldKey": "left",
-                                  "fieldKind": "ModularEditBuilder.Generic",
-                                  "change": [
-                                    [
-                                      0,
-                                      {
-                                        "fieldChanges": [
-                                          {
-                                            "fieldKey": "",
-                                            "fieldKind": "Sequence",
-                                            "change": [
-                                              {
-                                                "count": 4
-                                              },
-                                              {
-                                                "count": 1,
-                                                "effect": {
-                                                  "insert": {
-                                                    "id": 0
-                                                  }
-                                                },
-                                                "cellId": 0
-                                              }
-                                            ]
-                                          }
-                                        ]
-                                      }
-                                    ]
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        ]
-                      }
-                    ],
-                    "builds": {
-                      "builds": [
-                        [
-                          [
-                            [
-                              0,
-                              0
-                            ]
-                          ]
-                        ]
-                      ],
-                      "trees": {
-                        "version": 2,
-                        "identifiers": [],
-                        "shapes": [
-                          {
-                            "c": {
-                              "type": "com.fluidframework.leaf.string",
-                              "value": true
-                            }
-                          }
-                        ],
-                        "data": [
-                          [
-                            0,
-                            "reader-continuation"
-                          ]
-                        ]
-                      }
-                    }
-                  }
-                }
-              ],
-              "version": 7
-            }
+          "readerHistoryAfterContinuation": {
+            "pending": [
+              -1
+            ],
+            "trunk": [
+              {
+                "revision": 1,
+                "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "sequenceNumber": 4,
+                "indexInBatch": null
+              }
+            ],
+            "peers": [
+              {
+                "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "revisions": [
+                  1,
+                  0
+                ]
+              }
+            ],
+            "longestBranchLength": 1
+          },
+          "peerHistory": {
+            "pending": [],
+            "trunk": [
+              {
+                "revision": 1,
+                "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "sequenceNumber": 4,
+                "indexInBatch": null
+              },
+              {
+                "revision": 513,
+                "sessionId": "6dfe377b-4863-4de3-a3d3-ddd9f88e2b5f",
+                "sequenceNumber": 5,
+                "indexInBatch": null
+              }
+            ],
+            "peers": [
+              {
+                "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "revisions": [
+                  1,
+                  0
+                ]
+              },
+              {
+                "sessionId": "6dfe377b-4863-4de3-a3d3-ddd9f88e2b5f",
+                "revisions": [
+                  513,
+                  1,
+                  0
+                ]
+              }
+            ],
+            "longestBranchLength": 0
           },
           "continuationCreationRange": {
             "sessionId": "6dfe377b-4863-4de3-a3d3-ddd9f88e2b5f",
@@ -23951,7 +23842,8 @@
               "id": "reconnect-local",
               "op": "connect",
               "client": 0,
-              "connected": true
+              "connected": true,
+              "reconnectId": "client-0-reconnect-pending"
             },
             {
               "id": "settle",
@@ -26398,7 +26290,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                    "clientId": "client-0-reconnect-pending",
                     "sequenceNumber": 5,
                     "minimumSequenceNumber": 2
                   },
@@ -26494,7 +26386,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                    "clientId": "client-0-reconnect-pending",
                     "sequenceNumber": 6,
                     "minimumSequenceNumber": 2
                   },
@@ -26590,7 +26482,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                    "clientId": "client-0-reconnect-pending",
                     "sequenceNumber": 7,
                     "minimumSequenceNumber": 2
                   }
@@ -26612,7 +26504,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                    "clientId": "client-0-reconnect-pending",
                     "sequenceNumber": 5,
                     "minimumSequenceNumber": 2
                   },
@@ -26708,7 +26600,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                    "clientId": "client-0-reconnect-pending",
                     "sequenceNumber": 6,
                     "minimumSequenceNumber": 2
                   },
@@ -26804,7 +26696,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                    "clientId": "client-0-reconnect-pending",
                     "sequenceNumber": 7,
                     "minimumSequenceNumber": 2
                   }
@@ -27301,7 +27193,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                  "clientId": "client-0-reconnect-pending",
                   "sequenceNumber": 5,
                   "minimumSequenceNumber": 2
                 },
@@ -27397,7 +27289,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                  "clientId": "client-0-reconnect-pending",
                   "sequenceNumber": 6,
                   "minimumSequenceNumber": 2
                 },
@@ -27493,7 +27385,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                  "clientId": "client-0-reconnect-pending",
                   "sequenceNumber": 7,
                   "minimumSequenceNumber": 2
                 }
@@ -27636,7 +27528,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                  "clientId": "client-0-reconnect-pending",
                   "sequenceNumber": 5,
                   "minimumSequenceNumber": 2
                 },
@@ -27732,7 +27624,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                  "clientId": "client-0-reconnect-pending",
                   "sequenceNumber": 6,
                   "minimumSequenceNumber": 2
                 },
@@ -27828,7 +27720,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "a6af99b6-1857-4762-bde4-78146273db07",
+                  "clientId": "client-0-reconnect-pending",
                   "sequenceNumber": 7,
                   "minimumSequenceNumber": 2
                 }
@@ -30937,7 +30829,8 @@
             {
               "id": "reconnect",
               "op": "reconnect",
-              "client": 0
+              "client": 0,
+              "reconnectId": "client-0-reconnect"
             },
             {
               "id": "deliver-resubmission",
@@ -32818,7 +32711,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                    "clientId": "client-0-reconnect",
                     "sequenceNumber": 5,
                     "minimumSequenceNumber": 2
                   },
@@ -32914,7 +32807,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                    "clientId": "client-0-reconnect",
                     "sequenceNumber": 6,
                     "minimumSequenceNumber": 2
                   }
@@ -32936,7 +32829,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                    "clientId": "client-0-reconnect",
                     "sequenceNumber": 5,
                     "minimumSequenceNumber": 2
                   },
@@ -33032,7 +32925,7 @@
                     },
                     "referenceSequenceNumber": 4,
                     "type": "op",
-                    "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                    "clientId": "client-0-reconnect",
                     "sequenceNumber": 6,
                     "minimumSequenceNumber": 2
                   }
@@ -33514,7 +33407,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                  "clientId": "client-0-reconnect",
                   "sequenceNumber": 5,
                   "minimumSequenceNumber": 2
                 },
@@ -33610,7 +33503,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                  "clientId": "client-0-reconnect",
                   "sequenceNumber": 6,
                   "minimumSequenceNumber": 2
                 }
@@ -33753,7 +33646,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                  "clientId": "client-0-reconnect",
                   "sequenceNumber": 5,
                   "minimumSequenceNumber": 2
                 },
@@ -33849,7 +33742,7 @@
                   },
                   "referenceSequenceNumber": 4,
                   "type": "op",
-                  "clientId": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                  "clientId": "client-0-reconnect",
                   "sequenceNumber": 6,
                   "minimumSequenceNumber": 2
                 }
@@ -44457,195 +44350,84 @@
               }
             ]
           },
-          "tailEnvelope": {
-            "clientId": "test-client-0",
-            "clientSequenceNumber": 2,
-            "referenceSequenceNumber": 2,
-            "sequenceNumber": 4,
-            "minimumSequenceNumber": 2,
-            "contents": {
-              "revision": 1,
-              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
-              "changeset": [
-                {
-                  "data": {
-                    "maxId": 2,
-                    "changes": [
-                      {
-                        "fieldKey": "rootFieldKey",
-                        "fieldKind": "ModularEditBuilder.Generic",
-                        "change": [
-                          [
-                            0,
-                            {
-                              "fieldChanges": [
-                                {
-                                  "fieldKey": "right",
-                                  "fieldKind": "ModularEditBuilder.Generic",
-                                  "change": [
-                                    [
-                                      0,
-                                      {
-                                        "fieldChanges": [
-                                          {
-                                            "fieldKey": "",
-                                            "fieldKind": "Sequence",
-                                            "change": [
-                                              {
-                                                "count": 1
-                                              },
-                                              {
-                                                "count": 1,
-                                                "effect": {
-                                                  "insert": {
-                                                    "id": 0
-                                                  }
-                                                },
-                                                "cellId": 0
-                                              }
-                                            ]
-                                          }
-                                        ]
-                                      }
-                                    ]
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        ]
-                      }
-                    ],
-                    "builds": {
-                      "builds": [
-                        [
-                          [
-                            [
-                              0,
-                              0
-                            ]
-                          ]
-                        ]
-                      ],
-                      "trees": {
-                        "version": 2,
-                        "identifiers": [],
-                        "shapes": [
-                          {
-                            "c": {
-                              "type": "com.fluidframework.leaf.string",
-                              "value": true
-                            }
-                          }
-                        ],
-                        "data": [
-                          [
-                            0,
-                            "tail"
-                          ]
-                        ]
-                      }
-                    }
-                  }
-                }
-              ],
-              "version": 7
-            }
+          "readerHistoryAfterTail": {
+            "pending": [],
+            "trunk": [
+              {
+                "revision": 1,
+                "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "sequenceNumber": 4,
+                "indexInBatch": null
+              }
+            ],
+            "peers": [
+              {
+                "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "revisions": [
+                  1,
+                  0
+                ]
+              }
+            ],
+            "longestBranchLength": 0
           },
-          "continuationEnvelope": {
-            "clientId": "6dfe377b-4863-4de3-a3d3-ddd9f88e2b5f",
-            "clientSequenceNumber": 1,
-            "referenceSequenceNumber": 4,
-            "sequenceNumber": 5,
-            "minimumSequenceNumber": 2,
-            "contents": {
-              "revision": -1,
-              "originatorId": "6dfe377b-4863-4de3-a3d3-ddd9f88e2b5f",
-              "changeset": [
-                {
-                  "data": {
-                    "maxId": 2,
-                    "changes": [
-                      {
-                        "fieldKey": "rootFieldKey",
-                        "fieldKind": "ModularEditBuilder.Generic",
-                        "change": [
-                          [
-                            0,
-                            {
-                              "fieldChanges": [
-                                {
-                                  "fieldKey": "left",
-                                  "fieldKind": "ModularEditBuilder.Generic",
-                                  "change": [
-                                    [
-                                      0,
-                                      {
-                                        "fieldChanges": [
-                                          {
-                                            "fieldKey": "",
-                                            "fieldKind": "Sequence",
-                                            "change": [
-                                              {
-                                                "count": 4
-                                              },
-                                              {
-                                                "count": 1,
-                                                "effect": {
-                                                  "insert": {
-                                                    "id": 0
-                                                  }
-                                                },
-                                                "cellId": 0
-                                              }
-                                            ]
-                                          }
-                                        ]
-                                      }
-                                    ]
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        ]
-                      }
-                    ],
-                    "builds": {
-                      "builds": [
-                        [
-                          [
-                            [
-                              0,
-                              0
-                            ]
-                          ]
-                        ]
-                      ],
-                      "trees": {
-                        "version": 2,
-                        "identifiers": [],
-                        "shapes": [
-                          {
-                            "c": {
-                              "type": "com.fluidframework.leaf.string",
-                              "value": true
-                            }
-                          }
-                        ],
-                        "data": [
-                          [
-                            0,
-                            "reader-continuation"
-                          ]
-                        ]
-                      }
-                    }
-                  }
-                }
-              ],
-              "version": 7
-            }
+          "readerHistoryAfterContinuation": {
+            "pending": [
+              -1
+            ],
+            "trunk": [
+              {
+                "revision": 1,
+                "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "sequenceNumber": 4,
+                "indexInBatch": null
+              }
+            ],
+            "peers": [
+              {
+                "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "revisions": [
+                  1,
+                  0
+                ]
+              }
+            ],
+            "longestBranchLength": 1
+          },
+          "peerHistory": {
+            "pending": [],
+            "trunk": [
+              {
+                "revision": 1,
+                "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "sequenceNumber": 4,
+                "indexInBatch": null
+              },
+              {
+                "revision": 513,
+                "sessionId": "6dfe377b-4863-4de3-a3d3-ddd9f88e2b5f",
+                "sequenceNumber": 5,
+                "indexInBatch": null
+              }
+            ],
+            "peers": [
+              {
+                "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "revisions": [
+                  1,
+                  0
+                ]
+              },
+              {
+                "sessionId": "6dfe377b-4863-4de3-a3d3-ddd9f88e2b5f",
+                "revisions": [
+                  513,
+                  1,
+                  0
+                ]
+              }
+            ],
+            "longestBranchLength": 0
           },
           "continuationCreationRange": {
             "sessionId": "6dfe377b-4863-4de3-a3d3-ddd9f88e2b5f",

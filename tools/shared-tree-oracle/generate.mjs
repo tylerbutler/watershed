@@ -1317,7 +1317,9 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     check(object(value) && Number.isSafeInteger(value.maxLocalId)
       && Array.isArray(value.revisions), `${detail} graph`);
     modularFields(value.fields, detail);
-    for (const table of ["nodes", "parents", "aliases", "crossFieldKeys"]) {
+    for (const table of [
+      "nodes", "parents", "aliases", "crossFieldKeys", "builds", "refreshers", "destroys",
+    ]) {
       check(Array.isArray(value[table]), `${detail} ${table}`);
     }
     for (const entry of value.nodes) {
@@ -1342,6 +1344,27 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
         && (entry.field.node === null || atomId(entry.field.node)),
       `${detail} cross-field key`);
     }
+    const jsonableTree = (tree) => {
+      check(object(tree) && typeof tree.type === "string", `${detail} chunk tree`);
+      if (tree.fields !== undefined) {
+        check(object(tree.fields), `${detail} chunk fields`);
+        for (const children of Object.values(tree.fields)) {
+          check(Array.isArray(children), `${detail} chunk children`);
+          children.forEach(jsonableTree);
+        }
+      }
+    };
+    for (const table of ["builds", "refreshers"]) {
+      for (const entry of value[table]) {
+        check(Array.isArray(entry) && entry.length === 2 && atomId(entry[0])
+          && Array.isArray(entry[1]), `${detail} ${table} entry`);
+        entry[1].forEach(jsonableTree);
+      }
+    }
+    for (const entry of value.destroys) {
+      check(Array.isArray(entry) && entry.length === 2 && atomId(entry[0])
+        && Number.isSafeInteger(entry[1]) && entry[1] >= 0, `${detail} destroy entry`);
+    }
   };
   for (const [index, input] of inputs.entries()) {
     check(typeof input.operation === "string" && input.operation.length > 0,
@@ -1351,10 +1374,18 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
       check(Object.hasOwn(input, "initialState")
         && object(input.operands)
         && Array.isArray(input.revisions)
-        && object(input.allocator)
         && object(input.compressor)
+        && typeof input.compressor.serialized === "string"
         && object(input.sequencing)
         && nonemptyArray(input.schedule), `${input.id} complete replay input`);
+      if (label === "array-modular-algebra") {
+        check(object(input.allocator), `${input.id} modular allocator`);
+      } else {
+        check(input.algorithm?.localIds === "supplied-by-operands"
+          && input.algorithm?.algebraAllocator === "derived-from-change-max-id"
+          && !Object.hasOwn(input, "allocator"),
+        `${input.id} source allocator contract`);
+      }
     }
     if (input.operation === "move" || input.operation === "move-endpoints") {
       endpoint(input.source, `${input.id} source`);
@@ -1416,11 +1447,6 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     }
     if (label === "sequence-compose-invert") {
       const op = input.operands;
-      if (op.maxLocalId !== undefined) {
-        check(Number.isSafeInteger(op.maxLocalId)
-          && op.maxLocalId === input.allocator.maxLocalId,
-        `${input.id} allocator watermark`);
-      }
       if (input.operation === "compose") {
         check(nonemptyArray(op.changes), `${input.id} compose operands`);
         for (const [changeIndex, change] of op.changes.entries()) {
@@ -1431,14 +1457,12 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
         tagged(op.change, `${input.id} split operand`);
         check(typeof op.isRollback === "boolean"
           && (typeof op.inverseRevision === "string"
-            || Number.isSafeInteger(op.inverseRevision))
-          && Number.isSafeInteger(op.maxLocalId), `${input.id} inverse operands`);
+            || Number.isSafeInteger(op.inverseRevision)), `${input.id} inverse operands`);
       } else if (input.operation === "invert") {
         tagged(op.change, `${input.id} inverse operand`);
         check(typeof op.isRollback === "boolean"
           && (typeof op.inverseRevision === "string"
-            || Number.isSafeInteger(op.inverseRevision))
-          && Number.isSafeInteger(op.maxLocalId), `${input.id} inverse operands`);
+            || Number.isSafeInteger(op.inverseRevision)), `${input.id} inverse operands`);
       } else if (input.operation === "replace-revisions") {
         changeset(op.change, `${input.id} replacement`);
         check(nonemptyArray(op.obsolete)
@@ -1459,9 +1483,6 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     if (label === "sequence-rebase") {
       check(input.operation === "rebase" && input.operands.childRebaser === "test-node",
         `${input.id} rebase callback`);
-      check(Number.isSafeInteger(input.operands.maxLocalId)
-        && input.operands.maxLocalId === input.allocator.maxLocalId,
-      `${input.id} allocator watermark`);
       tagged(input.operands.change, `${input.id} change`);
       tagged(input.operands.base, `${input.id} base`);
     }
@@ -1698,17 +1719,30 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     "Message V7 codec");
     check(nonemptyArray(output.get("builds").encoded)
       && nonemptyArray(output.get("builds").decoded), "array builds");
+    const decodedBuild = output.get("builds").decoded
+      .flatMap(({ changes }) => changes)
+      .find(({ type, data }) => type === "data" && nonemptyArray(data.builds));
+    check(object(decodedBuild)
+      && decodedBuild.data.builds.some(([, trees]) => nonemptyArray(trees))
+      && Array.isArray(decodedBuild.data.refreshers)
+      && Array.isArray(decodedBuild.data.destroys),
+    "decoded array build content");
     const emptyForest = JSON.parse(output.get("empty-arrays").forest);
     check(emptyForest.version === 2
       && JSON.stringify(emptyForest).includes("org.watershed.shared-tree.m3"),
     "empty array forest");
-    check(JSON.parse(output.get("retained-history").history).version === 7,
-      "retained history");
-    check(nonemptyArray(JSON.parse(output.get("detached-index").detached).data),
-      "retained detached ranges");
-    for (const section of ["schema", "forest", "detached", "history", "summary"]) {
+    check(nonemptyArray(output.get("retained-history").restoredHistory.trunk),
+      "restored retained history");
+    check(nonemptyArray(output.get("detached-index").restoredDetached),
+      "restored detached ranges");
+    for (const section of [
+      "schema", "forest", "restoredDetached", "restoredHistory",
+    ]) {
       check(output.get("full-summary")[section] !== undefined, `full-summary ${section}`);
     }
+    check(!Object.hasOwn(output.get("full-summary"), "history")
+      && !Object.hasOwn(output.get("full-summary"), "detached"),
+    "full-summary source observations");
     check(nonemptyArray(value.raw.messages)
       && value.raw.messages.every((message) => message.version === 7),
     "actual V7 messages");
@@ -1725,6 +1759,17 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
           object(action) && typeof action.id === "string" && typeof action.op === "string"
           && !Object.hasOwn(action, "deliveries") && !Object.hasOwn(action, "result")),
       `${id} action schedule`);
+      const disconnected = new Set();
+      for (const action of scenario.schedule) {
+        const client = action.client ?? 0;
+        if (action.op === "connect" && action.connected === false) disconnected.add(client);
+        if (action.op === "reconnect"
+          || action.op === "connect" && action.connected === true && disconnected.has(client)) {
+          check(typeof action.reconnectId === "string" && action.reconnectId.length > 0,
+            `${id} reconnect identity`);
+          disconnected.delete(client);
+        }
+      }
       check(nonemptyArray(output.get(id).checkpoints)
         && object(output.get(id).final), `${id} replay checkpoints`);
     }
@@ -1778,6 +1823,12 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
       && JSON.stringify(output.get("summary-tail").readerAfterContinuation)
         !== JSON.stringify(output.get("summary-tail").readerAfterTail),
     "summary tail");
+    check(nonemptyArray(summaryTail.readerHistoryAfterTail.trunk)
+      && nonemptyArray(summaryTail.readerHistoryAfterContinuation.trunk)
+      && nonemptyArray(summaryTail.peerHistory.trunk)
+      && !Object.hasOwn(summaryTail, "tailEnvelope")
+      && !Object.hasOwn(summaryTail, "continuationEnvelope"),
+    "summary-tail source history");
     const publicEdits = output.get("public-noops").checkpoints;
     const noops = publicEdits.slice(0, 3);
     for (const noop of noops) {
@@ -1808,11 +1859,19 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
   } else if (label === "array-invalid") {
     for (const id of requiredIds.filter((id) => id !== "native-remove-beyond-length")) {
       check(Object.hasOwn(input.get(id), "malformed"), `${id} malformed input`);
+      const result = output.get(id);
+      const rejection = id === "corrupt-mark" || id === "corrupt-revision"
+        || id === "corrupt-ownership" ? result.malformed : result;
       check(observation.get(id).rejected === true
-        && output.get(id).accepted === false
-        && typeof output.get(id).error === "string"
-        && output.get(id).error.length > 0,
-        `${id} rejection`);
+        && rejection.accepted === false
+        && typeof rejection.error === "string"
+        && rejection.error.length > 0, `${id} rejection`);
+    }
+    for (const [id, assertion] of [["corrupt-mark", "0xac2"], ["corrupt-revision", "0x88d"]]) {
+      check(output.get(id).control.accepted === true
+        && output.get(id).malformed.accepted === false
+        && output.get(id).malformed.error.includes(assertion),
+      `${id} direct source decode`);
     }
     const corruptRange = input.get("corrupt-range").malformed;
     check(object(corruptRange)
@@ -1825,9 +1884,26 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     check(summary(input.get("corrupt-summary").malformed)
       && !object(input.get("corrupt-summary").malformed.tree.indexes),
       "corrupt-summary malformed input");
-    check(object(input.get("corrupt-ownership").malformed?.source)
-      && object(input.get("corrupt-ownership").malformed?.destination),
-    "corrupt-ownership malformed input");
+    const ownership = input.get("corrupt-ownership");
+    check(object(ownership.malformed?.source), "corrupt-ownership source");
+    check(ownership.malformed.kind === "insert", "corrupt-ownership malformed operation");
+    check(Array.isArray(ownership.malformed.source.path),
+      "corrupt-ownership source path");
+    check(Number.isSafeInteger(ownership.malformed.source.client),
+      "corrupt-ownership source client");
+    check(Number.isSafeInteger(ownership.malformed.source.index),
+      "corrupt-ownership source index");
+    check(object(ownership.malformed?.destination), "corrupt-ownership destination");
+    check(Array.isArray(ownership.malformed.destination.path),
+      "corrupt-ownership destination path");
+    check(Number.isSafeInteger(ownership.malformed.destination.client),
+      "corrupt-ownership destination client");
+    check(Number.isSafeInteger(ownership.malformed.destination.gap),
+      "corrupt-ownership destination index");
+    check(object(ownership.control)
+      && ownership.control.kind === "move"
+      && output.get("corrupt-ownership").control.accepted === true,
+    "corrupt-ownership valid control");
     const bounds = output.get("native-remove-beyond-length");
     check(observation.get("native-remove-beyond-length").rejected === false
       && bounds.nativeContract === "error"

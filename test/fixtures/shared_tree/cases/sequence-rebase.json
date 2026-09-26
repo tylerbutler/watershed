@@ -24,12 +24,12 @@
                 "count": 1,
                 "cellId": {
                   "localId": 0,
-                  "revision": 0
+                  "revision": -1
                 },
-                "revision": 0
+                "revision": -1
               }
             ],
-            "revision": 0
+            "revision": -1
           },
           "base": {
             "change": [
@@ -39,26 +39,27 @@
                 "count": 1,
                 "cellId": {
                   "localId": 1,
-                  "revision": 1
+                  "revision": -2
                 },
-                "revision": 1
+                "revision": -2
               }
             ],
-            "revision": 1
+            "revision": -2
           },
-          "childRebaser": "test-node",
-          "maxLocalId": 37
+          "childRebaser": "test-node"
         },
         "revisions": [
-          0,
-          1
+          -1,
+          -2
         ],
-        "allocator": {
-          "maxLocalId": 37
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -86,12 +87,12 @@
                 "count": 1,
                 "cellId": {
                   "localId": 0,
-                  "revision": 0
+                  "revision": -1
                 },
-                "revision": 0
+                "revision": -1
               }
             ],
-            "revision": 0
+            "revision": -1
           },
           "base": {
             "change": [
@@ -99,24 +100,25 @@
                 "type": "Remove",
                 "count": 2,
                 "id": 2,
-                "revision": 2
+                "revision": -3
               }
             ],
-            "revision": 2
+            "revision": -3
           },
-          "childRebaser": "test-node",
-          "maxLocalId": 37
+          "childRebaser": "test-node"
         },
         "revisions": [
-          0,
-          2
+          -1,
+          -3
         ],
-        "allocator": {
-          "maxLocalId": 37
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -142,10 +144,10 @@
                 "type": "Remove",
                 "count": 2,
                 "id": 2,
-                "revision": 2
+                "revision": -3
               }
             ],
-            "revision": 2
+            "revision": -3
           },
           "base": {
             "change": [
@@ -156,24 +158,25 @@
                 "type": "Remove",
                 "count": 2,
                 "id": 4,
-                "revision": 3
+                "revision": -4
               }
             ],
-            "revision": 3
+            "revision": -4
           },
-          "childRebaser": "test-node",
-          "maxLocalId": 37
+          "childRebaser": "test-node"
         },
         "revisions": [
-          2,
-          3
+          -3,
+          -4
         ],
-        "allocator": {
-          "maxLocalId": 37
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -214,7 +217,7 @@
                 }
               }
             ],
-            "revision": 6
+            "revision": -7
           },
           "base": {
             "change": [
@@ -222,7 +225,7 @@
                 "type": "MoveOut",
                 "id": 6,
                 "count": 2,
-                "revision": 4
+                "revision": -5
               },
               {
                 "count": 2
@@ -232,27 +235,28 @@
                 "id": 6,
                 "count": 2,
                 "cellId": {
-                  "revision": 4,
+                  "revision": -5,
                   "localId": 8
                 },
-                "revision": 4
+                "revision": -5
               }
             ],
-            "revision": 4
+            "revision": -5
           },
-          "childRebaser": "test-node",
-          "maxLocalId": 37
+          "childRebaser": "test-node"
         },
         "revisions": [
-          6,
-          4
+          -7,
+          -5
         ],
-        "allocator": {
-          "maxLocalId": 37
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -278,7 +282,7 @@
                 "type": "MoveOut",
                 "id": 6,
                 "count": 2,
-                "revision": 4
+                "revision": -5
               },
               {
                 "count": 2
@@ -288,13 +292,13 @@
                 "id": 6,
                 "count": 2,
                 "cellId": {
-                  "revision": 4,
+                  "revision": -5,
                   "localId": 8
                 },
-                "revision": 4
+                "revision": -5
               }
             ],
-            "revision": 4
+            "revision": -5
           },
           "base": {
             "change": [
@@ -305,24 +309,25 @@
                 "type": "Remove",
                 "count": 2,
                 "id": 4,
-                "revision": 3
+                "revision": -4
               }
             ],
-            "revision": 3
+            "revision": -4
           },
-          "childRebaser": "test-node",
-          "maxLocalId": 37
+          "childRebaser": "test-node"
         },
         "revisions": [
-          4,
-          3
+          -5,
+          -4
         ],
-        "allocator": {
-          "maxLocalId": 37
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -348,7 +353,7 @@
                 "type": "MoveOut",
                 "id": 6,
                 "count": 2,
-                "revision": 4
+                "revision": -5
               },
               {
                 "count": 2
@@ -358,13 +363,13 @@
                 "id": 6,
                 "count": 2,
                 "cellId": {
-                  "revision": 4,
+                  "revision": -5,
                   "localId": 8
                 },
-                "revision": 4
+                "revision": -5
               }
             ],
-            "revision": 4
+            "revision": -5
           },
           "base": {
             "change": [
@@ -373,10 +378,10 @@
                 "id": 10,
                 "count": 2,
                 "cellId": {
-                  "revision": 5,
+                  "revision": -6,
                   "localId": 12
                 },
-                "revision": 5
+                "revision": -6
               },
               {
                 "count": 1
@@ -385,24 +390,25 @@
                 "type": "MoveOut",
                 "id": 10,
                 "count": 2,
-                "revision": 5
+                "revision": -6
               }
             ],
-            "revision": 5
+            "revision": -6
           },
-          "childRebaser": "test-node",
-          "maxLocalId": 37
+          "childRebaser": "test-node"
         },
         "revisions": [
-          4,
-          5
+          -5,
+          -6
         ],
-        "allocator": {
-          "maxLocalId": 37
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -428,7 +434,7 @@
                 "type": "MoveOut",
                 "id": 14,
                 "count": 3,
-                "revision": 7
+                "revision": -8
               },
               {
                 "count": 2
@@ -438,13 +444,13 @@
                 "id": 14,
                 "count": 3,
                 "cellId": {
-                  "revision": 7,
+                  "revision": -8,
                   "localId": 17
                 },
-                "revision": 7
+                "revision": -8
               }
             ],
-            "revision": 7
+            "revision": -8
           },
           "base": {
             "change": [
@@ -453,10 +459,10 @@
                 "id": 20,
                 "count": 3,
                 "cellId": {
-                  "revision": 8,
+                  "revision": -9,
                   "localId": 23
                 },
-                "revision": 8
+                "revision": -9
               },
               {
                 "count": 2
@@ -465,24 +471,25 @@
                 "type": "MoveOut",
                 "id": 20,
                 "count": 3,
-                "revision": 8
+                "revision": -9
               }
             ],
-            "revision": 8
+            "revision": -9
           },
-          "childRebaser": "test-node",
-          "maxLocalId": 37
+          "childRebaser": "test-node"
         },
         "revisions": [
-          7,
-          8
+          -8,
+          -9
         ],
-        "allocator": {
-          "maxLocalId": 37
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -507,12 +514,12 @@
               {
                 "count": 1,
                 "cellId": {
-                  "revision": 2,
+                  "revision": -3,
                   "localId": 2
                 }
               }
             ],
-            "revision": 9
+            "revision": -10
           },
           "base": {
             "change": [
@@ -521,26 +528,27 @@
                 "count": 1,
                 "id": 2,
                 "cellId": {
-                  "revision": 2,
+                  "revision": -3,
                   "localId": 2
                 }
               }
             ],
-            "revision": 10
+            "revision": -11
           },
-          "childRebaser": "test-node",
-          "maxLocalId": 37
+          "childRebaser": "test-node"
         },
         "revisions": [
-          9,
-          10
+          -10,
+          -11
         ],
-        "allocator": {
-          "maxLocalId": 37
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -577,12 +585,12 @@
                   }
                 },
                 "cellId": {
-                  "revision": 2,
+                  "revision": -3,
                   "localId": 2
                 }
               }
             ],
-            "revision": 11
+            "revision": -12
           },
           "base": {
             "change": [
@@ -590,24 +598,25 @@
                 "type": "Remove",
                 "count": 2,
                 "id": 2,
-                "revision": 2
+                "revision": -3
               }
             ],
-            "revision": 2
+            "revision": -3
           },
-          "childRebaser": "test-node",
-          "maxLocalId": 37
+          "childRebaser": "test-node"
         },
         "revisions": [
-          11,
-          2
+          -12,
+          -3
         ],
-        "allocator": {
-          "maxLocalId": 37
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -633,7 +642,7 @@
                 "type": "MoveOut",
                 "id": 30,
                 "count": 2,
-                "revision": 12
+                "revision": -13
               },
               {
                 "count": 2
@@ -643,13 +652,13 @@
                 "id": 30,
                 "count": 2,
                 "cellId": {
-                  "revision": 12,
+                  "revision": -13,
                   "localId": 32
                 },
-                "revision": 12
+                "revision": -13
               }
             ],
-            "revision": 12
+            "revision": -13
           },
           "base": {
             "change": [
@@ -658,10 +667,10 @@
                 "id": 34,
                 "count": 2,
                 "cellId": {
-                  "revision": 13,
+                  "revision": -14,
                   "localId": 36
                 },
-                "revision": 13
+                "revision": -14
               },
               {
                 "count": 2
@@ -670,24 +679,25 @@
                 "type": "MoveOut",
                 "id": 34,
                 "count": 2,
-                "revision": 13
+                "revision": -14
               }
             ],
-            "revision": 13
+            "revision": -14
           },
-          "childRebaser": "test-node",
-          "maxLocalId": 37
+          "childRebaser": "test-node"
         },
         "revisions": [
-          12,
-          13
+          -13,
+          -14
         ],
-        "allocator": {
-          "maxLocalId": 37
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -715,10 +725,10 @@
               "id": 0,
               "count": 1,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             }
           ],
           "callbacks": []
@@ -730,10 +740,10 @@
               "id": 0,
               "count": 1,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             }
           ],
           "callbacks": []
@@ -750,15 +760,15 @@
               "id": 0,
               "count": 1,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             },
             {
               "count": 2,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 2
               }
             }
@@ -772,15 +782,15 @@
               "id": 0,
               "count": 1,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             },
             {
               "count": 2,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 2
               }
             }
@@ -798,22 +808,22 @@
               "type": "Remove",
               "count": 1,
               "id": 2,
-              "revision": 2
+              "revision": -3
             },
             {
               "type": "Remove",
               "count": 1,
               "id": 3,
-              "revision": 2,
+              "revision": -3,
               "cellId": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 4
               }
             },
             {
               "count": 1,
               "cellId": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 5
               }
             }
@@ -826,22 +836,22 @@
               "type": "Remove",
               "count": 1,
               "id": 2,
-              "revision": 2
+              "revision": -3
             },
             {
               "type": "Remove",
               "count": 1,
               "id": 3,
-              "revision": 2,
+              "revision": -3,
               "cellId": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 4
               }
             },
             {
               "count": 1,
               "cellId": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 5
               }
             }
@@ -858,7 +868,7 @@
             {
               "count": 2,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 6
               }
             },
@@ -904,7 +914,7 @@
             {
               "count": 2,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 6
               }
             },
@@ -956,22 +966,22 @@
               "type": "MoveOut",
               "id": 6,
               "count": 1,
-              "revision": 4
+              "revision": -5
             },
             {
               "type": "MoveOut",
               "id": 7,
               "count": 1,
-              "revision": 4,
+              "revision": -5,
               "cellId": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 4
               }
             },
             {
               "count": 1,
               "cellId": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 5
               }
             },
@@ -983,10 +993,10 @@
               "id": 6,
               "count": 2,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 8
               },
-              "revision": 4
+              "revision": -5
             }
           ],
           "callbacks": []
@@ -997,22 +1007,22 @@
               "type": "MoveOut",
               "id": 6,
               "count": 1,
-              "revision": 4
+              "revision": -5
             },
             {
               "type": "MoveOut",
               "id": 7,
               "count": 1,
-              "revision": 4,
+              "revision": -5,
               "cellId": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 4
               }
             },
             {
               "count": 1,
               "cellId": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 5
               }
             },
@@ -1024,10 +1034,10 @@
               "id": 6,
               "count": 2,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 8
               },
-              "revision": 4
+              "revision": -5
             }
           ],
           "callbacks": []
@@ -1043,7 +1053,7 @@
               "count": 1,
               "type": "MoveOut",
               "id": 7,
-              "revision": 4
+              "revision": -5
             },
             {
               "count": 1
@@ -1052,12 +1062,12 @@
               "type": "MoveOut",
               "id": 6,
               "count": 1,
-              "revision": 4
+              "revision": -5
             },
             {
               "count": 2,
               "cellId": {
-                "revision": 5,
+                "revision": -6,
                 "localId": 10
               }
             },
@@ -1069,10 +1079,10 @@
               "id": 6,
               "count": 2,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 8
               },
-              "revision": 4
+              "revision": -5
             }
           ],
           "callbacks": []
@@ -1083,7 +1093,7 @@
               "count": 1,
               "type": "MoveOut",
               "id": 7,
-              "revision": 4
+              "revision": -5
             },
             {
               "count": 1
@@ -1092,12 +1102,12 @@
               "type": "MoveOut",
               "id": 6,
               "count": 1,
-              "revision": 4
+              "revision": -5
             },
             {
               "count": 2,
               "cellId": {
-                "revision": 5,
+                "revision": -6,
                 "localId": 10
               }
             },
@@ -1109,10 +1119,10 @@
               "id": 6,
               "count": 2,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 8
               },
-              "revision": 4
+              "revision": -5
             }
           ],
           "callbacks": []
@@ -1128,7 +1138,7 @@
               "count": 1,
               "type": "MoveOut",
               "id": 16,
-              "revision": 7
+              "revision": -8
             },
             {
               "count": 2
@@ -1137,12 +1147,12 @@
               "type": "MoveOut",
               "id": 14,
               "count": 2,
-              "revision": 7
+              "revision": -8
             },
             {
               "count": 3,
               "cellId": {
-                "revision": 8,
+                "revision": -9,
                 "localId": 20
               }
             },
@@ -1151,10 +1161,10 @@
               "id": 14,
               "count": 3,
               "cellId": {
-                "revision": 7,
+                "revision": -8,
                 "localId": 17
               },
-              "revision": 7
+              "revision": -8
             }
           ],
           "callbacks": []
@@ -1165,7 +1175,7 @@
               "count": 1,
               "type": "MoveOut",
               "id": 16,
-              "revision": 7
+              "revision": -8
             },
             {
               "count": 2
@@ -1174,12 +1184,12 @@
               "type": "MoveOut",
               "id": 14,
               "count": 2,
-              "revision": 7
+              "revision": -8
             },
             {
               "count": 3,
               "cellId": {
-                "revision": 8,
+                "revision": -9,
                 "localId": 20
               }
             },
@@ -1188,10 +1198,10 @@
               "id": 14,
               "count": 3,
               "cellId": {
-                "revision": 7,
+                "revision": -8,
                 "localId": 17
               },
-              "revision": 7
+              "revision": -8
             }
           ],
           "callbacks": []
@@ -1231,14 +1241,14 @@
                 }
               },
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 2
               }
             },
             {
               "count": 2,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 2
               }
             }
@@ -1278,14 +1288,14 @@
                 }
               },
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 2
               }
             },
             {
               "count": 2,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 2
               }
             }
@@ -1322,12 +1332,12 @@
               "type": "MoveOut",
               "id": 30,
               "count": 2,
-              "revision": 12
+              "revision": -13
             },
             {
               "count": 2,
               "cellId": {
-                "revision": 13,
+                "revision": -14,
                 "localId": 34
               }
             },
@@ -1336,10 +1346,10 @@
               "id": 30,
               "count": 2,
               "cellId": {
-                "revision": 12,
+                "revision": -13,
                 "localId": 32
               },
-              "revision": 12
+              "revision": -13
             }
           ],
           "callbacks": []
@@ -1353,12 +1363,12 @@
               "type": "MoveOut",
               "id": 30,
               "count": 2,
-              "revision": 12
+              "revision": -13
             },
             {
               "count": 2,
               "cellId": {
-                "revision": 13,
+                "revision": -14,
                 "localId": 34
               }
             },
@@ -1367,10 +1377,10 @@
               "id": 30,
               "count": 2,
               "cellId": {
-                "revision": 12,
+                "revision": -13,
                 "localId": 32
               },
-              "revision": 12
+              "revision": -13
             }
           ],
           "callbacks": []
@@ -1397,12 +1407,12 @@
                   "count": 1,
                   "cellId": {
                     "localId": 0,
-                    "revision": 0
+                    "revision": -1
                   },
-                  "revision": 0
+                  "revision": -1
                 }
               ],
-              "revision": 0
+              "revision": -1
             },
             "base": {
               "change": [
@@ -1412,26 +1422,27 @@
                   "count": 1,
                   "cellId": {
                     "localId": 1,
-                    "revision": 1
+                    "revision": -2
                   },
-                  "revision": 1
+                  "revision": -2
                 }
               ],
-              "revision": 1
+              "revision": -2
             },
-            "childRebaser": "test-node",
-            "maxLocalId": 37
+            "childRebaser": "test-node"
           },
           "revisions": [
-            0,
-            1
+            -1,
+            -2
           ],
-          "allocator": {
-            "maxLocalId": 37
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -1451,10 +1462,10 @@
               "id": 0,
               "count": 1,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             }
           ],
           "callbacks": []
@@ -1477,12 +1488,12 @@
                   "count": 1,
                   "cellId": {
                     "localId": 0,
-                    "revision": 0
+                    "revision": -1
                   },
-                  "revision": 0
+                  "revision": -1
                 }
               ],
-              "revision": 0
+              "revision": -1
             },
             "base": {
               "change": [
@@ -1490,24 +1501,25 @@
                   "type": "Remove",
                   "count": 2,
                   "id": 2,
-                  "revision": 2
+                  "revision": -3
                 }
               ],
-              "revision": 2
+              "revision": -3
             },
-            "childRebaser": "test-node",
-            "maxLocalId": 37
+            "childRebaser": "test-node"
           },
           "revisions": [
-            0,
-            2
+            -1,
+            -3
           ],
-          "allocator": {
-            "maxLocalId": 37
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -1527,15 +1539,15 @@
               "id": 0,
               "count": 1,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             },
             {
               "count": 2,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 2
               }
             }
@@ -1558,10 +1570,10 @@
                   "type": "Remove",
                   "count": 2,
                   "id": 2,
-                  "revision": 2
+                  "revision": -3
                 }
               ],
-              "revision": 2
+              "revision": -3
             },
             "base": {
               "change": [
@@ -1572,24 +1584,25 @@
                   "type": "Remove",
                   "count": 2,
                   "id": 4,
-                  "revision": 3
+                  "revision": -4
                 }
               ],
-              "revision": 3
+              "revision": -4
             },
-            "childRebaser": "test-node",
-            "maxLocalId": 37
+            "childRebaser": "test-node"
           },
           "revisions": [
-            2,
-            3
+            -3,
+            -4
           ],
-          "allocator": {
-            "maxLocalId": 37
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -1608,22 +1621,22 @@
               "type": "Remove",
               "count": 1,
               "id": 2,
-              "revision": 2
+              "revision": -3
             },
             {
               "type": "Remove",
               "count": 1,
               "id": 3,
-              "revision": 2,
+              "revision": -3,
               "cellId": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 4
               }
             },
             {
               "count": 1,
               "cellId": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 5
               }
             }
@@ -1661,7 +1674,7 @@
                   }
                 }
               ],
-              "revision": 6
+              "revision": -7
             },
             "base": {
               "change": [
@@ -1669,7 +1682,7 @@
                   "type": "MoveOut",
                   "id": 6,
                   "count": 2,
-                  "revision": 4
+                  "revision": -5
                 },
                 {
                   "count": 2
@@ -1679,27 +1692,28 @@
                   "id": 6,
                   "count": 2,
                   "cellId": {
-                    "revision": 4,
+                    "revision": -5,
                     "localId": 8
                   },
-                  "revision": 4
+                  "revision": -5
                 }
               ],
-              "revision": 4
+              "revision": -5
             },
-            "childRebaser": "test-node",
-            "maxLocalId": 37
+            "childRebaser": "test-node"
           },
           "revisions": [
-            6,
-            4
+            -7,
+            -5
           ],
-          "allocator": {
-            "maxLocalId": 37
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -1717,7 +1731,7 @@
             {
               "count": 2,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 6
               }
             },
@@ -1774,7 +1788,7 @@
                   "type": "MoveOut",
                   "id": 6,
                   "count": 2,
-                  "revision": 4
+                  "revision": -5
                 },
                 {
                   "count": 2
@@ -1784,13 +1798,13 @@
                   "id": 6,
                   "count": 2,
                   "cellId": {
-                    "revision": 4,
+                    "revision": -5,
                     "localId": 8
                   },
-                  "revision": 4
+                  "revision": -5
                 }
               ],
-              "revision": 4
+              "revision": -5
             },
             "base": {
               "change": [
@@ -1801,24 +1815,25 @@
                   "type": "Remove",
                   "count": 2,
                   "id": 4,
-                  "revision": 3
+                  "revision": -4
                 }
               ],
-              "revision": 3
+              "revision": -4
             },
-            "childRebaser": "test-node",
-            "maxLocalId": 37
+            "childRebaser": "test-node"
           },
           "revisions": [
-            4,
-            3
+            -5,
+            -4
           ],
-          "allocator": {
-            "maxLocalId": 37
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -1837,22 +1852,22 @@
               "type": "MoveOut",
               "id": 6,
               "count": 1,
-              "revision": 4
+              "revision": -5
             },
             {
               "type": "MoveOut",
               "id": 7,
               "count": 1,
-              "revision": 4,
+              "revision": -5,
               "cellId": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 4
               }
             },
             {
               "count": 1,
               "cellId": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 5
               }
             },
@@ -1864,10 +1879,10 @@
               "id": 6,
               "count": 2,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 8
               },
-              "revision": 4
+              "revision": -5
             }
           ],
           "callbacks": []
@@ -1888,7 +1903,7 @@
                   "type": "MoveOut",
                   "id": 6,
                   "count": 2,
-                  "revision": 4
+                  "revision": -5
                 },
                 {
                   "count": 2
@@ -1898,13 +1913,13 @@
                   "id": 6,
                   "count": 2,
                   "cellId": {
-                    "revision": 4,
+                    "revision": -5,
                     "localId": 8
                   },
-                  "revision": 4
+                  "revision": -5
                 }
               ],
-              "revision": 4
+              "revision": -5
             },
             "base": {
               "change": [
@@ -1913,10 +1928,10 @@
                   "id": 10,
                   "count": 2,
                   "cellId": {
-                    "revision": 5,
+                    "revision": -6,
                     "localId": 12
                   },
-                  "revision": 5
+                  "revision": -6
                 },
                 {
                   "count": 1
@@ -1925,24 +1940,25 @@
                   "type": "MoveOut",
                   "id": 10,
                   "count": 2,
-                  "revision": 5
+                  "revision": -6
                 }
               ],
-              "revision": 5
+              "revision": -6
             },
-            "childRebaser": "test-node",
-            "maxLocalId": 37
+            "childRebaser": "test-node"
           },
           "revisions": [
-            4,
-            5
+            -5,
+            -6
           ],
-          "allocator": {
-            "maxLocalId": 37
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -1961,7 +1977,7 @@
               "count": 1,
               "type": "MoveOut",
               "id": 7,
-              "revision": 4
+              "revision": -5
             },
             {
               "count": 1
@@ -1970,12 +1986,12 @@
               "type": "MoveOut",
               "id": 6,
               "count": 1,
-              "revision": 4
+              "revision": -5
             },
             {
               "count": 2,
               "cellId": {
-                "revision": 5,
+                "revision": -6,
                 "localId": 10
               }
             },
@@ -1987,10 +2003,10 @@
               "id": 6,
               "count": 2,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 8
               },
-              "revision": 4
+              "revision": -5
             }
           ],
           "callbacks": []
@@ -2011,7 +2027,7 @@
                   "type": "MoveOut",
                   "id": 14,
                   "count": 3,
-                  "revision": 7
+                  "revision": -8
                 },
                 {
                   "count": 2
@@ -2021,13 +2037,13 @@
                   "id": 14,
                   "count": 3,
                   "cellId": {
-                    "revision": 7,
+                    "revision": -8,
                     "localId": 17
                   },
-                  "revision": 7
+                  "revision": -8
                 }
               ],
-              "revision": 7
+              "revision": -8
             },
             "base": {
               "change": [
@@ -2036,10 +2052,10 @@
                   "id": 20,
                   "count": 3,
                   "cellId": {
-                    "revision": 8,
+                    "revision": -9,
                     "localId": 23
                   },
-                  "revision": 8
+                  "revision": -9
                 },
                 {
                   "count": 2
@@ -2048,24 +2064,25 @@
                   "type": "MoveOut",
                   "id": 20,
                   "count": 3,
-                  "revision": 8
+                  "revision": -9
                 }
               ],
-              "revision": 8
+              "revision": -9
             },
-            "childRebaser": "test-node",
-            "maxLocalId": 37
+            "childRebaser": "test-node"
           },
           "revisions": [
-            7,
-            8
+            -8,
+            -9
           ],
-          "allocator": {
-            "maxLocalId": 37
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -2084,7 +2101,7 @@
               "count": 1,
               "type": "MoveOut",
               "id": 16,
-              "revision": 7
+              "revision": -8
             },
             {
               "count": 2
@@ -2093,12 +2110,12 @@
               "type": "MoveOut",
               "id": 14,
               "count": 2,
-              "revision": 7
+              "revision": -8
             },
             {
               "count": 3,
               "cellId": {
-                "revision": 8,
+                "revision": -9,
                 "localId": 20
               }
             },
@@ -2107,10 +2124,10 @@
               "id": 14,
               "count": 3,
               "cellId": {
-                "revision": 7,
+                "revision": -8,
                 "localId": 17
               },
-              "revision": 7
+              "revision": -8
             }
           ],
           "callbacks": []
@@ -2130,12 +2147,12 @@
                 {
                   "count": 1,
                   "cellId": {
-                    "revision": 2,
+                    "revision": -3,
                     "localId": 2
                   }
                 }
               ],
-              "revision": 9
+              "revision": -10
             },
             "base": {
               "change": [
@@ -2144,26 +2161,27 @@
                   "count": 1,
                   "id": 2,
                   "cellId": {
-                    "revision": 2,
+                    "revision": -3,
                     "localId": 2
                   }
                 }
               ],
-              "revision": 10
+              "revision": -11
             },
-            "childRebaser": "test-node",
-            "maxLocalId": 37
+            "childRebaser": "test-node"
           },
           "revisions": [
-            9,
-            10
+            -10,
+            -11
           ],
-          "allocator": {
-            "maxLocalId": 37
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -2207,12 +2225,12 @@
                     }
                   },
                   "cellId": {
-                    "revision": 2,
+                    "revision": -3,
                     "localId": 2
                   }
                 }
               ],
-              "revision": 11
+              "revision": -12
             },
             "base": {
               "change": [
@@ -2220,24 +2238,25 @@
                   "type": "Remove",
                   "count": 2,
                   "id": 2,
-                  "revision": 2
+                  "revision": -3
                 }
               ],
-              "revision": 2
+              "revision": -3
             },
-            "childRebaser": "test-node",
-            "maxLocalId": 37
+            "childRebaser": "test-node"
           },
           "revisions": [
-            11,
-            2
+            -12,
+            -3
           ],
-          "allocator": {
-            "maxLocalId": 37
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -2267,14 +2286,14 @@
                 }
               },
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 2
               }
             },
             {
               "count": 2,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 2
               }
             }
@@ -2313,7 +2332,7 @@
                   "type": "MoveOut",
                   "id": 30,
                   "count": 2,
-                  "revision": 12
+                  "revision": -13
                 },
                 {
                   "count": 2
@@ -2323,13 +2342,13 @@
                   "id": 30,
                   "count": 2,
                   "cellId": {
-                    "revision": 12,
+                    "revision": -13,
                     "localId": 32
                   },
-                  "revision": 12
+                  "revision": -13
                 }
               ],
-              "revision": 12
+              "revision": -13
             },
             "base": {
               "change": [
@@ -2338,10 +2357,10 @@
                   "id": 34,
                   "count": 2,
                   "cellId": {
-                    "revision": 13,
+                    "revision": -14,
                     "localId": 36
                   },
-                  "revision": 13
+                  "revision": -14
                 },
                 {
                   "count": 2
@@ -2350,24 +2369,25 @@
                   "type": "MoveOut",
                   "id": 34,
                   "count": 2,
-                  "revision": 13
+                  "revision": -14
                 }
               ],
-              "revision": 13
+              "revision": -14
             },
-            "childRebaser": "test-node",
-            "maxLocalId": 37
+            "childRebaser": "test-node"
           },
           "revisions": [
-            12,
-            13
+            -13,
+            -14
           ],
-          "allocator": {
-            "maxLocalId": 37
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -2389,12 +2409,12 @@
               "type": "MoveOut",
               "id": 30,
               "count": 2,
-              "revision": 12
+              "revision": -13
             },
             {
               "count": 2,
               "cellId": {
-                "revision": 13,
+                "revision": -14,
                 "localId": 34
               }
             },
@@ -2403,10 +2423,10 @@
               "id": 30,
               "count": 2,
               "cellId": {
-                "revision": 12,
+                "revision": -13,
                 "localId": 32
               },
-              "revision": 12
+              "revision": -13
             }
           ],
           "callbacks": []

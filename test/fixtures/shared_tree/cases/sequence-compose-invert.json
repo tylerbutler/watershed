@@ -25,30 +25,30 @@
               "count": 1,
               "id": 0,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             },
             {
               "type": "Remove",
               "count": 1,
               "id": 2,
-              "revision": 1
+              "revision": -2
             },
             {
               "type": "MoveOut",
               "count": 1,
               "id": 4,
-              "revision": 2
+              "revision": -3
             },
             {
               "type": "MoveIn",
               "count": 1,
               "id": 4,
-              "revision": 2,
+              "revision": -3,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 5
               }
             },
@@ -56,44 +56,46 @@
               "type": "AttachAndDetach",
               "count": 1,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 5
               },
               "attach": {
                 "type": "MoveIn",
                 "id": 4,
-                "revision": 2
+                "revision": -3
               },
               "detach": {
                 "type": "Remove",
                 "id": 6,
-                "revision": 3
+                "revision": -4
               }
             },
             {
               "type": "Rename",
               "count": 1,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 7
               },
               "idOverride": {
-                "revision": 5,
+                "revision": -6,
                 "localId": 8
               }
             }
           ],
-          "revision": 9
+          "revision": -10
         },
         "revisions": [
-          9
+          -10
         ],
-        "allocator": {
-          "maxLocalId": 8
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -123,41 +125,42 @@
                 "type": "MoveOut",
                 "id": 20,
                 "count": 1,
-                "revision": 10
+                "revision": -11
               },
               {
                 "type": "MoveIn",
                 "id": 20,
                 "count": 3,
                 "cellId": {
-                  "revision": 10,
+                  "revision": -11,
                   "localId": 23
                 },
-                "revision": 10
+                "revision": -11
               },
               {
                 "type": "MoveOut",
                 "id": 21,
                 "count": 2,
-                "revision": 10
+                "revision": -11
               }
             ],
-            "revision": 10
+            "revision": -11
           },
-          "inverseRevision": 11,
-          "isRollback": false,
-          "maxLocalId": 25
+          "inverseRevision": -12,
+          "isRollback": false
         },
         "revisions": [
-          10,
-          11
+          -11,
+          -12
         ],
-        "allocator": {
-          "maxLocalId": 25
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -186,12 +189,12 @@
                   "count": 2,
                   "cellId": {
                     "localId": 0,
-                    "revision": 0
+                    "revision": -1
                   },
-                  "revision": 0
+                  "revision": -1
                 }
               ],
-              "revision": 0
+              "revision": -1
             },
             {
               "change": [
@@ -199,25 +202,26 @@
                   "type": "Remove",
                   "count": 2,
                   "id": 2,
-                  "revision": 1
+                  "revision": -2
                 }
               ],
-              "revision": 1
+              "revision": -2
             }
           ],
-          "childComposer": "test-node",
-          "maxLocalId": 3
+          "childComposer": "test-node"
         },
         "revisions": [
-          0,
-          1
+          -1,
+          -2
         ],
-        "allocator": {
-          "maxLocalId": 3
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -249,7 +253,7 @@
                   "type": "MoveOut",
                   "id": 4,
                   "count": 2,
-                  "revision": 2
+                  "revision": -3
                 },
                 {
                   "count": 1
@@ -259,13 +263,13 @@
                   "id": 4,
                   "count": 2,
                   "cellId": {
-                    "revision": 2,
+                    "revision": -3,
                     "localId": 6
                   },
-                  "revision": 2
+                  "revision": -3
                 }
               ],
-              "revision": 2
+              "revision": -3
             },
             {
               "change": [
@@ -274,10 +278,10 @@
                   "id": 8,
                   "count": 1,
                   "cellId": {
-                    "revision": 3,
+                    "revision": -4,
                     "localId": 9
                   },
-                  "revision": 3
+                  "revision": -4
                 },
                 {
                   "count": 1
@@ -286,25 +290,26 @@
                   "type": "MoveOut",
                   "id": 8,
                   "count": 1,
-                  "revision": 3
+                  "revision": -4
                 }
               ],
-              "revision": 3
+              "revision": -4
             }
           ],
-          "childComposer": "test-node",
-          "maxLocalId": 9
+          "childComposer": "test-node"
         },
         "revisions": [
-          2,
-          3
+          -3,
+          -4
         ],
-        "allocator": {
-          "maxLocalId": 9
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -350,7 +355,7 @@
                   }
                 }
               ],
-              "revision": 4
+              "revision": -5
             },
             {
               "change": [
@@ -376,22 +381,23 @@
                   }
                 }
               ],
-              "revision": 5
+              "revision": -6
             }
           ],
-          "childComposer": "test-node",
-          "maxLocalId": 31
+          "childComposer": "test-node"
         },
         "revisions": [
-          4,
-          5
+          -5,
+          -6
         ],
-        "allocator": {
-          "maxLocalId": 31
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -420,25 +426,26 @@
                 "type": "Remove",
                 "count": 2,
                 "id": 2,
-                "revision": 1
+                "revision": -2
               }
             ],
-            "revision": 1
+            "revision": -2
           },
-          "inverseRevision": 4,
-          "isRollback": true,
-          "maxLocalId": 3
+          "inverseRevision": -5,
+          "isRollback": true
         },
         "revisions": [
-          1,
-          4
+          -2,
+          -5
         ],
-        "allocator": {
-          "maxLocalId": 3
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -467,25 +474,26 @@
                 "type": "Remove",
                 "count": 2,
                 "id": 2,
-                "revision": 1
+                "revision": -2
               }
             ],
-            "revision": 1
+            "revision": -2
           },
-          "inverseRevision": 5,
-          "isRollback": false,
-          "maxLocalId": 3
+          "inverseRevision": -6,
+          "isRollback": false
         },
         "revisions": [
-          1,
-          5
+          -2,
+          -6
         ],
-        "allocator": {
-          "maxLocalId": 3
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -512,27 +520,28 @@
               "count": 2,
               "cellId": {
                 "localId": 0,
-                "revision": 0
+                "revision": -1
               },
-              "revision": 0
+              "revision": -1
             }
           ],
           "obsolete": [
-            0
+            -1
           ],
-          "replacement": 6,
-          "maxLocalId": 1
+          "replacement": -7
         },
         "revisions": [
-          0,
-          6
+          -1,
+          -7
         ],
-        "allocator": {
-          "maxLocalId": 1
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -576,23 +585,24 @@
             {
               "count": 1,
               "cellId": {
-                "revision": 7,
+                "revision": -8,
                 "localId": 12
               }
             }
           ],
-          "childPruner": "drop",
-          "maxLocalId": 30
+          "childPruner": "drop"
         },
         "revisions": [
-          7
+          -8
         ],
-        "allocator": {
-          "maxLocalId": 30
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -618,24 +628,25 @@
               "count": 1,
               "id": 13,
               "cellId": {
-                "revision": 8,
+                "revision": -9,
                 "localId": 13
               },
-              "revision": 8
+              "revision": -9
             }
           ],
-          "childRemovedRoots": [],
-          "maxLocalId": 13
+          "childRemovedRoots": []
         },
         "revisions": [
-          8
+          -9
         ],
-        "allocator": {
-          "maxLocalId": 13
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -666,30 +677,30 @@
               "count": 1,
               "id": 0,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             },
             {
               "type": "Remove",
               "count": 1,
               "id": 2,
-              "revision": 1
+              "revision": -2
             },
             {
               "type": "MoveOut",
               "count": 1,
               "id": 4,
-              "revision": 2
+              "revision": -3
             },
             {
               "type": "MoveIn",
               "count": 1,
               "id": 4,
-              "revision": 2,
+              "revision": -3,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 5
               }
             },
@@ -697,29 +708,29 @@
               "type": "AttachAndDetach",
               "count": 1,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 5
               },
               "attach": {
                 "type": "MoveIn",
                 "id": 4,
-                "revision": 2
+                "revision": -3
               },
               "detach": {
                 "type": "Remove",
                 "id": 6,
-                "revision": 3
+                "revision": -4
               }
             },
             {
               "type": "Rename",
               "count": 1,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 7
               },
               "idOverride": {
-                "revision": 5,
+                "revision": -6,
                 "localId": 8
               }
             }
@@ -733,20 +744,20 @@
                 "count": 1,
                 "effect": {
                   "insert": {
-                    "revision": 0,
+                    "revision": -1,
                     "id": 0
                   }
                 },
                 "cellId": [
                   0,
-                  0
+                  -1
                 ]
               },
               {
                 "count": 1,
                 "effect": {
                   "remove": {
-                    "revision": 1,
+                    "revision": -2,
                     "id": 2
                   }
                 }
@@ -755,7 +766,7 @@
                 "count": 1,
                 "effect": {
                   "moveOut": {
-                    "revision": 2,
+                    "revision": -3,
                     "id": 4
                   }
                 }
@@ -764,13 +775,13 @@
                 "count": 1,
                 "effect": {
                   "moveIn": {
-                    "revision": 2,
+                    "revision": -3,
                     "id": 4
                   }
                 },
                 "cellId": [
                   5,
-                  2
+                  -3
                 ]
               },
               {
@@ -779,13 +790,13 @@
                   "attachAndDetach": {
                     "attach": {
                       "moveIn": {
-                        "revision": 2,
+                        "revision": -3,
                         "id": 4
                       }
                     },
                     "detach": {
                       "remove": {
-                        "revision": 3,
+                        "revision": -4,
                         "id": 6
                       }
                     }
@@ -793,7 +804,7 @@
                 },
                 "cellId": [
                   5,
-                  2
+                  -3
                 ]
               },
               {
@@ -802,13 +813,13 @@
                   "rename": {
                     "idOverride": [
                       8,
-                      5
+                      -6
                     ]
                   }
                 },
                 "cellId": [
                   7,
-                  4
+                  -5
                 ]
               }
             ],
@@ -820,32 +831,32 @@
                 "count": 1,
                 "type": "Insert",
                 "id": 0,
-                "revision": 0,
+                "revision": -1,
                 "cellId": {
                   "localId": 0,
-                  "revision": 0
+                  "revision": -1
                 }
               },
               {
                 "count": 1,
                 "type": "Remove",
                 "id": 2,
-                "revision": 1
+                "revision": -2
               },
               {
                 "count": 1,
                 "type": "MoveOut",
                 "id": 4,
-                "revision": 2
+                "revision": -3
               },
               {
                 "count": 1,
                 "type": "MoveIn",
                 "id": 4,
-                "revision": 2,
+                "revision": -3,
                 "cellId": {
                   "localId": 5,
-                  "revision": 2
+                  "revision": -3
                 }
               },
               {
@@ -854,16 +865,16 @@
                 "attach": {
                   "type": "MoveIn",
                   "id": 4,
-                  "revision": 2
+                  "revision": -3
                 },
                 "detach": {
                   "type": "Remove",
                   "id": 6,
-                  "revision": 3
+                  "revision": -4
                 },
                 "cellId": {
                   "localId": 5,
-                  "revision": 2
+                  "revision": -3
                 }
               },
               {
@@ -871,11 +882,11 @@
                 "type": "Rename",
                 "idOverride": {
                   "localId": 8,
-                  "revision": 5
+                  "revision": -6
                 },
                 "cellId": {
                   "localId": 7,
-                  "revision": 4
+                  "revision": -5
                 }
               }
             ]
@@ -891,30 +902,30 @@
               "count": 1,
               "id": 0,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             },
             {
               "type": "Remove",
               "count": 1,
               "id": 2,
-              "revision": 1
+              "revision": -2
             },
             {
               "type": "MoveOut",
               "count": 1,
               "id": 4,
-              "revision": 2
+              "revision": -3
             },
             {
               "type": "MoveIn",
               "count": 1,
               "id": 4,
-              "revision": 2,
+              "revision": -3,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 5
               }
             },
@@ -922,29 +933,29 @@
               "type": "AttachAndDetach",
               "count": 1,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 5
               },
               "attach": {
                 "type": "MoveIn",
                 "id": 4,
-                "revision": 2
+                "revision": -3
               },
               "detach": {
                 "type": "Remove",
                 "id": 6,
-                "revision": 3
+                "revision": -4
               }
             },
             {
               "type": "Rename",
               "count": 1,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 7
               },
               "idOverride": {
-                "revision": 5,
+                "revision": -6,
                 "localId": 8
               }
             }
@@ -958,20 +969,20 @@
                 "count": 1,
                 "effect": {
                   "insert": {
-                    "revision": 0,
+                    "revision": -1,
                     "id": 0
                   }
                 },
                 "cellId": [
                   0,
-                  0
+                  -1
                 ]
               },
               {
                 "count": 1,
                 "effect": {
                   "remove": {
-                    "revision": 1,
+                    "revision": -2,
                     "id": 2
                   }
                 }
@@ -980,7 +991,7 @@
                 "count": 1,
                 "effect": {
                   "moveOut": {
-                    "revision": 2,
+                    "revision": -3,
                     "id": 4
                   }
                 }
@@ -989,13 +1000,13 @@
                 "count": 1,
                 "effect": {
                   "moveIn": {
-                    "revision": 2,
+                    "revision": -3,
                     "id": 4
                   }
                 },
                 "cellId": [
                   5,
-                  2
+                  -3
                 ]
               },
               {
@@ -1004,13 +1015,13 @@
                   "attachAndDetach": {
                     "attach": {
                       "moveIn": {
-                        "revision": 2,
+                        "revision": -3,
                         "id": 4
                       }
                     },
                     "detach": {
                       "remove": {
-                        "revision": 3,
+                        "revision": -4,
                         "id": 6
                       }
                     }
@@ -1018,7 +1029,7 @@
                 },
                 "cellId": [
                   5,
-                  2
+                  -3
                 ]
               },
               {
@@ -1027,13 +1038,13 @@
                   "rename": {
                     "idOverride": [
                       8,
-                      5
+                      -6
                     ]
                   }
                 },
                 "cellId": [
                   7,
-                  4
+                  -5
                 ]
               }
             ],
@@ -1045,32 +1056,32 @@
                 "count": 1,
                 "type": "Insert",
                 "id": 0,
-                "revision": 0,
+                "revision": -1,
                 "cellId": {
                   "localId": 0,
-                  "revision": 0
+                  "revision": -1
                 }
               },
               {
                 "count": 1,
                 "type": "Remove",
                 "id": 2,
-                "revision": 1
+                "revision": -2
               },
               {
                 "count": 1,
                 "type": "MoveOut",
                 "id": 4,
-                "revision": 2
+                "revision": -3
               },
               {
                 "count": 1,
                 "type": "MoveIn",
                 "id": 4,
-                "revision": 2,
+                "revision": -3,
                 "cellId": {
                   "localId": 5,
-                  "revision": 2
+                  "revision": -3
                 }
               },
               {
@@ -1079,16 +1090,16 @@
                 "attach": {
                   "type": "MoveIn",
                   "id": 4,
-                  "revision": 2
+                  "revision": -3
                 },
                 "detach": {
                   "type": "Remove",
                   "id": 6,
-                  "revision": 3
+                  "revision": -4
                 },
                 "cellId": {
                   "localId": 5,
-                  "revision": 2
+                  "revision": -3
                 }
               },
               {
@@ -1096,11 +1107,11 @@
                 "type": "Rename",
                 "idOverride": {
                   "localId": 8,
-                  "revision": 5
+                  "revision": -6
                 },
                 "cellId": {
                   "localId": 7,
-                  "revision": 4
+                  "revision": -5
                 }
               }
             ]
@@ -1118,33 +1129,33 @@
                 "type": "MoveOut",
                 "id": 20,
                 "count": 1,
-                "revision": 10
+                "revision": -11
               },
               {
                 "type": "MoveIn",
                 "id": 20,
                 "count": 3,
                 "cellId": {
-                  "revision": 10,
+                  "revision": -11,
                   "localId": 23
                 },
-                "revision": 10
+                "revision": -11
               },
               {
                 "type": "MoveOut",
                 "id": 21,
                 "count": 2,
-                "revision": 10
+                "revision": -11
               }
             ],
             [
               {
                 "type": "MoveIn",
                 "id": 20,
-                "revision": 11,
+                "revision": -12,
                 "count": 1,
                 "cellId": {
-                  "revision": 10,
+                  "revision": -11,
                   "localId": 20
                 }
               },
@@ -1152,15 +1163,15 @@
                 "type": "MoveOut",
                 "id": 20,
                 "count": 3,
-                "revision": 11
+                "revision": -12
               },
               {
                 "type": "MoveIn",
                 "id": 21,
-                "revision": 11,
+                "revision": -12,
                 "count": 2,
                 "cellId": {
-                  "revision": 10,
+                  "revision": -11,
                   "localId": 21
                 }
               }
@@ -1174,11 +1185,11 @@
               "type": "Rename",
               "count": 3,
               "cellId": {
-                "revision": 10,
+                "revision": -11,
                 "localId": 23
               },
               "idOverride": {
-                "revision": 11,
+                "revision": -12,
                 "localId": 20
               }
             }
@@ -1187,10 +1198,10 @@
             {
               "type": "MoveIn",
               "id": 20,
-              "revision": 11,
+              "revision": -12,
               "count": 1,
               "cellId": {
-                "revision": 10,
+                "revision": -11,
                 "localId": 20
               }
             },
@@ -1198,15 +1209,15 @@
               "type": "MoveOut",
               "id": 20,
               "count": 3,
-              "revision": 11
+              "revision": -12
             },
             {
               "type": "MoveIn",
               "id": 21,
-              "revision": 11,
+              "revision": -12,
               "count": 2,
               "cellId": {
-                "revision": 10,
+                "revision": -11,
                 "localId": 21
               }
             }
@@ -1219,33 +1230,33 @@
                 "type": "MoveOut",
                 "id": 20,
                 "count": 1,
-                "revision": 10
+                "revision": -11
               },
               {
                 "type": "MoveIn",
                 "id": 20,
                 "count": 3,
                 "cellId": {
-                  "revision": 10,
+                  "revision": -11,
                   "localId": 23
                 },
-                "revision": 10
+                "revision": -11
               },
               {
                 "type": "MoveOut",
                 "id": 21,
                 "count": 2,
-                "revision": 10
+                "revision": -11
               }
             ],
             [
               {
                 "type": "MoveIn",
                 "id": 20,
-                "revision": 11,
+                "revision": -12,
                 "count": 1,
                 "cellId": {
-                  "revision": 10,
+                  "revision": -11,
                   "localId": 20
                 }
               },
@@ -1253,15 +1264,15 @@
                 "type": "MoveOut",
                 "id": 20,
                 "count": 3,
-                "revision": 11
+                "revision": -12
               },
               {
                 "type": "MoveIn",
                 "id": 21,
-                "revision": 11,
+                "revision": -12,
                 "count": 2,
                 "cellId": {
-                  "revision": 10,
+                  "revision": -11,
                   "localId": 21
                 }
               }
@@ -1275,11 +1286,11 @@
               "type": "Rename",
               "count": 3,
               "cellId": {
-                "revision": 10,
+                "revision": -11,
                 "localId": 23
               },
               "idOverride": {
-                "revision": 11,
+                "revision": -12,
                 "localId": 20
               }
             }
@@ -1288,10 +1299,10 @@
             {
               "type": "MoveIn",
               "id": 20,
-              "revision": 11,
+              "revision": -12,
               "count": 1,
               "cellId": {
-                "revision": 10,
+                "revision": -11,
                 "localId": 20
               }
             },
@@ -1299,15 +1310,15 @@
               "type": "MoveOut",
               "id": 20,
               "count": 3,
-              "revision": 11
+              "revision": -12
             },
             {
               "type": "MoveIn",
               "id": 21,
-              "revision": 11,
+              "revision": -12,
               "count": 2,
               "cellId": {
-                "revision": 10,
+                "revision": -11,
                 "localId": 21
               }
             }
@@ -1326,10 +1337,10 @@
                 "id": 0,
                 "count": 2,
                 "cellId": {
-                  "revision": 0,
+                  "revision": -1,
                   "localId": 0
                 },
-                "revision": 0
+                "revision": -1
               }
             ],
             [
@@ -1337,7 +1348,7 @@
                 "type": "Remove",
                 "count": 2,
                 "id": 2,
-                "revision": 1
+                "revision": -2
               }
             ]
           ],
@@ -1346,10 +1357,10 @@
             {
               "type": "Remove",
               "id": 2,
-              "revision": 1,
+              "revision": -2,
               "count": 2,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               }
             }
@@ -1363,10 +1374,10 @@
                 "id": 0,
                 "count": 2,
                 "cellId": {
-                  "revision": 0,
+                  "revision": -1,
                   "localId": 0
                 },
-                "revision": 0
+                "revision": -1
               }
             ],
             [
@@ -1374,7 +1385,7 @@
                 "type": "Remove",
                 "count": 2,
                 "id": 2,
-                "revision": 1
+                "revision": -2
               }
             ]
           ],
@@ -1383,10 +1394,10 @@
             {
               "type": "Remove",
               "id": 2,
-              "revision": 1,
+              "revision": -2,
               "count": 2,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               }
             }
@@ -1404,7 +1415,7 @@
                 "type": "MoveOut",
                 "id": 4,
                 "count": 2,
-                "revision": 2
+                "revision": -3
               },
               {
                 "count": 1
@@ -1414,10 +1425,10 @@
                 "id": 4,
                 "count": 2,
                 "cellId": {
-                  "revision": 2,
+                  "revision": -3,
                   "localId": 6
                 },
-                "revision": 2
+                "revision": -3
               }
             ],
             [
@@ -1426,10 +1437,10 @@
                 "id": 8,
                 "count": 1,
                 "cellId": {
-                  "revision": 3,
+                  "revision": -4,
                   "localId": 9
                 },
-                "revision": 3
+                "revision": -4
               },
               {
                 "count": 1
@@ -1438,7 +1449,7 @@
                 "type": "MoveOut",
                 "id": 8,
                 "count": 1,
-                "revision": 3
+                "revision": -4
               }
             ]
           ],
@@ -1449,12 +1460,12 @@
               "id": 8,
               "count": 1,
               "cellId": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 9
               },
-              "revision": 3,
+              "revision": -4,
               "finalEndpoint": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 4
               }
             },
@@ -1462,9 +1473,9 @@
               "type": "MoveOut",
               "id": 4,
               "count": 1,
-              "revision": 2,
+              "revision": -3,
               "finalEndpoint": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 8
               }
             },
@@ -1472,7 +1483,7 @@
               "type": "MoveOut",
               "id": 5,
               "count": 1,
-              "revision": 2
+              "revision": -3
             },
             {
               "count": 1
@@ -1481,11 +1492,11 @@
               "type": "Rename",
               "count": 1,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 6
               },
               "idOverride": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 8
               }
             },
@@ -1494,10 +1505,10 @@
               "id": 5,
               "count": 1,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 7
               },
-              "revision": 2
+              "revision": -3
             }
           ]
         },
@@ -1508,7 +1519,7 @@
                 "type": "MoveOut",
                 "id": 4,
                 "count": 2,
-                "revision": 2
+                "revision": -3
               },
               {
                 "count": 1
@@ -1518,10 +1529,10 @@
                 "id": 4,
                 "count": 2,
                 "cellId": {
-                  "revision": 2,
+                  "revision": -3,
                   "localId": 6
                 },
-                "revision": 2
+                "revision": -3
               }
             ],
             [
@@ -1530,10 +1541,10 @@
                 "id": 8,
                 "count": 1,
                 "cellId": {
-                  "revision": 3,
+                  "revision": -4,
                   "localId": 9
                 },
-                "revision": 3
+                "revision": -4
               },
               {
                 "count": 1
@@ -1542,7 +1553,7 @@
                 "type": "MoveOut",
                 "id": 8,
                 "count": 1,
-                "revision": 3
+                "revision": -4
               }
             ]
           ],
@@ -1553,12 +1564,12 @@
               "id": 8,
               "count": 1,
               "cellId": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 9
               },
-              "revision": 3,
+              "revision": -4,
               "finalEndpoint": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 4
               }
             },
@@ -1566,9 +1577,9 @@
               "type": "MoveOut",
               "id": 4,
               "count": 1,
-              "revision": 2,
+              "revision": -3,
               "finalEndpoint": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 8
               }
             },
@@ -1576,7 +1587,7 @@
               "type": "MoveOut",
               "id": 5,
               "count": 1,
-              "revision": 2
+              "revision": -3
             },
             {
               "count": 1
@@ -1585,11 +1596,11 @@
               "type": "Rename",
               "count": 1,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 6
               },
               "idOverride": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 8
               }
             },
@@ -1598,10 +1609,10 @@
               "id": 5,
               "count": 1,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 7
               },
-              "revision": 2
+              "revision": -3
             }
           ]
         }
@@ -1850,11 +1861,11 @@
             "type": "Insert",
             "id": 2,
             "cellId": {
-              "revision": 1,
+              "revision": -2,
               "localId": 2
             },
             "count": 2,
-            "revision": 4
+            "revision": -5
           }
         ],
         "result": [
@@ -1862,11 +1873,11 @@
             "type": "Insert",
             "id": 2,
             "cellId": {
-              "revision": 1,
+              "revision": -2,
               "localId": 2
             },
             "count": 2,
-            "revision": 4
+            "revision": -5
           }
         ]
       },
@@ -1879,11 +1890,11 @@
             "type": "Insert",
             "id": 2,
             "cellId": {
-              "revision": 1,
+              "revision": -2,
               "localId": 2
             },
             "count": 2,
-            "revision": 5
+            "revision": -6
           }
         ],
         "result": [
@@ -1891,11 +1902,11 @@
             "type": "Insert",
             "id": 2,
             "cellId": {
-              "revision": 1,
+              "revision": -2,
               "localId": 2
             },
             "count": 2,
-            "revision": 5
+            "revision": -6
           }
         ]
       },
@@ -1910,26 +1921,26 @@
               "id": 0,
               "count": 2,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             }
           ],
           "obsolete": [
-            0
+            -1
           ],
-          "replacement": 6,
+          "replacement": -7,
           "result": [
             {
               "type": "Insert",
               "id": 0,
               "count": 2,
               "cellId": {
-                "revision": 6,
+                "revision": -7,
                 "localId": 0
               },
-              "revision": 6
+              "revision": -7
             }
           ]
         },
@@ -1940,26 +1951,26 @@
               "id": 0,
               "count": 2,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             }
           ],
           "obsolete": [
-            0
+            -1
           ],
-          "replacement": 6,
+          "replacement": -7,
           "result": [
             {
               "type": "Insert",
               "id": 0,
               "count": 2,
               "cellId": {
-                "revision": 6,
+                "revision": -7,
                 "localId": 0
               },
-              "revision": 6
+              "revision": -7
             }
           ]
         }
@@ -1975,7 +1986,7 @@
           {
             "count": 1,
             "cellId": {
-              "revision": 7,
+              "revision": -8,
               "localId": 12
             }
           }
@@ -1987,7 +1998,7 @@
           {
             "count": 1,
             "cellId": {
-              "revision": 7,
+              "revision": -8,
               "localId": 12
             }
           }
@@ -2000,13 +2011,13 @@
         "value": [
           {
             "minor": 13,
-            "major": 8
+            "major": -9
           }
         ],
         "result": [
           {
             "minor": 13,
-            "major": 8
+            "major": -9
           }
         ]
       }
@@ -2032,30 +2043,30 @@
                 "count": 1,
                 "id": 0,
                 "cellId": {
-                  "revision": 0,
+                  "revision": -1,
                   "localId": 0
                 },
-                "revision": 0
+                "revision": -1
               },
               {
                 "type": "Remove",
                 "count": 1,
                 "id": 2,
-                "revision": 1
+                "revision": -2
               },
               {
                 "type": "MoveOut",
                 "count": 1,
                 "id": 4,
-                "revision": 2
+                "revision": -3
               },
               {
                 "type": "MoveIn",
                 "count": 1,
                 "id": 4,
-                "revision": 2,
+                "revision": -3,
                 "cellId": {
-                  "revision": 2,
+                  "revision": -3,
                   "localId": 5
                 }
               },
@@ -2063,44 +2074,46 @@
                 "type": "AttachAndDetach",
                 "count": 1,
                 "cellId": {
-                  "revision": 2,
+                  "revision": -3,
                   "localId": 5
                 },
                 "attach": {
                   "type": "MoveIn",
                   "id": 4,
-                  "revision": 2
+                  "revision": -3
                 },
                 "detach": {
                   "type": "Remove",
                   "id": 6,
-                  "revision": 3
+                  "revision": -4
                 }
               },
               {
                 "type": "Rename",
                 "count": 1,
                 "cellId": {
-                  "revision": 4,
+                  "revision": -5,
                   "localId": 7
                 },
                 "idOverride": {
-                  "revision": 5,
+                  "revision": -6,
                   "localId": 8
                 }
               }
             ],
-            "revision": 9
+            "revision": -10
           },
           "revisions": [
-            9
+            -10
           ],
-          "allocator": {
-            "maxLocalId": 8
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -2123,30 +2136,30 @@
               "count": 1,
               "id": 0,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             },
             {
               "type": "Remove",
               "count": 1,
               "id": 2,
-              "revision": 1
+              "revision": -2
             },
             {
               "type": "MoveOut",
               "count": 1,
               "id": 4,
-              "revision": 2
+              "revision": -3
             },
             {
               "type": "MoveIn",
               "count": 1,
               "id": 4,
-              "revision": 2,
+              "revision": -3,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 5
               }
             },
@@ -2154,29 +2167,29 @@
               "type": "AttachAndDetach",
               "count": 1,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 5
               },
               "attach": {
                 "type": "MoveIn",
                 "id": 4,
-                "revision": 2
+                "revision": -3
               },
               "detach": {
                 "type": "Remove",
                 "id": 6,
-                "revision": 3
+                "revision": -4
               }
             },
             {
               "type": "Rename",
               "count": 1,
               "cellId": {
-                "revision": 4,
+                "revision": -5,
                 "localId": 7
               },
               "idOverride": {
-                "revision": 5,
+                "revision": -6,
                 "localId": 8
               }
             }
@@ -2190,20 +2203,20 @@
                 "count": 1,
                 "effect": {
                   "insert": {
-                    "revision": 0,
+                    "revision": -1,
                     "id": 0
                   }
                 },
                 "cellId": [
                   0,
-                  0
+                  -1
                 ]
               },
               {
                 "count": 1,
                 "effect": {
                   "remove": {
-                    "revision": 1,
+                    "revision": -2,
                     "id": 2
                   }
                 }
@@ -2212,7 +2225,7 @@
                 "count": 1,
                 "effect": {
                   "moveOut": {
-                    "revision": 2,
+                    "revision": -3,
                     "id": 4
                   }
                 }
@@ -2221,13 +2234,13 @@
                 "count": 1,
                 "effect": {
                   "moveIn": {
-                    "revision": 2,
+                    "revision": -3,
                     "id": 4
                   }
                 },
                 "cellId": [
                   5,
-                  2
+                  -3
                 ]
               },
               {
@@ -2236,13 +2249,13 @@
                   "attachAndDetach": {
                     "attach": {
                       "moveIn": {
-                        "revision": 2,
+                        "revision": -3,
                         "id": 4
                       }
                     },
                     "detach": {
                       "remove": {
-                        "revision": 3,
+                        "revision": -4,
                         "id": 6
                       }
                     }
@@ -2250,7 +2263,7 @@
                 },
                 "cellId": [
                   5,
-                  2
+                  -3
                 ]
               },
               {
@@ -2259,13 +2272,13 @@
                   "rename": {
                     "idOverride": [
                       8,
-                      5
+                      -6
                     ]
                   }
                 },
                 "cellId": [
                   7,
-                  4
+                  -5
                 ]
               }
             ],
@@ -2277,32 +2290,32 @@
                 "count": 1,
                 "type": "Insert",
                 "id": 0,
-                "revision": 0,
+                "revision": -1,
                 "cellId": {
                   "localId": 0,
-                  "revision": 0
+                  "revision": -1
                 }
               },
               {
                 "count": 1,
                 "type": "Remove",
                 "id": 2,
-                "revision": 1
+                "revision": -2
               },
               {
                 "count": 1,
                 "type": "MoveOut",
                 "id": 4,
-                "revision": 2
+                "revision": -3
               },
               {
                 "count": 1,
                 "type": "MoveIn",
                 "id": 4,
-                "revision": 2,
+                "revision": -3,
                 "cellId": {
                   "localId": 5,
-                  "revision": 2
+                  "revision": -3
                 }
               },
               {
@@ -2311,16 +2324,16 @@
                 "attach": {
                   "type": "MoveIn",
                   "id": 4,
-                  "revision": 2
+                  "revision": -3
                 },
                 "detach": {
                   "type": "Remove",
                   "id": 6,
-                  "revision": 3
+                  "revision": -4
                 },
                 "cellId": {
                   "localId": 5,
-                  "revision": 2
+                  "revision": -3
                 }
               },
               {
@@ -2328,11 +2341,11 @@
                 "type": "Rename",
                 "idOverride": {
                   "localId": 8,
-                  "revision": 5
+                  "revision": -6
                 },
                 "cellId": {
                   "localId": 7,
-                  "revision": 4
+                  "revision": -5
                 }
               }
             ]
@@ -2358,41 +2371,42 @@
                   "type": "MoveOut",
                   "id": 20,
                   "count": 1,
-                  "revision": 10
+                  "revision": -11
                 },
                 {
                   "type": "MoveIn",
                   "id": 20,
                   "count": 3,
                   "cellId": {
-                    "revision": 10,
+                    "revision": -11,
                     "localId": 23
                   },
-                  "revision": 10
+                  "revision": -11
                 },
                 {
                   "type": "MoveOut",
                   "id": 21,
                   "count": 2,
-                  "revision": 10
+                  "revision": -11
                 }
               ],
-              "revision": 10
+              "revision": -11
             },
-            "inverseRevision": 11,
-            "isRollback": false,
-            "maxLocalId": 25
+            "inverseRevision": -12,
+            "isRollback": false
           },
           "revisions": [
-            10,
-            11
+            -11,
+            -12
           ],
-          "allocator": {
-            "maxLocalId": 25
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -2412,33 +2426,33 @@
                 "type": "MoveOut",
                 "id": 20,
                 "count": 1,
-                "revision": 10
+                "revision": -11
               },
               {
                 "type": "MoveIn",
                 "id": 20,
                 "count": 3,
                 "cellId": {
-                  "revision": 10,
+                  "revision": -11,
                   "localId": 23
                 },
-                "revision": 10
+                "revision": -11
               },
               {
                 "type": "MoveOut",
                 "id": 21,
                 "count": 2,
-                "revision": 10
+                "revision": -11
               }
             ],
             [
               {
                 "type": "MoveIn",
                 "id": 20,
-                "revision": 11,
+                "revision": -12,
                 "count": 1,
                 "cellId": {
-                  "revision": 10,
+                  "revision": -11,
                   "localId": 20
                 }
               },
@@ -2446,15 +2460,15 @@
                 "type": "MoveOut",
                 "id": 20,
                 "count": 3,
-                "revision": 11
+                "revision": -12
               },
               {
                 "type": "MoveIn",
                 "id": 21,
-                "revision": 11,
+                "revision": -12,
                 "count": 2,
                 "cellId": {
-                  "revision": 10,
+                  "revision": -11,
                   "localId": 21
                 }
               }
@@ -2468,11 +2482,11 @@
               "type": "Rename",
               "count": 3,
               "cellId": {
-                "revision": 10,
+                "revision": -11,
                 "localId": 23
               },
               "idOverride": {
-                "revision": 11,
+                "revision": -12,
                 "localId": 20
               }
             }
@@ -2481,10 +2495,10 @@
             {
               "type": "MoveIn",
               "id": 20,
-              "revision": 11,
+              "revision": -12,
               "count": 1,
               "cellId": {
-                "revision": 10,
+                "revision": -11,
                 "localId": 20
               }
             },
@@ -2492,15 +2506,15 @@
               "type": "MoveOut",
               "id": 20,
               "count": 3,
-              "revision": 11
+              "revision": -12
             },
             {
               "type": "MoveIn",
               "id": 21,
-              "revision": 11,
+              "revision": -12,
               "count": 2,
               "cellId": {
-                "revision": 10,
+                "revision": -11,
                 "localId": 21
               }
             }
@@ -2525,12 +2539,12 @@
                     "count": 2,
                     "cellId": {
                       "localId": 0,
-                      "revision": 0
+                      "revision": -1
                     },
-                    "revision": 0
+                    "revision": -1
                   }
                 ],
-                "revision": 0
+                "revision": -1
               },
               {
                 "change": [
@@ -2538,25 +2552,26 @@
                     "type": "Remove",
                     "count": 2,
                     "id": 2,
-                    "revision": 1
+                    "revision": -2
                   }
                 ],
-                "revision": 1
+                "revision": -2
               }
             ],
-            "childComposer": "test-node",
-            "maxLocalId": 3
+            "childComposer": "test-node"
           },
           "revisions": [
-            0,
-            1
+            -1,
+            -2
           ],
-          "allocator": {
-            "maxLocalId": 3
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -2577,10 +2592,10 @@
                 "id": 0,
                 "count": 2,
                 "cellId": {
-                  "revision": 0,
+                  "revision": -1,
                   "localId": 0
                 },
-                "revision": 0
+                "revision": -1
               }
             ],
             [
@@ -2588,7 +2603,7 @@
                 "type": "Remove",
                 "count": 2,
                 "id": 2,
-                "revision": 1
+                "revision": -2
               }
             ]
           ],
@@ -2597,10 +2612,10 @@
             {
               "type": "Remove",
               "id": 2,
-              "revision": 1,
+              "revision": -2,
               "count": 2,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               }
             }
@@ -2628,7 +2643,7 @@
                     "type": "MoveOut",
                     "id": 4,
                     "count": 2,
-                    "revision": 2
+                    "revision": -3
                   },
                   {
                     "count": 1
@@ -2638,13 +2653,13 @@
                     "id": 4,
                     "count": 2,
                     "cellId": {
-                      "revision": 2,
+                      "revision": -3,
                       "localId": 6
                     },
-                    "revision": 2
+                    "revision": -3
                   }
                 ],
-                "revision": 2
+                "revision": -3
               },
               {
                 "change": [
@@ -2653,10 +2668,10 @@
                     "id": 8,
                     "count": 1,
                     "cellId": {
-                      "revision": 3,
+                      "revision": -4,
                       "localId": 9
                     },
-                    "revision": 3
+                    "revision": -4
                   },
                   {
                     "count": 1
@@ -2665,25 +2680,26 @@
                     "type": "MoveOut",
                     "id": 8,
                     "count": 1,
-                    "revision": 3
+                    "revision": -4
                   }
                 ],
-                "revision": 3
+                "revision": -4
               }
             ],
-            "childComposer": "test-node",
-            "maxLocalId": 9
+            "childComposer": "test-node"
           },
           "revisions": [
-            2,
-            3
+            -3,
+            -4
           ],
-          "allocator": {
-            "maxLocalId": 9
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -2703,7 +2719,7 @@
                 "type": "MoveOut",
                 "id": 4,
                 "count": 2,
-                "revision": 2
+                "revision": -3
               },
               {
                 "count": 1
@@ -2713,10 +2729,10 @@
                 "id": 4,
                 "count": 2,
                 "cellId": {
-                  "revision": 2,
+                  "revision": -3,
                   "localId": 6
                 },
-                "revision": 2
+                "revision": -3
               }
             ],
             [
@@ -2725,10 +2741,10 @@
                 "id": 8,
                 "count": 1,
                 "cellId": {
-                  "revision": 3,
+                  "revision": -4,
                   "localId": 9
                 },
-                "revision": 3
+                "revision": -4
               },
               {
                 "count": 1
@@ -2737,7 +2753,7 @@
                 "type": "MoveOut",
                 "id": 8,
                 "count": 1,
-                "revision": 3
+                "revision": -4
               }
             ]
           ],
@@ -2748,12 +2764,12 @@
               "id": 8,
               "count": 1,
               "cellId": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 9
               },
-              "revision": 3,
+              "revision": -4,
               "finalEndpoint": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 4
               }
             },
@@ -2761,9 +2777,9 @@
               "type": "MoveOut",
               "id": 4,
               "count": 1,
-              "revision": 2,
+              "revision": -3,
               "finalEndpoint": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 8
               }
             },
@@ -2771,7 +2787,7 @@
               "type": "MoveOut",
               "id": 5,
               "count": 1,
-              "revision": 2
+              "revision": -3
             },
             {
               "count": 1
@@ -2780,11 +2796,11 @@
               "type": "Rename",
               "count": 1,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 6
               },
               "idOverride": {
-                "revision": 3,
+                "revision": -4,
                 "localId": 8
               }
             },
@@ -2793,10 +2809,10 @@
               "id": 5,
               "count": 1,
               "cellId": {
-                "revision": 2,
+                "revision": -3,
                 "localId": 7
               },
-              "revision": 2
+              "revision": -3
             }
           ]
         }
@@ -2836,7 +2852,7 @@
                     }
                   }
                 ],
-                "revision": 4
+                "revision": -5
               },
               {
                 "change": [
@@ -2862,22 +2878,23 @@
                     }
                   }
                 ],
-                "revision": 5
+                "revision": -6
               }
             ],
-            "childComposer": "test-node",
-            "maxLocalId": 31
+            "childComposer": "test-node"
           },
           "revisions": [
-            4,
-            5
+            -5,
+            -6
           ],
-          "allocator": {
-            "maxLocalId": 31
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -3024,25 +3041,26 @@
                   "type": "Remove",
                   "count": 2,
                   "id": 2,
-                  "revision": 1
+                  "revision": -2
                 }
               ],
-              "revision": 1
+              "revision": -2
             },
-            "inverseRevision": 4,
-            "isRollback": true,
-            "maxLocalId": 3
+            "inverseRevision": -5,
+            "isRollback": true
           },
           "revisions": [
-            1,
-            4
+            -2,
+            -5
           ],
-          "allocator": {
-            "maxLocalId": 3
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -3060,11 +3078,11 @@
             "type": "Insert",
             "id": 2,
             "cellId": {
-              "revision": 1,
+              "revision": -2,
               "localId": 2
             },
             "count": 2,
-            "revision": 4
+            "revision": -5
           }
         ]
       },
@@ -3086,25 +3104,26 @@
                   "type": "Remove",
                   "count": 2,
                   "id": 2,
-                  "revision": 1
+                  "revision": -2
                 }
               ],
-              "revision": 1
+              "revision": -2
             },
-            "inverseRevision": 5,
-            "isRollback": false,
-            "maxLocalId": 3
+            "inverseRevision": -6,
+            "isRollback": false
           },
           "revisions": [
-            1,
-            5
+            -2,
+            -6
           ],
-          "allocator": {
-            "maxLocalId": 3
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -3122,11 +3141,11 @@
             "type": "Insert",
             "id": 2,
             "cellId": {
-              "revision": 1,
+              "revision": -2,
               "localId": 2
             },
             "count": 2,
-            "revision": 5
+            "revision": -6
           }
         ]
       },
@@ -3146,27 +3165,28 @@
                 "count": 2,
                 "cellId": {
                   "localId": 0,
-                  "revision": 0
+                  "revision": -1
                 },
-                "revision": 0
+                "revision": -1
               }
             ],
             "obsolete": [
-              0
+              -1
             ],
-            "replacement": 6,
-            "maxLocalId": 1
+            "replacement": -7
           },
           "revisions": [
-            0,
-            6
+            -1,
+            -7
           ],
-          "allocator": {
-            "maxLocalId": 1
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -3186,26 +3206,26 @@
               "id": 0,
               "count": 2,
               "cellId": {
-                "revision": 0,
+                "revision": -1,
                 "localId": 0
               },
-              "revision": 0
+              "revision": -1
             }
           ],
           "obsolete": [
-            0
+            -1
           ],
-          "replacement": 6,
+          "replacement": -7,
           "result": [
             {
               "type": "Insert",
               "id": 0,
               "count": 2,
               "cellId": {
-                "revision": 6,
+                "revision": -7,
                 "localId": 0
               },
-              "revision": 6
+              "revision": -7
             }
           ]
         }
@@ -3243,23 +3263,24 @@
               {
                 "count": 1,
                 "cellId": {
-                  "revision": 7,
+                  "revision": -8,
                   "localId": 12
                 }
               }
             ],
-            "childPruner": "drop",
-            "maxLocalId": 30
+            "childPruner": "drop"
           },
           "revisions": [
-            7
+            -8
           ],
-          "allocator": {
-            "maxLocalId": 30
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -3279,7 +3300,7 @@
           {
             "count": 1,
             "cellId": {
-              "revision": 7,
+              "revision": -8,
               "localId": 12
             }
           }
@@ -3300,24 +3321,25 @@
                 "count": 1,
                 "id": 13,
                 "cellId": {
-                  "revision": 8,
+                  "revision": -9,
                   "localId": 13
                 },
-                "revision": 8
+                "revision": -9
               }
             ],
-            "childRemovedRoots": [],
-            "maxLocalId": 13
+            "childRemovedRoots": []
           },
           "revisions": [
-            8
+            -9
           ],
-          "allocator": {
-            "maxLocalId": 13
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -3333,7 +3355,7 @@
         "output": [
           {
             "minor": 13,
-            "major": 8
+            "major": -9
           }
         ]
       }

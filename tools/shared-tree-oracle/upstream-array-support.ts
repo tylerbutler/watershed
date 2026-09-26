@@ -5,7 +5,15 @@
 
 import { strict as assert } from "node:assert";
 
-import type { SessionSpaceCompressedId } from "@fluidframework/id-compressor";
+import type {
+	IIdCompressor,
+	SessionSpaceCompressedId,
+} from "@fluidframework/id-compressor";
+import {
+	deserializeIdCompressor,
+	serializeIdCompressor,
+	type SerializedIdCompressorWithOngoingSession,
+} from "@fluidframework/id-compressor/internal";
 import { FluidClientVersion, type CodecWriteOptions } from "../codec/index.js";
 import {
 	revisionMetadataSourceFromInfo,
@@ -16,17 +24,23 @@ import {
 	type DeltaFieldMap,
 	type DeltaRoot,
 	type FieldKey,
+	type JsonableTree,
 	type RevisionTag,
 } from "../core/index.js";
 import { FormatValidatorBasic } from "../external-utilities/index.js";
 import {
 	CrossFieldTarget,
+	chunkField,
+	combineChunks,
+	cursorForJsonableTreeField,
+	defaultChunkPolicy,
 	fieldBatchCodecBuilder,
 	fieldKindConfigurations,
 	fieldKinds,
 	FlexFieldKind,
 	genericFieldKind,
 	intoDelta,
+	jsonableTreeFromFieldCursor,
 	makeModularChangeCodecFamily,
 	ModularChangeFamily,
 	newChangeAtomIdBTree,
@@ -50,7 +64,6 @@ import type { GenericChangeset } from "../feature-libraries/modular-schema/gener
 import { sequenceFieldEditor } from "../feature-libraries/sequence-field/sequenceFieldEditor.js";
 import type { Changeset } from "../feature-libraries/sequence-field/types.js";
 import { brand } from "../util/index.js";
-import { testIdCompressor } from "./utils.js";
 
 type PlainAtom = {
 	readonly revision: number | null;
@@ -88,6 +101,9 @@ type PlainModularChange = {
 		readonly count: number;
 		readonly field: PlainFieldId;
 	}[];
+	readonly builds?: readonly (readonly [PlainAtom, readonly JsonableTree[]])[];
+	readonly refreshers?: readonly (readonly [PlainAtom, readonly JsonableTree[]])[];
+	readonly destroys?: readonly (readonly [PlainAtom, number])[];
 };
 
 type TaggedPlainModularChange = {
@@ -112,7 +128,7 @@ type ReplayInput = {
 		readonly stable: string;
 	}[];
 	readonly allocator: { readonly maxLocalId: number };
-	readonly compressor: { readonly sessionId: string };
+	readonly compressor: { readonly sessionId: string; readonly serialized: string };
 	readonly sequencing: {
 		readonly minimumSequenceNumber: number;
 		readonly sequenceNumber: number;
@@ -161,15 +177,48 @@ function integer(value: unknown, message: string): asserts value is number {
 	assert(Number.isSafeInteger(value), message);
 }
 
-function decodeRevision(value: unknown, message: string): RevisionTag {
+type ReplayIdContext = {
+	readonly idCompressor: IIdCompressor;
+	readonly revisionTagCodec: RevisionTagCodec;
+};
+
+function replayIdContext(input: Record<string, unknown>): ReplayIdContext {
+	object(input.compressor, "The modular replay must contain compressor state.");
+	assert(typeof input.compressor.sessionId === "string",
+		"The modular compressor session must be a string.");
+	assert(typeof input.compressor.serialized === "string",
+		"The modular compressor state must be serialized.");
+	const idCompressor = deserializeIdCompressor(
+		input.compressor.serialized as SerializedIdCompressorWithOngoingSession,
+	);
+	assert.equal(
+		idCompressor.localSessionId,
+		input.compressor.sessionId,
+		"The modular compressor session must match its serialized state.",
+	);
+	return {
+		idCompressor,
+		revisionTagCodec: new RevisionTagCodec(idCompressor),
+	};
+}
+
+function decodeRevision(
+	value: unknown,
+	message: string,
+	context: ReplayIdContext,
+): RevisionTag {
 	integer(value, message);
 	const encoded = value as SessionSpaceCompressedId;
-	testIdCompressor.decompress(encoded);
+	context.idCompressor.decompress(encoded);
 	return encoded as RevisionTag;
 }
 
-function decodeOptionalRevision(value: unknown, message: string): RevisionTag | undefined {
-	return value === null ? undefined : decodeRevision(value, message);
+function decodeOptionalRevision(
+	value: unknown,
+	message: string,
+	context: ReplayIdContext,
+): RevisionTag | undefined {
+	return value === null ? undefined : decodeRevision(value, message, context);
 }
 
 function decodeLocalId(value: unknown, message: string): ChangesetLocalId {
@@ -178,10 +227,10 @@ function decodeLocalId(value: unknown, message: string): ChangesetLocalId {
 	return brand(value);
 }
 
-function decodeAtom(value: unknown, message: string): ChangeAtomId {
+function decodeAtom(value: unknown, message: string, context: ReplayIdContext): ChangeAtomId {
 	object(value, message);
 	return {
-		revision: decodeOptionalRevision(value.revision, message),
+		revision: decodeOptionalRevision(value.revision, message, context),
 		localId: decodeLocalId(value.localId, message),
 	};
 }
@@ -204,6 +253,7 @@ function genericSignature(entries: readonly (readonly [number, PlainAtom])[]): s
 function decodeFieldId(
 	value: unknown,
 	message: string,
+	context: ReplayIdContext,
 ): {
 	nodeId: ChangeAtomId | undefined;
 	field: FieldKey;
@@ -211,7 +261,7 @@ function decodeFieldId(
 	object(value, message);
 	assert(typeof value.field === "string", message);
 	return {
-		nodeId: value.node === null ? undefined : decodeAtom(value.node, message),
+		nodeId: value.node === null ? undefined : decodeAtom(value.node, message, context),
 		field: brand(value.field),
 	};
 }
@@ -238,6 +288,7 @@ function decodeFieldChanges(
 	owner: FieldIdentity["node"],
 	operand: number,
 	otherFields: readonly (readonly [string, PlainFieldChange])[] | undefined,
+	context: ReplayIdContext,
 ): FieldChangeMap {
 	assert(Array.isArray(value), "The modular fields must be ordered entries.");
 	const fields: FieldChangeMap = new Map();
@@ -261,7 +312,10 @@ function decodeFieldChanges(
 					"The Generic child entry must contain an index and node ID.",
 				);
 				integer(child[0], "The Generic child index must be an integer.");
-				return [child[0], decodeAtom(child[1], "The Generic child ID must be valid.")];
+				return [
+					child[0],
+					decodeAtom(child[1], "The Generic child ID must be valid.", context),
+				];
 			});
 			const change = genericFieldKind.changeHandler.editor.buildChildChanges(children);
 			instrumentation.identities.set(change, identity);
@@ -297,6 +351,7 @@ function decodeModularChange(
 	instrumentation: Instrumentation,
 	operand: number,
 	other: PlainModularChange | undefined,
+	context: ReplayIdContext,
 ): ModularChangeset {
 	integer(value.maxLocalId, "The modular allocator watermark must be an integer.");
 	const fieldChanges = decodeFieldChanges(
@@ -305,10 +360,11 @@ function decodeModularChange(
 		null,
 		operand,
 		other?.fields,
+		context,
 	);
 	const nodeChanges = newChangeAtomIdBTree<NodeChangeset>();
 	for (const [idValue, nodeValue] of value.nodes) {
-		const id = decodeAtom(idValue, "The modular node ID must be valid.");
+		const id = decodeAtom(idValue, "The modular node ID must be valid.", context);
 		nodeChanges.set([id.revision, id.localId], {
 			fieldChanges: decodeFieldChanges(
 				nodeValue.fields,
@@ -316,21 +372,30 @@ function decodeModularChange(
 				plainAtom(id),
 				operand,
 				undefined,
+				context,
 			),
 		});
 	}
 	const nodeToParent = newChangeAtomIdBTree<FieldId>();
 	for (const [idValue, parentValue] of value.parents) {
-		const id = decodeAtom(idValue, "The modular parent node ID must be valid.");
+		const id = decodeAtom(idValue, "The modular parent node ID must be valid.", context);
 		nodeToParent.set(
 			[id.revision, id.localId],
-			decodeFieldId(parentValue, "The modular parent field must be valid."),
+			decodeFieldId(parentValue, "The modular parent field must be valid.", context),
 		);
 	}
 	const nodeAliases = newChangeAtomIdBTree<ChangeAtomId>();
 	for (const [sourceValue, targetValue] of value.aliases) {
-		const source = decodeAtom(sourceValue, "The modular alias source must be valid.");
-		const target = decodeAtom(targetValue, "The modular alias target must be valid.");
+		const source = decodeAtom(
+			sourceValue,
+			"The modular alias source must be valid.",
+			context,
+		);
+		const target = decodeAtom(
+			targetValue,
+			"The modular alias target must be valid.",
+			context,
+		);
 		nodeAliases.set([source.revision, source.localId], target);
 	}
 	const crossFieldKeys = newCrossFieldKeyTable();
@@ -343,23 +408,48 @@ function decodeModularChange(
 				revision: decodeOptionalRevision(
 					entry.revision,
 					"The cross-field revision must be valid.",
+					context,
 				),
 				localId: decodeLocalId(entry.localId, "The cross-field local ID must be valid."),
 			},
 			entry.count,
-			decodeFieldId(entry.field, "The cross-field owner must be valid."),
+			decodeFieldId(entry.field, "The cross-field owner must be valid.", context),
 		);
+	}
+	const chunks = (
+		entries: readonly (readonly [PlainAtom, readonly JsonableTree[]])[],
+		message: string,
+	) => {
+		const table = newChangeAtomIdBTree<ReturnType<typeof combineChunks>>();
+		for (const [idValue, trees] of entries) {
+			const id = decodeAtom(idValue, message, context);
+			table.set(
+				[id.revision, id.localId],
+				combineChunks(chunkField(cursorForJsonableTreeField([...trees]), {
+					policy: defaultChunkPolicy,
+					idCompressor: context.idCompressor,
+				})),
+			);
+		}
+		return table;
+	};
+	const destroys = newChangeAtomIdBTree<number>();
+	for (const [idValue, count] of value.destroys ?? []) {
+		const id = decodeAtom(idValue, "The modular destroy ID must be valid.", context);
+		integer(count, "The modular destroy count must be an integer.");
+		destroys.set([id.revision, id.localId], count);
 	}
 	return makeModularChangeset({
 		maxId: value.maxLocalId,
 		revisions: value.revisions.map((info) => ({
-			revision: decodeRevision(info.revision, "The modular revision must be valid."),
+			revision: decodeRevision(info.revision, "The modular revision must be valid.", context),
 			...(info.rollbackOf === null
 				? {}
 				: {
 						rollbackOf: decodeRevision(
 							info.rollbackOf,
 							"The rollback revision must be valid.",
+							context,
 						),
 					}),
 		})),
@@ -368,6 +458,9 @@ function decodeModularChange(
 		nodeToParent,
 		nodeAliases,
 		crossFieldKeys,
+		builds: chunks(value.builds ?? [], "The modular build ID must be valid."),
+		refreshers: chunks(value.refreshers ?? [], "The modular refresher ID must be valid."),
+		destroys,
 	});
 }
 
@@ -431,6 +524,18 @@ export function encodeModularGraph(change: ModularChangeset): PlainModularChange
 			count: entry.length,
 			field: plainFieldId(entry.value),
 		})),
+		builds: [...(change.builds?.entries() ?? [])].map(([[revision, localId], chunk]) => [
+			plainAtom({ revision, localId }),
+			jsonableTreeFromFieldCursor(chunk.cursor()),
+		]),
+		refreshers: [...(change.refreshers?.entries() ?? [])].map(([[revision, localId], chunk]) => [
+			plainAtom({ revision, localId }),
+			jsonableTreeFromFieldCursor(chunk.cursor()),
+		]),
+		destroys: [...(change.destroys?.entries() ?? [])].map(([[revision, localId], count]) => [
+			plainAtom({ revision, localId }),
+			count,
+		]),
 	};
 }
 
@@ -649,7 +754,10 @@ function instrumentedSequenceHandler(
 	};
 }
 
-function makeInstrumentedArrayModularFamily(instrumentation: Instrumentation): {
+function makeInstrumentedArrayModularFamily(
+	instrumentation: Instrumentation,
+	context: ReplayIdContext,
+): {
 	readonly family: ModularChangeFamily;
 	readonly codecOptions: CodecWriteOptions;
 } {
@@ -657,7 +765,7 @@ function makeInstrumentedArrayModularFamily(instrumentation: Instrumentation): {
 		jsonValidator: FormatValidatorBasic,
 		minVersionForCollab: FluidClientVersion.v2_117,
 	};
-	const revisionTagCodec = new RevisionTagCodec(testIdCompressor);
+	const revisionTagCodec = context.revisionTagCodec;
 	const fieldBatchCodec = fieldBatchCodecBuilder.build(codecOptions);
 	const codecs = makeModularChangeCodecFamily(
 		fieldKindConfigurations,
@@ -700,6 +808,7 @@ export function replayArrayModularInput(input: Record<string, unknown>): unknown
 	);
 	object(input.allocator, "The modular replay must contain allocator state.");
 	integer(input.allocator.maxLocalId, "The modular allocator watermark must be an integer.");
+	const context = replayIdContext(input);
 	const revisionMappings = new Map(
 		input.revisions.map((mapping) => {
 			object(mapping, "The modular revision mapping must be an object.");
@@ -709,7 +818,7 @@ export function replayArrayModularInput(input: Record<string, unknown>): unknown
 				"The stable modular revision must be a string.",
 			);
 			assert.equal(
-				testIdCompressor.decompress(mapping.encoded as SessionSpaceCompressedId),
+				context.idCompressor.decompress(mapping.encoded as SessionSpaceCompressedId),
 				mapping.stable,
 				"The modular revision mapping must match the compressor.",
 			);
@@ -743,11 +852,12 @@ export function replayArrayModularInput(input: Record<string, unknown>): unknown
 				instrumentation,
 				index,
 				taggedInputs[1 - index]?.change,
+				context,
 			),
-			decodeRevision(tagged.revision, "The tagged modular revision must be valid."),
+			decodeRevision(tagged.revision, "The tagged modular revision must be valid.", context),
 		),
 	);
-	const { family } = makeInstrumentedArrayModularFamily(instrumentation);
+	const { family } = makeInstrumentedArrayModularFamily(instrumentation, context);
 	let result: ModularChangeset;
 	let resultRevision: RevisionTag | undefined;
 	if (input.operation === "compose") {
@@ -761,6 +871,7 @@ export function replayArrayModularInput(input: Record<string, unknown>): unknown
 		resultRevision = decodeRevision(
 			input.operands.inverseRevision,
 			"Invert requires an inverse revision.",
+			context,
 		);
 		result = family.invert(decoded[0], input.operands.isRollback, resultRevision);
 	} else {
@@ -775,13 +886,18 @@ export function replayArrayModularInput(input: Record<string, unknown>): unknown
 			decoded[1],
 			revisionMetadataSourceFromInfo(
 				input.operands.revisionMetadata.map((info) => ({
-					revision: decodeRevision(info.revision, "The rebase revision must be valid."),
+					revision: decodeRevision(
+						info.revision,
+						"The rebase revision must be valid.",
+						context,
+					),
 					...(info.rollbackOf === null
 						? {}
 						: {
 								rollbackOf: decodeRevision(
 									info.rollbackOf,
 									"The rebase rollback revision must be valid.",
+									context,
 								),
 							}),
 				})),
@@ -805,7 +921,12 @@ export function replayArrayModularInput(input: Record<string, unknown>): unknown
 function crossFieldChange(
 	revision: RevisionTag,
 	destinationFirst: boolean,
+	compressor: IIdCompressor,
 ): PlainModularChange {
+	const context = {
+		idCompressor: compressor,
+		revisionTagCodec: new RevisionTagCodec(compressor),
+	};
 	const moveId = brand<ChangesetLocalId>(40);
 	const destinationCellId = { revision, localId: brand<ChangesetLocalId>(42) };
 	const entries: (readonly [string, PlainFieldChange])[] = [
@@ -833,7 +954,7 @@ function crossFieldChange(
 		genericDirections: new Map(),
 		nextSequence: 0,
 	};
-	const fields = decodeFieldChanges(entries, instrumentation, null, 0, undefined);
+	const fields = decodeFieldChanges(entries, instrumentation, null, 0, undefined, context);
 	const inversions = makeChangesetInversions(
 		fields,
 		newChangeAtomIdBTree(),
@@ -850,7 +971,14 @@ function crossFieldChange(
 	);
 }
 
-export function crossFieldCoordinationInput(revision: RevisionTag): ReplayInput {
+export function crossFieldCoordinationInput(
+	revision: RevisionTag,
+	compressor: IIdCompressor,
+): ReplayInput {
+	const context = {
+		idCompressor: compressor,
+		revisionTagCodec: new RevisionTagCodec(compressor),
+	};
 	const competing = (field: string, id: number): readonly [string, PlainFieldChange] => [
 		field,
 		{
@@ -874,7 +1002,7 @@ export function crossFieldCoordinationInput(revision: RevisionTag): ReplayInput 
 		genericDirections: new Map(),
 		nextSequence: 0,
 	};
-	const decodedFields = decodeFieldChanges(fields, instrumentation, null, 1, undefined);
+	const decodedFields = decodeFieldChanges(fields, instrumentation, null, 1, undefined, context);
 	const inversions = makeChangesetInversions(
 		decodedFields,
 		newChangeAtomIdBTree(),
@@ -894,25 +1022,31 @@ export function crossFieldCoordinationInput(revision: RevisionTag): ReplayInput 
 		initialState: { left: [], right: [] },
 		operands: {
 			changes: [
-				{ revision: Number(revision), change: crossFieldChange(revision, true) },
+				{ revision: Number(revision), change: crossFieldChange(revision, true, compressor) },
 				{ revision: Number(revision), change: second },
 			],
 		},
 		revisions: [
 			{
 				encoded: Number(revision),
-				stable: testIdCompressor.decompress(revision as SessionSpaceCompressedId),
+				stable: compressor.decompress(revision as SessionSpaceCompressedId),
 			},
 		],
 		allocator: { maxLocalId: 50 },
-		compressor: { sessionId: testIdCompressor.localSessionId },
+		compressor: {
+			sessionId: compressor.localSessionId,
+			serialized: serializeIdCompressor(compressor, true),
+		},
 		sequencing: { minimumSequenceNumber: 0, sequenceNumber: 0 },
 		schedule: ["destination", "source", "source-update", "source-reprocess"],
 	} satisfies ReplayInput);
 }
 
-export function captureCrossFieldCoordination(revision: RevisionTag): unknown {
+export function captureCrossFieldCoordination(
+	revision: RevisionTag,
+	compressor: IIdCompressor,
+): unknown {
 	return replayArrayModularInput(
-		crossFieldCoordinationInput(revision) as unknown as Record<string, unknown>,
+		crossFieldCoordinationInput(revision, compressor) as unknown as Record<string, unknown>,
 	);
 }

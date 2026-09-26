@@ -21,7 +21,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 0,
+                    "major": -1,
                     "minor": 0
                   },
                   "trees": [
@@ -51,7 +51,7 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 0,
+                          "major": -1,
                           "minor": 0
                         }
                       }
@@ -64,19 +64,21 @@
           "retainIndex": null
         },
         "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5
+          -1,
+          -2,
+          -3,
+          -4,
+          -5,
+          -6
         ],
-        "allocator": {
-          "maxLocalId": 50
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -130,7 +132,7 @@
                       {
                         "count": 3,
                         "detach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       }
@@ -143,19 +145,21 @@
           "retainIndex": 2
         },
         "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5
+          -1,
+          -2,
+          -3,
+          -4,
+          -5,
+          -6
         ],
-        "allocator": {
-          "maxLocalId": 50
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -186,7 +190,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -218,7 +222,7 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       }
@@ -231,19 +235,21 @@
           "retainIndex": 0
         },
         "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5
+          -1,
+          -2,
+          -3,
+          -4,
+          -5,
+          -6
         ],
-        "allocator": {
-          "maxLocalId": 50
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -268,7 +274,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -295,11 +301,11 @@
               "rename": [
                 {
                   "oldId": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "newId": {
-                    "major": 2,
+                    "major": -3,
                     "minor": 6
                   },
                   "count": 3
@@ -310,19 +316,21 @@
           "retainIndex": null
         },
         "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5
+          -1,
+          -2,
+          -3,
+          -4,
+          -5,
+          -6
         ],
-        "allocator": {
-          "maxLocalId": 50
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -347,7 +355,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -374,7 +382,7 @@
               "destroy": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "count": 3
@@ -385,19 +393,21 @@
           "retainIndex": null
         },
         "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5
+          -1,
+          -2,
+          -3,
+          -4,
+          -5,
+          -6
         ],
-        "allocator": {
-          "maxLocalId": 50
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -422,7 +432,7 @@
               "refreshers": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -452,7 +462,7 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       }
@@ -465,19 +475,21 @@
           "retainIndex": null
         },
         "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5
+          -1,
+          -2,
+          -3,
+          -4,
+          -5,
+          -6
         ],
-        "allocator": {
-          "maxLocalId": 50
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -558,7 +570,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 3,
+                    "major": -4,
                     "minor": 10
                   },
                   "trees": [
@@ -588,11 +600,11 @@
                                 {
                                   "count": 1,
                                   "attach": {
-                                    "major": 3,
+                                    "major": -4,
                                     "minor": 10
                                   },
                                   "detach": {
-                                    "major": 3,
+                                    "major": -4,
                                     "minor": 9
                                   }
                                 }
@@ -610,19 +622,21 @@
           "retainIndex": null
         },
         "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5
+          -1,
+          -2,
+          -3,
+          -4,
+          -5,
+          -6
         ],
-        "allocator": {
-          "maxLocalId": 50
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -668,7 +682,7 @@
                       {
                         "count": 2,
                         "detach": {
-                          "major": 4,
+                          "major": -5,
                           "minor": 12
                         }
                       },
@@ -678,7 +692,7 @@
                       {
                         "count": 2,
                         "attach": {
-                          "major": 4,
+                          "major": -5,
                           "minor": 12
                         }
                       }
@@ -691,19 +705,21 @@
           "retainIndex": 0
         },
         "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5
+          -1,
+          -2,
+          -3,
+          -4,
+          -5,
+          -6
         ],
-        "allocator": {
-          "maxLocalId": 50
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -728,7 +744,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -760,14 +776,14 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       },
                       {
                         "count": 2,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 4
                         }
                       }
@@ -780,19 +796,21 @@
           "retainIndex": null
         },
         "revisions": [
-          0,
-          1,
-          2,
-          3,
-          4,
-          5
+          -1,
+          -2,
+          -3,
+          -4,
+          -5,
+          -6
         ],
-        "allocator": {
-          "maxLocalId": 50
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -826,12 +844,14 @@
           }
         },
         "revisions": [],
-        "allocator": {
-          "maxLocalId": 0
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "algebraAllocator": "derived-from-change-max-id"
         },
         "compressor": {
           "mode": "test",
-          "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
         },
         "sequencing": {
           "sequenceNumber": 0,
@@ -862,7 +882,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 0,
+                    "major": -1,
                     "minor": 0
                   },
                   "trees": [
@@ -892,7 +912,7 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 0,
+                          "major": -1,
                           "minor": 0
                         }
                       }
@@ -926,7 +946,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 0,
+                    "major": -1,
                     "minor": 0
                   },
                   "trees": [
@@ -956,7 +976,7 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 0,
+                          "major": -1,
                           "minor": 0
                         }
                       }
@@ -1008,7 +1028,7 @@
                       {
                         "count": 3,
                         "detach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       }
@@ -1028,7 +1048,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -1037,7 +1057,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -1046,7 +1066,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -1085,7 +1105,7 @@
                       {
                         "count": 3,
                         "detach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       }
@@ -1105,7 +1125,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -1114,7 +1134,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -1123,7 +1143,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -1156,7 +1176,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -1190,7 +1210,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -1199,7 +1219,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -1208,7 +1228,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -1231,7 +1251,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -1240,7 +1260,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -1249,7 +1269,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -1267,7 +1287,7 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       }
@@ -1308,7 +1328,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -1342,7 +1362,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -1351,7 +1371,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -1360,7 +1380,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -1383,7 +1403,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -1392,7 +1412,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -1401,7 +1421,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -1419,7 +1439,7 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       }
@@ -1463,7 +1483,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -1495,7 +1515,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -1504,7 +1524,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -1513,7 +1533,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -1530,7 +1550,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -1539,7 +1559,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -1548,7 +1568,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -1561,11 +1581,11 @@
               "rename": [
                 {
                   "oldId": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "newId": {
-                    "major": 2,
+                    "major": -3,
                     "minor": 6
                   },
                   "count": 3
@@ -1581,7 +1601,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 2,
+                    "major": -3,
                     "minor": 6
                   },
                   "values": [
@@ -1590,7 +1610,7 @@
                 },
                 {
                   "id": {
-                    "major": 2,
+                    "major": -3,
                     "minor": 7
                   },
                   "values": [
@@ -1599,7 +1619,7 @@
                 },
                 {
                   "id": {
-                    "major": 2,
+                    "major": -3,
                     "minor": 8
                   },
                   "values": [
@@ -1621,7 +1641,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -1653,7 +1673,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -1662,7 +1682,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -1671,7 +1691,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -1688,7 +1708,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -1697,7 +1717,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -1706,7 +1726,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -1719,11 +1739,11 @@
               "rename": [
                 {
                   "oldId": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "newId": {
-                    "major": 2,
+                    "major": -3,
                     "minor": 6
                   },
                   "count": 3
@@ -1739,7 +1759,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 2,
+                    "major": -3,
                     "minor": 6
                   },
                   "values": [
@@ -1748,7 +1768,7 @@
                 },
                 {
                   "id": {
-                    "major": 2,
+                    "major": -3,
                     "minor": 7
                   },
                   "values": [
@@ -1757,7 +1777,7 @@
                 },
                 {
                   "id": {
-                    "major": 2,
+                    "major": -3,
                     "minor": 8
                   },
                   "values": [
@@ -1784,7 +1804,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -1816,7 +1836,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -1825,7 +1845,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -1834,7 +1854,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -1851,7 +1871,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -1860,7 +1880,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -1869,7 +1889,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -1882,7 +1902,7 @@
               "destroy": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "count": 3
@@ -1910,7 +1930,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -1942,7 +1962,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -1951,7 +1971,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -1960,7 +1980,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -1977,7 +1997,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -1986,7 +2006,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -1995,7 +2015,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -2008,7 +2028,7 @@
               "destroy": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "count": 3
@@ -2041,7 +2061,7 @@
               "refreshers": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -2071,7 +2091,7 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       }
@@ -2105,7 +2125,7 @@
               "refreshers": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -2135,7 +2155,7 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       }
@@ -2214,7 +2234,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 3,
+                    "major": -4,
                     "minor": 10
                   },
                   "trees": [
@@ -2244,11 +2264,11 @@
                                 {
                                   "count": 1,
                                   "attach": {
-                                    "major": 3,
+                                    "major": -4,
                                     "minor": 10
                                   },
                                   "detach": {
-                                    "major": 3,
+                                    "major": -4,
                                     "minor": 9
                                   }
                                 }
@@ -2311,7 +2331,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 3,
+                    "major": -4,
                     "minor": 9
                   },
                   "values": [
@@ -2373,7 +2393,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 3,
+                    "major": -4,
                     "minor": 10
                   },
                   "trees": [
@@ -2403,11 +2423,11 @@
                                 {
                                   "count": 1,
                                   "attach": {
-                                    "major": 3,
+                                    "major": -4,
                                     "minor": 10
                                   },
                                   "detach": {
-                                    "major": 3,
+                                    "major": -4,
                                     "minor": 9
                                   }
                                 }
@@ -2470,7 +2490,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 3,
+                    "major": -4,
                     "minor": 9
                   },
                   "values": [
@@ -2506,7 +2526,7 @@
                       {
                         "count": 2,
                         "detach": {
-                          "major": 4,
+                          "major": -5,
                           "minor": 12
                         }
                       },
@@ -2516,7 +2536,7 @@
                       {
                         "count": 2,
                         "attach": {
-                          "major": 4,
+                          "major": -5,
                           "minor": 12
                         }
                       }
@@ -2563,7 +2583,7 @@
                       {
                         "count": 2,
                         "detach": {
-                          "major": 4,
+                          "major": -5,
                           "minor": 12
                         }
                       },
@@ -2573,7 +2593,7 @@
                       {
                         "count": 2,
                         "attach": {
-                          "major": 4,
+                          "major": -5,
                           "minor": 12
                         }
                       }
@@ -2616,7 +2636,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -2648,7 +2668,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -2657,7 +2677,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -2666,7 +2686,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -2683,7 +2703,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -2692,7 +2712,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -2701,7 +2721,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -2719,14 +2739,14 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       },
                       {
                         "count": 2,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 4
                         }
                       }
@@ -2754,7 +2774,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -2786,7 +2806,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -2795,7 +2815,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -2804,7 +2824,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -2821,7 +2841,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -2830,7 +2850,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -2839,7 +2859,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -2857,14 +2877,14 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       },
                       {
                         "count": 2,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 4
                         }
                       }
@@ -2942,7 +2962,7 @@
                 "build": [
                   {
                     "id": {
-                      "major": 0,
+                      "major": -1,
                       "minor": 0
                     },
                     "trees": [
@@ -2972,7 +2992,7 @@
                         {
                           "count": 3,
                           "attach": {
-                            "major": 0,
+                            "major": -1,
                             "minor": 0
                           }
                         }
@@ -2985,19 +3005,21 @@
             "retainIndex": null
           },
           "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5
+            -1,
+            -2,
+            -3,
+            -4,
+            -5,
+            -6
           ],
-          "allocator": {
-            "maxLocalId": 50
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -3020,7 +3042,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 0,
+                    "major": -1,
                     "minor": 0
                   },
                   "trees": [
@@ -3050,7 +3072,7 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 0,
+                          "major": -1,
                           "minor": 0
                         }
                       }
@@ -3118,7 +3140,7 @@
                         {
                           "count": 3,
                           "detach": {
-                            "major": 1,
+                            "major": -2,
                             "minor": 3
                           }
                         }
@@ -3131,19 +3153,21 @@
             "retainIndex": 2
           },
           "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5
+            -1,
+            -2,
+            -3,
+            -4,
+            -5,
+            -6
           ],
-          "allocator": {
-            "maxLocalId": 50
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -3179,7 +3203,7 @@
                       {
                         "count": 3,
                         "detach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       }
@@ -3199,7 +3223,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -3208,7 +3232,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -3217,7 +3241,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -3254,7 +3278,7 @@
                 "build": [
                   {
                     "id": {
-                      "major": 1,
+                      "major": -2,
                       "minor": 3
                     },
                     "trees": [
@@ -3286,7 +3310,7 @@
                         {
                           "count": 3,
                           "attach": {
-                            "major": 1,
+                            "major": -2,
                             "minor": 3
                           }
                         }
@@ -3299,19 +3323,21 @@
             "retainIndex": 0
           },
           "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5
+            -1,
+            -2,
+            -3,
+            -4,
+            -5,
+            -6
           ],
-          "allocator": {
-            "maxLocalId": 50
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -3336,7 +3362,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -3370,7 +3396,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -3379,7 +3405,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -3388,7 +3414,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -3411,7 +3437,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -3420,7 +3446,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -3429,7 +3455,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -3447,7 +3473,7 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       }
@@ -3491,7 +3517,7 @@
                 "build": [
                   {
                     "id": {
-                      "major": 1,
+                      "major": -2,
                       "minor": 3
                     },
                     "trees": [
@@ -3518,11 +3544,11 @@
                 "rename": [
                   {
                     "oldId": {
-                      "major": 1,
+                      "major": -2,
                       "minor": 3
                     },
                     "newId": {
-                      "major": 2,
+                      "major": -3,
                       "minor": 6
                     },
                     "count": 3
@@ -3533,19 +3559,21 @@
             "retainIndex": null
           },
           "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5
+            -1,
+            -2,
+            -3,
+            -4,
+            -5,
+            -6
           ],
-          "allocator": {
-            "maxLocalId": 50
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -3568,7 +3596,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -3600,7 +3628,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -3609,7 +3637,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -3618,7 +3646,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -3635,7 +3663,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -3644,7 +3672,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -3653,7 +3681,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -3666,11 +3694,11 @@
               "rename": [
                 {
                   "oldId": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "newId": {
-                    "major": 2,
+                    "major": -3,
                     "minor": 6
                   },
                   "count": 3
@@ -3686,7 +3714,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 2,
+                    "major": -3,
                     "minor": 6
                   },
                   "values": [
@@ -3695,7 +3723,7 @@
                 },
                 {
                   "id": {
-                    "major": 2,
+                    "major": -3,
                     "minor": 7
                   },
                   "values": [
@@ -3704,7 +3732,7 @@
                 },
                 {
                   "id": {
-                    "major": 2,
+                    "major": -3,
                     "minor": 8
                   },
                   "values": [
@@ -3731,7 +3759,7 @@
                 "build": [
                   {
                     "id": {
-                      "major": 1,
+                      "major": -2,
                       "minor": 3
                     },
                     "trees": [
@@ -3758,7 +3786,7 @@
                 "destroy": [
                   {
                     "id": {
-                      "major": 1,
+                      "major": -2,
                       "minor": 3
                     },
                     "count": 3
@@ -3769,19 +3797,21 @@
             "retainIndex": null
           },
           "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5
+            -1,
+            -2,
+            -3,
+            -4,
+            -5,
+            -6
           ],
-          "allocator": {
-            "maxLocalId": 50
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -3804,7 +3834,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -3836,7 +3866,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -3845,7 +3875,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -3854,7 +3884,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -3871,7 +3901,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -3880,7 +3910,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -3889,7 +3919,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -3902,7 +3932,7 @@
               "destroy": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "count": 3
@@ -3935,7 +3965,7 @@
                 "refreshers": [
                   {
                     "id": {
-                      "major": 1,
+                      "major": -2,
                       "minor": 3
                     },
                     "trees": [
@@ -3965,7 +3995,7 @@
                         {
                           "count": 3,
                           "attach": {
-                            "major": 1,
+                            "major": -2,
                             "minor": 3
                           }
                         }
@@ -3978,19 +4008,21 @@
             "retainIndex": null
           },
           "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5
+            -1,
+            -2,
+            -3,
+            -4,
+            -5,
+            -6
           ],
-          "allocator": {
-            "maxLocalId": 50
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -4013,7 +4045,7 @@
               "refreshers": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -4043,7 +4075,7 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       }
@@ -4138,7 +4170,7 @@
                 "build": [
                   {
                     "id": {
-                      "major": 3,
+                      "major": -4,
                       "minor": 10
                     },
                     "trees": [
@@ -4168,11 +4200,11 @@
                                   {
                                     "count": 1,
                                     "attach": {
-                                      "major": 3,
+                                      "major": -4,
                                       "minor": 10
                                     },
                                     "detach": {
-                                      "major": 3,
+                                      "major": -4,
                                       "minor": 9
                                     }
                                   }
@@ -4190,19 +4222,21 @@
             "retainIndex": null
           },
           "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5
+            -1,
+            -2,
+            -3,
+            -4,
+            -5,
+            -6
           ],
-          "allocator": {
-            "maxLocalId": 50
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -4265,7 +4299,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 3,
+                    "major": -4,
                     "minor": 10
                   },
                   "trees": [
@@ -4295,11 +4329,11 @@
                                 {
                                   "count": 1,
                                   "attach": {
-                                    "major": 3,
+                                    "major": -4,
                                     "minor": 10
                                   },
                                   "detach": {
-                                    "major": 3,
+                                    "major": -4,
                                     "minor": 9
                                   }
                                 }
@@ -4362,7 +4396,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 3,
+                    "major": -4,
                     "minor": 9
                   },
                   "values": [
@@ -4410,7 +4444,7 @@
                         {
                           "count": 2,
                           "detach": {
-                            "major": 4,
+                            "major": -5,
                             "minor": 12
                           }
                         },
@@ -4420,7 +4454,7 @@
                         {
                           "count": 2,
                           "attach": {
-                            "major": 4,
+                            "major": -5,
                             "minor": 12
                           }
                         }
@@ -4433,19 +4467,21 @@
             "retainIndex": 0
           },
           "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5
+            -1,
+            -2,
+            -3,
+            -4,
+            -5,
+            -6
           ],
-          "allocator": {
-            "maxLocalId": 50
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -4477,7 +4513,7 @@
                       {
                         "count": 2,
                         "detach": {
-                          "major": 4,
+                          "major": -5,
                           "minor": 12
                         }
                       },
@@ -4487,7 +4523,7 @@
                       {
                         "count": 2,
                         "attach": {
-                          "major": 4,
+                          "major": -5,
                           "minor": 12
                         }
                       }
@@ -4530,7 +4566,7 @@
                 "build": [
                   {
                     "id": {
-                      "major": 1,
+                      "major": -2,
                       "minor": 3
                     },
                     "trees": [
@@ -4562,14 +4598,14 @@
                         {
                           "count": 3,
                           "attach": {
-                            "major": 1,
+                            "major": -2,
                             "minor": 3
                           }
                         },
                         {
                           "count": 2,
                           "attach": {
-                            "major": 1,
+                            "major": -2,
                             "minor": 4
                           }
                         }
@@ -4582,19 +4618,21 @@
             "retainIndex": null
           },
           "revisions": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5
+            -1,
+            -2,
+            -3,
+            -4,
+            -5,
+            -6
           ],
-          "allocator": {
-            "maxLocalId": 50
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,
@@ -4617,7 +4655,7 @@
               "build": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "trees": [
@@ -4649,7 +4687,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -4658,7 +4696,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -4667,7 +4705,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -4684,7 +4722,7 @@
               "detached": [
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 3
                   },
                   "values": [
@@ -4693,7 +4731,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 4
                   },
                   "values": [
@@ -4702,7 +4740,7 @@
                 },
                 {
                   "id": {
-                    "major": 1,
+                    "major": -2,
                     "minor": 5
                   },
                   "values": [
@@ -4720,14 +4758,14 @@
                       {
                         "count": 3,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 3
                         }
                       },
                       {
                         "count": 2,
                         "attach": {
-                          "major": 1,
+                          "major": -2,
                           "minor": 4
                         }
                       }
@@ -4769,12 +4807,14 @@
             }
           },
           "revisions": [],
-          "allocator": {
-            "maxLocalId": 0
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "algebraAllocator": "derived-from-change-max-id"
           },
           "compressor": {
             "mode": "test",
-            "session": "e6758589-a8c2-4daa-acd7-d8c1bdc6a291"
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
           },
           "sequencing": {
             "sequenceNumber": 0,

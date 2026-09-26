@@ -670,8 +670,11 @@ function arrayCaseFixture() {
         revision: "revision-a",
       },
       revisions: ["revision-a"],
-      allocator: { nextLocalId: 0 },
-      compressor: { mode: "test", session: "session-a" },
+      algorithm: {
+        localIds: "supplied-by-operands",
+        algebraAllocator: "derived-from-change-max-id",
+      },
+      compressor: { mode: "test", session: "session-a", serialized: "state-a" },
       sequencing: { sequenceNumber: 0, referenceSequenceNumber: 0, minimumSequenceNumber: 0 },
       schedule: [{ step: "move" }],
     },
@@ -687,8 +690,11 @@ function arrayCaseFixture() {
         revision: "revision-b",
       },
       revisions: ["revision-b"],
-      allocator: { nextLocalId: 0 },
-      compressor: { mode: "test", session: "session-a" },
+      algorithm: {
+        localIds: "supplied-by-operands",
+        algebraAllocator: "derived-from-change-max-id",
+      },
+      compressor: { mode: "test", session: "session-a", serialized: "state-a" },
       sequencing: { sequenceNumber: 0, referenceSequenceNumber: 0, minimumSequenceNumber: 0 },
       schedule: [{ step: "remove" }],
     },
@@ -1036,6 +1042,89 @@ test("array modular validation binds conversion evidence to the serialized child
   input.operands.changes[0].change.fields[0][1].change.children[0][0] += 1;
   raw.input = structuredClone(input);
   assert.throws(() => validateArrayCase(value), /generic-to-sequence.*conversion/i);
+});
+
+test("M3 replay observations retain nested deltas and decoded source state", () => {
+  const sequence = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/sequence-field-editor.json", import.meta.url),
+    "utf8",
+  ));
+  const indexed = sequence.raw.scenarios.find(({ id }) => id === "indexed-children").output;
+  assert(Array.isArray(indexed.delta.local.marks[1].fields));
+  assert.match(JSON.stringify(indexed.delta.local.marks[1].fields), /testIntentions/);
+
+  const codecs = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/array-codecs.json", import.meta.url),
+    "utf8",
+  ));
+  const build = codecs.raw.scenarios.find(({ id }) => id === "builds").output.decoded
+    .flatMap(({ changes }) => changes)
+    .find(({ type, data }) => type === "data" && data.builds.length > 0).data;
+  assert(build.builds[0][1].length > 0);
+  assert(Array.isArray(build.refreshers));
+  assert(Array.isArray(build.destroys));
+
+  for (const id of ["retained-history", "detached-index", "full-summary"]) {
+    const output = codecs.raw.scenarios.find((scenario) => scenario.id === id).output;
+    assert(Array.isArray(output.restoredHistory.trunk), `${id}: restored history`);
+    assert(Array.isArray(output.restoredDetached), `${id}: restored detached roots`);
+    assert.equal("history" in output, false, `${id}: echoed history blob`);
+    assert.equal("detached" in output, false, `${id}: echoed detached blob`);
+  }
+});
+
+test("M3 invalid cases execute source controls and exact malformed operands", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/array-invalid.json", import.meta.url),
+    "utf8",
+  ));
+  for (const [id, assertion] of [
+    ["corrupt-mark", "0xac2"],
+    ["corrupt-revision", "0x88d"],
+  ]) {
+    const output = value.raw.scenarios.find((scenario) => scenario.id === id).output;
+    assert.equal(output.control.accepted, true, `${id}: valid decoder control`);
+    assert.equal(output.malformed.accepted, false, `${id}: malformed decoder result`);
+    assert.match(output.malformed.error, new RegExp(assertion), `${id}: source assertion`);
+  }
+  const ownership = value.raw.scenarios.find(({ id }) => id === "corrupt-ownership");
+  assert.equal(ownership.output.control.accepted, true);
+  assert.equal(ownership.output.malformed.accepted, false);
+  for (const [mutate, message] of [
+    [(input) => { delete input.malformed; }, /corrupt-ownership.*malformed input/i],
+    [(input) => { delete input.malformed.source.path; }, /corrupt-ownership.*source path/i],
+    [(input) => { delete input.malformed.source.client; }, /corrupt-ownership.*source client/i],
+    [(input) => { delete input.malformed.source.index; }, /corrupt-ownership.*source index/i],
+    [(input) => { delete input.malformed.destination.path; }, /corrupt-ownership.*destination path/i],
+    [(input) => { delete input.malformed.destination.client; }, /corrupt-ownership.*destination client/i],
+    [(input) => { delete input.malformed.destination.gap; }, /corrupt-ownership.*destination index/i],
+  ]) {
+    const broken = structuredClone(value);
+    const input = broken.input.scenarios.find(({ id }) => id === "corrupt-ownership");
+    mutate(input);
+    broken.raw.scenarios.find(({ id }) => id === "corrupt-ownership").input =
+      structuredClone(input);
+    assert.throws(() => validateArrayCase(broken), message);
+  }
+});
+
+test("M3 history observations expose source sequencing and deterministic reconnect IDs", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/array-history.json", import.meta.url),
+    "utf8",
+  ));
+  for (const id of ["pending-chains", "reconnect"]) {
+    const input = value.input.scenarios.find((scenario) => scenario.id === id);
+    const reconnect = input.schedule.find((action) =>
+      action.op === "reconnect" || action.connected === true);
+    assert.equal(typeof reconnect.reconnectId, "string", `${id}: reconnect identity`);
+  }
+  const tail = value.raw.scenarios.find(({ id }) => id === "summary-tail").output;
+  assert(Array.isArray(tail.readerHistoryAfterTail.trunk));
+  assert(Array.isArray(tail.readerHistoryAfterContinuation.trunk));
+  assert(Array.isArray(tail.peerHistory.trunk));
+  assert.equal("tailEnvelope" in tail, false);
+  assert.equal("continuationEnvelope" in tail, false);
 });
 
 test("corpus validation requires independent container and summary foundations", () => {

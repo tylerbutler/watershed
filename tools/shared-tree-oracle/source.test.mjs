@@ -14,6 +14,7 @@ import {
   modularInjectedTestPath,
   publishCapture,
   reference,
+  replayInjectedTestPath,
   sequenceInjectedTestPath,
   validateCapture,
   verifyCheckout,
@@ -168,6 +169,10 @@ test("source runner declares the owned M3 injections", () => {
     arraySupportInjectedPath,
     "packages/dds/tree/src/test/watershedArraySupport.ts",
   );
+  assert.equal(
+    replayInjectedTestPath,
+    "packages/dds/tree/src/test/watershedReplay.spec.ts",
+  );
 });
 
 test("source verification byte-checks the owned M3 injections", async (t) => {
@@ -175,6 +180,7 @@ test("source verification byte-checks the owned M3 injections", async (t) => {
     [arrayInjectedTestPath, "upstream-array.spec.ts"],
     [arraySupportInjectedPath, "upstream-array-support.ts"],
     [sequenceInjectedTestPath, "upstream-sequence.spec.ts"],
+    [replayInjectedTestPath, "upstream-replay.spec.ts"],
   ]) {
     const { directory, commit } = await checkoutFixture(t);
     const target = join(directory, injectedPath);

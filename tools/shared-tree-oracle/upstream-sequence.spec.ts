@@ -7,13 +7,20 @@ import { strict as assert } from "node:assert";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
-import type { SessionId } from "@fluidframework/id-compressor";
+import type { IIdCompressor, SessionId, SessionSpaceCompressedId } from "@fluidframework/id-compressor";
+import {
+	createIdCompressor,
+	deserializeIdCompressor,
+	serializeIdCompressor,
+	type SerializedIdCompressorWithOngoingSession,
+} from "@fluidframework/id-compressor/internal";
 import { FluidClientVersion } from "../codec/index.js";
 import {
 	applyDelta,
 	combineVisitors,
 	makeDetachedFieldIndex,
 	makeDetachedNodeId,
+	RevisionTagCodec,
 	revisionMetadataSourceFromInfo,
 	rootFieldKey,
 	tagChange,
@@ -45,7 +52,7 @@ import { replaceRevisions } from "../feature-libraries/sequence-field/replaceRev
 import { sequenceFieldChangeCodecFactory } from "../feature-libraries/sequence-field/sequenceFieldCodecs.js";
 import { sequenceFieldEditor } from "../feature-libraries/sequence-field/sequenceFieldEditor.js";
 import type { Changeset } from "../feature-libraries/sequence-field/types.js";
-import { brand, idAllocatorFromMaxId } from "../util/index.js";
+import { brand } from "../util/index.js";
 import { TestChange } from "./testChange.js";
 import { TestNodeId } from "./testNodeId.js";
 import {
@@ -55,11 +62,6 @@ import {
 	testRebase,
 	toDelta,
 } from "./feature-libraries/sequence-field/utils.js";
-import {
-	mintRevisionTag,
-	testIdCompressor,
-	testRevisionTagCodec,
-} from "./utils.js";
 import { buildTestForest, TestTreeProviderLite } from "./utils.js";
 import { captureCrossFieldCoordination as captureSourceCrossFieldCoordination } from "./watershedArraySupport.js";
 
@@ -291,8 +293,35 @@ function integer(value: unknown, message: string): asserts value is number {
 	assert(Number.isSafeInteger(value), message);
 }
 
-function decodeRevision(value: unknown, message: string): RevisionTag {
+type ReplayIdContext = {
+	readonly idCompressor: IIdCompressor;
+	readonly revisionTagCodec: RevisionTagCodec;
+};
+
+function replayIdContext(input: Record<string, unknown>): ReplayIdContext {
+	object(input.compressor, "The replay input must contain compressor state.");
+	assert(typeof input.compressor.serialized === "string",
+		"The replay compressor must contain serialized state.");
+	assert(typeof input.compressor.session === "string",
+		"The replay compressor must contain its session.");
+	const idCompressor = deserializeIdCompressor(
+		input.compressor.serialized as SerializedIdCompressorWithOngoingSession,
+	);
+	assert.equal(idCompressor.localSessionId, input.compressor.session,
+		"The replay compressor session must match its serialized state.");
+	return {
+		idCompressor,
+		revisionTagCodec: new RevisionTagCodec(idCompressor),
+	};
+}
+
+function decodeRevision(
+	value: unknown,
+	message: string,
+	context: ReplayIdContext,
+): RevisionTag {
 	integer(value, message);
+	context.idCompressor.decompress(value as SessionSpaceCompressedId);
 	return value as RevisionTag;
 }
 
@@ -301,15 +330,19 @@ function decodeLocalId(value: unknown, message: string): ChangesetLocalId {
 	return brand(value);
 }
 
-function decodeAtomId(value: unknown, message: string): ChangeAtomId {
+function decodeAtomId(value: unknown, message: string, context: ReplayIdContext): ChangeAtomId {
 	object(value, message);
 	return {
-		revision: decodeRevision(value.revision, `${message} revision`),
+		revision: decodeRevision(value.revision, `${message} revision`, context),
 		localId: decodeLocalId(value.localId, `${message} local ID`),
 	};
 }
 
-function decodeTestNode(value: unknown, message: string): ReturnType<typeof TestNodeId.create> {
+function decodeTestNode(
+	value: unknown,
+	message: string,
+	context: ReplayIdContext,
+): ReturnType<typeof TestNodeId.create> {
 	object(value, message);
 	object(value.testChange, `${message} test change`);
 	assert(Array.isArray(value.testChange.intentions)
@@ -331,14 +364,18 @@ function decodeTestNode(value: unknown, message: string): ReturnType<typeof Test
 		{
 			...(value.revision === undefined
 				? {}
-				: { revision: decodeRevision(value.revision, `${message} revision`) }),
+				: { revision: decodeRevision(value.revision, `${message} revision`, context) }),
 			localId: decodeLocalId(value.localId, `${message} local ID`),
 		},
 		testChange,
 	);
 }
 
-function decodeChangeset(value: unknown, message: string): Changeset {
+function decodeChangeset(
+	value: unknown,
+	message: string,
+	context: ReplayIdContext,
+): Changeset {
 	assert(Array.isArray(value), message);
 	return value.map((mark, index) => {
 		object(mark, `${message} mark ${index}`);
@@ -350,17 +387,35 @@ function decodeChangeset(value: unknown, message: string): Changeset {
 				: { id: decodeLocalId(mark.id, `${message} mark ${index} ID`) }),
 			...(mark.revision === undefined
 				? {}
-				: { revision: decodeRevision(mark.revision, `${message} mark ${index} revision`) }),
+				: {
+						revision: decodeRevision(
+							mark.revision,
+							`${message} mark ${index} revision`,
+							context,
+						),
+					}),
 			...(mark.cellId === undefined
 				? {}
-				: { cellId: decodeAtomId(mark.cellId, `${message} mark ${index} cell ID`) }),
+				: {
+						cellId: decodeAtomId(
+							mark.cellId,
+							`${message} mark ${index} cell ID`,
+							context,
+						),
+					}),
 			...(mark.idOverride === undefined
 				? {}
 				: { idOverride: decodeAtomId(mark.idOverride,
-					`${message} mark ${index} ID override`) }),
+					`${message} mark ${index} ID override`, context) }),
 			...(mark.changes === undefined
 				? {}
-				: { changes: decodeTestNode(mark.changes, `${message} mark ${index} child`) }),
+				: {
+						changes: decodeTestNode(
+							mark.changes,
+							`${message} mark ${index} child`,
+							context,
+						),
+					}),
 		};
 	}) as Changeset;
 }
@@ -427,25 +482,41 @@ function oracleCase(id: keyof typeof scenarioIds, domain: string, scenarios: Sce
 	};
 }
 
-function revisions(): RevisionTag[] {
-	return Array.from({ length: 24 }, () => mintRevisionTag());
+function revisions(compressor: IIdCompressor): RevisionTag[] {
+	return Array.from(
+		{ length: 24 },
+		() => compressor.generateCompressedId() as RevisionTag,
+	);
 }
 
-function codecOutput(change: Changeset, revision: RevisionTag) {
+function codecOutput(change: Changeset, revision: RevisionTag, ids: ReplayIdContext) {
 	const baseContext = {
-		originatorId: testIdCompressor.localSessionId as SessionId,
+		originatorId: ids.idCompressor.localSessionId as SessionId,
 		isSummary: false,
 		revision,
-		idCompressor: testIdCompressor,
+		idCompressor: ids.idCompressor,
 	};
 	const context: FieldChangeEncodingContext & FieldChangeDecodingContext = {
 		baseContext,
 		encodeNode: (node) => TestNodeId.encode(node, baseContext),
 		decodeNode: (node) => TestNodeId.decode(node, baseContext),
 	};
-	const codec = sequenceFieldChangeCodecFactory(testRevisionTagCodec).resolve(3);
+	const codec = sequenceFieldChangeCodecFactory(ids.revisionTagCodec).resolve(3);
 	const encoded = codec.encode(change, context);
 	return { encoded, decoded: codec.decode(encoded, context) };
+}
+
+function serializeRuntimeValue(value: unknown): unknown {
+	if (value instanceof Map) {
+		return [...value].map(([key, item]) => [String(key), serializeRuntimeValue(item)]);
+	}
+	if (Array.isArray(value)) return value.map(serializeRuntimeValue);
+	if (value !== null && typeof value === "object") {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, item]) => [key, serializeRuntimeValue(item)]),
+		);
+	}
+	return value;
 }
 
 function replayContext(
@@ -453,17 +524,21 @@ function replayContext(
 	initialState: unknown,
 	operands: Record<string, unknown>,
 	revisions: readonly RevisionTag[],
-	maxLocalId: number,
+	compressor: IIdCompressor,
 ) {
 	return {
 		operation,
 		initialState,
 		operands,
 		revisions: copy(revisions),
-		allocator: { maxLocalId },
+		algorithm: {
+			localIds: "supplied-by-operands",
+			algebraAllocator: "derived-from-change-max-id",
+		},
 		compressor: {
 			mode: "test",
-			session: String(testIdCompressor.localSessionId),
+			session: String(compressor.localSessionId),
+			serialized: serializeIdCompressor(compressor, true),
 		},
 		sequencing: {
 			sequenceNumber: 0,
@@ -474,22 +549,18 @@ function replayContext(
 	};
 }
 
-function verifyAllocator(input: Record<string, unknown>): void {
+function verifyAlgorithm(input: Record<string, unknown>): void {
 	object(input.operands, "The replay input must contain operands.");
-	object(input.allocator, "The replay input must contain an allocator.");
-	integer(input.allocator.maxLocalId, "The allocator watermark must be an integer.");
-	if (input.operands.maxLocalId !== undefined) {
-		integer(input.operands.maxLocalId, "The operand watermark must be an integer.");
-		assert.equal(
-			input.operands.maxLocalId,
-			input.allocator.maxLocalId,
-			"The serialized allocator watermarks must match.",
-		);
-	}
+	object(input.algorithm, "The replay input must state its source algorithm contract.");
+	assert.equal(input.algorithm.localIds, "supplied-by-operands",
+		"The replay must use the local IDs supplied by its operands.");
+	assert.equal(input.algorithm.algebraAllocator, "derived-from-change-max-id",
+		"The sequence helpers derive their allocator from changeset IDs.");
 }
 
 export function replaySequenceEditorInput(input: Record<string, unknown>): unknown {
-	verifyAllocator(input);
+	verifyAlgorithm(input);
+	const context = replayIdContext(input);
 	object(input.operands, "The sequence editor input must contain operands.");
 	const operands = input.operands;
 	let change: Changeset | { readonly out: Changeset; readonly in: Changeset };
@@ -498,8 +569,8 @@ export function replaySequenceEditorInput(input: Record<string, unknown>): unkno
 			change = sequenceFieldEditor.insert(
 				(integer(operands.index, "The insert index must be an integer."), operands.index),
 				(integer(operands.count, "The insert count must be an integer."), operands.count),
-				decodeAtomId(operands.firstId, "The insert first ID must be valid."),
-				decodeRevision(operands.revision, "The insert revision must be valid."),
+				decodeAtomId(operands.firstId, "The insert first ID must be valid.", context),
+				decodeRevision(operands.revision, "The insert revision must be valid.", context),
 			);
 			break;
 		case "remove":
@@ -508,7 +579,7 @@ export function replaySequenceEditorInput(input: Record<string, unknown>): unkno
 					operands.sourceIndex),
 				(integer(operands.count, "The remove count must be an integer."), operands.count),
 				decodeLocalId(operands.detachId, "The remove ID must be valid."),
-				decodeRevision(operands.revision, "The remove revision must be valid."),
+				decodeRevision(operands.revision, "The remove revision must be valid.", context),
 			);
 			break;
 		case "move":
@@ -519,8 +590,8 @@ export function replaySequenceEditorInput(input: Record<string, unknown>): unkno
 				(integer(operands.destinationIndex, "The move destination must be an integer."),
 					operands.destinationIndex),
 				decodeLocalId(operands.detachId, "The move ID must be valid."),
-				decodeAtomId(operands.attachId, "The move attach ID must be valid."),
-				decodeRevision(operands.revision, "The move revision must be valid."),
+				decodeAtomId(operands.attachId, "The move attach ID must be valid.", context),
+				decodeRevision(operands.revision, "The move revision must be valid.", context),
 			);
 			break;
 		case "move-endpoints":
@@ -531,7 +602,7 @@ export function replaySequenceEditorInput(input: Record<string, unknown>): unkno
 					(integer(operands.count, "The move-out count must be an integer."),
 						operands.count),
 					decodeLocalId(operands.moveId, "The move-out ID must be valid."),
-					decodeRevision(operands.revision, "The move-out revision must be valid."),
+					decodeRevision(operands.revision, "The move-out revision must be valid.", context),
 				),
 				in: sequenceFieldEditor.moveIn(
 					(integer(operands.destinationIndex, "The move-in destination must be an integer."),
@@ -539,8 +610,8 @@ export function replaySequenceEditorInput(input: Record<string, unknown>): unkno
 					(integer(operands.count, "The move-in count must be an integer."),
 						operands.count),
 					decodeLocalId(operands.moveId, "The move-in ID must be valid."),
-					decodeAtomId(operands.attachId, "The move-in attach ID must be valid."),
-					decodeRevision(operands.revision, "The move-in revision must be valid."),
+					decodeAtomId(operands.attachId, "The move-in attach ID must be valid.", context),
+					decodeRevision(operands.revision, "The move-in revision must be valid.", context),
 				),
 			};
 			break;
@@ -549,7 +620,10 @@ export function replaySequenceEditorInput(input: Record<string, unknown>): unkno
 			change = sequenceFieldEditor.buildChildChanges(operands.children.map((item, index) => {
 				object(item, `The child change ${index} must be an object.`);
 				integer(item.index, `The child change ${index} index must be an integer.`);
-				return [item.index, decodeTestNode(item.node, `The child change ${index} node`)];
+				return [
+					item.index,
+					decodeTestNode(item.node, `The child change ${index} node`, context),
+				];
 			}));
 			break;
 		}
@@ -559,31 +633,34 @@ export function replaySequenceEditorInput(input: Record<string, unknown>): unkno
 	return {
 		change,
 		delta: "out" in change
-			? { out: toDelta(change.out), in: toDelta(change.in) }
-			: toDelta(change),
+			? {
+					out: serializeRuntimeValue(toDelta(change.out)),
+					in: serializeRuntimeValue(toDelta(change.in)),
+				}
+			: serializeRuntimeValue(toDelta(change)),
 	};
 }
 
-function editorCase(revs: RevisionTag[]) {
+function editorCase(revs: RevisionTag[], compressor: IIdCompressor) {
 	const childA = TestNodeId.create({ localId: brand(20) }, TestChange.mint([], 1));
 	const childB = TestNodeId.create({ localId: brand(21) }, TestChange.mint([], 2));
 	const inputs: readonly [string, Record<string, unknown>][] = [
 		["insert", replayContext("insert", { field: ["A", "B"] }, {
 			index: 1, count: 2, firstId: { revision: revs[0], localId: 0 }, revision: revs[0],
-		}, [revs[0]], 1)],
+		}, [revs[0]], compressor)],
 		["remove", {
 			...replayContext("remove", { field: ["A", "B", "C", "D"] }, {
 				sourceIndex: 1, count: 2, detachId: 2, revision: revs[1],
-			}, [revs[1]], 3),
+			}, [revs[1]], compressor),
 			source: { path: [], start: 1, end: 3 },
 		}],
 		["empty-insert", replayContext("insert", { field: ["A", "B"] }, {
 			index: 1, count: 0, firstId: { revision: revs[2], localId: 3 }, revision: revs[2],
-		}, [revs[2]], 3)],
+		}, [revs[2]], compressor)],
 		["empty-remove", {
 			...replayContext("remove", { field: ["A", "B"] }, {
 				sourceIndex: 1, count: 0, detachId: 4, revision: revs[3],
-			}, [revs[3]], 4),
+			}, [revs[3]], compressor),
 			source: { path: [], start: 1, end: 1 },
 		}],
 		...([
@@ -601,7 +678,7 @@ function editorCase(revs: RevisionTag[]) {
 					detachId,
 					attachId: { revision, localId: attachId },
 					revision,
-				}, [revision], attachId + count - 1),
+				}, [revision], compressor),
 				source: { path: [], start: sourceIndex, end: sourceIndex + count },
 				destination: { path: [], gap: destinationIndex },
 			},
@@ -616,7 +693,7 @@ function editorCase(revs: RevisionTag[]) {
 				moveId: 16,
 				attachId: { revision: revs[8], localId: 18 },
 				revision: revs[8],
-			}, [revs[8]], 19),
+			}, [revs[8]], compressor),
 			source: { path: ["left"], start: 0, end: 2 },
 			destination: { path: ["right"], gap: 1 },
 		}],
@@ -627,39 +704,41 @@ function editorCase(revs: RevisionTag[]) {
 				{ index: 1, node: plainTestNode(childA) },
 				{ index: 4, node: plainTestNode(childB) },
 			],
-		}, [], 21)],
+		}, [], compressor)],
 	];
 	return oracleCase("sequence-field-editor", "field", inputs.map(([id, input]) =>
 		replayedScenario(id, input, replaySequenceEditorInput)));
 }
 
-function decodeTaggedChange(value: unknown, message: string) {
+function decodeTaggedChange(value: unknown, message: string, context: ReplayIdContext) {
 	object(value, message);
 	return tagChange(
-		decodeChangeset(value.change, `${message} change`),
-		decodeRevision(value.revision, `${message} revision`),
+		decodeChangeset(value.change, `${message} change`, context),
+		decodeRevision(value.revision, `${message} revision`, context),
 	);
 }
 
 export function replaySequenceAlgebraInput(input: Record<string, unknown>): unknown {
-	verifyAllocator(input);
+	verifyAlgorithm(input);
+	const context = replayIdContext(input);
 	object(input.operands, "The sequence algebra input must contain operands.");
 	const operands = input.operands;
 	switch (input.operation) {
 		case "codec": {
-			const change = decodeChangeset(operands.change, "The codec change must be valid.");
+			const change = decodeChangeset(operands.change, "The codec change must be valid.", context);
 			return {
 				changes: change,
 				codec: codecOutput(
 					change,
-					decodeRevision(operands.revision, "The codec revision must be valid."),
+					decodeRevision(operands.revision, "The codec revision must be valid.", context),
+					context,
 				),
 			};
 		}
 		case "compose": {
 			assert(Array.isArray(operands.changes), "The compose changes must be an array.");
 			const tagged = operands.changes.map((change, index) =>
-				decodeTaggedChange(change, `The compose operand ${index}`));
+				decodeTaggedChange(change, `The compose operand ${index}`, context));
 			if (operands.childComposer === "test-node") {
 				const callbacks: unknown[] = [];
 				const composed = testCompose(tagged, undefined, (left, right) => {
@@ -678,10 +757,15 @@ export function replaySequenceAlgebraInput(input: Record<string, unknown>): unkn
 			return testCompose(tagged);
 		}
 		case "compose-invert": {
-			const tagged = decodeTaggedChange(operands.change, "The split change must be valid.");
+			const tagged = decodeTaggedChange(
+				operands.change,
+				"The split change must be valid.",
+				context,
+			);
 			const inverseRevision = decodeRevision(
 				operands.inverseRevision,
 				"The split inverse revision must be valid.",
+				context,
 			);
 			assert(typeof operands.isRollback === "boolean", "The split reversal flag is required.");
 			const inverted = testInvert(tagged, inverseRevision, operands.isRollback);
@@ -694,19 +778,32 @@ export function replaySequenceAlgebraInput(input: Record<string, unknown>): unkn
 		case "invert": {
 			assert(typeof operands.isRollback === "boolean", "The reversal flag is required.");
 			return testInvert(
-				decodeTaggedChange(operands.change, "The inverse change must be valid."),
-				decodeRevision(operands.inverseRevision, "The inverse revision must be valid."),
+				decodeTaggedChange(operands.change, "The inverse change must be valid.", context),
+				decodeRevision(
+					operands.inverseRevision,
+					"The inverse revision must be valid.",
+					context,
+				),
 				operands.isRollback,
 			);
 		}
 		case "replace-revisions": {
-			const change = decodeChangeset(operands.change, "The replacement change must be valid.");
+			const change = decodeChangeset(
+				operands.change,
+				"The replacement change must be valid.",
+				context,
+			);
 			assert(Array.isArray(operands.obsolete), "The obsolete revisions must be an array.");
 			const obsolete = operands.obsolete.map((revision, index) =>
-				decodeRevision(revision, `The obsolete revision ${index} must be valid.`));
+				decodeRevision(
+					revision,
+					`The obsolete revision ${index} must be valid.`,
+					context,
+				));
 			const replacement = decodeRevision(
 				operands.replacement,
 				"The replacement revision must be valid.",
+				context,
 			);
 			return {
 				input: change,
@@ -721,14 +818,18 @@ export function replaySequenceAlgebraInput(input: Record<string, unknown>): unkn
 		case "prune":
 			assert(operands.childPruner === "drop", "The prune callback must be explicit.");
 			return prune(
-				decodeChangeset(operands.change, "The prune change must be valid."),
+				decodeChangeset(operands.change, "The prune change must be valid.", context),
 				() => undefined,
 			);
 		case "removed-roots":
 			assert(Array.isArray(operands.childRemovedRoots),
 				"The child removed roots must be an array.");
 			return [...relevantRemovedRoots(
-				decodeChangeset(operands.change, "The removed-root change must be valid."),
+				decodeChangeset(
+					operands.change,
+					"The removed-root change must be valid.",
+					context,
+				),
 				() => copy(operands.childRemovedRoots) as never[],
 			)];
 		default:
@@ -736,7 +837,7 @@ export function replaySequenceAlgebraInput(input: Record<string, unknown>): unkn
 	}
 }
 
-function composeCase(revs: RevisionTag[]) {
+function composeCase(revs: RevisionTag[], compressor: IIdCompressor) {
 	const insert = Change.insert(0, 2, revs[0], { localId: brand(0), revision: revs[0] });
 	const remove = Change.remove(0, 2, revs[1], brand(2));
 	const move = Change.move(0, 2, 3, revs[2], brand(4));
@@ -768,59 +869,50 @@ function composeCase(revs: RevisionTag[]) {
 	const inputs: Record<string, Record<string, unknown>> = {
 		"mark-families": replayContext("codec", { field: [] }, {
 			change: families, revision: revs[9],
-		}, [revs[9]], 8),
+		}, [revs[9]], compressor),
 		"split-ranges": replayContext("compose-invert", { field: ["A", "B", "C"] }, {
 			change: tagged(splitInput, revs[10]),
 			inverseRevision: revs[11],
 			isRollback: false,
-			maxLocalId: 25,
-		}, [revs[10], revs[11]], 25),
+		}, [revs[10], revs[11]], compressor),
 		cancellation: replayContext("compose", { field: [] }, {
 			changes: [tagged(insert, revs[0]), tagged(remove, revs[1])],
 			childComposer: "test-node",
-			maxLocalId: 3,
-		}, [revs[0], revs[1]], 3),
+		}, [revs[0], revs[1]], compressor),
 		"move-chains": replayContext("compose", { field: ["A", "B", "C", "D"] }, {
 			changes: [
 				tagged(move, revs[2]),
 				tagged(Change.move(1, 1, 0, revs[3], brand(8)), revs[3]),
 			],
 			childComposer: "test-node",
-			maxLocalId: 9,
-		}, [revs[2], revs[3]], 9),
+		}, [revs[2], revs[3]], compressor),
 		"child-changes": replayContext("compose", { field: ["A", "B", "C"] }, {
 			changes: [tagged(childChange, revs[4]), tagged(childChangeSecond, revs[5])],
 			childComposer: "test-node",
-			maxLocalId: 31,
-		}, [revs[4], revs[5]], 31),
+		}, [revs[4], revs[5]], compressor),
 		rollback: replayContext("invert", { field: ["A", "B"] }, {
 			change: tagged(remove, revs[1]),
 			inverseRevision: revs[4],
 			isRollback: true,
-			maxLocalId: 3,
-		}, [revs[1], revs[4]], 3),
+		}, [revs[1], revs[4]], compressor),
 		undo: replayContext("invert", { field: ["A", "B"] }, {
 			change: tagged(remove, revs[1]),
 			inverseRevision: revs[5],
 			isRollback: false,
-			maxLocalId: 3,
-		}, [revs[1], revs[5]], 3),
+		}, [revs[1], revs[5]], compressor),
 		"revision-replacement": replayContext("replace-revisions", { field: [] }, {
 			change: revisionReplacementInput,
 			obsolete: [revs[0]],
 			replacement: revs[6],
-			maxLocalId: 1,
-		}, [revs[0], revs[6]], 1),
+		}, [revs[0], revs[6]], compressor),
 		pruning: replayContext("prune", { field: ["A"] }, {
 			change: [Mark.skip(1), Mark.modify(child), Mark.tomb(revs[7], brand(12))],
 			childPruner: "drop",
-			maxLocalId: 30,
-		}, [revs[7]], 30),
+		}, [revs[7]], compressor),
 		"removed-roots": replayContext("removed-roots", { field: [] }, {
 			change: [Mark.insert(1, { revision: revs[8], localId: changeId(13) })],
 			childRemovedRoots: [],
-			maxLocalId: 13,
-		}, [revs[8]], 13),
+		}, [revs[8]], compressor),
 	};
 	return oracleCase("sequence-compose-invert", "field",
 		scenarioIds["sequence-compose-invert"].map((id) =>
@@ -828,14 +920,15 @@ function composeCase(revs: RevisionTag[]) {
 }
 
 export function replaySequenceRebaseInput(input: Record<string, unknown>): unknown {
-	verifyAllocator(input);
+	verifyAlgorithm(input);
+	const context = replayIdContext(input);
 	object(input.operands, "The sequence rebase input must contain operands.");
 	const operands = input.operands;
 	assert(operands.childRebaser === "test-node", "The child rebaser must be explicit.");
 	const callbacks: unknown[] = [];
 	const value = testRebase(
-		decodeTaggedChange(operands.change, "The rebase change must be valid."),
-		decodeTaggedChange(operands.base, "The rebase base must be valid."),
+		decodeTaggedChange(operands.change, "The rebase change must be valid.", context),
+		decodeTaggedChange(operands.base, "The rebase base must be valid.", context),
 		{
 			childRebaser: (change, base) => {
 				callbacks.push({
@@ -849,7 +942,7 @@ export function replaySequenceRebaseInput(input: Record<string, unknown>): unkno
 	return { value, callbacks };
 }
 
-function rebaseCase(revs: RevisionTag[]) {
+function rebaseCase(revs: RevisionTag[], compressor: IIdCompressor) {
 	const insertA = Change.insert(0, 1, revs[0], { localId: brand(0), revision: revs[0] });
 	const insertB = Change.insert(0, 1, revs[1], { localId: brand(1), revision: revs[1] });
 	const removeA = Change.remove(0, 2, revs[2], brand(2));
@@ -896,13 +989,15 @@ function rebaseCase(revs: RevisionTag[]) {
 				change: { change, revision: changeRevision },
 				base: { change: base, revision: baseRevision },
 				childRebaser: "test-node",
-				maxLocalId: 37,
-			}, [changeRevision, baseRevision], 37), replaySequenceRebaseInput);
+			}, [changeRevision, baseRevision], compressor), replaySequenceRebaseInput);
 		}));
 }
 
-export function captureCrossFieldCoordination(revision: RevisionTag) {
-	return captureSourceCrossFieldCoordination(revision);
+export function captureCrossFieldCoordination(
+	revision: RevisionTag,
+	compressor: IIdCompressor,
+) {
+	return captureSourceCrossFieldCoordination(revision, compressor);
 }
 
 const stringType = "com.fluidframework.leaf.string";
@@ -935,15 +1030,17 @@ function decodeTree(tree: PlainTree): ExclusiveMapTree {
 	};
 }
 
-function decodeDetachedId(id: PlainDetachedId): DeltaDetachedNodeId {
+function decodeDetachedId(id: PlainDetachedId, context: ReplayIdContext): DeltaDetachedNodeId {
 	integer(id.minor, "The detached minor ID must be an integer.");
 	return makeDetachedNodeId(
-		id.major === null ? undefined : decodeRevision(id.major, "The detached revision must be valid."),
+		id.major === null
+			? undefined
+			: decodeRevision(id.major, "The detached revision must be valid.", context),
 		decodeLocalId(id.minor, "The detached local ID must be valid."),
 	);
 }
 
-function decodeDelta(delta: PlainDelta): DeltaRoot {
+function decodeDelta(delta: PlainDelta, context: ReplayIdContext): DeltaRoot {
 	const fields = delta.fields === undefined
 		? undefined
 		: new Map(delta.fields.map(([key, field]) => [
@@ -951,48 +1048,52 @@ function decodeDelta(delta: PlainDelta): DeltaRoot {
 				{
 					marks: field.marks.map((mark) => ({
 						count: mark.count,
-						...(mark.attach === undefined ? {} : { attach: decodeDetachedId(mark.attach) }),
-						...(mark.detach === undefined ? {} : { detach: decodeDetachedId(mark.detach) }),
+						...(mark.attach === undefined
+							? {}
+							: { attach: decodeDetachedId(mark.attach, context) }),
+						...(mark.detach === undefined
+							? {}
+							: { detach: decodeDetachedId(mark.detach, context) }),
 						...(mark.fields === undefined ? {} : {
-							fields: decodeDelta({ fields: mark.fields }).fields,
+							fields: decodeDelta({ fields: mark.fields }, context).fields,
 						}),
 					})),
 				},
 			]));
 	const trees = (value: readonly PlainTree[]) => combineChunks(chunkField(
 		cursorForMapTreeField(value.map(decodeTree)),
-		{ policy: defaultChunkPolicy, idCompressor: testIdCompressor },
+		{ policy: defaultChunkPolicy, idCompressor: context.idCompressor },
 	));
 	return {
 		...(fields === undefined ? {} : { fields }),
 		...(delta.build === undefined ? {} : {
 			build: delta.build.map((entry) => ({
-				id: decodeDetachedId(entry.id),
+				id: decodeDetachedId(entry.id, context),
 				trees: trees(entry.trees),
 			})),
 		}),
 		...(delta.refreshers === undefined ? {} : {
 			refreshers: delta.refreshers.map((entry) => ({
-				id: decodeDetachedId(entry.id),
+				id: decodeDetachedId(entry.id, context),
 				trees: trees(entry.trees),
 			})),
 		}),
 		...(delta.destroy === undefined ? {} : {
 			destroy: delta.destroy.map((entry) => ({
-				id: decodeDetachedId(entry.id),
+				id: decodeDetachedId(entry.id, context),
 				count: entry.count,
 			})),
 		}),
 		...(delta.global === undefined ? {} : {
 			global: delta.global.map((entry) => ({
-				id: decodeDetachedId(entry.id),
-				fields: decodeDelta({ fields: entry.fields }).fields ?? new Map(),
+				id: decodeDetachedId(entry.id, context),
+				fields: decodeDelta({ fields: entry.fields }, context).fields ?? new Map(),
 			})),
 		}),
 		...(delta.rename === undefined ? {} : {
 			rename: delta.rename.map((entry) => ({
-				oldId: decodeDetachedId(entry.oldId),
-				newId: decodeDetachedId(entry.newId),
+				oldId: decodeDetachedId(entry.oldId, context),
+				newId: decodeDetachedId(entry.newId, context),
 				count: entry.count,
 			})),
 		}),
@@ -1014,6 +1115,7 @@ function treeValue(tree: MapTree): unknown {
 }
 
 export function replayForestInput(input: Record<string, unknown>): unknown {
+	const context = replayIdContext(input);
 	object(input.operands, "The forest input must contain operands.");
 	const operands = input.operands;
 	if (input.operation === "public-move-cycle") {
@@ -1120,7 +1222,7 @@ export function replayForestInput(input: Record<string, unknown>): unknown {
 		const before = { root: values(rootFieldKey), detached: detached() };
 		const result = outcome(() => {
 			applyDelta(
-				decodeDelta(plain),
+				decodeDelta(plain, context),
 				undefined,
 				{ acquireVisitor: () => combineVisitors([
 					forest.acquireVisitor(),
@@ -1143,7 +1245,7 @@ export function replayForestInput(input: Record<string, unknown>): unknown {
 	return checkpoints;
 }
 
-function forestCase(revs: RevisionTag[]) {
+function forestCase(revs: RevisionTag[], compressor: IIdCompressor) {
 	const id = (revision: RevisionTag, minor: number): PlainDetachedId => ({
 		major: revision as number,
 		minor,
@@ -1160,7 +1262,7 @@ function forestCase(revs: RevisionTag[]) {
 	) => replayContext("apply-deltas", { field: initial }, {
 		deltas,
 		retainIndex,
-	}, revs.slice(0, 6), 50);
+	}, revs.slice(0, 6), compressor);
 	const inputs: Record<string, Record<string, unknown>> = {
 		"counted-build": applied([], [{
 			build: [{ id: build, trees: [plainString("A"), plainString("B"), plainString("C")] }],
@@ -1227,7 +1329,7 @@ function forestCase(revs: RevisionTag[]) {
 				destinationPath: [0],
 				destinationGap: 1,
 			},
-		}, [], 0),
+		}, [], compressor),
 	};
 	return oracleCase("array-forest-delta", "forest",
 		scenarioIds["array-forest-delta"].map((scenarioId) =>
@@ -1244,13 +1346,23 @@ if (process.env.WATERSHED_ORACLE_CORPUS === "1") {
 				reference.commit,
 				"WATERSHED_ORACLE_COMMIT must match the pinned Fluid commit.",
 			);
-			const revs = revisions();
+			const compressor = createIdCompressor(
+				"ba6ca8d4-71ea-4abb-a919-5c0e2c252e75" as SessionId,
+			);
+			const revs = revisions(compressor);
 			const cases = [
-				forestCase(revs),
-				editorCase(revs),
-				composeCase(revs),
-				rebaseCase(revs),
+				forestCase(revs, compressor),
+				editorCase(revs, compressor),
+				composeCase(revs, compressor),
+				rebaseCase(revs, compressor),
 			];
+			const indexedDelta = cases[1].raw.scenarios.find(
+				(scenario) => scenario.id === "indexed-children",
+			)?.output;
+			assert(
+				JSON.stringify(indexedDelta).includes("testIntentions"),
+				"The indexed child delta must retain its nested TestChange fields.",
+			);
 			const editorInput = copy(cases[1].input.scenarios.find(
 				(scenario) => scenario.id === "move-before",
 			)) as Record<string, unknown> | undefined;

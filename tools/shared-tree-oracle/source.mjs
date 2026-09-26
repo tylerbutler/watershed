@@ -17,6 +17,7 @@ const mapSource = join(directory, "upstream-map.spec.ts");
 const arraySource = join(directory, "upstream-array.spec.ts");
 const arraySupportSource = join(directory, "upstream-array-support.ts");
 const sequenceSource = join(directory, "upstream-sequence.spec.ts");
+const replaySource = join(directory, "upstream-replay.spec.ts");
 
 export const reference = {
   version: "3.1.0",
@@ -46,6 +47,7 @@ export const mapInjectedTestPath = "packages/dds/tree/src/test/watershedMap.spec
 export const arrayInjectedTestPath = "packages/dds/tree/src/test/watershedArray.spec.ts";
 export const arraySupportInjectedPath = "packages/dds/tree/src/test/watershedArraySupport.ts";
 export const sequenceInjectedTestPath = "packages/dds/tree/src/test/watershedSequence.spec.ts";
+export const replayInjectedTestPath = "packages/dds/tree/src/test/watershedReplay.spec.ts";
 const injections = new Map([
   [injectedTestPath, oracleSource],
   ["packages/dds/tree/src/test/watershedAlgebra.spec.ts", join(directory, "upstream-algebra.spec.ts")],
@@ -57,6 +59,7 @@ const injections = new Map([
   [arrayInjectedTestPath, arraySource],
   [arraySupportInjectedPath, arraySupportSource],
   [sequenceInjectedTestPath, sequenceSource],
+  [replayInjectedTestPath, replaySource],
 ]);
 
 export async function verifyPackages(root = directory) {
@@ -253,6 +256,10 @@ export async function runSource(output, { corpus = false } = {}) {
     await pnpm([...mocha, "lib/test/watershedMap.spec.js"], tree, {
       ...environment,
       WATERSHED_ORACLE_CORPUS: "map",
+    }, 90_000);
+    await pnpm([...mocha, "lib/test/watershedReplay.spec.js"], tree, {
+      ...environment,
+      WATERSHED_ORACLE_CORPUS: "replay",
     }, 90_000);
   }
   await verifyCheckout();
