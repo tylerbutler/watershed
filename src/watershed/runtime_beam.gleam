@@ -3676,6 +3676,10 @@ fn read(state: State, default: t, extract: fn(runtime_core.Core) -> t) -> t {
 /// last sequence number that this client saw.
 fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
   let generation = state.generation + 1
+  case state.channel {
+    Some(channel) -> channel.close()
+    None -> Nil
+  }
   connect_transport(state.transport, state.self, generation)
   notify_session_lost(state)
   let state = abort_pending_summary(state)

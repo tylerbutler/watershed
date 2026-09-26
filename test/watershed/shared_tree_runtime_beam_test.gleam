@@ -1172,6 +1172,53 @@ pub fn suspended_pending_tree_can_restart_reconnect_test() {
 }
 
 @target(erlang)
+pub fn suspended_reconnect_closes_live_transport_before_restart_test() {
+  let #(actor, connections) = pending_reconnect_actor()
+  let closed = process.new_subject()
+  let assert Ok(rejoined) = process.receive(connections, 1000)
+  rejoined.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { process.send(closed, Nil) },
+      drop: fn() { Nil },
+    ),
+  )
+  rejoined.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader-2",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["reader-2"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  rejoined.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(1, "join", "{\"clientId\":\"reader-2\",\"detail\":{}}"),
+    ]),
+  )
+  runtime_beam.connection_observation(actor).phase
+  |> expect.to_equal("catching-up")
+
+  process.send(actor, runtime_beam.ReconnectTimedOut("reader-2"))
+  runtime_beam.connection_observation(actor).phase
+  |> expect.to_equal("suspended")
+  process.send(actor, runtime_beam.DropChannel)
+
+  process.receive(closed, 1000) |> expect.to_be_ok()
+  process.receive(connections, 1000) |> expect.to_be_ok()
+  runtime_beam.connection_observation(actor).phase
+  |> expect.to_equal("reconnecting")
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
 pub fn failed_tree_send_retains_candidate_and_refuses_more_edits_test() {
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)
