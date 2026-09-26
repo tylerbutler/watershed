@@ -2535,10 +2535,9 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         // Reuse the retryable-nack path: close the channel and enter the
         // reconnecting phase; the receiver's ChannelClosed drives the rejoin.
         Ready(core, _) -> actor.continue(reconnect_after_nack(state, core))
-        Connecting(_)
-        | Reconnecting(_)
-        | SuspendedPendingTree(_, _)
-        | Failed(_) -> actor.continue(state)
+        Reconnecting(core) | SuspendedPendingTree(core, _) ->
+          actor.continue(begin_reconnect(state, core))
+        Connecting(_) | Failed(_) -> actor.continue(state)
       }
 
     Shutdown -> {

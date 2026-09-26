@@ -271,6 +271,7 @@ fn execute(
           #(Ok(json.null()), events, active, False)
         }
         protocol.Reconnect -> {
+          watershed.force_reconnect(document)
           #(Ok(json.null()), events, active, False)
         }
         protocol.AwaitSynced(watermark) -> #(

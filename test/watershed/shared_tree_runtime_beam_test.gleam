@@ -1110,6 +1110,68 @@ pub fn pending_tree_actor_retains_content_after_transport_loss_test() {
 }
 
 @target(erlang)
+pub fn suspended_pending_tree_can_restart_reconnect_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let callbacks_subject = process.new_subject()
+  let assert Ok(actor) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(callbacks_subject, callbacks)
+      }),
+    )
+  let assert Ok(callbacks) = process.receive(callbacks_subject, 1000)
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_edit(
+    actor,
+    "A/_C",
+    tree_types.SetField(["title"], tree_types.StringValue("retained")),
+  )
+  |> expect.to_equal(Ok(Nil))
+
+  callbacks.on_fail("first failure")
+  let assert Ok(first_retry) = process.receive(callbacks_subject, 1000)
+  first_retry.on_fail("second failure")
+  let assert Ok(second_retry) = process.receive(callbacks_subject, 1000)
+  second_retry.on_fail("third failure")
+  let assert Ok(third_retry) = process.receive(callbacks_subject, 1000)
+  third_retry.on_fail("fourth failure")
+  runtime_beam.connection_observation(actor).phase
+  |> expect.to_equal("suspended")
+
+  process.send(actor, runtime_beam.DropChannel)
+  process.receive(callbacks_subject, 1000) |> expect.to_be_ok()
+  runtime_beam.connection_observation(actor).phase
+  |> expect.to_equal("reconnecting")
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
 pub fn failed_tree_send_retains_candidate_and_refuses_more_edits_test() {
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)

@@ -76,3 +76,15 @@ test("hosted erlang gates install the configured rebar tool", () => {
   assert.match(interopWorkflow, /run: just shared-tree-create-interop/);
   assert.match(interopWorkflow, /uses: actions\/upload-artifact@v4/);
 });
+
+test("BEAM reconnect command restarts the native transport", () => {
+  const client = readFileSync(
+    resolve(repository, "test/watershed/tree/client_beam.gleam"),
+    "utf8",
+  );
+
+  assert.match(
+    client,
+    /protocol\.Reconnect -> \{\s+watershed\.force_reconnect\(document\)/,
+  );
+});
