@@ -459,8 +459,9 @@ Use `git commit -m "test(tree): capture array and sequence contracts"`.
   other. Sequence and modular replay reconstruct their ID compressor and
   revision codec only from serialized input.
 - Sequence inputs state the pinned helper contract directly: local IDs come
-  from operands, and compose/rebase helpers derive their allocator from each
-  changeset's maximum ID. They do not expose an unused allocator watermark.
+  from operands, while compose and rebase accept allocator parameters but do
+  not call them. They do not expose an allocator watermark or claim an
+  allocation mutation.
 - Codec inputs contain Message V7 bytes or complete summary trees and the
   required compressor context. Decoded Sequence V3 and modular graph
   observations are outputs, not operands. Modular observations include
@@ -751,7 +752,8 @@ Provide these checked functions:
 from_marks(List(Mark)) -> Result(Changeset, TreeError)
 to_marks(Changeset) -> List(Mark)
 split_mark(Mark, Int) -> Result(#(Mark, Mark), TreeError)
-insert(index: Int, count: Int, first_id: AtomId)
+insert(index: Int, count: Int, first_cell: AtomId,
+       revision: Option(StableId))
   -> Result(Changeset, TreeError)
 remove(index: Int, count: Int, first_id: AtomId)
   -> Result(Changeset, TreeError)
@@ -810,10 +812,12 @@ gleam test --target erlang -- shared_tree_sequence_field
 gleam test --target javascript -- shared_tree_sequence_field
 ```
 
-Port the captured `sequenceFieldEditor.ts` behavior. Insert uses the new cell
-identity and build range. Remove identifies the removed cells. A move pairs
-endpoint identities and uses pre-edit gaps, including split source marks for
-an interior destination. Child edits emit a skip to each nonzero index.
+Port the captured `sequenceFieldEditor.ts` behavior. Insert copies
+`first_cell.local_id` into the effect ID but keeps `revision` as the separate
+effect revision; a restored cell can have a different cell revision. Remove
+identifies the removed cells. A move pairs endpoint identities and uses
+pre-edit gaps, including split source marks for an interior destination. Child
+edits emit a skip to each nonzero index.
 
 - [ ] **Step 3: Implement splitting and normalization checks.**
 
@@ -853,14 +857,23 @@ Extend `sequence_field.gleam`, `sequence_field_fixture.gleam`, and
 - `moves.new() -> Context`; reads register the requesting field's
   dependency; changed writes invalidate dependent fields. Use the concrete
   key/effect types below, not arbitrary JSON.
+- The context records moved-node and moved-key ownership notifications with
+  normalized `FieldId` destinations. The modular coordinator consumes those
+  notifications after field processing and reprocessing.
 - `compose.compose(first, second, state, compose_child, context, moves)` returns
   `Result(#(sequence_field.Changeset, state, moves.Context), TreeError)`.
   `compose_child` has the existing optional-field callback shape:
   `fn(Option(AtomId), Option(AtomId), state) ->
   Result(#(AtomId, state), TreeError)`.
-- `invert.invert(change, is_rollback, inverse_revision, max_local_id, moves)`
-  returns `Result(#(sequence_field.Changeset, Int, moves.Context), TreeError)`;
-  `inverse_revision` is `Option(StableId)`.
+- `invert.invert(change, is_rollback, inverse_revision, state, alias, moves)`
+  returns
+  `Result(#(sequence_field.Changeset, state, moves.Context), TreeError)`;
+  `inverse_revision` is `Option(StableId)`, and `alias` has type
+  `fn(AtomId, state) -> Result(#(Int, state), TreeError)`.
+- Modular inversion creates one alias state for the changeset, reserves the
+  changeset maximum ID for each original revision in source order, and threads
+  that state through every field inversion and reprocessing pass. Repeated
+  atom and final-endpoint queries must return the same alias.
 
 In `moves.gleam`, define:
 
@@ -893,6 +906,10 @@ The checked move-table interfaces are:
 get(Context, Key, count: Int, dependent: Option(FieldId))
   -> Result(#(Query, Context), TreeError)
 set(Context, Key, count: Int, Effect) -> Result(Context, TreeError)
+on_move_in(Context, node: AtomId, destination: FieldId)
+  -> Result(Context, TreeError)
+move_key(Context, key: Key, count: Int, destination: FieldId)
+  -> Result(Context, TreeError)
 take_invalidated(Context) -> #(List(FieldId), Context)
 ```
 
@@ -902,6 +919,11 @@ range basis. Invalidate dependencies only when their observed effect changes.
 Pass a normalized `FieldId` into compose, invert, and rebase. Register the
 requesting field on present and absent range reads; do not evaluate one
 endpoint of a cross-field move without its changeset-scoped dependency state.
+Rebase records both node-parent and cross-field-key relocation. Compose
+normalizes moved node IDs before recording their new parent and rejects
+`move_key`, matching the pinned source. Inversion ignores both notifications
+and stores an inverted child ID rather than a compose/rebase `Effect` in its
+cross-field table.
 
 In `sequence_field.gleam`, define the algebra context without importing
 `change.gleam`:
@@ -936,7 +958,9 @@ pub fn shared_tree_sequence_compose_invert_matches_upstream_test() {
 Add a move-table test in which one field reads an absent destination range,
 another writes that range, and `take_invalidated` returns the first field.
 A read of the middle of a larger range must offset endpoint IDs from the
-stored basis.
+stored basis. Add relocation tests that move a child to a different parent,
+move a source key during rebase, normalize a moved child alias during compose,
+and reject a compose-time key relocation.
 
 - [ ] **Step 2: Run the focused suite and implement counted composition.**
 
@@ -1108,6 +1132,17 @@ operation, not one per field. Track stable field identities through parent
 node/field pairs. After processing fields, reprocess invalidated field
 results with updated endpoint information. Include nested fields and both
 orders of source/destination discovery.
+
+For inversion, initialize one reserved alias context for the complete modular
+changeset. Reserve the changeset maximum ID once for each original revision in
+source order, then thread the same alias state through every field. Test two
+source revisions with equal local IDs and split cross-field endpoints.
+
+Apply move ownership notifications at the modular boundary. Rebase updates
+both node-parent and cross-field-key ownership maps. Compose normalizes moved
+node IDs through its alias table before updating node-parent ownership and
+returns an error for a moved cross-field key. Do not apply a notification
+twice when an invalidated field is processed again.
 
 Preserve the existing public `change` API and `IdentityOrder`. Use the move
 context as internal state; do not add a production field-kind registry.

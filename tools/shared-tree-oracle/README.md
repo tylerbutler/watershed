@@ -161,9 +161,9 @@ source replayer in a second process after capture. That process runs each input
 twice without prior revision allocation and requires both results to equal the
 captured source output. Sequence and modular inputs carry serialized compressor
 state; replay reconstructs the compressor and revision codec from those bytes.
-Sequence operands supply their own local IDs, while the pinned algebra helpers
-derive allocation from each changeset's maximum ID. The input records that
-algorithm contract instead of an unused allocator watermark.
+Sequence operands supply their own local IDs. The pinned compose and rebase
+functions accept allocator parameters but do not call them. The input records
+that contract instead of an allocator watermark or a mutation claim.
 
 Schema scenarios carry the exact selected schema bytes and typed initial
 content; the compatibility case initializes and views `objectArrays` on both

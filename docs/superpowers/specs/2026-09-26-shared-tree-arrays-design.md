@@ -90,8 +90,8 @@ results for later native runners; they do not constitute M3 acceptance.
   fixture input without earlier revision allocation. Replay reconstructs the
   ID compressor and revision codec from input, and both runs must match.
 - Sequence inputs record the pinned source contract: operands supply local IDs,
-  while algebra helpers derive allocation from changeset maximum IDs. They do
-  not carry an unused allocator watermark.
+  while compose and rebase accept allocator parameters but do not call them.
+  They do not carry an allocator watermark or claim an allocation mutation.
 - Nested deltas and modular build, refresher, and destroy tables retain their
   recursive source content. Summary and tail observations come from restored
   source history and detached indexes.
@@ -258,12 +258,30 @@ rebasing, revision replacement, pruning, relevant-removed-root enumeration,
 refresher repair, and delta conversion. Preserve the distinction between an
 occupied cell and an empty cell with retained identity.
 
+The insert editor accepts a cell ID and a separate effect revision. It copies
+the cell's local ID into the insert effect without replacing the effect
+revision with the cell revision.
+
+Modular inversion creates one reserved alias context for the complete
+changeset. It reserves the changeset maximum ID for each original revision in
+source order and shares the resulting lookup across all field inversions and
+reprocessing. Both rollback and nonrollback inversion use that alias context;
+a scalar maximum ID or a fresh per-field allocator cannot represent the
+source behavior.
+
 Cross-array movement requires coordination across fields. Use a
 changeset-scoped move-effect table with range queries, dependency tracking, and
 reprocessing of fields invalidated by later endpoint information. Preserve
 child edits that follow a moved node and updates to move chains. Do not assume
 that one field's rebaser can decide a move in isolation, or that two passes
 always suffice.
+
+The shared operation context also carries moved-node and moved-key ownership
+notifications. Rebase updates node-parent and cross-field-key ownership.
+Compose normalizes moved node IDs before updating their parent and rejects
+cross-field key relocation, matching the pinned source. Inversion ignores
+these notifications and uses an explicit inverted-child payload in its move
+table instead of a compose/rebase move effect.
 
 Extend the closed `change.FieldChange` sum with `SequenceField`. Keep the
 existing external `change`, history, and kernel entry points. Handle
