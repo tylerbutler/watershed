@@ -16,6 +16,7 @@ import {
   reference,
   replayInjectedTestPath,
   sequenceInjectedTestPath,
+  schemaEvolutionInjectedTestPath,
   validateCapture,
   verifyCheckout,
   verifyPackages,
@@ -191,6 +192,24 @@ test("source verification byte-checks the owned M3 injections", async (t) => {
     await writeFile(target, "// unexpected replacement\n");
     await assert.rejects(verifyCheckout(directory, commit), /injected/);
   }
+});
+
+test("source runner declares the owned schema evolution injection", () => {
+  assert.equal(
+    schemaEvolutionInjectedTestPath,
+    "packages/dds/tree/src/test/watershedSchemaEvolution.spec.ts",
+  );
+});
+
+test("source verification byte-checks the owned schema evolution injection", async (t) => {
+  const { directory, commit } = await checkoutFixture(t);
+  const target = join(directory, schemaEvolutionInjectedTestPath);
+  const contents = await readFile(new URL("./upstream-schema-evolution.spec.ts", import.meta.url));
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, contents);
+  await verifyCheckout(directory, commit);
+  await writeFile(target, "// unexpected replacement\n");
+  await assert.rejects(verifyCheckout(directory, commit), /injected/);
 });
 
 test("source verification byte-checks the owned codec injection", async (t) => {

@@ -49,6 +49,10 @@ export const requiredCases = [
   ["array-codecs", "codec"],
   ["array-history", "history"],
   ["array-invalid", "invalid"],
+  ["schema-evolution-compatibility", "schema"],
+  ["schema-evolution-algebra", "tree"],
+  ["schema-evolution-history", "history"],
+  ["schema-evolution-codecs", "codec"],
 ];
 
 export const arrayScenarioIds = {
@@ -170,6 +174,66 @@ export const arrayScenarioIds = {
   ],
 };
 
+export const schemaEvolutionCaseIds = [
+  "schema-evolution-compatibility",
+  "schema-evolution-algebra",
+  "schema-evolution-history",
+  "schema-evolution-codecs",
+];
+
+const schemaEvolutionSchemaIds = [
+  "v1",
+  "optional",
+  "object-union",
+  "map-union",
+  "optional-title",
+  "root-union",
+  "optional-root",
+  "combined",
+  "narrow",
+  "new-required",
+];
+
+const schemaEvolutionScenarioIds = {
+  "schema-evolution-compatibility": schemaEvolutionSchemaIds,
+  "schema-evolution-algebra": [
+    "schema-over-data",
+    "data-over-schema",
+    "schema-over-schema",
+    "empty-operand",
+    "data-schema-data-schema-compose",
+    "inverse-schema-encoding-refusal",
+  ],
+  "schema-evolution-codecs": [
+    "schema-only-commit",
+    "empty-outer-commit",
+    "historical-schema-decode",
+    "pending-upgrade-summary",
+  ],
+};
+
+export const schemaEvolutionHistoryScenarioIds = [
+  "upgrade-then-edit-causal",
+  "edit-then-upgrade-causal",
+  "schema-data-schema-first",
+  "schema-data-data-first",
+  "schema-schema-left-first",
+  "schema-schema-right-first",
+  "same-upgrade-concurrent",
+  "pending-upgrade-dependent-data-loses",
+  "pending-data-remote-upgrade",
+  "ack-common-prefix-keeps-upgrade",
+  "empty-conflict-acknowledged",
+  "rollback-retains-new-type-content",
+  "old-view-invalidated",
+  "new-view-reopens",
+  "reconnect-upgrade-unacknowledged",
+  "reconnect-upgrade-accepted-before-drop",
+  "summary-before-pending-upgrade",
+  "summary-upgrade-plus-tail",
+  "historical-peer-schema-context",
+];
+schemaEvolutionScenarioIds["schema-evolution-history"] = schemaEvolutionHistoryScenarioIds;
 const forestScenarioIds = [
   "primitives-and-optional-root",
   "optional-field-set-clear",
@@ -666,8 +730,29 @@ function validateSchemaCase(value) {
         assert(typeof check.field === "string",
           `schema-validation: missing field ${check.id}`);
       }
+
     }
   }
+}
+
+function validateSchemaEvolutionCase(value) {
+  const label = value.id;
+  const requiredScenarios = schemaEvolutionScenarioIds[label];
+  assert(Array.isArray(requiredScenarios), `${label}: unknown schema evolution case`);
+  assert.deepEqual(value.input.schemas.map(({ id }) => id), schemaEvolutionSchemaIds,
+    `${label}: required schema catalog`);
+  for (const schema of value.input.schemas) {
+    validateSchemaString(schema.raw, `${label}.${schema.id}`);
+  }
+  assert.deepEqual(value.input.scenarios.map(({ id }) => id), requiredScenarios,
+    `${label}: required scenario IDs`);
+  const observed = new Set(value.expected.observations.map(({ id }) => id));
+  for (const id of requiredScenarios) {
+    assert(observed.has(id), `${label}: missing observation ${id}`);
+  }
+  assert(nonemptyArray(value.raw.schemaMessages), `${label}: missing raw schema messages`);
+  assert(value.raw.schemaMessages.every((message) => object(message)),
+    `${label}: malformed raw schema message`);
 }
 
 function validateFieldCase(value) {
@@ -3009,6 +3094,7 @@ export function validateCases(cases) {
     if (value.id === "map-field-algebra") validateMapFieldCase(value);
     if (value.id === "map-history-codecs") validateMapHistoryCase(value);
     if (arrayScenarioIds[value.id] !== undefined) validateArrayCase(value);
+    if (schemaEvolutionCaseIds.includes(value.id)) validateSchemaEvolutionCase(value);
     if (value.id === "summary-writer-matrix") validateSummaryPersistence(value);
     if (value.id === "id-ranges") {
       assert(object(value.input.sessions) && typeof value.input.sessions.summaryRestoration === "string"
@@ -3310,6 +3396,7 @@ export async function generate({ check = false } = {}) {
       ...await read(join(source, "map-cases.json")),
       ...await read(join(source, "array-cases.json")),
       ...await read(join(source, "sequence-cases.json")),
+      ...await read(join(source, "schema-evolution-cases.json")),
       ...await read(join(container, "container-cases.json")),
     ];
     const malformed = cases.find((item) => item.id === "id-ranges")?.raw.malformedAllocation;

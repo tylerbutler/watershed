@@ -445,6 +445,26 @@
       "id": "array-invalid",
       "domain": "invalid",
       "file": "cases/array-invalid.json"
+    },
+    {
+      "id": "schema-evolution-compatibility",
+      "domain": "schema",
+      "file": "cases/schema-evolution-compatibility.json"
+    },
+    {
+      "id": "schema-evolution-algebra",
+      "domain": "tree",
+      "file": "cases/schema-evolution-algebra.json"
+    },
+    {
+      "id": "schema-evolution-history",
+      "domain": "history",
+      "file": "cases/schema-evolution-history.json"
+    },
+    {
+      "id": "schema-evolution-codecs",
+      "domain": "codec",
+      "file": "cases/schema-evolution-codecs.json"
     }
   ]
 }

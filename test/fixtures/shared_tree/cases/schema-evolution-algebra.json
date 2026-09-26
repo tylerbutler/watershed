@@ -1,0 +1,1136 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "schema-evolution-algebra",
+  "domain": "tree",
+  "input": {
+    "schemas": [
+      {
+        "id": "v1",
+        "raw": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}"
+      },
+      {
+        "id": "optional",
+        "raw": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}"
+      },
+      {
+        "id": "object-union",
+        "raw": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}"
+      },
+      {
+        "id": "map-union",
+        "raw": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}"
+      },
+      {
+        "id": "optional-title",
+        "raw": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}"
+      },
+      {
+        "id": "root-union",
+        "raw": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Root\"]}}"
+      },
+      {
+        "id": "optional-root",
+        "raw": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}"
+      },
+      {
+        "id": "combined",
+        "raw": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]},\"title\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Root\"]}}"
+      },
+      {
+        "id": "narrow",
+        "raw": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}"
+      },
+      {
+        "id": "new-required",
+        "raw": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"score\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}"
+      }
+    ],
+    "revisions": {
+      "schema": 8,
+      "data": 9
+    },
+    "scenarios": [
+      {
+        "id": "schema-over-data"
+      },
+      {
+        "id": "data-over-schema"
+      },
+      {
+        "id": "schema-over-schema"
+      },
+      {
+        "id": "empty-operand"
+      },
+      {
+        "id": "data-schema-data-schema-compose"
+      },
+      {
+        "id": "inverse-schema-encoding-refusal"
+      }
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "schema-over-data",
+        "change": {
+          "changes": []
+        }
+      },
+      {
+        "id": "data-over-schema",
+        "change": {
+          "changes": []
+        }
+      },
+      {
+        "id": "schema-over-schema",
+        "change": {
+          "changes": []
+        }
+      },
+      {
+        "id": "empty-operand",
+        "change": {
+          "changes": [
+            {
+              "type": "schema",
+              "innerChange": {
+                "schema": {
+                  "old": {
+                    "nodeSchema": {},
+                    "rootFieldSchema": {
+                      "kind": "Value",
+                      "types": {}
+                    }
+                  },
+                  "new": {
+                    "nodeSchema": {},
+                    "rootFieldSchema": {
+                      "kind": "Value",
+                      "types": {}
+                    }
+                  }
+                },
+                "isInverse": false
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "data-schema-data-schema-compose",
+        "kinds": [
+          "data",
+          "schema",
+          "data",
+          "schema"
+        ]
+      },
+      {
+        "id": "inverse-schema-encoding-refusal",
+        "error": "Error: 0x933"
+      }
+    ]
+  },
+  "raw": {
+    "composed": {
+      "changes": [
+        {
+          "type": "data",
+          "innerChange": {
+            "fieldChanges": {},
+            "nodeChanges": {
+              "_root": {
+                "keys": [],
+                "values": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "isShared": true
+              },
+              "_maxNodeSize": 32
+            },
+            "nodeToParent": {
+              "_root": {
+                "keys": [],
+                "values": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "isShared": true
+              },
+              "_maxNodeSize": 32
+            },
+            "nodeAliases": {
+              "_root": {
+                "keys": [],
+                "values": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "isShared": true
+              },
+              "_maxNodeSize": 32
+            },
+            "crossFieldKeys": {
+              "tree": {
+                "_root": {
+                  "keys": [],
+                  "values": [
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+                  ],
+                  "isShared": true
+                },
+                "_maxNodeSize": 32
+              }
+            }
+          }
+        },
+        {
+          "type": "schema",
+          "innerChange": {
+            "schema": {
+              "old": {
+                "nodeSchema": {},
+                "rootFieldSchema": {
+                  "kind": "Value",
+                  "types": {}
+                }
+              },
+              "new": {
+                "nodeSchema": {},
+                "rootFieldSchema": {
+                  "kind": "Value",
+                  "types": {}
+                }
+              }
+            },
+            "isInverse": false
+          }
+        },
+        {
+          "type": "data",
+          "innerChange": {
+            "fieldChanges": {},
+            "nodeChanges": {
+              "_root": {
+                "keys": [],
+                "values": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "isShared": true
+              },
+              "_maxNodeSize": 32
+            },
+            "nodeToParent": {
+              "_root": {
+                "keys": [],
+                "values": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "isShared": true
+              },
+              "_maxNodeSize": 32
+            },
+            "nodeAliases": {
+              "_root": {
+                "keys": [],
+                "values": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "isShared": true
+              },
+              "_maxNodeSize": 32
+            },
+            "crossFieldKeys": {
+              "tree": {
+                "_root": {
+                  "keys": [],
+                  "values": [
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+                  ],
+                  "isShared": true
+                },
+                "_maxNodeSize": 32
+              }
+            }
+          }
+        },
+        {
+          "type": "schema",
+          "innerChange": {
+            "schema": {
+              "old": {
+                "nodeSchema": {},
+                "rootFieldSchema": {
+                  "kind": "Value",
+                  "types": {}
+                }
+              },
+              "new": {
+                "nodeSchema": {},
+                "rootFieldSchema": {
+                  "kind": "Value",
+                  "types": {}
+                }
+              }
+            },
+            "isInverse": false
+          }
+        }
+      ]
+    },
+    "inverted": {
+      "changes": [
+        {
+          "type": "schema",
+          "innerChange": {
+            "schema": {
+              "new": {
+                "nodeSchema": {},
+                "rootFieldSchema": {
+                  "kind": "Value",
+                  "types": {}
+                }
+              },
+              "old": {
+                "nodeSchema": {},
+                "rootFieldSchema": {
+                  "kind": "Value",
+                  "types": {}
+                }
+              }
+            },
+            "isInverse": true
+          }
+        },
+        {
+          "type": "data",
+          "innerChange": {
+            "fieldChanges": {},
+            "nodeChanges": {
+              "_root": {
+                "keys": [],
+                "values": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "isShared": true
+              },
+              "_maxNodeSize": 32
+            },
+            "nodeToParent": {
+              "_root": {
+                "keys": [],
+                "values": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "isShared": true
+              },
+              "_maxNodeSize": 32
+            },
+            "nodeAliases": {
+              "_root": {
+                "keys": [],
+                "values": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "isShared": true
+              },
+              "_maxNodeSize": 32
+            },
+            "crossFieldKeys": {
+              "tree": {
+                "_root": {
+                  "keys": [],
+                  "values": [
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+                  ],
+                  "isShared": true
+                },
+                "_maxNodeSize": 32
+              }
+            },
+            "revisions": [
+              {
+                "revision": 9,
+                "rollbackOf": 8
+              }
+            ]
+          }
+        },
+        {
+          "type": "schema",
+          "innerChange": {
+            "schema": {
+              "new": {
+                "nodeSchema": {},
+                "rootFieldSchema": {
+                  "kind": "Value",
+                  "types": {}
+                }
+              },
+              "old": {
+                "nodeSchema": {},
+                "rootFieldSchema": {
+                  "kind": "Value",
+                  "types": {}
+                }
+              }
+            },
+            "isInverse": true
+          }
+        },
+        {
+          "type": "data",
+          "innerChange": {
+            "fieldChanges": {},
+            "nodeChanges": {
+              "_root": {
+                "keys": [],
+                "values": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "isShared": true
+              },
+              "_maxNodeSize": 32
+            },
+            "nodeToParent": {
+              "_root": {
+                "keys": [],
+                "values": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "isShared": true
+              },
+              "_maxNodeSize": 32
+            },
+            "nodeAliases": {
+              "_root": {
+                "keys": [],
+                "values": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "isShared": true
+              },
+              "_maxNodeSize": 32
+            },
+            "crossFieldKeys": {
+              "tree": {
+                "_root": {
+                  "keys": [],
+                  "values": [
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+                  ],
+                  "isShared": true
+                },
+                "_maxNodeSize": 32
+              }
+            },
+            "revisions": [
+              {
+                "revision": 9,
+                "rollbackOf": 8
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "conflicts": [
+      {
+        "changes": []
+      },
+      {
+        "changes": []
+      },
+      {
+        "changes": []
+      }
+    ],
+    "schemaMessages": [
+      {
+        "clientSequenceNumber": 2,
+        "contents": {
+          "revision": 1,
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "changeset": [
+            {
+              "schema": {
+                "new": {
+                  "version": 2,
+                  "nodes": {
+                    "com.fluidframework.leaf.number": {
+                      "kind": {
+                        "leaf": 0
+                      }
+                    },
+                    "com.fluidframework.leaf.string": {
+                      "kind": {
+                        "leaf": 1
+                      }
+                    },
+                    "org.watershed.shared-tree.m4.Items": {
+                      "kind": {
+                        "map": {
+                          "kind": "Optional",
+                          "types": [
+                            "com.fluidframework.leaf.string",
+                            "org.watershed.shared-tree.m4.Point"
+                          ]
+                        }
+                      }
+                    },
+                    "org.watershed.shared-tree.m4.Point": {
+                      "kind": {
+                        "object": {
+                          "x": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.number"
+                            ]
+                          },
+                          "y": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.number"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "org.watershed.shared-tree.m4.Root": {
+                      "kind": {
+                        "object": {
+                          "items": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.m4.Items"
+                            ]
+                          },
+                          "note": {
+                            "kind": "Optional",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          },
+                          "point": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.m4.Point"
+                            ]
+                          },
+                          "score": {
+                            "kind": "Optional",
+                            "types": [
+                              "com.fluidframework.leaf.number"
+                            ]
+                          },
+                          "title": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "root": {
+                    "kind": "Value",
+                    "types": [
+                      "org.watershed.shared-tree.m4.Root"
+                    ]
+                  }
+                },
+                "old": {
+                  "version": 2,
+                  "nodes": {
+                    "com.fluidframework.leaf.number": {
+                      "kind": {
+                        "leaf": 0
+                      }
+                    },
+                    "com.fluidframework.leaf.string": {
+                      "kind": {
+                        "leaf": 1
+                      }
+                    },
+                    "org.watershed.shared-tree.m4.Items": {
+                      "kind": {
+                        "map": {
+                          "kind": "Optional",
+                          "types": [
+                            "com.fluidframework.leaf.string",
+                            "org.watershed.shared-tree.m4.Point"
+                          ]
+                        }
+                      }
+                    },
+                    "org.watershed.shared-tree.m4.Point": {
+                      "kind": {
+                        "object": {
+                          "x": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.number"
+                            ]
+                          },
+                          "y": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.number"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "org.watershed.shared-tree.m4.Root": {
+                      "kind": {
+                        "object": {
+                          "items": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.m4.Items"
+                            ]
+                          },
+                          "note": {
+                            "kind": "Optional",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          },
+                          "point": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.m4.Point"
+                            ]
+                          },
+                          "title": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "root": {
+                    "kind": "Value",
+                    "types": [
+                      "org.watershed.shared-tree.m4.Root"
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          "version": 7
+        },
+        "referenceSequenceNumber": 2,
+        "type": "op",
+        "clientId": "test-client-0"
+      }
+    ]
+  }
+}

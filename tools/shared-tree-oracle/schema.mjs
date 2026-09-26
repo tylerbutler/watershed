@@ -124,3 +124,72 @@ export const arrayRootStore = defineTreeDataStore({
   config: arrayTreeConfig,
   initializer: initialArrayRoot,
 });
+
+function schemaEvolutionSchema({
+  includeScore = false,
+  noteTypes = "string",
+  mapTypes = "base",
+  optionalTitle = false,
+  rootTypes = "root",
+  requiredScore = false,
+} = {}) {
+  const sf = new SchemaFactory("org.watershed.shared-tree.m4");
+  class Point extends sf.object("Point", { x: sf.number, y: sf.number }) {}
+  const itemTypes = mapTypes === "base"
+    ? [sf.string, Point]
+    : [sf.string, Point, sf.number];
+  class Items extends sf.map("Items", itemTypes) {}
+  const fields = {
+    title: optionalTitle ? sf.optional(sf.string) : sf.string,
+    point: Point,
+    note: noteTypes === "string"
+      ? sf.optional(sf.string)
+      : sf.optional([sf.string, sf.number]),
+    items: Items,
+  };
+  const Root = requiredScore
+    ? sf.object("Root", { ...fields, score: sf.number })
+    : includeScore
+      ? sf.object("Root", { ...fields, score: sf.optional(sf.number) })
+      : sf.object("Root", fields);
+  const root = rootTypes === "optional-union"
+    ? sf.optional([Root, sf.string])
+    : rootTypes === "optional"
+      ? sf.optional(Root)
+      : rootTypes === "union"
+        ? [Root, sf.string]
+        : Root;
+  return { Root, Point, Items, config: new TreeViewConfiguration({ schema: root }) };
+}
+
+function narrowSchemaEvolutionSchema() {
+  const sf = new SchemaFactory("org.watershed.shared-tree.m4");
+  class Point extends sf.object("Point", { x: sf.number, y: sf.number }) {}
+  class Items extends sf.map("Items", sf.string) {}
+  class Root extends sf.object("Root", {
+    title: sf.string,
+    point: Point,
+    note: sf.optional(sf.string),
+    items: Items,
+  }) {}
+  return { Root, Point, Items, config: new TreeViewConfiguration({ schema: Root }) };
+}
+
+export const schemaEvolutionConfigurations = {
+  v1: schemaEvolutionSchema(),
+  optional: schemaEvolutionSchema({ includeScore: true }),
+  "object-union": schemaEvolutionSchema({ noteTypes: "string-number" }),
+  "map-union": schemaEvolutionSchema({ mapTypes: "base-number" }),
+  "optional-title": schemaEvolutionSchema({ optionalTitle: true }),
+  "root-union": schemaEvolutionSchema({ rootTypes: "union" }),
+  "optional-root": schemaEvolutionSchema({ rootTypes: "optional" }),
+  combined: schemaEvolutionSchema({
+    includeScore: true,
+    noteTypes: "string-number",
+    mapTypes: "base-number",
+    optionalTitle: true,
+    rootTypes: "optional-union",
+  }),
+  narrow: narrowSchemaEvolutionSchema(),
+  "new-required": schemaEvolutionSchema({ requiredScore: true }),
+};

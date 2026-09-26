@@ -636,6 +636,48 @@ are restoration inputs, not evidence of native document loading or publication.
 The existing `tree-codecs` inputs additionally cover retained initialization
 schema changes and a peer branch with nonempty commits.
 
+### Schema evolution source contract
+
+The four `schema-evolution-*` cases pin the Milestone 4 contract:
+
+| Case | Captured contract |
+| --- | --- |
+| `schema-evolution-compatibility` | The ten application schemas, compatibility flags and discrepancies, explicit upgrade behavior, no-op equivalent upgrades, refusal classifications, and unchanged root content. |
+| `schema-evolution-algebra` | Ordered outer composition and inversion, schema/data and schema/schema conflict rebases, empty operands, revision identities, and inverse-schema encoding refusal. |
+| `schema-evolution-history` | The 19 required causal, concurrent, acknowledgement, rollback, reconnect, summary, and historical-schema scenario IDs with explicit sequence points and retained identities. |
+| `schema-evolution-codecs` | Old and new Schema V2 bytes, schema-bearing Message V7 evidence, empty outer commits, pending-summary evidence, and the authoring-schema requirement for historical data. |
+
+The source capture is grounded in these pinned files under
+`packages/dds/tree/src/`:
+
+- `shared-tree/sharedTreeChangeFamily.ts`
+- `shared-tree/sharedTreeChangeCodecs.ts`
+- `feature-libraries/schema-edits/schemaChangeCodecs.ts`
+- `simple-tree/api/schemaCompatibilityTester.ts`
+- `simple-tree/api/discrepancies.ts`
+- `feature-libraries/modular-schema/comparison.ts`
+- `feature-libraries/modular-schema/isNeverTree.ts`
+- `feature-libraries/optional-field/optionalField.ts`
+- `shared-tree/schematizingTreeView.ts`
+- `shared-tree/treeCheckout.ts`
+- `test/shared-tree/sharedTreeChangeFamily.spec.ts`
+- `test/shared-tree/treeCheckout.spec.ts`
+
+The pinned source distinguishes compatibility from the supported Watershed
+profile. Narrowing, adding a required field, and changing an optional field to
+required are upstream refusals. Object-to-map replacement, sequences, and
+handles can satisfy the upstream repository-superset relation, but M4 does not
+author or apply them; the corpus labels them `profile-restriction`.
+
+Historical data must be decoded with the schema at its branch or commit
+authoring point, not only the current visible schema. This lets the outer
+schema-conflict rule drop a valid losing change instead of rejecting its bytes
+early. When a schema-bearing branch loses, rollback restores the earlier active
+schema but keeps detached repair content and its historical schema context.
+Pending empty conflict commits remain available for normal acknowledgement and
+deduplication. Initialization history continues to identify `EmptySchema`
+before the first application schema.
+
 The last state matters: `SharedTreeCore.processMessages` advances the tree edit
 manager's minimum sequence only when it processes tree envelopes. A summary can
 therefore contain trunk commits older than `.protocol/attributes`'s minimum

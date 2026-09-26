@@ -10,6 +10,8 @@ import {
   compareDirectories,
   requiredCases,
   validateArrayCase,
+  schemaEvolutionCaseIds,
+  schemaEvolutionHistoryScenarioIds,
   validateCases,
   writeCorpus,
 } from "./generate.mjs";
@@ -53,11 +55,66 @@ function cases(exclude = []) {
     "map-schema-content": mapSchemaCaseFixture,
     "map-field-algebra": mapFieldCaseFixture,
     "map-history-codecs": mapHistoryCaseFixture,
+    "schema-evolution-compatibility": () => schemaEvolutionCaseFixture(
+      "schema-evolution-compatibility",
+      "schema",
+      ["v1", "optional", "object-union", "map-union", "optional-title", "root-union",
+        "optional-root", "combined", "narrow", "new-required"],
+    ),
+    "schema-evolution-algebra": () => schemaEvolutionCaseFixture(
+      "schema-evolution-algebra",
+      "tree",
+      ["schema-over-data", "data-over-schema", "schema-over-schema", "empty-operand",
+        "data-schema-data-schema-compose", "inverse-schema-encoding-refusal"],
+    ),
+    "schema-evolution-history": () => schemaEvolutionCaseFixture(
+      "schema-evolution-history",
+      "history",
+      schemaEvolutionHistoryScenarioIds,
+    ),
+    "schema-evolution-codecs": () => schemaEvolutionCaseFixture(
+      "schema-evolution-codecs",
+      "codec",
+      ["schema-only-commit", "empty-outer-commit", "historical-schema-decode",
+        "pending-upgrade-summary"],
+    ),
   };
   return requiredCases.filter(([id]) => !exclude.includes(id)).map(([id]) =>
     synthetic[id]?.() ?? JSON.parse(readFileSync(
       new URL(`../../test/fixtures/shared_tree/cases/${id}.json`, import.meta.url), "utf8",
     )));
+}
+
+function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
+  const schema = JSON.stringify({
+    version: 2,
+    nodes: {},
+    root: { kind: "Forbidden", types: [] },
+  });
+  const schemas = [
+    "v1", "optional", "object-union", "map-union", "optional-title",
+    "root-union", "optional-root", "combined", "narrow", "new-required",
+  ].map((schemaId) => ({ id: schemaId, raw: schema }));
+  return {
+    formatVersion: 1,
+    reference: {
+      package: "@fluidframework/tree",
+      version: "3.1.0",
+      commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+    },
+    id,
+    domain,
+    input: {
+      schemas,
+      scenarios: scenarioIds.map((scenarioId) => ({ id: scenarioId })),
+    },
+    expected: {
+      observations: scenarioIds.map((scenarioId) => ({ id: scenarioId, captured: true })),
+    },
+    raw: {
+      schemaMessages: [{ changeset: [{ schema: { old: {}, new: {} } }] }],
+    },
+  };
 }
 
 test("summary persistence validation refuses missing or nonreplayable inputs", () => {
@@ -645,7 +702,7 @@ test("tree codec case validator rejects missing context and observations", () =>
 });
 
 test("corpus requires the tree codecs case", () => {
-  assert.equal(requiredCases.length, 38);
+  assert.equal(requiredCases.length, 42);
   assert(requiredCases.some(([id, domain]) => id === "tree-codecs" && domain === "codec"));
 });
 
@@ -1210,6 +1267,54 @@ test("M3 sequence inputs record unused compose and rebase allocators", () => {
   }
 });
 
+test("corpus requires every schema evolution case", () => {
+  assert.deepEqual(schemaEvolutionCaseIds, [
+    "schema-evolution-compatibility",
+    "schema-evolution-algebra",
+    "schema-evolution-history",
+    "schema-evolution-codecs",
+  ]);
+  for (const id of schemaEvolutionCaseIds) {
+    assert(requiredCases.some(([caseId]) => caseId === id));
+  }
+});
+
+test("schema evolution cases require complete source-backed contracts", () => {
+  const schemaIds = [
+    "v1", "optional", "object-union", "map-union", "optional-title",
+    "root-union", "optional-root", "combined", "narrow", "new-required",
+  ];
+  for (const id of schemaEvolutionCaseIds) {
+    for (const mutate of [
+      (value) => { value.reference.commit = "other"; },
+      (value) => { delete value.input; },
+      (value) => { value.expected.observations = []; },
+      (value) => { value.raw.schemaMessages = []; },
+    ]) {
+      const corpus = cases();
+      mutate(corpus.find((value) => value.id === id));
+      assert.throws(() => validateCases(corpus), new RegExp(id));
+    }
+    const scenarioIds = cases()
+      .find((value) => value.id === id)
+      .input.scenarios.map(({ id: scenarioId }) => scenarioId);
+    for (const scenarioId of scenarioIds) {
+      const corpus = cases();
+      const value = corpus.find((item) => item.id === id);
+      value.input.scenarios = value.input.scenarios.filter(({ id: candidate }) =>
+        candidate !== scenarioId);
+      assert.throws(() => validateCases(corpus), new RegExp(id));
+    }
+    for (const schemaId of schemaIds) {
+      const corpus = cases();
+      const value = corpus.find((item) => item.id === id);
+      value.input.schemas = value.input.schemas.filter(({ id: candidate }) =>
+        candidate !== schemaId);
+      assert.throws(() => validateCases(corpus), new RegExp(id));
+    }
+  }
+});
+
 test("M3 invalid cases execute source controls and exact malformed operands", () => {
   const value = JSON.parse(readFileSync(
     new URL("../../test/fixtures/shared_tree/cases/array-invalid.json", import.meta.url),
@@ -1263,7 +1368,6 @@ test("M3 history observations expose source sequencing and deterministic reconne
   assert.equal("tailEnvelope" in tail, false);
   assert.equal("continuationEnvelope" in tail, false);
 });
-
 test("corpus validation requires independent container and summary foundations", () => {
   const originalCases = cases(["container-foundations", "summary-foundations"]);
   assert.throws(() => validateCases(originalCases), /Missing case: container-foundations/);
@@ -1462,7 +1566,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
 });
 
 test("corpus validation requires every named case and nonempty observations", () => {
-  assert.equal(requiredCases.length, 38);
+  assert.equal(requiredCases.length, 42);
   assert.doesNotThrow(() => validateCases(cases()));
   assert.throws(() => validateCases([]), /empty|missing/i);
   assert.throws(() => validateCases(cases().slice(1)), /schema-profile/);
