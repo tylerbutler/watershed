@@ -215,10 +215,11 @@ tokens. Run `just shared-tree-create-test` for the native and HTTP checks, or
 
 ### SharedTree checks
 
-The `SharedTree native` and `SharedTree interoperability` CI jobs run on pull
-requests and pushes to `main`. The native job needs no live service or upstream
-source build; the interoperability job owns an isolated pinned Floodgate and
-requires the M1 and M2 matrices plus the native-creation matrix.
+The `SharedTree native` CI job runs on pull requests and pushes to `main`. The
+long-running `SharedTree interoperability` workflow runs only by manual
+dispatch. The native job needs no live service or upstream source build; the
+manual interoperability workflow owns an isolated pinned Floodgate and requires
+the M1 and M2 matrices plus the native-creation matrix.
 
 | Command | Checks |
 | --- | --- |

@@ -1344,8 +1344,9 @@ git commit -m "test(tree): prove dynamic map interoperability"
 - Modify: `README.md`
 - Modify: `tools/shared-tree-oracle/README.md`
 - Modify: `justfile` only if M1 recipes do not already include every M2 case
-- Modify: `.github/workflows/shared-tree.yml` only if its existing commands do
-  not already execute every M2 case
+- Modify: `.github/workflows/shared-tree.yml` for the fast native gate
+- Modify: `.github/workflows/shared-tree-interop.yml` for the manually
+  dispatched real-service gate
 
 **Interfaces:**
 - Consumes: all M2 implementation and evidence from Tasks 1 through 8.
@@ -1437,7 +1438,8 @@ not staged.
 
 ```sh
 git add README.md tools/shared-tree-oracle/README.md justfile \
-  .github/workflows/shared-tree.yml
+  .github/workflows/shared-tree.yml \
+  .github/workflows/shared-tree-interop.yml
 git commit -m "docs(tree): publish dynamic map profile"
 ```
 

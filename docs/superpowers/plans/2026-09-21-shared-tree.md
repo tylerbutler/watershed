@@ -2112,11 +2112,12 @@ Check the pinned source checkout and `npm ci` lock before oracle regeneration.
 Use existing repository toolchain configuration. Keep nightly/deep fuzzing a
 separate command using the same runner.
 
-The workflow's `SharedTree native` and `SharedTree interoperability` checks run
-on pull requests, pushes to `main`, and manual dispatch. The service job requires
-both `shared-tree-interop` and `shared-tree-create-interop`, preserves their
-separate evidence directories, and has no successful skip path. The manual
-5,000-schedule recipe uses the same M1 coordinator.
+The `SharedTree native` check runs on pull requests, pushes to `main`, and manual
+dispatch. The long-running `SharedTree interoperability` workflow runs only by
+manual dispatch. Its service job requires both `shared-tree-interop` and
+`shared-tree-create-interop`, preserves their separate evidence directories,
+and has no successful skip path. The manual 5,000-schedule recipe uses the same
+M1 coordinator.
 
 - [x] **2. Document the exact compatibility claim.**
 

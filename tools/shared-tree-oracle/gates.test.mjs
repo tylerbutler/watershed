@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 
@@ -48,15 +48,31 @@ test("creation acceptance retains native checks and pinned-service proof", () =>
 
 test("hosted erlang gates install the configured rebar tool", () => {
   const mise = readFileSync(resolve(repository, "mise.toml"), "utf8");
-  const workflow = readFileSync(
+  const nativeWorkflow = readFileSync(
     resolve(repository, ".github/workflows/shared-tree.yml"),
     "utf8",
+  );
+  const interopWorkflowPath = resolve(
+    repository,
+    ".github/workflows/shared-tree-interop.yml",
   );
 
   assert.match(mise, /^rebar = "3\.27\.1"$/m);
   assert.equal(
-    [...workflow.matchAll(/uses: jdx\/mise-action@v3/g)].length,
-    2,
+    [...nativeWorkflow.matchAll(/uses: jdx\/mise-action@v3/g)].length,
+    1,
   );
-  assert.doesNotMatch(workflow, /^\s*install_args:/m);
+  assert.doesNotMatch(nativeWorkflow, /^\s*install_args:/m);
+  assert.doesNotMatch(nativeWorkflow, /run: just shared-tree-interop/);
+  assert.doesNotMatch(nativeWorkflow, /run: just shared-tree-create-interop/);
+  assert.equal(existsSync(interopWorkflowPath), true);
+
+  const interopWorkflow = readFileSync(interopWorkflowPath, "utf8");
+  assert.match(interopWorkflow, /^on:\n  workflow_dispatch:\n/m);
+  assert.doesNotMatch(interopWorkflow, /^\s{2}(?:pull_request|push):/m);
+  assert.match(interopWorkflow, /uses: jdx\/mise-action@v3/);
+  assert.doesNotMatch(interopWorkflow, /^\s*install_args:/m);
+  assert.match(interopWorkflow, /run: just shared-tree-interop/);
+  assert.match(interopWorkflow, /run: just shared-tree-create-interop/);
+  assert.match(interopWorkflow, /uses: actions\/upload-artifact@v4/);
 });

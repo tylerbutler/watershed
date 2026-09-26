@@ -137,19 +137,20 @@ The generated manifest requires `map-schema-content`, `map-field-algebra`, and
 
 ### Permanent gates
 
-`.github/workflows/shared-tree.yml` runs these independent jobs on pull requests,
-pushes to `main`, and manual dispatch:
+`.github/workflows/shared-tree.yml` runs `SharedTree native` on pull requests,
+pushes to `main`, and manual dispatch. It runs the Oracle Node tests and
+`just shared-tree-test` without source compilation or a service.
 
-| Check name | Required commands |
-| --- | --- |
-| `SharedTree native` | Oracle Node tests and `just shared-tree-test`; no source compilation or service. |
-| `SharedTree interoperability` | Verified source preparation, `just shared-tree-interop`, and `just shared-tree-create-interop`. |
+`.github/workflows/shared-tree-interop.yml` runs only by manual dispatch. Its
+`SharedTree interoperability` job verifies source preparation, then runs
+`just shared-tree-interop` and `just shared-tree-create-interop`.
 
-Administrators can require these check names in branch protection or a ruleset.
-The workflow file does not configure that policy. Both jobs fail on missing
-prerequisites; the service job cannot pass by skipping a target, corpus,
-service, or matrix. The M1+M2 coordinator runs the source verification and
-fixture regeneration check itself, so CI does not repeat that expensive check.
+Administrators can require the native check in branch protection or a ruleset.
+The workflow files do not configure that policy. Both workflows fail on missing
+prerequisites; the manual service workflow cannot pass by skipping a target,
+corpus, service, or matrix. The M1+M2 coordinator runs the source verification
+and fixture regeneration check itself, so CI does not repeat that expensive
+check.
 
 | Local command | Scope |
 | --- | --- |
