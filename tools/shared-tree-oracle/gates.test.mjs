@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 
@@ -43,4 +44,19 @@ test("creation acceptance retains native checks and pinned-service proof", () =>
     "node smoke/shared_tree_creation.mjs",
     "node tools/shared-tree-oracle/creation.mjs interop --local-floodgate",
   ]);
+});
+
+test("hosted erlang gates install the configured rebar tool", () => {
+  const mise = readFileSync(resolve(repository, "mise.toml"), "utf8");
+  const workflow = readFileSync(
+    resolve(repository, ".github/workflows/shared-tree.yml"),
+    "utf8",
+  );
+
+  assert.match(mise, /^rebar = "3\.27\.1"$/m);
+  assert.equal(
+    [...workflow.matchAll(/uses: jdx\/mise-action@v3/g)].length,
+    2,
+  );
+  assert.doesNotMatch(workflow, /^\s*install_args:/m);
 });
