@@ -95,6 +95,185 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
     "v1", "optional", "object-union", "map-union", "optional-title",
     "root-union", "optional-root", "combined", "narrow", "new-required",
   ].map((schemaId) => ({ id: schemaId, raw: schema }));
+  const scenario = (scenarioId) => ({
+    id: scenarioId,
+    actions: [{ op: "capture", target: scenarioId }],
+    sessions: [{
+      tree: "tree-0",
+      session: "session-0",
+      compressor: { state: "compressor-state", allocations: [{ firstGenCount: 1, count: 1 }] },
+    }],
+    sequencePoints: [{
+      sequenceNumber: 1,
+      referenceSequenceNumber: 0,
+      minimumSequenceNumber: 0,
+      clientSequenceNumber: 1,
+      clientId: "client-0",
+      indexInBatch: 0,
+    }],
+  });
+  const checkpoint = (scenarioId) => ({
+    id: scenarioId,
+    visibleSchema: "optional",
+    sequencedSchema: "optional",
+    visibleRoot: {
+      tree: [{
+        type: "org.watershed.shared-tree.m4.Root",
+        fields: {
+          title: [{ type: "com.fluidframework.leaf.string", value: "base" }],
+          point: [{
+            type: "org.watershed.shared-tree.m4.Point",
+            fields: {
+              x: [{ type: "com.fluidframework.leaf.number", value: 1 }],
+              y: [{ type: "com.fluidframework.leaf.number", value: 2 }],
+            },
+          }],
+          items: [{
+            type: "org.watershed.shared-tree.m4.Items",
+            fields: {
+              label: [{ type: "com.fluidframework.leaf.string", value: "value" }],
+            },
+          }],
+        },
+      }],
+      removed: [],
+    },
+    pendingRevisions: [{ revision: 2, kinds: ["data"] }],
+    outerChanges: [{ revision: 2, kinds: ["data"] }],
+    trunkRevisions: [{ revision: 1, kinds: ["schema"] }],
+    peerRevisions: [{ revision: 1, kinds: ["schema"] }],
+    detachedIdentities: [],
+    events: [],
+    compatibility: { canView: true, canUpgrade: true, isEquivalent: true },
+  });
+  const observations = scenarioIds.map(checkpoint);
+  const raw = {
+    schemaMessages: [{ changeset: [{ schema: { old: {}, new: {} } }] }],
+    schemaMessageBytes: ["{\"schema\":true}"],
+  };
+  const input = {
+    schemas,
+    scenarios: scenarioIds.map(scenario),
+  };
+  if (id === "schema-evolution-compatibility") {
+    input.refusals = [
+      "narrow", "new-required", "optional-to-required",
+      "node-kind-replacement", "sequence", "handle",
+    ].map((profileId) => ({ id: profileId, operation: "upgrade-attempt" }));
+    input.rawProbes = [
+      "metadata", "duplicate-keys", "ordering", "unused-definitions", "required-cycle",
+    ].map((probeId) => ({ id: probeId, raw: "{\"version\":2}" }));
+    for (const observation of observations) {
+      observation.compatibility = { canView: true, canUpgrade: true, isEquivalent: true };
+      observation.attempt = {
+        attempted: true,
+        outcome: "accepted",
+        submittedMessages: 1,
+        beforeRoot: checkpoint(observation.id).visibleRoot,
+        afterRoot: checkpoint(observation.id).visibleRoot,
+      };
+    }
+    raw.rawProbeResults = input.rawProbes.map(({ id: probeId }) => ({
+      id: probeId,
+      parsed: true,
+      compatibility: { canView: true, canUpgrade: true, isEquivalent: true },
+    }));
+    raw.refusalAttempts = input.refusals.map(({ id: profileId }) => ({
+      id: profileId,
+      attempted: true,
+      outcome: "refused",
+      error: "Refused by pinned upstream",
+      beforeRoot: checkpoint(profileId).visibleRoot,
+      afterRoot: checkpoint(profileId).visibleRoot,
+    }));
+  } else if (id === "schema-evolution-algebra") {
+    input.operands = {
+      schemaChange: {
+        changes: [{
+          type: "schema",
+          innerChange: {
+            schema: {
+              old: { nodeSchema: { $type: "Map", entries: [["old", {}]] } },
+              new: { nodeSchema: { $type: "Map", entries: [["new", {}]] } },
+            },
+          },
+        }],
+      },
+      dataChange: {
+        changes: [{
+          type: "data",
+          innerChange: { nodeChanges: { $type: "Map", entries: [[0, {}]] } },
+        }],
+      },
+    };
+    input.transitions = [
+      { from: "data-1", to: "schema-1" },
+      { from: "schema-1", to: "data-2" },
+      { from: "data-2", to: "schema-2" },
+    ];
+    raw.composed = { changes: [{ type: "schema" }, { type: "data" }] };
+    raw.inverted = { changes: [{ type: "schema", revision: 4 }] };
+    raw.revisionResults = { composed: 3, inverted: 4 };
+  } else if (id === "schema-evolution-history") {
+    Object.assign(observations.find(({ id: scenarioId }) =>
+      scenarioId === "ack-common-prefix-keeps-upgrade"), {
+      acknowledgedSchema: true,
+      remainingDependentEdit: { revision: 2, kinds: ["data"] },
+    });
+    Object.assign(observations.find(({ id: scenarioId }) =>
+      scenarioId === "rollback-retains-new-type-content"), {
+      losingAuthorBefore: checkpoint("rollback").visibleRoot,
+      losingAuthorAfter: checkpoint("rollback").visibleRoot,
+      losingAuthorSchema: "new-node",
+      losingAuthorPending: [{ revision: 2, kinds: ["schema", "data"] }],
+      retainedExtra: { type: "org.watershed.shared-tree.m4.Extra", value: "retained" },
+    });
+    Object.assign(observations.find(({ id: scenarioId }) =>
+      scenarioId === "reconnect-upgrade-accepted-before-drop"), {
+      acceptedMessage: { sequenceNumber: 3, bytes: "{\"schema\":true}" },
+      replay: {
+        submitted: 1,
+        bytes: ["{\"schema\":true}"],
+        originalRevision: 1,
+        replayRevisions: [1],
+        peerSchemaCommitDelta: 1,
+        finalSchema: "optional",
+        finalPending: 0,
+      },
+    });
+    Object.assign(observations.find(({ id: scenarioId }) =>
+      scenarioId === "new-view-reopens"), {
+      reopenedPeer: { tree: "tree-1", schema: "optional", root: checkpoint("reopen").visibleRoot },
+    });
+    Object.assign(observations.find(({ id: scenarioId }) =>
+      scenarioId === "summary-upgrade-plus-tail"), {
+      continuation: {
+        loadedSummary: true,
+        tailBytes: ["{\"tail\":true}"],
+        replayed: true,
+        root: checkpoint("summary").visibleRoot,
+      },
+    });
+    Object.assign(observations.find(({ id: scenarioId }) =>
+      scenarioId === "historical-peer-schema-context"), {
+      historicalDecode: {
+        bytes: "{\"data\":true}",
+        decoded: { changes: [{ type: "data" }] },
+        authoringSchema: "v1",
+        visibleSchema: "optional",
+      },
+    });
+  } else if (id === "schema-evolution-codecs") {
+    Object.assign(observations.find(({ id: scenarioId }) =>
+      scenarioId === "historical-schema-decode"), {
+      operations: [{
+        operation: "decode",
+        bytes: "{\"data\":true}",
+        decoded: { changes: [{ type: "data" }] },
+        context: { authoringSchema: "v1", visibleSchema: "optional" },
+      }],
+    });
+  }
   return {
     formatVersion: 1,
     reference: {
@@ -104,16 +283,11 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
     },
     id,
     domain,
-    input: {
-      schemas,
-      scenarios: scenarioIds.map((scenarioId) => ({ id: scenarioId })),
-    },
+    input,
     expected: {
-      observations: scenarioIds.map((scenarioId) => ({ id: scenarioId, captured: true })),
+      observations,
     },
-    raw: {
-      schemaMessages: [{ changeset: [{ schema: { old: {}, new: {} } }] }],
-    },
+    raw,
   };
 }
 
@@ -1368,6 +1542,89 @@ test("M3 history observations expose source sequencing and deterministic reconne
   assert.equal("tailEnvelope" in tail, false);
   assert.equal("continuationEnvelope" in tail, false);
 });
+
+test("schema evolution validation rejects label-only evidence", () => {
+  const mutations = {
+    "schema-evolution-compatibility": [
+      (value) => { delete value.expected.observations[0].attempt; },
+      (value) => { value.expected.observations[0].attempt.beforeRoot.tree[0].fields = {}; },
+      (value) => { value.input.rawProbes.pop(); },
+      (value) => { value.raw.rawProbeResults[0].compatibility = {}; },
+    ],
+    "schema-evolution-algebra": [
+      (value) => { delete value.input.operands; },
+      (value) => { value.input.operands.schemaChange.changes[0].innerChange.schema.old.nodeSchema = {}; },
+      (value) => { value.input.transitions = []; },
+      (value) => { delete value.raw.revisionResults; },
+    ],
+    "schema-evolution-history": [
+      (value) => { value.input.scenarios[0].actions = ["upgrade:optional"]; },
+      (value) => { value.input.scenarios[0].sessions = ["test-client-0"]; },
+      (value) => { delete value.input.scenarios[0].sequencePoints[0].sequenceNumber; },
+      (value) => { value.expected.observations[0].peerRevisions = []; },
+      (value) => { value.expected.observations[0].visibleRoot.tree[0].fields.point = []; },
+      (value) => {
+        value.expected.observations.find(({ id }) =>
+          id === "ack-common-prefix-keeps-upgrade").acknowledgedSchema = false;
+      },
+      (value) => {
+        delete value.expected.observations.find(({ id }) =>
+          id === "ack-common-prefix-keeps-upgrade").remainingDependentEdit;
+      },
+      (value) => {
+        delete value.expected.observations.find(({ id }) =>
+          id === "rollback-retains-new-type-content").losingAuthorPending;
+      },
+      (value) => {
+        delete value.expected.observations.find(({ id }) =>
+          id === "rollback-retains-new-type-content").retainedExtra;
+      },
+      (value) => {
+        delete value.expected.observations.find(({ id }) =>
+          id === "reconnect-upgrade-accepted-before-drop").acceptedMessage;
+      },
+      (value) => {
+        delete value.expected.observations.find(({ id }) =>
+          id === "reconnect-upgrade-accepted-before-drop").replay;
+      },
+      (value) => {
+        delete value.expected.observations.find(({ id }) =>
+          id === "new-view-reopens").reopenedPeer;
+      },
+      (value) => {
+        value.expected.observations.find(({ id }) =>
+          id === "summary-upgrade-plus-tail").continuation.tailBytes = [];
+      },
+      (value) => {
+        value.expected.observations.find(({ id }) =>
+          id === "summary-upgrade-plus-tail").continuation.loadedSummary = false;
+      },
+      (value) => {
+        value.expected.observations.find(({ id }) =>
+          id === "historical-peer-schema-context").historicalDecode.decoded = { changes: [] };
+      },
+    ],
+    "schema-evolution-codecs": [
+      (value) => {
+        value.expected.observations.find(({ id }) =>
+          id === "historical-schema-decode").operations = [];
+      },
+      (value) => {
+        delete value.expected.observations.find(({ id }) =>
+          id === "historical-schema-decode").operations[0].context;
+      },
+      (value) => { value.raw.schemaMessageBytes = [""]; },
+    ],
+  };
+  for (const [id, mutateCases] of Object.entries(mutations)) {
+    for (const mutate of mutateCases) {
+      const corpus = cases();
+      mutate(corpus.find((value) => value.id === id));
+      assert.throws(() => validateCases(corpus), new RegExp(id));
+    }
+  }
+});
+
 test("corpus validation requires independent container and summary foundations", () => {
   const originalCases = cases(["container-foundations", "summary-foundations"]);
   assert.throws(() => validateCases(originalCases), /Missing case: container-foundations/);

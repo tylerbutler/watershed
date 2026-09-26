@@ -149,350 +149,145 @@
         "requested": "handle",
         "operation": "prepare-upgrade"
       }
+    ],
+    "rawProbes": [
+      {
+        "id": "metadata",
+        "raw": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]},\"metadataProbe\":{\"ignored\":true}}"
+      },
+      {
+        "id": "duplicate-keys",
+        "raw": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}"
+      },
+      {
+        "id": "ordering",
+        "raw": "{\"version\":2,\"nodes\":{\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}"
+      },
+      {
+        "id": "unused-definitions",
+        "raw": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}},\"org.watershed.shared-tree.m4.Unused\":{\"kind\":{\"object\":{}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}"
+      },
+      {
+        "id": "required-cycle",
+        "raw": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}},\"org.watershed.shared-tree.m4.CycleA\":{\"kind\":{\"object\":{\"next\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.CycleB\"]}}}},\"org.watershed.shared-tree.m4.CycleB\":{\"kind\":{\"object\":{\"next\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.CycleA\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.CycleA\"]}}"
+      }
     ]
   },
   "expected": {
     "observations": [
       {
         "id": "v1",
-        "canView": true,
-        "canUpgrade": true,
-        "isEquivalent": true,
-        "enabledUpgrades": {}
+        "compatibility": {
+          "canView": true,
+          "canUpgrade": true,
+          "isEquivalent": true,
+          "canInitialize": false
+        },
+        "attempt": {
+          "attempted": true,
+          "outcome": "accepted",
+          "submittedMessages": 0,
+          "beforeRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          },
+          "afterRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          }
+        }
       },
       {
         "id": "optional",
-        "canView": false,
-        "canUpgrade": true,
-        "isEquivalent": false,
-        "discrepancies": [
-          {
-            "mismatch": "fieldKind",
-            "location": {
-              "nodeType": "org.watershed.shared-tree.m4.Root",
-              "fieldKey": "score"
-            },
-            "view": "Optional",
-            "stored": "Forbidden"
-          }
-        ],
-        "enabledUpgrades": {}
-      },
-      {
-        "id": "object-union",
-        "canView": false,
-        "canUpgrade": true,
-        "isEquivalent": false,
-        "discrepancies": [
-          {
-            "mismatch": "allowedTypes",
-            "location": {
-              "nodeType": "org.watershed.shared-tree.m4.Root",
-              "fieldKey": "note"
-            },
-            "view": [
-              "com.fluidframework.leaf.number"
-            ],
-            "stored": []
-          }
-        ],
-        "enabledUpgrades": {}
-      },
-      {
-        "id": "map-union",
-        "canView": false,
-        "canUpgrade": true,
-        "isEquivalent": false,
-        "discrepancies": [
-          {
-            "mismatch": "allowedTypes",
-            "location": {
-              "nodeType": "org.watershed.shared-tree.m4.Items"
-            },
-            "view": [
-              "com.fluidframework.leaf.number"
-            ],
-            "stored": []
-          }
-        ],
-        "enabledUpgrades": {}
-      },
-      {
-        "id": "optional-title",
-        "canView": false,
-        "canUpgrade": true,
-        "isEquivalent": false,
-        "discrepancies": [
-          {
-            "mismatch": "fieldKind",
-            "location": {
-              "nodeType": "org.watershed.shared-tree.m4.Root",
-              "fieldKey": "title"
-            },
-            "view": "Optional",
-            "stored": "Value"
-          }
-        ],
-        "enabledUpgrades": {}
-      },
-      {
-        "id": "root-union",
-        "canView": false,
-        "canUpgrade": true,
-        "isEquivalent": false,
-        "discrepancies": [
-          {
-            "mismatch": "allowedTypes",
-            "location": "root",
-            "view": [
-              "com.fluidframework.leaf.string"
-            ],
-            "stored": []
-          }
-        ],
-        "enabledUpgrades": {}
-      },
-      {
-        "id": "optional-root",
-        "canView": false,
-        "canUpgrade": true,
-        "isEquivalent": false,
-        "discrepancies": [
-          {
-            "mismatch": "fieldKind",
-            "location": "root",
-            "view": "Optional",
-            "stored": "Value"
-          }
-        ],
-        "enabledUpgrades": {}
-      },
-      {
-        "id": "combined",
-        "canView": false,
-        "canUpgrade": true,
-        "isEquivalent": false,
-        "discrepancies": [
-          {
-            "mismatch": "allowedTypes",
-            "location": "root",
-            "view": [
-              "com.fluidframework.leaf.string"
-            ],
-            "stored": []
-          },
-          {
-            "mismatch": "fieldKind",
-            "location": "root",
-            "view": "Optional",
-            "stored": "Value"
-          },
-          {
-            "mismatch": "allowedTypes",
-            "location": {
-              "nodeType": "org.watershed.shared-tree.m4.Items"
-            },
-            "view": [
-              "com.fluidframework.leaf.number"
-            ],
-            "stored": []
-          },
-          {
-            "mismatch": "fieldKind",
-            "location": {
-              "nodeType": "org.watershed.shared-tree.m4.Root",
-              "fieldKey": "title"
-            },
-            "view": "Optional",
-            "stored": "Value"
-          },
-          {
-            "mismatch": "allowedTypes",
-            "location": {
-              "nodeType": "org.watershed.shared-tree.m4.Root",
-              "fieldKey": "note"
-            },
-            "view": [
-              "com.fluidframework.leaf.number"
-            ],
-            "stored": []
-          },
-          {
-            "mismatch": "fieldKind",
-            "location": {
-              "nodeType": "org.watershed.shared-tree.m4.Root",
-              "fieldKey": "score"
-            },
-            "view": "Optional",
-            "stored": "Forbidden"
-          }
-        ],
-        "enabledUpgrades": {}
-      },
-      {
-        "id": "narrow",
-        "canView": false,
-        "canUpgrade": false,
-        "isEquivalent": false,
-        "discrepancies": [
-          {
-            "mismatch": "allowedTypes",
-            "location": {
-              "nodeType": "org.watershed.shared-tree.m4.Items"
-            },
-            "view": [],
-            "stored": [
-              "org.watershed.shared-tree.m4.Point"
-            ]
-          }
-        ],
-        "enabledUpgrades": {},
-        "profileRestriction": "refused"
-      },
-      {
-        "id": "new-required",
-        "canView": false,
-        "canUpgrade": false,
-        "isEquivalent": false,
-        "discrepancies": [
-          {
-            "mismatch": "fieldKind",
-            "location": {
-              "nodeType": "org.watershed.shared-tree.m4.Root",
-              "fieldKey": "score"
-            },
-            "view": "Value",
-            "stored": "Forbidden"
-          }
-        ],
-        "enabledUpgrades": {},
-        "profileRestriction": "refused"
-      },
-      {
-        "id": "narrow",
-        "status": {
-          "canView": false,
-          "canUpgrade": false,
-          "isEquivalent": false,
-          "discrepancies": [
-            {
-              "mismatch": "allowedTypes",
-              "location": {
-                "nodeType": "org.watershed.shared-tree.m4.Items"
-              },
-              "view": [],
-              "stored": [
-                "org.watershed.shared-tree.m4.Point"
-              ]
-            }
-          ],
-          "enabledUpgrades": {}
-        },
-        "classification": "upstream-refusal"
-      },
-      {
-        "id": "new-required",
-        "status": {
-          "canView": false,
-          "canUpgrade": false,
-          "isEquivalent": false,
-          "discrepancies": [
-            {
-              "mismatch": "fieldKind",
-              "location": {
-                "nodeType": "org.watershed.shared-tree.m4.Root",
-                "fieldKey": "score"
-              },
-              "view": "Value",
-              "stored": "Forbidden"
-            }
-          ],
-          "enabledUpgrades": {}
-        },
-        "classification": "upstream-refusal"
-      },
-      {
-        "id": "optional-to-required",
-        "status": {
-          "canView": false,
-          "canUpgrade": false,
-          "isEquivalent": false,
-          "discrepancies": [
-            {
-              "mismatch": "fieldKind",
-              "location": {
-                "nodeType": "org.watershed.shared-tree.m4.Root",
-                "fieldKey": "note"
-              },
-              "view": "Value",
-              "stored": "Optional"
-            }
-          ],
-          "enabledUpgrades": {}
-        },
-        "classification": "upstream-refusal"
-      },
-      {
-        "id": "node-kind-replacement",
-        "status": {
-          "canView": false,
-          "canUpgrade": true,
-          "isEquivalent": false,
-          "discrepancies": [
-            {
-              "mismatch": "nodeKind",
-              "nodeType": "org.watershed.shared-tree.m4.Point",
-              "view": "Map",
-              "stored": "Object"
-            }
-          ],
-          "enabledUpgrades": {}
-        },
-        "classification": "profile-restriction"
-      },
-      {
-        "id": "sequence",
-        "status": {
-          "canView": false,
-          "canUpgrade": true,
-          "isEquivalent": false,
-          "discrepancies": [
-            {
-              "mismatch": "allowedTypes",
-              "location": "root",
-              "view": [
-                "org.watershed.shared-tree.m4.Sequence"
-              ],
-              "stored": []
-            }
-          ],
-          "enabledUpgrades": {}
-        },
-        "classification": "profile-restriction"
-      },
-      {
-        "id": "handle",
-        "status": {
-          "canView": false,
-          "canUpgrade": true,
-          "isEquivalent": false,
-          "discrepancies": [
-            {
-              "mismatch": "allowedTypes",
-              "location": "root",
-              "view": [
-                "com.fluidframework.leaf.handle"
-              ],
-              "stored": []
-            }
-          ],
-          "enabledUpgrades": {}
-        },
-        "classification": "profile-restriction"
-      },
-      {
-        "id": "explicit-optional-upgrade",
-        "opened": {
+        "compatibility": {
           "canView": false,
           "canUpgrade": true,
           "isEquivalent": false,
@@ -509,17 +304,1121 @@
           ],
           "canInitialize": false
         },
-        "before": {
-          "title": "base"
-        },
-        "after": {
-          "title": "base"
-        },
-        "submittedSchemaMessages": 1
+        "attempt": {
+          "attempted": true,
+          "outcome": "accepted",
+          "submittedMessages": 2,
+          "beforeRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          },
+          "afterRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          }
+        }
       },
       {
-        "id": "equivalent-upgrade-no-op",
-        "submittedSchemaMessages": 0
+        "id": "object-union",
+        "compatibility": {
+          "canView": false,
+          "canUpgrade": true,
+          "isEquivalent": false,
+          "discrepancies": [
+            {
+              "mismatch": "allowedTypes",
+              "location": {
+                "nodeType": "org.watershed.shared-tree.m4.Root",
+                "fieldKey": "note"
+              },
+              "view": [
+                "com.fluidframework.leaf.number"
+              ],
+              "stored": []
+            }
+          ],
+          "canInitialize": false
+        },
+        "attempt": {
+          "attempted": true,
+          "outcome": "accepted",
+          "submittedMessages": 2,
+          "beforeRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          },
+          "afterRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          }
+        }
+      },
+      {
+        "id": "map-union",
+        "compatibility": {
+          "canView": false,
+          "canUpgrade": true,
+          "isEquivalent": false,
+          "discrepancies": [
+            {
+              "mismatch": "allowedTypes",
+              "location": {
+                "nodeType": "org.watershed.shared-tree.m4.Items"
+              },
+              "view": [
+                "com.fluidframework.leaf.number"
+              ],
+              "stored": []
+            }
+          ],
+          "canInitialize": false
+        },
+        "attempt": {
+          "attempted": true,
+          "outcome": "accepted",
+          "submittedMessages": 2,
+          "beforeRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          },
+          "afterRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          }
+        }
+      },
+      {
+        "id": "optional-title",
+        "compatibility": {
+          "canView": false,
+          "canUpgrade": true,
+          "isEquivalent": false,
+          "discrepancies": [
+            {
+              "mismatch": "fieldKind",
+              "location": {
+                "nodeType": "org.watershed.shared-tree.m4.Root",
+                "fieldKey": "title"
+              },
+              "view": "Optional",
+              "stored": "Value"
+            }
+          ],
+          "canInitialize": false
+        },
+        "attempt": {
+          "attempted": true,
+          "outcome": "accepted",
+          "submittedMessages": 2,
+          "beforeRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          },
+          "afterRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          }
+        }
+      },
+      {
+        "id": "root-union",
+        "compatibility": {
+          "canView": false,
+          "canUpgrade": true,
+          "isEquivalent": false,
+          "discrepancies": [
+            {
+              "mismatch": "allowedTypes",
+              "location": "root",
+              "view": [
+                "com.fluidframework.leaf.string"
+              ],
+              "stored": []
+            }
+          ],
+          "canInitialize": false
+        },
+        "attempt": {
+          "attempted": true,
+          "outcome": "accepted",
+          "submittedMessages": 2,
+          "beforeRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          },
+          "afterRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          }
+        }
+      },
+      {
+        "id": "optional-root",
+        "compatibility": {
+          "canView": false,
+          "canUpgrade": true,
+          "isEquivalent": false,
+          "discrepancies": [
+            {
+              "mismatch": "fieldKind",
+              "location": "root",
+              "view": "Optional",
+              "stored": "Value"
+            }
+          ],
+          "canInitialize": false
+        },
+        "attempt": {
+          "attempted": true,
+          "outcome": "accepted",
+          "submittedMessages": 2,
+          "beforeRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          },
+          "afterRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          }
+        }
+      },
+      {
+        "id": "combined",
+        "compatibility": {
+          "canView": false,
+          "canUpgrade": true,
+          "isEquivalent": false,
+          "discrepancies": [
+            {
+              "mismatch": "allowedTypes",
+              "location": "root",
+              "view": [
+                "com.fluidframework.leaf.string"
+              ],
+              "stored": []
+            },
+            {
+              "mismatch": "fieldKind",
+              "location": "root",
+              "view": "Optional",
+              "stored": "Value"
+            },
+            {
+              "mismatch": "allowedTypes",
+              "location": {
+                "nodeType": "org.watershed.shared-tree.m4.Items"
+              },
+              "view": [
+                "com.fluidframework.leaf.number"
+              ],
+              "stored": []
+            },
+            {
+              "mismatch": "fieldKind",
+              "location": {
+                "nodeType": "org.watershed.shared-tree.m4.Root",
+                "fieldKey": "title"
+              },
+              "view": "Optional",
+              "stored": "Value"
+            },
+            {
+              "mismatch": "allowedTypes",
+              "location": {
+                "nodeType": "org.watershed.shared-tree.m4.Root",
+                "fieldKey": "note"
+              },
+              "view": [
+                "com.fluidframework.leaf.number"
+              ],
+              "stored": []
+            },
+            {
+              "mismatch": "fieldKind",
+              "location": {
+                "nodeType": "org.watershed.shared-tree.m4.Root",
+                "fieldKey": "score"
+              },
+              "view": "Optional",
+              "stored": "Forbidden"
+            }
+          ],
+          "canInitialize": false
+        },
+        "attempt": {
+          "attempted": true,
+          "outcome": "accepted",
+          "submittedMessages": 2,
+          "beforeRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          },
+          "afterRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          }
+        }
+      },
+      {
+        "id": "narrow",
+        "compatibility": {
+          "canView": false,
+          "canUpgrade": false,
+          "isEquivalent": false,
+          "discrepancies": [
+            {
+              "mismatch": "allowedTypes",
+              "location": {
+                "nodeType": "org.watershed.shared-tree.m4.Items"
+              },
+              "view": [],
+              "stored": [
+                "org.watershed.shared-tree.m4.Point"
+              ]
+            }
+          ],
+          "canInitialize": false
+        },
+        "attempt": {
+          "attempted": true,
+          "outcome": "refused",
+          "error": "Error: Existing stored schema cannot be upgraded to the requested schema (see TreeView.compatibility.canUpgrade).",
+          "submittedMessages": 0,
+          "beforeRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          },
+          "afterRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          }
+        }
+      },
+      {
+        "id": "new-required",
+        "compatibility": {
+          "canView": false,
+          "canUpgrade": false,
+          "isEquivalent": false,
+          "discrepancies": [
+            {
+              "mismatch": "fieldKind",
+              "location": {
+                "nodeType": "org.watershed.shared-tree.m4.Root",
+                "fieldKey": "score"
+              },
+              "view": "Value",
+              "stored": "Forbidden"
+            }
+          ],
+          "canInitialize": false
+        },
+        "attempt": {
+          "attempted": true,
+          "outcome": "refused",
+          "error": "Error: Existing stored schema cannot be upgraded to the requested schema (see TreeView.compatibility.canUpgrade).",
+          "submittedMessages": 0,
+          "beforeRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          },
+          "afterRoot": {
+            "tree": [
+              {
+                "type": "org.watershed.shared-tree.m4.Root",
+                "fields": {
+                  "title": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "base"
+                    }
+                  ],
+                  "point": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Point",
+                      "fields": {
+                        "x": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 1
+                          }
+                        ],
+                        "y": [
+                          {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": 2
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "items": [
+                    {
+                      "type": "org.watershed.shared-tree.m4.Items",
+                      "fields": {
+                        "label": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "value"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "removed": []
+          }
+        }
       }
     ]
   },
@@ -748,8 +1647,14 @@
         },
         "referenceSequenceNumber": 2,
         "type": "op",
-        "clientId": "test-client-0"
+        "clientId": "test-client-0",
+        "sequenceNumber": 4,
+        "minimumSequenceNumber": 2,
+        "indexInBatch": 0
       }
+    ],
+    "schemaMessageBytes": [
+      "{\"clientSequenceNumber\":2,\"contents\":{\"revision\":1,\"originatorId\":\"8f95be09-8376-4ff7-8755-ccd7e8124b06\",\"changeset\":[{\"schema\":{\"new\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}},\"old\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}}}],\"version\":7},\"referenceSequenceNumber\":2,\"type\":\"op\",\"clientId\":\"test-client-0\",\"sequenceNumber\":4,\"minimumSequenceNumber\":2,\"indexInBatch\":0}"
     ],
     "initializationMessages": [
       {
@@ -773,7 +1678,10 @@
         },
         "referenceSequenceNumber": 0,
         "type": "op",
-        "clientId": "test-client-0"
+        "clientId": "test-client-0",
+        "sequenceNumber": 1,
+        "minimumSequenceNumber": 0,
+        "indexInBatch": 0
       },
       {
         "clientSequenceNumber": 1,
@@ -1162,7 +2070,691 @@
         },
         "referenceSequenceNumber": 0,
         "type": "op",
-        "clientId": "test-client-0"
+        "clientId": "test-client-0",
+        "sequenceNumber": 2,
+        "minimumSequenceNumber": 0,
+        "indexInBatch": 0
+      }
+    ],
+    "refusalAttempts": [
+      {
+        "id": "narrow",
+        "attempted": true,
+        "outcome": "refused",
+        "error": "Error: Existing stored schema cannot be upgraded to the requested schema (see TreeView.compatibility.canUpgrade).",
+        "submittedMessages": 0,
+        "beforeRoot": {
+          "tree": [
+            {
+              "type": "org.watershed.shared-tree.m4.Root",
+              "fields": {
+                "title": [
+                  {
+                    "type": "com.fluidframework.leaf.string",
+                    "value": "base"
+                  }
+                ],
+                "point": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Point",
+                    "fields": {
+                      "x": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 1
+                        }
+                      ],
+                      "y": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 2
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "items": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Items",
+                    "fields": {
+                      "label": [
+                        {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": "value"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "removed": []
+        },
+        "afterRoot": {
+          "tree": [
+            {
+              "type": "org.watershed.shared-tree.m4.Root",
+              "fields": {
+                "title": [
+                  {
+                    "type": "com.fluidframework.leaf.string",
+                    "value": "base"
+                  }
+                ],
+                "point": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Point",
+                    "fields": {
+                      "x": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 1
+                        }
+                      ],
+                      "y": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 2
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "items": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Items",
+                    "fields": {
+                      "label": [
+                        {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": "value"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "removed": []
+        }
+      },
+      {
+        "id": "new-required",
+        "attempted": true,
+        "outcome": "refused",
+        "error": "Error: Existing stored schema cannot be upgraded to the requested schema (see TreeView.compatibility.canUpgrade).",
+        "submittedMessages": 0,
+        "beforeRoot": {
+          "tree": [
+            {
+              "type": "org.watershed.shared-tree.m4.Root",
+              "fields": {
+                "title": [
+                  {
+                    "type": "com.fluidframework.leaf.string",
+                    "value": "base"
+                  }
+                ],
+                "point": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Point",
+                    "fields": {
+                      "x": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 1
+                        }
+                      ],
+                      "y": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 2
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "items": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Items",
+                    "fields": {
+                      "label": [
+                        {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": "value"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "removed": []
+        },
+        "afterRoot": {
+          "tree": [
+            {
+              "type": "org.watershed.shared-tree.m4.Root",
+              "fields": {
+                "title": [
+                  {
+                    "type": "com.fluidframework.leaf.string",
+                    "value": "base"
+                  }
+                ],
+                "point": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Point",
+                    "fields": {
+                      "x": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 1
+                        }
+                      ],
+                      "y": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 2
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "items": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Items",
+                    "fields": {
+                      "label": [
+                        {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": "value"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "removed": []
+        }
+      },
+      {
+        "id": "optional-to-required",
+        "attempted": true,
+        "outcome": "refused",
+        "error": "Error: Existing stored schema cannot be upgraded to the requested schema (see TreeView.compatibility.canUpgrade).",
+        "submittedMessages": 0,
+        "beforeRoot": {
+          "tree": [
+            {
+              "type": "org.watershed.shared-tree.m4.Root",
+              "fields": {
+                "title": [
+                  {
+                    "type": "com.fluidframework.leaf.string",
+                    "value": "base"
+                  }
+                ],
+                "point": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Point",
+                    "fields": {
+                      "x": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 1
+                        }
+                      ],
+                      "y": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 2
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "items": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Items",
+                    "fields": {
+                      "label": [
+                        {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": "value"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "removed": []
+        },
+        "afterRoot": {
+          "tree": [
+            {
+              "type": "org.watershed.shared-tree.m4.Root",
+              "fields": {
+                "title": [
+                  {
+                    "type": "com.fluidframework.leaf.string",
+                    "value": "base"
+                  }
+                ],
+                "point": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Point",
+                    "fields": {
+                      "x": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 1
+                        }
+                      ],
+                      "y": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 2
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "items": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Items",
+                    "fields": {
+                      "label": [
+                        {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": "value"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "removed": []
+        }
+      },
+      {
+        "id": "node-kind-replacement",
+        "attempted": true,
+        "outcome": "accepted",
+        "submittedMessages": 2,
+        "beforeRoot": {
+          "tree": [
+            {
+              "type": "org.watershed.shared-tree.m4.Root",
+              "fields": {
+                "title": [
+                  {
+                    "type": "com.fluidframework.leaf.string",
+                    "value": "base"
+                  }
+                ],
+                "point": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Point",
+                    "fields": {
+                      "x": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 1
+                        }
+                      ],
+                      "y": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 2
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "items": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Items",
+                    "fields": {
+                      "label": [
+                        {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": "value"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "removed": []
+        },
+        "afterRoot": {
+          "tree": [
+            {
+              "type": "org.watershed.shared-tree.m4.Root",
+              "fields": {
+                "title": [
+                  {
+                    "type": "com.fluidframework.leaf.string",
+                    "value": "base"
+                  }
+                ],
+                "point": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Point",
+                    "fields": {
+                      "x": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 1
+                        }
+                      ],
+                      "y": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 2
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "items": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Items",
+                    "fields": {
+                      "label": [
+                        {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": "value"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "removed": []
+        }
+      },
+      {
+        "id": "sequence",
+        "attempted": true,
+        "outcome": "accepted",
+        "submittedMessages": 2,
+        "beforeRoot": {
+          "tree": [
+            {
+              "type": "org.watershed.shared-tree.m4.Root",
+              "fields": {
+                "title": [
+                  {
+                    "type": "com.fluidframework.leaf.string",
+                    "value": "base"
+                  }
+                ],
+                "point": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Point",
+                    "fields": {
+                      "x": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 1
+                        }
+                      ],
+                      "y": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 2
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "items": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Items",
+                    "fields": {
+                      "label": [
+                        {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": "value"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "removed": []
+        },
+        "afterRoot": {
+          "tree": [
+            {
+              "type": "org.watershed.shared-tree.m4.Root",
+              "fields": {
+                "title": [
+                  {
+                    "type": "com.fluidframework.leaf.string",
+                    "value": "base"
+                  }
+                ],
+                "point": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Point",
+                    "fields": {
+                      "x": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 1
+                        }
+                      ],
+                      "y": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 2
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "items": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Items",
+                    "fields": {
+                      "label": [
+                        {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": "value"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "removed": []
+        }
+      },
+      {
+        "id": "handle",
+        "attempted": true,
+        "outcome": "accepted",
+        "submittedMessages": 2,
+        "beforeRoot": {
+          "tree": [
+            {
+              "type": "org.watershed.shared-tree.m4.Root",
+              "fields": {
+                "title": [
+                  {
+                    "type": "com.fluidframework.leaf.string",
+                    "value": "base"
+                  }
+                ],
+                "point": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Point",
+                    "fields": {
+                      "x": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 1
+                        }
+                      ],
+                      "y": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 2
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "items": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Items",
+                    "fields": {
+                      "label": [
+                        {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": "value"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "removed": []
+        },
+        "afterRoot": {
+          "tree": [
+            {
+              "type": "org.watershed.shared-tree.m4.Root",
+              "fields": {
+                "title": [
+                  {
+                    "type": "com.fluidframework.leaf.string",
+                    "value": "base"
+                  }
+                ],
+                "point": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Point",
+                    "fields": {
+                      "x": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 1
+                        }
+                      ],
+                      "y": [
+                        {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": 2
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "items": [
+                  {
+                    "type": "org.watershed.shared-tree.m4.Items",
+                    "fields": {
+                      "label": [
+                        {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": "value"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "removed": []
+        }
+      }
+    ],
+    "rawProbeResults": [
+      {
+        "id": "metadata",
+        "parsed": true,
+        "compatibility": {
+          "canView": true,
+          "canUpgrade": true,
+          "isEquivalent": true,
+          "enabledUpgrades": {}
+        }
+      },
+      {
+        "id": "duplicate-keys",
+        "parsed": true,
+        "compatibility": {
+          "canView": true,
+          "canUpgrade": true,
+          "isEquivalent": true,
+          "enabledUpgrades": {}
+        }
+      },
+      {
+        "id": "ordering",
+        "parsed": true,
+        "compatibility": {
+          "canView": true,
+          "canUpgrade": true,
+          "isEquivalent": true,
+          "enabledUpgrades": {}
+        }
+      },
+      {
+        "id": "unused-definitions",
+        "parsed": true,
+        "compatibility": {
+          "canView": true,
+          "canUpgrade": false,
+          "isEquivalent": false,
+          "enabledUpgrades": {}
+        }
+      },
+      {
+        "id": "required-cycle",
+        "parsed": true,
+        "compatibility": {
+          "canView": false,
+          "canUpgrade": false,
+          "isEquivalent": false,
+          "discrepancies": [
+            {
+              "mismatch": "allowedTypes",
+              "location": "root",
+              "view": [
+                "org.watershed.shared-tree.m4.Root"
+              ],
+              "stored": [
+                "org.watershed.shared-tree.m4.CycleA"
+              ]
+            }
+          ],
+          "enabledUpgrades": {}
+        }
       }
     ]
   }

@@ -92,7 +92,434 @@
       },
       {
         "id": "historical-schema-decode",
-        "needsAuthoringSchema": true
+        "operations": [
+          {
+            "operation": "decode",
+            "bytes": "{\"revision\":-1,\"originatorId\":\"a0693eac-892a-4396-86f7-ad20dc1cade2\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"title\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":1,\"s\":0}}}]}]]}],\"builds\":{\"builds\":[[[[0,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}}],\"data\":[[0,\"historical\"]]}}}}],\"version\":7}",
+            "decoded": {
+              "changes": [
+                {
+                  "type": "data",
+                  "innerChange": {
+                    "fieldChanges": {
+                      "$type": "Map",
+                      "entries": [
+                        [
+                          "rootFieldKey",
+                          {
+                            "fieldKind": "ModularEditBuilder.Generic",
+                            "change": {
+                              "_root": {
+                                "keys": [
+                                  0
+                                ],
+                                "values": [
+                                  {
+                                    "revision": 513,
+                                    "localId": 3
+                                  }
+                                ]
+                              },
+                              "_maxNodeSize": 32
+                            }
+                          }
+                        ]
+                      ]
+                    },
+                    "nodeChanges": {
+                      "_root": {
+                        "keys": [
+                          [
+                            513,
+                            3
+                          ]
+                        ],
+                        "values": [
+                          {
+                            "fieldChanges": {
+                              "$type": "Map",
+                              "entries": [
+                                [
+                                  "title",
+                                  {
+                                    "fieldKind": "Value",
+                                    "change": {
+                                      "moves": [],
+                                      "childChanges": [],
+                                      "valueReplace": {
+                                        "isEmpty": false,
+                                        "dst": {
+                                          "localId": 1,
+                                          "revision": 513
+                                        },
+                                        "src": {
+                                          "localId": 0,
+                                          "revision": 513
+                                        }
+                                      }
+                                    }
+                                  }
+                                ]
+                              ]
+                            }
+                          }
+                        ]
+                      },
+                      "_maxNodeSize": 32
+                    },
+                    "nodeToParent": {
+                      "_root": {
+                        "keys": [
+                          [
+                            513,
+                            3
+                          ]
+                        ],
+                        "values": [
+                          {
+                            "field": "rootFieldKey"
+                          }
+                        ]
+                      },
+                      "_maxNodeSize": 32
+                    },
+                    "nodeAliases": {
+                      "_root": {
+                        "keys": [],
+                        "values": [
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null
+                        ],
+                        "isShared": true
+                      },
+                      "_maxNodeSize": 32
+                    },
+                    "crossFieldKeys": {
+                      "tree": {
+                        "_root": {
+                          "keys": [],
+                          "values": [
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null
+                          ],
+                          "isShared": true
+                        },
+                        "_maxNodeSize": 32
+                      }
+                    },
+                    "builds": {
+                      "_root": {
+                        "keys": [
+                          [
+                            513,
+                            0
+                          ]
+                        ],
+                        "values": [
+                          {
+                            "refCount": 2,
+                            "type": "com.fluidframework.leaf.string",
+                            "fields": {
+                              "$type": "Map",
+                              "entries": []
+                            },
+                            "value": "historical",
+                            "topLevelLength": 1
+                          }
+                        ]
+                      },
+                      "_maxNodeSize": 32
+                    },
+                    "revisions": [
+                      {
+                        "revision": 513
+                      }
+                    ],
+                    "maxId": 2
+                  }
+                }
+              ]
+            },
+            "envelope": {
+              "branchId": "main",
+              "type": "commit",
+              "commit": {
+                "revision": 513,
+                "change": {
+                  "changes": [
+                    {
+                      "type": "data",
+                      "innerChange": {
+                        "fieldChanges": {
+                          "$type": "Map",
+                          "entries": [
+                            [
+                              "rootFieldKey",
+                              {
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": {
+                                  "_root": {
+                                    "keys": [
+                                      0
+                                    ],
+                                    "values": [
+                                      {
+                                        "revision": 513,
+                                        "localId": 3
+                                      }
+                                    ]
+                                  },
+                                  "_maxNodeSize": 32
+                                }
+                              }
+                            ]
+                          ]
+                        },
+                        "nodeChanges": {
+                          "_root": {
+                            "keys": [
+                              [
+                                513,
+                                3
+                              ]
+                            ],
+                            "values": [
+                              {
+                                "fieldChanges": {
+                                  "$type": "Map",
+                                  "entries": [
+                                    [
+                                      "title",
+                                      {
+                                        "fieldKind": "Value",
+                                        "change": {
+                                          "moves": [],
+                                          "childChanges": [],
+                                          "valueReplace": {
+                                            "isEmpty": false,
+                                            "dst": {
+                                              "localId": 1,
+                                              "revision": 513
+                                            },
+                                            "src": {
+                                              "localId": 0,
+                                              "revision": 513
+                                            }
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  ]
+                                }
+                              }
+                            ]
+                          },
+                          "_maxNodeSize": 32
+                        },
+                        "nodeToParent": {
+                          "_root": {
+                            "keys": [
+                              [
+                                513,
+                                3
+                              ]
+                            ],
+                            "values": [
+                              {
+                                "field": "rootFieldKey"
+                              }
+                            ]
+                          },
+                          "_maxNodeSize": 32
+                        },
+                        "nodeAliases": {
+                          "_root": {
+                            "keys": [],
+                            "values": [
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null
+                            ],
+                            "isShared": true
+                          },
+                          "_maxNodeSize": 32
+                        },
+                        "crossFieldKeys": {
+                          "tree": {
+                            "_root": {
+                              "keys": [],
+                              "values": [
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null
+                              ],
+                              "isShared": true
+                            },
+                            "_maxNodeSize": 32
+                          }
+                        },
+                        "builds": {
+                          "_root": {
+                            "keys": [
+                              [
+                                513,
+                                0
+                              ]
+                            ],
+                            "values": [
+                              {
+                                "refCount": 2,
+                                "type": "com.fluidframework.leaf.string",
+                                "fields": {
+                                  "$type": "Map",
+                                  "entries": []
+                                },
+                                "value": "historical",
+                                "topLevelLength": 1
+                              }
+                            ]
+                          },
+                          "_maxNodeSize": 32
+                        },
+                        "revisions": [
+                          {
+                            "revision": 513
+                          }
+                        ],
+                        "maxId": 2
+                      }
+                    }
+                  ]
+                }
+              },
+              "sessionId": "a0693eac-892a-4396-86f7-ad20dc1cade2"
+            },
+            "authoringSchema": "v1",
+            "visibleSchema": "optional",
+            "context": {
+              "authoringSchema": "v1",
+              "visibleSchema": "optional"
+            }
+          }
+        ]
       },
       {
         "id": "pending-upgrade-summary",
@@ -283,8 +710,14 @@
         },
         "referenceSequenceNumber": 2,
         "type": "op",
-        "clientId": "test-client-0"
+        "clientId": "test-client-0",
+        "sequenceNumber": 4,
+        "minimumSequenceNumber": 2,
+        "indexInBatch": 0
       }
+    ],
+    "schemaMessageBytes": [
+      "{\"clientSequenceNumber\":2,\"contents\":{\"revision\":1,\"originatorId\":\"8f95be09-8376-4ff7-8755-ccd7e8124b06\",\"changeset\":[{\"schema\":{\"new\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}},\"old\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}}}],\"version\":7},\"referenceSequenceNumber\":2,\"type\":\"op\",\"clientId\":\"test-client-0\",\"sequenceNumber\":4,\"minimumSequenceNumber\":2,\"indexInBatch\":0}"
     ],
     "allMessages": [
       {
@@ -303,7 +736,10 @@
         },
         "referenceSequenceNumber": 2,
         "type": "op",
-        "clientId": "test-client-0"
+        "clientId": "test-client-0",
+        "sequenceNumber": 3,
+        "minimumSequenceNumber": 2,
+        "indexInBatch": 0
       },
       {
         "clientSequenceNumber": 2,
@@ -486,7 +922,10 @@
         },
         "referenceSequenceNumber": 2,
         "type": "op",
-        "clientId": "test-client-0"
+        "clientId": "test-client-0",
+        "sequenceNumber": 4,
+        "minimumSequenceNumber": 2,
+        "indexInBatch": 0
       }
     ],
     "summary": {
@@ -557,7 +996,1402 @@
     },
     "inverseEncodingError": {
       "id": "inverse-schema-encoding-refusal",
-      "error": "Error: 0x933"
+      "error": "Error: 0x933",
+      "change": {
+        "changes": [
+          {
+            "type": "schema",
+            "innerChange": {
+              "schema": {
+                "new": {
+                  "nodeSchema": {
+                    "$type": "Map",
+                    "entries": [
+                      [
+                        "com.fluidframework.leaf.string",
+                        {
+                          "leafValue": 1
+                        }
+                      ],
+                      [
+                        "com.fluidframework.leaf.number",
+                        {
+                          "leafValue": 0
+                        }
+                      ],
+                      [
+                        "org.watershed.shared-tree.m4.Point",
+                        {
+                          "objectNodeFields": {
+                            "$type": "Map",
+                            "entries": [
+                              [
+                                "x",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.number"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "y",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.number"
+                                    ]
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        }
+                      ],
+                      [
+                        "org.watershed.shared-tree.m4.Items",
+                        {
+                          "mapFields": {
+                            "kind": "Optional",
+                            "types": {
+                              "$type": "Set",
+                              "values": [
+                                "com.fluidframework.leaf.string",
+                                "org.watershed.shared-tree.m4.Point"
+                              ]
+                            }
+                          }
+                        }
+                      ],
+                      [
+                        "org.watershed.shared-tree.m4.Root",
+                        {
+                          "objectNodeFields": {
+                            "$type": "Map",
+                            "entries": [
+                              [
+                                "title",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.string"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "point",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "org.watershed.shared-tree.m4.Point"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "note",
+                                {
+                                  "kind": "Optional",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.string"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "items",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "org.watershed.shared-tree.m4.Items"
+                                    ]
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        }
+                      ]
+                    ]
+                  },
+                  "rootFieldSchema": {
+                    "kind": "Value",
+                    "types": {
+                      "$type": "Set",
+                      "values": [
+                        "org.watershed.shared-tree.m4.Root"
+                      ]
+                    }
+                  }
+                },
+                "old": {
+                  "nodeSchema": {
+                    "$type": "Map",
+                    "entries": [
+                      [
+                        "com.fluidframework.leaf.string",
+                        {
+                          "leafValue": 1
+                        }
+                      ],
+                      [
+                        "com.fluidframework.leaf.number",
+                        {
+                          "leafValue": 0
+                        }
+                      ],
+                      [
+                        "org.watershed.shared-tree.m4.Point",
+                        {
+                          "objectNodeFields": {
+                            "$type": "Map",
+                            "entries": [
+                              [
+                                "x",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.number"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "y",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.number"
+                                    ]
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        }
+                      ],
+                      [
+                        "org.watershed.shared-tree.m4.Items",
+                        {
+                          "mapFields": {
+                            "kind": "Optional",
+                            "types": {
+                              "$type": "Set",
+                              "values": [
+                                "com.fluidframework.leaf.string",
+                                "org.watershed.shared-tree.m4.Point"
+                              ]
+                            }
+                          }
+                        }
+                      ],
+                      [
+                        "org.watershed.shared-tree.m4.Root",
+                        {
+                          "objectNodeFields": {
+                            "$type": "Map",
+                            "entries": [
+                              [
+                                "title",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.string"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "point",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "org.watershed.shared-tree.m4.Point"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "note",
+                                {
+                                  "kind": "Optional",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.string"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "items",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "org.watershed.shared-tree.m4.Items"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "score",
+                                {
+                                  "kind": "Optional",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.number"
+                                    ]
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        }
+                      ]
+                    ]
+                  },
+                  "rootFieldSchema": {
+                    "kind": "Value",
+                    "types": {
+                      "$type": "Set",
+                      "values": [
+                        "org.watershed.shared-tree.m4.Root"
+                      ]
+                    }
+                  }
+                }
+              },
+              "isInverse": true
+            }
+          },
+          {
+            "type": "data",
+            "innerChange": {
+              "fieldChanges": {
+                "$type": "Map",
+                "entries": [
+                  [
+                    "rootFieldKey",
+                    {
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": {
+                        "_root": {
+                          "keys": [
+                            0
+                          ],
+                          "values": [
+                            {
+                              "localId": 2,
+                              "revision": 1
+                            }
+                          ]
+                        },
+                        "_maxNodeSize": 32
+                      }
+                    }
+                  ]
+                ]
+              },
+              "nodeChanges": {
+                "_root": {
+                  "keys": [
+                    [
+                      1,
+                      2
+                    ]
+                  ],
+                  "values": [
+                    {
+                      "fieldChanges": {
+                        "$type": "Map",
+                        "entries": [
+                          [
+                            "title",
+                            {
+                              "fieldKind": "Value",
+                              "change": {
+                                "moves": [],
+                                "childChanges": [],
+                                "valueReplace": {
+                                  "isEmpty": false,
+                                  "dst": {
+                                    "localId": 0,
+                                    "revision": 1
+                                  },
+                                  "src": {
+                                    "localId": 1,
+                                    "revision": 1
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "_maxNodeSize": 32
+              },
+              "nodeToParent": {
+                "_root": {
+                  "keys": [
+                    [
+                      1,
+                      2
+                    ]
+                  ],
+                  "values": [
+                    {
+                      "field": "rootFieldKey"
+                    }
+                  ]
+                },
+                "_maxNodeSize": 32
+              },
+              "nodeAliases": {
+                "_root": {
+                  "keys": [],
+                  "values": [
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+                  ],
+                  "isShared": true
+                },
+                "_maxNodeSize": 32
+              },
+              "crossFieldKeys": {
+                "tree": {
+                  "_root": {
+                    "keys": [],
+                    "values": [
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null
+                    ],
+                    "isShared": true
+                  },
+                  "_maxNodeSize": 32
+                }
+              },
+              "revisions": [
+                {
+                  "revision": 12,
+                  "rollbackOf": 11
+                }
+              ],
+              "maxId": 2,
+              "destroys": {
+                "_root": {
+                  "keys": [
+                    [
+                      1,
+                      0
+                    ]
+                  ],
+                  "values": [
+                    1
+                  ]
+                },
+                "_maxNodeSize": 32
+              }
+            }
+          },
+          {
+            "type": "schema",
+            "innerChange": {
+              "schema": {
+                "new": {
+                  "nodeSchema": {
+                    "$type": "Map",
+                    "entries": [
+                      [
+                        "com.fluidframework.leaf.string",
+                        {
+                          "leafValue": 1
+                        }
+                      ],
+                      [
+                        "com.fluidframework.leaf.number",
+                        {
+                          "leafValue": 0
+                        }
+                      ],
+                      [
+                        "org.watershed.shared-tree.m4.Point",
+                        {
+                          "objectNodeFields": {
+                            "$type": "Map",
+                            "entries": [
+                              [
+                                "x",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.number"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "y",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.number"
+                                    ]
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        }
+                      ],
+                      [
+                        "org.watershed.shared-tree.m4.Items",
+                        {
+                          "mapFields": {
+                            "kind": "Optional",
+                            "types": {
+                              "$type": "Set",
+                              "values": [
+                                "com.fluidframework.leaf.string",
+                                "org.watershed.shared-tree.m4.Point"
+                              ]
+                            }
+                          }
+                        }
+                      ],
+                      [
+                        "org.watershed.shared-tree.m4.Root",
+                        {
+                          "objectNodeFields": {
+                            "$type": "Map",
+                            "entries": [
+                              [
+                                "title",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.string"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "point",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "org.watershed.shared-tree.m4.Point"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "note",
+                                {
+                                  "kind": "Optional",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.string"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "items",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "org.watershed.shared-tree.m4.Items"
+                                    ]
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        }
+                      ]
+                    ]
+                  },
+                  "rootFieldSchema": {
+                    "kind": "Value",
+                    "types": {
+                      "$type": "Set",
+                      "values": [
+                        "org.watershed.shared-tree.m4.Root"
+                      ]
+                    }
+                  }
+                },
+                "old": {
+                  "nodeSchema": {
+                    "$type": "Map",
+                    "entries": [
+                      [
+                        "com.fluidframework.leaf.string",
+                        {
+                          "leafValue": 1
+                        }
+                      ],
+                      [
+                        "com.fluidframework.leaf.number",
+                        {
+                          "leafValue": 0
+                        }
+                      ],
+                      [
+                        "org.watershed.shared-tree.m4.Point",
+                        {
+                          "objectNodeFields": {
+                            "$type": "Map",
+                            "entries": [
+                              [
+                                "x",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.number"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "y",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.number"
+                                    ]
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        }
+                      ],
+                      [
+                        "org.watershed.shared-tree.m4.Items",
+                        {
+                          "mapFields": {
+                            "kind": "Optional",
+                            "types": {
+                              "$type": "Set",
+                              "values": [
+                                "com.fluidframework.leaf.string",
+                                "org.watershed.shared-tree.m4.Point"
+                              ]
+                            }
+                          }
+                        }
+                      ],
+                      [
+                        "org.watershed.shared-tree.m4.Root",
+                        {
+                          "objectNodeFields": {
+                            "$type": "Map",
+                            "entries": [
+                              [
+                                "title",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.string"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "point",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "org.watershed.shared-tree.m4.Point"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "note",
+                                {
+                                  "kind": "Optional",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.string"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "items",
+                                {
+                                  "kind": "Value",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "org.watershed.shared-tree.m4.Items"
+                                    ]
+                                  }
+                                }
+                              ],
+                              [
+                                "score",
+                                {
+                                  "kind": "Optional",
+                                  "types": {
+                                    "$type": "Set",
+                                    "values": [
+                                      "com.fluidframework.leaf.number"
+                                    ]
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        }
+                      ]
+                    ]
+                  },
+                  "rootFieldSchema": {
+                    "kind": "Value",
+                    "types": {
+                      "$type": "Set",
+                      "values": [
+                        "org.watershed.shared-tree.m4.Root"
+                      ]
+                    }
+                  }
+                }
+              },
+              "isInverse": true
+            }
+          },
+          {
+            "type": "data",
+            "innerChange": {
+              "fieldChanges": {
+                "$type": "Map",
+                "entries": [
+                  [
+                    "rootFieldKey",
+                    {
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": {
+                        "_root": {
+                          "keys": [
+                            0
+                          ],
+                          "values": [
+                            {
+                              "localId": 2,
+                              "revision": 1
+                            }
+                          ]
+                        },
+                        "_maxNodeSize": 32
+                      }
+                    }
+                  ]
+                ]
+              },
+              "nodeChanges": {
+                "_root": {
+                  "keys": [
+                    [
+                      1,
+                      2
+                    ]
+                  ],
+                  "values": [
+                    {
+                      "fieldChanges": {
+                        "$type": "Map",
+                        "entries": [
+                          [
+                            "title",
+                            {
+                              "fieldKind": "Value",
+                              "change": {
+                                "moves": [],
+                                "childChanges": [],
+                                "valueReplace": {
+                                  "isEmpty": false,
+                                  "dst": {
+                                    "localId": 0,
+                                    "revision": 1
+                                  },
+                                  "src": {
+                                    "localId": 1,
+                                    "revision": 1
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "_maxNodeSize": 32
+              },
+              "nodeToParent": {
+                "_root": {
+                  "keys": [
+                    [
+                      1,
+                      2
+                    ]
+                  ],
+                  "values": [
+                    {
+                      "field": "rootFieldKey"
+                    }
+                  ]
+                },
+                "_maxNodeSize": 32
+              },
+              "nodeAliases": {
+                "_root": {
+                  "keys": [],
+                  "values": [
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+                  ],
+                  "isShared": true
+                },
+                "_maxNodeSize": 32
+              },
+              "crossFieldKeys": {
+                "tree": {
+                  "_root": {
+                    "keys": [],
+                    "values": [
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null
+                    ],
+                    "isShared": true
+                  },
+                  "_maxNodeSize": 32
+                }
+              },
+              "revisions": [
+                {
+                  "revision": 12,
+                  "rollbackOf": 11
+                }
+              ],
+              "maxId": 2,
+              "destroys": {
+                "_root": {
+                  "keys": [
+                    [
+                      1,
+                      0
+                    ]
+                  ],
+                  "values": [
+                    1
+                  ]
+                },
+                "_maxNodeSize": 32
+              }
+            }
+          }
+        ]
+      },
+      "revision": 12
+    },
+    "historical": {
+      "operation": "decode",
+      "bytes": "{\"revision\":-1,\"originatorId\":\"a0693eac-892a-4396-86f7-ad20dc1cade2\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"title\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":1,\"s\":0}}}]}]]}],\"builds\":{\"builds\":[[[[0,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}}],\"data\":[[0,\"historical\"]]}}}}],\"version\":7}",
+      "decoded": {
+        "changes": [
+          {
+            "type": "data",
+            "innerChange": {
+              "fieldChanges": {
+                "$type": "Map",
+                "entries": [
+                  [
+                    "rootFieldKey",
+                    {
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": {
+                        "_root": {
+                          "keys": [
+                            0
+                          ],
+                          "values": [
+                            {
+                              "revision": 513,
+                              "localId": 3
+                            }
+                          ]
+                        },
+                        "_maxNodeSize": 32
+                      }
+                    }
+                  ]
+                ]
+              },
+              "nodeChanges": {
+                "_root": {
+                  "keys": [
+                    [
+                      513,
+                      3
+                    ]
+                  ],
+                  "values": [
+                    {
+                      "fieldChanges": {
+                        "$type": "Map",
+                        "entries": [
+                          [
+                            "title",
+                            {
+                              "fieldKind": "Value",
+                              "change": {
+                                "moves": [],
+                                "childChanges": [],
+                                "valueReplace": {
+                                  "isEmpty": false,
+                                  "dst": {
+                                    "localId": 1,
+                                    "revision": 513
+                                  },
+                                  "src": {
+                                    "localId": 0,
+                                    "revision": 513
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "_maxNodeSize": 32
+              },
+              "nodeToParent": {
+                "_root": {
+                  "keys": [
+                    [
+                      513,
+                      3
+                    ]
+                  ],
+                  "values": [
+                    {
+                      "field": "rootFieldKey"
+                    }
+                  ]
+                },
+                "_maxNodeSize": 32
+              },
+              "nodeAliases": {
+                "_root": {
+                  "keys": [],
+                  "values": [
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+                  ],
+                  "isShared": true
+                },
+                "_maxNodeSize": 32
+              },
+              "crossFieldKeys": {
+                "tree": {
+                  "_root": {
+                    "keys": [],
+                    "values": [
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null,
+                      null
+                    ],
+                    "isShared": true
+                  },
+                  "_maxNodeSize": 32
+                }
+              },
+              "builds": {
+                "_root": {
+                  "keys": [
+                    [
+                      513,
+                      0
+                    ]
+                  ],
+                  "values": [
+                    {
+                      "refCount": 2,
+                      "type": "com.fluidframework.leaf.string",
+                      "fields": {
+                        "$type": "Map",
+                        "entries": []
+                      },
+                      "value": "historical",
+                      "topLevelLength": 1
+                    }
+                  ]
+                },
+                "_maxNodeSize": 32
+              },
+              "revisions": [
+                {
+                  "revision": 513
+                }
+              ],
+              "maxId": 2
+            }
+          }
+        ]
+      },
+      "envelope": {
+        "branchId": "main",
+        "type": "commit",
+        "commit": {
+          "revision": 513,
+          "change": {
+            "changes": [
+              {
+                "type": "data",
+                "innerChange": {
+                  "fieldChanges": {
+                    "$type": "Map",
+                    "entries": [
+                      [
+                        "rootFieldKey",
+                        {
+                          "fieldKind": "ModularEditBuilder.Generic",
+                          "change": {
+                            "_root": {
+                              "keys": [
+                                0
+                              ],
+                              "values": [
+                                {
+                                  "revision": 513,
+                                  "localId": 3
+                                }
+                              ]
+                            },
+                            "_maxNodeSize": 32
+                          }
+                        }
+                      ]
+                    ]
+                  },
+                  "nodeChanges": {
+                    "_root": {
+                      "keys": [
+                        [
+                          513,
+                          3
+                        ]
+                      ],
+                      "values": [
+                        {
+                          "fieldChanges": {
+                            "$type": "Map",
+                            "entries": [
+                              [
+                                "title",
+                                {
+                                  "fieldKind": "Value",
+                                  "change": {
+                                    "moves": [],
+                                    "childChanges": [],
+                                    "valueReplace": {
+                                      "isEmpty": false,
+                                      "dst": {
+                                        "localId": 1,
+                                        "revision": 513
+                                      },
+                                      "src": {
+                                        "localId": 0,
+                                        "revision": 513
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    "_maxNodeSize": 32
+                  },
+                  "nodeToParent": {
+                    "_root": {
+                      "keys": [
+                        [
+                          513,
+                          3
+                        ]
+                      ],
+                      "values": [
+                        {
+                          "field": "rootFieldKey"
+                        }
+                      ]
+                    },
+                    "_maxNodeSize": 32
+                  },
+                  "nodeAliases": {
+                    "_root": {
+                      "keys": [],
+                      "values": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                      ],
+                      "isShared": true
+                    },
+                    "_maxNodeSize": 32
+                  },
+                  "crossFieldKeys": {
+                    "tree": {
+                      "_root": {
+                        "keys": [],
+                        "values": [
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null,
+                          null
+                        ],
+                        "isShared": true
+                      },
+                      "_maxNodeSize": 32
+                    }
+                  },
+                  "builds": {
+                    "_root": {
+                      "keys": [
+                        [
+                          513,
+                          0
+                        ]
+                      ],
+                      "values": [
+                        {
+                          "refCount": 2,
+                          "type": "com.fluidframework.leaf.string",
+                          "fields": {
+                            "$type": "Map",
+                            "entries": []
+                          },
+                          "value": "historical",
+                          "topLevelLength": 1
+                        }
+                      ]
+                    },
+                    "_maxNodeSize": 32
+                  },
+                  "revisions": [
+                    {
+                      "revision": 513
+                    }
+                  ],
+                  "maxId": 2
+                }
+              }
+            ]
+          }
+        },
+        "sessionId": "a0693eac-892a-4396-86f7-ad20dc1cade2"
+      },
+      "authoringSchema": "v1",
+      "visibleSchema": "optional",
+      "context": {
+        "authoringSchema": "v1",
+        "visibleSchema": "optional"
+      }
     }
   }
 }

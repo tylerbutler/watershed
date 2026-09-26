@@ -642,10 +642,10 @@ The four `schema-evolution-*` cases pin the Milestone 4 contract:
 
 | Case | Captured contract |
 | --- | --- |
-| `schema-evolution-compatibility` | The ten application schemas, compatibility flags and discrepancies, explicit upgrade behavior, no-op equivalent upgrades, refusal classifications, and unchanged root content. |
-| `schema-evolution-algebra` | Ordered outer composition and inversion, schema/data and schema/schema conflict rebases, empty operands, revision identities, and inverse-schema encoding refusal. |
-| `schema-evolution-history` | The 19 required causal, concurrent, acknowledgement, rollback, reconnect, summary, and historical-schema scenario IDs with explicit sequence points and retained identities. |
-| `schema-evolution-codecs` | Old and new Schema V2 bytes, schema-bearing Message V7 evidence, empty outer commits, pending-summary evidence, and the authoring-schema requirement for historical data. |
+| `schema-evolution-compatibility` | The ten application schemas, an attempted upgrade for every profile, full root snapshots before and after each attempt, and raw-schema probes for metadata, duplicate keys, ordering, unused definitions, and required cycles. The similarly named refusal set records the pinned outcome of each attempt; it does not presume that every profile is refused. |
+| `schema-evolution-algebra` | Lossless schema and data operands, consecutive revision transitions, ordered outer composition and inversion, schema/data and schema/schema conflict rebases, empty operands, and inverse-schema encoding refusal. |
+| `schema-evolution-history` | The 19 required causal, concurrent, acknowledgement, rollback, reconnect, summary, and historical-schema scenarios. Each scenario includes executable actions, actual sequence metadata, compressor/session state, and peer-branch revisions. The focused observations include a schema acknowledgement with dependent work still pending, the losing author's `Extra` content, accepted-op replay, a reopened peer view, and summary-plus-tail continuation. |
+| `schema-evolution-codecs` | Old and new Schema V2 bytes, schema-bearing Message V7 evidence, empty outer commits, pending-summary evidence, and a direct decode of the original nonempty historical data change with its authoring and visible schema contexts. |
 
 The source capture is grounded in these pinned files under
 `packages/dds/tree/src/`:
