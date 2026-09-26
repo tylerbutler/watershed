@@ -21,8 +21,7 @@ Floodgate interoperability service.
 
 ## Global Constraints
 
-- M1 Task 16 and every M1 completion item must pass before native M2
-  implementation begins.
+- M1 Task 16 and every M1 completion item must pass before M2 release closure.
 - Production SharedTree semantics must run in pure Gleam on JavaScript and BEAM.
 - Upstream TypeScript packages remain development and test dependencies.
 - Use `@fluidframework/tree` version `3.1.0`.
@@ -51,9 +50,8 @@ Floodgate interoperability service.
 
 ## 1. Entry gate and dependency order
 
-Task 1 may run while M1 Task 16 is finishing because it only records upstream
-evidence. Do not start Tasks 2 through 9 until the M1 release work has supplied
-these recipes and they pass:
+The original entry gate required M1 Task 16 to supply these recipes before
+Tasks 2 through 9:
 
 ```sh
 rtk proxy just shared-tree-oracle-check
@@ -66,8 +64,9 @@ rtk proxy just lint
 
 At the time this plan was written, `shared-tree-test`,
 `shared-tree-interop`, and `.github/workflows/shared-tree.yml` were still part
-of open M1 Task 16. Their absence blocks Task 2 rather than moving that work
-into M2.
+of open M1 Task 16. M2 implementation later proceeded while the M1 release
+record remained open. M2 release closure waited for the merged local gates and
+hosted Task 16 evidence.
 
 Execute M2 in this order:
 
@@ -1450,7 +1449,11 @@ If `justfile` or the workflow required no change, omit that path from
 
 ## 3. Final M2 acceptance checklist
 
-- [ ] M1 Task 16 and the M1 completion checklist passed before native M2 work.
+- [x] M1 Task 16 and the M1 completion checklist passed before M2 release closure.
+
+M2 implementation proceeded while the M1 release record was open. The merged
+local and hosted gates supplied the missing M1 closure evidence before this M2
+release record closed.
 - [x] The pinned oracle generated all three required map corpus cases.
 - [x] Schema-v2 named, root, nested, union-valued, and recursive maps decode.
 - [x] Map values support M1 leaves, fixed objects, and supported map nodes.

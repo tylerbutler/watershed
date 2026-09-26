@@ -62,10 +62,10 @@ this plan; do those actions in Task 1 after adding its manifests.
 
 ### Dependency order
 
-Tasks 1-15 are complete: the pinned oracle, real-service preflight, corpus,
+Tasks 1-16 are complete: the pinned oracle, real-service preflight, corpus,
 native semantics and codecs, routed container messages, JavaScript/BEAM runtime
 integration, compatible summaries, public facades and reconnect, and mixed-client
-acceptance. Task 16 remains open.
+acceptance, permanent gates, and supported-profile documentation.
 The manifest records native semantic runners for `id-ranges`,
 `schema-validation`, `forest-delta`, `field-compose-invert-rebase`,
 `modular-nested-algebra`, `container-foundations`, and `summary-foundations` on
@@ -74,9 +74,9 @@ both targets. `history-reconciliation`, `tree-codecs`, `tree-kernel`,
 The other generated cases are not evidence of implemented native semantics.
 
 The foundation lanes, Task 11/12 runtime join, Task 13 compatible summaries,
-Task 14 public facades and reconnect, and Task 15 mixed-client acceptance are
-complete. Task 16 remains open. The diagram retains the original dependency
-split:
+Task 14 public facades and reconnect, Task 15 mixed-client acceptance, and
+Task 16 permanent gates are complete. The diagram retains the original
+dependency split:
 
 ```text
 Completed Tasks 1-6 -> contract and ownership check
@@ -1925,7 +1925,7 @@ repair, and a second reconnect. Each checkpoint includes visible tagged
 fields, pending counts, connection identity, and captured notifications.
 Sequenced service history supplies batch IDs and revisions. Task 15's wider
 mixed-client and cross-writer matrix is complete. Task 16's permanent gates
-remain open.
+passed on merged `main`.
 
 Task 14 closure: `npm --prefix tools/shared-tree-oracle run client:interop
 -- --local-floodgate` returned twelve passing results in run
@@ -2055,16 +2055,16 @@ and raw gate artifacts. The later failure-status diagnostic fix is error-path
 only: fault-injection tests prove that filesystem failures cannot replace the
 primary error, and the final oracle suite passed 164 tests. The final read-only
 review found no Critical or Important issues. Task 16 and the M1 completion
-checklist remain open.
+checklist are closed by the merged local and hosted evidence below.
 
 ### Task 16: wire permanent gates and document the supported profile
 
-**Status:** Recipes, CI workflow, supported-profile documentation, and local
-acceptance are implemented and verified. Broad regression closure is blocked
-by Hex API rate limits in existing workspace packages. The workflow also
-includes the approved native-creation gate. Hosted CI has not yet run; this
-change does not configure branch protection. The user approved merging the
-implementation with these remaining checks recorded.
+**Status:** Complete. Recipes, supported-profile documentation, local release
+gates, the automatic native workflow, and the manually dispatched
+interoperability and native-creation workflow passed on merged `main`.
+The final reconnect repair is commit
+`b8828a23e2dcd4dc087dc03cd2b792be1d3e68bf`. This change does not configure
+branch protection.
 
 **Files:** Modify `justfile`, `README.md`, the oracle README, and module docs.
 Create `.github/workflows/shared-tree.yml` and
@@ -2131,7 +2131,7 @@ exists. Explain that old Watershed development documents must be recreated.
 Document full-summary writing and the current memory/performance limits without
 claiming arbitrary-document or feature parity.
 
-- [ ] **3. Run regression coverage for shared-runtime changes.**
+- [x] **3. Run regression coverage for shared-runtime changes.**
 
 ```sh
 rtk proxy just shared-tree-oracle-check
@@ -2167,13 +2167,20 @@ Local Task 16 evidence:
 | Native creation | Run `146edddb-b77c-47d1-84b4-05067480f9e5`: all six creator/reader cells; zero skips/divergences. |
 | Workflow and lint | `actionlint` and `just lint` passed. The latter ran with the owned, ignored upstream checkout outside the formatter's recursive scan, then restored it. |
 | Production boundary | No Fluid SDK or oracle import under production source, Lustre bindings, or examples. Both native suites retain the explicit P2P creation/import refusal case. |
-| Broad regression blocker | `just test` could not finish: Hex API rate limiting blocked dependency resolution for `markdown_notes_lustre`, `retro_board_lustre`, `showcase_lustre`, `website_samples`, and `work_queue_lustre`. Restoring cached dependency sources with identical lockfiles allowed the other packages, including the root Erlang suite, to pass. No test assertion failed. The remaining `just test` phases and `just build` remain unverified; do not infer success from the focused gates. |
+| Merged M1+M2 service | Run `3662ee60-a6b1-4e55-9961-23a433d1bdfe`: 147 deterministic cases, 12 reconnect cases, nine object reload cells, nine map reload cells, and 200/200 seeded schedules; 485 JavaScript and 494 Erlang corpus tests; zero skips/divergences. |
+| Merged native creation | Run `a2b4d5f4-d2ed-432c-b53e-b5319b0c8041`: all six creator/reader cells; zero skips/divergences. |
+| Broad regression | `just test` and `just build` passed on merged `main`. The user explicitly waived a final `just lint` rerun after it exceeded the requested two-minute limit; the earlier Task 16 lint result above remains the lint evidence. |
+| Hosted native and browser | Commit `b8828a23e2dcd4dc087dc03cd2b792be1d3e68bf`: [SharedTree run 36213311121](https://github.com/tylerbutler/watershed/actions/runs/36213311121) passed `SharedTree native`, and [browser run 36213311132](https://github.com/tylerbutler/watershed/actions/runs/36213311132) passed the required browser integration job. |
+| Hosted interoperability | Manual [run 36213313937](https://github.com/tylerbutler/watershed/actions/runs/36213313937), interop report `786742f6-7154-47d3-88bc-5313ba7db7ba`: 147 deterministic cases, 12 reconnect cases, nine object reload cells, nine map reload cells, 200/200 seeded schedules, 485 JavaScript and 496 Erlang corpus tests, and 24 expected refusal cases; zero skips/divergences. Creation report `0b114b3d-a68e-4b49-93eb-c310a2ec9f75` passed all six cells with zero skips/divergences. Evidence upload passed. |
+| Hosted reconnect repair | The manual workflow first exposed a hosted-timing failure when explicit BEAM reconnect could not restart `SuspendedPendingTree`. Commit `f010fa7c` makes `Reconnect` invoke `force_reconnect` and lets `DropChannel` restart suspended or reconnecting runtimes while retaining pending tree state. Final commit `b8828a23` also closes any live transport before the restarted generation can replace its handle. Focused runtime and gate regressions passed before the successful hosted run. |
 
-The reports and their referenced evidence are under
+The original M1 reports and their referenced evidence are under
 `tools/shared-tree-oracle/.output/interop/17867f63-4af9-47a3-b452-fefece53a227/`
 and `.output/creation/146edddb-b77c-47d1-84b4-05067480f9e5/`.
-Both live acceptance commands returned success. Broad regression completion and
-a hosted workflow result remain separate requirements before closing M1.
+The merged local reports are under
+`.output/interop/3662ee60-a6b1-4e55-9961-23a433d1bdfe/` and
+`.output/creation/a2b4d5f4-d2ed-432c-b53e-b5319b0c8041/`. The hosted reports
+are preserved by run 36213313937. All required closure gates passed.
 
 ---
 
@@ -2190,8 +2197,8 @@ a hosted workflow result remain separate requirements before closing M1.
 - [x] Summary-plus-tail replay uses the snapshot point, not publication time.
 - [x] Invalid local edits cause no state/allocation/event/output change.
 - [x] Unsupported/corrupt documents report errors without partial readiness.
-- [ ] Required jobs execute with no skipped target, service, or corpus.
-- [ ] Existing DDS behavior passes its regression suites after format replacement.
+- [x] Required jobs execute with no skipped target, service, or corpus.
+- [x] Existing DDS behavior passes its regression suites after format replacement.
 - [x] Documentation names the restricted profile and deferred capabilities.
 - [x] No production dependency uses upstream TypeScript as the native tree engine.
 
