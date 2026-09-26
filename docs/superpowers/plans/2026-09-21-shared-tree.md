@@ -2204,6 +2204,19 @@ are preserved by run 36213313937. All required closure gates passed.
 
 ## 6. Later plans
 
+The next numbered milestone is M3. Its
+[arrays and moves design](../specs/2026-09-26-shared-tree-arrays-design.md) and
+[detailed implementation plan](2026-09-26-shared-tree-arrays.md) are ready for
+review. Native implementation remains gated on design and source-contract
+review; M3 is not complete.
+
+M4 has a separate
+[schema evolution design](../specs/2026-09-26-shared-tree-schema-evolution-design.md)
+and [detailed implementation plan](2026-09-26-shared-tree-schema-evolution.md).
+Its approved scope covers objects and dynamic maps, with M3 coordination rather
+than an array prerequisite. Review the written design and source contract before
+native implementation; M4 is not complete.
+
 Use the specification's M2-M8 roadmap. Write each feature's own design and
 implementation plan when scheduled, using the working M1 oracle and real-service
 gate. Each later milestone requires M1 and a separate approved design and plan;
