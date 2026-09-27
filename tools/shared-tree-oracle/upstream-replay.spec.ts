@@ -233,7 +233,10 @@ if (process.env.WATERSHED_ORACLE_CORPUS === "replay") {
 				const replay = replays.get(oracleCase.id);
 				assert(replay !== undefined, `${oracleCase.id}: missing replay entrypoint`);
 				const expected = new Map(
-					oracleCase.raw.scenarios.map((scenario) => [scenario.id, scenario.output]),
+					oracleCase.raw.scenarios.map((scenario) => [
+						scenario.id,
+						"normalizedOutput" in scenario ? scenario.normalizedOutput : scenario.output,
+					]),
 				);
 				for (const scenario of oracleCase.input.scenarios) {
 					assert(typeof scenario.id === "string", `${oracleCase.id}: scenario ID`);

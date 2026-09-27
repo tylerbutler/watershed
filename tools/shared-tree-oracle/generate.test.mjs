@@ -653,6 +653,30 @@ test("M3 requires sequence replay evidence", () => {
   assert.equal(new Map(requiredCases).get("sequence-rebase"), "field");
 });
 
+test("sequence empty insert preserves raw evidence and checked normalization", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/sequence-field-editor.json", import.meta.url),
+    "utf8",
+  ));
+  const raw = value.raw.scenarios.find(({ id }) => id === "empty-insert").output;
+  const normalized = value.expected.observations.find(({ id }) => id === "empty-insert").value;
+  assert(raw.change.some((mark) => mark.type === "Insert" && mark.count === 0));
+  assert.deepEqual(normalized, { change: [], delta: {} });
+});
+
+test("sequence normalization cannot hide other raw editor output", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/sequence-field-editor.json", import.meta.url),
+    "utf8",
+  ));
+  const raw = value.raw.scenarios.find(({ id }) => id === "insert");
+  const observation = value.expected.observations.find(({ id }) => id === "insert");
+  raw.normalizedOutput = { change: [], delta: {} };
+  observation.value = raw.normalizedOutput;
+  observation.result = raw.normalizedOutput;
+  assert.throws(() => validateArrayCase(value), /empty insert normalization/i);
+});
+
 function arrayCaseFixture() {
   const scenarios = [
     {
@@ -1338,7 +1362,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
       "history-reconciliation", "tree-codecs", "tree-kernel",
       "bootstrap-map-handles", "batched-commits",
       "map-schema-content", "map-field-algebra", "map-history-codecs",
-      "array-schema-content", "array-forest-delta",
+      "array-schema-content", "array-forest-delta", "sequence-field-editor",
     ]);
   }
 });

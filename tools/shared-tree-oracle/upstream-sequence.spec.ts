@@ -96,6 +96,7 @@ type Scenario = {
 	readonly id: string;
 	readonly input: Record<string, unknown>;
 	readonly output: unknown;
+	readonly rawOutput?: unknown;
 };
 
 type PlainAtomId = {
@@ -476,7 +477,10 @@ function oracleCase(id: keyof typeof scenarioIds, domain: string, scenarios: Sce
 					id: scenario.id,
 					...copy(scenario.input),
 				},
-				output: copy(scenario.output),
+				output: copy(scenario.rawOutput ?? scenario.output),
+				...(scenario.rawOutput === undefined
+					? {}
+					: { normalizedOutput: copy(scenario.output) }),
 			})),
 		},
 	};
@@ -563,7 +567,7 @@ function verifyAlgorithm(input: Record<string, unknown>): void {
 		"The replay must not claim that an unused allocator affects source output.");
 }
 
-export function replaySequenceEditorInput(input: Record<string, unknown>): unknown {
+export function replaySequenceEditorInputRaw(input: Record<string, unknown>): unknown {
 	verifyAlgorithm(input);
 	const context = replayIdContext(input);
 	object(input.operands, "The sequence editor input must contain operands.");
@@ -646,6 +650,15 @@ export function replaySequenceEditorInput(input: Record<string, unknown>): unkno
 	};
 }
 
+export function replaySequenceEditorInput(input: Record<string, unknown>): unknown {
+	const raw = replaySequenceEditorInputRaw(input);
+	object(input.operands, "The sequence editor input must contain operands.");
+	if (input.operation === "insert" && input.operands.count === 0) {
+		return { change: [], delta: {} };
+	}
+	return raw;
+}
+
 function editorCase(revs: RevisionTag[], compressor: IIdCompressor) {
 	const childA = TestNodeId.create({ localId: brand(20) }, TestChange.mint([], 1));
 	const childB = TestNodeId.create({ localId: brand(21) }, TestChange.mint([], 2));
@@ -711,8 +724,19 @@ function editorCase(revs: RevisionTag[], compressor: IIdCompressor) {
 			],
 		}, [], compressor)],
 	];
-	return oracleCase("sequence-field-editor", "field", inputs.map(([id, input]) =>
-		replayedScenario(id, input, replaySequenceEditorInput)));
+	return oracleCase("sequence-field-editor", "field", inputs.map(([id, input]) => {
+		const serializedInput = copy(input);
+		const rawOutput = replaySequenceEditorInputRaw(copy(serializedInput));
+		const output = replaySequenceEditorInput(copy(serializedInput));
+		return {
+			id,
+			input: serializedInput,
+			output,
+			...(JSON.stringify(rawOutput) === JSON.stringify(output)
+				? {}
+				: { rawOutput }),
+		};
+	}));
 }
 
 function decodeTaggedChange(value: unknown, message: string, context: ReplayIdContext) {

@@ -1506,14 +1506,25 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     check(object(raw[index].input), `${input.id} raw input`);
     assert.deepEqual(raw[index].input, input, `${label}: ${input.id} raw and normalized input`);
     check(Object.hasOwn(raw[index], "output"), `${input.id} raw output`);
+    if (Object.hasOwn(raw[index], "normalizedOutput")) {
+      check(label === "sequence-field-editor"
+        && input.operation === "insert"
+        && input.operands.count === 0,
+      `${input.id} empty insert normalization`);
+    }
     check(Object.hasOwn(observations[index], "result"), `${input.id} source result`);
-    assert.deepEqual(observations[index].result, raw[index].output,
+    const normalizedOutput = raw[index].normalizedOutput ?? raw[index].output;
+    assert.deepEqual(observations[index].result, normalizedOutput,
       `${label}: ${input.id} substantive source result`);
   }
 
   const input = new Map(inputs.map((item) => [item.id, item]));
   const observation = new Map(observations.map((item) => [item.id, item]));
-  const output = new Map(raw.map((item) => [item.id, item.output]));
+  const output = new Map(raw.map((item) => [
+    item.id,
+    item.normalizedOutput ?? item.output,
+  ]));
+  const rawOutput = new Map(raw.map((item) => [item.id, item.output]));
   if (requiredIds !== arrayScenarioIds[label]) return;
   const successfulSequenceOutput = () => {
     for (const id of requiredIds) {
@@ -1591,8 +1602,12 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
       ["MoveOut", "MoveIn", "MoveOut"], `${label}: interior move split`);
     assert.deepEqual(interior.map((mark) => mark.count),
       [1, 3, 2], `${label}: interior move counts`);
-    check(output.get("empty-insert").change.some((mark) => mark.type === "Insert"
-      && mark.count === 0), "empty insert mark");
+    check(rawOutput.get("empty-insert").change.some((mark) => mark.type === "Insert"
+      && mark.count === 0), "raw empty insert mark");
+    assert.deepEqual(output.get("empty-insert"), { change: [], delta: {} },
+      `${label}: checked empty insert normalization`);
+    check(raw.find(({ id }) => id === "empty-insert").normalizedOutput !== undefined,
+      "explicit empty insert normalization");
     assert.deepEqual(output.get("empty-remove").change, [], `${label}: empty remove`);
     assert.deepEqual(output.get("empty-move").change, [], `${label}: empty move`);
     const paired = output.get("paired-endpoints").change;
@@ -2998,7 +3013,7 @@ export async function writeCorpus(output, cases, smoke) {
         "history-reconciliation", "tree-codecs", "tree-kernel",
         "bootstrap-map-handles", "batched-commits",
         "map-schema-content", "map-field-algebra", "map-history-codecs",
-        "array-schema-content", "array-forest-delta",
+        "array-schema-content", "array-forest-delta", "sequence-field-editor",
       ],
       erlang: [
         "id-ranges", "schema-validation", "forest-delta",
@@ -3007,7 +3022,7 @@ export async function writeCorpus(output, cases, smoke) {
         "history-reconciliation", "tree-codecs", "tree-kernel",
         "bootstrap-map-handles", "batched-commits",
         "map-schema-content", "map-field-algebra", "map-history-codecs",
-        "array-schema-content", "array-forest-delta",
+        "array-schema-content", "array-forest-delta", "sequence-field-editor",
       ],
     },
     cases: requiredCases.map(([id, domain]) => ({ id, domain, file: `cases/${id}.json` })),

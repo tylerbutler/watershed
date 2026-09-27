@@ -678,70 +678,12 @@
         "executed": true,
         "accepted": true,
         "value": {
-          "change": [
-            {
-              "count": 1
-            },
-            {
-              "type": "Insert",
-              "id": 3,
-              "count": 0,
-              "cellId": {
-                "revision": -3,
-                "localId": 3
-              },
-              "revision": -3
-            }
-          ],
-          "delta": {
-            "local": {
-              "marks": [
-                {
-                  "count": 1
-                },
-                {
-                  "count": 0,
-                  "attach": {
-                    "minor": 3,
-                    "major": -3
-                  }
-                }
-              ]
-            }
-          }
+          "change": [],
+          "delta": {}
         },
         "result": {
-          "change": [
-            {
-              "count": 1
-            },
-            {
-              "type": "Insert",
-              "id": 3,
-              "count": 0,
-              "cellId": {
-                "revision": -3,
-                "localId": 3
-              },
-              "revision": -3
-            }
-          ],
-          "delta": {
-            "local": {
-              "marks": [
-                {
-                  "count": 1
-                },
-                {
-                  "count": 0,
-                  "attach": {
-                    "minor": 3,
-                    "major": -3
-                  }
-                }
-              ]
-            }
-          }
+          "change": [],
+          "delta": {}
         }
       },
       {
@@ -1601,6 +1543,10 @@
               ]
             }
           }
+        },
+        "normalizedOutput": {
+          "change": [],
+          "delta": {}
         }
       },
       {
