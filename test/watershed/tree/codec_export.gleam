@@ -2,6 +2,7 @@
 
 import envoy
 import gleam/bit_array
+import gleam/float
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
@@ -20,7 +21,9 @@ import watershed/tree/codec/field_batch
 import watershed/tree/codec/summary
 import watershed/tree/forest
 import watershed/tree/summary as tree_summary
-import watershed/tree/types.{AtomId, ClearField, MapSet, SetField, StringValue}
+import watershed/tree/types.{
+  ArrayMove, AtomId, ClearField, MapSet, SetField, StringValue,
+}
 import watershed/wire/fluid_summary
 
 const fixture_path = "test/fixtures/shared_tree/cases/tree-codecs.json"
@@ -48,6 +51,7 @@ pub fn main() {
     Ok(value) -> value
     Error(_) -> panic as "WATERSHED_TREE_CODEC_OUTPUT is required"
   }
+
   let raw = case simplifile.read(fixture_path) {
     Ok(value) -> value
     Error(error) ->
@@ -93,6 +97,152 @@ pub fn main() {
     Error(error) ->
       panic as { "could not write codec artifact: " <> string.inspect(error) }
   }
+}
+
+pub fn replay_array_continuation(
+  artifact_raw: String,
+  consumer_raw: String,
+) -> Result(Json, String) {
+  use artifact <- result.try(
+    json_ot.parse_json(artifact_raw) |> result.map_error(string.inspect),
+  )
+  use items <- result.try(field(artifact, "items"))
+  use items <- result.try(array(items))
+  use item <- result.try(find_scenario(items, "message-array-sequence"))
+  use initial_summary <- result.try(field(item, "initialSummary"))
+  use initial_session_raw <- result.try(field_text(item, "session"))
+  use initial_session <- result.try(
+    fluid_ids.session_id(initial_session_raw)
+    |> result.map_error(string.inspect),
+  )
+  use consumer <- result.try(
+    json_ot.parse_json(consumer_raw) |> result.map_error(string.inspect),
+  )
+  use observations <- result.try(field(consumer, "observations"))
+  use observations <- result.try(array(observations))
+  use observation <- result.try(find_scenario(
+    observations,
+    "message-array-sequence",
+  ))
+  use continuation <- result.try(field(observation, "continuation"))
+  use session_raw <- result.try(field_text(continuation, "session"))
+  use session <- result.try(
+    fluid_ids.session_id(session_raw) |> result.map_error(string.inspect),
+  )
+  use compressor_raw <- result.try(field_text(continuation, "compressor"))
+  use compressor <- result.try(
+    fluid_ids.deserialize(json.string(compressor_raw), session)
+    |> result.map_error(string.inspect),
+  )
+  use decoded_summary <- result.try(
+    summary.decode(
+      summary_entry(initial_summary),
+      None,
+      initial_session,
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use data <- result.try(summary_forest_data(decoded_summary))
+  use view_id <- result.try(
+    fluid_ids.stable_id("70000000-0000-4000-8000-000000000007")
+    |> result.map_error(string.inspect),
+  )
+  use state <- result.try(
+    forest.import_data(view_id, decoded_summary.schema, data)
+    |> result.map_error(string.inspect),
+  )
+  use original <- result.try(field(item, "encoded"))
+  use original <- result.try(array(original))
+  use continuation_messages <- result.try(field(continuation, "messages"))
+  use continuation_messages <- result.try(array(continuation_messages))
+  use continuation_messages <- result.try(
+    list.try_map(continuation_messages, fn(value) { field(value, "encoded") }),
+  )
+  use state <- result.try(
+    list.append(original, continuation_messages)
+    |> list.try_fold(state, fn(state, message) {
+      apply_wire_message(state, message, compressor)
+    }),
+  )
+  use visible <- result.try(
+    forest.visible_root(state) |> result.map_error(string.inspect),
+  )
+  Ok(
+    json.object([
+      #("visible", case visible {
+        Some(value) -> continuation_visible_json(value)
+        None -> json.null()
+      }),
+      #("decodedMessages", json.int(list.length(continuation_messages))),
+    ]),
+  )
+}
+
+fn continuation_visible_json(value: types.TreeValue) -> Json {
+  case value {
+    types.StringValue(value) -> json.string(value)
+    types.NumberValue(value) ->
+      case int.to_float(float.truncate(value)) == value {
+        True -> json.int(float.truncate(value))
+        False -> json.float(value)
+      }
+    types.BooleanValue(value) -> json.bool(value)
+    types.NullValue -> json.null()
+    types.ArrayValue(_, elements) ->
+      json.array(elements, continuation_visible_json)
+    types.MapValue(_, entries) ->
+      json.object([
+        #(
+          "map",
+          json.array(entries, fn(entry) {
+            json.array(
+              [json.string(entry.0), continuation_visible_json(entry.1)],
+              fn(value) { value },
+            )
+          }),
+        ),
+      ])
+    types.ObjectValue(identifier, fields) -> {
+      let value =
+        json.object(
+          list.map(fields, fn(field) {
+            #(field.0, continuation_visible_json(field.1))
+          }),
+        )
+      case string.ends_with(identifier, ".Point") {
+        True -> json.object([#("point", value)])
+        False -> value
+      }
+    }
+  }
+}
+
+fn apply_wire_message(
+  state: forest.Forest,
+  value: JsonValue,
+  compressor: fluid_ids.Compressor,
+) -> Result(forest.Forest, String) {
+  use message <- result.try(
+    codec.decode_message(
+      json.to_string(json_ot.to_json(value)),
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+    |> result.map_error(string.inspect),
+  )
+  let codec.TreeMessage(codec.WireCommit(revision, _, changes, _), _) = message
+  list.try_fold(changes, state, fn(state, item) {
+    case item {
+      codec.SchemaChange(_, _) -> Ok(state)
+      codec.DataChange(value) -> {
+        use delta <- result.try(
+          change.into_delta(change.TaggedChange(Some(revision), None, value))
+          |> result.map_error(string.inspect),
+        )
+        forest.apply_delta(state, delta) |> result.map_error(string.inspect)
+      }
+    }
+  })
 }
 
 type Input {
@@ -414,8 +564,176 @@ fn array_codec_items(input: ArrayInput) -> Result(List(Json), String) {
         #("expectedGraphs", json.array(graphs, fn(value) { value })),
       ],
     )
+  use native_message_item <- result.try(native_array_message_item(
+    initial,
+    message_session,
+    message_compressor,
+  ))
   use summary_items <- result.try(list.try_map(summaries, array_summary_item))
-  Ok([message_item, ..summary_items])
+  Ok([message_item, native_message_item, ..summary_items])
+}
+
+fn native_array_message_item(
+  initial: summary.TreeSummaryData,
+  session: fluid_ids.SessionId,
+  compressor: fluid_ids.Compressor,
+) -> Result(Json, String) {
+  use data <- result.try(summary_forest_data(initial))
+  use view_id <- result.try(
+    fluid_ids.stable_id("71000000-0000-4000-8000-000000000007")
+    |> result.map_error(string.inspect),
+  )
+  use state <- result.try(
+    forest.import_data(view_id, initial.schema, data) |> native,
+  )
+  use #(compressor, first_local) <- result.try(
+    fluid_ids.generate(compressor) |> result.map_error(string.inspect),
+  )
+  let #(compressor, first_range) = fluid_ids.take_creation_range(compressor)
+  use first_range <- result.try(case first_range {
+    Some(value) -> Ok(value)
+    None -> Error("native array move generated no allocation range")
+  })
+  use compressor <- result.try(
+    fluid_ids.finalize(compressor, first_range)
+    |> result.map_error(string.inspect),
+  )
+  use first_revision <- result.try(
+    fluid_ids.decompress(compressor, first_local)
+    |> result.map_error(string.inspect),
+  )
+  use #(compressor, second_local) <- result.try(
+    fluid_ids.generate(compressor) |> result.map_error(string.inspect),
+  )
+  let #(compressor, second_range) = fluid_ids.take_creation_range(compressor)
+  use second_range <- result.try(case second_range {
+    Some(value) -> Ok(value)
+    None -> Error("native nested edit generated no allocation range")
+  })
+  use compressor <- result.try(
+    fluid_ids.finalize(compressor, second_range)
+    |> result.map_error(string.inspect),
+  )
+  use second_revision <- result.try(
+    fluid_ids.decompress(compressor, second_local)
+    |> result.map_error(string.inspect),
+  )
+  use order <- result.try(
+    codec.identity_order(
+      [first_revision, second_revision],
+      compressor,
+      "message-array-native-authored",
+    )
+    |> native,
+  )
+  use moved <- result.try(
+    change.edit(
+      initial.schema,
+      state,
+      first_revision,
+      ArrayMove(["left"], 0, 2, ["right"], 1),
+      order,
+    )
+    |> native,
+  )
+  use move_delta <- result.try(
+    change.into_delta(change.TaggedChange(Some(first_revision), None, moved))
+    |> native,
+  )
+  use moved_state <- result.try(forest.apply_delta(state, move_delta) |> native)
+  use nested <- result.try(
+    change.edit(
+      initial.schema,
+      moved_state,
+      second_revision,
+      SetField(["narrow", "0", "label"], StringValue("native-nested")),
+      order,
+    )
+    |> native,
+  )
+  let messages = [
+    codec.TreeMessage(
+      codec.WireCommit(first_revision, session, [codec.DataChange(moved)], None),
+      [],
+    ),
+    codec.TreeMessage(
+      codec.WireCommit(
+        second_revision,
+        session,
+        [codec.DataChange(nested)],
+        None,
+      ),
+      [],
+    ),
+  ]
+  use encoded <- result.try(
+    list.try_map(messages, fn(message) {
+      codec.encode_message(
+        message,
+        codec.EncodeContext(codec.Fluid310, compressor, Some(initial.schema)),
+      )
+      |> native
+    }),
+  )
+  use decoded <- result.try(
+    list.try_map(encoded, fn(message) {
+      codec.decode_message(
+        json.to_string(message),
+        codec.DecodeContext(codec.Fluid310, compressor),
+      )
+      |> native
+    }),
+  )
+  use graphs <- result.try(list.try_map(decoded, message_graphs(_, compressor)))
+  use initial_encoded <- result.try(
+    summary.encode(
+      initial,
+      session,
+      codec.EncodeContext(codec.Fluid310, compressor, Some(initial.schema)),
+    )
+    |> native,
+  )
+  use compressor_raw <- result.try(serialize_compressor(compressor, False))
+  use consumer_session <- result.try(
+    fluid_ids.session_id(native_summary_consumer_session)
+    |> result.map_error(string.inspect),
+  )
+  let sequencing = [
+    json.object([
+      #("clientId", json.string("watershed-native-array")),
+      #("clientSequenceNumber", json.int(1)),
+      #("referenceSequenceNumber", json.int(1)),
+      #("sequenceNumber", json.int(100)),
+      #("minimumSequenceNumber", json.int(0)),
+    ]),
+    json.object([
+      #("clientId", json.string("watershed-native-array")),
+      #("clientSequenceNumber", json.int(2)),
+      #("referenceSequenceNumber", json.int(100)),
+      #("sequenceNumber", json.int(101)),
+      #("minimumSequenceNumber", json.int(0)),
+    ]),
+  ]
+  Ok(
+    item(
+      "message-array-native-authored",
+      "message",
+      json.array(encoded, fn(value) { value }),
+      [
+        #("schemaProfile", json.string("array")),
+        #("compressor", json.string(compressor_raw)),
+        #("compressorMode", json.string("summary")),
+        #(
+          "session",
+          json.string(fluid_ids.session_id_to_string(consumer_session)),
+        ),
+        #("initialSummary", summary_json(initial_encoded)),
+        #("allocationRanges", json.array([], fn(value) { value })),
+        #("sequencing", json.array(sequencing, fn(value) { value })),
+        #("expectedGraphs", json.array(graphs, fn(value) { value })),
+      ],
+    ),
+  )
 }
 
 fn message_graphs(

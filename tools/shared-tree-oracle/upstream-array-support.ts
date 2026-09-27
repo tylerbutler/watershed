@@ -22,6 +22,7 @@ import {
 	tagChange,
 	makeAnonChange,
 	type ChangeAtomId,
+	type ChangeEncodingContext,
 	type ChangesetLocalId,
 	type DeltaFieldMap,
 	type DeltaRoot,
@@ -46,6 +47,7 @@ import {
 	jsonableTreeFromFieldCursor,
 	makeModularChangeCodecFamily,
 	ModularChangeFamily,
+	ModularChangeFormatVersion,
 	newChangeAtomIdBTree,
 	SequenceField,
 	TreeCompressionStrategy,
@@ -553,6 +555,38 @@ export function encodeModularGraph(change: ModularChangeset): PlainModularChange
 			plainAtom({ revision, localId }),
 			count,
 		]),
+	};
+}
+
+export function encodeModularV5(
+	value: PlainModularChange,
+	idCompressor: IIdCompressor,
+): { readonly encoded: unknown; readonly graph: PlainModularChange } {
+	const context = {
+		idCompressor,
+		revisionTagCodec: new RevisionTagCodec(idCompressor),
+	};
+	const instrumentation: Instrumentation = {
+		conversionCalls: [],
+		handlerCalls: [],
+		managerCalls: [],
+		identities: new WeakMap(),
+		genericOrigins: new WeakMap(),
+		nextSequence: 0,
+	};
+	const decoded = decodeModularChange(value, instrumentation, 0, undefined, context);
+	const { family } = makeArrayModularFamily(context);
+	const encodingContext: ChangeEncodingContext = {
+		originatorId: idCompressor.localSessionId,
+		idCompressor,
+		revision: undefined,
+		isSummary: false,
+	};
+	const codec = family.codecs.resolve(ModularChangeFormatVersion.v5);
+	const encoded = codec.encode(decoded, encodingContext);
+	return {
+		encoded,
+		graph: encodeModularGraph(codec.decode(encoded, encodingContext)),
 	};
 }
 

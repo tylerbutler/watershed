@@ -10,6 +10,7 @@ import { join } from "node:path";
 import type { IIdCompressor, SessionSpaceCompressedId } from "@fluidframework/id-compressor";
 import {
 	deserializeIdCompressor,
+	serializeIdCompressor,
 	type SerializedIdCompressorWithNoSession,
 	type SerializedIdCompressorWithOngoingSession,
 } from "@fluidframework/id-compressor/internal";
@@ -269,7 +270,26 @@ function stableRevision(idCompressor: IIdCompressor, revision: unknown): string 
 	return idCompressor.decompress(revision as SessionSpaceCompressedId);
 }
 
-function summaryHistory(tree: unknown, idCompressor: IIdCompressor, id: string) {
+function historyChanges(commit: Record<string, unknown>, id: string, location: string) {
+	const change = asObject(commit.change, `${id}: ${location} change`);
+	assert(Array.isArray(change.changes), `${id}: ${location} changes`);
+	return change.changes.map((value, index) => {
+		const entry = asObject(value, `${id}: ${location} change ${index}`);
+		return {
+			type: entry.type,
+			data: entry.type === "data"
+				? encodeModularGraph(entry.innerChange as ModularChangeset)
+				: entry.innerChange,
+		};
+	});
+}
+
+function summaryHistory(
+	tree: unknown,
+	idCompressor: IIdCompressor,
+	id: string,
+	includeChanges = false,
+) {
 	const kernel: unknown = Reflect.get(tree as object, "kernel");
 	assert(kernel !== null && typeof kernel === "object", `${id}: missing kernel`);
 	const manager: unknown = Reflect.get(kernel, "editManager");
@@ -289,6 +309,7 @@ function summaryHistory(tree: unknown, idCompressor: IIdCompressor, id: string) 
 			session: commit.sessionId,
 			sequenceNumber: commit.sequenceNumber,
 			indexInBatch: commit.indexInBatch ?? null,
+			...(includeChanges ? { changes: historyChanges(commit, id, `trunk commit ${index}`) } : {}),
 		};
 	});
 	const peers = [...main.peerLocalBranches.entries()]
@@ -303,6 +324,24 @@ function summaryHistory(tree: unknown, idCompressor: IIdCompressor, id: string) 
 					const commit = asObject(entry, `${id}: peer commit ${index}.${commitIndex}`);
 					return stableRevision(idCompressor, commit.revision);
 				}),
+				...(includeChanges
+					? {
+							commits: branch.commits.map((entry, commitIndex) => {
+								const commit = asObject(
+									entry,
+									`${id}: peer commit ${index}.${commitIndex}`,
+								);
+								return {
+									revision: stableRevision(idCompressor, commit.revision),
+									changes: historyChanges(
+										commit,
+										id,
+										`peer commit ${index}.${commitIndex}`,
+									),
+								};
+							}),
+						}
+					: {}),
 			};
 		})
 		.sort((left, right) => left.session.localeCompare(right.session));
@@ -435,6 +474,12 @@ async function consume(item: ArtifactItem) {
 				const afterApply = visibleArray(view.root);
 				const continued = continueArray(view.root);
 				assert(submitted.length >= 2, `${item.id}: continuation messages`);
+				const continuationMessages = submitted.map((message, index) => {
+					const decoded = decodeMessage(message, { idCompressor });
+					const decodedGraph = decodedGraphs(decoded, `${item.id}: continuation ${index}`);
+					assert(decodedGraph.length > 0, `${item.id}: continuation graph ${index}`);
+					return { encoded: message, graphs: decodedGraph };
+				});
 				return {
 					id: item.id,
 					kind: item.kind,
@@ -443,7 +488,11 @@ async function consume(item: ArtifactItem) {
 					beforeApply,
 					afterApply,
 					continued,
-					continuationMessages: submitted.length,
+					continuation: {
+						messages: continuationMessages,
+						compressor: serializeIdCompressor(idCompressor, true),
+						session: idCompressor.localSessionId,
+					},
 				};
 			}
 			const decoded: unknown = decodeMessage(item.encoded, {
@@ -539,7 +588,7 @@ async function consume(item: ArtifactItem) {
 			if (item.schemaProfile === "array") {
 				const view = tree.viewWith(arrayConfiguration);
 				const visible = visibleArray(view.root);
-				const history = summaryHistory(tree, idCompressor, item.id);
+				const history = summaryHistory(tree, idCompressor, item.id, true);
 				const contentSnapshot: unknown = Reflect.get(tree, "contentSnapshot");
 				assert(typeof contentSnapshot === "function", `${item.id}: missing content snapshot`);
 				const snapshot: unknown = contentSnapshot.call(tree);

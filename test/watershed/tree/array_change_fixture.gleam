@@ -823,8 +823,21 @@ fn sequence_effect_members(
       ))
       Ok(list.append(members, override))
     }
-    sequence_field.AttachAndDetach(_, _) ->
-      Error("paired sequence effects are not in the modular fixture")
+    sequence_field.AttachAndDetach(attach, detach) -> {
+      use attach <- result.try(sequence_effect_members(
+        sequence_field.Attach(attach),
+        context,
+      ))
+      use detach <- result.try(sequence_effect_members(
+        sequence_field.Detach(detach),
+        context,
+      ))
+      Ok([
+        #("type", json.string("AttachAndDetach")),
+        #("attach", json.object(attach)),
+        #("detach", json.object(detach)),
+      ])
+    }
   }
 }
 

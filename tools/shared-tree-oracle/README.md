@@ -643,12 +643,16 @@ passes each fresh artifact to the pinned source consumer. The consumer decodes
 schema and FieldBatch output, applies native-authored messages, loads native
 DDS tree-index summaries, and makes another accepted upstream edit. Array
 coverage passes a four-message Message V7 sequence through the native codec,
-compares every decoded Modular V5 graph (including ownership ranges), and loads
-both retained-history and full summaries. The source consumer then performs a
-counted cross-array move and a nested object edit, checking that moved object
-identity survives. The coordinator requires all 20 scenario IDs, compares both
-targets with fixed semantic expectations, rejects empty or stale artifacts,
-and removes its owned temporary output.
+compares every decoded Modular V5 graph (including post-codec ownership
+ranges), and loads both retained-history and full summaries. A source-authored
+Modular V5 probe also covers final endpoints, ID overrides, rename, and
+attach-and-detach effects through the native Message V7 decoder. A separate
+native-authored message sequence performs a counted move and a nested edit.
+The source consumer applies both native sequences, returns the actual Message
+V7 bytes and compressor state for its own counted cross-array move and nested
+edit, and the native runner decodes and applies that continuation. The
+coordinator requires all 21 scenario IDs, compares both targets, rejects empty
+or stale artifacts, and removes its owned temporary output.
 
 The FieldBatch writer uses four fixed V2 shapes: a generic node, a field array,
 a polymorphic selector, and a constant-null node. Null is stored in the shape,

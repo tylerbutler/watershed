@@ -56,6 +56,7 @@ import { Tree, type SharedTreeChange } from "../shared-tree/index.js";
 import { configuredSharedTreeInternal } from "../treeFactory.js";
 import {
 	crossFieldCoordinationInput,
+	encodeModularV5,
 	encodeModularGraph,
 	multiPassComposeInput,
 	multiRevisionInversionInput,
@@ -1157,6 +1158,7 @@ export async function replayArrayCodecInput(input: Record<string, unknown>): Pro
 			`${input.operation}: decode context`);
 		const context = input.decodeContext as {
 			nativeInput: Record<string, unknown>;
+			decoder: { compressor: string; sessionId: string };
 		};
 		assert(context.nativeInput !== null && typeof context.nativeInput === "object",
 			`${input.operation}: native typed input`);
@@ -1173,6 +1175,14 @@ export async function replayArrayCodecInput(input: Record<string, unknown>): Pro
 		const decoded = input.encodedMessages.map((message) =>
 			kernel.messageCodec.decode(message, { idCompressor: authoring.compressors[0] }));
 		const normalized = decoded.map(normalizedDecodedMessage);
+		const advancedMessages = Array.isArray(input.advancedMessages)
+			? input.advancedMessages
+			: [];
+		const advanced = Array.isArray(input.advancedExpected)
+			? copy(input.advancedExpected)
+			: [];
+		assert.equal(advanced.length, advancedMessages.length,
+			`${input.operation}: advanced expected graphs`);
 		return input.operation === "sequence-v3"
 			? {
 					encoded: copy(input.encodedMessages),
@@ -1181,10 +1191,12 @@ export async function replayArrayCodecInput(input: Record<string, unknown>): Pro
 							.flatMap(({ data }) =>
 								(data as ReturnType<typeof modularStructure>).fields)),
 					decoded: normalized,
+					...(advancedMessages.length > 0 ? { advanced } : {}),
 				}
 			: {
 					encoded: copy(input.encodedMessages),
 					decoded: normalized,
+					...(advancedMessages.length > 0 ? { advanced } : {}),
 				};
 	}
 	const loaded = await loadSummaryInput(input);
@@ -3185,6 +3197,103 @@ async function makeCases() {
 			sessionId: "57b377e0-3799-4cec-8d5a-1b204655d87e",
 		},
 	};
+	const ownershipScenario = modularScenarios.find(({ id }) => id === "ownership-roundtrip");
+	assert(ownershipScenario !== undefined, "Ownership codec scenario must exist.");
+	const ownershipInput = ownershipScenario.input as {
+		operands: { changes: { revision: number; change: Parameters<typeof encodeModularV5>[0] }[] };
+		compressor: { sessionId: string; serialized: string };
+	};
+	const ownershipChange = ownershipInput.operands.changes[0];
+	assert(ownershipChange !== undefined, "Ownership codec scenario must have a change.");
+	const ownershipCompressor = deserializeIdCompressor(
+		publicEvidence.operationCompressor,
+		assertIsSessionId("57b377e0-3799-4cec-8d5a-1b204655d87e"),
+	);
+	const advancedRevision = ownershipCompressor.generateCompressedId();
+	const ownershipRange = toIdCompressorWithCore(ownershipCompressor).takeNextCreationRange();
+	toIdCompressorWithCore(ownershipCompressor).finalizeCreationRange(ownershipRange);
+	const advancedCompressor = serializeIdCompressor(ownershipCompressor, true);
+	const remapRevision = (value: unknown): unknown => {
+		if (Array.isArray(value)) return value.map(remapRevision);
+		if (value !== null && typeof value === "object") {
+			return Object.fromEntries(Object.entries(value).map(([key, child]) => [
+				key,
+				key === "revision" && child === ownershipChange.revision
+					? Number(advancedRevision)
+					: remapRevision(child),
+			]));
+		}
+		return value;
+	};
+	const advancedChange = remapRevision(
+		ownershipChange.change,
+	) as Parameters<typeof encodeModularV5>[0];
+	const advancedCodec = encodeModularV5(advancedChange, ownershipCompressor);
+	const attachAndDetachChange = {
+		maxLocalId: 60,
+		revisions: [{ revision: Number(advancedRevision), rollbackOf: null }],
+		fields: [[
+			"left",
+			{
+				kind: "Sequence",
+				change: [{
+					count: 1,
+					cellId: { revision: Number(advancedRevision), localId: 55 },
+					type: "AttachAndDetach",
+					attach: {
+						type: "MoveIn",
+						id: 56,
+						revision: Number(advancedRevision),
+					},
+					detach: {
+						type: "Remove",
+						id: 57,
+						revision: Number(advancedRevision),
+						idOverride: {
+							revision: Number(advancedRevision),
+							localId: 58,
+						},
+					},
+				}],
+			},
+		]],
+		nodes: [],
+		parents: [],
+		aliases: [],
+		crossFieldKeys: [],
+		builds: [],
+		refreshers: [],
+		destroys: [],
+	} as Parameters<typeof encodeModularV5>[0];
+	const attachAndDetachCodec = encodeModularV5(
+		attachAndDetachChange,
+		ownershipCompressor,
+	);
+	const advancedWireRevision = Number(
+		ownershipCompressor.normalizeToOpSpace(advancedRevision),
+	);
+	const normalizeAdvancedRevision = (value: unknown): unknown => {
+		if (Array.isArray(value)) return value.map(normalizeAdvancedRevision);
+		if (value !== null && typeof value === "object") {
+			return Object.fromEntries(Object.entries(value).map(([key, child]) => [
+				key,
+				key === "revision" && child === Number(advancedRevision)
+					? advancedWireRevision
+					: normalizeAdvancedRevision(child),
+			]));
+		}
+		return value;
+	};
+	const advancedMessage = {
+		revision: advancedWireRevision,
+		originatorId: ownershipCompressor.localSessionId,
+		changeset: [{ data: advancedCodec.encoded }],
+		version: 7,
+	};
+	const attachAndDetachMessage = {
+		...advancedMessage,
+		changeset: [{ data: attachAndDetachCodec.encoded }],
+	};
 	const summaryInput = (
 		operation: string,
 		encodedSummary: unknown,
@@ -3212,7 +3321,18 @@ async function makeCases() {
 		})),
 	});
 	const codecInputs: Record<string, Record<string, unknown>> = {
-		"sequence-v3": messageInput("sequence-v3", publicEvidence.operationMessages),
+		"sequence-v3": {
+			...messageInput("sequence-v3", publicEvidence.operationMessages),
+			advancedMessages: [advancedMessage, attachAndDetachMessage],
+			advancedDecodeContext: {
+				compressor: advancedCompressor,
+				sessionId: ownershipCompressor.localSessionId,
+			},
+			advancedExpected: [
+				[normalizeAdvancedRevision(advancedCodec.graph)],
+				[normalizeAdvancedRevision(attachAndDetachCodec.graph)],
+			],
+		},
 		"message-v7": messageInput("message-v7", publicEvidence.operationMessages),
 		builds: messageInput("builds", publicEvidence.operationMessages),
 		"empty-arrays": summaryInput(

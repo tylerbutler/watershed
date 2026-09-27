@@ -1,3 +1,4 @@
+import gleam/bit_array
 import gleam/float
 import gleam/int
 import gleam/json.{type Json}
@@ -89,6 +90,37 @@ fn run_message_scenario(id: String, value: JsonValue) -> Result(Json, String) {
     #("decoded", json.array(decoded_json, fn(value) { value })),
     #("encoded", json.array(encoded, json_ot.to_json)),
   ]
+  use result_members <- result.try(
+    case fixture_codec.get(value, "advancedMessages") {
+      Error(_) -> Ok(result_members)
+      Ok(advanced_raw) -> {
+        use advanced <- result.try(fixture_codec.items(advanced_raw))
+        use advanced_context_raw <- result.try(fixture_codec.get(
+          value,
+          "advancedDecodeContext",
+        ))
+        use advanced_context <- result.try(decode_compressor(
+          advanced_context_raw,
+        ))
+        use advanced <- result.try(
+          list.try_map(advanced, fn(message) {
+            use decoded <- result.try(
+              codec.decode_message(
+                json.to_string(json_ot.to_json(message)),
+                codec.DecodeContext(codec.Fluid310, advanced_context.1),
+              )
+              |> result.map_error(string.inspect),
+            )
+            message_graphs(decoded, advanced_context.1)
+          }),
+        )
+        Ok([
+          #("advanced", json.array(advanced, fn(value) { value })),
+          ..result_members
+        ])
+      }
+    },
+  )
   use result_members <- result.try(case id {
     "sequence-v3" -> {
       use fields <- result.try(
@@ -134,6 +166,26 @@ fn run_message_scenario(id: String, value: JsonValue) -> Result(Json, String) {
   )
 }
 
+fn message_graphs(
+  message: codec.TreeMessage,
+  compressor: fluid_ids.Compressor,
+) -> Result(Json, String) {
+  let codec.TreeMessage(codec.WireCommit(changes: changes, ..), _) = message
+  use graphs <- result.try(
+    changes
+    |> list.filter_map(fn(item) {
+      case item {
+        codec.DataChange(value) -> Ok(value)
+        codec.SchemaChange(_, _) -> Error(Nil)
+      }
+    })
+    |> list.try_map(fn(value) {
+      array_change_fixture.graph_json_with_compressor(value, compressor)
+    }),
+  )
+  Ok(json.array(graphs, fn(value) { value }))
+}
+
 fn run_summary_scenario(id: String, value: JsonValue) -> Result(Json, String) {
   use context <- result.try(decode_context_value(value))
   use encoded <- result.try(fixture_codec.get(value, "encodedSummary"))
@@ -146,8 +198,7 @@ fn run_summary_scenario(id: String, value: JsonValue) -> Result(Json, String) {
     )
     |> result.map_error(string.inspect),
   )
-  use visible <- result.try(summary_visible(decoded))
-  use _ <- result.try(
+  use reencoded <- result.try(
     summary.encode(
       decoded,
       context.0,
@@ -155,6 +206,17 @@ fn run_summary_scenario(id: String, value: JsonValue) -> Result(Json, String) {
     )
     |> result.map_error(string.inspect),
   )
+  use round_tripped <- result.try(
+    summary.decode(
+      reencoded,
+      None,
+      context.0,
+      codec.DecodeContext(codec.Fluid310, context.1),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use _ <- result.try(summary_entry_json(reencoded))
+  use visible <- result.try(summary_visible(round_tripped))
   use schema_raw <- result.try(
     summary_blob(encoded, ["indexes", "Schema", "SchemaString"]),
   )
@@ -162,11 +224,11 @@ fn run_summary_scenario(id: String, value: JsonValue) -> Result(Json, String) {
     summary_blob(encoded, ["indexes", "Forest", "contents"]),
   )
   use detached <- result.try(detached_json(
-    decoded.detached,
-    decoded.forest,
+    round_tripped.detached,
+    round_tripped.forest,
     context.1,
   ))
-  use history <- result.try(history_json(decoded.history, context.1))
+  use history <- result.try(history_json(round_tripped.history, context.1))
   use serialized <- result.try(serialize_compressor(context.1))
   Ok(
     json.object([
@@ -193,6 +255,55 @@ fn run_summary_scenario(id: String, value: JsonValue) -> Result(Json, String) {
       ),
     ]),
   )
+}
+
+fn summary_entry_json(
+  value: fluid_summary.SummaryEntry,
+) -> Result(JsonValue, String) {
+  case value {
+    fluid_summary.SummaryTree(entries) -> {
+      use entries <- result.try(
+        list.try_map(entries, fn(entry) {
+          use value <- result.try(summary_entry_json(entry.1))
+          Ok(#(entry.0, value))
+        }),
+      )
+      Ok(
+        VObject([
+          #("type", VNumber(NInt(1))),
+          #("tree", VObject(entries)),
+        ]),
+      )
+    }
+    fluid_summary.SummaryBlob(content) -> {
+      use content <- result.try(
+        bit_array.to_string(content)
+        |> result.map_error(fn(_) { "summary blob is not UTF-8" }),
+      )
+      Ok(
+        VObject([
+          #("type", VNumber(NInt(2))),
+          #("content", VString(content)),
+        ]),
+      )
+    }
+    fluid_summary.SummaryHandle(handle, handle_type) ->
+      Ok(
+        VObject([
+          #("type", VNumber(NInt(3))),
+          #("handle", VString(handle)),
+          #(
+            "handleType",
+            VNumber(
+              NInt(case handle_type {
+                fluid_summary.TreeHandle -> 1
+                fluid_summary.BlobHandle -> 2
+              }),
+            ),
+          ),
+        ]),
+      )
+  }
 }
 
 fn decode_context(

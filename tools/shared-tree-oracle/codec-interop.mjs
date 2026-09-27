@@ -33,6 +33,7 @@ const requiredItemIds = [
   "message-map-set",
   "summary-map-restored",
   "message-array-sequence",
+  "message-array-native-authored",
   "summary-array-retained-history",
   "summary-array-full-summary",
 ];
@@ -417,20 +418,27 @@ function validateConsumerOutput(output, artifact, expectedIds) {
       requireValue(observation.continued === true,
         "summary-map-restored continuation");
     }
-    if (observation.id === "message-array-sequence") {
-      requireValue(observation.decoded === true, "message-array-sequence decoded");
+    if (observation.id === "message-array-sequence"
+      || observation.id === "message-array-native-authored") {
+      requireValue(observation.decoded === true, `${observation.id} decoded`);
       requireValue(Array.isArray(observation.graphs)
         && observation.graphs.length === item.encoded.length,
-      "message-array-sequence graphs");
+      `${observation.id} graphs`);
       requireValue(object(observation.beforeApply)
         && object(observation.afterApply),
-      "message-array-sequence visible states");
+      `${observation.id} visible states`);
       requireValue(object(observation.continued)
         && observation.continued.rangeMoveIdentity === true
         && observation.continued.nestedEdit === "upstream-nested",
-      "message-array-sequence continuation");
-      requireValue(observation.continuationMessages >= 2,
-        "message-array-sequence authored messages");
+      `${observation.id} continuation`);
+      requireValue(object(observation.continuation)
+        && Array.isArray(observation.continuation.messages)
+        && observation.continuation.messages.length >= 2
+        && observation.continuation.messages.every(({ encoded, graphs }) =>
+          object(encoded) && Array.isArray(graphs) && graphs.length > 0)
+        && typeof observation.continuation.compressor === "string"
+        && typeof observation.continuation.session === "string",
+      `${observation.id} continuation wire evidence`);
     }
     if (observation.id === "summary-array-retained-history"
       || observation.id === "summary-array-full-summary") {
@@ -441,6 +449,12 @@ function validateConsumerOutput(output, artifact, expectedIds) {
       `${observation.id} continuation`);
       requireValue(observation.history.trunk.length > 0,
         `${observation.id} retained history`);
+      requireValue(observation.history.trunk.every(({ changes }) =>
+        Array.isArray(changes) && changes.length > 0),
+      `${observation.id} retained trunk changes`);
+      requireValue(observation.history.peers.every(({ commits }) =>
+        Array.isArray(commits)),
+      `${observation.id} retained peer changes`);
     }
   }
   requireValue(expectedIds.length === ids.size
@@ -457,6 +471,23 @@ async function produceTarget(target, output) {
     stdio: "inherit",
     timeout: 120_000,
   });
+}
+
+async function replayContinuation(target, artifact, consumer, output) {
+  execFileSync("gleam", [
+    "run", "--target", target, "-m", "watershed/tree/codec_continuation",
+  ], {
+    cwd: repository,
+    env: {
+      ...process.env,
+      WATERSHED_TREE_CODEC_INPUT: artifact,
+      WATERSHED_TREE_CODEC_CONSUMER: consumer,
+      WATERSHED_TREE_CODEC_CONTINUATION_OUTPUT: output,
+    },
+    stdio: "inherit",
+    timeout: 120_000,
+  });
+  return readJson(output, `${target} native continuation`);
 }
 
 async function readJson(path, label) {
@@ -493,6 +524,24 @@ export async function runCodecInterop({
         artifact,
         expectedIds,
       );
+      const sourceContinuation = output.observations.find(
+        ({ id }) => id === "message-array-sequence",
+      )?.continued;
+      let nativeContinuation = null;
+      if (sourceContinuation !== undefined) {
+        const continuationPath = join(temporary, `${target}-continuation.json`);
+        nativeContinuation = await replayContinuation(
+          target,
+          artifactPath,
+          observationPath,
+          continuationPath,
+        );
+        requireValue(object(nativeContinuation)
+          && nativeContinuation.decodedMessages >= 2
+          && object(sourceContinuation)
+          && isDeepStrictEqual(nativeContinuation.visible, sourceContinuation.visible),
+        `${target} native continuation replay`);
+      }
       if (expected !== null) {
         const expectedIds = new Set(expected.map(({ id }) => id));
         requireValue(
@@ -503,11 +552,12 @@ export async function runCodecInterop({
           `${target} consumer observations differ from expected semantics`,
         );
       }
-      results.push(output);
+      results.push({ ...output, nativeContinuation });
     }
     const [erlang, javascript] = results;
     requireValue(
-      isDeepStrictEqual(erlang.observations, javascript.observations),
+      isDeepStrictEqual(erlang.observations, javascript.observations)
+        && isDeepStrictEqual(erlang.nativeContinuation, javascript.nativeContinuation),
       "target observations differ",
     );
     return {
