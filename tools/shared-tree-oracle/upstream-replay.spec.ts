@@ -16,12 +16,21 @@ import {
 import { replayArrayModularInput } from "./watershedArraySupport.js";
 import {
 	replayForestInput,
+	replayForestInputRawDetached,
 	replaySequenceAlgebraInput,
 	replaySequenceEditorInput,
 	replaySequenceRebaseInput,
 } from "./watershedSequence.spec.js";
 
 type Replay = (input: Record<string, unknown>) => unknown | Promise<unknown>;
+
+type ForestCheckpoint = {
+	readonly after: {
+		readonly detached: readonly {
+			readonly id: { readonly major: number | null; readonly minor: number };
+		}[];
+	};
+};
 
 function copy<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value));
@@ -81,6 +90,61 @@ if (process.env.WATERSHED_ORACLE_CORPUS === "replay") {
 				"Changing retained history must not change the independently stored forest.");
 			assert.notDeepEqual(changed.restoredHistory, original.restoredHistory,
 				"Decoded retained changes must be observable even with identical revision metadata.");
+		});
+
+		it("normalizes detached forest indexes without hiding source iteration", () => {
+			const output = process.env.WATERSHED_ORACLE_OUTPUT;
+			assert(output !== undefined && isAbsolute(output),
+				"WATERSHED_ORACLE_OUTPUT must be absolute.");
+			const input = cases(join(output, "sequence-cases.json"))
+				.find(({ id }) => id === "array-forest-delta")?.input.scenarios
+				.find(({ id }) => id === "counted-build");
+			assert(input !== undefined, "Counted-build forest input must exist.");
+			const mutated = copy(input);
+			mutated.initialState = { field: [] };
+			assert(mutated.operands !== null && typeof mutated.operands === "object",
+				"Forest operands must exist.");
+			Reflect.set(mutated.operands, "deltas", [{
+				build: [
+					{
+						id: { major: -2, minor: 10 },
+						trees: [{
+							type: "com.fluidframework.leaf.string",
+							value: "B",
+							fields: [],
+						}],
+					},
+					{
+						id: { major: -3, minor: 0 },
+						trees: [{
+							type: "com.fluidframework.leaf.string",
+							value: "A",
+							fields: [],
+						}],
+					},
+					{
+						id: { major: -2, minor: 11 },
+						trees: [{
+							type: "com.fluidframework.leaf.string",
+							value: "C",
+							fields: [],
+						}],
+					},
+				],
+			}]);
+			Reflect.set(mutated.operands, "retainIndex", null);
+			const raw = replayForestInputRawDetached(copy(mutated)) as ForestCheckpoint[];
+			const normalized = replayForestInput(copy(mutated)) as ForestCheckpoint[];
+			assert.deepEqual(raw[0].after.detached.map(({ id }) => id), [
+				{ major: -2, minor: 10 },
+				{ major: -2, minor: 11 },
+				{ major: -3, minor: 0 },
+			]);
+			assert.deepEqual(normalized[0].after.detached.map(({ id }) => id), [
+				{ major: -3, minor: 0 },
+				{ major: -2, minor: 10 },
+				{ major: -2, minor: 11 },
+			]);
 		});
 
 		it("replays every exported M3 domain twice in a fresh process", async () => {

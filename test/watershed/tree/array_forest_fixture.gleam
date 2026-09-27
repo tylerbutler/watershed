@@ -2,6 +2,7 @@ import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/order
 import gleam/result
 import gleam/string
 import watershed/fluid_ids.{type StableId}
@@ -194,21 +195,22 @@ fn checkpoint(
 fn observe(state: forest.Forest, context: Context) -> Result(Json, String) {
   use data <- result.try(forest.export_data(state) |> native_error)
   use root <- result.try(root_values(data.root))
-  let detached =
-    list.sort(data.detached, fn(left, right) {
-      int.compare(left.forest_root_id, right.forest_root_id)
-    })
   use detached <- result.try(
-    list.try_map(detached, fn(entry) {
-      use id <- result.try(atom_json(entry.id, context))
-      Ok(
+    list.try_map(data.detached, fn(entry) {
+      use source_id <- result.try(source_atom(entry.id, context))
+      Ok(#(
+        source_id,
         json.object([
-          #("id", id),
+          #("id", atom_json(source_id)),
           #("values", array([tree_json(entry.value)])),
         ]),
-      )
+      ))
     }),
   )
+  let detached =
+    detached
+    |> list.sort(fn(left, right) { compare_source_atom(left.0, right.0) })
+    |> list.map(fn(entry) { entry.1 })
   Ok(json.object([#("root", array(root)), #("detached", array(detached))]))
 }
 
@@ -340,44 +342,60 @@ fn run_cycle(scenario: JsonValue, scope: Int) -> Result(Json, String) {
   )
   use before <- result.try(cycle_values(state))
   let moved = types.AtomId(None, 0)
-  use field_delta <- result.try(move_delta(
-    source_path,
-    source_start,
-    source_end,
-    destination_path,
-    destination_gap,
-    moved,
-  ))
-  let data =
-    forest.DeltaData(
-      None,
-      [
-        #(
-          "rootFieldKey",
-          forest.FieldDelta([
-            forest.Mark(1, None, None, [
-              #("", field_delta),
-            ]),
-          ]),
-        ),
-      ],
-      [],
-      [],
-      [],
-      [],
-      [],
-    )
-  use #(outcome, after_state) <- result.try(case forest.delta(data) {
-    Error(error) -> Ok(#(move_failure(error), state))
-    Ok(delta) ->
-      case forest.apply_delta(state, delta) {
-        Error(error) -> Ok(#(move_failure(error), state))
-        Ok(after_state) -> {
-          use value <- result.try(cycle_values(after_state))
-          Ok(#(success_value(value), after_state))
+  use #(outcome, after_state) <- result.try(
+    case
+      validate_move(
+        values,
+        source_path,
+        source_start,
+        source_end,
+        destination_path,
+        destination_gap,
+      )
+    {
+      Error(error) -> Ok(#(move_failure(error), state))
+      Ok(Nil) -> {
+        use field_delta <- result.try(move_delta(
+          source_path,
+          source_start,
+          source_end,
+          destination_path,
+          destination_gap,
+          moved,
+        ))
+        let data =
+          forest.DeltaData(
+            None,
+            [
+              #(
+                "rootFieldKey",
+                forest.FieldDelta([
+                  forest.Mark(1, None, None, [
+                    #("", field_delta),
+                  ]),
+                ]),
+              ),
+            ],
+            [],
+            [],
+            [],
+            [],
+            [],
+          )
+        case forest.delta(data) {
+          Error(error) -> Ok(#(move_failure(error), state))
+          Ok(delta) ->
+            case forest.apply_delta(state, delta) {
+              Error(error) -> Ok(#(move_failure(error), state))
+              Ok(after_state) -> {
+                use value <- result.try(cycle_values(after_state))
+                Ok(#(success_value(value), after_state))
+              }
+            }
         }
       }
-  })
+    },
+  )
   use after <- result.try(cycle_values(after_state))
   Ok(
     json.object([
@@ -386,6 +404,49 @@ fn run_cycle(scenario: JsonValue, scope: Int) -> Result(Json, String) {
       #("after", after),
     ]),
   )
+}
+
+fn validate_move(
+  root: List(types.TreeValue),
+  source_path: List(Int),
+  source_start: Int,
+  source_end: Int,
+  destination_path: List(Int),
+  destination_gap: Int,
+) -> Result(Nil, types.TreeError) {
+  use source <- result.try(cycle_path(root, source_path))
+  use destination <- result.try(cycle_path(root, destination_path))
+  use _ <- result.try(
+    case
+      source_start >= 0
+      && source_end >= source_start
+      && source_end <= list.length(source)
+    {
+      True -> Ok(Nil)
+      False -> Error(types.CorruptData("", "move range is outside the field"))
+    },
+  )
+  case destination_gap >= 0 && destination_gap <= list.length(destination) {
+    True -> Ok(Nil)
+    False -> Error(types.CorruptData("", "move gap is outside the field"))
+  }
+}
+
+fn cycle_path(
+  values: List(types.TreeValue),
+  path: List(Int),
+) -> Result(List(types.TreeValue), types.TreeError) {
+  case path {
+    [] -> Ok(values)
+    [index, ..rest] ->
+      case index >= 0, values |> list.drop(index) |> list.first {
+        True, Ok(types.ArrayValue(type_id, values))
+          if type_id == cycle_array_type
+        -> cycle_path(values, rest)
+        _, _ ->
+          Error(types.CorruptData("", "move path does not identify an array"))
+      }
+  }
 }
 
 fn move_delta(
@@ -403,10 +464,9 @@ fn move_delta(
         source_path,
         same_field_move(source_start, source_end, destination_gap, moved),
       ))
-    False -> {
-      use relative <- result.try(relative_path(source_path, destination_path))
-      case relative {
-        [target, ..rest] if target >= source_start && target < source_end -> {
+    False ->
+      case relative_path(source_path, destination_path) {
+        Ok([target, ..rest]) if target >= source_start && target < source_end -> {
           let before_target = target - source_start
           let after_target = count - before_target - 1
           let destination =
@@ -431,13 +491,86 @@ fn move_delta(
             ])
           Ok(change_at_path(source_path, forest.FieldDelta(marks)))
         }
-        _ ->
-          Error(
-            "move adapter requires matching array paths or a destination under a moved element",
+        _ -> {
+          let source =
+            forest.FieldDelta(
+              list.append(unchanged(source_start), [
+                forest.Mark(count, None, Some(moved), []),
+              ]),
+            )
+          let destination =
+            forest.FieldDelta(
+              list.append(unchanged(destination_gap), [
+                forest.Mark(count, Some(moved), None, []),
+              ]),
+            )
+          combine_path_changes(
+            source_path,
+            source,
+            destination_path,
+            destination,
           )
+        }
       }
-    }
   }
+}
+
+fn combine_path_changes(
+  left_path: List(Int),
+  left_change: forest.FieldDelta,
+  right_path: List(Int),
+  right_change: forest.FieldDelta,
+) -> Result(forest.FieldDelta, String) {
+  case left_path, right_path {
+    [left, ..left_rest], [right, ..right_rest] if left == right -> {
+      use nested <- result.try(combine_path_changes(
+        left_rest,
+        left_change,
+        right_rest,
+        right_change,
+      ))
+      Ok(select_child(left, nested))
+    }
+    [left, ..left_rest], [right, ..right_rest] if left < right ->
+      Ok(select_two_children(
+        left,
+        change_at_path(left_rest, left_change),
+        right,
+        change_at_path(right_rest, right_change),
+      ))
+    [left, ..left_rest], [right, ..right_rest] ->
+      Ok(select_two_children(
+        right,
+        change_at_path(right_rest, right_change),
+        left,
+        change_at_path(left_rest, left_change),
+      ))
+    _, _ -> Error("move paths overlap without identifying the same array")
+  }
+}
+
+fn select_child(index: Int, change: forest.FieldDelta) -> forest.FieldDelta {
+  forest.FieldDelta(
+    list.append(unchanged(index), [
+      forest.Mark(1, None, None, [#("", change)]),
+    ]),
+  )
+}
+
+fn select_two_children(
+  first_index: Int,
+  first_change: forest.FieldDelta,
+  second_index: Int,
+  second_change: forest.FieldDelta,
+) -> forest.FieldDelta {
+  forest.FieldDelta(
+    list.flatten([
+      unchanged(first_index),
+      [forest.Mark(1, None, None, [#("", first_change)])],
+      unchanged(second_index - first_index - 1),
+      [forest.Mark(1, None, None, [#("", second_change)])],
+    ]),
+  )
 }
 
 fn same_field_move(
@@ -746,7 +879,7 @@ fn decode_tree(value: JsonValue) -> Result(types.TreeValue, String) {
           })
         }),
       )
-      Ok(types.ObjectValue(type_id, fields))
+      Ok(types.ObjectValue(type_id, complete_node_fields(fields)))
     }
     _ -> Error("unsupported source forest node type: " <> type_id)
   }
@@ -772,11 +905,11 @@ fn tree_json(value: types.TreeValue) -> Json {
         #(
           "fields",
           array(
-            list.map(fields, fn(field) {
-              array([
-                json.string(field.0),
-                field_json(field.1),
-              ])
+            list.filter_map(fields, fn(field) {
+              case field_json(field.1) {
+                None -> Error(Nil)
+                Some(value) -> Ok(array([json.string(field.0), value]))
+              }
             }),
           ),
         ),
@@ -786,11 +919,24 @@ fn tree_json(value: types.TreeValue) -> Json {
   }
 }
 
-fn field_json(value: types.TreeValue) -> Json {
+fn complete_node_fields(
+  fields: List(#(String, types.TreeValue)),
+) -> List(#(String, types.TreeValue)) {
+  list.fold(["label", "child"], fields, fn(fields, key) {
+    case list.key_find(fields, key) {
+      Ok(_) -> fields
+      Error(Nil) ->
+        list.append(fields, [#(key, types.ArrayValue(field_array_type, []))])
+    }
+  })
+}
+
+fn field_json(value: types.TreeValue) -> Option(Json) {
   case value {
+    types.ArrayValue(type_id, []) if type_id == field_array_type -> None
     types.ArrayValue(type_id, values) if type_id == field_array_type ->
-      array(list.map(values, tree_json))
-    _ -> array([tree_json(value)])
+      Some(array(list.map(values, tree_json)))
+    _ -> Some(array([tree_json(value)]))
   }
 }
 
@@ -857,21 +1003,45 @@ fn context_revision(
   })
 }
 
-fn atom_json(id: types.AtomId, context: Context) -> Result(Json, String) {
+fn source_atom(
+  id: types.AtomId,
+  context: Context,
+) -> Result(#(Option(Int), Int), String) {
   let Context(revisions) = context
   use major <- result.try(case id.revision {
-    None -> Ok(json.null())
+    None -> Ok(None)
     Some(revision) ->
       list.find(revisions, fn(pair) { pair.1 == revision })
-      |> result.map(fn(pair) { json.int(pair.0) })
+      |> result.map(fn(pair) { Some(pair.0) })
       |> result.map_error(fn(_) { "unknown fixture revision" })
   })
-  Ok(
-    json.object([
-      #("major", major),
-      #("minor", json.int(id.local_id)),
-    ]),
-  )
+  Ok(#(major, id.local_id))
+}
+
+fn atom_json(id: #(Option(Int), Int)) -> Json {
+  json.object([
+    #("major", case id.0 {
+      None -> json.null()
+      Some(major) -> json.int(major)
+    }),
+    #("minor", json.int(id.1)),
+  ])
+}
+
+fn compare_source_atom(
+  left: #(Option(Int), Int),
+  right: #(Option(Int), Int),
+) -> order.Order {
+  case left.0, right.0 {
+    None, None -> int.compare(left.1, right.1)
+    None, Some(_) -> order.Lt
+    Some(_), None -> order.Gt
+    Some(left_major), Some(right_major) ->
+      case int.compare(left_major, right_major) {
+        order.Eq -> int.compare(left.1, right.1)
+        compared -> compared
+      }
+  }
 }
 
 fn view_id(scope: Int) -> Result(StableId, String) {

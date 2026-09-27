@@ -156,6 +156,14 @@ identity. Public empty insert, empty remove, and empty same-array move emit no
 commit, events, pending edit, revision, or message, although the low-level
 editor retains a zero-count Insert mark.
 
+`array-forest-delta` treats the detached index as an unordered keyed
+collection. Source and native observations sort detached entries by source
+atom (`major`, with `null` first, then `minor`) before comparison. The
+normalizer keeps every atom and value and does not sort root arrays or other
+sequence fields. Retained paths still use the production allocation field ID.
+The replay probe separately checks the source index's raw revision-group
+iteration order so normalization cannot replace or obscure that evidence.
+
 Every M3 scenario now passes its JSON-round-tripped `input` through an exported
 source replayer in a second process after capture. That process runs each input
 twice without prior revision allocation and requires both results to equal the

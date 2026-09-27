@@ -1120,6 +1120,17 @@ function treeValue(tree: MapTree): unknown {
 }
 
 export function replayForestInput(input: Record<string, unknown>): unknown {
+	return replayForestInputWithDetachedOrder(input, true);
+}
+
+export function replayForestInputRawDetached(input: Record<string, unknown>): unknown {
+	return replayForestInputWithDetachedOrder(input, false);
+}
+
+function replayForestInputWithDetachedOrder(
+	input: Record<string, unknown>,
+	normalizeDetached: boolean,
+): unknown {
 	const context = replayIdContext(input);
 	object(input.operands, "The forest input must contain operands.");
 	const operands = input.operands;
@@ -1208,10 +1219,23 @@ export function replayForestInput(input: Record<string, unknown>): unknown {
 	})();
 	const values = (key: FieldKey): unknown[] =>
 		(forest.roots.fields.get(key) ?? []).map(treeValue);
-	const detached = () => [...index.entries()].map((entry) => ({
-		id: { major: entry.id.major ?? null, minor: entry.id.minor },
-		values: values(brand(index.toFieldKey(entry.root))),
-	}));
+	const detached = () => {
+		const entries = [...index.entries()].map((entry) => ({
+			id: { major: entry.id.major ?? null, minor: entry.id.minor },
+			values: values(brand(index.toFieldKey(entry.root))),
+		}));
+		if (!normalizeDetached) return entries;
+		return entries.sort((left, right) => {
+			const leftMajor = left.id.major;
+			const rightMajor = right.id.major;
+			if (leftMajor === null) return rightMajor === null
+				? left.id.minor - right.id.minor
+				: -1;
+			if (rightMajor === null) return 1;
+			return Number(leftMajor) - Number(rightMajor)
+				|| left.id.minor - right.id.minor;
+		});
+	};
 	const pathData = (path: ReturnType<typeof forest.anchors.locate>): unknown =>
 		path === undefined
 			? null

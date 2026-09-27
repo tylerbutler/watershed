@@ -370,6 +370,46 @@ pub fn shared_tree_array_forest_runner_uses_both_move_paths_test() {
   expect_run(scenario, expected("move", value))
 }
 
+pub fn shared_tree_array_forest_runner_moves_between_independent_paths_test() {
+  let scenario =
+    move_scenario(
+      array([
+        array([json.string("A")]),
+        array([json.string("B")]),
+      ]),
+      [0],
+      0,
+      1,
+      [1],
+      1,
+    )
+  let before =
+    array([
+      array([json.string("A")]),
+      array([json.string("B")]),
+    ])
+  let moved =
+    array([
+      array([]),
+      array([json.string("B"), json.string("A")]),
+    ])
+  let value =
+    json.object([
+      #("before", before),
+      #("result", result_object(True, moved)),
+      #("after", moved),
+    ])
+  expect_run(scenario, expected("move", value))
+}
+
+pub fn shared_tree_array_forest_runner_rejects_invalid_interior_move_range_test() {
+  let scenario = move_scenario(array([json.string("A")]), [], 0, 3, [], 1)
+  let assert Ok(output) = array_forest_fixture.run(runner_input(scenario))
+  let raw = json.to_string(output)
+  string.contains(raw, "\"accepted\":false") |> expect.to_be_true
+  string.contains(raw, "\"after\":[\"A\"]") |> expect.to_be_true
+}
+
 pub fn shared_tree_array_forest_runner_preserves_nested_sequence_fields_test() {
   let old = source_string("old")
   let old_two = source_string("old2")
@@ -437,6 +477,99 @@ pub fn shared_tree_array_forest_runner_preserves_nested_sequence_fields_test() {
   )
 }
 
+pub fn shared_tree_array_forest_runner_inserts_first_nested_child_test() {
+  let built = source_atom(Some(-4), 10)
+  let delta =
+    source_delta(
+      [
+        source_field("rootFieldKey", [
+          source_mark(1, None, None, [
+            source_field("child", [
+              source_mark(1, Some(built), None, []),
+            ]),
+          ]),
+        ]),
+      ],
+      [source_build(built, [source_string("new")])],
+      [],
+    )
+  let scenario =
+    apply_scenario(
+      "insert-first-child",
+      [source_node([#("label", [source_string("A")])])],
+      [delta],
+      None,
+      [-4],
+    )
+  let before =
+    state(
+      [
+        visible_node([#("label", [json.string("A")])]),
+      ],
+      [],
+    )
+  let after =
+    state_after(
+      [
+        visible_node([
+          #("label", [json.string("A")]),
+          #("child", [json.string("new")]),
+        ]),
+      ],
+      [],
+      json.null(),
+    )
+  expect_run(
+    scenario,
+    expected("insert-first-child", array([checkpoint(before, delta, after)])),
+  )
+}
+
+pub fn shared_tree_array_forest_runner_omits_removed_final_child_test() {
+  let detached_id = source_atom(Some(-4), 20)
+  let delta =
+    source_delta(
+      [
+        source_field("rootFieldKey", [
+          source_mark(1, None, None, [
+            source_field("child", [
+              source_mark(1, None, Some(detached_id), []),
+            ]),
+          ]),
+        ]),
+      ],
+      [],
+      [],
+    )
+  let initial =
+    source_node([
+      #("label", [source_string("A")]),
+      #("child", [source_string("old")]),
+    ])
+  let scenario =
+    apply_scenario("remove-final-child", [initial], [delta], None, [-4])
+  let before =
+    state(
+      [
+        visible_node([
+          #("label", [json.string("A")]),
+          #("child", [json.string("old")]),
+        ]),
+      ],
+      [],
+    )
+  let after =
+    state_after(
+      [visible_node([#("label", [json.string("A")])])],
+      [detached(detached_id, [json.string("old")])],
+      json.null(),
+    )
+  expect_run(
+    scenario,
+    expected("remove-final-child", array([checkpoint(before, delta, after)])),
+  )
+}
+
 pub fn shared_tree_array_forest_runner_observes_destroyed_reference_as_absent_test() {
   let detached_id = source_atom(Some(-2), 3)
   let detach_delta =
@@ -499,7 +632,7 @@ pub fn shared_tree_array_forest_runner_observes_destroyed_reference_as_absent_te
   expect_run(scenario, expected("destroyed", array([first, second])))
 }
 
-pub fn shared_tree_array_forest_runner_preserves_detached_insertion_order_test() {
+pub fn shared_tree_array_forest_runner_canonicalizes_detached_atom_order_test() {
   let ten = source_atom(Some(-2), 10)
   let zero = source_atom(Some(-2), 0)
   let first_delta =
@@ -520,9 +653,43 @@ pub fn shared_tree_array_forest_runner_preserves_detached_insertion_order_test()
     checkpoint(
       state([], [detached_b]),
       second_delta,
-      state_after([], [detached_b, detached_a], json.null()),
+      state_after([], [detached_a, detached_b], json.null()),
     )
   expect_run(scenario, expected("order", array([first, second])))
+}
+
+pub fn shared_tree_array_forest_runner_canonicalizes_mixed_revision_detached_atoms_test() {
+  let minus_two_ten = source_atom(Some(-2), 10)
+  let minus_three_zero = source_atom(Some(-3), 0)
+  let minus_two_eleven = source_atom(Some(-2), 11)
+  let delta =
+    source_delta(
+      [],
+      [
+        source_build(minus_two_ten, [source_string("B")]),
+        source_build(minus_three_zero, [source_string("A")]),
+        source_build(minus_two_eleven, [source_string("C")]),
+      ],
+      [],
+    )
+  let scenario = apply_scenario("mixed-revisions", [], [delta], None, [-2, -3])
+  let after =
+    state_after(
+      [],
+      [
+        detached(minus_three_zero, [json.string("A")]),
+        detached(minus_two_ten, [json.string("B")]),
+        detached(minus_two_eleven, [json.string("C")]),
+      ],
+      json.null(),
+    )
+  expect_run(
+    scenario,
+    expected(
+      "mixed-revisions",
+      array([checkpoint(state([], []), delta, after)]),
+    ),
+  )
 }
 
 pub fn shared_tree_array_forest_runner_accepts_unrevisioned_atoms_test() {
