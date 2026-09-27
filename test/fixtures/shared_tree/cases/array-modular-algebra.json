@@ -8946,6 +8946,2320 @@
         }
       },
       {
+        "id": "nested-aliased-conversion-retry",
+        "operation": "compose",
+        "initialState": {
+          "left": [],
+          "right": []
+        },
+        "operands": {
+          "changes": [
+            {
+              "revision": -7,
+              "change": {
+                "maxLocalId": 163,
+                "revisions": [
+                  {
+                    "revision": -7,
+                    "rollbackOf": null
+                  }
+                ],
+                "fields": [
+                  [
+                    "outer",
+                    {
+                      "kind": "Sequence",
+                      "change": [
+                        {
+                          "type": "MoveIn",
+                          "id": 141,
+                          "count": 1,
+                          "cellId": {
+                            "revision": -7,
+                            "localId": 143
+                          },
+                          "revision": -7
+                        },
+                        {
+                          "count": 1,
+                          "changes": {
+                            "revision": -7,
+                            "localId": 60
+                          }
+                        },
+                        {
+                          "type": "MoveOut",
+                          "id": 141,
+                          "count": 1,
+                          "revision": -7
+                        }
+                      ]
+                    }
+                  ]
+                ],
+                "nodes": [
+                  [
+                    {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    {
+                      "fields": [
+                        [
+                          "right",
+                          {
+                            "kind": "Sequence",
+                            "change": [
+                              {
+                                "type": "MoveIn",
+                                "id": 40,
+                                "count": 2,
+                                "cellId": {
+                                  "revision": -7,
+                                  "localId": 42
+                                },
+                                "revision": -7
+                              }
+                            ]
+                          }
+                        ],
+                        [
+                          "left",
+                          {
+                            "kind": "Sequence",
+                            "change": [
+                              {
+                                "type": "MoveOut",
+                                "id": 40,
+                                "count": 2,
+                                "revision": -7
+                              }
+                            ]
+                          }
+                        ],
+                        [
+                          "convert",
+                          {
+                            "kind": "Sequence",
+                            "change": [
+                              {
+                                "count": 1,
+                                "changes": {
+                                  "revision": -7,
+                                  "localId": 163
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    {
+                      "revision": -7,
+                      "localId": 163
+                    },
+                    {
+                      "fields": []
+                    }
+                  ]
+                ],
+                "parents": [
+                  [
+                    {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    {
+                      "node": null,
+                      "field": "outer"
+                    }
+                  ],
+                  [
+                    {
+                      "revision": -7,
+                      "localId": 163
+                    },
+                    {
+                      "node": {
+                        "revision": -7,
+                        "localId": 60
+                      },
+                      "field": "convert"
+                    }
+                  ]
+                ],
+                "aliases": [
+                  [
+                    {
+                      "revision": -7,
+                      "localId": 160
+                    },
+                    {
+                      "revision": -7,
+                      "localId": 60
+                    }
+                  ]
+                ],
+                "crossFieldKeys": [
+                  {
+                    "target": "source",
+                    "revision": -7,
+                    "localId": 40,
+                    "count": 2,
+                    "field": {
+                      "node": {
+                        "revision": -7,
+                        "localId": 160
+                      },
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "source",
+                    "revision": -7,
+                    "localId": 141,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "outer"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": -7,
+                    "localId": 40,
+                    "count": 2,
+                    "field": {
+                      "node": {
+                        "revision": -7,
+                        "localId": 160
+                      },
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": -7,
+                    "localId": 141,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "outer"
+                    }
+                  }
+                ],
+                "builds": [],
+                "refreshers": [],
+                "destroys": []
+              }
+            },
+            {
+              "revision": -7,
+              "change": {
+                "maxLocalId": 162,
+                "revisions": [
+                  {
+                    "revision": -7,
+                    "rollbackOf": null
+                  }
+                ],
+                "fields": [
+                  [
+                    "outer",
+                    {
+                      "kind": "Sequence",
+                      "change": [
+                        {
+                          "type": "MoveOut",
+                          "id": 144,
+                          "count": 1,
+                          "revision": -7
+                        },
+                        {
+                          "count": 1,
+                          "changes": {
+                            "revision": -7,
+                            "localId": 61
+                          }
+                        },
+                        {
+                          "type": "MoveIn",
+                          "id": 144,
+                          "count": 1,
+                          "cellId": {
+                            "revision": -7,
+                            "localId": 146
+                          },
+                          "revision": -7
+                        }
+                      ]
+                    }
+                  ]
+                ],
+                "nodes": [
+                  [
+                    {
+                      "revision": -7,
+                      "localId": 61
+                    },
+                    {
+                      "fields": [
+                        [
+                          "right",
+                          {
+                            "kind": "Sequence",
+                            "change": [
+                              {
+                                "type": "MoveIn",
+                                "id": 44,
+                                "count": 2,
+                                "cellId": {
+                                  "revision": -7,
+                                  "localId": 46
+                                },
+                                "revision": -7
+                              },
+                              {
+                                "count": 1
+                              },
+                              {
+                                "type": "MoveOut",
+                                "id": 44,
+                                "count": 2,
+                                "revision": -7
+                              }
+                            ]
+                          }
+                        ],
+                        [
+                          "left",
+                          {
+                            "kind": "Sequence",
+                            "change": [
+                              {
+                                "type": "MoveIn",
+                                "id": 48,
+                                "count": 2,
+                                "cellId": {
+                                  "revision": -7,
+                                  "localId": 50
+                                },
+                                "revision": -7
+                              },
+                              {
+                                "count": 1
+                              },
+                              {
+                                "type": "MoveOut",
+                                "id": 48,
+                                "count": 2,
+                                "revision": -7
+                              }
+                            ]
+                          }
+                        ],
+                        [
+                          "convert",
+                          {
+                            "kind": "Generic",
+                            "change": {
+                              "children": [
+                                [
+                                  0,
+                                  {
+                                    "revision": -7,
+                                    "localId": 162
+                                  }
+                                ]
+                              ]
+                            }
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    {
+                      "revision": -7,
+                      "localId": 162
+                    },
+                    {
+                      "fields": []
+                    }
+                  ]
+                ],
+                "parents": [
+                  [
+                    {
+                      "revision": -7,
+                      "localId": 61
+                    },
+                    {
+                      "node": null,
+                      "field": "outer"
+                    }
+                  ],
+                  [
+                    {
+                      "revision": -7,
+                      "localId": 162
+                    },
+                    {
+                      "node": {
+                        "revision": -7,
+                        "localId": 61
+                      },
+                      "field": "convert"
+                    }
+                  ]
+                ],
+                "aliases": [
+                  [
+                    {
+                      "revision": -7,
+                      "localId": 161
+                    },
+                    {
+                      "revision": -7,
+                      "localId": 61
+                    }
+                  ]
+                ],
+                "crossFieldKeys": [
+                  {
+                    "target": "source",
+                    "revision": -7,
+                    "localId": 44,
+                    "count": 2,
+                    "field": {
+                      "node": {
+                        "revision": -7,
+                        "localId": 161
+                      },
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "source",
+                    "revision": -7,
+                    "localId": 48,
+                    "count": 2,
+                    "field": {
+                      "node": {
+                        "revision": -7,
+                        "localId": 161
+                      },
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "source",
+                    "revision": -7,
+                    "localId": 144,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "outer"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": -7,
+                    "localId": 44,
+                    "count": 2,
+                    "field": {
+                      "node": {
+                        "revision": -7,
+                        "localId": 161
+                      },
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": -7,
+                    "localId": 48,
+                    "count": 2,
+                    "field": {
+                      "node": {
+                        "revision": -7,
+                        "localId": 161
+                      },
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": -7,
+                    "localId": 144,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "outer"
+                    }
+                  }
+                ],
+                "builds": [],
+                "refreshers": [],
+                "destroys": []
+              }
+            }
+          ]
+        },
+        "revisions": [
+          {
+            "encoded": -7,
+            "stable": "72da8bc7-6340-46de-a690-a911d13bddd0"
+          }
+        ],
+        "allocator": {
+          "maxLocalId": 163
+        },
+        "compressor": {
+          "sessionId": "72da8bc7-6340-46de-a690-a911d13bddca",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAADK3TvREamQprcBjR0vassBAAAAAAAAJkAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAAmQA=="
+        },
+        "sequencing": {
+          "minimumSequenceNumber": 0,
+          "sequenceNumber": 0
+        },
+        "schedule": [
+          "destination",
+          "source",
+          "source-update",
+          "source-reprocess"
+        ],
+        "sourceCoordination": {
+          "handlerCalls": [
+            {
+              "sequence": 0,
+              "operation": "compose",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "invocation": 1
+            },
+            {
+              "sequence": 25,
+              "operation": "compose",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "invocation": 1
+            },
+            {
+              "sequence": 53,
+              "operation": "compose",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "invocation": 1
+            },
+            {
+              "sequence": 73,
+              "operation": "compose",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "convert"
+              },
+              "invocation": 1
+            },
+            {
+              "sequence": 75,
+              "operation": "compose",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "invocation": 2
+            }
+          ],
+          "managerCalls": [
+            {
+              "sequence": 1,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 141,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 2,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 141,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 3,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 144,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 4,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 141,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 5,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 144,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 6,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 141,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 7,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 144,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 8,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 141,
+              "count": 1,
+              "addDependency": false,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 9,
+              "method": "set",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 141,
+              "count": 1,
+              "invalidateDependents": true
+            },
+            {
+              "sequence": 10,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 141,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 11,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 144,
+              "count": 1,
+              "addDependency": false,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 12,
+              "method": "set",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 144,
+              "count": 1,
+              "invalidateDependents": true
+            },
+            {
+              "sequence": 13,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 144,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 14,
+              "method": "onMoveIn",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "id": {
+                "revision": -7,
+                "localId": 61
+              }
+            },
+            {
+              "sequence": 15,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 141,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 16,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 141,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 17,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 144,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 18,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 144,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 19,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 144,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 20,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 141,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 21,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 141,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 22,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 141,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 23,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 141,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 24,
+              "method": "get",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 141,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 26,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 27,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 28,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 29,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 30,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 31,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 32,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 33,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 34,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 35,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 36,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 37,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 38,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 39,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 40,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 41,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 42,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 43,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": false,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 44,
+              "method": "set",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "invalidateDependents": true
+            },
+            {
+              "sequence": 45,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 46,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 1,
+              "addDependency": false,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 47,
+              "method": "set",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 1,
+              "invalidateDependents": true
+            },
+            {
+              "sequence": 48,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 44,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 49,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 45,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 50,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 45,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 51,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 45,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 52,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 45,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 54,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 55,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 40,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 56,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 48,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 57,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 48,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 58,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 48,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 59,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 40,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 60,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 40,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 61,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 40,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 62,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 40,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 63,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 40,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 64,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 65,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 66,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 67,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 68,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 69,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 48,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 70,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 48,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 71,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 48,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 72,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 48,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 74,
+              "method": "onMoveIn",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "convert"
+              },
+              "id": {
+                "revision": -7,
+                "localId": 162
+              }
+            },
+            {
+              "sequence": 76,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 77,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 78,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 79,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 80,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 81,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 82,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 83,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 45,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 84,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 45,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 85,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 45,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 86,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 87,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 88,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 89,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 90,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 91,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 92,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 93,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 94,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 95,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 96,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 97,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 98,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": false,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 99,
+              "method": "set",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "invalidateDependents": true
+            },
+            {
+              "sequence": 100,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 41,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 101,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 1,
+              "addDependency": false,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 102,
+              "method": "set",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 1,
+              "invalidateDependents": true
+            },
+            {
+              "sequence": 103,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 44,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 104,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 45,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 105,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 45,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 106,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 45,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 107,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 45,
+              "count": 1,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 1
+            }
+          ]
+        }
+      },
+      {
         "id": "sequence-ancestor-rebase",
         "operation": "rebase",
         "initialState": {
@@ -14767,6 +17081,933 @@
                   "field": "left"
                 },
                 "invocation": 1
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "invocation": 2
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    "field": "right"
+                  },
+                  "target": "source",
+                  "revision": -7,
+                  "localId": 41,
+                  "count": 1,
+                  "invalidateDependents": true
+                }
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    "field": "right"
+                  },
+                  "target": "destination",
+                  "revision": -7,
+                  "localId": 44,
+                  "count": 1,
+                  "invalidateDependents": true
+                }
+              }
+            ],
+            "readEvidence": {
+              "absent": true,
+              "found": true,
+              "partial": true,
+              "dependency": true,
+              "invalidation": true,
+              "retry": true
+            }
+          }
+        }
+      },
+      {
+        "id": "nested-aliased-conversion-retry",
+        "executed": true,
+        "fieldKinds": [
+          "ModularEditBuilder.Generic",
+          "Sequence"
+        ],
+        "result": {
+          "graph": {
+            "maxLocalId": 163,
+            "revisions": [
+              {
+                "revision": -7,
+                "rollbackOf": null
+              }
+            ],
+            "fields": [
+              [
+                "outer",
+                {
+                  "kind": "Sequence",
+                  "change": [
+                    {
+                      "type": "Rename",
+                      "count": 1,
+                      "cellId": {
+                        "revision": -7,
+                        "localId": 143
+                      },
+                      "idOverride": {
+                        "revision": -7,
+                        "localId": 144
+                      }
+                    },
+                    {
+                      "count": 1,
+                      "changes": {
+                        "revision": -7,
+                        "localId": 60
+                      }
+                    },
+                    {
+                      "type": "MoveIn",
+                      "id": 144,
+                      "count": 1,
+                      "cellId": {
+                        "revision": -7,
+                        "localId": 146
+                      },
+                      "revision": -7,
+                      "finalEndpoint": {
+                        "revision": -7,
+                        "localId": 141
+                      }
+                    },
+                    {
+                      "type": "MoveOut",
+                      "id": 141,
+                      "count": 1,
+                      "revision": -7,
+                      "finalEndpoint": {
+                        "revision": -7,
+                        "localId": 144
+                      }
+                    }
+                  ]
+                }
+              ]
+            ],
+            "nodes": [
+              [
+                {
+                  "revision": -7,
+                  "localId": 60
+                },
+                {
+                  "fields": [
+                    [
+                      "right",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "type": "MoveIn",
+                            "id": 44,
+                            "count": 1,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 46
+                            },
+                            "revision": -7,
+                            "finalEndpoint": {
+                              "revision": -7,
+                              "localId": 41
+                            }
+                          },
+                          {
+                            "type": "MoveIn",
+                            "id": 45,
+                            "count": 1,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 47
+                            },
+                            "revision": -7
+                          },
+                          {
+                            "type": "MoveIn",
+                            "id": 40,
+                            "count": 1,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 42
+                            },
+                            "revision": -7
+                          },
+                          {
+                            "type": "Rename",
+                            "count": 1,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 43
+                            },
+                            "idOverride": {
+                              "revision": -7,
+                              "localId": 44
+                            }
+                          },
+                          {
+                            "type": "MoveOut",
+                            "id": 45,
+                            "count": 1,
+                            "revision": -7
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "left",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "type": "MoveIn",
+                            "id": 48,
+                            "count": 2,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 50
+                            },
+                            "revision": -7
+                          },
+                          {
+                            "type": "MoveOut",
+                            "id": 40,
+                            "count": 1,
+                            "revision": -7
+                          },
+                          {
+                            "type": "MoveOut",
+                            "id": 41,
+                            "count": 1,
+                            "revision": -7,
+                            "finalEndpoint": {
+                              "revision": -7,
+                              "localId": 44
+                            }
+                          },
+                          {
+                            "count": 1
+                          },
+                          {
+                            "type": "MoveOut",
+                            "id": 48,
+                            "count": 2,
+                            "revision": -7
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "convert",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "count": 1,
+                            "changes": {
+                              "revision": -7,
+                              "localId": 163
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              [
+                {
+                  "revision": -7,
+                  "localId": 163
+                },
+                {
+                  "fields": []
+                }
+              ]
+            ],
+            "parents": [
+              [
+                {
+                  "revision": -7,
+                  "localId": 60
+                },
+                {
+                  "node": null,
+                  "field": "outer"
+                }
+              ],
+              [
+                {
+                  "revision": -7,
+                  "localId": 163
+                },
+                {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "convert"
+                }
+              ]
+            ],
+            "aliases": [
+              [
+                {
+                  "revision": -7,
+                  "localId": 61
+                },
+                {
+                  "revision": -7,
+                  "localId": 60
+                }
+              ],
+              [
+                {
+                  "revision": -7,
+                  "localId": 160
+                },
+                {
+                  "revision": -7,
+                  "localId": 60
+                }
+              ],
+              [
+                {
+                  "revision": -7,
+                  "localId": 161
+                },
+                {
+                  "revision": -7,
+                  "localId": 61
+                }
+              ],
+              [
+                {
+                  "revision": -7,
+                  "localId": 162
+                },
+                {
+                  "revision": -7,
+                  "localId": 163
+                }
+              ]
+            ],
+            "crossFieldKeys": [
+              {
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 160
+                  },
+                  "field": "left"
+                }
+              },
+              {
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 161
+                  },
+                  "field": "right"
+                }
+              },
+              {
+                "target": "source",
+                "revision": -7,
+                "localId": 48,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 161
+                  },
+                  "field": "left"
+                }
+              },
+              {
+                "target": "source",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                }
+              },
+              {
+                "target": "source",
+                "revision": -7,
+                "localId": 144,
+                "count": 1,
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                }
+              },
+              {
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 160
+                  },
+                  "field": "right"
+                }
+              },
+              {
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 161
+                  },
+                  "field": "right"
+                }
+              },
+              {
+                "target": "destination",
+                "revision": -7,
+                "localId": 48,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 161
+                  },
+                  "field": "left"
+                }
+              },
+              {
+                "target": "destination",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                }
+              },
+              {
+                "target": "destination",
+                "revision": -7,
+                "localId": 144,
+                "count": 1,
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                }
+              }
+            ],
+            "builds": [],
+            "refreshers": [],
+            "destroys": []
+          },
+          "delta": {
+            "fields": [
+              [
+                "outer",
+                {
+                  "marks": [
+                    {
+                      "count": 1,
+                      "attach": null,
+                      "detach": null,
+                      "fields": [
+                        [
+                          "right",
+                          {
+                            "marks": [
+                              {
+                                "count": 1,
+                                "attach": {
+                                  "revision": -7,
+                                  "localId": 41
+                                },
+                                "detach": null,
+                                "fields": []
+                              },
+                              {
+                                "count": 1,
+                                "attach": {
+                                  "revision": -7,
+                                  "localId": 45
+                                },
+                                "detach": null,
+                                "fields": []
+                              },
+                              {
+                                "count": 1,
+                                "attach": {
+                                  "revision": -7,
+                                  "localId": 40
+                                },
+                                "detach": null,
+                                "fields": []
+                              },
+                              {
+                                "count": 1,
+                                "attach": null,
+                                "detach": {
+                                  "revision": -7,
+                                  "localId": 45
+                                },
+                                "fields": []
+                              }
+                            ]
+                          }
+                        ],
+                        [
+                          "left",
+                          {
+                            "marks": [
+                              {
+                                "count": 2,
+                                "attach": {
+                                  "revision": -7,
+                                  "localId": 48
+                                },
+                                "detach": null,
+                                "fields": []
+                              },
+                              {
+                                "count": 1,
+                                "attach": null,
+                                "detach": {
+                                  "revision": -7,
+                                  "localId": 40
+                                },
+                                "fields": []
+                              },
+                              {
+                                "count": 1,
+                                "attach": null,
+                                "detach": {
+                                  "revision": -7,
+                                  "localId": 41
+                                },
+                                "fields": []
+                              },
+                              {
+                                "count": 1,
+                                "attach": null,
+                                "detach": null,
+                                "fields": []
+                              },
+                              {
+                                "count": 2,
+                                "attach": null,
+                                "detach": {
+                                  "revision": -7,
+                                  "localId": 48
+                                },
+                                "fields": []
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    },
+                    {
+                      "count": 1,
+                      "attach": {
+                        "revision": -7,
+                        "localId": 141
+                      },
+                      "detach": null,
+                      "fields": []
+                    },
+                    {
+                      "count": 1,
+                      "attach": null,
+                      "detach": {
+                        "revision": -7,
+                        "localId": 141
+                      },
+                      "fields": []
+                    }
+                  ]
+                }
+              ]
+            ],
+            "build": [],
+            "refreshers": [],
+            "global": [],
+            "rename": [],
+            "destroy": []
+          },
+          "conversion": {
+            "directions": [
+              "generic-right"
+            ],
+            "calls": [
+              {
+                "direction": "generic-right",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 61
+                  },
+                  "field": "convert"
+                },
+                "children": [
+                  [
+                    0,
+                    {
+                      "revision": -7,
+                      "localId": 162
+                    }
+                  ]
+                ]
+              }
+            ]
+          },
+          "coordination": {
+            "handlerCalls": [
+              {
+                "operation": "compose",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "convert"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "invocation": 2
+              }
+            ],
+            "managerCalls": [
+              {
+                "method": "set",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "method": "set",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 144,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "method": "onMoveIn",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "id": {
+                  "revision": -7,
+                  "localId": 61
+                }
+              },
+              {
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "method": "onMoveIn",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "convert"
+                },
+                "id": {
+                  "revision": -7,
+                  "localId": 162
+                }
+              },
+              {
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 1,
+                "invalidateDependents": true
+              }
+            ],
+            "causalCalls": [
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": null,
+                    "field": "outer"
+                  },
+                  "target": "source",
+                  "revision": -7,
+                  "localId": 141,
+                  "count": 1,
+                  "invalidateDependents": true
+                }
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": null,
+                    "field": "outer"
+                  },
+                  "target": "destination",
+                  "revision": -7,
+                  "localId": 144,
+                  "count": 1,
+                  "invalidateDependents": true
+                }
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "onMoveIn",
+                  "field": {
+                    "node": null,
+                    "field": "outer"
+                  },
+                  "id": {
+                    "revision": -7,
+                    "localId": 61
+                  }
+                }
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    "field": "right"
+                  },
+                  "target": "source",
+                  "revision": -7,
+                  "localId": 41,
+                  "count": 1,
+                  "invalidateDependents": true
+                }
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    "field": "right"
+                  },
+                  "target": "destination",
+                  "revision": -7,
+                  "localId": 44,
+                  "count": 1,
+                  "invalidateDependents": true
+                }
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "convert"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "onMoveIn",
+                  "field": {
+                    "node": {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    "field": "convert"
+                  },
+                  "id": {
+                    "revision": -7,
+                    "localId": 162
+                  }
+                }
               },
               {
                 "kind": "handler",
@@ -28969,6 +32210,3242 @@
                   "field": "left"
                 },
                 "invocation": 1
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "invocation": 2
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    "field": "right"
+                  },
+                  "target": "source",
+                  "revision": -7,
+                  "localId": 41,
+                  "count": 1,
+                  "invalidateDependents": true
+                }
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    "field": "right"
+                  },
+                  "target": "destination",
+                  "revision": -7,
+                  "localId": 44,
+                  "count": 1,
+                  "invalidateDependents": true
+                }
+              }
+            ],
+            "readEvidence": {
+              "absent": true,
+              "found": true,
+              "partial": true,
+              "dependency": true,
+              "invalidation": true,
+              "retry": true
+            }
+          }
+        }
+      },
+      {
+        "id": "nested-aliased-conversion-retry",
+        "input": {
+          "id": "nested-aliased-conversion-retry",
+          "operation": "compose",
+          "initialState": {
+            "left": [],
+            "right": []
+          },
+          "operands": {
+            "changes": [
+              {
+                "revision": -7,
+                "change": {
+                  "maxLocalId": 163,
+                  "revisions": [
+                    {
+                      "revision": -7,
+                      "rollbackOf": null
+                    }
+                  ],
+                  "fields": [
+                    [
+                      "outer",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "type": "MoveIn",
+                            "id": 141,
+                            "count": 1,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 143
+                            },
+                            "revision": -7
+                          },
+                          {
+                            "count": 1,
+                            "changes": {
+                              "revision": -7,
+                              "localId": 60
+                            }
+                          },
+                          {
+                            "type": "MoveOut",
+                            "id": 141,
+                            "count": 1,
+                            "revision": -7
+                          }
+                        ]
+                      }
+                    ]
+                  ],
+                  "nodes": [
+                    [
+                      {
+                        "revision": -7,
+                        "localId": 60
+                      },
+                      {
+                        "fields": [
+                          [
+                            "right",
+                            {
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "type": "MoveIn",
+                                  "id": 40,
+                                  "count": 2,
+                                  "cellId": {
+                                    "revision": -7,
+                                    "localId": 42
+                                  },
+                                  "revision": -7
+                                }
+                              ]
+                            }
+                          ],
+                          [
+                            "left",
+                            {
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "type": "MoveOut",
+                                  "id": 40,
+                                  "count": 2,
+                                  "revision": -7
+                                }
+                              ]
+                            }
+                          ],
+                          [
+                            "convert",
+                            {
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "count": 1,
+                                  "changes": {
+                                    "revision": -7,
+                                    "localId": 163
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    [
+                      {
+                        "revision": -7,
+                        "localId": 163
+                      },
+                      {
+                        "fields": []
+                      }
+                    ]
+                  ],
+                  "parents": [
+                    [
+                      {
+                        "revision": -7,
+                        "localId": 60
+                      },
+                      {
+                        "node": null,
+                        "field": "outer"
+                      }
+                    ],
+                    [
+                      {
+                        "revision": -7,
+                        "localId": 163
+                      },
+                      {
+                        "node": {
+                          "revision": -7,
+                          "localId": 60
+                        },
+                        "field": "convert"
+                      }
+                    ]
+                  ],
+                  "aliases": [
+                    [
+                      {
+                        "revision": -7,
+                        "localId": 160
+                      },
+                      {
+                        "revision": -7,
+                        "localId": 60
+                      }
+                    ]
+                  ],
+                  "crossFieldKeys": [
+                    {
+                      "target": "source",
+                      "revision": -7,
+                      "localId": 40,
+                      "count": 2,
+                      "field": {
+                        "node": {
+                          "revision": -7,
+                          "localId": 160
+                        },
+                        "field": "left"
+                      }
+                    },
+                    {
+                      "target": "source",
+                      "revision": -7,
+                      "localId": 141,
+                      "count": 1,
+                      "field": {
+                        "node": null,
+                        "field": "outer"
+                      }
+                    },
+                    {
+                      "target": "destination",
+                      "revision": -7,
+                      "localId": 40,
+                      "count": 2,
+                      "field": {
+                        "node": {
+                          "revision": -7,
+                          "localId": 160
+                        },
+                        "field": "right"
+                      }
+                    },
+                    {
+                      "target": "destination",
+                      "revision": -7,
+                      "localId": 141,
+                      "count": 1,
+                      "field": {
+                        "node": null,
+                        "field": "outer"
+                      }
+                    }
+                  ],
+                  "builds": [],
+                  "refreshers": [],
+                  "destroys": []
+                }
+              },
+              {
+                "revision": -7,
+                "change": {
+                  "maxLocalId": 162,
+                  "revisions": [
+                    {
+                      "revision": -7,
+                      "rollbackOf": null
+                    }
+                  ],
+                  "fields": [
+                    [
+                      "outer",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "type": "MoveOut",
+                            "id": 144,
+                            "count": 1,
+                            "revision": -7
+                          },
+                          {
+                            "count": 1,
+                            "changes": {
+                              "revision": -7,
+                              "localId": 61
+                            }
+                          },
+                          {
+                            "type": "MoveIn",
+                            "id": 144,
+                            "count": 1,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 146
+                            },
+                            "revision": -7
+                          }
+                        ]
+                      }
+                    ]
+                  ],
+                  "nodes": [
+                    [
+                      {
+                        "revision": -7,
+                        "localId": 61
+                      },
+                      {
+                        "fields": [
+                          [
+                            "right",
+                            {
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "type": "MoveIn",
+                                  "id": 44,
+                                  "count": 2,
+                                  "cellId": {
+                                    "revision": -7,
+                                    "localId": 46
+                                  },
+                                  "revision": -7
+                                },
+                                {
+                                  "count": 1
+                                },
+                                {
+                                  "type": "MoveOut",
+                                  "id": 44,
+                                  "count": 2,
+                                  "revision": -7
+                                }
+                              ]
+                            }
+                          ],
+                          [
+                            "left",
+                            {
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "type": "MoveIn",
+                                  "id": 48,
+                                  "count": 2,
+                                  "cellId": {
+                                    "revision": -7,
+                                    "localId": 50
+                                  },
+                                  "revision": -7
+                                },
+                                {
+                                  "count": 1
+                                },
+                                {
+                                  "type": "MoveOut",
+                                  "id": 48,
+                                  "count": 2,
+                                  "revision": -7
+                                }
+                              ]
+                            }
+                          ],
+                          [
+                            "convert",
+                            {
+                              "kind": "Generic",
+                              "change": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": -7,
+                                      "localId": 162
+                                    }
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    [
+                      {
+                        "revision": -7,
+                        "localId": 162
+                      },
+                      {
+                        "fields": []
+                      }
+                    ]
+                  ],
+                  "parents": [
+                    [
+                      {
+                        "revision": -7,
+                        "localId": 61
+                      },
+                      {
+                        "node": null,
+                        "field": "outer"
+                      }
+                    ],
+                    [
+                      {
+                        "revision": -7,
+                        "localId": 162
+                      },
+                      {
+                        "node": {
+                          "revision": -7,
+                          "localId": 61
+                        },
+                        "field": "convert"
+                      }
+                    ]
+                  ],
+                  "aliases": [
+                    [
+                      {
+                        "revision": -7,
+                        "localId": 161
+                      },
+                      {
+                        "revision": -7,
+                        "localId": 61
+                      }
+                    ]
+                  ],
+                  "crossFieldKeys": [
+                    {
+                      "target": "source",
+                      "revision": -7,
+                      "localId": 44,
+                      "count": 2,
+                      "field": {
+                        "node": {
+                          "revision": -7,
+                          "localId": 161
+                        },
+                        "field": "right"
+                      }
+                    },
+                    {
+                      "target": "source",
+                      "revision": -7,
+                      "localId": 48,
+                      "count": 2,
+                      "field": {
+                        "node": {
+                          "revision": -7,
+                          "localId": 161
+                        },
+                        "field": "left"
+                      }
+                    },
+                    {
+                      "target": "source",
+                      "revision": -7,
+                      "localId": 144,
+                      "count": 1,
+                      "field": {
+                        "node": null,
+                        "field": "outer"
+                      }
+                    },
+                    {
+                      "target": "destination",
+                      "revision": -7,
+                      "localId": 44,
+                      "count": 2,
+                      "field": {
+                        "node": {
+                          "revision": -7,
+                          "localId": 161
+                        },
+                        "field": "right"
+                      }
+                    },
+                    {
+                      "target": "destination",
+                      "revision": -7,
+                      "localId": 48,
+                      "count": 2,
+                      "field": {
+                        "node": {
+                          "revision": -7,
+                          "localId": 161
+                        },
+                        "field": "left"
+                      }
+                    },
+                    {
+                      "target": "destination",
+                      "revision": -7,
+                      "localId": 144,
+                      "count": 1,
+                      "field": {
+                        "node": null,
+                        "field": "outer"
+                      }
+                    }
+                  ],
+                  "builds": [],
+                  "refreshers": [],
+                  "destroys": []
+                }
+              }
+            ]
+          },
+          "revisions": [
+            {
+              "encoded": -7,
+              "stable": "72da8bc7-6340-46de-a690-a911d13bddd0"
+            }
+          ],
+          "allocator": {
+            "maxLocalId": 163
+          },
+          "compressor": {
+            "sessionId": "72da8bc7-6340-46de-a690-a911d13bddca",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAADK3TvREamQprcBjR0vassBAAAAAAAAJkAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAAmQA=="
+          },
+          "sequencing": {
+            "minimumSequenceNumber": 0,
+            "sequenceNumber": 0
+          },
+          "schedule": [
+            "destination",
+            "source",
+            "source-update",
+            "source-reprocess"
+          ],
+          "sourceCoordination": {
+            "handlerCalls": [
+              {
+                "sequence": 0,
+                "operation": "compose",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "invocation": 1
+              },
+              {
+                "sequence": 25,
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "invocation": 1
+              },
+              {
+                "sequence": 53,
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "invocation": 1
+              },
+              {
+                "sequence": 73,
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "convert"
+                },
+                "invocation": 1
+              },
+              {
+                "sequence": 75,
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "invocation": 2
+              }
+            ],
+            "managerCalls": [
+              {
+                "sequence": 1,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 2,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 3,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 144,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 4,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 5,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 144,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 6,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 7,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 144,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 8,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "addDependency": false,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 9,
+                "method": "set",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "sequence": 10,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 11,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 144,
+                "count": 1,
+                "addDependency": false,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 12,
+                "method": "set",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 144,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "sequence": 13,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 144,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 14,
+                "method": "onMoveIn",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "id": {
+                  "revision": -7,
+                  "localId": 61
+                }
+              },
+              {
+                "sequence": 15,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 16,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 17,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 144,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 18,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 144,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 19,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 144,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 20,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 21,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 22,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 23,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 24,
+                "method": "get",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 26,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 27,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 28,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 29,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 30,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 31,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 32,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 33,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 34,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 35,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 36,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 37,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 38,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 39,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 40,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 41,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 42,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 43,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": false,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 44,
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "sequence": 45,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 46,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 1,
+                "addDependency": false,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 47,
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "sequence": 48,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 49,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 45,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 50,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 45,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 51,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 45,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 52,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 45,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 54,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 55,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 56,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 48,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 57,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 48,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 58,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 48,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 59,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 60,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 61,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 62,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 63,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 64,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 65,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 66,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 67,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 68,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 69,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 48,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 70,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 48,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 71,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 48,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 72,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 48,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 74,
+                "method": "onMoveIn",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "convert"
+                },
+                "id": {
+                  "revision": -7,
+                  "localId": 162
+                }
+              },
+              {
+                "sequence": 76,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 77,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 78,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 79,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 80,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 81,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 82,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 83,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 45,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 84,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 45,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 85,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 45,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 86,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 87,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 88,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 89,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 90,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 91,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 92,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 93,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 94,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 95,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 96,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 97,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 98,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": false,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 99,
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "sequence": 100,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 101,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 1,
+                "addDependency": false,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 102,
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "sequence": 103,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 104,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 45,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 105,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 45,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 106,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 45,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 107,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 45,
+                "count": 1,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 1
+              }
+            ]
+          }
+        },
+        "output": {
+          "graph": {
+            "maxLocalId": 163,
+            "revisions": [
+              {
+                "revision": -7,
+                "rollbackOf": null
+              }
+            ],
+            "fields": [
+              [
+                "outer",
+                {
+                  "kind": "Sequence",
+                  "change": [
+                    {
+                      "type": "Rename",
+                      "count": 1,
+                      "cellId": {
+                        "revision": -7,
+                        "localId": 143
+                      },
+                      "idOverride": {
+                        "revision": -7,
+                        "localId": 144
+                      }
+                    },
+                    {
+                      "count": 1,
+                      "changes": {
+                        "revision": -7,
+                        "localId": 60
+                      }
+                    },
+                    {
+                      "type": "MoveIn",
+                      "id": 144,
+                      "count": 1,
+                      "cellId": {
+                        "revision": -7,
+                        "localId": 146
+                      },
+                      "revision": -7,
+                      "finalEndpoint": {
+                        "revision": -7,
+                        "localId": 141
+                      }
+                    },
+                    {
+                      "type": "MoveOut",
+                      "id": 141,
+                      "count": 1,
+                      "revision": -7,
+                      "finalEndpoint": {
+                        "revision": -7,
+                        "localId": 144
+                      }
+                    }
+                  ]
+                }
+              ]
+            ],
+            "nodes": [
+              [
+                {
+                  "revision": -7,
+                  "localId": 60
+                },
+                {
+                  "fields": [
+                    [
+                      "right",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "type": "MoveIn",
+                            "id": 44,
+                            "count": 1,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 46
+                            },
+                            "revision": -7,
+                            "finalEndpoint": {
+                              "revision": -7,
+                              "localId": 41
+                            }
+                          },
+                          {
+                            "type": "MoveIn",
+                            "id": 45,
+                            "count": 1,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 47
+                            },
+                            "revision": -7
+                          },
+                          {
+                            "type": "MoveIn",
+                            "id": 40,
+                            "count": 1,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 42
+                            },
+                            "revision": -7
+                          },
+                          {
+                            "type": "Rename",
+                            "count": 1,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 43
+                            },
+                            "idOverride": {
+                              "revision": -7,
+                              "localId": 44
+                            }
+                          },
+                          {
+                            "type": "MoveOut",
+                            "id": 45,
+                            "count": 1,
+                            "revision": -7
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "left",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "type": "MoveIn",
+                            "id": 48,
+                            "count": 2,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 50
+                            },
+                            "revision": -7
+                          },
+                          {
+                            "type": "MoveOut",
+                            "id": 40,
+                            "count": 1,
+                            "revision": -7
+                          },
+                          {
+                            "type": "MoveOut",
+                            "id": 41,
+                            "count": 1,
+                            "revision": -7,
+                            "finalEndpoint": {
+                              "revision": -7,
+                              "localId": 44
+                            }
+                          },
+                          {
+                            "count": 1
+                          },
+                          {
+                            "type": "MoveOut",
+                            "id": 48,
+                            "count": 2,
+                            "revision": -7
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "convert",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "count": 1,
+                            "changes": {
+                              "revision": -7,
+                              "localId": 163
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              [
+                {
+                  "revision": -7,
+                  "localId": 163
+                },
+                {
+                  "fields": []
+                }
+              ]
+            ],
+            "parents": [
+              [
+                {
+                  "revision": -7,
+                  "localId": 60
+                },
+                {
+                  "node": null,
+                  "field": "outer"
+                }
+              ],
+              [
+                {
+                  "revision": -7,
+                  "localId": 163
+                },
+                {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "convert"
+                }
+              ]
+            ],
+            "aliases": [
+              [
+                {
+                  "revision": -7,
+                  "localId": 61
+                },
+                {
+                  "revision": -7,
+                  "localId": 60
+                }
+              ],
+              [
+                {
+                  "revision": -7,
+                  "localId": 160
+                },
+                {
+                  "revision": -7,
+                  "localId": 60
+                }
+              ],
+              [
+                {
+                  "revision": -7,
+                  "localId": 161
+                },
+                {
+                  "revision": -7,
+                  "localId": 61
+                }
+              ],
+              [
+                {
+                  "revision": -7,
+                  "localId": 162
+                },
+                {
+                  "revision": -7,
+                  "localId": 163
+                }
+              ]
+            ],
+            "crossFieldKeys": [
+              {
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 160
+                  },
+                  "field": "left"
+                }
+              },
+              {
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 161
+                  },
+                  "field": "right"
+                }
+              },
+              {
+                "target": "source",
+                "revision": -7,
+                "localId": 48,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 161
+                  },
+                  "field": "left"
+                }
+              },
+              {
+                "target": "source",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                }
+              },
+              {
+                "target": "source",
+                "revision": -7,
+                "localId": 144,
+                "count": 1,
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                }
+              },
+              {
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 160
+                  },
+                  "field": "right"
+                }
+              },
+              {
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 161
+                  },
+                  "field": "right"
+                }
+              },
+              {
+                "target": "destination",
+                "revision": -7,
+                "localId": 48,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 161
+                  },
+                  "field": "left"
+                }
+              },
+              {
+                "target": "destination",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                }
+              },
+              {
+                "target": "destination",
+                "revision": -7,
+                "localId": 144,
+                "count": 1,
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                }
+              }
+            ],
+            "builds": [],
+            "refreshers": [],
+            "destroys": []
+          },
+          "delta": {
+            "fields": [
+              [
+                "outer",
+                {
+                  "marks": [
+                    {
+                      "count": 1,
+                      "attach": null,
+                      "detach": null,
+                      "fields": [
+                        [
+                          "right",
+                          {
+                            "marks": [
+                              {
+                                "count": 1,
+                                "attach": {
+                                  "revision": -7,
+                                  "localId": 41
+                                },
+                                "detach": null,
+                                "fields": []
+                              },
+                              {
+                                "count": 1,
+                                "attach": {
+                                  "revision": -7,
+                                  "localId": 45
+                                },
+                                "detach": null,
+                                "fields": []
+                              },
+                              {
+                                "count": 1,
+                                "attach": {
+                                  "revision": -7,
+                                  "localId": 40
+                                },
+                                "detach": null,
+                                "fields": []
+                              },
+                              {
+                                "count": 1,
+                                "attach": null,
+                                "detach": {
+                                  "revision": -7,
+                                  "localId": 45
+                                },
+                                "fields": []
+                              }
+                            ]
+                          }
+                        ],
+                        [
+                          "left",
+                          {
+                            "marks": [
+                              {
+                                "count": 2,
+                                "attach": {
+                                  "revision": -7,
+                                  "localId": 48
+                                },
+                                "detach": null,
+                                "fields": []
+                              },
+                              {
+                                "count": 1,
+                                "attach": null,
+                                "detach": {
+                                  "revision": -7,
+                                  "localId": 40
+                                },
+                                "fields": []
+                              },
+                              {
+                                "count": 1,
+                                "attach": null,
+                                "detach": {
+                                  "revision": -7,
+                                  "localId": 41
+                                },
+                                "fields": []
+                              },
+                              {
+                                "count": 1,
+                                "attach": null,
+                                "detach": null,
+                                "fields": []
+                              },
+                              {
+                                "count": 2,
+                                "attach": null,
+                                "detach": {
+                                  "revision": -7,
+                                  "localId": 48
+                                },
+                                "fields": []
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    },
+                    {
+                      "count": 1,
+                      "attach": {
+                        "revision": -7,
+                        "localId": 141
+                      },
+                      "detach": null,
+                      "fields": []
+                    },
+                    {
+                      "count": 1,
+                      "attach": null,
+                      "detach": {
+                        "revision": -7,
+                        "localId": 141
+                      },
+                      "fields": []
+                    }
+                  ]
+                }
+              ]
+            ],
+            "build": [],
+            "refreshers": [],
+            "global": [],
+            "rename": [],
+            "destroy": []
+          },
+          "conversion": {
+            "directions": [
+              "generic-right"
+            ],
+            "calls": [
+              {
+                "direction": "generic-right",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 61
+                  },
+                  "field": "convert"
+                },
+                "children": [
+                  [
+                    0,
+                    {
+                      "revision": -7,
+                      "localId": 162
+                    }
+                  ]
+                ]
+              }
+            ]
+          },
+          "coordination": {
+            "handlerCalls": [
+              {
+                "operation": "compose",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "convert"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "invocation": 2
+              }
+            ],
+            "managerCalls": [
+              {
+                "method": "set",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 141,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "method": "set",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 144,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "method": "onMoveIn",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "id": {
+                  "revision": -7,
+                  "localId": 61
+                }
+              },
+              {
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "method": "onMoveIn",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "convert"
+                },
+                "id": {
+                  "revision": -7,
+                  "localId": 162
+                }
+              },
+              {
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 41,
+                "count": 1,
+                "invalidateDependents": true
+              },
+              {
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 1,
+                "invalidateDependents": true
+              }
+            ],
+            "causalCalls": [
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": null,
+                    "field": "outer"
+                  },
+                  "target": "source",
+                  "revision": -7,
+                  "localId": 141,
+                  "count": 1,
+                  "invalidateDependents": true
+                }
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": null,
+                    "field": "outer"
+                  },
+                  "target": "destination",
+                  "revision": -7,
+                  "localId": 144,
+                  "count": 1,
+                  "invalidateDependents": true
+                }
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "onMoveIn",
+                  "field": {
+                    "node": null,
+                    "field": "outer"
+                  },
+                  "id": {
+                    "revision": -7,
+                    "localId": 61
+                  }
+                }
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    "field": "right"
+                  },
+                  "target": "source",
+                  "revision": -7,
+                  "localId": 41,
+                  "count": 1,
+                  "invalidateDependents": true
+                }
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    "field": "right"
+                  },
+                  "target": "destination",
+                  "revision": -7,
+                  "localId": 44,
+                  "count": 1,
+                  "invalidateDependents": true
+                }
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "convert"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "onMoveIn",
+                  "field": {
+                    "node": {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    "field": "convert"
+                  },
+                  "id": {
+                    "revision": -7,
+                    "localId": 162
+                  }
+                }
               },
               {
                 "kind": "handler",

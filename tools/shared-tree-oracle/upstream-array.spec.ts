@@ -87,7 +87,8 @@ const scenarioIds = {
 		"nested-conversions", "nested-conversions-reversed", "nested-rebase-conversion",
 		"sequence-tombstone-rebase", "nested-ancestors",
 		"common-ancestors", "cross-field-endpoints", "nested-cross-field-endpoints",
-		"nested-aliased-chain", "nested-outer-effects", "sequence-ancestor-rebase",
+		"nested-aliased-chain", "nested-outer-effects", "nested-aliased-conversion-retry",
+		"sequence-ancestor-rebase",
 		"node-table", "parent-table", "alias-table",
 		"ownership-roundtrip",
 	],
@@ -2354,6 +2355,50 @@ async function makeCases() {
 		change.maxLocalId = move + 2;
 	});
 	nestedOuterEffects.allocator.maxLocalId = 146;
+	const nestedAliasedConversionRetry = copy(nestedOuterEffects);
+	nestedAliasedConversionRetry.operands.changes.forEach(({ change }, index) => {
+		const source = atom(r6, 160 + index);
+		const target = atom(r6, 60 + index);
+		change.aliases = [[source, target]];
+		change.crossFieldKeys = change.crossFieldKeys.map((key) => {
+			const field = key.field as {
+				node: { localId: number } | null;
+				field: string;
+			};
+			return {
+				...key,
+				field: field.node?.localId === 60 + index
+					? { ...field, node: source }
+					: field,
+			};
+		});
+		change.maxLocalId = 160 + index;
+	});
+	const retryFirst = nestedAliasedConversionRetry.operands.changes[0].change;
+	const retryFirstNode = retryFirst.nodes[0] as [
+		ReturnType<typeof atom>,
+		{ fields: [string, unknown][] },
+	];
+	retryFirstNode[1].fields.push([
+		"convert",
+		sequence([{ count: 1, changes: atom(r6, 163) }]),
+	]);
+	retryFirst.nodes.push([atom(r6, 163), { fields: [] }]);
+	retryFirst.parents.push([atom(r6, 163), parent("convert", atom(r6, 60))]);
+	retryFirst.maxLocalId = 163;
+	const retrySecond = nestedAliasedConversionRetry.operands.changes[1].change;
+	const retrySecondNode = retrySecond.nodes[0] as [
+		ReturnType<typeof atom>,
+		{ fields: [string, unknown][] },
+	];
+	retrySecondNode[1].fields.push([
+		"convert",
+		generic([[0, atom(r6, 162)]]),
+	]);
+	retrySecond.nodes.push([atom(r6, 162), { fields: [] }]);
+	retrySecond.parents.push([atom(r6, 162), parent("convert", atom(r6, 61))]);
+	retrySecond.maxLocalId = 162;
+	nestedAliasedConversionRetry.allocator.maxLocalId = 163;
 	const sequenceAncestorAuthored = emptyChange(r7, [["outer", sequence([
 		{ count: 1, changes: atom(r7, 80) },
 	])]], {
@@ -2517,6 +2562,8 @@ async function makeCases() {
 		"nested-cross-field-endpoints": nestedCrossField as unknown as Record<string, unknown>,
 		"nested-aliased-chain": nestedAliasedChain as unknown as Record<string, unknown>,
 		"nested-outer-effects": nestedOuterEffects as unknown as Record<string, unknown>,
+		"nested-aliased-conversion-retry":
+			nestedAliasedConversionRetry as unknown as Record<string, unknown>,
 		"sequence-ancestor-rebase": replayContext(
 			"rebase",
 			[tagged(r7, sequenceAncestorAuthored), tagged(r8, sequenceAncestorBase)],
@@ -2579,12 +2626,14 @@ async function makeCases() {
 			id === "generic-signature-collision" ||
 			id === "nested-conversions" ||
 			id === "nested-conversions-reversed" ||
-			id === "nested-rebase-conversion"
+			id === "nested-rebase-conversion" ||
+			id === "nested-aliased-conversion-retry"
 		) {
 			const expectedDirection =
 				id === "sequence-to-generic" ||
 					id === "nested-conversions-reversed" ||
-					id === "nested-rebase-conversion"
+					id === "nested-rebase-conversion" ||
+					id === "nested-aliased-conversion-retry"
 					? "generic-right"
 					: "generic-left";
 			const conversion = Reflect.get(outputRecord, "conversion");
@@ -2766,6 +2815,58 @@ async function makeCases() {
 						addDependency === true),
 				"The retry must read destination 44 after its dependent absent read and causal write.",
 			);
+		}
+		if (id === "nested-aliased-conversion-retry") {
+			const graph = Reflect.get(outputRecord, "graph") as {
+				nodes: [ReturnType<typeof atom>, unknown][];
+				parents: [ReturnType<typeof atom>, unknown][];
+				aliases: [ReturnType<typeof atom>, ReturnType<typeof atom>][];
+				crossFieldKeys: unknown[];
+			};
+			const handlers = rawOutput.coordination.handlerCalls.map(({ field }) => [
+				field.node?.localId,
+				field.field,
+			]);
+			assert.deepEqual(
+				handlers,
+				[
+					[undefined, "outer"],
+					[60, "right"],
+					[60, "left"],
+					[60, "convert"],
+					[60, "right"],
+				],
+				"The nested conversion must occur before the changed-information retry.",
+			);
+			const conversion = Reflect.get(outputRecord, "conversion") as {
+				calls: {
+					direction: string;
+					field: { node: { localId: number } | null; field: string };
+				}[];
+			};
+			assert.deepEqual(
+				conversion.calls.map(({ direction, field }) => [
+					direction,
+					field.node?.localId,
+					field.field,
+				]),
+				[
+					["generic-right", 61, "convert"],
+				],
+				"The conversion must retain the original right operand identity.",
+			);
+			for (const entries of [
+				graph.nodes.map(([id]) => JSON.stringify(id)),
+				graph.parents.map(([id]) => JSON.stringify(id)),
+				graph.aliases.map(([id]) => JSON.stringify(id)),
+				graph.crossFieldKeys.map((entry) => JSON.stringify(entry)),
+			]) {
+				assert.equal(
+					new Set(entries).size,
+					entries.length,
+					"Retry must not duplicate identity or ownership records.",
+				);
+			}
 		}
 		if (id === "sequence-ancestor-rebase") {
 			const graph = Reflect.get(outputRecord, "graph") as {
