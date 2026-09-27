@@ -739,6 +739,63 @@ function editorCase(revs: RevisionTag[], compressor: IIdCompressor) {
 	}));
 }
 
+function assertSequenceDeltaContracts(revision: RevisionTag): void {
+	const child = TestNodeId.create({ localId: brand(30) }, TestChange.mint([], 1));
+	const cellId = { revision, localId: changeId(1) };
+	const transient = serializeRuntimeValue(toDelta([{
+		type: "AttachAndDetach",
+		count: 1,
+		cellId,
+		attach: {
+			type: "MoveIn",
+			id: changeId(2),
+			revision,
+			finalEndpoint: { revision, localId: changeId(3) },
+		},
+		detach: { type: "Remove", id: changeId(4), revision },
+		changes: child,
+	}] as Changeset)) as PlainDelta;
+	assert.deepEqual(transient.global?.map(({ id }) => id), [
+		{ major: revision, minor: 1 },
+	], "Transient child changes must target the input cell.");
+	assert.deepEqual(transient.rename, [{
+		oldId: { major: revision, minor: 3 },
+		newId: { major: revision, minor: 4 },
+		count: 1,
+	}], "Transient rename identity must remain independent from child routing.");
+
+	const emptyMoveOut = serializeRuntimeValue(toDelta([{
+		type: "MoveOut",
+		count: 1,
+		id: changeId(2),
+		revision,
+		cellId,
+		changes: child,
+	}] as Changeset)) as PlainDelta;
+	assert.deepEqual(emptyMoveOut.global?.map(({ id }) => id), [
+		{ major: revision, minor: 1 },
+	], "Empty-cell MoveOut child changes must target the input cell.");
+
+	const populatedInsert = serializeRuntimeValue(toDelta([{
+		type: "Insert",
+		count: 1,
+		id: changeId(2),
+		revision,
+		changes: child,
+	}] as Changeset)) as {
+		readonly local?: {
+			readonly marks: readonly {
+				readonly attach?: unknown;
+				readonly fields?: unknown;
+			}[];
+		};
+	};
+	assert.equal(populatedInsert.local?.marks[0]?.attach, undefined,
+		"A populated-cell Insert must not emit an attachment.");
+	assert(populatedInsert.local?.marks[0]?.fields !== undefined,
+		"A populated-cell Insert must retain its local child delta.");
+}
+
 function decodeTaggedChange(value: unknown, message: string, context: ReplayIdContext) {
 	object(value, message);
 	return tagChange(
@@ -1424,6 +1481,7 @@ if (process.env.WATERSHED_ORACLE_CORPUS === "1") {
 				"ba6ca8d4-71ea-4abb-a919-5c0e2c252e75" as SessionId,
 			);
 			const revs = revisions(compressor);
+			assertSequenceDeltaContracts(revs[0]);
 			const cases = [
 				forestCase(revs, compressor),
 				editorCase(revs, compressor),

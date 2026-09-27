@@ -54,12 +54,6 @@ pub fn shared_tree_sequence_rejects_invalid_ranges_and_children_test() {
       None,
     ),
     sequence_field.Mark(2, None, sequence_field.Noop, Some(a)),
-    sequence_field.Mark(
-      1,
-      None,
-      sequence_field.Attach(sequence_field.Insert(a)),
-      None,
-    ),
     sequence_field.Mark(1, None, sequence_field.Rename(a), None),
   ]
   |> list.each(fn(mark) {
@@ -477,7 +471,7 @@ pub fn shared_tree_sequence_into_delta_handles_detached_children_and_renames_tes
   )
 }
 
-pub fn shared_tree_sequence_into_delta_routes_transient_child_changes_test() {
+pub fn shared_tree_sequence_into_delta_routes_empty_cell_children_first_test() {
   let a = atom(None, 1)
   let b = atom(None, 2)
   let c = atom(None, 3)
@@ -507,10 +501,46 @@ pub fn shared_tree_sequence_into_delta_routes_transient_child_changes_test() {
   sequence_field.into_delta(change, fn(_) { Ok(fields) })
   |> expect.to_equal(
     Ok(
-      sequence_field.DeltaResult(None, [forest.DetachedChange(c, fields)], [
-        forest.Rename(c, d, 1),
-        forest.Rename(a, b, 1),
-      ]),
+      sequence_field.DeltaResult(
+        None,
+        [
+          forest.DetachedChange(a, fields),
+          forest.DetachedChange(a, fields),
+        ],
+        [
+          forest.Rename(c, d, 1),
+          forest.Rename(a, b, 1),
+        ],
+      ),
+    ),
+  )
+}
+
+pub fn shared_tree_sequence_allows_populated_insert_with_child_change_test() {
+  let insert_id = atom(Some(revision("16")), 140)
+  let child = atom(None, 141)
+  let fields = [
+    #("nested", forest.FieldDelta([forest.Mark(1, None, None, [])])),
+  ]
+  let assert Ok(change) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        None,
+        sequence_field.Attach(sequence_field.Insert(insert_id)),
+        Some(child),
+      ),
+    ])
+  sequence_field.into_delta(change, fn(_) { Ok(fields) })
+  |> expect.to_equal(
+    Ok(
+      sequence_field.DeltaResult(
+        Some(forest.FieldDelta([
+          forest.Mark(1, None, None, fields),
+        ])),
+        [],
+        [],
+      ),
     ),
   )
 }

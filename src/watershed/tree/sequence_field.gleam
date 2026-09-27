@@ -228,7 +228,15 @@ pub fn into_delta(
         None -> Ok([])
         Some(child) -> child_delta(child)
       })
-      delta_mark(mark, fields, output.0, output.1, output.2)
+      let #(local_fields, global) = case mark.cell_id, fields {
+        _, [] -> #([], output.1)
+        None, fields -> #(fields, output.1)
+        Some(id), fields -> #([], [
+          forest.DetachedChange(id, fields),
+          ..output.1
+        ])
+      }
+      delta_mark(mark, local_fields, output.0, global, output.2)
     }),
   )
   let local_marks =
@@ -315,7 +323,7 @@ fn validate_mark(mark: Mark) -> Result(Nil, TreeError) {
     }
   })
   case mark.effect {
-    Attach(_) | AttachAndDetach(_, _) | Rename(_) ->
+    Attach(MoveIn(_, _)) | AttachAndDetach(_, _) | Rename(_) ->
       check(mark.cell_id != None, "an empty-cell effect requires a cell ID")
     _ -> Ok(Nil)
   }
@@ -666,7 +674,6 @@ fn delta_mark(
         MoveIn(id, endpoint) -> option.unwrap(endpoint, id)
         Insert(_) -> input_id
       }
-      let global = add_detached_change(old_id, fields, global)
       let renames = case input_id == output_id {
         True -> renames
         False -> [forest.Rename(old_id, output_id, mark.count), ..renames]
@@ -674,13 +681,12 @@ fn delta_mark(
       Ok(#(local, global, renames))
     }
     _, _, Attach(MoveIn(id, endpoint)) -> {
-      let assert Some(input_id) = mark.cell_id
       Ok(#(
         [
           forest.Mark(mark.count, Some(option.unwrap(endpoint, id)), None, []),
           ..local
         ],
-        add_detached_change(input_id, fields, global),
+        global,
         renames,
       ))
     }
@@ -688,7 +694,7 @@ fn delta_mark(
       let assert Some(id) = mark.cell_id
       Ok(#(
         [forest.Mark(mark.count, Some(id), None, []), ..local],
-        add_detached_change(id, fields, global),
+        global,
         renames,
       ))
     }
@@ -711,32 +717,17 @@ fn delta_mark(
         True -> renames
         False -> [forest.Rename(old_id, new_id, mark.count), ..renames]
       }
-      Ok(#(local, add_detached_change(old_id, fields, global), renames))
+      Ok(#(local, global, renames))
     }
     True, True, Detach(MoveOut(id, _, _)) -> {
       let assert Some(old_id) = mark.cell_id
       Ok(#(local, global, [forest.Rename(old_id, id, mark.count), ..renames]))
-    }
-    True, True, Noop | True, True, Rename(_) -> {
-      let assert Some(id) = mark.cell_id
-      Ok(#(local, add_detached_change(id, fields, global), renames))
     }
     _, _, Noop | _, _, Rename(_) -> Ok(#(local, global, renames))
     True, False, Detach(_) ->
       Error(CorruptData("sequence field", "invalid detach state"))
     _, _, AttachAndDetach(_, _) ->
       Error(CorruptData("sequence field", "invalid attach-and-detach state"))
-  }
-}
-
-fn add_detached_change(
-  id: AtomId,
-  fields: List(#(String, forest.FieldDelta)),
-  global: List(forest.DetachedChange),
-) -> List(forest.DetachedChange) {
-  case fields {
-    [] -> global
-    _ -> [forest.DetachedChange(id, fields), ..global]
   }
 }
 
