@@ -75,6 +75,7 @@ export const arrayScenarioIds = {
     "retained-identity",
     "invalid-overlap",
     "invalid-cycle",
+    "modular-checkpoints",
   ],
   "sequence-field-editor": [
     "insert",
@@ -1462,6 +1463,17 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
       check(Array.isArray(input.initialState.field), `${input.id} initial forest`);
       check(nonemptyArray(input.operands.deltas), `${input.id} delta sequence`);
       for (const delta of input.operands.deltas) plainDelta(delta, input.id);
+    } else if (label === "array-forest-delta" && input.operation === "apply-modular") {
+      check(Array.isArray(input.initialState.field), `${input.id} initial forest`);
+      check(nonemptyArray(input.operands.runs), `${input.id} modular forest runs`);
+      for (const run of input.operands.runs) {
+        check(object(run) && typeof run.id === "string" && nonemptyArray(run.steps)
+          && run.steps.every((step) => object(step)
+            && ["compose", "invert", "rebase"].includes(step.operation)
+            && object(step.operands)
+            && nonemptyArray(step.operands.changes)),
+        `${input.id} modular forest run`);
+      }
     } else if (label === "array-forest-delta") {
       check(input.operation === "public-move-cycle" && Array.isArray(input.initialState)
         && object(input.operands.move)
@@ -1633,7 +1645,8 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     const retained = input.get("retained-identity").operands.deltas[0].fields[0][1].marks;
     check(retained.some((mark) => mark.detach)
       && retained.some((mark) => mark.attach), "retained move identity");
-    for (const id of requiredIds.filter((id) => id !== "invalid-cycle")) {
+    for (const id of requiredIds.filter((id) =>
+      id !== "invalid-cycle" && id !== "modular-checkpoints")) {
       check(nonemptyArray(output.get(id)), `${id} forest checkpoints`);
       for (const checkpoint of output.get(id)) {
         check(object(checkpoint.before) && object(checkpoint.after)
@@ -1641,6 +1654,51 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
         `${id} forest observation`);
       }
     }
+    const modular = output.get("modular-checkpoints");
+    check(nonemptyArray(modular)
+      && modular.every((run) => typeof run.id === "string"
+        && nonemptyArray(run.checkpoints)
+        && run.checkpoints.every((checkpoint) => object(checkpoint.before)
+          && object(checkpoint.after)
+          && object(checkpoint.result)
+          && object(checkpoint.delta))),
+    "modular-checkpoints forest observation");
+    const modularRun = (id) => {
+      const run = modular.find((candidate) => candidate.id === id);
+      check(object(run), `modular-checkpoints ${id} run`);
+      return run;
+    };
+    const sequential = modularRun("sequential");
+    const composed = modularRun("composed");
+    const rebased = modularRun("rebased");
+    const inverse = modularRun("inverse");
+    check(sequential.checkpoints.length === 2
+      && composed.checkpoints.length === 1
+      && rebased.checkpoints.length === 2
+      && inverse.checkpoints.length === 2
+      && modular.every((run) =>
+        run.checkpoints.every((checkpoint) => checkpoint.result.accepted === true)),
+    "modular-checkpoints accepted execution");
+    assert.deepEqual(sequential.checkpoints[0].after.root,
+      rebased.checkpoints[0].after.root,
+      `${label}: modular move checkpoint`);
+    assert.deepEqual(sequential.checkpoints.at(-1).after.root,
+      composed.checkpoints.at(-1).after.root,
+      `${label}: sequential and composed forest`);
+    assert.deepEqual(sequential.checkpoints.at(-1).after.root,
+      rebased.checkpoints.at(-1).after.root,
+      `${label}: sequential and rebased forest`);
+    assert.deepEqual(inverse.checkpoints.at(-1).after.root,
+      inverse.checkpoints[0].before.root,
+      `${label}: inverse restores forest`);
+    for (const run of [sequential, composed, rebased]) {
+      assert.deepEqual(run.checkpoints.at(-1).after.identity,
+        { field: "rootFieldKey", index: 1, parent: null },
+        `${label}: ${run.id} retained identity`);
+    }
+    assert.deepEqual(inverse.checkpoints.at(-1).after.identity,
+      { field: "rootFieldKey", index: 0, parent: null },
+      `${label}: inverse restored identity`);
     check(output.get("invalid-overlap").at(-1)?.result?.accepted === false,
       "invalid overlap rejection");
     check(output.get("invalid-cycle")?.result?.accepted === false,

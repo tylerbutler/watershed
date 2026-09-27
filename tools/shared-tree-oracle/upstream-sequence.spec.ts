@@ -63,7 +63,11 @@ import {
 	toDelta,
 } from "./feature-libraries/sequence-field/utils.js";
 import { buildTestForest, TestTreeProviderLite } from "./utils.js";
-import { captureCrossFieldCoordination as captureSourceCrossFieldCoordination } from "./watershedArraySupport.js";
+import {
+	captureCrossFieldCoordination as captureSourceCrossFieldCoordination,
+	forestCheckpointInput,
+	replayArrayModularInput,
+} from "./watershedArraySupport.js";
 
 const formatVersion = 1;
 const reference = {
@@ -75,7 +79,7 @@ const scenarioIds = {
 	"array-forest-delta": [
 		"counted-build", "counted-detach", "counted-attach", "counted-rename",
 		"counted-destroy", "repair", "indexed-children", "retained-identity",
-		"invalid-overlap", "invalid-cycle",
+		"invalid-overlap", "invalid-cycle", "modular-checkpoints",
 	],
 	"sequence-field-editor": [
 		"insert", "remove", "empty-insert", "empty-remove", "move-before", "move-after",
@@ -1629,6 +1633,24 @@ export function replayForestInputRawFields(input: Record<string, unknown>): unkn
 	return replayForestInputWithCollectionOrder(input, true, false);
 }
 
+function modularDeltaForForest(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(modularDeltaForForest);
+	if (value === null || typeof value !== "object") return value;
+	if (Object.hasOwn(value, "revision") && Object.hasOwn(value, "localId")) {
+		return {
+			major: Reflect.get(value, "revision"),
+			minor: Reflect.get(value, "localId"),
+		};
+	}
+	return Object.fromEntries(
+		Object.entries(value)
+			.filter(([key, item]) =>
+				!((key === "attach" || key === "detach") && item === null)
+				&& !(key === "fields" && Array.isArray(item) && item.length === 0))
+			.map(([key, item]) => [key, modularDeltaForForest(item)]),
+	);
+}
+
 function replayForestInputWithCollectionOrder(
 	input: Record<string, unknown>,
 	normalizeDetached: boolean,
@@ -1637,6 +1659,37 @@ function replayForestInputWithCollectionOrder(
 	const context = replayIdContext(input);
 	object(input.operands, "The forest input must contain operands.");
 	const operands = input.operands;
+	if (input.operation === "apply-modular") {
+		assert(Array.isArray(operands.runs), "The modular forest runs must be an array.");
+		return operands.runs.map((runValue) => {
+			object(runValue, "A modular forest run must be an object.");
+			assert(typeof runValue.id === "string", "A modular forest run needs an ID.");
+			assert(Array.isArray(runValue.steps), "A modular forest run needs steps.");
+			const modularDeltas = runValue.steps.map((step) => {
+				object(step, "A modular forest step must be an object.");
+				const output = replayArrayModularInput(step);
+				object(output, "A modular forest step must return an object.");
+				object(output.delta, "A modular forest step must return a delta.");
+				return copy(output.delta);
+			});
+			const checkpoints = replayForestInputWithCollectionOrder({
+				...input,
+				operation: "apply-deltas",
+				operands: {
+					deltas: modularDeltas.map(modularDeltaForForest),
+					retainIndex: runValue.retainIndex ?? null,
+				},
+			}, normalizeDetached, normalizeFields);
+			assert(Array.isArray(checkpoints), "The modular forest replay must return checkpoints.");
+			return {
+				id: runValue.id,
+				checkpoints: checkpoints.map((checkpoint, index) => {
+					object(checkpoint, "A modular forest checkpoint must be an object.");
+					return { ...checkpoint, delta: modularDeltas[index] };
+				}),
+			};
+		});
+	}
 	if (input.operation === "public-move-cycle") {
 		assert(Array.isArray(input.initialState), "The cycle initial state must be an array.");
 		object(operands.move, "The cycle move arguments must be present.");
@@ -1863,6 +1916,7 @@ function forestCase(revs: RevisionTag[], compressor: IIdCompressor) {
 				destinationGap: 1,
 			},
 		}, [], compressor),
+		"modular-checkpoints": forestCheckpointInput(revs, compressor),
 	};
 	return oracleCase("array-forest-delta", "forest",
 		scenarioIds["array-forest-delta"].map((scenarioId) =>

@@ -18,6 +18,7 @@ import { FluidClientVersion, type CodecWriteOptions } from "../codec/index.js";
 import {
 	revisionMetadataSourceFromInfo,
 	RevisionTagCodec,
+	rootFieldKey,
 	tagChange,
 	makeAnonChange,
 	type ChangeAtomId,
@@ -1199,6 +1200,141 @@ export function multiPassComposeInput(
 		},
 		sequencing: { minimumSequenceNumber: 0, sequenceNumber: 0 },
 		schedule: ["move-a", "move-b", "move-c", "remove-d", "compose"],
+	};
+}
+
+export function forestCheckpointInput(
+	revisions: readonly RevisionTag[],
+	compressor: IIdCompressor,
+): Record<string, unknown> {
+	assert(revisions.length >= 5, "Forest checkpoints need five revisions.");
+	const context = {
+		idCompressor: compressor,
+		revisionTagCodec: new RevisionTagCodec(compressor),
+	};
+	const { family, codecOptions } = makeArrayModularFamily(context);
+	const child = brand<FieldKey>("child");
+	const root = { parent: undefined, field: rootFieldKey };
+	const author = (revision: RevisionTag, edit: (editor: DefaultEditBuilder) => void) => {
+		const [receiver, changes] = testChangeReceiver(family);
+		const editor = new DefaultEditBuilder(family, () => revision, receiver, codecOptions);
+		edit(editor);
+		const [change] = changes();
+		assert(change !== undefined, "The forest edit must produce one modular change.");
+		return change;
+	};
+	const move = author(revisions[0], (editor) => moveWithin(editor, root, 0, 1, 2));
+	const editAfterMove = author(revisions[1], (editor) => {
+		editor.sequenceField({
+			parent: { parent: undefined, parentField: rootFieldKey, parentIndex: 1 },
+			field: child,
+		}).remove(0, 1);
+	});
+	const editBeforeMove = author(revisions[2], (editor) => {
+		editor.sequenceField({
+			parent: { parent: undefined, parentField: rootFieldKey, parentIndex: 0 },
+			field: child,
+		}).remove(0, 1);
+	});
+	const composed = family.compose([
+		tagChange(move, revisions[0]),
+		tagChange(editAfterMove, revisions[1]),
+	]);
+	const encodedRevisions = revisions.map((revision) => ({
+		encoded: Number(revision),
+		stable: compressor.decompress(revision as SessionSpaceCompressedId),
+	}));
+	const replay = (
+		operation: ReplayInput["operation"],
+		changes: readonly TaggedPlainModularChange[],
+		options: Partial<ReplayInput["operands"]> = {},
+	): ReplayInput => ({
+		operation,
+		initialState: {},
+		operands: { changes, ...options },
+		revisions: encodedRevisions,
+		allocator: {
+			maxLocalId: Math.max(-1, ...changes.map(({ change }) => change.maxLocalId)),
+		},
+		compressor: {
+			sessionId: compressor.localSessionId,
+			serialized: serializeIdCompressor(compressor, true),
+		},
+		sequencing: { minimumSequenceNumber: 0, sequenceNumber: 0 },
+		schedule: [operation],
+	});
+	const taggedPlain = (revision: RevisionTag, change: ModularChangeset) => ({
+		revision: Number(revision),
+		change: encodeModularGraph(change),
+	});
+	const moveStep = {
+		id: "move",
+		...replay("compose", [taggedPlain(revisions[0], move)]),
+	};
+	const editStep = {
+		id: "edit-after-move",
+		...replay("compose", [taggedPlain(revisions[1], editAfterMove)]),
+	};
+	const composedStep = {
+		id: "compose-move-edit",
+		...replay("compose", [
+		taggedPlain(revisions[0], move),
+		taggedPlain(revisions[1], editAfterMove),
+		]),
+	};
+	const rebasedStep = {
+		id: "rebase-edit-over-move",
+		...replay("rebase", [
+			taggedPlain(revisions[2], editBeforeMove),
+			taggedPlain(revisions[0], move),
+		], {
+			revisionMetadata: [revisions[0], revisions[2]].map((revision) => ({
+				revision: Number(revision),
+				rollbackOf: null,
+			})),
+		}),
+	};
+	const inverseStep = {
+		id: "invert-composed",
+		...replay("invert", [
+			taggedPlain(revisions[3], composed),
+		], {
+			isRollback: false,
+			inverseRevision: Number(revisions[4]),
+		}),
+	};
+	return {
+		operation: "apply-modular",
+		initialState: {
+			field: [{
+				type: "org.watershed.shared-tree.m3.ForestNode",
+				fields: [
+					["label", [{ type: "com.fluidframework.leaf.string", value: "A", fields: [] }]],
+					["child", [{ type: "com.fluidframework.leaf.string", value: "old", fields: [] }]],
+				],
+			}, { type: "com.fluidframework.leaf.string", value: "B", fields: [] }],
+		},
+		operands: {
+			runs: [
+				{ id: "sequential", retainIndex: 0, steps: [moveStep, editStep] },
+				{ id: "composed", retainIndex: 0, steps: [composedStep] },
+				{ id: "rebased", retainIndex: 0, steps: [moveStep, rebasedStep] },
+				{ id: "inverse", retainIndex: 0, steps: [composedStep, inverseStep] },
+			],
+		},
+		revisions: revisions.map(Number),
+		algorithm: {
+			localIds: "supplied-by-operands",
+			composeAllocator: "unused-by-pinned-source",
+			rebaseAllocator: "unused-by-pinned-source",
+		},
+		compressor: {
+			mode: "test",
+			session: compressor.localSessionId,
+			serialized: serializeIdCompressor(compressor, true),
+		},
+		sequencing: { minimumSequenceNumber: 0, sequenceNumber: 0 },
+		schedule: ["sequential", "composed", "rebased", "inverse"],
 	};
 }
 

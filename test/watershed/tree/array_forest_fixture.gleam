@@ -8,6 +8,7 @@ import gleam/string
 import watershed/canonical_json
 import watershed/fluid_ids.{type StableId}
 import watershed/json_ot.{type JsonValue, VArray, VNull, VObject, VString}
+import watershed/tree/array_change_fixture
 import watershed/tree/change_fixture_codec as codec
 import watershed/tree/forest
 import watershed/tree/schema
@@ -73,6 +74,7 @@ fn run_scenario(value: JsonValue, scope: Int) -> Result(Json, String) {
   use context <- result.try(context(revisions))
   use result <- result.try(case operation {
     "apply-deltas" -> run_deltas(value, context, scope)
+    "apply-modular" -> run_modular(value, context, scope)
     "public-move-cycle" -> run_cycle(value, scope)
     _ -> Error("unsupported array forest operation: " <> operation)
   })
@@ -85,6 +87,67 @@ fn run_scenario(value: JsonValue, scope: Int) -> Result(Json, String) {
       #("result", result),
     ]),
   )
+}
+
+fn run_modular(
+  scenario: JsonValue,
+  context: Context,
+  scope: Int,
+) -> Result(Json, String) {
+  use initial <- result.try(codec.get(scenario, "initialState"))
+  use operands <- result.try(codec.get(scenario, "operands"))
+  use runs <- result.try(codec.field(operands, "runs", codec.items))
+  use observations <- result.try(
+    list.try_map(runs, fn(run) {
+      use id <- result.try(codec.field(run, "id", codec.text))
+      use retain_index <- result.try(codec.get(run, "retainIndex"))
+      use steps <- result.try(codec.field(run, "steps", codec.items))
+      use deltas <- result.try(
+        list.try_map(steps, fn(step) {
+          use output <- result.try(
+            array_change_fixture.run(
+              json.object([
+                #("scenarios", array([json_ot.to_json(step)])),
+              ]),
+            ),
+          )
+          use output <- result.try(codec.parse(output))
+          use observations <- result.try(codec.field(
+            output,
+            "observations",
+            codec.items,
+          ))
+          use observation <- result.try(case observations {
+            [observation] -> Ok(observation)
+            _ -> Error("a modular forest step must return one observation")
+          })
+          use result_value <- result.try(codec.get(observation, "result"))
+          use delta <- result.try(codec.get(result_value, "delta"))
+          use decoded <- result.try(decode_delta(delta, context))
+          Ok(#(delta, adapt_delta(decoded)))
+        }),
+      )
+      let replay =
+        VObject([
+          #("initialState", initial),
+          #(
+            "operands",
+            VObject([
+              #("retainIndex", retain_index),
+              #("deltas", VArray(list.map(deltas, fn(delta) { delta.0 }))),
+            ]),
+          ),
+        ])
+      use checkpoints <- result.try(run_deltas(replay, context, scope))
+      Ok(
+        json.object([
+          #("id", json.string(id)),
+          #("checkpoints", checkpoints),
+        ]),
+      )
+    }),
+  )
+  Ok(array(observations))
 }
 
 fn run_deltas(
@@ -829,12 +892,16 @@ fn decode_optional_atom(
   case value {
     VNull -> Ok(None)
     value -> {
+      let #(major_key, minor_key) = case codec.get(value, "major") {
+        Ok(_) -> #("major", "minor")
+        Error(_) -> #("revision", "localId")
+      }
       use major <- result.try(
-        codec.field(value, "major", fn(value) {
+        codec.field(value, major_key, fn(value) {
           codec.optional(value, codec.integer)
         }),
       )
-      use minor <- result.try(codec.field(value, "minor", codec.integer))
+      use minor <- result.try(codec.field(value, minor_key, codec.integer))
       case major {
         None -> Ok(Some(types.AtomId(None, minor)))
         Some(major) -> {
