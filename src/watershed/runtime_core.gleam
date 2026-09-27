@@ -1650,7 +1650,12 @@ fn resubmit_tree_batch(
             }),
           )
           use encoded <- result.try(
-            tree_runtime.encode_commit(current.1, state, compressor)
+            tree_runtime.encode_pending_commit(
+              current.1,
+              state,
+              core.last_seen_sequence_number,
+              compressor,
+            )
             |> result.map_error(fn(error) {
               TreeOperationFailed(address, error)
             }),
@@ -3568,6 +3573,68 @@ pub fn submit_tree_edits(
     }),
   )
   use <- bool.guard(list.is_empty(commits), Ok(#(core, [], [])))
+  use after <- result.try(
+    tree_kernel.read(state, [])
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  let events = case before == after && !array_changed {
+    True -> []
+    False -> [#(address, channel.TreeEvent(tree_kernel.TreeChanged(True)))]
+  }
+  submit_tree_commits(core, address, route, state, compressor, commits, events)
+}
+
+pub fn submit_tree_upgrade(
+  core: Core,
+  address: String,
+  view: tree_schema.ViewSchema,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use state <- result.try(tree_channel(core, address))
+  use compressor <- result.try(case core.compressor {
+    Some(compressor) -> Ok(compressor)
+    None -> Error(BadBootstrapSeed("tree channel has no document compressor"))
+  })
+  use #(state, commit, events, compressor) <- result.try(
+    tree_runtime.author_upgrade(state, view, compressor)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  case commit {
+    None -> Ok(#(core, [], []))
+    Some(commit) -> {
+      use route <- result.try(
+        fluid_container.route_from_path("/" <> address)
+        |> result.map_error(ContainerOperationFailed),
+      )
+      submit_tree_commits(
+        core,
+        address,
+        route,
+        state,
+        compressor,
+        [commit],
+        list.map(events.events, fn(event) {
+          #(address, channel.TreeEvent(event))
+        }),
+      )
+    }
+  }
+}
+
+fn submit_tree_commits(
+  core: Core,
+  address: String,
+  route: fluid_container.Route,
+  state: tree_kernel.TreeState,
+  compressor: fluid_ids.Compressor,
+  commits: List(history.Commit),
+  events: List(#(String, ChannelEvent)),
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
   let #(compressor, range) = fluid_ids.take_creation_range(compressor)
   use allocation <- result.try(case range {
     Some(range) -> Ok(range)
@@ -3631,14 +3698,6 @@ pub fn submit_tree_edits(
       contents,
       Some(outer_metadata),
     )
-  use after <- result.try(
-    tree_kernel.read(state, [])
-    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
-  )
-  let events = case before == after && !array_changed {
-    True -> []
-    False -> [#(address, channel.TreeEvent(tree_kernel.TreeChanged(True)))]
-  }
   Ok(
     #(
       Core(

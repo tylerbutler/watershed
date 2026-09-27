@@ -118,6 +118,11 @@ type RebaseResult {
   )
 }
 
+type RepairMode {
+  RequiredRepair
+  OptionalRepair
+}
+
 pub opaque type History {
   History(
     local_session: fluid_ids.SessionId,
@@ -1526,12 +1531,10 @@ pub fn resubmit(
   use commits <- result.try(
     list.try_map(state.pending, fn(entry) {
       let commit = entry.current.commit
-      use external_roots <- result.try(required_repair_roots(commit.change))
       let provided = case list.key_find(repair, commit.revision) {
         Ok(builds) -> builds
         Error(Nil) -> []
       }
-      use _ <- result.try(validate_repair_roots(external_roots, provided))
       use updated <- result.try(update_refreshers(commit.change, provided))
       Ok(Commit(..commit, change: updated))
     }),
@@ -1556,25 +1559,6 @@ fn outer_revisions(
   [revision, ..shared_change.identity_revisions(changeset)] |> list.unique
 }
 
-fn required_repair_roots(
-  changeset: shared_change.Changeset,
-) -> Result(List(types.AtomId), TreeError) {
-  use #(roots, _) <- result.try(
-    changeset
-    |> shared_change.to_changes
-    |> list.try_fold(#([], []), fn(state, item) {
-      case item {
-        shared_change.SchemaChange(_, _, _) -> Ok(state)
-        shared_change.DataChange(data) -> {
-          use #(next, available) <- result.try(unavailable_roots(data, state.1))
-          Ok(#(list.append(state.0, next), available))
-        }
-      }
-    }),
-  )
-  Ok(roots)
-}
-
 fn unavailable_roots(
   data: change.Changeset,
   prior_builds: List(forest.Build),
@@ -1593,26 +1577,54 @@ fn update_refreshers(
   changeset: shared_change.Changeset,
   repair: List(forest.Build),
 ) -> Result(shared_change.Changeset, TreeError) {
-  use #(items, _) <- result.try(
+  use _ <- result.try(check(
+    list.length(list.unique(list.map(repair, fn(build) { build.id })))
+      == list.length(repair),
+    "resubmission repair contains a duplicate root",
+  ))
+  use #(items, _, used, _) <- result.try(
     changeset
     |> shared_change.to_changes
-    |> list.try_fold(#([], []), fn(state, item) {
+    |> list.try_fold(#([], [], [], RequiredRepair), fn(state, item) {
       case item {
         shared_change.SchemaChange(_, _, _) ->
-          Ok(#(list.append(state.0, [item]), state.1))
+          Ok(#(list.append(state.0, [item]), state.1, state.2, state.3))
         shared_change.DataChange(data) -> {
           use #(roots, available) <- result.try(unavailable_roots(data, state.1))
+          let roots =
+            list.filter(roots, fn(root) {
+              !list.any(state.2, fn(supplied) { build_covers(supplied, root) })
+            })
+          let supplied =
+            list.filter(repair, fn(build) {
+              list.any(roots, fn(root) { build.id == root })
+            })
+          use _ <- result.try(case state.3 {
+            RequiredRepair -> validate_repair_roots(roots, supplied)
+            OptionalRepair -> Ok(Nil)
+          })
+          let refreshed_roots = list.map(supplied, fn(build) { build.id })
           use updated <- result.try(change.update_refreshers(
             data,
-            roots,
-            repair,
+            refreshed_roots,
+            supplied,
           ))
           Ok(#(
             list.append(state.0, [shared_change.DataChange(updated)]),
             available,
+            list.append(state.2, supplied),
+            OptionalRepair,
           ))
         }
       }
+    }),
+  )
+  use _ <- result.try(
+    list.try_each(repair, fn(build) {
+      check(
+        list.any(used, fn(value) { value.id == build.id }),
+        "resubmission repair contains an extraneous root",
+      )
     }),
   )
   shared_change.from_changes(items)

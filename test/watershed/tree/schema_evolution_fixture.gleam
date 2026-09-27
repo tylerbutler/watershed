@@ -989,6 +989,14 @@ fn canonical_tree_value(value: types.TreeValue) -> JsonValue {
           ),
         ),
       ])
+    types.ArrayValue(identifier, elements) ->
+      VObject([
+        #("type", VString(identifier)),
+        #(
+          "fields",
+          VObject([#("", VArray(list.map(elements, canonical_tree_value)))]),
+        ),
+      ])
   }
 }
 
@@ -2294,7 +2302,7 @@ fn replay_history_tail_for_client(
       compressor: allocation.compressor,
       next_rollback: allocation.next,
       events: case client.listening {
-        True -> append_history_events(client.events, events)
+        True -> append_history_events(client.events, events.events)
         False -> client.events
       },
     )

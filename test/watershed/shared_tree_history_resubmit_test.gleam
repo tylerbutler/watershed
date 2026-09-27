@@ -1,4 +1,5 @@
 import gleam/option.{Some}
+import gleam/string
 import startest/expect
 import watershed/fluid_ids
 import watershed/tree/change
@@ -116,4 +117,37 @@ pub fn shared_tree_history_resubmits_prior_run_build_without_repair_test() -> Ni
   let pending = mixed_run_scalar_commit(revision("01"))
   let assert Ok(local) = history.append_local(history.new(session()), pending)
   history.resubmit(local.history, []) |> expect.to_equal(Ok([pending]))
+}
+
+pub fn shared_tree_history_resubmits_schema_only_commit_test() -> Nil {
+  let assert Ok(before) = schema.stored_from_string(tree_schema)
+  let after =
+    tree_schema
+    |> string.replace(
+      "\"root\":{\"kind\":\"Value\"",
+      "\"root\":{\"kind\":\"Optional\"",
+    )
+    |> schema.stored_from_string
+    |> expect.to_be_ok
+  let assert Ok(outer) =
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(before),
+        schema.FixedSchema(after),
+        False,
+      ),
+    ])
+  let pending = history.Commit(revision("01"), session(), outer)
+  let assert Ok(local) = history.append_local(history.new(session()), pending)
+
+  history.resubmit(local.history, [#(pending.revision, [])])
+  |> expect.to_equal(Ok([pending]))
+}
+
+pub fn shared_tree_history_resubmits_empty_conflict_commit_test() -> Nil {
+  let pending = history.Commit(revision("01"), session(), shared_change.empty())
+  let assert Ok(local) = history.append_local(history.new(session()), pending)
+
+  history.resubmit(local.history, [#(pending.revision, [])])
+  |> expect.to_equal(Ok([pending]))
 }

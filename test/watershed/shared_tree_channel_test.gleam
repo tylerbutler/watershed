@@ -435,7 +435,7 @@ pub fn shared_tree_bridge_decodes_after_duplicate_schema_replay_test() {
   let sender =
     tree_kernel.restore(sender_snapshot, view_id, sender_session, view)
     |> expect.to_be_ok()
-  let assert Ok(#(sender, commit, _, sender_compressor)) =
+  let assert Ok(#(sender, Some(commit), _, sender_compressor)) =
     tree_runtime.author_edit(
       sender,
       SetField(["note"], StringValue("after duplicate")),
@@ -489,7 +489,7 @@ pub fn shared_tree_bridge_decodes_local_data_ack_after_same_reference_upgrade_te
       schema_change,
     )
     |> expect.to_be_ok()
-  let #(edited, data, _, compressor) =
+  let assert #(edited, Some(data), _, compressor) =
     tree_runtime.author_edit(
       upgraded,
       SetField(
@@ -672,7 +672,7 @@ pub fn shared_tree_bridge_receives_authored_prefix_after_trim_test() {
   let initial =
     tree_kernel.restore(snapshot, view_id, local_session, view)
     |> expect.to_be_ok()
-  let #(first_state, first, _, compressor) =
+  let assert #(first_state, Some(first), _, compressor) =
     tree_runtime.author_edit(
       initial,
       SetField(["note"], StringValue("before upgrade")),
@@ -707,7 +707,7 @@ pub fn shared_tree_bridge_receives_authored_prefix_after_trim_test() {
       schema_change,
     )
     |> expect.to_be_ok()
-  let #(edited, final_data, _, compressor) =
+  let assert #(edited, Some(final_data), _, compressor) =
     tree_runtime.author_edit(
       upgraded,
       SetField(
@@ -849,7 +849,7 @@ fn concurrent_local_upgrade_and_data_from(
       order,
       schema_change,
     )
-  let assert Ok(#(edited, data, _, compressor)) =
+  let assert Ok(#(edited, Some(data), _, compressor)) =
     tree_runtime.author_edit(
       upgraded,
       SetField(

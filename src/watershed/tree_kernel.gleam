@@ -45,6 +45,11 @@ pub type ChangeEvents {
   ChangeEvents(events: List(TreeEvent), array_changed: Bool)
 }
 
+type RepairMode {
+  RequiredRepair
+  OptionalRepair
+}
+
 pub fn snapshot_from_parts(
   view_id: fluid_ids.StableId,
   stored: schema.StoredSchema,
@@ -205,24 +210,10 @@ pub fn resubmit_commits(
       #(state.sequenced, []),
       fn(acc, commit) {
         let #(before, repairs) = acc
-        use roots <- result.try(required_repair_roots(commit.change))
-        use external <- result.try(
-          roots
-          |> list.try_map(fn(root) {
-            use reference <- result.try(forest.locate_detached(before, root))
-            use value <- result.try(forest.read_node(before, reference))
-            Ok(forest.Build(root, [value]))
-          }),
-        )
-        use enriched <- result.try(update_refreshers(commit.change, external))
-        use effects <- result.try(
-          shared_change.effects(shared_change.TaggedChange(
-            Some(commit.revision),
-            None,
-            enriched,
-          )),
-        )
-        use after <- result.try(apply_effects(before, effects))
+        use #(after, external) <- result.try(replay_pending_commit(
+          before,
+          commit,
+        ))
         Ok(#(after, list.append(repairs, [#(commit.revision, external)])))
       },
     ),
@@ -230,11 +221,94 @@ pub fn resubmit_commits(
   use expected <- result.try(forest.visible_root(state.visible))
   use actual <- result.try(forest.visible_root(scratch))
   use _ <- result.try(case expected == actual {
-    True -> Ok(Nil)
+    True ->
+      case
+        forest.stored_schema(state.visible) == forest.stored_schema(scratch)
+      {
+        True -> Ok(Nil)
+        False ->
+          Error(types.InvalidHistory(
+            "pending replay does not match visible schema",
+          ))
+      }
     False ->
       Error(types.InvalidHistory("pending replay does not match visible tree"))
   })
   history.resubmit(state.history, repair)
+}
+
+fn replay_pending_commit(
+  state: forest.Forest,
+  commit: history.Commit,
+) -> Result(#(forest.Forest, List(forest.Build)), TreeError) {
+  use #(state, _, repair, _, _) <- result.try(
+    shared_change.to_changes(commit.change)
+    |> list.try_fold(#(state, [], [], [], RequiredRepair), fn(output, item) {
+      let #(state, prior_builds, repair, supplied, required) = output
+      case item {
+        shared_change.SchemaChange(_, _, _) -> {
+          use changeset <- result.try(shared_change.from_changes([item]))
+          use effects <- result.try(
+            shared_change.effects(shared_change.TaggedChange(
+              Some(commit.revision),
+              None,
+              changeset,
+            )),
+          )
+          use state <- result.try(apply_effects(state, effects))
+          Ok(#(state, prior_builds, repair, supplied, required))
+        }
+        shared_change.DataChange(data) -> {
+          use #(roots, available) <- result.try(unavailable_roots(
+            data,
+            prior_builds,
+          ))
+          let roots =
+            list.filter(roots, fn(root) { !list.contains(supplied, root) })
+          use found <- result.try(
+            list.try_fold(roots, [], fn(found, root) {
+              case forest.locate_detached(state, root) {
+                Ok(reference) -> {
+                  use value <- result.try(forest.read_node(state, reference))
+                  Ok(list.append(found, [forest.Build(root, [value])]))
+                }
+                Error(error) ->
+                  case required {
+                    RequiredRepair -> Error(error)
+                    OptionalRepair -> Ok(found)
+                  }
+              }
+            }),
+          )
+          let found_roots = list.map(found, fn(build) { build.id })
+          use data <- result.try(change.update_refreshers(
+            data,
+            found_roots,
+            found,
+          ))
+          use changeset <- result.try(
+            shared_change.from_changes([shared_change.DataChange(data)]),
+          )
+          use effects <- result.try(
+            shared_change.effects(shared_change.TaggedChange(
+              Some(commit.revision),
+              None,
+              changeset,
+            )),
+          )
+          use state <- result.try(apply_effects(state, effects))
+          Ok(#(
+            state,
+            available,
+            list.append(repair, found),
+            list.append(supplied, found_roots),
+            OptionalRepair,
+          ))
+        }
+      }
+    }),
+  )
+  Ok(#(state, repair))
 }
 
 pub fn stored_schema(state: TreeState) -> schema.StoredSchema {
@@ -619,25 +693,6 @@ fn validate_forward_schema_changes(
   })
 }
 
-fn required_repair_roots(
-  changeset: shared_change.Changeset,
-) -> Result(List(types.AtomId), TreeError) {
-  use #(roots, _) <- result.try(
-    changeset
-    |> shared_change.to_changes
-    |> list.try_fold(#([], []), fn(state, item) {
-      case item {
-        shared_change.SchemaChange(_, _, _) -> Ok(state)
-        shared_change.DataChange(data) -> {
-          use #(next, available) <- result.try(unavailable_roots(data, state.1))
-          Ok(#(list.append(state.0, next), available))
-        }
-      }
-    }),
-  )
-  Ok(roots)
-}
-
 fn unavailable_roots(
   data: change.Changeset,
   prior_builds: List(forest.Build),
@@ -650,35 +705,6 @@ fn unavailable_roots(
     }),
     available,
   ))
-}
-
-fn update_refreshers(
-  changeset: shared_change.Changeset,
-  repair: List(forest.Build),
-) -> Result(shared_change.Changeset, TreeError) {
-  use #(items, _) <- result.try(
-    changeset
-    |> shared_change.to_changes
-    |> list.try_fold(#([], []), fn(state, item) {
-      case item {
-        shared_change.SchemaChange(_, _, _) ->
-          Ok(#(list.append(state.0, [item]), state.1))
-        shared_change.DataChange(data) -> {
-          use #(roots, available) <- result.try(unavailable_roots(data, state.1))
-          use updated <- result.try(change.update_refreshers(
-            data,
-            roots,
-            repair,
-          ))
-          Ok(#(
-            list.append(state.0, [shared_change.DataChange(updated)]),
-            available,
-          ))
-        }
-      }
-    }),
-  )
-  shared_change.from_changes(items)
 }
 
 fn changed_events(

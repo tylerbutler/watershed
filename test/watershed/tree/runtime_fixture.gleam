@@ -953,12 +953,36 @@ pub fn export_runtime(input: Json) -> Result(Json, String) {
 }
 
 pub fn routed_core() -> Result(runtime_core.Core, String) {
+  routed_core_for("reader", "30000000-0000-4000-8000-000000000003")
+}
+
+pub fn routed_core_for(
+  client_id: String,
+  session_id: String,
+) -> Result(runtime_core.Core, String) {
   use #(input, prefix) <- result.try(routed_seed_input())
+  use session <- result.try(
+    fluid_ids.session_id(session_id) |> result.map_error(string.inspect),
+  )
+  use compressor <- result.try(case input.compressor {
+    Some(compressor) -> Ok(compressor)
+    None -> Error("runtime fixture has no compressor")
+  })
+  use serialized <- result.try(
+    fluid_ids.serialize(compressor, False) |> result.map_error(string.inspect),
+  )
+  use compressor <- result.try(
+    fluid_ids.deserialize(serialized, session)
+    |> result.map_error(string.inspect),
+  )
   use seed <- result.try(
-    runtime_core.bootstrap_seed(input) |> result.map_error(string.inspect),
+    runtime_core.bootstrap_seed(
+      runtime_core.BootstrapSeedInput(..input, compressor: Some(compressor)),
+    )
+    |> result.map_error(string.inspect),
   )
   use bootstrapped <- result.try(
-    runtime_core.bootstrap_seeded(connected("reader", prefix, 2), seed)
+    runtime_core.bootstrap_seeded(connected(client_id, prefix, 2), seed)
     |> result.map_error(string.inspect),
   )
   case bootstrapped {

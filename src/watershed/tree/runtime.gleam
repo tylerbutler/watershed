@@ -120,6 +120,44 @@ pub fn encode_commit(
   )
 }
 
+pub fn encode_pending_commit(
+  commit: history.Commit,
+  state: tree_kernel.TreeState,
+  reference_sequence_number: Int,
+  compressor: fluid_ids.Compressor,
+) -> Result(Json, TreeError) {
+  use start <- result.try(tree_kernel.authoring_schema(
+    state,
+    commit.originator,
+    reference_sequence_number,
+    commit.revision,
+  ))
+  use finish <- result.try(tree_kernel.advance_authoring_schema(
+    start,
+    shared_change.to_changes(commit.change),
+  ))
+  case finish {
+    schema.FixedSchema(stored) ->
+      codec.encode_message(
+        codec.TreeMessage(
+          codec.WireCommit(
+            commit.revision,
+            commit.originator,
+            shared_change.to_changes(commit.change),
+            None,
+          ),
+          [],
+        ),
+        codec.EncodeContext(codec.Fluid310, compressor, Some(stored)),
+      )
+    schema.EmptySchema ->
+      Error(types.UnsupportedFeature(
+        "tree.schema",
+        "cannot encode a commit with an uninitialized schema",
+      ))
+  }
+}
+
 pub fn identity_order(
   state: tree_kernel.TreeState,
   commit: history.Commit,
@@ -215,6 +253,70 @@ pub fn author_edit(
     empty,
     Ok(#(state, None, tree_kernel.ChangeEvents([], False), compressor)),
   )
+  use #(revision, order, compressor) <- result.try(allocate_revision(
+    state,
+    compressor,
+  ))
+  use #(state, commit, events) <- result.try(tree_kernel.apply_local(
+    state,
+    revision,
+    order,
+    edit,
+  ))
+  Ok(#(state, Some(commit), events, compressor))
+}
+
+pub fn author_upgrade(
+  state: tree_kernel.TreeState,
+  view: schema.ViewSchema,
+  compressor: fluid_ids.Compressor,
+) -> Result(
+  #(
+    tree_kernel.TreeState,
+    Option(history.Commit),
+    tree_kernel.ChangeEvents,
+    fluid_ids.Compressor,
+  ),
+  TreeError,
+) {
+  use target <- result.try(schema.prepare_upgrade(
+    tree_kernel.stored_schema(state),
+    view,
+  ))
+  case target {
+    None -> Ok(#(state, None, tree_kernel.ChangeEvents([], False), compressor))
+    Some(target) -> {
+      use #(revision, order, compressor) <- result.try(allocate_revision(
+        state,
+        compressor,
+      ))
+      use outer <- result.try(
+        shared_change.from_changes([
+          shared_change.SchemaChange(
+            schema.FixedSchema(tree_kernel.stored_schema(state)),
+            schema.FixedSchema(target),
+            False,
+          ),
+        ]),
+      )
+      use #(state, commit, events) <- result.try(tree_kernel.apply_local_change(
+        state,
+        revision,
+        order,
+        outer,
+      ))
+      Ok(#(state, Some(commit), events, compressor))
+    }
+  }
+}
+
+fn allocate_revision(
+  state: tree_kernel.TreeState,
+  compressor: fluid_ids.Compressor,
+) -> Result(
+  #(fluid_ids.StableId, change.IdentityOrder, fluid_ids.Compressor),
+  TreeError,
+) {
   use #(compressor, id) <- result.try(
     fluid_ids.generate(compressor)
     |> result.map_error(fn(error) {
@@ -232,13 +334,7 @@ pub fn author_edit(
     compressor,
     "tree author identity order",
   ))
-  use #(state, commit, events) <- result.try(tree_kernel.apply_local(
-    state,
-    revision,
-    order,
-    edit,
-  ))
-  Ok(#(state, Some(commit), events, compressor))
+  Ok(#(revision, order, compressor))
 }
 
 fn mint_revision(
