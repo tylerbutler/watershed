@@ -113,7 +113,8 @@ type DeltaParts {
 
 type ComposeWork {
   ComposeWork(
-    field: moves.FieldId,
+    source_field: moves.FieldId,
+    result_field: moves.FieldId,
     first: sequence_field.Changeset,
     second: sequence_field.Changeset,
   )
@@ -127,6 +128,7 @@ type ComposeState {
     first: ChangeData,
     second: ChangeData,
     pairs: List(#(AtomId, AtomId)),
+    pending_pairs: List(#(AtomId, AtomId)),
     algebra: sequence_field.AlgebraContext,
     move_context: moves.Context,
     work: List(ComposeWork),
@@ -1945,7 +1947,10 @@ pub fn rebase_with_trace(
       [],
       [],
       algebra_context(identity_order, context.revisions),
-      moves.with_owners(moves.new(), owner_ranges(over.change.cross_field_keys)),
+      moves.with_owners(
+        moves.new(),
+        owner_ranges(over.change.cross_field_keys, moves.BaseOperand),
+      ),
       [],
       [],
     )
@@ -3233,13 +3238,14 @@ fn compose_pair(
       first_data,
       second_data,
       [],
+      [],
       algebra_context(identity_order, revisions),
       moves.with_owners(
         moves.new(),
-        owner_ranges(list.append(
-          first.cross_field_keys,
-          second.cross_field_keys,
-        )),
+        list.append(
+          owner_ranges(first.cross_field_keys, moves.FirstOperand),
+          owner_ranges(second.cross_field_keys, moves.SecondOperand),
+        ),
       ),
       [],
       [],
@@ -3362,7 +3368,7 @@ fn compose_field(
             move_context: output.2,
             work: put_compose_work(
               output.1.work,
-              ComposeWork(field_id, first, second),
+              ComposeWork(field_id, field_id, first, second),
             ),
             field_results: put_pair(output.1.field_results, field_id, field),
           ),
@@ -3485,10 +3491,10 @@ fn put_compose_work(
   work: List(ComposeWork),
   entry: ComposeWork,
 ) -> List(ComposeWork) {
-  let ComposeWork(field, _, _) = entry
+  let ComposeWork(field, _, _, _) = entry
   case
     list.any(work, fn(existing) {
-      let ComposeWork(existing, _, _) = existing
+      let ComposeWork(existing, _, _, _) = existing
       existing == field
     })
   {
@@ -3529,27 +3535,76 @@ fn put_invert_work(
   }
 }
 
-fn compose_work_for(
+fn compose_affected_work_for(
   state: ComposeState,
-  field: moves.FieldId,
+  affected: moves.Affected,
 ) -> Result(ComposeWork, TreeError) {
-  case find_compose_work(state.work, field) {
-    Ok(work) -> Ok(work)
-    Error(_) -> {
-      use first <- result.try(sequence_field_for(state.first, field))
-      use second <- result.try(sequence_field_for(state.second, field))
-      use empty <- result.try(sequence_field.from_marks([]))
-      case first, second {
-        None, None ->
-          Error(CorruptData("compose", "affected sequence field is unknown"))
-        _, _ ->
-          Ok(ComposeWork(
-            field,
-            option.unwrap(first, empty),
-            option.unwrap(second, empty),
-          ))
-      }
+  let moves.Affected(origin, source) = affected
+  use result_field <- result.try(normalize_field_id(source, state.aliases))
+  use #(first_field, second_field) <- result.try(compose_operand_fields(
+    origin,
+    source,
+    state,
+  ))
+  use first <- result.try(optional_sequence_field_for(state.first, first_field))
+  use second <- result.try(optional_sequence_field_for(
+    state.second,
+    second_field,
+  ))
+  use empty <- result.try(sequence_field.from_marks([]))
+  case first, second {
+    None, None ->
+      Error(CorruptData("compose", "affected sequence field is unknown"))
+    _, _ ->
+      Ok(ComposeWork(
+        source,
+        result_field,
+        option.unwrap(first, empty),
+        option.unwrap(second, empty),
+      ))
+  }
+}
+
+fn compose_operand_fields(
+  origin: moves.Origin,
+  source: moves.FieldId,
+  state: ComposeState,
+) -> Result(#(Option(moves.FieldId), Option(moves.FieldId)), TreeError) {
+  case origin, source.parent {
+    moves.FirstOperand, None -> Ok(#(Some(source), Some(source)))
+    moves.SecondOperand, None -> Ok(#(Some(source), Some(source)))
+    moves.FirstOperand, Some(parent) -> {
+      use parent <- result.try(resolve_alias(parent, state.first.aliases))
+      let other =
+        list.find(state.pairs, fn(pair) { pair.0 == parent })
+        |> result.map(fn(pair) {
+          Some(moves.FieldId(Some(pair.1), source.field))
+        })
+        |> result.unwrap(None)
+      Ok(#(Some(source), other))
     }
+    moves.SecondOperand, Some(parent) -> {
+      use parent <- result.try(resolve_alias(parent, state.second.aliases))
+      let other =
+        list.find(state.pairs, fn(pair) { pair.1 == parent })
+        |> result.map(fn(pair) {
+          Some(moves.FieldId(Some(pair.0), source.field))
+        })
+        |> result.unwrap(None)
+      Ok(#(other, Some(source)))
+    }
+    moves.BaseOperand, _ ->
+      Error(CorruptData("compose", "affected field has the wrong origin"))
+  }
+}
+
+fn optional_sequence_field_for(
+  data: ChangeData,
+  field: Option(moves.FieldId),
+) -> Result(Option(sequence_field.Changeset), TreeError) {
+  case field {
+    None -> Ok(None)
+    Some(field) -> sequence_field_for(data, field)
   }
 }
 
@@ -3596,9 +3651,12 @@ fn sequence_field_for(
   }
 }
 
-fn owner_ranges(keys: List(CrossFieldKey)) -> List(moves.OwnerRange) {
+fn owner_ranges(
+  keys: List(CrossFieldKey),
+  origin: moves.Origin,
+) -> List(moves.OwnerRange) {
   list.map(keys, fn(entry) {
-    moves.OwnerRange(entry.key, entry.count, entry.field)
+    moves.OwnerRange(entry.key, entry.count, origin, entry.field, entry.field)
   })
 }
 
@@ -3714,12 +3772,29 @@ fn compose_invalidated(
   state: ComposeState,
   processed: List(#(moves.FieldId, FieldChange, moves.Context)),
 ) -> Result(ComposeState, TreeError) {
+  case state.pending_pairs {
+    [pair, ..rest] -> {
+      use #(_, state) <- result.try(compose_nodes(
+        pair.0,
+        pair.1,
+        ComposeState(..state, pending_pairs: rest),
+      ))
+      compose_invalidated(state, processed)
+    }
+    [] -> compose_field_work(state, processed)
+  }
+}
+
+fn compose_field_work(
+  state: ComposeState,
+  processed: List(#(moves.FieldId, FieldChange, moves.Context)),
+) -> Result(ComposeState, TreeError) {
   let #(affected, move_context) = moves.take_affected(state.move_context)
   let state = ComposeState(..state, move_context:)
   case affected, moves.invalidated(state.move_context) {
-    [field, ..rest], _ -> {
-      use work <- result.try(compose_work_for(state, field))
-      let ComposeWork(_, first, second) = work
+    [affected, ..rest], _ -> {
+      use work <- result.try(compose_affected_work_for(state, affected))
+      let ComposeWork(field, result_field, first, second) = work
       let #(_, move_context) =
         moves.take_invalidated_for(state.move_context, field)
       let move_context = moves.enter_field(move_context, "compose", field)
@@ -3736,15 +3811,15 @@ fn compose_invalidated(
       )
       let result = SequenceField(change)
       let move_context =
-        list.fold(rest, move_context, fn(context, field) {
-          moves.queue_affected(context, field)
+        list.fold(rest, move_context, fn(context, affected) {
+          moves.queue_affected(context, affected)
         })
       compose_invalidated(
         ComposeState(
           ..next,
           move_context:,
           work: put_compose_work(next.work, work),
-          field_results: put_pair(next.field_results, field, result),
+          field_results: put_pair(next.field_results, result_field, result),
         ),
         processed,
       )
@@ -3759,7 +3834,7 @@ fn compose_invalidated(
         "compose",
         "invalidated sequence field has no pending work",
       ))
-      let ComposeWork(_, first, second) = work
+      let ComposeWork(_, result_field, first, second) = work
       let move_context = moves.enter_field(move_context, "compose", field)
       use #(change, next, move_context) <- result.try(
         sequence_compose.compose_with_context(
@@ -3786,7 +3861,7 @@ fn compose_invalidated(
         ComposeState(
           ..next,
           move_context:,
-          field_results: put_pair(next.field_results, field, result),
+          field_results: put_pair(next.field_results, result_field, result),
         ),
         [#(field, result, move_context), ..processed],
       )
@@ -3801,12 +3876,13 @@ fn rebase_invalidated(
   let #(affected, move_context) = moves.take_affected(state.move_context)
   let state = RebaseState(..state, move_context:)
   case affected, moves.invalidated(state.move_context) {
-    [field, ..rest], _ -> {
-      use work <- result.try(rebase_work_for(state, field))
+    [affected, ..rest], _ -> {
+      let moves.Affected(_, source_field) = affected
+      use work <- result.try(rebase_work_for(state, source_field))
       let RebaseWork(_, authored, base) = work
       let #(_, move_context) =
-        moves.take_invalidated_for(state.move_context, field)
-      let move_context = moves.enter_field(move_context, "rebase", field)
+        moves.take_invalidated_for(state.move_context, source_field)
+      let move_context = moves.enter_field(move_context, "rebase", source_field)
       use #(change, next, move_context) <- result.try(
         sequence_rebase.rebase_with_context(
           authored,
@@ -3814,15 +3890,18 @@ fn rebase_invalidated(
           state,
           rebase_sequence_child,
           state.algebra,
-          field,
+          source_field,
           move_context,
         ),
       )
       let result = SequenceField(change)
-      use #(result_field, next) <- result.try(rebased_field_id(next, field))
+      use #(result_field, next) <- result.try(rebased_field_id(
+        next,
+        source_field,
+      ))
       let move_context =
-        list.fold(rest, move_context, fn(context, field) {
-          moves.queue_affected(context, field)
+        list.fold(rest, move_context, fn(context, affected) {
+          moves.queue_affected(context, affected)
         })
       rebase_invalidated(
         RebaseState(
@@ -3937,7 +4016,7 @@ fn find_compose_work(
   field: moves.FieldId,
 ) -> Result(ComposeWork, TreeError) {
   list.find(work, fn(entry) {
-    let ComposeWork(found, _, _) = entry
+    let ComposeWork(found, _, _, _) = entry
     found == field
   })
   |> result.map_error(fn(_) {
@@ -4146,11 +4225,29 @@ fn compose_child(
   state: ComposeState,
 ) -> Result(#(AtomId, ComposeState), TreeError) {
   case first, second {
-    Some(first), Some(second) -> compose_nodes(first, second, state)
+    Some(first), Some(second) -> queue_compose_nodes(first, second, state)
     Some(first), None -> Ok(#(first, state))
     None, Some(second) -> Ok(#(second, state))
     None, None -> Error(CorruptData("compose", "child changes are missing"))
   }
+}
+
+fn queue_compose_nodes(
+  first: AtomId,
+  second: AtomId,
+  state: ComposeState,
+) -> Result(#(AtomId, ComposeState), TreeError) {
+  use first <- result.try(resolve_alias(first, state.first.aliases))
+  use second <- result.try(resolve_alias(second, state.second.aliases))
+  use canonical <- result.try(resolve_alias(first, state.aliases))
+  let pair = #(first, second)
+  let pending_pairs = case
+    list.contains(state.pairs, pair) || list.contains(state.pending_pairs, pair)
+  {
+    True -> state.pending_pairs
+    False -> list.append(state.pending_pairs, [pair])
+  }
+  Ok(#(canonical, ComposeState(..state, pending_pairs:)))
 }
 
 fn compose_sequence_child(
@@ -4159,12 +4256,21 @@ fn compose_sequence_child(
   state: ComposeState,
   move_context: moves.Context,
 ) -> Result(#(AtomId, ComposeState, moves.Context), TreeError) {
-  use #(child, state) <- result.try(compose_child(
-    first,
-    second,
-    ComposeState(..state, move_context: move_context),
-  ))
-  Ok(#(child, state, state.move_context))
+  case first, second {
+    Some(first), Some(second) -> {
+      use #(child, state) <- result.try(queue_compose_nodes(
+        first,
+        second,
+        ComposeState(..state, move_context: move_context),
+      ))
+      Ok(#(child, state, state.move_context))
+    }
+    Some(first), None ->
+      Ok(#(first, ComposeState(..state, move_context:), move_context))
+    None, Some(second) ->
+      Ok(#(second, ComposeState(..state, move_context:), move_context))
+    None, None -> Error(CorruptData("compose", "child changes are missing"))
+  }
 }
 
 fn compose_nodes(
@@ -4184,14 +4290,6 @@ fn compose_nodes(
       use second_node <- result.try(node_for(second_id, state.second.nodes))
       let NodeChange(first_fields) = first_node
       let NodeChange(second_fields) = second_node
-      let state =
-        ComposeState(..state, pairs: [#(first_id, second_id), ..state.pairs])
-      use #(fields, state) <- result.try(compose_field_maps(
-        first_fields,
-        second_fields,
-        Some(first_id),
-        state,
-      ))
       use first_canonical <- result.try(resolve_alias(first_id, state.aliases))
       use second_canonical <- result.try(resolve_alias(second_id, state.aliases))
       use #(canonical, aliases) <- result.try(unify_aliases(
@@ -4201,6 +4299,19 @@ fn compose_nodes(
       ))
       let move_context =
         moves.replace_parent(state.move_context, second_canonical, canonical)
+      let state =
+        ComposeState(
+          ..state,
+          pairs: [#(first_id, second_id), ..state.pairs],
+          aliases:,
+          move_context:,
+        )
+      use #(fields, state) <- result.try(compose_field_maps(
+        first_fields,
+        second_fields,
+        Some(first_id),
+        state,
+      ))
       use parent <- result.try(parent_for(first_id, state.first.parents))
       use parent <- result.try(normalize_parent(parent, aliases))
       let nodes =
@@ -4213,16 +4324,7 @@ fn compose_nodes(
         |> remove_pair(first_canonical)
         |> remove_pair(second_canonical)
         |> put_pair(canonical, parent)
-      Ok(#(
-        canonical,
-        ComposeState(
-          ..state,
-          nodes: nodes,
-          parents: parents,
-          aliases: aliases,
-          move_context: move_context,
-        ),
-      ))
+      Ok(#(canonical, ComposeState(..state, nodes: nodes, parents: parents)))
     }
   }
 }

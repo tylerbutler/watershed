@@ -83,9 +83,10 @@ const scenarioIds = {
 		"schema-content-bytes",
 	],
 	"array-modular-algebra": [
-		"generic-to-sequence", "sequence-to-generic", "nested-ancestors", "common-ancestors",
-		"cross-field-endpoints", "nested-cross-field-endpoints", "node-table", "parent-table",
-		"alias-table", "ownership-roundtrip",
+		"generic-to-sequence", "sequence-to-generic", "nested-conversions", "nested-ancestors",
+		"common-ancestors", "cross-field-endpoints", "nested-cross-field-endpoints",
+		"nested-aliased-chain", "node-table", "parent-table", "alias-table",
+		"ownership-roundtrip",
 	],
 	"array-codecs": [
 		"sequence-v3", "message-v7", "builds", "empty-arrays", "retained-history",
@@ -2171,6 +2172,34 @@ async function makeCases() {
 		nodes: [[atom(r9, 61), { fields: [] }]],
 		parents: [[atom(r9, 61), parent("left")]],
 	});
+	const nestedGeneric = emptyChange(r0, [["outer", sequence([
+		{ count: 1, changes: atom(r0, 70) },
+	])]], {
+		maxLocalId: 72,
+		nodes: [
+			[atom(r0, 70), { fields: [["inner", generic([[0, atom(r0, 72)]])]] }],
+			[atom(r0, 72), { fields: [] }],
+		],
+		parents: [
+			[atom(r0, 70), parent("outer")],
+			[atom(r0, 72), parent("inner", atom(r0, 70))],
+		],
+	});
+	const nestedSequence = emptyChange(r1, [["outer", sequence([
+		{ count: 1, changes: atom(r1, 71) },
+	])]], {
+		maxLocalId: 73,
+		nodes: [
+			[atom(r1, 71), { fields: [["inner", sequence([
+				{ count: 1, changes: atom(r1, 73) },
+			])]] }],
+			[atom(r1, 73), { fields: [] }],
+		],
+		parents: [
+			[atom(r1, 71), parent("outer")],
+			[atom(r1, 73), parent("inner", atom(r1, 71))],
+		],
+	});
 	const nestedCrossField = copy(
 		crossFieldCoordinationInput(r6, modularCompressor),
 	) as unknown as {
@@ -2202,6 +2231,43 @@ async function makeCases() {
 		change.maxLocalId = 60 + index;
 	});
 	nestedCrossField.allocator.maxLocalId = 61;
+	const nestedAliasedChain = copy(nestedCrossField);
+	const chainSecond = nestedAliasedChain.operands.changes[1].change;
+	const chainNode = chainSecond.nodes[0] as [
+		unknown,
+		{ fields: unknown[] },
+	];
+	chainNode[1].fields = [
+		["right", sequence([{
+			type: "MoveOut",
+			id: 44,
+			count: 2,
+			revision: Number(r6),
+		}])],
+		["narrow", sequence([{
+			type: "MoveIn",
+			id: 44,
+			count: 2,
+			cellId: atom(r6, 46),
+			revision: Number(r6),
+		}])],
+	];
+	Reflect.set(chainSecond, "crossFieldKeys", [
+		{
+			target: "source",
+			revision: Number(r6),
+			localId: 44,
+			count: 2,
+			field: { node: atom(r6, 61), field: "right" },
+		},
+		{
+			target: "destination",
+			revision: Number(r6),
+			localId: 44,
+			count: 2,
+			field: { node: atom(r6, 61), field: "narrow" },
+		},
+	]);
 	const crossFieldInput =
 		crossFieldCoordinationInput(r6, modularCompressor) as unknown as Record<string, unknown>;
 	const crossFieldOutput = replayArrayModularInput(copy(crossFieldInput)) as {
@@ -2226,6 +2292,10 @@ async function makeCases() {
 			tagged(r1, sequenceLeft),
 			tagged(r0, genericLeft),
 		]),
+		"nested-conversions": replayContext("compose", [
+			tagged(r0, nestedGeneric),
+			tagged(r1, nestedSequence),
+		]),
 		"nested-ancestors": replayContext("invert", [tagged(r2, nestedMap)], {
 			isRollback: false,
 			inverseRevision: Number(r5),
@@ -2242,6 +2312,7 @@ async function makeCases() {
 		),
 		"cross-field-endpoints": crossFieldInput,
 		"nested-cross-field-endpoints": nestedCrossField as unknown as Record<string, unknown>,
+		"nested-aliased-chain": nestedAliasedChain as unknown as Record<string, unknown>,
 		"node-table": replayContext("invert", [tagged(r2, nestedMap)], {
 			isRollback: true,
 			inverseRevision: Number(r7),
@@ -2276,9 +2347,13 @@ async function makeCases() {
 			`${id}: modular replay must return an object.`,
 		);
 		const outputRecord = output as Record<string, unknown>;
-		if (id === "generic-to-sequence" || id === "sequence-to-generic") {
+		if (
+			id === "generic-to-sequence" ||
+			id === "sequence-to-generic" ||
+			id === "nested-conversions"
+		) {
 			const expectedDirection =
-				id === "generic-to-sequence" ? "generic-left" : "generic-right";
+				id === "sequence-to-generic" ? "generic-right" : "generic-left";
 			const conversion = Reflect.get(outputRecord, "conversion");
 			assert(
 				conversion !== null && typeof conversion === "object",
@@ -2289,19 +2364,33 @@ async function makeCases() {
 				[expectedDirection],
 				`${id}: the source handler must convert the Generic operand.`,
 			);
+			if (id === "nested-conversions") {
+				const calls = Reflect.get(conversion, "calls") as {
+					field: { node: { localId: number } | null; field: string };
+				}[];
+				assert.deepEqual(
+					calls.map(({ field }) => [field.node?.localId, field.field]),
+					[[70, "inner"]],
+					"Nested conversion must retain its serialized field identity.",
+				);
+			}
 			const mutated = copy(input);
 			const operands = Reflect.get(mutated, "operands") as {
 				changes: {
-					change: { fields: [string, { change: { children?: [number, unknown][] } }][] };
+					change: {
+						fields: [string, { change: { children?: [number, unknown][] } }][];
+						nodes: [unknown, {
+							fields: [string, { change: { children?: [number, unknown][] } }][];
+						}][];
+					};
 				}[];
 			};
-			const genericOperand = operands.changes.find(({ change }) =>
-				change.fields.some(([, field]) => field.change.children !== undefined),
-			);
-			assert(genericOperand !== undefined, `${id}: a Generic operand is required.`);
-			const genericField = genericOperand.change.fields.find(
-				([, field]) => field.change.children !== undefined,
-			);
+			const genericField = operands.changes
+				.flatMap(({ change }) => [
+					...change.fields,
+					...change.nodes.flatMap(([, node]) => node.fields),
+				])
+				.find(([, field]) => field.change.children !== undefined);
 			assert(
 				genericField?.[1].change.children !== undefined,
 				`${id}: the Generic child entries are required.`,
@@ -2340,6 +2429,23 @@ async function makeCases() {
 						call.count > call.returnedLength,
 				),
 				"The source manager must expose an overlapping partial-range query.",
+			);
+		}
+		if (id === "nested-aliased-chain") {
+			const graph = Reflect.get(outputRecord, "graph") as {
+				aliases: unknown[];
+				fields: unknown[];
+				nodes: unknown[];
+			};
+			assert.deepEqual(
+				graph.aliases,
+				[[atom(r6, 61), atom(r6, 60)]],
+				"The nested chain must retain the second operand alias.",
+			);
+			assert.deepEqual(
+				rawOutput.coordination.handlerCalls.map(({ field }) => field.field),
+				["outer", "right", "left", "narrow"],
+				"The nested chain must process both untouched endpoint owners.",
 			);
 		}
 		if (id === "ownership-roundtrip") {

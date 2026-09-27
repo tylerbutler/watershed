@@ -287,7 +287,7 @@ function decodeFieldChanges(
 	instrumentation: Instrumentation,
 	owner: FieldIdentity["node"],
 	operand: number,
-	otherFields: readonly (readonly [string, PlainFieldChange])[] | undefined,
+	_otherFields: readonly (readonly [string, PlainFieldChange])[] | undefined,
 	context: ReplayIdContext,
 ): FieldChangeMap {
 	assert(Array.isArray(value), "The modular fields must be ordered entries.");
@@ -319,16 +319,13 @@ function decodeFieldChanges(
 			});
 			const change = genericFieldKind.changeHandler.editor.buildChildChanges(children);
 			instrumentation.identities.set(change, identity);
-			const other = otherFields?.find(([key]) => key === entry[0])?.[1];
-			if (other?.kind === "Sequence") {
-				instrumentation.genericDirections.set(
-					genericSignature(children.map(([index, id]) => [index, plainAtom(id)])),
-					{
-						direction: operand === 0 ? "generic-left" : "generic-right",
-						field: identity,
-					},
-				);
-			}
+			instrumentation.genericDirections.set(
+				genericSignature(children.map(([index, id]) => [index, plainAtom(id)])),
+				{
+					direction: operand === 0 ? "generic-left" : "generic-right",
+					field: identity,
+				},
+			);
 			fields.set(field, {
 				fieldKind: genericFieldKind.identifier,
 				change: brand(change),

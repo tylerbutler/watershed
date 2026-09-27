@@ -565,15 +565,17 @@ pub fn shared_tree_array_compose_runs_move_chain_to_fixed_point_test() {
       change.TaggedChange(Some(revision_b()), None, second),
     ])
   trace
-  |> list.filter(fn(event) {
+  |> list.filter_map(fn(event) {
     case event {
-      moves.HandlerCalled("compose", _) -> True
-      _ -> False
+      moves.HandlerCalled("compose", field) -> Ok(field)
+      _ -> Error(Nil)
     }
   })
-  |> list.length
-  |> fn(count) { count > 2 }
-  |> expect.to_be_true
+  |> expect.to_equal([
+    moves.FieldId(Some(types.AtomId(Some(revision()), 3)), ""),
+    moves.FieldId(Some(types.AtomId(Some(revision()), 2)), ""),
+    moves.FieldId(Some(types.AtomId(Some(revision_b()), 3)), ""),
+  ])
   let assert Ok(delta) =
     change.into_delta(change.TaggedChange(None, None, composed))
   let assert Ok(updated) = forest.apply_delta(initial, delta)

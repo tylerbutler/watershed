@@ -595,6 +595,388 @@
         }
       },
       {
+        "id": "nested-conversions",
+        "operation": "compose",
+        "initialState": {
+          "left": [
+            "A",
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            },
+            [
+              "nested",
+              {
+                "map": [
+                  [
+                    "",
+                    "empty-key"
+                  ],
+                  [
+                    "0",
+                    "numeric-key"
+                  ]
+                ]
+              }
+            ]
+          ],
+          "right": [
+            "R"
+          ],
+          "byKey": {
+            "map": [
+              [
+                "",
+                [
+                  "empty"
+                ]
+              ],
+              [
+                "0",
+                [
+                  "zero",
+                  [
+                    "deep"
+                  ]
+                ]
+              ],
+              [
+                "01",
+                "leading-zero"
+              ]
+            ]
+          },
+          "narrow": [
+            {
+              "point": {
+                "label": "narrow",
+                "x": 9
+              }
+            }
+          ]
+        },
+        "operands": {
+          "changes": [
+            {
+              "revision": -1,
+              "change": {
+                "maxLocalId": 72,
+                "revisions": [
+                  {
+                    "revision": -1,
+                    "rollbackOf": null
+                  }
+                ],
+                "fields": [
+                  [
+                    "outer",
+                    {
+                      "kind": "Sequence",
+                      "change": [
+                        {
+                          "count": 1,
+                          "changes": {
+                            "revision": -1,
+                            "localId": 70
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                ],
+                "nodes": [
+                  [
+                    {
+                      "revision": -1,
+                      "localId": 70
+                    },
+                    {
+                      "fields": [
+                        [
+                          "inner",
+                          {
+                            "kind": "Generic",
+                            "change": {
+                              "children": [
+                                [
+                                  0,
+                                  {
+                                    "revision": -1,
+                                    "localId": 72
+                                  }
+                                ]
+                              ]
+                            }
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    {
+                      "revision": -1,
+                      "localId": 72
+                    },
+                    {
+                      "fields": []
+                    }
+                  ]
+                ],
+                "parents": [
+                  [
+                    {
+                      "revision": -1,
+                      "localId": 70
+                    },
+                    {
+                      "node": null,
+                      "field": "outer"
+                    }
+                  ],
+                  [
+                    {
+                      "revision": -1,
+                      "localId": 72
+                    },
+                    {
+                      "node": {
+                        "revision": -1,
+                        "localId": 70
+                      },
+                      "field": "inner"
+                    }
+                  ]
+                ],
+                "aliases": [],
+                "crossFieldKeys": [],
+                "builds": [],
+                "refreshers": [],
+                "destroys": []
+              }
+            },
+            {
+              "revision": -2,
+              "change": {
+                "maxLocalId": 73,
+                "revisions": [
+                  {
+                    "revision": -2,
+                    "rollbackOf": null
+                  }
+                ],
+                "fields": [
+                  [
+                    "outer",
+                    {
+                      "kind": "Sequence",
+                      "change": [
+                        {
+                          "count": 1,
+                          "changes": {
+                            "revision": -2,
+                            "localId": 71
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                ],
+                "nodes": [
+                  [
+                    {
+                      "revision": -2,
+                      "localId": 71
+                    },
+                    {
+                      "fields": [
+                        [
+                          "inner",
+                          {
+                            "kind": "Sequence",
+                            "change": [
+                              {
+                                "count": 1,
+                                "changes": {
+                                  "revision": -2,
+                                  "localId": 73
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    {
+                      "revision": -2,
+                      "localId": 73
+                    },
+                    {
+                      "fields": []
+                    }
+                  ]
+                ],
+                "parents": [
+                  [
+                    {
+                      "revision": -2,
+                      "localId": 71
+                    },
+                    {
+                      "node": null,
+                      "field": "outer"
+                    }
+                  ],
+                  [
+                    {
+                      "revision": -2,
+                      "localId": 73
+                    },
+                    {
+                      "node": {
+                        "revision": -2,
+                        "localId": 71
+                      },
+                      "field": "inner"
+                    }
+                  ]
+                ],
+                "aliases": [],
+                "crossFieldKeys": [],
+                "builds": [],
+                "refreshers": [],
+                "destroys": []
+              }
+            }
+          ]
+        },
+        "revisions": [
+          {
+            "encoded": -1,
+            "stable": "72da8bc7-6340-46de-a690-a911d13bddca"
+          },
+          {
+            "encoded": -2,
+            "stable": "72da8bc7-6340-46de-a690-a911d13bddcb"
+          },
+          {
+            "encoded": -3,
+            "stable": "72da8bc7-6340-46de-a690-a911d13bddcc"
+          },
+          {
+            "encoded": -4,
+            "stable": "72da8bc7-6340-46de-a690-a911d13bddcd"
+          },
+          {
+            "encoded": -5,
+            "stable": "72da8bc7-6340-46de-a690-a911d13bddce"
+          },
+          {
+            "encoded": -6,
+            "stable": "72da8bc7-6340-46de-a690-a911d13bddcf"
+          },
+          {
+            "encoded": -7,
+            "stable": "72da8bc7-6340-46de-a690-a911d13bddd0"
+          },
+          {
+            "encoded": -8,
+            "stable": "72da8bc7-6340-46de-a690-a911d13bddd1"
+          },
+          {
+            "encoded": -9,
+            "stable": "72da8bc7-6340-46de-a690-a911d13bddd2"
+          },
+          {
+            "encoded": -10,
+            "stable": "72da8bc7-6340-46de-a690-a911d13bddd3"
+          },
+          {
+            "encoded": -11,
+            "stable": "72da8bc7-6340-46de-a690-a911d13bddd4"
+          }
+        ],
+        "allocator": {
+          "maxLocalId": 73
+        },
+        "compressor": {
+          "sessionId": "72da8bc7-6340-46de-a690-a911d13bddca",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAADK3TvREamQprcBjR0vassBAAAAAAAAJkAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAAmQA=="
+        },
+        "sequencing": {
+          "minimumSequenceNumber": 0,
+          "sequenceNumber": 0
+        },
+        "schedule": [
+          "left",
+          "right",
+          "invalidated-fields"
+        ],
+        "sourceCoordination": {
+          "handlerCalls": [
+            {
+              "sequence": 0,
+              "operation": "compose",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "invocation": 1
+            },
+            {
+              "sequence": 2,
+              "operation": "compose",
+              "field": {
+                "node": {
+                  "revision": -1,
+                  "localId": 70
+                },
+                "field": "inner"
+              },
+              "invocation": 1
+            }
+          ],
+          "managerCalls": [
+            {
+              "sequence": 1,
+              "method": "onMoveIn",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "id": {
+                "revision": -2,
+                "localId": 71
+              }
+            },
+            {
+              "sequence": 3,
+              "method": "onMoveIn",
+              "field": {
+                "node": {
+                  "revision": -1,
+                  "localId": 70
+                },
+                "field": "inner"
+              },
+              "id": {
+                "revision": -2,
+                "localId": 73
+              }
+            }
+          ]
+        }
+      },
+      {
         "id": "nested-ancestors",
         "operation": "invert",
         "initialState": {
@@ -4436,6 +4818,730 @@
         }
       },
       {
+        "id": "nested-aliased-chain",
+        "operation": "compose",
+        "initialState": {
+          "left": [],
+          "right": []
+        },
+        "operands": {
+          "changes": [
+            {
+              "revision": -7,
+              "change": {
+                "maxLocalId": 60,
+                "revisions": [
+                  {
+                    "revision": -7,
+                    "rollbackOf": null
+                  }
+                ],
+                "fields": [
+                  [
+                    "outer",
+                    {
+                      "kind": "Sequence",
+                      "change": [
+                        {
+                          "count": 1,
+                          "changes": {
+                            "revision": -7,
+                            "localId": 60
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                ],
+                "nodes": [
+                  [
+                    {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    {
+                      "fields": [
+                        [
+                          "right",
+                          {
+                            "kind": "Sequence",
+                            "change": [
+                              {
+                                "type": "MoveIn",
+                                "id": 40,
+                                "count": 2,
+                                "cellId": {
+                                  "revision": -7,
+                                  "localId": 42
+                                },
+                                "revision": -7
+                              }
+                            ]
+                          }
+                        ],
+                        [
+                          "left",
+                          {
+                            "kind": "Sequence",
+                            "change": [
+                              {
+                                "type": "MoveOut",
+                                "id": 40,
+                                "count": 2,
+                                "revision": -7
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                ],
+                "parents": [
+                  [
+                    {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    {
+                      "node": null,
+                      "field": "outer"
+                    }
+                  ]
+                ],
+                "aliases": [],
+                "crossFieldKeys": [
+                  {
+                    "target": "source",
+                    "revision": -7,
+                    "localId": 40,
+                    "count": 2,
+                    "field": {
+                      "node": {
+                        "revision": -7,
+                        "localId": 60
+                      },
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": -7,
+                    "localId": 40,
+                    "count": 2,
+                    "field": {
+                      "node": {
+                        "revision": -7,
+                        "localId": 60
+                      },
+                      "field": "right"
+                    }
+                  }
+                ],
+                "builds": [],
+                "refreshers": [],
+                "destroys": []
+              }
+            },
+            {
+              "revision": -7,
+              "change": {
+                "maxLocalId": 61,
+                "revisions": [
+                  {
+                    "revision": -7,
+                    "rollbackOf": null
+                  }
+                ],
+                "fields": [
+                  [
+                    "outer",
+                    {
+                      "kind": "Sequence",
+                      "change": [
+                        {
+                          "count": 1,
+                          "changes": {
+                            "revision": -7,
+                            "localId": 61
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                ],
+                "nodes": [
+                  [
+                    {
+                      "revision": -7,
+                      "localId": 61
+                    },
+                    {
+                      "fields": [
+                        [
+                          "right",
+                          {
+                            "kind": "Sequence",
+                            "change": [
+                              {
+                                "type": "MoveOut",
+                                "id": 44,
+                                "count": 2,
+                                "revision": -7
+                              }
+                            ]
+                          }
+                        ],
+                        [
+                          "narrow",
+                          {
+                            "kind": "Sequence",
+                            "change": [
+                              {
+                                "type": "MoveIn",
+                                "id": 44,
+                                "count": 2,
+                                "cellId": {
+                                  "revision": -7,
+                                  "localId": 46
+                                },
+                                "revision": -7
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                ],
+                "parents": [
+                  [
+                    {
+                      "revision": -7,
+                      "localId": 61
+                    },
+                    {
+                      "node": null,
+                      "field": "outer"
+                    }
+                  ]
+                ],
+                "aliases": [],
+                "crossFieldKeys": [
+                  {
+                    "target": "source",
+                    "revision": -7,
+                    "localId": 44,
+                    "count": 2,
+                    "field": {
+                      "node": {
+                        "revision": -7,
+                        "localId": 61
+                      },
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": -7,
+                    "localId": 44,
+                    "count": 2,
+                    "field": {
+                      "node": {
+                        "revision": -7,
+                        "localId": 61
+                      },
+                      "field": "narrow"
+                    }
+                  }
+                ],
+                "builds": [],
+                "refreshers": [],
+                "destroys": []
+              }
+            }
+          ]
+        },
+        "revisions": [
+          {
+            "encoded": -7,
+            "stable": "72da8bc7-6340-46de-a690-a911d13bddd0"
+          }
+        ],
+        "allocator": {
+          "maxLocalId": 61
+        },
+        "compressor": {
+          "sessionId": "72da8bc7-6340-46de-a690-a911d13bddca",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAADK3TvREamQprcBjR0vassBAAAAAAAAJkAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAAmQA=="
+        },
+        "sequencing": {
+          "minimumSequenceNumber": 0,
+          "sequenceNumber": 0
+        },
+        "schedule": [
+          "destination",
+          "source",
+          "source-update",
+          "source-reprocess"
+        ],
+        "sourceCoordination": {
+          "handlerCalls": [
+            {
+              "sequence": 0,
+              "operation": "compose",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "invocation": 1
+            },
+            {
+              "sequence": 2,
+              "operation": "compose",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "invocation": 1
+            },
+            {
+              "sequence": 16,
+              "operation": "compose",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "invocation": 1
+            },
+            {
+              "sequence": 22,
+              "operation": "compose",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 61
+                },
+                "field": "narrow"
+              },
+              "invocation": 1
+            }
+          ],
+          "managerCalls": [
+            {
+              "sequence": 1,
+              "method": "onMoveIn",
+              "field": {
+                "node": null,
+                "field": "outer"
+              },
+              "id": {
+                "revision": -7,
+                "localId": 61
+              }
+            },
+            {
+              "sequence": 3,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 4,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 5,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 6,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 7,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 8,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 9,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 10,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": false,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 11,
+              "method": "set",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "invalidateDependents": true
+            },
+            {
+              "sequence": 12,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 13,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": false,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 14,
+              "method": "set",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "invalidateDependents": true
+            },
+            {
+              "sequence": 15,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "right"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": false,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 17,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 18,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 19,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 20,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 40,
+              "count": 1,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 1
+            },
+            {
+              "sequence": 21,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 60
+                },
+                "field": "left"
+              },
+              "target": "source",
+              "revision": -7,
+              "localId": 40,
+              "count": 2,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 23,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 61
+                },
+                "field": "narrow"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 24,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 61
+                },
+                "field": "narrow"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 25,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 61
+                },
+                "field": "narrow"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 2
+            },
+            {
+              "sequence": 26,
+              "method": "get",
+              "field": {
+                "node": {
+                  "revision": -7,
+                  "localId": 61
+                },
+                "field": "narrow"
+              },
+              "target": "destination",
+              "revision": -7,
+              "localId": 44,
+              "count": 2,
+              "addDependency": true,
+              "found": true,
+              "returnedLength": 2
+            }
+          ]
+        }
+      },
+      {
         "id": "node-table",
         "operation": "invert",
         "initialState": {
@@ -5923,6 +7029,279 @@
         }
       },
       {
+        "id": "nested-conversions",
+        "executed": true,
+        "fieldKinds": [
+          "ModularEditBuilder.Generic",
+          "Sequence"
+        ],
+        "result": {
+          "graph": {
+            "maxLocalId": 73,
+            "revisions": [
+              {
+                "revision": -1,
+                "rollbackOf": null
+              },
+              {
+                "revision": -2,
+                "rollbackOf": null
+              }
+            ],
+            "fields": [
+              [
+                "outer",
+                {
+                  "kind": "Sequence",
+                  "change": [
+                    {
+                      "count": 1,
+                      "changes": {
+                        "revision": -1,
+                        "localId": 70
+                      }
+                    }
+                  ]
+                }
+              ]
+            ],
+            "nodes": [
+              [
+                {
+                  "revision": -1,
+                  "localId": 70
+                },
+                {
+                  "fields": [
+                    [
+                      "inner",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "count": 1,
+                            "changes": {
+                              "revision": -1,
+                              "localId": 72
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              [
+                {
+                  "revision": -1,
+                  "localId": 72
+                },
+                {
+                  "fields": []
+                }
+              ]
+            ],
+            "parents": [
+              [
+                {
+                  "revision": -1,
+                  "localId": 70
+                },
+                {
+                  "node": null,
+                  "field": "outer"
+                }
+              ],
+              [
+                {
+                  "revision": -1,
+                  "localId": 72
+                },
+                {
+                  "node": {
+                    "revision": -1,
+                    "localId": 70
+                  },
+                  "field": "inner"
+                }
+              ]
+            ],
+            "aliases": [
+              [
+                {
+                  "revision": -2,
+                  "localId": 71
+                },
+                {
+                  "revision": -1,
+                  "localId": 70
+                }
+              ],
+              [
+                {
+                  "revision": -2,
+                  "localId": 73
+                },
+                {
+                  "revision": -1,
+                  "localId": 72
+                }
+              ]
+            ],
+            "crossFieldKeys": [],
+            "builds": [],
+            "refreshers": [],
+            "destroys": []
+          },
+          "delta": {
+            "fields": [],
+            "build": [],
+            "refreshers": [],
+            "global": [],
+            "rename": [],
+            "destroy": []
+          },
+          "conversion": {
+            "directions": [
+              "generic-left"
+            ],
+            "calls": [
+              {
+                "direction": "generic-left",
+                "field": {
+                  "node": {
+                    "revision": -1,
+                    "localId": 70
+                  },
+                  "field": "inner"
+                },
+                "children": [
+                  [
+                    0,
+                    {
+                      "revision": -1,
+                      "localId": 72
+                    }
+                  ]
+                ]
+              }
+            ]
+          },
+          "coordination": {
+            "handlerCalls": [
+              {
+                "operation": "compose",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -1,
+                    "localId": 70
+                  },
+                  "field": "inner"
+                },
+                "invocation": 1
+              }
+            ],
+            "managerCalls": [
+              {
+                "method": "onMoveIn",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "id": {
+                  "revision": -2,
+                  "localId": 71
+                }
+              },
+              {
+                "method": "onMoveIn",
+                "field": {
+                  "node": {
+                    "revision": -1,
+                    "localId": 70
+                  },
+                  "field": "inner"
+                },
+                "id": {
+                  "revision": -2,
+                  "localId": 73
+                }
+              }
+            ],
+            "causalCalls": [
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "onMoveIn",
+                  "field": {
+                    "node": null,
+                    "field": "outer"
+                  },
+                  "id": {
+                    "revision": -2,
+                    "localId": 71
+                  }
+                }
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -1,
+                    "localId": 70
+                  },
+                  "field": "inner"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "onMoveIn",
+                  "field": {
+                    "node": {
+                      "revision": -1,
+                      "localId": 70
+                    },
+                    "field": "inner"
+                  },
+                  "id": {
+                    "revision": -2,
+                    "localId": 73
+                  }
+                }
+              }
+            ],
+            "readEvidence": {
+              "absent": false,
+              "found": false,
+              "partial": false,
+              "dependency": false,
+              "invalidation": false,
+              "retry": false
+            }
+          }
+        }
+      },
+      {
         "id": "nested-ancestors",
         "executed": true,
         "fieldKinds": [
@@ -7325,6 +8704,447 @@
               "dependency": true,
               "invalidation": true,
               "retry": true
+            }
+          }
+        }
+      },
+      {
+        "id": "nested-aliased-chain",
+        "executed": true,
+        "fieldKinds": [
+          "ModularEditBuilder.Generic",
+          "Sequence"
+        ],
+        "result": {
+          "graph": {
+            "maxLocalId": 61,
+            "revisions": [
+              {
+                "revision": -7,
+                "rollbackOf": null
+              }
+            ],
+            "fields": [
+              [
+                "outer",
+                {
+                  "kind": "Sequence",
+                  "change": [
+                    {
+                      "count": 1,
+                      "changes": {
+                        "revision": -7,
+                        "localId": 60
+                      }
+                    }
+                  ]
+                }
+              ]
+            ],
+            "nodes": [
+              [
+                {
+                  "revision": -7,
+                  "localId": 60
+                },
+                {
+                  "fields": [
+                    [
+                      "right",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "type": "Rename",
+                            "count": 2,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 42
+                            },
+                            "idOverride": {
+                              "revision": -7,
+                              "localId": 44
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "left",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "type": "MoveOut",
+                            "id": 40,
+                            "count": 2,
+                            "revision": -7,
+                            "finalEndpoint": {
+                              "revision": -7,
+                              "localId": 44
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "narrow",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "type": "MoveIn",
+                            "id": 44,
+                            "count": 2,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 46
+                            },
+                            "revision": -7,
+                            "finalEndpoint": {
+                              "revision": -7,
+                              "localId": 40
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "parents": [
+              [
+                {
+                  "revision": -7,
+                  "localId": 60
+                },
+                {
+                  "node": null,
+                  "field": "outer"
+                }
+              ]
+            ],
+            "aliases": [
+              [
+                {
+                  "revision": -7,
+                  "localId": 61
+                },
+                {
+                  "revision": -7,
+                  "localId": 60
+                }
+              ]
+            ],
+            "crossFieldKeys": [
+              {
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                }
+              },
+              {
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 61
+                  },
+                  "field": "right"
+                }
+              },
+              {
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                }
+              },
+              {
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 61
+                  },
+                  "field": "narrow"
+                }
+              }
+            ],
+            "builds": [],
+            "refreshers": [],
+            "destroys": []
+          },
+          "delta": {
+            "fields": [
+              [
+                "outer",
+                {
+                  "marks": [
+                    {
+                      "count": 1,
+                      "attach": null,
+                      "detach": null,
+                      "fields": [
+                        [
+                          "left",
+                          {
+                            "marks": [
+                              {
+                                "count": 2,
+                                "attach": null,
+                                "detach": {
+                                  "revision": -7,
+                                  "localId": 40
+                                },
+                                "fields": []
+                              }
+                            ]
+                          }
+                        ],
+                        [
+                          "narrow",
+                          {
+                            "marks": [
+                              {
+                                "count": 2,
+                                "attach": {
+                                  "revision": -7,
+                                  "localId": 40
+                                },
+                                "detach": null,
+                                "fields": []
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                }
+              ]
+            ],
+            "build": [],
+            "refreshers": [],
+            "global": [],
+            "rename": [],
+            "destroy": []
+          },
+          "conversion": {
+            "directions": [],
+            "calls": []
+          },
+          "coordination": {
+            "handlerCalls": [
+              {
+                "operation": "compose",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 61
+                  },
+                  "field": "narrow"
+                },
+                "invocation": 1
+              }
+            ],
+            "managerCalls": [
+              {
+                "method": "onMoveIn",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "id": {
+                  "revision": -7,
+                  "localId": 61
+                }
+              },
+              {
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "invalidateDependents": true
+              },
+              {
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "invalidateDependents": true
+              }
+            ],
+            "causalCalls": [
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "onMoveIn",
+                  "field": {
+                    "node": null,
+                    "field": "outer"
+                  },
+                  "id": {
+                    "revision": -7,
+                    "localId": 61
+                  }
+                }
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    "field": "right"
+                  },
+                  "target": "source",
+                  "revision": -7,
+                  "localId": 40,
+                  "count": 2,
+                  "invalidateDependents": true
+                }
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    "field": "right"
+                  },
+                  "target": "destination",
+                  "revision": -7,
+                  "localId": 44,
+                  "count": 2,
+                  "invalidateDependents": true
+                }
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 61
+                  },
+                  "field": "narrow"
+                },
+                "invocation": 1
+              }
+            ],
+            "readEvidence": {
+              "absent": true,
+              "found": true,
+              "partial": false,
+              "dependency": true,
+              "invalidation": false,
+              "retry": false
             }
           }
         }
@@ -9188,6 +11008,656 @@
                   "id": {
                     "revision": -1,
                     "localId": 10
+                  }
+                }
+              }
+            ],
+            "readEvidence": {
+              "absent": false,
+              "found": false,
+              "partial": false,
+              "dependency": false,
+              "invalidation": false,
+              "retry": false
+            }
+          }
+        }
+      },
+      {
+        "id": "nested-conversions",
+        "input": {
+          "id": "nested-conversions",
+          "operation": "compose",
+          "initialState": {
+            "left": [
+              "A",
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              {
+                "point": {
+                  "label": "same",
+                  "x": 1
+                }
+              },
+              [
+                "nested",
+                {
+                  "map": [
+                    [
+                      "",
+                      "empty-key"
+                    ],
+                    [
+                      "0",
+                      "numeric-key"
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "right": [
+              "R"
+            ],
+            "byKey": {
+              "map": [
+                [
+                  "",
+                  [
+                    "empty"
+                  ]
+                ],
+                [
+                  "0",
+                  [
+                    "zero",
+                    [
+                      "deep"
+                    ]
+                  ]
+                ],
+                [
+                  "01",
+                  "leading-zero"
+                ]
+              ]
+            },
+            "narrow": [
+              {
+                "point": {
+                  "label": "narrow",
+                  "x": 9
+                }
+              }
+            ]
+          },
+          "operands": {
+            "changes": [
+              {
+                "revision": -1,
+                "change": {
+                  "maxLocalId": 72,
+                  "revisions": [
+                    {
+                      "revision": -1,
+                      "rollbackOf": null
+                    }
+                  ],
+                  "fields": [
+                    [
+                      "outer",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "count": 1,
+                            "changes": {
+                              "revision": -1,
+                              "localId": 70
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ],
+                  "nodes": [
+                    [
+                      {
+                        "revision": -1,
+                        "localId": 70
+                      },
+                      {
+                        "fields": [
+                          [
+                            "inner",
+                            {
+                              "kind": "Generic",
+                              "change": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": -1,
+                                      "localId": 72
+                                    }
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    [
+                      {
+                        "revision": -1,
+                        "localId": 72
+                      },
+                      {
+                        "fields": []
+                      }
+                    ]
+                  ],
+                  "parents": [
+                    [
+                      {
+                        "revision": -1,
+                        "localId": 70
+                      },
+                      {
+                        "node": null,
+                        "field": "outer"
+                      }
+                    ],
+                    [
+                      {
+                        "revision": -1,
+                        "localId": 72
+                      },
+                      {
+                        "node": {
+                          "revision": -1,
+                          "localId": 70
+                        },
+                        "field": "inner"
+                      }
+                    ]
+                  ],
+                  "aliases": [],
+                  "crossFieldKeys": [],
+                  "builds": [],
+                  "refreshers": [],
+                  "destroys": []
+                }
+              },
+              {
+                "revision": -2,
+                "change": {
+                  "maxLocalId": 73,
+                  "revisions": [
+                    {
+                      "revision": -2,
+                      "rollbackOf": null
+                    }
+                  ],
+                  "fields": [
+                    [
+                      "outer",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "count": 1,
+                            "changes": {
+                              "revision": -2,
+                              "localId": 71
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ],
+                  "nodes": [
+                    [
+                      {
+                        "revision": -2,
+                        "localId": 71
+                      },
+                      {
+                        "fields": [
+                          [
+                            "inner",
+                            {
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "count": 1,
+                                  "changes": {
+                                    "revision": -2,
+                                    "localId": 73
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    [
+                      {
+                        "revision": -2,
+                        "localId": 73
+                      },
+                      {
+                        "fields": []
+                      }
+                    ]
+                  ],
+                  "parents": [
+                    [
+                      {
+                        "revision": -2,
+                        "localId": 71
+                      },
+                      {
+                        "node": null,
+                        "field": "outer"
+                      }
+                    ],
+                    [
+                      {
+                        "revision": -2,
+                        "localId": 73
+                      },
+                      {
+                        "node": {
+                          "revision": -2,
+                          "localId": 71
+                        },
+                        "field": "inner"
+                      }
+                    ]
+                  ],
+                  "aliases": [],
+                  "crossFieldKeys": [],
+                  "builds": [],
+                  "refreshers": [],
+                  "destroys": []
+                }
+              }
+            ]
+          },
+          "revisions": [
+            {
+              "encoded": -1,
+              "stable": "72da8bc7-6340-46de-a690-a911d13bddca"
+            },
+            {
+              "encoded": -2,
+              "stable": "72da8bc7-6340-46de-a690-a911d13bddcb"
+            },
+            {
+              "encoded": -3,
+              "stable": "72da8bc7-6340-46de-a690-a911d13bddcc"
+            },
+            {
+              "encoded": -4,
+              "stable": "72da8bc7-6340-46de-a690-a911d13bddcd"
+            },
+            {
+              "encoded": -5,
+              "stable": "72da8bc7-6340-46de-a690-a911d13bddce"
+            },
+            {
+              "encoded": -6,
+              "stable": "72da8bc7-6340-46de-a690-a911d13bddcf"
+            },
+            {
+              "encoded": -7,
+              "stable": "72da8bc7-6340-46de-a690-a911d13bddd0"
+            },
+            {
+              "encoded": -8,
+              "stable": "72da8bc7-6340-46de-a690-a911d13bddd1"
+            },
+            {
+              "encoded": -9,
+              "stable": "72da8bc7-6340-46de-a690-a911d13bddd2"
+            },
+            {
+              "encoded": -10,
+              "stable": "72da8bc7-6340-46de-a690-a911d13bddd3"
+            },
+            {
+              "encoded": -11,
+              "stable": "72da8bc7-6340-46de-a690-a911d13bddd4"
+            }
+          ],
+          "allocator": {
+            "maxLocalId": 73
+          },
+          "compressor": {
+            "sessionId": "72da8bc7-6340-46de-a690-a911d13bddca",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAADK3TvREamQprcBjR0vassBAAAAAAAAJkAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAAmQA=="
+          },
+          "sequencing": {
+            "minimumSequenceNumber": 0,
+            "sequenceNumber": 0
+          },
+          "schedule": [
+            "left",
+            "right",
+            "invalidated-fields"
+          ],
+          "sourceCoordination": {
+            "handlerCalls": [
+              {
+                "sequence": 0,
+                "operation": "compose",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "invocation": 1
+              },
+              {
+                "sequence": 2,
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -1,
+                    "localId": 70
+                  },
+                  "field": "inner"
+                },
+                "invocation": 1
+              }
+            ],
+            "managerCalls": [
+              {
+                "sequence": 1,
+                "method": "onMoveIn",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "id": {
+                  "revision": -2,
+                  "localId": 71
+                }
+              },
+              {
+                "sequence": 3,
+                "method": "onMoveIn",
+                "field": {
+                  "node": {
+                    "revision": -1,
+                    "localId": 70
+                  },
+                  "field": "inner"
+                },
+                "id": {
+                  "revision": -2,
+                  "localId": 73
+                }
+              }
+            ]
+          }
+        },
+        "output": {
+          "graph": {
+            "maxLocalId": 73,
+            "revisions": [
+              {
+                "revision": -1,
+                "rollbackOf": null
+              },
+              {
+                "revision": -2,
+                "rollbackOf": null
+              }
+            ],
+            "fields": [
+              [
+                "outer",
+                {
+                  "kind": "Sequence",
+                  "change": [
+                    {
+                      "count": 1,
+                      "changes": {
+                        "revision": -1,
+                        "localId": 70
+                      }
+                    }
+                  ]
+                }
+              ]
+            ],
+            "nodes": [
+              [
+                {
+                  "revision": -1,
+                  "localId": 70
+                },
+                {
+                  "fields": [
+                    [
+                      "inner",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "count": 1,
+                            "changes": {
+                              "revision": -1,
+                              "localId": 72
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              [
+                {
+                  "revision": -1,
+                  "localId": 72
+                },
+                {
+                  "fields": []
+                }
+              ]
+            ],
+            "parents": [
+              [
+                {
+                  "revision": -1,
+                  "localId": 70
+                },
+                {
+                  "node": null,
+                  "field": "outer"
+                }
+              ],
+              [
+                {
+                  "revision": -1,
+                  "localId": 72
+                },
+                {
+                  "node": {
+                    "revision": -1,
+                    "localId": 70
+                  },
+                  "field": "inner"
+                }
+              ]
+            ],
+            "aliases": [
+              [
+                {
+                  "revision": -2,
+                  "localId": 71
+                },
+                {
+                  "revision": -1,
+                  "localId": 70
+                }
+              ],
+              [
+                {
+                  "revision": -2,
+                  "localId": 73
+                },
+                {
+                  "revision": -1,
+                  "localId": 72
+                }
+              ]
+            ],
+            "crossFieldKeys": [],
+            "builds": [],
+            "refreshers": [],
+            "destroys": []
+          },
+          "delta": {
+            "fields": [],
+            "build": [],
+            "refreshers": [],
+            "global": [],
+            "rename": [],
+            "destroy": []
+          },
+          "conversion": {
+            "directions": [
+              "generic-left"
+            ],
+            "calls": [
+              {
+                "direction": "generic-left",
+                "field": {
+                  "node": {
+                    "revision": -1,
+                    "localId": 70
+                  },
+                  "field": "inner"
+                },
+                "children": [
+                  [
+                    0,
+                    {
+                      "revision": -1,
+                      "localId": 72
+                    }
+                  ]
+                ]
+              }
+            ]
+          },
+          "coordination": {
+            "handlerCalls": [
+              {
+                "operation": "compose",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -1,
+                    "localId": 70
+                  },
+                  "field": "inner"
+                },
+                "invocation": 1
+              }
+            ],
+            "managerCalls": [
+              {
+                "method": "onMoveIn",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "id": {
+                  "revision": -2,
+                  "localId": 71
+                }
+              },
+              {
+                "method": "onMoveIn",
+                "field": {
+                  "node": {
+                    "revision": -1,
+                    "localId": 70
+                  },
+                  "field": "inner"
+                },
+                "id": {
+                  "revision": -2,
+                  "localId": 73
+                }
+              }
+            ],
+            "causalCalls": [
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "onMoveIn",
+                  "field": {
+                    "node": null,
+                    "field": "outer"
+                  },
+                  "id": {
+                    "revision": -2,
+                    "localId": 71
+                  }
+                }
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -1,
+                    "localId": 70
+                  },
+                  "field": "inner"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "onMoveIn",
+                  "field": {
+                    "node": {
+                      "revision": -1,
+                      "localId": 70
+                    },
+                    "field": "inner"
+                  },
+                  "id": {
+                    "revision": -2,
+                    "localId": 73
                   }
                 }
               }
@@ -14427,6 +16897,1166 @@
               "dependency": true,
               "invalidation": true,
               "retry": true
+            }
+          }
+        }
+      },
+      {
+        "id": "nested-aliased-chain",
+        "input": {
+          "id": "nested-aliased-chain",
+          "operation": "compose",
+          "initialState": {
+            "left": [],
+            "right": []
+          },
+          "operands": {
+            "changes": [
+              {
+                "revision": -7,
+                "change": {
+                  "maxLocalId": 60,
+                  "revisions": [
+                    {
+                      "revision": -7,
+                      "rollbackOf": null
+                    }
+                  ],
+                  "fields": [
+                    [
+                      "outer",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "count": 1,
+                            "changes": {
+                              "revision": -7,
+                              "localId": 60
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ],
+                  "nodes": [
+                    [
+                      {
+                        "revision": -7,
+                        "localId": 60
+                      },
+                      {
+                        "fields": [
+                          [
+                            "right",
+                            {
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "type": "MoveIn",
+                                  "id": 40,
+                                  "count": 2,
+                                  "cellId": {
+                                    "revision": -7,
+                                    "localId": 42
+                                  },
+                                  "revision": -7
+                                }
+                              ]
+                            }
+                          ],
+                          [
+                            "left",
+                            {
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "type": "MoveOut",
+                                  "id": 40,
+                                  "count": 2,
+                                  "revision": -7
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  "parents": [
+                    [
+                      {
+                        "revision": -7,
+                        "localId": 60
+                      },
+                      {
+                        "node": null,
+                        "field": "outer"
+                      }
+                    ]
+                  ],
+                  "aliases": [],
+                  "crossFieldKeys": [
+                    {
+                      "target": "source",
+                      "revision": -7,
+                      "localId": 40,
+                      "count": 2,
+                      "field": {
+                        "node": {
+                          "revision": -7,
+                          "localId": 60
+                        },
+                        "field": "left"
+                      }
+                    },
+                    {
+                      "target": "destination",
+                      "revision": -7,
+                      "localId": 40,
+                      "count": 2,
+                      "field": {
+                        "node": {
+                          "revision": -7,
+                          "localId": 60
+                        },
+                        "field": "right"
+                      }
+                    }
+                  ],
+                  "builds": [],
+                  "refreshers": [],
+                  "destroys": []
+                }
+              },
+              {
+                "revision": -7,
+                "change": {
+                  "maxLocalId": 61,
+                  "revisions": [
+                    {
+                      "revision": -7,
+                      "rollbackOf": null
+                    }
+                  ],
+                  "fields": [
+                    [
+                      "outer",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "count": 1,
+                            "changes": {
+                              "revision": -7,
+                              "localId": 61
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ],
+                  "nodes": [
+                    [
+                      {
+                        "revision": -7,
+                        "localId": 61
+                      },
+                      {
+                        "fields": [
+                          [
+                            "right",
+                            {
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "type": "MoveOut",
+                                  "id": 44,
+                                  "count": 2,
+                                  "revision": -7
+                                }
+                              ]
+                            }
+                          ],
+                          [
+                            "narrow",
+                            {
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "type": "MoveIn",
+                                  "id": 44,
+                                  "count": 2,
+                                  "cellId": {
+                                    "revision": -7,
+                                    "localId": 46
+                                  },
+                                  "revision": -7
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  "parents": [
+                    [
+                      {
+                        "revision": -7,
+                        "localId": 61
+                      },
+                      {
+                        "node": null,
+                        "field": "outer"
+                      }
+                    ]
+                  ],
+                  "aliases": [],
+                  "crossFieldKeys": [
+                    {
+                      "target": "source",
+                      "revision": -7,
+                      "localId": 44,
+                      "count": 2,
+                      "field": {
+                        "node": {
+                          "revision": -7,
+                          "localId": 61
+                        },
+                        "field": "right"
+                      }
+                    },
+                    {
+                      "target": "destination",
+                      "revision": -7,
+                      "localId": 44,
+                      "count": 2,
+                      "field": {
+                        "node": {
+                          "revision": -7,
+                          "localId": 61
+                        },
+                        "field": "narrow"
+                      }
+                    }
+                  ],
+                  "builds": [],
+                  "refreshers": [],
+                  "destroys": []
+                }
+              }
+            ]
+          },
+          "revisions": [
+            {
+              "encoded": -7,
+              "stable": "72da8bc7-6340-46de-a690-a911d13bddd0"
+            }
+          ],
+          "allocator": {
+            "maxLocalId": 61
+          },
+          "compressor": {
+            "sessionId": "72da8bc7-6340-46de-a690-a911d13bddca",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAADK3TvREamQprcBjR0vassBAAAAAAAAJkAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAAmQA=="
+          },
+          "sequencing": {
+            "minimumSequenceNumber": 0,
+            "sequenceNumber": 0
+          },
+          "schedule": [
+            "destination",
+            "source",
+            "source-update",
+            "source-reprocess"
+          ],
+          "sourceCoordination": {
+            "handlerCalls": [
+              {
+                "sequence": 0,
+                "operation": "compose",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "invocation": 1
+              },
+              {
+                "sequence": 2,
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "invocation": 1
+              },
+              {
+                "sequence": 16,
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "invocation": 1
+              },
+              {
+                "sequence": 22,
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 61
+                  },
+                  "field": "narrow"
+                },
+                "invocation": 1
+              }
+            ],
+            "managerCalls": [
+              {
+                "sequence": 1,
+                "method": "onMoveIn",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "id": {
+                  "revision": -7,
+                  "localId": 61
+                }
+              },
+              {
+                "sequence": 3,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 4,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 5,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 6,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 7,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 8,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 9,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 10,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": false,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 11,
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "invalidateDependents": true
+              },
+              {
+                "sequence": 12,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 13,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": false,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 14,
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "invalidateDependents": true
+              },
+              {
+                "sequence": 15,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": false,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 17,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 18,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 19,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 20,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 1,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 1
+              },
+              {
+                "sequence": 21,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 23,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 61
+                  },
+                  "field": "narrow"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 24,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 61
+                  },
+                  "field": "narrow"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 25,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 61
+                  },
+                  "field": "narrow"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 2
+              },
+              {
+                "sequence": 26,
+                "method": "get",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 61
+                  },
+                  "field": "narrow"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "addDependency": true,
+                "found": true,
+                "returnedLength": 2
+              }
+            ]
+          }
+        },
+        "output": {
+          "graph": {
+            "maxLocalId": 61,
+            "revisions": [
+              {
+                "revision": -7,
+                "rollbackOf": null
+              }
+            ],
+            "fields": [
+              [
+                "outer",
+                {
+                  "kind": "Sequence",
+                  "change": [
+                    {
+                      "count": 1,
+                      "changes": {
+                        "revision": -7,
+                        "localId": 60
+                      }
+                    }
+                  ]
+                }
+              ]
+            ],
+            "nodes": [
+              [
+                {
+                  "revision": -7,
+                  "localId": 60
+                },
+                {
+                  "fields": [
+                    [
+                      "right",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "type": "Rename",
+                            "count": 2,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 42
+                            },
+                            "idOverride": {
+                              "revision": -7,
+                              "localId": 44
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "left",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "type": "MoveOut",
+                            "id": 40,
+                            "count": 2,
+                            "revision": -7,
+                            "finalEndpoint": {
+                              "revision": -7,
+                              "localId": 44
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "narrow",
+                      {
+                        "kind": "Sequence",
+                        "change": [
+                          {
+                            "type": "MoveIn",
+                            "id": 44,
+                            "count": 2,
+                            "cellId": {
+                              "revision": -7,
+                              "localId": 46
+                            },
+                            "revision": -7,
+                            "finalEndpoint": {
+                              "revision": -7,
+                              "localId": 40
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ]
+            ],
+            "parents": [
+              [
+                {
+                  "revision": -7,
+                  "localId": 60
+                },
+                {
+                  "node": null,
+                  "field": "outer"
+                }
+              ]
+            ],
+            "aliases": [
+              [
+                {
+                  "revision": -7,
+                  "localId": 61
+                },
+                {
+                  "revision": -7,
+                  "localId": 60
+                }
+              ]
+            ],
+            "crossFieldKeys": [
+              {
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                }
+              },
+              {
+                "target": "source",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 61
+                  },
+                  "field": "right"
+                }
+              },
+              {
+                "target": "destination",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                }
+              },
+              {
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 61
+                  },
+                  "field": "narrow"
+                }
+              }
+            ],
+            "builds": [],
+            "refreshers": [],
+            "destroys": []
+          },
+          "delta": {
+            "fields": [
+              [
+                "outer",
+                {
+                  "marks": [
+                    {
+                      "count": 1,
+                      "attach": null,
+                      "detach": null,
+                      "fields": [
+                        [
+                          "left",
+                          {
+                            "marks": [
+                              {
+                                "count": 2,
+                                "attach": null,
+                                "detach": {
+                                  "revision": -7,
+                                  "localId": 40
+                                },
+                                "fields": []
+                              }
+                            ]
+                          }
+                        ],
+                        [
+                          "narrow",
+                          {
+                            "marks": [
+                              {
+                                "count": 2,
+                                "attach": {
+                                  "revision": -7,
+                                  "localId": 40
+                                },
+                                "detach": null,
+                                "fields": []
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                }
+              ]
+            ],
+            "build": [],
+            "refreshers": [],
+            "global": [],
+            "rename": [],
+            "destroy": []
+          },
+          "conversion": {
+            "directions": [],
+            "calls": []
+          },
+          "coordination": {
+            "handlerCalls": [
+              {
+                "operation": "compose",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "invocation": 1
+              },
+              {
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 61
+                  },
+                  "field": "narrow"
+                },
+                "invocation": 1
+              }
+            ],
+            "managerCalls": [
+              {
+                "method": "onMoveIn",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "id": {
+                  "revision": -7,
+                  "localId": 61
+                }
+              },
+              {
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "source",
+                "revision": -7,
+                "localId": 40,
+                "count": 2,
+                "invalidateDependents": true
+              },
+              {
+                "method": "set",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "target": "destination",
+                "revision": -7,
+                "localId": 44,
+                "count": 2,
+                "invalidateDependents": true
+              }
+            ],
+            "causalCalls": [
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": null,
+                  "field": "outer"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "onMoveIn",
+                  "field": {
+                    "node": null,
+                    "field": "outer"
+                  },
+                  "id": {
+                    "revision": -7,
+                    "localId": 61
+                  }
+                }
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "right"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    "field": "right"
+                  },
+                  "target": "source",
+                  "revision": -7,
+                  "localId": 40,
+                  "count": 2,
+                  "invalidateDependents": true
+                }
+              },
+              {
+                "kind": "manager",
+                "call": {
+                  "method": "set",
+                  "field": {
+                    "node": {
+                      "revision": -7,
+                      "localId": 60
+                    },
+                    "field": "right"
+                  },
+                  "target": "destination",
+                  "revision": -7,
+                  "localId": 44,
+                  "count": 2,
+                  "invalidateDependents": true
+                }
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 60
+                  },
+                  "field": "left"
+                },
+                "invocation": 1
+              },
+              {
+                "kind": "handler",
+                "operation": "compose",
+                "field": {
+                  "node": {
+                    "revision": -7,
+                    "localId": 61
+                  },
+                  "field": "narrow"
+                },
+                "invocation": 1
+              }
+            ],
+            "readEvidence": {
+              "absent": true,
+              "found": true,
+              "partial": false,
+              "dependency": true,
+              "invalidation": false,
+              "retry": false
             }
           }
         }

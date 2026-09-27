@@ -118,10 +118,12 @@ export const arrayScenarioIds = {
   "array-modular-algebra": [
     "generic-to-sequence",
     "sequence-to-generic",
+    "nested-conversions",
     "nested-ancestors",
     "common-ancestors",
     "cross-field-endpoints",
     "nested-cross-field-endpoints",
+    "nested-aliased-chain",
     "node-table",
     "parent-table",
     "alias-table",

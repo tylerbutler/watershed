@@ -29,6 +29,16 @@ pub type FieldId {
   FieldId(parent: Option(AtomId), field: String)
 }
 
+pub type Origin {
+  FirstOperand
+  SecondOperand
+  BaseOperand
+}
+
+pub type Affected {
+  Affected(origin: Origin, source: FieldId)
+}
+
 pub type Effect {
   MoveEffect(
     modify_after: Option(AtomId),
@@ -51,7 +61,13 @@ pub type Notification {
 }
 
 pub type OwnerRange {
-  OwnerRange(key: Key, count: Int, field: FieldId)
+  OwnerRange(
+    key: Key,
+    count: Int,
+    origin: Origin,
+    source: FieldId,
+    result: FieldId,
+  )
 }
 
 pub type TraceEvent {
@@ -91,7 +107,7 @@ pub opaque type Context {
     invalidated: List(FieldId),
     notifications: List(Notification),
     owners: List(OwnerRange),
-    affected: List(FieldId),
+    affected: List(Affected),
     active_field: Option(FieldId),
     trace: List(TraceEvent),
   )
@@ -227,12 +243,18 @@ pub fn set(
     True -> affected
     False ->
       list.fold(owners, affected, fn(found, owner) {
-        let OwnerRange(owner_key, owner_count, owner_field) = owner
+        let OwnerRange(
+          owner_key,
+          owner_count,
+          owner_origin,
+          owner_source,
+          owner_result,
+        ) = owner
         case
-          Some(owner_field) != active_field
+          Some(owner_result) != active_field
           && ranges_overlap(key, count, owner_key, owner_count)
         {
-          True -> put_unique(found, owner_field)
+          True -> put_unique(found, Affected(owner_origin, owner_source))
           False -> found
         }
       })
@@ -286,7 +308,7 @@ pub fn take_invalidated(context: Context) -> #(List(FieldId), Context) {
   )
 }
 
-pub fn take_affected(context: Context) -> #(List(FieldId), Context) {
+pub fn take_affected(context: Context) -> #(List(Affected), Context) {
   let Context(
     entries,
     dependencies,
@@ -312,16 +334,18 @@ pub fn take_affected(context: Context) -> #(List(FieldId), Context) {
   )
 }
 
-pub fn queue_affected(context: Context, field: FieldId) -> Context {
-  Context(..context, affected: put_unique(context.affected, field))
+pub fn queue_affected(context: Context, affected: Affected) -> Context {
+  Context(..context, affected: put_unique(context.affected, affected))
 }
 
 pub fn take_affected_for(context: Context, field: FieldId) -> #(Bool, Context) {
   #(
-    list.contains(context.affected, field),
+    list.any(context.affected, fn(affected) { affected.source == field }),
     Context(
       ..context,
-      affected: list.filter(context.affected, fn(affected) { affected != field }),
+      affected: list.filter(context.affected, fn(affected) {
+        affected.source != field
+      }),
     ),
   )
 }
@@ -331,44 +355,16 @@ pub fn replace_parent(
   obsolete: AtomId,
   replacement: AtomId,
 ) -> Context {
-  let replace = fn(field: FieldId) {
-    case field.parent == Some(obsolete) {
-      True -> FieldId(Some(replacement), field.field)
-      False -> field
-    }
-  }
   Context(
     ..context,
-    dependencies: list.map(context.dependencies, fn(dependency) {
-      Dependency(..dependency, field: replace(dependency.field))
-    }),
-    invalidated: context.invalidated |> list.map(replace) |> list.unique,
-    notifications: list.map(context.notifications, fn(notification) {
-      case notification {
-        NodeMoved(node, field) -> NodeMoved(node, replace(field))
-        KeyMoved(key, count, field) -> KeyMoved(key, count, replace(field))
-      }
-    }),
     owners: list.map(context.owners, fn(owner) {
-      OwnerRange(..owner, field: replace(owner.field))
-    }),
-    affected: context.affected |> list.map(replace) |> list.unique,
-    active_field: option.map(context.active_field, replace),
-    trace: list.map(context.trace, fn(event) {
-      case event {
-        HandlerCalled(operation, field) ->
-          HandlerCalled(operation, replace(field))
-        GenericConverted(operation, direction, field, children) ->
-          GenericConverted(operation, direction, replace(field), children)
-        RangeRead(field, key, count, dependency, found, length) ->
-          RangeRead(replace(field), key, count, dependency, found, length)
-        RangeWritten(field, key, count, invalidate) ->
-          RangeWritten(replace(field), key, count, invalidate)
-        DependenciesInvalidated(field) ->
-          DependenciesInvalidated(replace(field))
-        MoveInNotified(field, node) -> MoveInNotified(replace(field), node)
-        KeyMoveNotified(field, key, count) ->
-          KeyMoveNotified(replace(field), key, count)
+      case owner.result.parent == Some(obsolete) {
+        True ->
+          OwnerRange(
+            ..owner,
+            result: FieldId(Some(replacement), owner.result.field),
+          )
+        False -> owner
       }
     }),
   )
