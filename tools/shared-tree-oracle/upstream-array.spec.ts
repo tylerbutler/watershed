@@ -1374,7 +1374,7 @@ export async function replayArrayCodecInput(input: Record<string, unknown>): Pro
 				}
 			).call(loaded.tree).removed,
 		),
-		restoredHistory: managerState(loaded.tree as TestTreeProviderLite["trees"][number]),
+		restoredHistory: managerState(loaded.tree as TestTreeProviderLite["trees"][number], true),
 		compressor: compressorState(loaded.runtime.idCompressor),
 	};
 	if (
@@ -1613,12 +1613,17 @@ function oracleCase(
 	};
 }
 
-function managerState(tree: TestTreeProviderLite["trees"][number]) {
+function managerState(tree: TestTreeProviderLite["trees"][number], useSummaryData = false) {
 	type Commit = GraphCommit<SharedTreeChange>;
 	const manager = Reflect.get(tree.kernel, "editManager") as {
 		getLocalCommits(branch: string): Commit[];
 		getTrunkCommits(branch: string): Commit[];
 		getLongestBranchLength(): number;
+		getSummaryData(): {
+			main: {
+				peerLocalBranches: Map<unknown, { base: RevisionTag; commits: Commit[] }>;
+			};
+		};
 		sharedBranches: Map<string, object>;
 	};
 	assert(manager !== undefined, "The public tree must expose its test edit manager.");
@@ -1634,10 +1639,31 @@ function managerState(tree: TestTreeProviderLite["trees"][number]) {
 		revision: commit.revision,
 		changes: normalizedDecodedMessage({ commit }).changes,
 	});
+	const pending = manager.getLocalCommits("main");
 	const trunk = manager.getTrunkCommits("main");
 	const trunkRevisions = new Set(trunk.map(({ revision }) => revision));
+	const peers = useSummaryData
+		? [...manager.getSummaryData().main.peerLocalBranches].map(([sessionId, branch]) => ({
+				sessionId,
+				base: branch.base,
+				commits: branch.commits.map((commit) => ({
+					...observeCommit(commit),
+					sessionId,
+					sequenceNumber: null,
+					indexInBatch: null,
+				})),
+			}))
+		: [...main.peerLocalBranches].map(([sessionId, branch]) => {
+				const commits: ReturnType<typeof observeCommit>[] = [];
+				let commit = branch.getHead();
+				while (commit.parent !== undefined && !trunkRevisions.has(commit.revision)) {
+					commits.push(observeCommit(commit));
+					commit = commit.parent;
+				}
+				return { sessionId, base: commit.revision, commits };
+			});
 	return {
-		pending: manager.getLocalCommits("main").map(observeCommit),
+		pending: pending.map(observeCommit),
 		trunk: trunk.map((commit) => {
 			const metadata = main.commitMetadata.get(commit.revision);
 			return {
@@ -1647,15 +1673,7 @@ function managerState(tree: TestTreeProviderLite["trees"][number]) {
 				indexInBatch: metadata?.sequenceId.indexInBatch ?? null,
 			};
 		}),
-		peers: [...main.peerLocalBranches].map(([sessionId, branch]) => {
-			const commits: ReturnType<typeof observeCommit>[] = [];
-			let commit = branch.getHead();
-			while (commit.parent !== undefined && !trunkRevisions.has(commit.revision)) {
-				commits.push(observeCommit(commit));
-				commit = commit.parent;
-			}
-			return { sessionId, base: commit.revision, commits };
-		}),
+		peers,
 		longestBranchLength: manager.getLongestBranchLength(),
 	};
 }
@@ -1793,6 +1811,7 @@ async function capturePublicEvidence() {
 	const reconnectMessages = messagesIn(processed.slice(reconnectStart));
 	const settledSummary = (await provider.trees[0].summarize(true)).summary;
 	const compressor = serializeIdCompressor(provider.getCompressor(provider.trees[0]), false);
+
 	const reloadRuntime = new MockFluidDataStoreRuntime({
 		idCompressor: deserializeIdCompressor(compressor, createSessionId()),
 	});
@@ -2124,6 +2143,33 @@ async function capturePublicEvidence() {
 		"An independently loaded reader must apply the tail and continuation.",
 	);
 
+	const peerSummaryProvider = new TestTreeProviderLite(2, factory, true);
+	const peerSummaryMain = peerSummaryProvider.trees[0].viewWith(configuration);
+	peerSummaryMain.initialize(initialRoot());
+	peerSummaryProvider.synchronizeMessages();
+	const peerSummaryPeer = peerSummaryProvider.trees[1].viewWith(configuration);
+	const peerSummaryPoint = peerSummaryPeer.root.narrow[0];
+	peerSummaryMain.root.narrow = new Points([new Point({ label: "trunk", x: 2 })]);
+	peerSummaryPoint.label = "stale-peer";
+	for (let count = 0; peerSummaryProvider.peekNextMessage() !== undefined; count++) {
+		assert(count < 200, "Unexpected peer summary message stream.");
+		peerSummaryProvider.synchronizeMessages({ count: 1, flush: false });
+	}
+	const peerSummary = (await peerSummaryProvider.trees[0].summarize(true)).summary;
+	const peerSummaryHistory = JSON.parse(
+		summaryBlob(peerSummary, "indexes", "EditManager", "String"),
+	) as {
+		branches: [unknown, { commits: unknown[] }][];
+	};
+	assert(
+		peerSummaryHistory.branches.some(([, { commits }]) => commits.length > 0),
+		"The source-produced summary must retain a nonempty peer branch.",
+	);
+	const peerSummaryCompressor = serializeIdCompressor(
+		peerSummaryProvider.getCompressor(peerSummaryProvider.trees[0]),
+		false,
+	);
+
 	return {
 		provider,
 		view,
@@ -2133,6 +2179,8 @@ async function capturePublicEvidence() {
 		operationCompressor,
 		operationEnvelopes,
 		settledSummary,
+		peerSummary,
+		peerSummaryCompressor,
 		operationMessages,
 		noops,
 		pending,
@@ -3788,11 +3836,8 @@ async function makeCases() {
 		),
 		"full-summary": summaryInput(
 			"full-summary",
-			publicEvidence.settledSummary,
-			serializeIdCompressor(
-				publicEvidence.provider.getCompressor(publicEvidence.provider.trees[0]),
-				false,
-			),
+			publicEvidence.peerSummary,
+			publicEvidence.peerSummaryCompressor,
 		),
 	};
 	const codecScenarios: Scenario[] = [];

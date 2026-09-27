@@ -489,11 +489,20 @@ function encodeFieldChanges(value: FieldChangeMap): (readonly [string, PlainFiel
 			] as const;
 		}
 		if (field.fieldKind === "Value" || field.fieldKind === "Optional") {
+			const change = copy(field.change) as {
+				moves?: unknown[];
+				childChanges?: unknown[];
+				valueReplace?: unknown;
+			};
 			return [
 				String(key),
 				{
 					kind: field.fieldKind === "Value" ? "Value" : "Optional",
-					change: copy(field.change),
+					change: {
+						moves: change.moves ?? [],
+						childChanges: change.childChanges ?? [],
+						valueReplace: change.valueReplace ?? null,
+					},
 				},
 			] as const;
 		}
