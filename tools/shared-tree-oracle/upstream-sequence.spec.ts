@@ -510,6 +510,202 @@ function codecOutput(change: Changeset, revision: RevisionTag, ids: ReplayIdCont
 	return { encoded, decoded: codec.decode(encoded, context) };
 }
 
+function normalizedCodecOutput(
+	change: Changeset,
+	revision: RevisionTag,
+	ids: ReplayIdContext,
+) {
+	const raw = {
+		changes: change,
+		codec: codecOutput(change, revision, ids),
+	};
+	return {
+		raw,
+		normalized: {
+			changes: raw.codec.decoded,
+			delta: serializeRuntimeValue(toDelta(raw.codec.decoded)),
+		},
+	};
+}
+
+function assertSequenceComposeInvertContracts(revs: RevisionTag[]) {
+	const id = (revision: RevisionTag, localId: number): ChangeAtomId => ({
+		revision,
+		localId: changeId(localId),
+	});
+	const endpointMark = [{
+		type: "MoveOut",
+		count: 2,
+		id: changeId(10),
+		revision: revs[0],
+		finalEndpoint: id(revs[1], 20),
+	}] as Changeset;
+	assert.deepEqual(
+		testCompose([tagChange(endpointMark, revs[0]), tagChange([], revs[1])]),
+		endpointMark,
+		"Composition must preserve a move endpoint when the table has no replacement.",
+	);
+
+	const original = id(revs[2], 10);
+	const intermediate = id(revs[3], 20);
+	const final = id(revs[4], 30);
+	const firstRename = [{
+		type: "Remove",
+		count: 2,
+		cellId: original,
+		id: intermediate.localId,
+		revision: intermediate.revision,
+	}] as Changeset;
+	const secondRename = [{
+		type: "Remove",
+		count: 2,
+		cellId: intermediate,
+		id: final.localId,
+		revision: final.revision,
+	}] as Changeset;
+	assert.deepEqual(
+		testCompose([
+			tagChange(firstRename, revs[3]),
+			tagChange(secondRename, revs[4]),
+		]),
+		[{
+			type: "Remove",
+			count: 2,
+			cellId: original,
+			id: final.localId,
+			revision: final.revision,
+		}],
+		"Successive detached renames must retain the original input cell.",
+	);
+
+	const sameCell = id(revs[5], 10);
+	const sameCellMove = [{
+		type: "MoveOut",
+		count: 2,
+		cellId: sameCell,
+		id: sameCell.localId,
+		revision: sameCell.revision,
+	}] as Changeset;
+	assert.deepEqual(
+		testCompose([tagChange(sameCellMove, revs[5]), tagChange([], revs[6])]),
+		sameCellMove,
+		"A same-cell MoveOut remains impactful during composition.",
+	);
+	const sameCellInverse = testInvert(tagChange(sameCellMove, revs[5]), revs[6], true);
+	assert.equal(
+		sameCellInverse[0]?.type,
+		"AttachAndDetach",
+		"A same-cell MoveOut remains impactful during inversion.",
+	);
+
+	const refillInput = [{
+		type: "AttachAndDetach",
+		count: 2,
+		cellId: id(revs[7], 30),
+		attach: { type: "MoveIn", id: changeId(10), revision: revs[7] },
+		detach: { type: "MoveOut", id: changeId(20), revision: revs[7] },
+	}, {
+		type: "MoveOut",
+		count: 2,
+		id: changeId(10),
+		revision: revs[7],
+	}, {
+		type: "MoveIn",
+		count: 2,
+		cellId: id(revs[7], 32),
+		id: changeId(20),
+		revision: revs[7],
+	}] as Changeset;
+	const refillOver = [{
+		type: "MoveIn",
+		count: 2,
+		cellId: id(revs[7], 20),
+		id: changeId(40),
+		revision: revs[8],
+	}, {
+		count: 2,
+		cellId: id(revs[7], 10),
+	}, {
+		type: "MoveOut",
+		count: 2,
+		id: changeId(40),
+		revision: revs[8],
+	}] as Changeset;
+	const refillComposed = testCompose([
+		tagChange(refillInput, revs[7]),
+		tagChange(refillOver, revs[8]),
+	]);
+	assert(
+		refillComposed.some((mark) =>
+			mark.type === "MoveIn"
+			&& mark.finalEndpoint?.revision === revs[7]
+			&& mark.finalEndpoint.localId === changeId(20)),
+		"Intermediate move-chain truncation must route to the refill MoveIn.",
+	);
+	assert(
+		!refillComposed.some((mark) =>
+			mark.type === "MoveOut"
+			&& mark.finalEndpoint?.revision === revs[7]
+			&& mark.finalEndpoint.localId === changeId(20)),
+		"Intermediate move-chain truncation must not use the ordinary pivot endpoint.",
+	);
+
+	const movedChild = TestNodeId.create(
+		{ localId: changeId(30) },
+		TestChange.mint([], 7),
+	);
+	const movedChildInput = [{
+		type: "MoveIn",
+		count: 2,
+		cellId: id(revs[9], 12),
+		id: changeId(10),
+		revision: revs[9],
+	}, {
+		type: "MoveOut",
+		count: 1,
+		id: changeId(10),
+		revision: revs[9],
+	}, {
+		type: "MoveOut",
+		count: 1,
+		id: changeId(11),
+		revision: revs[9],
+		changes: movedChild,
+	}] as Changeset;
+	assert.deepEqual(
+		testInvert(tagChange(movedChildInput, revs[9]), revs[10], false),
+		[{
+			type: "MoveOut",
+			count: 1,
+			id: changeId(10),
+			revision: revs[10],
+		}, {
+			type: "MoveOut",
+			count: 1,
+			id: changeId(11),
+			revision: revs[10],
+			changes: movedChild,
+		}, {
+			type: "MoveIn",
+			count: 2,
+			cellId: id(revs[9], 10),
+			id: changeId(10),
+			revision: revs[10],
+		}],
+		"Inversion must repeat after a moved child invalidates an earlier range read.",
+	);
+
+	assert.deepEqual(
+		TestChange.compose(TestChange.mint([], 7), TestChange.mint([7], -7)),
+		{ intentions: [] },
+		"Child composition must cancel adjacent inverse intentions.",
+	);
+	assert.throws(
+		() => TestChange.compose(TestChange.mint([], 7), TestChange.mint([99], 8)),
+		"Child composition must reject incompatible sequential contexts.",
+	);
+}
+
 function serializeRuntimeValue(value: unknown): unknown {
 	if (value instanceof Map) {
 		return [...value].map(([key, item]) => [String(key), serializeRuntimeValue(item)]);
@@ -825,14 +1021,15 @@ export function replaySequenceAlgebraInput(input: Record<string, unknown>): unkn
 	switch (input.operation) {
 		case "codec": {
 			const change = decodeChangeset(operands.change, "The codec change must be valid.", context);
-			return {
-				changes: change,
-				codec: codecOutput(
-					change,
-					decodeRevision(operands.revision, "The codec revision must be valid.", context),
+			return normalizedCodecOutput(
+				change,
+				decodeRevision(
+					operands.revision,
+					"The codec revision must be valid.",
 					context,
 				),
-			};
+				context,
+			).normalized;
 		}
 		case "compose": {
 			assert(Array.isArray(operands.changes), "The compose changes must be an array.");
@@ -937,6 +1134,7 @@ export function replaySequenceAlgebraInput(input: Record<string, unknown>): unkn
 }
 
 function composeCase(revs: RevisionTag[], compressor: IIdCompressor) {
+	assertSequenceComposeInvertContracts(revs);
 	const insert = Change.insert(0, 2, revs[0], { localId: brand(0), revision: revs[0] });
 	const remove = Change.remove(0, 2, revs[1], brand(2));
 	const move = Change.move(0, 2, 3, revs[2], brand(4));
@@ -1014,8 +1212,33 @@ function composeCase(revs: RevisionTag[], compressor: IIdCompressor) {
 		}, [revs[8]], compressor),
 	};
 	return oracleCase("sequence-compose-invert", "field",
-		scenarioIds["sequence-compose-invert"].map((id) =>
-			replayedScenario(id, inputs[id], replaySequenceAlgebraInput)));
+		scenarioIds["sequence-compose-invert"].map((id) => {
+			if (id === "mark-families") {
+				const context = replayIdContext(inputs[id]);
+				const operands = inputs[id].operands as Record<string, unknown>;
+				const change = decodeChangeset(
+					operands.change,
+					"The codec change must be valid.",
+					context,
+				);
+				const output = normalizedCodecOutput(
+					change,
+					decodeRevision(
+						operands.revision,
+						"The codec revision must be valid.",
+						context,
+					),
+					context,
+				);
+				return {
+					id,
+					input: copy(inputs[id]),
+					output: output.normalized,
+					rawOutput: output.raw,
+				};
+			}
+			return replayedScenario(id, inputs[id], replaySequenceAlgebraInput);
+		}));
 }
 
 export function replaySequenceRebaseInput(input: Record<string, unknown>): unknown {

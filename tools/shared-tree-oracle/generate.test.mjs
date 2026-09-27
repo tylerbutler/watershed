@@ -677,6 +677,44 @@ test("sequence normalization cannot hide other raw editor output", () => {
   assert.throws(() => validateArrayCase(value), /empty insert normalization/i);
 });
 
+test("sequence compose codec evidence preserves raw bytes behind semantic normalization", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/sequence-compose-invert.json", import.meta.url),
+    "utf8",
+  ));
+  const raw = value.raw.scenarios.find(({ id }) => id === "mark-families");
+  const observation = value.expected.observations.find(({ id }) => id === "mark-families");
+  assert(raw.output.codec?.encoded !== undefined);
+  assert(Array.isArray(raw.output.codec?.decoded));
+  assert(Array.isArray(raw.normalizedOutput?.changes));
+  assert(raw.normalizedOutput?.delta !== undefined);
+  assert.equal("codec" in raw.normalizedOutput, false);
+  assert.deepEqual(observation.result, raw.normalizedOutput);
+});
+
+test("sequence compose codec normalization rejects missing raw codec evidence", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/sequence-compose-invert.json", import.meta.url),
+    "utf8",
+  ));
+  const raw = value.raw.scenarios.find(({ id }) => id === "mark-families");
+  delete raw.output.codec;
+  assert.throws(() => validateArrayCase(value), /Task 5 codec normalization/i);
+});
+
+test("sequence compose codec normalization must use source-decoded marks", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/sequence-compose-invert.json", import.meta.url),
+    "utf8",
+  ));
+  const raw = value.raw.scenarios.find(({ id }) => id === "mark-families");
+  const observation = value.expected.observations.find(({ id }) => id === "mark-families");
+  raw.normalizedOutput.changes = [];
+  observation.value = raw.normalizedOutput;
+  observation.result = raw.normalizedOutput;
+  assert.throws(() => validateArrayCase(value), /decoded codec normalization/i);
+});
+
 test("sequence empty insert normalization requires checked operands", () => {
   const fixture = JSON.parse(readFileSync(
     new URL("../../test/fixtures/shared_tree/cases/sequence-field-editor.json", import.meta.url),

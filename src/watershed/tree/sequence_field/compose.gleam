@@ -549,14 +549,14 @@ fn compose_non_rename(
         }
         False ->
           case impactful_rename(base) {
-            Some(#(base_cell, base_attach, base_detach)) -> {
+            Some(#(base_cell, base_attach, _)) -> {
               use #(base_attach, detach, context) <- result.try(handle_pivot(
                 base.count,
                 base_attach,
                 detach,
                 context,
               ))
-              case sequence_field.detached_id(base_detach) == cell {
+              case sequence_field.detached_id(detach) == base_cell {
                 True -> Ok(#(noop(base.count, None, Some(base_cell)), context))
                 False ->
                   Ok(#(
@@ -574,10 +574,11 @@ fn compose_non_rename(
         Some(#(cell, attach, detach)) ->
           case fills(new) {
             True -> {
-              use #(attach, _, context) <- result.try(handle_pivot(
+              use #(attach, context) <- result.try(handle_intermediate_refill(
                 base.count,
                 attach,
                 detach,
+                new,
                 context,
               ))
               Ok(#(
@@ -625,6 +626,51 @@ fn compose_non_rename(
             True, True, False -> Ok(#(noop(base.count, None, None), context))
           }
       }
+  }
+}
+
+fn handle_intermediate_refill(
+  count: Int,
+  attach: sequence_field.Attach,
+  detach: sequence_field.Detach,
+  new: sequence_field.Mark,
+  context: moves.Context,
+) -> Result(#(sequence_field.Attach, moves.Context), TreeError) {
+  case attach, detach, new.effect {
+    sequence_field.MoveIn(attach_id, _),
+      sequence_field.MoveOut(_, _, _),
+      sequence_field.Attach(sequence_field.MoveIn(new_id, _))
+    -> {
+      let original_attach = AtomId(attach_id.revision, attach_id.local_id)
+      use context <- result.try(set_truncated_inner(
+        context,
+        moves.Source,
+        endpoint_from_attach(new.effect),
+        count,
+        original_attach,
+      ))
+      use #(new_endpoint, context) <- result.try(get_endpoint(
+        context,
+        moves.Destination,
+        new_id,
+        count,
+      ))
+      case new_endpoint {
+        None -> Ok(#(attach, context))
+        Some(new_endpoint) -> {
+          let attach = set_attach_endpoint(attach, Some(new_endpoint))
+          use context <- result.try(set_truncated(
+            context,
+            moves.Source,
+            new_endpoint,
+            count,
+            original_attach,
+          ))
+          Ok(#(attach, context))
+        }
+      }
+    }
+    _, _, _ -> Ok(#(attach, context))
   }
 }
 
@@ -828,7 +874,13 @@ fn updated_attach_endpoint(
         count,
         field,
       ))
-      Ok(#(set_attach_endpoint(attach, value), context))
+      Ok(#(
+        case value {
+          None -> attach
+          Some(value) -> set_attach_endpoint(attach, Some(value))
+        },
+        context,
+      ))
     }
     _ -> Ok(#(attach, context))
   }
@@ -849,7 +901,13 @@ fn updated_detach_endpoint(
         count,
         field,
       ))
-      Ok(#(set_detach_endpoint(detach, value), context))
+      Ok(#(
+        case value {
+          None -> detach
+          Some(value) -> set_detach_endpoint(detach, Some(value))
+        },
+        context,
+      ))
     }
     _ -> Ok(#(detach, context))
   }
@@ -1121,11 +1179,13 @@ fn impactful_rename(
   case mark.cell_id, mark.effect {
     Some(cell), sequence_field.AttachAndDetach(attach, detach) ->
       Some(#(cell, attach, detach))
-    Some(cell), sequence_field.Detach(detach) ->
+    Some(cell), sequence_field.Detach(sequence_field.Remove(id, id_override)) -> {
+      let detach = sequence_field.Remove(id, id_override)
       case sequence_field.detached_id(detach) == cell {
         True -> None
         False -> Some(#(cell, sequence_field.Insert(cell), detach))
       }
+    }
     _, _ -> None
   }
 }
@@ -1162,24 +1222,9 @@ fn normalize_rename(
 }
 
 fn settle(mark: sequence_field.Mark) -> sequence_field.Mark {
-  case impactful(mark) {
+  case sequence_field.is_impactful(mark) {
     True -> mark
     False -> sequence_field.Mark(..mark, effect: sequence_field.Noop)
-  }
-}
-
-fn impactful(mark: sequence_field.Mark) -> Bool {
-  case mark.effect {
-    sequence_field.Noop -> False
-    sequence_field.Rename(_) -> True
-    sequence_field.Detach(detach) ->
-      case mark.cell_id {
-        None -> True
-        Some(input) -> sequence_field.detached_id(detach) != input
-      }
-    sequence_field.AttachAndDetach(_, _) -> True
-    sequence_field.Attach(sequence_field.MoveIn(_, _)) -> True
-    sequence_field.Attach(sequence_field.Insert(_)) -> mark.cell_id != None
   }
 }
 
@@ -1242,6 +1287,14 @@ fn endpoint_from_mark(mark: sequence_field.Mark) -> AtomId {
     sequence_field.Detach(sequence_field.MoveOut(_, Some(endpoint), _)) ->
       endpoint
     sequence_field.Detach(sequence_field.MoveOut(id, None, _)) -> id
+    _ -> AtomId(None, 0)
+  }
+}
+
+fn endpoint_from_attach(effect: sequence_field.Effect) -> AtomId {
+  case effect {
+    sequence_field.Attach(sequence_field.MoveIn(_, Some(endpoint))) -> endpoint
+    sequence_field.Attach(sequence_field.MoveIn(id, None)) -> id
     _ -> AtomId(None, 0)
   }
 }

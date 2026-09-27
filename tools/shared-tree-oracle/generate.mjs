@@ -1516,11 +1516,35 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     assert.deepEqual(raw[index].input, input, `${label}: ${input.id} raw and normalized input`);
     check(Object.hasOwn(raw[index], "output"), `${input.id} raw output`);
     if (Object.hasOwn(raw[index], "normalizedOutput")) {
-      check(label === "sequence-field-editor"
+      const emptyInsertNormalization = label === "sequence-field-editor"
         && input.operation === "insert"
         && input.operands.count === 0
-        && checkedSequenceInsertOperands(input.operands),
-      `${input.id} empty insert normalization`);
+        && checkedSequenceInsertOperands(input.operands);
+      const task5CodecNormalization = label === "sequence-compose-invert"
+        && input.id === "mark-families"
+        && input.operation === "codec"
+        && object(raw[index].output)
+        && Array.isArray(raw[index].output.changes)
+        && object(raw[index].output.codec)
+        && Array.isArray(raw[index].output.codec.encoded)
+        && Array.isArray(raw[index].output.codec.decoded)
+        && object(raw[index].normalizedOutput)
+        && Array.isArray(raw[index].normalizedOutput.changes)
+        && Object.hasOwn(raw[index].normalizedOutput, "delta");
+      if (label === "sequence-field-editor") {
+        check(emptyInsertNormalization, `${input.id} empty insert normalization`);
+      } else {
+        check(task5CodecNormalization, `${input.id} Task 5 codec normalization`);
+      }
+      if (task5CodecNormalization) {
+        changeset(raw[index].output.codec.decoded, `${input.id} decoded codec`);
+        changeset(raw[index].normalizedOutput.changes, `${input.id} normalized codec`);
+        assert.deepEqual(
+          raw[index].normalizedOutput.changes,
+          raw[index].output.codec.decoded,
+          `${input.id} decoded codec normalization`,
+        );
+      }
     }
     check(Object.hasOwn(observations[index], "result"), `${input.id} source result`);
     const normalizedOutput = raw[index].normalizedOutput ?? raw[index].output;

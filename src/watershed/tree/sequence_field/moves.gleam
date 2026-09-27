@@ -108,11 +108,8 @@ pub fn set(
 }
 
 pub fn take_invalidated(context: Context) -> #(List(FieldId), Context) {
-  let Context(entries, dependencies, invalidated, notifications) = context
-  #(
-    list.reverse(invalidated),
-    Context(entries, dependencies, [], notifications),
-  )
+  let Context(entries, _, invalidated, notifications) = context
+  #(list.reverse(invalidated), Context(entries, [], [], notifications))
 }
 
 pub fn on_move_in(
@@ -306,12 +303,7 @@ fn put_dependency(
   dependencies: List(Dependency),
   dependency: Dependency,
 ) -> List(Dependency) {
-  [
-    dependency,
-    ..list.filter(dependencies, fn(existing) {
-      existing.key != dependency.key || existing.field != dependency.field
-    })
-  ]
+  put_unique(dependencies, dependency)
 }
 
 fn put_unique(values: List(a), value: a) -> List(a) {

@@ -683,44 +683,40 @@
               "count": 1
             },
             {
-              "type": "Insert",
               "count": 1,
+              "type": "Insert",
               "id": 0,
+              "revision": -1,
               "cellId": {
-                "revision": -1,
-                "localId": 0
-              },
-              "revision": -1
+                "localId": 0,
+                "revision": -1
+              }
             },
             {
-              "type": "Remove",
               "count": 1,
+              "type": "Remove",
               "id": 2,
               "revision": -2
             },
             {
-              "type": "MoveOut",
               "count": 1,
+              "type": "MoveOut",
               "id": 4,
               "revision": -3
             },
             {
-              "type": "MoveIn",
               "count": 1,
+              "type": "MoveIn",
               "id": 4,
               "revision": -3,
               "cellId": {
-                "revision": -3,
-                "localId": 5
+                "localId": 5,
+                "revision": -3
               }
             },
             {
-              "type": "AttachAndDetach",
               "count": 1,
-              "cellId": {
-                "revision": -3,
-                "localId": 5
-              },
+              "type": "AttachAndDetach",
               "attach": {
                 "type": "MoveIn",
                 "id": 4,
@@ -730,173 +726,71 @@
                 "type": "Remove",
                 "id": 6,
                 "revision": -4
+              },
+              "cellId": {
+                "localId": 5,
+                "revision": -3
               }
             },
             {
-              "type": "Rename",
               "count": 1,
-              "cellId": {
-                "revision": -5,
-                "localId": 7
-              },
+              "type": "Rename",
               "idOverride": {
-                "revision": -6,
-                "localId": 8
+                "localId": 8,
+                "revision": -6
+              },
+              "cellId": {
+                "localId": 7,
+                "revision": -5
               }
             }
           ],
-          "codec": {
-            "encoded": [
-              {
-                "count": 1
-              },
-              {
-                "count": 1,
-                "effect": {
-                  "insert": {
-                    "revision": -1,
-                    "id": 0
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "count": 1
+                },
+                {
+                  "count": 1,
+                  "attach": {
+                    "minor": 0,
+                    "major": -1
                   }
                 },
-                "cellId": [
-                  0,
-                  -1
-                ]
-              },
-              {
-                "count": 1,
-                "effect": {
-                  "remove": {
-                    "revision": -2,
-                    "id": 2
+                {
+                  "count": 1,
+                  "detach": {
+                    "minor": 2,
+                    "major": -2
                   }
+                },
+                {
+                  "count": 1,
+                  "detach": {
+                    "minor": 4,
+                    "major": -3
+                  }
+                },
+                {
+                  "attach": {
+                    "minor": 4,
+                    "major": -3
+                  },
+                  "count": 1
                 }
-              },
+              ]
+            },
+            "rename": [
               {
                 "count": 1,
-                "effect": {
-                  "moveOut": {
-                    "revision": -3,
-                    "id": 4
-                  }
-                }
-              },
-              {
-                "count": 1,
-                "effect": {
-                  "moveIn": {
-                    "revision": -3,
-                    "id": 4
-                  }
+                "oldId": {
+                  "minor": 4,
+                  "major": -3
                 },
-                "cellId": [
-                  5,
-                  -3
-                ]
-              },
-              {
-                "count": 1,
-                "effect": {
-                  "attachAndDetach": {
-                    "attach": {
-                      "moveIn": {
-                        "revision": -3,
-                        "id": 4
-                      }
-                    },
-                    "detach": {
-                      "remove": {
-                        "revision": -4,
-                        "id": 6
-                      }
-                    }
-                  }
-                },
-                "cellId": [
-                  5,
-                  -3
-                ]
-              },
-              {
-                "count": 1,
-                "effect": {
-                  "rename": {
-                    "idOverride": [
-                      8,
-                      -6
-                    ]
-                  }
-                },
-                "cellId": [
-                  7,
-                  -5
-                ]
-              }
-            ],
-            "decoded": [
-              {
-                "count": 1
-              },
-              {
-                "count": 1,
-                "type": "Insert",
-                "id": 0,
-                "revision": -1,
-                "cellId": {
-                  "localId": 0,
-                  "revision": -1
-                }
-              },
-              {
-                "count": 1,
-                "type": "Remove",
-                "id": 2,
-                "revision": -2
-              },
-              {
-                "count": 1,
-                "type": "MoveOut",
-                "id": 4,
-                "revision": -3
-              },
-              {
-                "count": 1,
-                "type": "MoveIn",
-                "id": 4,
-                "revision": -3,
-                "cellId": {
-                  "localId": 5,
-                  "revision": -3
-                }
-              },
-              {
-                "count": 1,
-                "type": "AttachAndDetach",
-                "attach": {
-                  "type": "MoveIn",
-                  "id": 4,
-                  "revision": -3
-                },
-                "detach": {
-                  "type": "Remove",
-                  "id": 6,
-                  "revision": -4
-                },
-                "cellId": {
-                  "localId": 5,
-                  "revision": -3
-                }
-              },
-              {
-                "count": 1,
-                "type": "Rename",
-                "idOverride": {
-                  "localId": 8,
-                  "revision": -6
-                },
-                "cellId": {
-                  "localId": 7,
-                  "revision": -5
+                "newId": {
+                  "minor": 6,
+                  "major": -4
                 }
               }
             ]
@@ -908,44 +802,40 @@
               "count": 1
             },
             {
-              "type": "Insert",
               "count": 1,
+              "type": "Insert",
               "id": 0,
+              "revision": -1,
               "cellId": {
-                "revision": -1,
-                "localId": 0
-              },
-              "revision": -1
+                "localId": 0,
+                "revision": -1
+              }
             },
             {
-              "type": "Remove",
               "count": 1,
+              "type": "Remove",
               "id": 2,
               "revision": -2
             },
             {
-              "type": "MoveOut",
               "count": 1,
+              "type": "MoveOut",
               "id": 4,
               "revision": -3
             },
             {
-              "type": "MoveIn",
               "count": 1,
+              "type": "MoveIn",
               "id": 4,
               "revision": -3,
               "cellId": {
-                "revision": -3,
-                "localId": 5
+                "localId": 5,
+                "revision": -3
               }
             },
             {
-              "type": "AttachAndDetach",
               "count": 1,
-              "cellId": {
-                "revision": -3,
-                "localId": 5
-              },
+              "type": "AttachAndDetach",
               "attach": {
                 "type": "MoveIn",
                 "id": 4,
@@ -955,173 +845,71 @@
                 "type": "Remove",
                 "id": 6,
                 "revision": -4
+              },
+              "cellId": {
+                "localId": 5,
+                "revision": -3
               }
             },
             {
-              "type": "Rename",
               "count": 1,
-              "cellId": {
-                "revision": -5,
-                "localId": 7
-              },
+              "type": "Rename",
               "idOverride": {
-                "revision": -6,
-                "localId": 8
+                "localId": 8,
+                "revision": -6
+              },
+              "cellId": {
+                "localId": 7,
+                "revision": -5
               }
             }
           ],
-          "codec": {
-            "encoded": [
-              {
-                "count": 1
-              },
-              {
-                "count": 1,
-                "effect": {
-                  "insert": {
-                    "revision": -1,
-                    "id": 0
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "count": 1
+                },
+                {
+                  "count": 1,
+                  "attach": {
+                    "minor": 0,
+                    "major": -1
                   }
                 },
-                "cellId": [
-                  0,
-                  -1
-                ]
-              },
-              {
-                "count": 1,
-                "effect": {
-                  "remove": {
-                    "revision": -2,
-                    "id": 2
+                {
+                  "count": 1,
+                  "detach": {
+                    "minor": 2,
+                    "major": -2
                   }
+                },
+                {
+                  "count": 1,
+                  "detach": {
+                    "minor": 4,
+                    "major": -3
+                  }
+                },
+                {
+                  "attach": {
+                    "minor": 4,
+                    "major": -3
+                  },
+                  "count": 1
                 }
-              },
+              ]
+            },
+            "rename": [
               {
                 "count": 1,
-                "effect": {
-                  "moveOut": {
-                    "revision": -3,
-                    "id": 4
-                  }
-                }
-              },
-              {
-                "count": 1,
-                "effect": {
-                  "moveIn": {
-                    "revision": -3,
-                    "id": 4
-                  }
+                "oldId": {
+                  "minor": 4,
+                  "major": -3
                 },
-                "cellId": [
-                  5,
-                  -3
-                ]
-              },
-              {
-                "count": 1,
-                "effect": {
-                  "attachAndDetach": {
-                    "attach": {
-                      "moveIn": {
-                        "revision": -3,
-                        "id": 4
-                      }
-                    },
-                    "detach": {
-                      "remove": {
-                        "revision": -4,
-                        "id": 6
-                      }
-                    }
-                  }
-                },
-                "cellId": [
-                  5,
-                  -3
-                ]
-              },
-              {
-                "count": 1,
-                "effect": {
-                  "rename": {
-                    "idOverride": [
-                      8,
-                      -6
-                    ]
-                  }
-                },
-                "cellId": [
-                  7,
-                  -5
-                ]
-              }
-            ],
-            "decoded": [
-              {
-                "count": 1
-              },
-              {
-                "count": 1,
-                "type": "Insert",
-                "id": 0,
-                "revision": -1,
-                "cellId": {
-                  "localId": 0,
-                  "revision": -1
-                }
-              },
-              {
-                "count": 1,
-                "type": "Remove",
-                "id": 2,
-                "revision": -2
-              },
-              {
-                "count": 1,
-                "type": "MoveOut",
-                "id": 4,
-                "revision": -3
-              },
-              {
-                "count": 1,
-                "type": "MoveIn",
-                "id": 4,
-                "revision": -3,
-                "cellId": {
-                  "localId": 5,
-                  "revision": -3
-                }
-              },
-              {
-                "count": 1,
-                "type": "AttachAndDetach",
-                "attach": {
-                  "type": "MoveIn",
-                  "id": 4,
-                  "revision": -3
-                },
-                "detach": {
-                  "type": "Remove",
-                  "id": 6,
-                  "revision": -4
-                },
-                "cellId": {
-                  "localId": 5,
-                  "revision": -3
-                }
-              },
-              {
-                "count": 1,
-                "type": "Rename",
-                "idOverride": {
-                  "localId": 8,
-                  "revision": -6
-                },
-                "cellId": {
-                  "localId": 7,
-                  "revision": -5
+                "newId": {
+                  "minor": 6,
+                  "major": -4
                 }
               }
             ]
@@ -2357,6 +2145,125 @@
                 "cellId": {
                   "localId": 7,
                   "revision": -5
+                }
+              }
+            ]
+          }
+        },
+        "normalizedOutput": {
+          "changes": [
+            {
+              "count": 1
+            },
+            {
+              "count": 1,
+              "type": "Insert",
+              "id": 0,
+              "revision": -1,
+              "cellId": {
+                "localId": 0,
+                "revision": -1
+              }
+            },
+            {
+              "count": 1,
+              "type": "Remove",
+              "id": 2,
+              "revision": -2
+            },
+            {
+              "count": 1,
+              "type": "MoveOut",
+              "id": 4,
+              "revision": -3
+            },
+            {
+              "count": 1,
+              "type": "MoveIn",
+              "id": 4,
+              "revision": -3,
+              "cellId": {
+                "localId": 5,
+                "revision": -3
+              }
+            },
+            {
+              "count": 1,
+              "type": "AttachAndDetach",
+              "attach": {
+                "type": "MoveIn",
+                "id": 4,
+                "revision": -3
+              },
+              "detach": {
+                "type": "Remove",
+                "id": 6,
+                "revision": -4
+              },
+              "cellId": {
+                "localId": 5,
+                "revision": -3
+              }
+            },
+            {
+              "count": 1,
+              "type": "Rename",
+              "idOverride": {
+                "localId": 8,
+                "revision": -6
+              },
+              "cellId": {
+                "localId": 7,
+                "revision": -5
+              }
+            }
+          ],
+          "delta": {
+            "local": {
+              "marks": [
+                {
+                  "count": 1
+                },
+                {
+                  "count": 1,
+                  "attach": {
+                    "minor": 0,
+                    "major": -1
+                  }
+                },
+                {
+                  "count": 1,
+                  "detach": {
+                    "minor": 2,
+                    "major": -2
+                  }
+                },
+                {
+                  "count": 1,
+                  "detach": {
+                    "minor": 4,
+                    "major": -3
+                  }
+                },
+                {
+                  "attach": {
+                    "minor": 4,
+                    "major": -3
+                  },
+                  "count": 1
+                }
+              ]
+            },
+            "rename": [
+              {
+                "count": 1,
+                "oldId": {
+                  "minor": 4,
+                  "major": -3
+                },
+                "newId": {
+                  "minor": 6,
+                  "major": -4
                 }
               }
             ]

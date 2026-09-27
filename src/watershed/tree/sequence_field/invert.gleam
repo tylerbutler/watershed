@@ -78,7 +78,7 @@ fn invert_mark(
   field: moves.FieldId,
   move_context: moves.Context,
 ) -> Result(#(List(sequence_field.Mark), state, moves.Context), TreeError) {
-  case impactful(mark) {
+  case sequence_field.is_impactful(mark) {
     False ->
       Ok(#(
         [
@@ -418,21 +418,6 @@ fn alias_optional(
       use #(local_id, state) <- result.try(alias(id, state))
       Ok(#(Some(AtomId(inverse_revision, local_id)), state))
     }
-  }
-}
-
-fn impactful(mark: sequence_field.Mark) -> Bool {
-  case mark.effect {
-    sequence_field.Noop -> False
-    sequence_field.Rename(_) -> True
-    sequence_field.Detach(detach) ->
-      case mark.cell_id {
-        None -> True
-        Some(input) -> sequence_field.detached_id(detach) != input
-      }
-    sequence_field.AttachAndDetach(_, _) -> True
-    sequence_field.Attach(sequence_field.MoveIn(_, _)) -> True
-    sequence_field.Attach(sequence_field.Insert(_)) -> mark.cell_id != None
   }
 }
 

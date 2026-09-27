@@ -112,6 +112,21 @@ pub fn to_marks(change: Changeset) -> List(Mark) {
   change.marks
 }
 
+@internal
+pub fn is_impactful(mark: Mark) -> Bool {
+  case mark.effect {
+    Noop -> False
+    Rename(_) | AttachAndDetach(_, _) | Detach(MoveOut(_, _, _)) -> True
+    Detach(Remove(id, _)) ->
+      case mark.cell_id {
+        None -> True
+        Some(input) -> id != input
+      }
+    Attach(MoveIn(_, _)) -> True
+    Attach(Insert(_)) -> mark.cell_id != None
+  }
+}
+
 pub fn split_mark(mark: Mark, split: Int) -> Result(#(Mark, Mark), TreeError) {
   use _ <- result.try(validate_mark(mark))
   use _ <- result.try(check(
