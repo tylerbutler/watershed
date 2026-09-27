@@ -5,6 +5,7 @@ import watershed/tree/change
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/schema
+import watershed/tree/shared_change
 import watershed/tree/types.{NumberValue, ObjectValue, SetField}
 
 const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
@@ -25,7 +26,7 @@ fn commit(revision: fluid_ids.StableId) -> history.Commit {
   let assert Ok(order) = change.identity_order([#(revision, -1)])
   let assert Ok(checked) =
     change.from_data(change.to_data(change.empty()), order)
-  history.Commit(revision, session(), checked)
+  history.Commit(revision, session(), shared_change.from_data(checked))
 }
 
 fn scalar_commit(commit_revision: fluid_ids.StableId) -> history.Commit {
@@ -51,7 +52,7 @@ fn scalar_commit(commit_revision: fluid_ids.StableId) -> history.Commit {
       SetField(["point", "x"], NumberValue(11.0)),
       order,
     )
-  history.Commit(commit_revision, session(), authored)
+  history.Commit(commit_revision, session(), shared_change.from_data(authored))
 }
 
 pub fn shared_tree_history_resubmit_rejects_duplicate_repairs_test() -> Nil {

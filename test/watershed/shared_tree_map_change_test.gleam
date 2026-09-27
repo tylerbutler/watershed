@@ -7,6 +7,7 @@ import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/optional_field
 import watershed/tree/schema
+import watershed/tree/shared_change
 import watershed/tree/types.{
   type AtomId, type Edit, type TreeError, type TreeValue, AtomId, InvalidEdit,
   MapDelete, MapSet, MapValue, NumberValue, ObjectValue, StringValue,
@@ -422,8 +423,8 @@ fn assert_invalid_map_edits_are_atomic() {
         atomic_identity_order(),
         following,
       )
-    change.to_data(attempted_commit.change)
-    |> expect.to_equal(change.to_data(control_commit.change))
+    shared_change.to_changes(attempted_commit.change)
+    |> expect.to_equal(shared_change.to_changes(control_commit.change))
     let assert Ok(attempted_snapshot) = tree_kernel.snapshot(after_attempt)
     let assert Ok(control_snapshot) = tree_kernel.snapshot(after_control)
     attempted_snapshot |> expect.to_equal(control_snapshot)

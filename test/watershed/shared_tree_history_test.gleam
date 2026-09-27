@@ -6,6 +6,7 @@ import watershed/tree/change
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/schema
+import watershed/tree/shared_change
 import watershed/tree/types.{
   type TreeError, InvalidHistory, NumberValue, ObjectValue, SetField,
 }
@@ -78,7 +79,7 @@ fn empty_commit(
   let assert Ok(order) = change.identity_order([#(revision, -1)])
   let assert Ok(checked) =
     change.from_data(change.to_data(change.empty()), order)
-  history.Commit(revision, originator, checked)
+  history.Commit(revision, originator, shared_change.from_data(checked))
 }
 
 fn stored_schema() -> schema.StoredSchema {
@@ -109,7 +110,14 @@ fn real_commit() -> #(history.Commit, forest.Forest) {
       SetField(["point", "x"], NumberValue(7.0)),
       order,
     )
-  #(history.Commit(revision_a(), local_session(), authored), state)
+  #(
+    history.Commit(
+      revision_a(),
+      local_session(),
+      shared_change.from_data(authored),
+    ),
+    state,
+  )
 }
 
 fn conflicting_commits() -> #(
@@ -145,8 +153,16 @@ fn conflicting_commits() -> #(
       authored_order,
     )
   #(
-    history.Commit(revision_a(), local_session(), local),
-    history.Commit(revision_b(), peer_session(), remote),
+    history.Commit(
+      revision_a(),
+      local_session(),
+      shared_change.from_data(local),
+    ),
+    history.Commit(
+      revision_b(),
+      peer_session(),
+      shared_change.from_data(remote),
+    ),
     state,
     Allocation([revision_r()], rollback_order, 0),
   )
@@ -164,7 +180,11 @@ fn peer_edit(value: Float) -> history.Commit {
       SetField(["point", "x"], NumberValue(value)),
       order,
     )
-  history.Commit(revision_a(), peer_session(), authored)
+  history.Commit(
+    revision_a(),
+    peer_session(),
+    shared_change.from_data(authored),
+  )
 }
 
 pub fn shared_tree_history_starts_empty_test() -> Nil {
@@ -184,11 +204,30 @@ pub fn shared_tree_history_starts_empty_test() -> Nil {
   ))
 }
 
+pub fn shared_tree_history_schema_only_commit_retains_outer_revision_test() -> Nil {
+  let assert Ok(outer) =
+    shared_change.from_changes([
+      shared_change.SchemaChange(schema.EmptySchema, schema.EmptySchema, False),
+    ])
+  let commit = history.Commit(revision_a(), local_session(), outer)
+  let assert Ok(update) =
+    history.append_local(history.new(local_session()), commit)
+
+  shared_change.identity_revisions(commit.change) |> expect.to_equal([])
+  shared_change.max_local_id(commit.change) |> expect.to_equal(-1)
+  history.identity_revisions(update.history) |> expect.to_equal([revision_a()])
+  history.pending(update.history) |> expect.to_equal([commit])
+  update.effects
+  |> expect.to_equal([
+    shared_change.SchemaDelta(schema.EmptySchema, schema.EmptySchema, False),
+  ])
+}
+
 pub fn shared_tree_history_ack_does_not_apply_twice_test() -> Nil {
   let #(commit, initial_forest) = real_commit()
   let assert Ok(local) =
     history.append_local(history.new(local_session()), commit)
-  let assert Some(delta) = local.delta
+  let assert [shared_change.DataDelta(delta)] = local.effects
   let assert Ok(optimistic_forest) = forest.apply_delta(initial_forest, delta)
   history.pending(local.history) |> expect.to_equal([commit])
 
@@ -203,7 +242,7 @@ pub fn shared_tree_history_ack_does_not_apply_twice_test() -> Nil {
       no_mint,
     )
   history.pending(ack.history) |> expect.to_equal([])
-  ack.delta |> expect.to_equal(None)
+  ack.effects |> expect.to_equal([])
   forest.export_data(optimistic_forest)
   |> expect.to_equal(forest.export_data(optimistic_forest))
 }
@@ -212,7 +251,7 @@ pub fn shared_tree_history_ack_advances_sequenced_forest_test() -> Nil {
   let #(commit, initial_forest) = real_commit()
   let assert Ok(local) =
     history.append_local(history.new(local_session()), commit)
-  let assert Some(local_delta) = local.delta
+  let assert [shared_change.DataDelta(local_delta)] = local.effects
   let assert Ok(optimistic) = forest.apply_delta(initial_forest, local_delta)
   let assert Ok(#(ack, Nil)) =
     history.receive(
@@ -224,8 +263,8 @@ pub fn shared_tree_history_ack_advances_sequenced_forest_test() -> Nil {
       Nil,
       no_mint,
     )
-  ack.delta |> expect.to_equal(None)
-  let assert Some(sequenced_delta) = ack.sequenced_delta
+  ack.effects |> expect.to_equal([])
+  let assert [shared_change.DataDelta(sequenced_delta)] = ack.sequenced_effects
   let assert Ok(sequenced) = forest.apply_delta(initial_forest, sequenced_delta)
   forest.export_data(sequenced)
   |> expect.to_equal(forest.export_data(optimistic))
@@ -303,8 +342,8 @@ pub fn shared_tree_history_retained_duplicate_does_not_ack_next_test() -> Nil {
       no_mint,
     )
   history.pending(duplicate.history) |> expect.to_equal([second])
-  duplicate.delta |> expect.to_equal(None)
-  duplicate.sequenced_delta |> expect.to_equal(None)
+  duplicate.effects |> expect.to_equal([])
+  duplicate.sequenced_effects |> expect.to_equal([])
 }
 
 pub fn shared_tree_history_retained_duplicate_rejects_conflicts_test() -> Nil {
@@ -387,7 +426,7 @@ pub fn shared_tree_history_retained_duplicate_preserves_advanced_minimum_test() 
       no_mint,
     )
   history.inspect(replayed.history) |> expect.to_equal(before)
-  replayed.delta |> expect.to_equal(None)
+  replayed.effects |> expect.to_equal([])
   history.receive(
     pending.history,
     second,
@@ -442,14 +481,14 @@ pub fn shared_tree_history_rebased_ack_replay_does_not_ack_next_test() -> Nil {
       mint,
     )
   history.pending(duplicate.history) |> expect.to_equal([next])
-  duplicate.delta |> expect.to_equal(None)
+  duplicate.effects |> expect.to_equal([])
 }
 
 pub fn shared_tree_history_rebases_pending_over_remote_test() -> Nil {
   let #(local, remote, initial_forest, allocation) = conflicting_commits()
   let assert Ok(local_update) =
     history.append_local(history.new(local_session()), local)
-  let assert Some(local_delta) = local_update.delta
+  let assert [shared_change.DataDelta(local_delta)] = local_update.effects
   let assert Ok(optimistic) = forest.apply_delta(initial_forest, local_delta)
   let remote_result =
     history.receive(
@@ -464,7 +503,7 @@ pub fn shared_tree_history_rebases_pending_over_remote_test() -> Nil {
   remote_result |> expect.to_be_ok
   let assert Ok(#(remote_update, allocation)) = remote_result
   allocation.consumed |> expect.to_equal(1)
-  let assert Some(remote_delta) = remote_update.delta
+  let assert [shared_change.DataDelta(remote_delta)] = remote_update.effects
   let assert Ok(reconciled) = forest.apply_delta(optimistic, remote_delta)
   let view = history.inspect(remote_update.history)
   view.sequenced.trunk
@@ -484,7 +523,7 @@ pub fn shared_tree_history_rebases_pending_over_remote_test() -> Nil {
       allocation,
       mint,
     )
-  ack.delta |> expect.to_equal(None)
+  ack.effects |> expect.to_equal([])
   allocation.consumed |> expect.to_equal(1)
   forest.export_data(reconciled)
   |> expect.to_equal(forest.export_data(reconciled))
@@ -504,7 +543,7 @@ pub fn shared_tree_history_remote_exposes_rebased_trunk_delta_test() -> Nil {
       allocation,
       mint,
     )
-  let assert Some(delta) = received.sequenced_delta
+  let assert [shared_change.DataDelta(delta)] = received.sequenced_effects
   let assert Ok(sequenced) = forest.apply_delta(initial_forest, delta)
   forest.read(sequenced, ["point", "x"])
   |> expect.to_equal(Ok(Some(NumberValue(8.0))))

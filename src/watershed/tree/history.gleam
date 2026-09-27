@@ -8,6 +8,7 @@ import gleam/string
 import watershed/fluid_ids
 import watershed/tree/change
 import watershed/tree/forest
+import watershed/tree/shared_change
 import watershed/tree/types.{type SequencePoint, type TreeError, InvalidHistory}
 
 const max_safe_integer = 9_007_199_254_740_991
@@ -18,7 +19,7 @@ pub type Commit {
   Commit(
     revision: fluid_ids.StableId,
     originator: fluid_ids.SessionId,
-    change: change.Changeset,
+    change: shared_change.Changeset,
   )
 }
 
@@ -60,8 +61,8 @@ pub type HistoryView {
 pub type HistoryUpdate {
   HistoryUpdate(
     history: History,
-    delta: Option(forest.Delta),
-    sequenced_delta: Option(forest.Delta),
+    effects: List(shared_change.Effect),
+    sequenced_effects: List(shared_change.Effect),
     trimmed_revisions: List(fluid_ids.StableId),
   )
 }
@@ -95,7 +96,7 @@ type RollbackEntry {
   RollbackEntry(
     source_node: Int,
     revision: fluid_ids.StableId,
-    change: change.Changeset,
+    change: shared_change.Changeset,
   )
 }
 
@@ -113,7 +114,7 @@ type RebaseResult {
   RebaseResult(
     base: BranchBase,
     commits: List(BranchCommit),
-    net_change: Option(change.Changeset),
+    net_change: Option(shared_change.Changeset),
   )
 }
 
@@ -188,11 +189,11 @@ pub fn rebind_identity_order(
   )
   use rollbacks <- result.try(
     list.try_map(state.rollbacks, fn(entry) {
-      use bound <- result.try(
-        change.rebind_identity_order(entry.change, identity_order, [
-          entry.revision,
-        ]),
-      )
+      use bound <- result.try(shared_change.rebind_identity_order(
+        entry.change,
+        identity_order,
+        outer_revisions(entry.revision, entry.change),
+      ))
       Ok(RollbackEntry(..entry, change: bound))
     }),
   )
@@ -236,13 +237,13 @@ pub fn identity_revisions(state: History) -> List(fluid_ids.StableId) {
     list.append(
       history_revisions(state),
       list.flat_map(commits, fn(commit) {
-        change.identity_revisions(commit.change)
+        shared_change.identity_revisions(commit.change)
       }),
     )
   list.append(
     revisions,
     list.flat_map(state.rollbacks, fn(entry) {
-      [entry.revision, ..change.identity_revisions(entry.change)]
+      [entry.revision, ..shared_change.identity_revisions(entry.change)]
     }),
   )
   |> list.unique
@@ -252,11 +253,11 @@ fn rebind_commit(
   commit: Commit,
   identity_order: change.IdentityOrder,
 ) -> Result(Commit, TreeError) {
-  use bound <- result.try(
-    change.rebind_identity_order(commit.change, identity_order, [
-      commit.revision,
-    ]),
-  )
+  use bound <- result.try(shared_change.rebind_identity_order(
+    commit.change,
+    identity_order,
+    outer_revisions(commit.revision, commit.change),
+  ))
   Ok(Commit(..commit, change: bound))
 }
 
@@ -272,13 +273,7 @@ pub fn append_local(
     !has_revision(state, commit.revision),
     "local commit revision is already present",
   ))
-  use delta <- result.try(
-    change.into_delta(change.TaggedChange(
-      Some(commit.revision),
-      None,
-      commit.change,
-    )),
-  )
+  use effects <- result.try(shared_change.effects(tagged_commit(commit)))
   let node = BranchCommit(state.next_node_id, commit)
   let next =
     History(
@@ -290,7 +285,7 @@ pub fn append_local(
       },
       next_node_id: state.next_node_id + 1,
     )
-  Ok(HistoryUpdate(next, Some(delta), None, []))
+  Ok(HistoryUpdate(next, effects, [], []))
 }
 
 pub fn receive(
@@ -359,8 +354,8 @@ pub fn receive(
   Ok(#(
     HistoryUpdate(
       prune_rollbacks(next),
-      update.delta,
-      update.sequenced_delta,
+      update.effects,
+      update.sequenced_effects,
       trimmed,
     ),
     allocation,
@@ -417,7 +412,7 @@ fn receive_duplicate(
     receipt.minimum_sequence_number == Some(minimum_sequence_number),
     "duplicate commit minimum sequence number does not match",
   ))
-  Ok(#(HistoryUpdate(state, None, None, []), allocation))
+  Ok(#(HistoryUpdate(state, [], [], []), allocation))
 }
 
 fn receive_local(
@@ -461,14 +456,10 @@ fn receive_local(
           sequence_number: int_max(state.sequence_number, point.sequence_number),
           minimum_sequence_number: supplied_minimum,
         )
-      use sequenced_delta <- result.try(
-        change.into_delta(change.TaggedChange(
-          Some(current.commit.revision),
-          None,
-          current.commit.change,
-        )),
+      use sequenced_effects <- result.try(
+        shared_change.effects(tagged_commit(current.commit)),
       )
-      Ok(#(HistoryUpdate(next, None, Some(sequenced_delta), []), allocation))
+      Ok(#(HistoryUpdate(next, [], sequenced_effects, []), allocation))
     }
   }
 }
@@ -527,7 +518,7 @@ fn receive_remote(
     _ -> PeerState(commit.originator, authored_peer.base, authored_commits)
   }
   let peers = replace_peer(state.peers, peer)
-  use #(pending, local_base, delta, allocation, rollbacks, next_node_id) <- result.try(
+  use #(pending, local_base, effects, allocation, rollbacks, next_node_id) <- result.try(
     rebase_pending(
       state,
       next_trunk,
@@ -559,17 +550,11 @@ fn receive_remote(
       sequence_number: int_max(state.sequence_number, point.sequence_number),
       minimum_sequence_number: supplied_minimum,
     )
-  use sequenced_delta <- result.try(case merged {
-    None -> Ok(None)
-    Some(merged) ->
-      change.into_delta(change.TaggedChange(
-        Some(merged.commit.revision),
-        None,
-        merged.commit.change,
-      ))
-      |> result.map(Some)
+  use sequenced_effects <- result.try(case merged {
+    None -> Ok([])
+    Some(merged) -> shared_change.effects(tagged_branch_commit(merged))
   })
-  Ok(#(HistoryUpdate(next, delta, sequenced_delta, []), allocation))
+  Ok(#(HistoryUpdate(next, effects, sequenced_effects, []), allocation))
 }
 
 fn rebase_pending(
@@ -584,7 +569,7 @@ fn rebase_pending(
   #(
     List(LocalCommit),
     Option(BranchBase),
-    Option(forest.Delta),
+    List(shared_change.Effect),
     allocation,
     List(RollbackEntry),
     Int,
@@ -598,8 +583,8 @@ fn rebase_pending(
         |> list.drop(list.length(state.trunk))
         |> list.map(fn(entry) { tagged_commit(entry.commit) })
       use net_change <- result.try(compose_optional(added))
-      use delta <- result.try(delta_optional(net_change))
-      Ok(#([], None, delta, allocation, rollbacks, next_node_id))
+      use effects <- result.try(effects_optional(net_change))
+      Ok(#([], None, effects, allocation, rollbacks, next_node_id))
     }
     pending -> {
       use base <- result.try(require_local_base(state.local_base))
@@ -621,11 +606,11 @@ fn rebase_pending(
         pending,
         rebased.commits,
       ))
-      use delta <- result.try(delta_optional(rebased.net_change))
+      use effects <- result.try(effects_optional(rebased.net_change))
       Ok(#(
         pending,
         Some(rebased.base),
-        delta,
+        effects,
         allocation,
         rollbacks,
         next_node_id,
@@ -704,7 +689,7 @@ fn rebase_branch(
               |> history_error("cannot create rollback: "),
             )
             let rollback_tagged =
-              change.TaggedChange(
+              shared_change.TaggedChange(
                 Some(rollback.revision),
                 Some(commit.commit.revision),
                 rollback.change,
@@ -719,14 +704,14 @@ fn rebase_branch(
                 False -> Ok(#(state.0, [rollback_tagged, ..state.1], state.5))
                 True -> {
                   use over <- result.try(
-                    change.compose(state.1)
+                    shared_change.compose(state.1)
                     |> history_error("cannot compose rebase target: "),
                   )
                   use context <- result.try(rebase_context(state.2))
                   use rebased <- result.try(
-                    change.rebase(
+                    shared_change.rebase(
                       tagged_branch_commit(commit),
-                      change.TaggedChange(None, None, over),
+                      shared_change.TaggedChange(None, None, over),
                       context,
                     )
                     |> history_error("cannot rebase source commit: "),
@@ -737,7 +722,7 @@ fn rebase_branch(
                     list.append(state.0, [current_node]),
                     [
                       rollback_tagged,
-                      change.TaggedChange(None, None, over),
+                      shared_change.TaggedChange(None, None, over),
                       tagged_commit(current),
                     ],
                     state.5 + 1,
@@ -757,7 +742,7 @@ fn rebase_branch(
         ),
       )
       use net_change <- result.try(
-        change.compose(edits)
+        shared_change.compose(edits)
         |> history_error("cannot compose branch reconciliation: "),
       )
       Ok(#(
@@ -800,12 +785,17 @@ fn rollback_for(
           && !list.any(rollbacks, fn(entry) { entry.revision == revision }),
         "rollback revision is already in use",
       ))
-      use bound <- result.try(change.with_identity_order(
+      use bound <- result.try(shared_change.rebind_identity_order(
         commit.commit.change,
         identity_order,
+        [
+          revision,
+          ..outer_revisions(commit.commit.revision, commit.commit.change)
+        ]
+          |> list.unique,
       ))
-      use inverse <- result.try(change.invert(
-        change.TaggedChange(Some(commit.commit.revision), None, bound),
+      use inverse <- result.try(shared_change.invert(
+        shared_change.TaggedChange(Some(commit.commit.revision), None, bound),
         True,
         revision,
       ))
@@ -816,11 +806,15 @@ fn rollback_for(
 }
 
 fn rebase_context(
-  tagged: List(change.TaggedChange),
+  tagged: List(shared_change.TaggedChange),
 ) -> Result(change.RebaseContext, TreeError) {
   use revisions <- result.try(
     list.try_fold(tagged, [], fn(revisions, tagged) {
-      list.try_fold(tagged_revision_infos(tagged), revisions, add_revision_info)
+      list.try_fold(
+        shared_change.revision_infos(tagged),
+        revisions,
+        add_revision_info,
+      )
     }),
   )
   change.rebase_context(revisions)
@@ -840,19 +834,6 @@ fn add_revision_info(
         False ->
           Error(InvalidHistory("rebase rollback metadata does not match"))
       }
-  }
-}
-
-fn tagged_revision_infos(
-  tagged: change.TaggedChange,
-) -> List(change.RevisionInfo) {
-  case change.to_data(tagged.change).revisions {
-    [] ->
-      case tagged.revision {
-        None -> []
-        Some(revision) -> [change.RevisionInfo(revision, tagged.rollback_of)]
-      }
-    revisions -> revisions
   }
 }
 
@@ -1037,30 +1018,29 @@ fn reference_base(
 }
 
 fn compose_optional(
-  tagged: List(change.TaggedChange),
-) -> Result(Option(change.Changeset), TreeError) {
+  tagged: List(shared_change.TaggedChange),
+) -> Result(Option(shared_change.Changeset), TreeError) {
   case tagged {
     [] -> Ok(None)
-    _ -> change.compose(tagged) |> result.map(Some)
+    _ -> shared_change.compose(tagged) |> result.map(Some)
   }
 }
 
-fn delta_optional(
-  maybe_change: Option(change.Changeset),
-) -> Result(Option(forest.Delta), TreeError) {
+fn effects_optional(
+  maybe_change: Option(shared_change.Changeset),
+) -> Result(List(shared_change.Effect), TreeError) {
   case maybe_change {
-    None -> Ok(None)
+    None -> Ok([])
     Some(changeset) ->
-      change.into_delta(change.TaggedChange(None, None, changeset))
-      |> result.map(Some)
+      shared_change.effects(shared_change.TaggedChange(None, None, changeset))
   }
 }
 
-fn tagged_commit(commit: Commit) -> change.TaggedChange {
-  change.TaggedChange(Some(commit.revision), None, commit.change)
+fn tagged_commit(commit: Commit) -> shared_change.TaggedChange {
+  shared_change.TaggedChange(Some(commit.revision), None, commit.change)
 }
 
-fn tagged_branch_commit(commit: BranchCommit) -> change.TaggedChange {
+fn tagged_branch_commit(commit: BranchCommit) -> shared_change.TaggedChange {
   tagged_commit(commit.commit)
 }
 
@@ -1210,7 +1190,7 @@ pub fn advance_minimum(
     allocation,
     mint,
   ))
-  Ok(#(HistoryUpdate(prune_rollbacks(next), None, None, trimmed), allocation))
+  Ok(#(HistoryUpdate(prune_rollbacks(next), [], [], trimmed), allocation))
 }
 
 pub fn advance_processed(
@@ -1334,23 +1314,19 @@ pub fn resubmit(
   use commits <- result.try(
     list.try_map(state.pending, fn(entry) {
       let commit = entry.current.commit
-      use roots <- result.try(change.relevant_removed_roots(commit.change))
+      use roots <- result.try(removed_roots(commit.change))
       let provided = case list.key_find(repair, commit.revision) {
         Ok(builds) -> builds
         Error(Nil) -> []
       }
       let external_roots =
         list.filter(roots, fn(root) {
-          !list.any(change.to_data(commit.change).builds, fn(build) {
+          !list.any(builds(commit.change), fn(build) {
             build_covers(build, root)
           })
         })
       use _ <- result.try(validate_repair_roots(external_roots, provided))
-      use updated <- result.try(change.update_refreshers(
-        commit.change,
-        roots,
-        provided,
-      ))
+      use updated <- result.try(update_refreshers(commit.change, provided))
       Ok(Commit(..commit, change: updated))
     }),
   )
@@ -1365,6 +1341,61 @@ pub fn resubmit(
     }),
   )
   Ok(commits)
+}
+
+fn outer_revisions(
+  revision: fluid_ids.StableId,
+  changeset: shared_change.Changeset,
+) -> List(fluid_ids.StableId) {
+  [revision, ..shared_change.identity_revisions(changeset)] |> list.unique
+}
+
+fn removed_roots(
+  changeset: shared_change.Changeset,
+) -> Result(List(types.AtomId), TreeError) {
+  changeset
+  |> shared_change.to_changes
+  |> list.try_fold([], fn(roots, item) {
+    case item {
+      shared_change.SchemaChange(_, _, _) -> Ok(roots)
+      shared_change.DataChange(data) -> {
+        use next <- result.try(change.relevant_removed_roots(data))
+        Ok(list.append(roots, next))
+      }
+    }
+  })
+}
+
+fn builds(changeset: shared_change.Changeset) -> List(forest.Build) {
+  changeset
+  |> shared_change.to_changes
+  |> list.flat_map(fn(item) {
+    case item {
+      shared_change.SchemaChange(_, _, _) -> []
+      shared_change.DataChange(data) -> change.to_data(data).builds
+    }
+  })
+}
+
+fn update_refreshers(
+  changeset: shared_change.Changeset,
+  repair: List(forest.Build),
+) -> Result(shared_change.Changeset, TreeError) {
+  use items <- result.try(
+    changeset
+    |> shared_change.to_changes
+    |> list.try_map(fn(item) {
+      case item {
+        shared_change.SchemaChange(_, _, _) -> Ok(item)
+        shared_change.DataChange(data) -> {
+          use roots <- result.try(change.relevant_removed_roots(data))
+          change.update_refreshers(data, roots, repair)
+          |> result.map(shared_change.DataChange)
+        }
+      }
+    }),
+  )
+  shared_change.from_changes(items)
 }
 
 pub fn build_covers(build: forest.Build, root: types.AtomId) -> Bool {

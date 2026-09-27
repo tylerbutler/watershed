@@ -14,6 +14,7 @@ import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
+import watershed/tree/shared_change
 import watershed/tree/types.{
   InvalidHistory, NumberValue, ObjectValue, SequencePoint, SetField,
 }
@@ -74,8 +75,12 @@ pub fn shared_tree_bridge_rejects_schema_changes_test() {
     revision,
     session,
     [
-      codec.DataChange(change.empty()),
-      codec.SchemaChange(codec.FixedSchema(stored), codec.EmptySchema),
+      shared_change.DataChange(change.empty()),
+      shared_change.SchemaChange(
+        schema.FixedSchema(stored),
+        schema.EmptySchema,
+        False,
+      ),
     ],
     None,
   ))
@@ -115,14 +120,13 @@ pub fn shared_tree_bridge_composes_data_changes_in_wire_order_test() {
       order,
       SetField(["x"], NumberValue(3.0)),
     )
+  let assert [first_change] = shared_change.to_changes(first.change)
+  let assert [second_change] = shared_change.to_changes(second.change)
   let assert Ok(composed) =
     tree_runtime.wire_to_commit(codec.WireCommit(
       second_revision,
       session,
-      [
-        codec.DataChange(first.change),
-        codec.DataChange(second.change),
-      ],
+      [first_change, second_change],
       None,
     ))
   let assert Ok(#(received, _, Nil)) =
@@ -176,7 +180,11 @@ pub fn shared_tree_generic_wire_and_summary_refuse_missing_context_test() {
   let assert Ok(revision) =
     fluid_ids.stable_id("00000000-0000-4000-8000-000000000003")
   wire_op.encode_channel_operation(
-    channel.TreeOperation(history.Commit(revision, session, change.empty())),
+    channel.TreeOperation(history.Commit(
+      revision,
+      session,
+      shared_change.from_data(change.empty()),
+    )),
   )
   |> expect.to_be_error()
   wire_op.channel_operation_decoder(channel.TreeChannel)
@@ -193,7 +201,7 @@ pub fn shared_tree_bridge_refuses_unknown_compressor_revision_test() {
   let compressor = fluid_ids.new(session)
   tree_runtime.identity_order(
     state,
-    history.Commit(revision, session, change.empty()),
+    history.Commit(revision, session, shared_change.from_data(change.empty())),
     compressor,
   )
   |> expect.to_be_error()

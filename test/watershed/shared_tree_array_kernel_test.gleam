@@ -15,6 +15,7 @@ import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/runtime_fixture
+import watershed/tree/shared_change
 import watershed/tree/types
 import watershed/tree_kernel
 import watershed/wire
@@ -679,10 +680,10 @@ pub fn shared_tree_array_repair_uses_each_sequenced_predecessor_test() {
   |> list.length
   |> expect.to_equal(2)
   let assert Ok([move, edit]) = tree_kernel.resubmit_commits(state(advanced))
-  change.to_data(move.change).refreshers
+  refreshers(move.change)
   |> list.flat_map(fn(build) { build.trees })
   |> expect.to_equal([initial])
-  change.to_data(edit.change).refreshers
+  refreshers(edit.change)
   |> list.flat_map(fn(build) { build.trees })
   |> expect.to_equal([
     types.ArrayValue(items_type, [
@@ -709,6 +710,17 @@ pub fn shared_tree_array_repair_uses_each_sequenced_predecessor_test() {
   tree_kernel.history_view(state(settled)).pending |> expect.to_equal([])
   tree_kernel.read_reference(state(settled), reference)
   |> expect.to_equal(Ok(point_with_x(7.0)))
+}
+
+fn refreshers(value: shared_change.Changeset) -> List(forest.Build) {
+  value
+  |> shared_change.to_changes
+  |> list.flat_map(fn(item) {
+    case item {
+      shared_change.DataChange(value) -> change.to_data(value).refreshers
+      shared_change.SchemaChange(_, _, _) -> []
+    }
+  })
 }
 
 pub fn shared_tree_array_bad_last_batch_child_preserves_runtime_state_test() {

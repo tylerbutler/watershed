@@ -21,6 +21,7 @@ import watershed/tree/codec/field_batch
 import watershed/tree/codec/summary
 import watershed/tree/forest
 import watershed/tree/sequence_field
+import watershed/tree/shared_change
 import watershed/tree/summary as tree_summary
 import watershed/tree/types.{
   ArrayMove, AtomId, ClearField, MapSet, SetField, StringValue,
@@ -234,8 +235,8 @@ fn apply_wire_message(
   let codec.TreeMessage(codec.WireCommit(revision, _, changes, _), _) = message
   list.try_fold(changes, state, fn(state, item) {
     case item {
-      codec.SchemaChange(_, _) -> Ok(state)
-      codec.DataChange(value) -> {
+      shared_change.SchemaChange(_, _, _) -> Ok(state)
+      shared_change.DataChange(value) -> {
         use delta <- result.try(
           change.into_delta(change.TaggedChange(Some(revision), None, value))
           |> result.map_error(string.inspect),
@@ -1000,14 +1001,19 @@ fn native_array_message_item(
   )
   let messages = [
     codec.TreeMessage(
-      codec.WireCommit(first_revision, session, [codec.DataChange(moved)], None),
+      codec.WireCommit(
+        first_revision,
+        session,
+        [shared_change.DataChange(moved)],
+        None,
+      ),
       [],
     ),
     codec.TreeMessage(
       codec.WireCommit(
         second_revision,
         session,
-        [codec.DataChange(nested)],
+        [shared_change.DataChange(nested)],
         None,
       ),
       [],
@@ -1092,8 +1098,8 @@ fn message_graphs(
     changes
     |> list.filter_map(fn(item) {
       case item {
-        codec.DataChange(value) -> Ok(value)
-        codec.SchemaChange(_, _) -> Error(Nil)
+        shared_change.DataChange(value) -> Ok(value)
+        shared_change.SchemaChange(_, _, _) -> Error(Nil)
       }
     })
     |> list.try_map(fn(value) {
@@ -1412,7 +1418,7 @@ fn native_message(
       codec.WireCommit(
         revision,
         session,
-        [codec.DataChange(authored)],
+        [shared_change.DataChange(authored)],
         Some(
           codec.CustomMetadata(
             Some(json.object([#("source", json.string("watershed-native"))])),
@@ -1543,7 +1549,7 @@ fn native_summary(initial: InitialState) -> Result(Json, String) {
       codec.WireCommit(
         revision,
         session,
-        [codec.DataChange(authored)],
+        [shared_change.DataChange(authored)],
         Some(
           codec.CustomMetadata(
             Some(

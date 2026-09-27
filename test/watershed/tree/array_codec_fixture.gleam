@@ -12,6 +12,7 @@ import watershed/tree/change_fixture_codec as fixture_codec
 import watershed/tree/codec
 import watershed/tree/codec/summary
 import watershed/tree/schema
+import watershed/tree/shared_change
 import watershed/tree/types
 import watershed/wire/fluid_summary
 
@@ -127,7 +128,7 @@ fn run_message_scenario(id: String, value: JsonValue) -> Result(Json, String) {
           let codec.TreeMessage(codec.WireCommit(changes: changes, ..), _) =
             message
           case changes {
-            [codec.DataChange(change), ..] -> {
+            [shared_change.DataChange(change), ..] -> {
               use graph <- result.try(
                 array_change_fixture.graph_json_with_compressor(
                   change,
@@ -174,8 +175,8 @@ fn message_graphs(
     changes
     |> list.filter_map(fn(item) {
       case item {
-        codec.DataChange(value) -> Ok(value)
-        codec.SchemaChange(_, _) -> Error(Nil)
+        shared_change.DataChange(value) -> Ok(value)
+        shared_change.SchemaChange(_, _, _) -> Error(Nil)
       }
     })
     |> list.try_map(fn(value) {
@@ -480,11 +481,11 @@ fn summary_commit_json(
 }
 
 fn change_json(
-  value: codec.TreeChange,
+  value: shared_change.TreeChange,
   compressor: fluid_ids.Compressor,
 ) -> Result(Json, String) {
   case value {
-    codec.DataChange(value) -> {
+    shared_change.DataChange(value) -> {
       use data <- result.try(array_change_fixture.graph_json_with_compressor(
         value,
         compressor,
@@ -496,7 +497,7 @@ fn change_json(
         ]),
       )
     }
-    codec.SchemaChange(before, after) ->
+    shared_change.SchemaChange(before, after, _) ->
       Ok(
         json.object([
           #("type", json.string("schema")),
@@ -518,10 +519,10 @@ fn change_json(
   }
 }
 
-fn schema_state_json(value: codec.SchemaState) -> Json {
+fn schema_state_json(value: schema.SchemaState) -> Json {
   let cardinality = case value {
-    codec.EmptySchema -> "Forbidden"
-    codec.FixedSchema(stored) -> {
+    schema.EmptySchema -> "Forbidden"
+    schema.FixedSchema(stored) -> {
       let schema.FieldSchema(cardinality, _) = schema.root_field_schema(stored)
       case cardinality {
         schema.Required -> "Value"
@@ -603,7 +604,7 @@ fn message_json(
   use changes <- result.try(
     list.try_map(changes, fn(item) {
       case item {
-        codec.DataChange(change) -> {
+        shared_change.DataChange(change) -> {
           use data <- result.try(
             array_change_fixture.graph_json_with_compressor(change, compressor),
           )
@@ -614,7 +615,7 @@ fn message_json(
             ]),
           )
         }
-        codec.SchemaChange(_, _) ->
+        shared_change.SchemaChange(_, _, _) ->
           Error("array message contains an unexpected schema change")
       }
     }),

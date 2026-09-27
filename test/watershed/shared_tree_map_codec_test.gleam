@@ -9,6 +9,7 @@ import watershed/tree/change
 import watershed/tree/codec
 import watershed/tree/fixtures
 import watershed/tree/schema
+import watershed/tree/shared_change
 import watershed/tree/types.{MapValue, StringValue, UnsupportedFeature}
 
 const map_type = "org.watershed.shared-tree.m2.DynamicMap"
@@ -42,7 +43,7 @@ pub fn shared_tree_map_codec_decodes_reconnect_map_build_test() -> Nil {
     Error(error) -> panic as { string.inspect(error) }
   }
   let assert codec.TreeMessage(
-    codec.WireCommit(changes: [codec.DataChange(changeset)], ..),
+    codec.WireCommit(changes: [shared_change.DataChange(changeset)], ..),
     _,
   ) = decoded
   let data = change.to_data(changeset)
@@ -63,7 +64,7 @@ pub fn shared_tree_map_codec_decodes_reconnect_map_build_test() -> Nil {
       stored,
     )
   let assert codec.TreeMessage(
-    codec.WireCommit(changes: [codec.DataChange(again_changeset)], ..),
+    codec.WireCommit(changes: [shared_change.DataChange(again_changeset)], ..),
     _,
   ) = again
   change.to_data(again_changeset) |> expect.to_equal(data)

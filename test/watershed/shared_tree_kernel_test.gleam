@@ -7,6 +7,7 @@ import watershed/tree/change
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/schema
+import watershed/tree/shared_change
 import watershed/tree/types.{
   type TreeError, AtomId, ClearField, InvalidEdit, NumberValue, ObjectValue,
   SetField, StringValue,
@@ -446,7 +447,12 @@ pub fn shared_tree_kernel_rebinding_trims_obsolete_history_keys_test() {
   let _ =
     list.fold(revisions, #(history.new(session()), 0), fn(state, revision) {
       let sequence = state.1 + 1
-      let commit = history.Commit(revision, session(), change.empty())
+      let commit =
+        history.Commit(
+          revision,
+          session(),
+          shared_change.from_data(change.empty()),
+        )
       let assert Ok(appended) = history.append_local(state.0, commit)
       let assert Ok(bound) =
         history.rebind_identity_order(appended.history, order)

@@ -10,6 +10,7 @@ import watershed/tree/codec
 import watershed/tree/codec/summary as summary_codec
 import watershed/tree/forest
 import watershed/tree/history
+import watershed/tree/shared_change
 import watershed/tree/types.{type TreeError, AtomId, CorruptData, SequencePoint}
 import watershed/tree_kernel
 
@@ -48,8 +49,9 @@ pub fn from_wire(
           ) = entry
           list.flat_map(changes, fn(item) {
             case item {
-              codec.DataChange(value) -> change.identity_revisions(value)
-              codec.SchemaChange(_, _) -> []
+              shared_change.DataChange(value) ->
+                change.identity_revisions(value)
+              shared_change.SchemaChange(_, _, _) -> []
             }
           })
         },
@@ -171,32 +173,22 @@ fn decode_commit(
     _,
     _,
   ) = entry
-  use data <- result.try(
+  use items <- result.try(
     list.try_map(changes, fn(item) {
       case item {
-        codec.DataChange(value) ->
+        shared_change.DataChange(value) ->
           change.rebind_identity_order(value, order, [revision])
-          |> result.map(Some)
-        codec.SchemaChange(_, _) -> Ok(None)
+          |> result.map(shared_change.DataChange)
+        shared_change.SchemaChange(_, _, _) -> Ok(item)
       }
     }),
   )
-  let data =
-    list.flat_map(data, fn(item) {
-      case item {
-        Some(value) -> [value]
-        None -> []
-      }
-    })
-  use composed <- result.try(case data {
-    [] -> Ok(change.empty())
-    [first] -> Ok(first)
-    [first, ..rest] ->
-      change.compose([
-        change.TaggedChange(Some(revision), None, first),
-        ..list.map(rest, fn(next) { change.TaggedChange(None, None, next) })
-      ])
-  })
+  use decoded <- result.try(shared_change.from_changes(items))
+  use composed <- result.try(
+    shared_change.compose([
+      shared_change.TaggedChange(Some(revision), None, decoded),
+    ]),
+  )
   Ok(history.Commit(revision, originator, composed))
 }
 
@@ -296,7 +288,7 @@ fn encode_commit(
       Ok(codec.WireCommit(
         commit.revision,
         commit.originator,
-        [codec.DataChange(commit.change)],
+        shared_change.to_changes(commit.change),
         None,
       ))
     Ok(summary_codec.SummaryCommit(
@@ -304,27 +296,49 @@ fn encode_commit(
       _,
       _,
     )) -> {
-      let original =
+      let original_data =
         list.flat_map(changes, fn(item) {
           case item {
-            codec.DataChange(value) -> [value]
-            codec.SchemaChange(_, _) -> []
+            shared_change.DataChange(value) -> [value]
+            shared_change.SchemaChange(_, _, _) -> []
           }
         })
-      use changes <- result.try(case original {
+      let current = shared_change.to_changes(commit.change)
+      use changes <- result.try(case has_schema(changes) {
+        True -> Ok(current)
+        False -> preserve_data_wire(changes, original_data, current, commit)
+      })
+      Ok(codec.WireCommit(commit.revision, commit.originator, changes, metadata))
+    }
+  }
+}
+
+fn has_schema(changes: List(shared_change.TreeChange)) -> Bool {
+  list.any(changes, fn(item) {
+    case item {
+      shared_change.DataChange(_) -> False
+      shared_change.SchemaChange(_, _, _) -> True
+    }
+  })
+}
+
+fn preserve_data_wire(
+  changes: List(shared_change.TreeChange),
+  original: List(change.Changeset),
+  current: List(shared_change.TreeChange),
+  commit: history.Commit,
+) -> Result(List(shared_change.TreeChange), TreeError) {
+  case current {
+    [] -> Ok([])
+    [shared_change.SchemaChange(_, _, _), ..] -> Ok(current)
+    [shared_change.DataChange(current_data)] ->
+      case original {
+        [] -> Ok(current)
         [only] ->
-          case change.to_data(only) == change.to_data(commit.change) {
+          case change.to_data(only) == change.to_data(current_data) {
             True -> Ok(changes)
-            False ->
-              list.map(changes, fn(item) {
-                case item {
-                  codec.DataChange(_) -> codec.DataChange(commit.change)
-                  other -> other
-                }
-              })
-              |> Ok
+            False -> Ok([shared_change.DataChange(current_data)])
           }
-        [] -> Ok(changes)
         [first, ..rest] -> {
           use combined <- result.try(
             change.compose([
@@ -334,7 +348,7 @@ fn encode_commit(
               })
             ]),
           )
-          case change.to_data(combined) == change.to_data(commit.change) {
+          case change.to_data(combined) == change.to_data(current_data) {
             True -> Ok(changes)
             False ->
               Error(CorruptData(
@@ -343,8 +357,7 @@ fn encode_commit(
               ))
           }
         }
-      })
-      Ok(codec.WireCommit(commit.revision, commit.originator, changes, metadata))
-    }
+      }
+    [shared_change.DataChange(_), ..] -> Ok(current)
   }
 }

@@ -13,6 +13,7 @@ import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/history_fixture
 import watershed/tree/schema
+import watershed/tree/shared_change
 import watershed/tree/types.{
   AtomId, MapDelete, MapSet, MapValue, ObjectValue, StringValue,
 }
@@ -268,7 +269,12 @@ fn assert_map_repairs_are_resubmitted() {
         False,
         inverse_revision,
       )
-    let commit = history.Commit(inverse_revision, map_session(), inverted)
+    let commit =
+      history.Commit(
+        inverse_revision,
+        map_session(),
+        shared_change.from_data(inverted),
+      )
     let assert Ok(update) =
       history.append_local(history.new(map_session()), commit)
     let detached = AtomId(Some(revision), 0)
@@ -278,7 +284,9 @@ fn assert_map_repairs_are_resubmitted() {
     let repair = forest.Build(detached, [value])
     let assert Ok([resubmitted]) =
       history.resubmit(update.history, [#(inverse_revision, [repair])])
-    change.to_data(resubmitted.change).refreshers
+    let assert [shared_change.DataChange(resubmitted)] =
+      shared_change.to_changes(resubmitted.change)
+    change.to_data(resubmitted).refreshers
     |> expect.to_equal([repair])
   })
 }

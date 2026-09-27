@@ -17,6 +17,7 @@ import watershed/tree/forest
 import watershed/tree/optional_field
 import watershed/tree/schema
 import watershed/tree/sequence_field
+import watershed/tree/shared_change
 import watershed/tree/types.{type TreeError, CorruptData, InvalidHistory}
 
 const max_safe_integer = 9_007_199_254_740_991
@@ -57,16 +58,6 @@ pub type Revision {
   StableRevision(fluid_ids.StableId)
 }
 
-pub type SchemaState {
-  EmptySchema
-  FixedSchema(schema.StoredSchema)
-}
-
-pub type TreeChange {
-  DataChange(change.Changeset)
-  SchemaChange(before: SchemaState, after: SchemaState)
-}
-
 pub type CustomMetadata {
   CustomMetadata(value: Option(Json), children: List(CustomMetadata))
 }
@@ -75,7 +66,7 @@ pub type WireCommit {
   WireCommit(
     revision: fluid_ids.StableId,
     originator: fluid_ids.SessionId,
-    changes: List(TreeChange),
+    changes: List(shared_change.TreeChange),
     custom_metadata: Option(CustomMetadata),
   )
 }
@@ -262,7 +253,7 @@ pub fn decode_changes(
   encoded: Json,
   context: DecodeContext,
   change_context: ChangeContext,
-) -> Result(List(TreeChange), TreeError) {
+) -> Result(List(shared_change.TreeChange), TreeError) {
   use value <- result.try(json_value(encoded, "changes"))
   decode_changes_value(value, context, change_context, None, "changes")
 }
@@ -273,14 +264,14 @@ pub fn decode_changes_with_schema(
   context: DecodeContext,
   change_context: ChangeContext,
   stored: schema.StoredSchema,
-) -> Result(List(TreeChange), TreeError) {
+) -> Result(List(shared_change.TreeChange), TreeError) {
   use value <- result.try(json_value(encoded, "changes"))
   decode_changes_value(value, context, change_context, Some(stored), "changes")
 }
 
 /// Encode an ordered SharedTreeChange V5 list.
 pub fn encode_changes(
-  changes: List(TreeChange),
+  changes: List(shared_change.TreeChange),
   context: EncodeContext,
   change_context: ChangeContext,
 ) -> Result(Json, TreeError) {
@@ -289,14 +280,14 @@ pub fn encode_changes(
 }
 
 /// Decode a stored schema or the empty bootstrap schema.
-pub fn decode_schema(raw: String) -> Result(SchemaState, TreeError) {
+pub fn decode_schema(raw: String) -> Result(schema.SchemaState, TreeError) {
   case schema.stored_from_string(raw) {
-    Ok(stored) -> Ok(FixedSchema(stored))
+    Ok(stored) -> Ok(schema.FixedSchema(stored))
     Error(error) ->
       case json_ot.parse_json(raw) {
         Ok(value) ->
           case is_empty_schema(value) {
-            True -> Ok(EmptySchema)
+            True -> Ok(schema.EmptySchema)
             False -> Error(error)
           }
         _ -> Error(error)
@@ -305,9 +296,9 @@ pub fn decode_schema(raw: String) -> Result(SchemaState, TreeError) {
 }
 
 /// Encode a schema state without changing validated schema data.
-pub fn encode_schema(value: SchemaState) -> Result(Json, TreeError) {
+pub fn encode_schema(value: schema.SchemaState) -> Result(Json, TreeError) {
   case value {
-    EmptySchema ->
+    schema.EmptySchema ->
       Ok(
         json_ot.to_json(
           VObject([
@@ -323,7 +314,7 @@ pub fn encode_schema(value: SchemaState) -> Result(Json, TreeError) {
           ]),
         ),
       )
-    FixedSchema(stored) -> Ok(schema.stored_to_json(stored))
+    schema.FixedSchema(stored) -> Ok(schema.stored_to_json(stored))
   }
 }
 
@@ -414,7 +405,7 @@ fn decode_changes_value(
   change_context: ChangeContext,
   stored: Option(schema.StoredSchema),
   location: String,
-) -> Result(List(TreeChange), TreeError) {
+) -> Result(List(shared_change.TreeChange), TreeError) {
   use values <- result.try(array(value, location))
   index_try_map(values, fn(value, index) {
     let location = location <> "[" <> int.to_string(index) <> "]"
@@ -428,7 +419,7 @@ fn decode_changes_value(
           stored,
           location <> ".data",
         )
-        |> result.map(DataChange)
+        |> result.map(shared_change.DataChange)
       [#("schema", schema_change)] ->
         decode_schema_change(schema_change, location <> ".schema")
       _ ->
@@ -441,7 +432,7 @@ fn decode_changes_value(
 }
 
 fn encode_changes_value(
-  changes: List(TreeChange),
+  changes: List(shared_change.TreeChange),
   context: EncodeContext,
   change_context: ChangeContext,
   location: String,
@@ -450,10 +441,10 @@ fn encode_changes_value(
     index_try_map(changes, fn(value, index) {
       let location = location <> "[" <> int.to_string(index) <> "]"
       case value {
-        DataChange(change) ->
+        shared_change.DataChange(change) ->
           encode_modular_value(change, context, change_context, location)
           |> result.map(fn(value) { VObject([#("data", value)]) })
-        SchemaChange(before, after) -> {
+        shared_change.SchemaChange(before, after, _) -> {
           use before <- result.try(encode_schema(before))
           use before <- result.try(json_value(before, location <> ".schema.old"))
           use after <- result.try(encode_schema(after))
@@ -471,7 +462,7 @@ fn encode_changes_value(
 fn decode_schema_change(
   value: JsonValue,
   location: String,
-) -> Result(TreeChange, TreeError) {
+) -> Result(shared_change.TreeChange, TreeError) {
   use members <- result.try(object(value, location))
   use _ <- result.try(exact_keys(members, ["old", "new"], location))
   use old <- result.try(required(members, "old", location <> ".old"))
@@ -484,7 +475,7 @@ fn decode_schema_change(
     decode_schema(json.to_string(json_ot.to_json(new)))
     |> result.map_error(fn(error) { at_location(error, location <> ".new") }),
   )
-  Ok(SchemaChange(old, new))
+  Ok(shared_change.SchemaChange(old, new, False))
 }
 
 fn decode_modular_value(

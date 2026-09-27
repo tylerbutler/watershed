@@ -17,6 +17,7 @@ import watershed/tree/codec/summary
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/schema
+import watershed/tree/shared_change
 import watershed/tree/types.{
   type TreeValue, BooleanValue, ClearField, NullValue, NumberValue, ObjectValue,
   SequencePoint, SetField, StringValue,
@@ -380,31 +381,32 @@ fn summary_history(
 }
 
 fn bootstrap_changes(
-  changes: List(codec.TreeChange),
+  changes: List(shared_change.TreeChange),
   stored: schema.StoredSchema,
-) -> Result(change.Changeset, String) {
+) -> Result(shared_change.Changeset, String) {
   use #(current, data) <- result.try(
-    list.try_fold(changes, #(codec.EmptySchema, []), fn(state, item) {
+    list.try_fold(changes, #(schema.EmptySchema, []), fn(state, item) {
       case item {
-        codec.SchemaChange(before, after) -> {
+        shared_change.SchemaChange(before, after, _) -> {
           use _ <- result.try(require(
             before == state.0,
             "initial schema changes are not contiguous",
           ))
           Ok(#(after, state.1))
         }
-        codec.DataChange(change) -> Ok(#(state.0, [change, ..state.1]))
+        shared_change.DataChange(change) -> Ok(#(state.0, [change, ..state.1]))
       }
     }),
   )
   use _ <- result.try(require(
-    current == codec.FixedSchema(stored),
+    current == schema.FixedSchema(stored),
     "initial schema does not match stored schema",
   ))
-  case data {
-    [only] -> Ok(only)
+  use _ <- result.try(case data {
+    [_] -> Ok(Nil)
     _ -> Error("initial commit needs exactly one data change")
-  }
+  })
+  shared_change.from_changes(changes) |> result.map_error(string.inspect)
 }
 
 fn require(condition: Bool, detail: String) -> Result(Nil, String) {
@@ -701,6 +703,7 @@ fn deliver_one(driver: Driver, message: Message) -> Result(Driver, String) {
             use order <- result.try(
               identity_order(candidate, [
                 commit.revision,
+                ..shared_change.identity_revisions(commit.change)
               ]),
             )
             tree_kernel.receive_ordered(
@@ -726,7 +729,11 @@ fn deliver_one(driver: Driver, message: Message) -> Result(Driver, String) {
                 )
                 let client = Client(..client, compressor:)
                 use order <- result.try(
-                  identity_order(client, [revision])
+                  identity_order(client, [
+                    revision,
+                    commit.revision,
+                    ..shared_change.identity_revisions(commit.change)
+                  ])
                   |> result.map_error(types.InvalidHistory),
                 )
                 Ok(#(revision, order, client))

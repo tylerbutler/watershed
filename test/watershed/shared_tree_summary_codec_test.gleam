@@ -13,6 +13,7 @@ import watershed/tree/codec/summary
 import watershed/tree/fixtures
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
+import watershed/tree/shared_change
 import watershed/tree/summary as tree_summary
 import watershed/tree/types
 import watershed/tree_kernel
@@ -101,9 +102,17 @@ pub fn shared_tree_summary_decodes_initial_bootstrap_test() {
             _,
             _,
             [
-              codec.SchemaChange(codec.EmptySchema, codec.FixedSchema(_)),
-              codec.DataChange(_),
-              codec.SchemaChange(codec.FixedSchema(_), codec.FixedSchema(_)),
+              shared_change.SchemaChange(
+                schema.EmptySchema,
+                schema.FixedSchema(_),
+                False,
+              ),
+              shared_change.DataChange(_),
+              shared_change.SchemaChange(
+                schema.FixedSchema(_),
+                schema.FixedSchema(_),
+                False,
+              ),
             ],
             None,
           ),
@@ -164,13 +173,13 @@ pub fn shared_tree_summary_decodes_dynamic_map_forest_test() {
     changes
     |> list.any(fn(item) {
       case item {
-        codec.DataChange(value) -> {
+        shared_change.DataChange(value) -> {
           let data = change.to_data(value)
           list.append(data.builds, data.refreshers)
           |> list.flat_map(fn(build) { build.trees })
           |> list.any(contains_map)
         }
-        codec.SchemaChange(_, _) -> False
+        shared_change.SchemaChange(_, _, _) -> False
       }
     })
   })

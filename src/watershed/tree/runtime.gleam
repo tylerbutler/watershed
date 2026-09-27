@@ -11,6 +11,7 @@ import watershed/tree/change
 import watershed/tree/codec
 import watershed/tree/history
 import watershed/tree/schema
+import watershed/tree/shared_change
 import watershed/tree/types.{type Edit, type SequencePoint, type TreeError}
 import watershed/tree_kernel
 
@@ -45,11 +46,11 @@ pub fn wire_to_commit(
   wire: codec.WireCommit,
 ) -> Result(history.Commit, TreeError) {
   let codec.WireCommit(revision, originator, changes, _) = wire
-  use data <- result.try(
-    list.try_map(changes, fn(item) {
+  use _ <- result.try(
+    list.try_each(changes, fn(item) {
       case item {
-        codec.DataChange(value) -> Ok(value)
-        codec.SchemaChange(_, _) ->
+        shared_change.DataChange(_) -> Ok(Nil)
+        shared_change.SchemaChange(_, _, _) ->
           Error(types.UnsupportedFeature(
             "message.changeset",
             "schema changes are not supported after initialization",
@@ -57,18 +58,12 @@ pub fn wire_to_commit(
       }
     }),
   )
-  use composed <- result.try(case data {
-    [] ->
-      Error(types.CorruptData(
-        "message.changeset",
-        "tree commit has no data change",
-      ))
-    [first, ..rest] ->
-      change.compose([
-        change.TaggedChange(Some(revision), None, first),
-        ..list.map(rest, fn(next) { change.TaggedChange(None, None, next) })
-      ])
-  })
+  use decoded <- result.try(shared_change.from_changes(changes))
+  use composed <- result.try(
+    shared_change.compose([
+      shared_change.TaggedChange(Some(revision), None, decoded),
+    ]),
+  )
   Ok(history.Commit(revision, originator, composed))
 }
 
@@ -97,7 +92,7 @@ pub fn encode_commit(
       codec.WireCommit(
         commit.revision,
         commit.originator,
-        [codec.DataChange(commit.change)],
+        shared_change.to_changes(commit.change),
         None,
       ),
       [],
@@ -119,7 +114,7 @@ pub fn identity_order(
     [
       commit.revision,
       ..list.append(
-        change.identity_revisions(commit.change),
+        shared_change.identity_revisions(commit.change),
         tree_kernel.identity_revisions(state),
       )
     ],
@@ -142,7 +137,7 @@ pub fn receive_commit(
   let revisions = [
     commit.revision,
     ..list.append(
-      change.identity_revisions(commit.change),
+      shared_change.identity_revisions(commit.change),
       tree_kernel.identity_revisions(state),
     )
   ]

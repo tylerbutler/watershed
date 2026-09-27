@@ -11,6 +11,7 @@ import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/schema
+import watershed/tree/shared_change
 import watershed/tree/types
 
 type ChangeCatalog =
@@ -264,19 +265,43 @@ fn finish_update(
   allocator: Allocator,
   extra: List(#(String, Json)),
 ) -> Result(Execution, String) {
-  use next_forest <- result.try(case update.delta {
-    None -> Ok(state.forest)
-    Some(delta) -> forest.apply_delta(state.forest, delta) |> codec.native
-  })
+  use next_forest <- result.try(apply_effects(state.forest, update.effects))
+  use delta <- result.try(data_delta(update.effects))
   finish_checkpoint(
     Execution(..state, history: update.history, forest: next_forest),
     id,
     operation,
-    update.delta,
+    delta,
     update.trimmed_revisions,
     allocator,
     extra,
   )
+}
+
+fn apply_effects(
+  state: forest.Forest,
+  effects: List(shared_change.Effect),
+) -> Result(forest.Forest, String) {
+  list.try_fold(effects, state, fn(state, effect) {
+    case effect {
+      shared_change.DataDelta(delta) ->
+        forest.apply_delta(state, delta) |> codec.native
+      shared_change.SchemaDelta(_, schema.FixedSchema(after), _) ->
+        forest.replace_schema(state, after) |> codec.native
+      shared_change.SchemaDelta(_, schema.EmptySchema, _) ->
+        Error("history fixture cannot apply an empty schema")
+    }
+  })
+}
+
+fn data_delta(
+  effects: List(shared_change.Effect),
+) -> Result(Option(forest.Delta), String) {
+  case effects {
+    [] -> Ok(None)
+    [shared_change.DataDelta(delta)] -> Ok(Some(delta))
+    _ -> Error("data-only history schedule produced non-data effects")
+  }
 }
 
 fn finish_checkpoint(
@@ -329,7 +354,7 @@ fn decode_commit(
     list.key_find(changes, name)
     |> result.map_error(fn(_) { "unknown history change " <> name }),
   )
-  Ok(history.Commit(revision, originator, changeset))
+  Ok(history.Commit(revision, originator, shared_change.from_data(changeset)))
 }
 
 fn decode_revision_entry(
@@ -484,8 +509,39 @@ fn commit_json(value: history.Commit) -> Json {
       "originator",
       json.string(fluid_ids.session_id_to_string(value.originator)),
     ),
-    #("change", codec.state_json(value.change)),
+    #("change", data_change_json(value.change)),
   ])
+}
+
+fn data_change_json(value: shared_change.Changeset) -> Json {
+  case shared_change.to_changes(value) {
+    [shared_change.DataChange(data)] -> codec.state_json(data)
+    _ -> json.array(shared_change.to_changes(value), outer_change_json)
+  }
+}
+
+fn outer_change_json(value: shared_change.TreeChange) -> Json {
+  case value {
+    shared_change.DataChange(data) ->
+      json.object([
+        #("kind", json.string("data")),
+        #("change", codec.state_json(data)),
+      ])
+    shared_change.SchemaChange(before, after, is_inverse) ->
+      json.object([
+        #("kind", json.string("schema")),
+        #("before", schema_state_json(before)),
+        #("after", schema_state_json(after)),
+        #("isInverse", json.bool(is_inverse)),
+      ])
+  }
+}
+
+fn schema_state_json(value: schema.SchemaState) -> Json {
+  case value {
+    schema.EmptySchema -> json.null()
+    schema.FixedSchema(stored) -> schema.stored_to_json(stored)
+  }
 }
 
 fn point_json(value: types.SequencePoint) -> Json {

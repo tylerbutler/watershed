@@ -9,6 +9,7 @@ import watershed/tree/codec/summary as summary_codec
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/schema
+import watershed/tree/shared_change
 import watershed/tree/types.{
   type Edit, type FieldPath, type SequencePoint, type TreeError, type TreeValue,
 }
@@ -203,8 +204,8 @@ pub fn resubmit_commits(
       #(state.sequenced, []),
       fn(acc, commit) {
         let #(before, repairs) = acc
-        use roots <- result.try(change.relevant_removed_roots(commit.change))
-        let builds = change.to_data(commit.change).builds
+        use roots <- result.try(removed_roots(commit.change))
+        let builds = change_builds(commit.change)
         use external <- result.try(
           roots
           |> list.filter(fn(root) {
@@ -216,19 +217,15 @@ pub fn resubmit_commits(
             Ok(forest.Build(root, [value]))
           }),
         )
-        use enriched <- result.try(change.update_refreshers(
-          commit.change,
-          roots,
-          external,
-        ))
-        use delta <- result.try(
-          change.into_delta(change.TaggedChange(
+        use enriched <- result.try(update_refreshers(commit.change, external))
+        use effects <- result.try(
+          shared_change.effects(shared_change.TaggedChange(
             Some(commit.revision),
             None,
             enriched,
           )),
         )
-        use after <- result.try(forest.apply_delta(before, delta))
+        use after <- result.try(apply_effects(before, effects))
         Ok(#(after, list.append(repairs, [#(commit.revision, external)])))
       },
     ),
@@ -306,15 +303,13 @@ pub fn apply_local(
     order,
     state.next_local_id,
   ))
-  let commit = history.Commit(revision, state.local_session, authored)
+  let outer = shared_change.from_data(authored)
+  let commit = history.Commit(revision, state.local_session, outer)
   use update <- result.try(history.append_local(state.history, commit))
-  use delta <- result.try(case update.delta {
-    Some(delta) -> Ok(delta)
-    None -> Error(types.InvalidHistory("local edit has no delta"))
-  })
-  use #(visible, array_changed) <- result.try(
-    forest.apply_delta_with_array_changes(state.visible, delta),
-  )
+  use #(visible, array_changed) <- result.try(apply_effects_with_array_changes(
+    state.visible,
+    update.effects,
+  ))
   use events <- result.try(changed_events(
     state.visible,
     visible,
@@ -326,7 +321,7 @@ pub fn apply_local(
       ..state,
       visible:,
       history: update.history,
-      next_local_id: change.to_data(authored).max_local_id + 1,
+      next_local_id: shared_change.max_local_id(outer) + 1,
     ),
     commit,
     events,
@@ -351,14 +346,14 @@ pub fn receive(
     allocation,
     mint,
   ))
-  use sequenced <- result.try(apply_optional(
+  use sequenced <- result.try(apply_effects(
     state.sequenced,
-    update.sequenced_delta,
+    update.sequenced_effects,
   ))
-  use #(visible, array_changed) <- result.try(case update.delta {
-    None -> Ok(#(state.visible, False))
-    Some(delta) -> forest.apply_delta_with_array_changes(state.visible, delta)
-  })
+  use #(visible, array_changed) <- result.try(apply_effects_with_array_changes(
+    state.visible,
+    update.effects,
+  ))
   use events <- result.try(changed_events(
     state.visible,
     visible,
@@ -383,9 +378,12 @@ pub fn receive_ordered(
   mint: history.MintRevision(allocation),
 ) -> Result(#(TreeState, ChangeEvents, allocation), TreeError) {
   use state <- result.try(rebind_identity_order(state, order))
-  use authored <- result.try(
-    change.rebind_identity_order(commit.change, order, [commit.revision]),
-  )
+  use authored <- result.try(shared_change.rebind_identity_order(
+    commit.change,
+    order,
+    [commit.revision, ..shared_change.identity_revisions(commit.change)]
+      |> list.unique,
+  ))
   receive(
     state,
     history.Commit(..commit, change: authored),
@@ -397,14 +395,89 @@ pub fn receive_ordered(
   )
 }
 
-fn apply_optional(
+fn apply_effects(
   state: forest.Forest,
-  delta: Option(forest.Delta),
+  effects: List(shared_change.Effect),
 ) -> Result(forest.Forest, TreeError) {
-  case delta {
-    None -> Ok(state)
-    Some(delta) -> forest.apply_delta(state, delta)
-  }
+  list.try_fold(effects, state, fn(state, effect) {
+    case effect {
+      shared_change.DataDelta(delta) -> forest.apply_delta(state, delta)
+      shared_change.SchemaDelta(_, _, _) ->
+        Error(types.UnsupportedFeature(
+          "tree history effects",
+          "schema effects are not supported before schema state migration",
+        ))
+    }
+  })
+}
+
+fn apply_effects_with_array_changes(
+  state: forest.Forest,
+  effects: List(shared_change.Effect),
+) -> Result(#(forest.Forest, Bool), TreeError) {
+  list.try_fold(effects, #(state, False), fn(acc, effect) {
+    case effect {
+      shared_change.DataDelta(delta) -> {
+        use #(state, changed) <- result.try(
+          forest.apply_delta_with_array_changes(acc.0, delta),
+        )
+        Ok(#(state, acc.1 || changed))
+      }
+      shared_change.SchemaDelta(_, _, _) ->
+        Error(types.UnsupportedFeature(
+          "tree history effects",
+          "schema effects are not supported before schema state migration",
+        ))
+    }
+  })
+}
+
+fn removed_roots(
+  changeset: shared_change.Changeset,
+) -> Result(List(types.AtomId), TreeError) {
+  changeset
+  |> shared_change.to_changes
+  |> list.try_fold([], fn(roots, item) {
+    case item {
+      shared_change.SchemaChange(_, _, _) -> Ok(roots)
+      shared_change.DataChange(data) -> {
+        use next <- result.try(change.relevant_removed_roots(data))
+        Ok(list.append(roots, next))
+      }
+    }
+  })
+}
+
+fn change_builds(changeset: shared_change.Changeset) -> List(forest.Build) {
+  changeset
+  |> shared_change.to_changes
+  |> list.flat_map(fn(item) {
+    case item {
+      shared_change.SchemaChange(_, _, _) -> []
+      shared_change.DataChange(data) -> change.to_data(data).builds
+    }
+  })
+}
+
+fn update_refreshers(
+  changeset: shared_change.Changeset,
+  repair: List(forest.Build),
+) -> Result(shared_change.Changeset, TreeError) {
+  use items <- result.try(
+    changeset
+    |> shared_change.to_changes
+    |> list.try_map(fn(item) {
+      case item {
+        shared_change.SchemaChange(_, _, _) -> Ok(item)
+        shared_change.DataChange(data) -> {
+          use roots <- result.try(change.relevant_removed_roots(data))
+          change.update_refreshers(data, roots, repair)
+          |> result.map(shared_change.DataChange)
+        }
+      }
+    }),
+  )
+  shared_change.from_changes(items)
 }
 
 fn changed_events(

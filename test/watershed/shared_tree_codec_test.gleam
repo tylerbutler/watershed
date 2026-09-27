@@ -12,6 +12,7 @@ import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/optional_field
 import watershed/tree/schema
+import watershed/tree/shared_change
 import watershed/tree/types
 import watershed/wire
 
@@ -25,10 +26,10 @@ fn session(raw: String) -> fluid_ids.SessionId {
 pub fn shared_tree_codec_empty_schema_test() {
   let raw =
     "{\"version\":2,\"nodes\":{},\"root\":{\"kind\":\"Forbidden\",\"types\":[]}}"
-  let assert Ok(codec.EmptySchema) = codec.decode_schema(raw)
-  let assert Ok(encoded) = codec.encode_schema(codec.EmptySchema)
+  let assert Ok(schema.EmptySchema) = codec.decode_schema(raw)
+  let assert Ok(encoded) = codec.encode_schema(schema.EmptySchema)
   codec.decode_schema(json.to_string(encoded))
-  |> expect.to_equal(Ok(codec.EmptySchema))
+  |> expect.to_equal(Ok(schema.EmptySchema))
 }
 
 pub fn shared_tree_codec_rejects_noncanonical_empty_schema_test() {
@@ -131,7 +132,7 @@ pub fn shared_tree_codec_decodes_raw_v7_generic_message_test() {
   |> expect.to_equal("a0693eac-892a-4396-86f7-ad20dc1cade2")
   fluid_ids.stable_id_to_string(revision)
   |> expect.to_equal("a0693eac-892a-4396-86f7-ad20dc1cade2")
-  let assert [codec.DataChange(data_change)] = changes
+  let assert [shared_change.DataChange(data_change)] = changes
   let data = change.to_data(data_change)
   data.max_local_id |> expect.to_equal(2)
   let assert [#("rootFieldKey", change.GenericField([#(0, child_id)]))] =
@@ -186,7 +187,7 @@ pub fn shared_tree_codec_decodes_optional_clear_test() {
     codec.decode_message(raw, codec.DecodeContext(codec.Fluid310, compressor))
   decoded |> expect.to_be_ok
   let assert Ok(codec.TreeMessage(
-    codec.WireCommit(_, _, [codec.DataChange(changes)], _),
+    codec.WireCommit(_, _, [shared_change.DataChange(changes)], _),
     _,
   )) = decoded
   let data = change.to_data(changes)
@@ -211,9 +212,17 @@ pub fn shared_tree_codec_preserves_bootstrap_change_order_test() {
       _,
       _,
       [
-        codec.SchemaChange(codec.EmptySchema, codec.FixedSchema(_)),
-        codec.DataChange(_),
-        codec.SchemaChange(codec.FixedSchema(_), codec.FixedSchema(_)),
+        shared_change.SchemaChange(
+          schema.EmptySchema,
+          schema.FixedSchema(_),
+          False,
+        ),
+        shared_change.DataChange(_),
+        shared_change.SchemaChange(
+          schema.FixedSchema(_),
+          schema.FixedSchema(_),
+          False,
+        ),
       ],
       _,
     ),
