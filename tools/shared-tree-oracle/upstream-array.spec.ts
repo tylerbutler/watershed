@@ -83,8 +83,9 @@ const scenarioIds = {
 		"schema-content-bytes",
 	],
 	"array-modular-algebra": [
-		"generic-to-sequence", "sequence-to-generic", "nested-conversions",
-		"nested-conversions-reversed", "nested-ancestors",
+		"generic-to-sequence", "sequence-to-generic", "generic-signature-collision",
+		"nested-conversions", "nested-conversions-reversed", "nested-rebase-conversion",
+		"sequence-tombstone-rebase", "nested-ancestors",
 		"common-ancestors", "cross-field-endpoints", "nested-cross-field-endpoints",
 		"nested-aliased-chain", "nested-outer-effects", "sequence-ancestor-rebase",
 		"node-table", "parent-table", "alias-table",
@@ -2123,6 +2124,22 @@ async function makeCases() {
 		],
 		{ maxLocalId: 0 },
 	);
+	const genericCollisionLeft = emptyChange(r0, [["left", generic([])]]);
+	const genericCollisionRight = emptyChange(r1, [
+		["left", sequence([])],
+		["unused", generic([])],
+	]);
+	const sequenceTombstone = emptyChange(r0, [["left", sequence([
+		{
+			type: "Insert",
+			count: 1,
+			id: 0,
+			cellId: atom(r0, 0),
+			revision: Number(r0),
+		},
+		{ count: 1, cellId: atom(r0, 10) },
+	])]], { maxLocalId: 10 });
+	const emptySequence = emptyChange(r1, [["left", sequence([])]]);
 	const nestedMap = emptyChange(r2, [["byKey", generic([[0, atom(r2, 20)]])]], {
 		maxLocalId: 22,
 		nodes: [
@@ -2213,6 +2230,7 @@ async function makeCases() {
 					fields: unknown[];
 					nodes: unknown[];
 					parents: unknown[];
+					aliases: unknown[];
 					crossFieldKeys: { field: { node: unknown; field: string } }[];
 				};
 			}[];
@@ -2234,6 +2252,17 @@ async function makeCases() {
 	});
 	nestedCrossField.allocator.maxLocalId = 61;
 	const nestedAliasedChain = copy(nestedCrossField);
+	nestedAliasedChain.operands.changes.forEach(({ change }, index) => {
+		const source = atom(r6, 160 + index);
+		const target = atom(r6, 60 + index);
+		change.aliases = [[source, target]];
+		change.crossFieldKeys = change.crossFieldKeys.map((key) => ({
+			...key,
+			field: { ...key.field, node: source },
+		}));
+		change.maxLocalId = 160 + index;
+	});
+	nestedAliasedChain.allocator.maxLocalId = 161;
 	const chainSecond = nestedAliasedChain.operands.changes[1].change;
 	const chainNode = chainSecond.nodes[0] as [
 		unknown,
@@ -2328,11 +2357,17 @@ async function makeCases() {
 	const sequenceAncestorAuthored = emptyChange(r7, [["outer", sequence([
 		{ count: 1, changes: atom(r7, 80) },
 	])]], {
-		maxLocalId: 84,
+		maxLocalId: 86,
 		nodes: [
-			[atom(r7, 80), { fields: [["left", sequence([
-				{ count: 1, changes: atom(r7, 81) },
-			])]] }],
+			[atom(r7, 80), { fields: [
+				["left", sequence([
+					{ count: 1, changes: atom(r7, 81) },
+				])],
+				["right", sequence([
+					{ count: 1 },
+					{ count: 1, changes: atom(r7, 85) },
+				])],
+			] }],
 			[atom(r7, 81), { fields: [["", sequence([
 				{ count: 1, changes: atom(r7, 83) },
 			])]] }],
@@ -2344,12 +2379,20 @@ async function makeCases() {
 				cellId: atom(r7, 0),
 				revision: Number(r7),
 			}])]] }],
+			[atom(r7, 85), { fields: [["", sequence([{
+				type: "Insert",
+				count: 1,
+				id: 86,
+				cellId: atom(r7, 86),
+				revision: Number(r7),
+			}])]] }],
 		],
 		parents: [
 			[atom(r7, 80), parent("outer")],
 			[atom(r7, 81), parent("left", atom(r7, 80))],
 			[atom(r7, 83), parent("", atom(r7, 81))],
 			[atom(r7, 84), parent("x", atom(r7, 83))],
+			[atom(r7, 85), parent("right", atom(r7, 80))],
 		],
 	});
 	const sequenceAncestorBase = emptyChange(r8, [["outer", sequence([
@@ -2424,6 +2467,10 @@ async function makeCases() {
 			tagged(r1, sequenceLeft),
 			tagged(r0, genericLeft),
 		]),
+		"generic-signature-collision": replayContext("compose", [
+			tagged(r0, genericCollisionLeft),
+			tagged(r1, genericCollisionRight),
+		]),
 		"nested-conversions": replayContext("compose", [
 			tagged(r0, nestedGeneric),
 			tagged(r1, nestedSequence),
@@ -2432,6 +2479,26 @@ async function makeCases() {
 			tagged(r1, nestedSequence),
 			tagged(r0, nestedGeneric),
 		]),
+		"nested-rebase-conversion": replayContext(
+			"rebase",
+			[tagged(r1, nestedSequence), tagged(r0, nestedGeneric)],
+			{
+				revisionMetadata: [r0, r1].map((revision) => ({
+					revision: Number(revision),
+					rollbackOf: null,
+				})),
+			},
+		),
+		"sequence-tombstone-rebase": replayContext(
+			"rebase",
+			[tagged(r0, sequenceTombstone), tagged(r1, emptySequence)],
+			{
+				revisionMetadata: [r0, r1].map((revision) => ({
+					revision: Number(revision),
+					rollbackOf: null,
+				})),
+			},
+		),
 		"nested-ancestors": replayContext("invert", [tagged(r2, nestedMap)], {
 			isRollback: false,
 			inverseRevision: Number(r5),
@@ -2509,12 +2576,15 @@ async function makeCases() {
 		if (
 			id === "generic-to-sequence" ||
 			id === "sequence-to-generic" ||
+			id === "generic-signature-collision" ||
 			id === "nested-conversions" ||
-			id === "nested-conversions-reversed"
+			id === "nested-conversions-reversed" ||
+			id === "nested-rebase-conversion"
 		) {
 			const expectedDirection =
 				id === "sequence-to-generic" ||
-					id === "nested-conversions-reversed"
+					id === "nested-conversions-reversed" ||
+					id === "nested-rebase-conversion"
 					? "generic-right"
 					: "generic-left";
 			const conversion = Reflect.get(outputRecord, "conversion");
@@ -2527,9 +2597,20 @@ async function makeCases() {
 				[expectedDirection],
 				`${id}: the source handler must convert the Generic operand.`,
 			);
+			if (id === "generic-signature-collision") {
+				const calls = Reflect.get(conversion, "calls") as {
+					field: { node: unknown; field: string };
+				}[];
+				assert.deepEqual(
+					calls.map(({ field }) => [field.node, field.field]),
+					[[null, "left"]],
+					"An unrelated identical Generic field must not steal conversion identity.",
+				);
+			}
 			if (
 				id === "nested-conversions" ||
-				id === "nested-conversions-reversed"
+				id === "nested-conversions-reversed" ||
+				id === "nested-rebase-conversion"
 			) {
 				const calls = Reflect.get(conversion, "calls") as {
 					field: { node: { localId: number } | null; field: string };
@@ -2540,34 +2621,36 @@ async function makeCases() {
 					"Nested conversion must retain its serialized field identity.",
 				);
 			}
-			const mutated = copy(input);
-			const operands = Reflect.get(mutated, "operands") as {
-				changes: {
-					change: {
-						fields: [string, { change: { children?: [number, unknown][] } }][];
-						nodes: [unknown, {
+			if (id !== "generic-signature-collision") {
+				const mutated = copy(input);
+				const operands = Reflect.get(mutated, "operands") as {
+					changes: {
+						change: {
 							fields: [string, { change: { children?: [number, unknown][] } }][];
-						}][];
-					};
-				}[];
-			};
-			const genericField = operands.changes
-				.flatMap(({ change }) => [
-					...change.fields,
-					...change.nodes.flatMap(([, node]) => node.fields),
-				])
-				.find(([, field]) => field.change.children !== undefined);
-			assert(
-				genericField?.[1].change.children !== undefined,
-				`${id}: the Generic child entries are required.`,
-			);
-			genericField[1].change.children[0][0] += 1;
-			const mutation = executed(() => replayArrayModularInput(mutated));
-			assert(
-				mutation.accepted === false ||
-					JSON.stringify(mutation.value) !== JSON.stringify(output),
-				`${id}: changing the child index must change or reject replay.`,
-			);
+							nodes: [unknown, {
+								fields: [string, { change: { children?: [number, unknown][] } }][];
+							}][];
+						};
+					}[];
+				};
+				const genericField = operands.changes
+					.flatMap(({ change }) => [
+						...change.fields,
+						...change.nodes.flatMap(([, node]) => node.fields),
+					])
+					.find(([, field]) => field.change.children !== undefined);
+				assert(
+					genericField?.[1].change.children !== undefined,
+					`${id}: the Generic child entries are required.`,
+				);
+				genericField[1].change.children[0][0] += 1;
+				const mutation = executed(() => replayArrayModularInput(mutated));
+				assert(
+					mutation.accepted === false ||
+						JSON.stringify(mutation.value) !== JSON.stringify(output),
+					`${id}: changing the child index must change or reject replay.`,
+				);
+			}
 		}
 		if (id === "cross-field-endpoints" || id === "nested-cross-field-endpoints") {
 			const coordination = rawOutput.coordination;
@@ -2599,19 +2682,30 @@ async function makeCases() {
 		}
 		if (id === "nested-aliased-chain") {
 			const graph = Reflect.get(outputRecord, "graph") as {
-				aliases: unknown[];
+				aliases: [ReturnType<typeof atom>, ReturnType<typeof atom>][];
 				fields: unknown[];
 				nodes: unknown[];
 			};
-			assert.deepEqual(
-				graph.aliases,
-				[[atom(r6, 61), atom(r6, 60)]],
+			assert(
+				graph.aliases.some(([source, target]) =>
+					source.revision === Number(r6) &&
+					source.localId === 61 &&
+					target.revision === Number(r6) &&
+					target.localId === 60),
 				"The nested chain must retain the second operand alias.",
 			);
 			assert.deepEqual(
-				rawOutput.coordination.handlerCalls.map(({ field }) => field.field),
-				["outer", "right", "left", "narrow"],
-				"The nested chain must process both untouched endpoint owners.",
+				rawOutput.coordination.handlerCalls.map(({ field }) => [
+					field.node?.localId,
+					field.field,
+				]),
+				[
+					[undefined, "outer"],
+					[60, "right"],
+					[60, "left"],
+					[61, "narrow"],
+				],
+				"The nested chain must normalize source aliases without losing operand identity.",
 			);
 		}
 		if (id === "nested-outer-effects") {
@@ -2690,18 +2784,34 @@ async function makeCases() {
 				right,
 				["right", sequence([
 					{ count: 1 },
-					{ count: 1, changes: atom(r8, 92) },
+					{ count: 1, changes: atom(r7, 85) },
 				])],
 				"The Sequence ancestor must attach the affected child at index 1.",
 			);
 			assert(
 				graph.parents.some(([child, owner]) =>
-					child.revision === Number(r8) &&
-					child.localId === 92 &&
+					child.revision === Number(r7) &&
+					child.localId === 85 &&
 					owner.node?.revision === Number(r7) &&
 					owner.node.localId === 80 &&
 					owner.field === "right"),
 				"The materialized child must be owned by the rebased Sequence ancestor.",
+			);
+			const destinationNode = graph.nodes.find(([id]) =>
+				id.revision === Number(r7) && id.localId === 85);
+			assert.deepEqual(
+				destinationNode?.[1].fields.find(([field]) => field === ""),
+				["", sequence([
+					{ count: 1, changes: atom(r7, 83) },
+					{
+						type: "Insert",
+						count: 1,
+						id: 86,
+						cellId: atom(r7, 86),
+						revision: Number(r7),
+					},
+				])],
+				"The intersecting authored destination must retain its child and the moved child.",
 			);
 			assert.deepEqual(
 				rawOutput.coordination.handlerCalls.map(({ field }) => [
@@ -2711,11 +2821,30 @@ async function makeCases() {
 				[
 					[undefined, "outer"],
 					[80, "left"],
+					[80, "right"],
 					[81, ""],
-					[92, ""],
-					[90, "right"],
+					[85, ""],
 				],
-				"The source must process the affected field before its Sequence ancestor.",
+				"Intersecting destination work must reuse the authored field context.",
+			);
+		}
+		if (id === "sequence-tombstone-rebase") {
+			const graph = Reflect.get(outputRecord, "graph") as {
+				fields: [string, { kind: string; change: unknown[] }][];
+			};
+			assert.deepEqual(
+				graph.fields,
+				[["left", sequence([
+					{
+						type: "Insert",
+						count: 1,
+						id: 0,
+						cellId: atom(r0, 0),
+						revision: Number(r0),
+					},
+					{ count: 1, cellId: atom(r0, 10) },
+				])]],
+				"Rebase must retain a significant trailing tombstone.",
 			);
 		}
 		if (id === "ownership-roundtrip") {

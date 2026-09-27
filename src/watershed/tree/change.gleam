@@ -182,7 +182,8 @@ type RebaseFieldWork {
 
 type RebaseWork {
   RebaseWork(
-    field: moves.FieldId,
+    source_field: moves.FieldId,
+    result_field: moves.FieldId,
     authored: sequence_field.Changeset,
     base: sequence_field.Changeset,
   )
@@ -1948,6 +1949,11 @@ pub fn rebase_with_trace(
   ))
   let authored = change.change.data
   let base = over.change.data
+  use owners <- result.try(owner_ranges(
+    over.change.cross_field_keys,
+    moves.BaseOperand,
+    base.aliases,
+  ))
   let state =
     RebaseState(
       [],
@@ -1959,10 +1965,7 @@ pub fn rebase_with_trace(
       [],
       [],
       algebra_context(identity_order, context.revisions),
-      moves.with_owners(
-        moves.new(),
-        owner_ranges(over.change.cross_field_keys, moves.BaseOperand),
-      ),
+      moves.with_owners(moves.new(), owners),
       [],
       [],
       [],
@@ -2047,6 +2050,7 @@ fn rebase_field_maps(
           entry.1,
           base_field,
           moves.FieldId(authored_parent, entry.0),
+          moves.FieldId(base_parent, entry.0),
           output.1,
         ))
         let source_field = moves.FieldId(base_parent, entry.0)
@@ -2069,6 +2073,7 @@ fn rebase_field(
   authored: FieldChange,
   base: FieldChange,
   field_id: moves.FieldId,
+  base_field_id: moves.FieldId,
   state: RebaseState,
 ) -> Result(#(FieldChange, RebaseState), TreeError) {
   case authored, base {
@@ -2078,6 +2083,10 @@ fn rebase_field(
     }
     SequenceField(authored), SequenceField(base) -> {
       use field_id <- result.try(normalize_field_id(field_id, state.aliases))
+      use base_field_id <- result.try(normalize_field_id(
+        base_field_id,
+        state.base.aliases,
+      ))
       let #(_, move_context) =
         moves.take_affected_for(state.move_context, field_id)
       let move_context = moves.enter_field(move_context, "rebase", field_id)
@@ -2099,7 +2108,7 @@ fn rebase_field(
             move_context: output.2,
             work: put_rebase_work(
               output.1.work,
-              RebaseWork(field_id, authored, base),
+              RebaseWork(base_field_id, field_id, authored, base),
             ),
             field_results: put_pair(output.1.field_results, field_id, field),
           ),
@@ -2107,6 +2116,7 @@ fn rebase_field(
       })
     }
     GenericField(authored), SequenceField(base) -> {
+      let conversion_field = field_id
       use field_id <- result.try(normalize_field_id(field_id, state.aliases))
       let state =
         RebaseState(
@@ -2115,7 +2125,7 @@ fn rebase_field(
             state.move_context,
             "rebase",
             "generic-left",
-            field_id,
+            conversion_field,
             authored,
           ),
         )
@@ -2124,10 +2134,12 @@ fn rebase_field(
         SequenceField(authored),
         SequenceField(base),
         field_id,
+        base_field_id,
         state,
       )
     }
     SequenceField(authored), GenericField(base) -> {
+      let conversion_field = base_field_id
       use field_id <- result.try(normalize_field_id(field_id, state.aliases))
       let state =
         RebaseState(
@@ -2136,7 +2148,7 @@ fn rebase_field(
             state.move_context,
             "rebase",
             "generic-right",
-            field_id,
+            conversion_field,
             base,
           ),
         )
@@ -2145,6 +2157,7 @@ fn rebase_field(
         SequenceField(authored),
         SequenceField(base),
         field_id,
+        base_field_id,
         state,
       )
     }
@@ -2322,6 +2335,7 @@ fn rebase_nodes(
             #(base, authored),
           ]),
           pairs: [#(authored, base), ..state.pairs],
+          move_context: moves.replace_parent(state.move_context, base, authored),
         )
       use #(fields, state) <- result.try(rebase_field_maps(
         authored_fields,
@@ -2980,9 +2994,13 @@ fn prune_field(
         }),
       )
       use pruned <- result.try(prune_sequence_context(pruned))
-      case sequence_field.to_marks(pruned) {
-        [] -> Ok(#(None, state))
-        _ -> Ok(#(Some(SequenceField(pruned)), state))
+      case
+        list.any(sequence_field.to_marks(pruned), fn(mark) {
+          mark.effect != sequence_field.Noop || mark.child != None
+        })
+      {
+        False -> Ok(#(None, state))
+        True -> Ok(#(Some(SequenceField(pruned)), state))
       }
     }
     ValueField(change) -> prune_concrete(change, state, aliases, True)
@@ -3308,6 +3326,16 @@ fn compose_pair(
   let merged_parents = merge_pairs(first_data.parents, second_data.parents)
   use nodes <- result.try(canonicalize_pair_keys(merged_nodes, aliases))
   use parents <- result.try(canonicalize_pair_keys(merged_parents, aliases))
+  use first_owners <- result.try(owner_ranges(
+    first.cross_field_keys,
+    moves.FirstOperand,
+    first_data.aliases,
+  ))
+  use second_owners <- result.try(owner_ranges(
+    second.cross_field_keys,
+    moves.SecondOperand,
+    second_data.aliases,
+  ))
   let state =
     ComposeState(
       nodes,
@@ -3318,13 +3346,7 @@ fn compose_pair(
       [],
       [],
       algebra_context(identity_order, revisions),
-      moves.with_owners(
-        moves.new(),
-        list.append(
-          owner_ranges(first.cross_field_keys, moves.FirstOperand),
-          owner_ranges(second.cross_field_keys, moves.SecondOperand),
-        ),
-      ),
+      moves.with_owners(moves.new(), list.append(first_owners, second_owners)),
       [],
       [],
     )
@@ -3593,10 +3615,10 @@ fn put_rebase_work(
   work: List(RebaseWork),
   entry: RebaseWork,
 ) -> List(RebaseWork) {
-  let RebaseWork(field, _, _) = entry
+  let RebaseWork(field, _, _, _) = entry
   case
     list.any(work, fn(existing) {
-      let RebaseWork(existing, _, _) = existing
+      let RebaseWork(existing, _, _, _) = existing
       existing == field
     })
   {
@@ -3720,9 +3742,9 @@ fn optional_sequence_field_for(
 fn rebase_work_for(
   state: RebaseState,
   field: moves.FieldId,
-) -> Result(RebaseWork, TreeError) {
-  case find_rebase_work(state.work, field) {
-    Ok(work) -> Ok(work)
+) -> Result(#(Option(RebaseWork), RebaseState), TreeError) {
+  case find_rebase_work_by_source(state.work, field) {
+    Ok(_) -> Ok(#(None, state))
     Error(_) -> {
       use authored <- result.try(sequence_field_for(state.authored, field))
       use base <- result.try(sequence_field_for(state.base, field))
@@ -3730,8 +3752,21 @@ fn rebase_work_for(
       case base {
         None ->
           Error(CorruptData("rebase", "affected sequence field is unknown"))
-        Some(base) ->
-          Ok(RebaseWork(field, option.unwrap(authored, empty), base))
+        Some(base) -> {
+          use #(result_field, state) <- result.try(rebased_field_id(
+            state,
+            field,
+          ))
+          Ok(#(
+            Some(RebaseWork(
+              field,
+              result_field,
+              option.unwrap(authored, empty),
+              base,
+            )),
+            state,
+          ))
+        }
       }
     }
   }
@@ -3763,9 +3798,11 @@ fn sequence_field_for(
 fn owner_ranges(
   keys: List(CrossFieldKey),
   origin: moves.Origin,
-) -> List(moves.OwnerRange) {
-  list.map(keys, fn(entry) {
-    moves.OwnerRange(entry.key, entry.count, origin, entry.field, entry.field)
+  aliases: List(#(AtomId, AtomId)),
+) -> Result(List(moves.OwnerRange), TreeError) {
+  list.try_map(keys, fn(entry) {
+    use field <- result.try(normalize_field_id(entry.field, aliases))
+    Ok(moves.OwnerRange(entry.key, entry.count, origin, field, field))
   })
 }
 
@@ -3814,13 +3851,14 @@ fn ensure_rebased_parent(
         )
       let source_field = moves.FieldId(base_parent, field)
       let result_field = moves.FieldId(rebased_parent, field)
-      use #(authored, base_field, handler_field, result_field) <- result.try(
+      use #(authored, base_field, result_field) <- result.try(
         rebase_parent_field_work(state, source_field, result_field),
       )
       use #(rebased_field, state) <- result.try(rebase_field(
         authored,
         base_field,
-        handler_field,
+        result_field,
+        source_field,
         state,
       ))
       let state =
@@ -3845,10 +3883,7 @@ fn rebase_parent_field_work(
   state: RebaseState,
   source_field: moves.FieldId,
   result_field: moves.FieldId,
-) -> Result(
-  #(FieldChange, FieldChange, moves.FieldId, moves.FieldId),
-  TreeError,
-) {
+) -> Result(#(FieldChange, FieldChange, moves.FieldId), TreeError) {
   case
     list.find(state.field_work, fn(work) {
       let RebaseFieldWork(source, _, _, _) = work
@@ -3856,7 +3891,7 @@ fn rebase_parent_field_work(
     })
   {
     Ok(RebaseFieldWork(_, result, authored, base)) ->
-      Ok(#(authored, base, result, result))
+      Ok(#(authored, base, result))
     Error(_) -> {
       use base <- result.try(field_change_for(state.base, source_field))
       use base <- result.try(
@@ -3867,7 +3902,7 @@ fn rebase_parent_field_work(
         )),
       )
       use authored <- result.try(empty_field_change(base))
-      Ok(#(authored, base, source_field, result_field))
+      Ok(#(authored, base, result_field))
     }
   }
 }
@@ -4030,41 +4065,51 @@ fn rebase_field_work(
   case affected, moves.invalidated(state.move_context) {
     [affected, ..rest], _ -> {
       let moves.Affected(_, source_field) = affected
-      use work <- result.try(rebase_work_for(state, source_field))
-      let RebaseWork(_, authored, base) = work
-      let #(_, move_context) =
-        moves.take_invalidated_for(state.move_context, source_field)
-      let move_context = moves.enter_field(move_context, "rebase", source_field)
-      use #(change, next, move_context) <- result.try(
-        sequence_rebase.rebase_with_context(
-          authored,
-          base,
-          state,
-          rebase_sequence_child,
-          state.algebra,
-          source_field,
-          move_context,
-        ),
-      )
-      let result = SequenceField(change)
-      let next = RebaseState(..next, move_context:)
-      use #(result_field, next) <- result.try(rebased_field_id(
-        next,
-        source_field,
-      ))
-      let move_context =
-        list.fold(rest, next.move_context, fn(context, affected) {
-          moves.queue_affected(context, affected)
-        })
-      rebase_invalidated(
-        RebaseState(
-          ..next,
-          move_context:,
-          work: put_rebase_work(next.work, work),
-          field_results: put_pair(next.field_results, result_field, result),
-        ),
-        processed,
-      )
+      use #(work, state) <- result.try(rebase_work_for(state, source_field))
+      case work {
+        None -> {
+          let move_context =
+            list.fold(rest, state.move_context, fn(context, affected) {
+              moves.queue_affected(context, affected)
+            })
+          rebase_invalidated(
+            RebaseState(..state, move_context: move_context),
+            processed,
+          )
+        }
+        Some(work) -> {
+          let RebaseWork(_, result_field, authored, base) = work
+          let #(_, move_context) =
+            moves.take_invalidated_for(state.move_context, result_field)
+          let move_context =
+            moves.enter_field(move_context, "rebase", result_field)
+          use #(change, next, move_context) <- result.try(
+            sequence_rebase.rebase_with_context(
+              authored,
+              base,
+              state,
+              rebase_sequence_child,
+              state.algebra,
+              result_field,
+              move_context,
+            ),
+          )
+          let result = SequenceField(change)
+          let move_context =
+            list.fold(rest, move_context, fn(context, affected) {
+              moves.queue_affected(context, affected)
+            })
+          rebase_invalidated(
+            RebaseState(
+              ..next,
+              move_context:,
+              work: put_rebase_work(next.work, work),
+              field_results: put_pair(next.field_results, result_field, result),
+            ),
+            processed,
+          )
+        }
+      }
     }
     [], [] -> Ok(state)
     [], [field, ..] -> {
@@ -4076,7 +4121,7 @@ fn rebase_field_work(
         "rebase",
         "invalidated sequence field has no pending work",
       ))
-      let RebaseWork(_, authored, base) = work
+      let RebaseWork(_, result_field, authored, base) = work
       let move_context = moves.enter_field(move_context, "rebase", field)
       use #(change, next, move_context) <- result.try(
         sequence_rebase.rebase_with_context(
@@ -4085,7 +4130,7 @@ fn rebase_field_work(
           state,
           rebase_sequence_child,
           state.algebra,
-          field,
+          result_field,
           move_context,
         ),
       )
@@ -4103,7 +4148,7 @@ fn rebase_field_work(
         RebaseState(
           ..next,
           move_context:,
-          field_results: put_pair(next.field_results, field, result),
+          field_results: put_pair(next.field_results, result_field, result),
         ),
         [#(field, result, move_context), ..processed],
       )
@@ -4182,11 +4227,21 @@ fn find_rebase_work(
   field: moves.FieldId,
 ) -> Result(RebaseWork, TreeError) {
   list.find(work, fn(entry) {
-    let RebaseWork(found, _, _) = entry
+    let RebaseWork(_, found, _, _) = entry
     found == field
   })
   |> result.map_error(fn(_) {
     CorruptData("rebase", "invalidated sequence field is unknown")
+  })
+}
+
+fn find_rebase_work_by_source(
+  work: List(RebaseWork),
+  field: moves.FieldId,
+) -> Result(RebaseWork, Nil) {
+  list.find(work, fn(entry) {
+    let RebaseWork(found, _, _, _) = entry
+    found == field
   })
 }
 

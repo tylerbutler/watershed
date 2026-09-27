@@ -155,8 +155,8 @@ type Instrumentation = {
 	}[];
 	readonly managerCalls: Record<string, unknown>[];
 	readonly identities: WeakMap<object, FieldIdentity>;
-	readonly genericDirections: Map<
-		string,
+	readonly genericOrigins: WeakMap<
+		object,
 		{
 			readonly direction: "generic-left" | "generic-right";
 			readonly field: FieldIdentity;
@@ -246,10 +246,6 @@ function atomSignature(value: PlainAtom): string {
 	return `${value.revision ?? "local"}:${value.localId}`;
 }
 
-function genericSignature(entries: readonly (readonly [number, PlainAtom])[]): string {
-	return entries.map(([index, id]) => `${index}@${atomSignature(id)}`).join(",");
-}
-
 function decodeFieldId(
 	value: unknown,
 	message: string,
@@ -319,13 +315,15 @@ function decodeFieldChanges(
 			});
 			const change = genericFieldKind.changeHandler.editor.buildChildChanges(children);
 			instrumentation.identities.set(change, identity);
-			instrumentation.genericDirections.set(
-				genericSignature(children.map(([index, id]) => [index, plainAtom(id)])),
-				{
+			const entries = change.entries.bind(change);
+			change.entries = () => {
+				const iterable = entries();
+				instrumentation.genericOrigins.set(iterable, {
 					direction: operand === 0 ? "generic-left" : "generic-right",
 					field: identity,
-				},
-			);
+				});
+				return iterable;
+			};
 			fields.set(field, {
 				fieldKind: genericFieldKind.identifier,
 				change: brand(change),
@@ -714,9 +712,9 @@ function instrumentedSequenceHandler(
 		editor: {
 			...original.editor,
 			buildChildChanges(changes) {
+				const context = instrumentation.genericOrigins.get(changes);
 				const entries = [...changes];
 				const plain = entries.map(([index, id]) => [index, plainAtom(id)] as const);
-				const context = instrumentation.genericDirections.get(genericSignature(plain));
 				assert(
 					context !== undefined,
 					"Every observed Generic conversion must match a serialized operand.",
@@ -860,7 +858,7 @@ function replayArrayModular(
 		handlerCalls: [],
 		managerCalls: [],
 		identities: new WeakMap(),
-		genericDirections: new Map(),
+		genericOrigins: new WeakMap(),
 		nextSequence: 0,
 	};
 	const decoded = taggedInputs.map((tagged, index) =>
@@ -1027,7 +1025,7 @@ function crossFieldChange(
 		handlerCalls: [],
 		managerCalls: [],
 		identities: new WeakMap(),
-		genericDirections: new Map(),
+		genericOrigins: new WeakMap(),
 		nextSequence: 0,
 	};
 	const fields = decodeFieldChanges(entries, instrumentation, null, 0, undefined, context);
@@ -1075,7 +1073,7 @@ export function crossFieldCoordinationInput(
 		handlerCalls: [],
 		managerCalls: [],
 		identities: new WeakMap(),
-		genericDirections: new Map(),
+		genericOrigins: new WeakMap(),
 		nextSequence: 0,
 	};
 	const decodedFields = decodeFieldChanges(fields, instrumentation, null, 1, undefined, context);
