@@ -33,6 +33,7 @@ import {
 	type MapTree,
 	type RevisionTag,
 	type TreeNodeSchemaIdentifier,
+	type UpPath,
 } from "../core/index.js";
 import {
 	chunkField,
@@ -1651,6 +1652,41 @@ function modularDeltaForForest(value: unknown): unknown {
 	);
 }
 
+function wrapModularFieldsAtIndex(delta: unknown, index: number | null): unknown {
+	if (index === null) return delta;
+	object(delta, "The modular forest delta must be an object.");
+	assert(Array.isArray(delta.fields), "The modular forest delta fields must be an array.");
+	const marks = [
+		...(index === 0 ? [] : [{ count: index }]),
+		{ count: 1, fields: delta.fields },
+	];
+	return {
+		...delta,
+		fields: [[rootFieldKey, { marks }]],
+	};
+}
+
+function retainedPath(value: unknown): UpPath {
+	assert(Array.isArray(value) && value.length % 2 === 1,
+		"The retained path must contain an index followed by field/index pairs.");
+	integer(value[0], "The retained root index must be an integer.");
+	let path: UpPath = {
+		parent: undefined,
+		parentField: rootFieldKey,
+		parentIndex: value[0],
+	};
+	for (let index = 1; index < value.length; index += 2) {
+		assert(typeof value[index] === "string", "A retained path field must be a string.");
+		integer(value[index + 1], "A retained path index must be an integer.");
+		path = {
+			parent: path,
+			parentField: brand(value[index] as string),
+			parentIndex: value[index + 1] as number,
+		};
+	}
+	return path;
+}
+
 function replayForestInputWithCollectionOrder(
 	input: Record<string, unknown>,
 	normalizeDetached: boolean,
@@ -1665,6 +1701,9 @@ function replayForestInputWithCollectionOrder(
 			object(runValue, "A modular forest run must be an object.");
 			assert(typeof runValue.id === "string", "A modular forest run needs an ID.");
 			assert(Array.isArray(runValue.steps), "A modular forest run needs steps.");
+			const wrapFieldsAtIndex = runValue.wrapFieldsAtIndex ?? null;
+			assert(wrapFieldsAtIndex === null || Number.isSafeInteger(wrapFieldsAtIndex),
+				"A modular forest field wrapper must be null or an integer.");
 			const modularDeltas = runValue.steps.map((step) => {
 				object(step, "A modular forest step must be an object.");
 				const output = replayArrayModularInput(step);
@@ -1674,10 +1713,16 @@ function replayForestInputWithCollectionOrder(
 			});
 			const checkpoints = replayForestInputWithCollectionOrder({
 				...input,
+				initialState: runValue.initialState ?? input.initialState,
 				operation: "apply-deltas",
 				operands: {
-					deltas: modularDeltas.map(modularDeltaForForest),
+					deltas: modularDeltas.map((delta) =>
+						wrapModularFieldsAtIndex(
+							modularDeltaForForest(delta),
+							wrapFieldsAtIndex as number | null,
+						)),
 					retainIndex: runValue.retainIndex ?? null,
+					retainPath: runValue.retainPath ?? null,
 				},
 			}, normalizeDetached, normalizeFields);
 			assert(Array.isArray(checkpoints), "The modular forest replay must return checkpoints.");
@@ -1760,14 +1805,22 @@ function replayForestInputWithCollectionOrder(
 	assert(retainIndex === null || Number.isSafeInteger(retainIndex),
 		"The retained index must be null or an integer.");
 	const retained = retainIndex as number | null;
-	const anchor = retained === null ? undefined : (() => {
+	const retainPath = operands.retainPath ?? null;
+	assert(retainPath === null || Array.isArray(retainPath),
+		"The retained path must be null or an array.");
+	const anchorPath = retainPath === null
+		? retained === null
+			? undefined
+			: {
+					parent: undefined,
+					parentField: rootFieldKey,
+					parentIndex: retained,
+				}
+		: retainedPath(retainPath);
+	const anchor = anchorPath === undefined ? undefined : (() => {
 		const cursor = forest.allocateCursor("watershed array identity");
 		try {
-			forest.moveCursorToPath({
-				parent: undefined,
-				parentField: rootFieldKey,
-				parentIndex: retained,
-			}, cursor);
+			forest.moveCursorToPath(anchorPath, cursor);
 			return cursor.buildAnchor();
 		} finally {
 			cursor.free();

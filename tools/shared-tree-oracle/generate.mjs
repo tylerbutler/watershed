@@ -1728,6 +1728,38 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     assert.deepEqual(replaceThenChild.checkpoints.at(-1).after.detached,
       childThenReplace.checkpoints.at(-1).after.detached,
       `${label}: ancestor replacement order`);
+    const inversionFirst = modularRun("inversion-retry-first");
+    const inversionSecond = modularRun("inversion-retry-second");
+    for (const run of [inversionFirst, inversionSecond]) {
+      check(run.checkpoints.length === 2
+        && run.checkpoints.every((checkpoint) =>
+          checkpoint.result.accepted === true
+          && checkpoint.after.detached.length === 0),
+      `modular-checkpoints ${run.id} inversion execution`);
+      assert.deepEqual(run.checkpoints.at(-1).after.root,
+        run.checkpoints[0].before.root,
+        `${label}: ${run.id} restored forest`);
+    }
+    assert.deepEqual(inversionFirst.checkpoints[0].after.identity, {
+      field: "left0",
+      index: 0,
+      parent: { field: "rootFieldKey", index: 0, parent: null },
+    }, `${label}: first forward identity`);
+    assert.deepEqual(inversionFirst.checkpoints[1].after.identity, {
+      field: "right0",
+      index: 0,
+      parent: { field: "rootFieldKey", index: 0, parent: null },
+    }, `${label}: first restored identity`);
+    assert.deepEqual(inversionSecond.checkpoints[0].after.identity, {
+      field: "left1",
+      index: 0,
+      parent: { field: "rootFieldKey", index: 0, parent: null },
+    }, `${label}: second forward identity`);
+    assert.deepEqual(inversionSecond.checkpoints[1].after.identity, {
+      field: "right1",
+      index: 0,
+      parent: { field: "rootFieldKey", index: 0, parent: null },
+    }, `${label}: second restored identity`);
     check(output.get("invalid-overlap").at(-1)?.result?.accepted === false,
       "invalid overlap rejection");
     check(output.get("invalid-cycle")?.result?.accepted === false,

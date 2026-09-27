@@ -7,7 +7,9 @@ import gleam/result
 import gleam/string
 import watershed/canonical_json
 import watershed/fluid_ids.{type StableId}
-import watershed/json_ot.{type JsonValue, VArray, VNull, VObject, VString}
+import watershed/json_ot.{
+  type JsonValue, NInt, VArray, VNull, VNumber, VObject, VString,
+}
 import watershed/tree/array_change_fixture
 import watershed/tree/change_fixture_codec as codec
 import watershed/tree/forest
@@ -22,7 +24,7 @@ const field_array_type = "org.watershed.shared-tree.m3.ForestField"
 
 const string_type = "com.fluidframework.leaf.string"
 
-const forest_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ForestField\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ForestNode\"]}}}},\"org.watershed.shared-tree.m3.ForestNode\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"child\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]}}}},\"org.watershed.shared-tree.m3.ForestRoots\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ForestNode\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ForestRoots\"]}}"
+const forest_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ForestField\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ForestNode\"]}}}},\"org.watershed.shared-tree.m3.ForestNode\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"child\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"left0\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"right0\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"left1\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"right1\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]}}}},\"org.watershed.shared-tree.m3.ForestRoots\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ForestNode\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ForestRoots\"]}}"
 
 const cycle_array_type = "org.watershed.shared-tree.m3.cycle.Items"
 
@@ -36,6 +38,7 @@ type Execution {
   Execution(
     state: forest.Forest,
     retained: Option(forest.NodeRef),
+    identity_candidates: List(List(String)),
     context: Context,
     checkpoints: List(Json),
   )
@@ -100,7 +103,13 @@ fn run_modular(
   use observations <- result.try(
     list.try_map(runs, fn(run) {
       use id <- result.try(codec.field(run, "id", codec.text))
-      use retain_index <- result.try(codec.get(run, "retainIndex"))
+      let retain_index = codec.get(run, "retainIndex") |> result.unwrap(VNull)
+      let retain_path = codec.get(run, "retainPath") |> result.unwrap(VNull)
+      let identity_candidates =
+        codec.get(run, "identityCandidates") |> result.unwrap(VNull)
+      let wrap_fields_at_index =
+        codec.get(run, "wrapFieldsAtIndex") |> result.unwrap(VNull)
+      let run_initial = codec.get(run, "initialState") |> result.unwrap(initial)
       use steps <- result.try(codec.field(run, "steps", codec.items))
       use deltas <- result.try(
         list.try_map(steps, fn(step) {
@@ -123,18 +132,20 @@ fn run_modular(
           })
           use result_value <- result.try(codec.get(observation, "result"))
           use delta <- result.try(codec.get(result_value, "delta"))
-          use decoded <- result.try(decode_delta(delta, context))
-          Ok(#(delta, adapt_delta(decoded)))
+          Ok(delta)
         }),
       )
       let replay =
         VObject([
-          #("initialState", initial),
+          #("initialState", run_initial),
           #(
             "operands",
             VObject([
               #("retainIndex", retain_index),
-              #("deltas", VArray(list.map(deltas, fn(delta) { delta.0 }))),
+              #("retainPath", retain_path),
+              #("identityCandidates", identity_candidates),
+              #("wrapFieldsAtIndex", wrap_fields_at_index),
+              #("deltas", VArray(deltas)),
             ]),
           ),
         ])
@@ -167,11 +178,33 @@ fn run_deltas(
       codec.optional(value, codec.integer)
     }),
   )
+  use retain_path <- result.try(
+    codec.optional(
+      codec.get(operands, "retainPath") |> result.unwrap(VNull),
+      codec.many(_, path_segment),
+    ),
+  )
+  use identity_candidates <- result.try(
+    codec.optional(
+      codec.get(operands, "identityCandidates") |> result.unwrap(VNull),
+      codec.many(_, codec.many(_, path_segment)),
+    ),
+  )
+  use wrap_fields_at_index <- result.try(codec.optional(
+    codec.get(operands, "wrapFieldsAtIndex") |> result.unwrap(VNull),
+    codec.integer,
+  ))
   use encoded_deltas <- result.try(codec.field(operands, "deltas", codec.items))
   use deltas <- result.try(
     list.try_map(encoded_deltas, fn(value) {
       decode_delta(value, context)
-      |> result.map(fn(delta) { #(value, adapt_delta(delta)) })
+      |> result.map(fn(delta) {
+        let delta = case wrap_fields_at_index {
+          None -> delta
+          Some(index) -> wrap_delta_fields(delta, index)
+        }
+        #(value, adapt_delta(delta))
+      })
     }),
   )
   use stored <- result.try(
@@ -183,16 +216,26 @@ fn run_deltas(
     forest.new(view, stored, Some(types.ArrayValue(root_array_type, values)))
     |> native_error,
   )
-  use retained <- result.try(case retain_index {
-    None -> Ok(None)
-    Some(index) ->
+  use retained <- result.try(case retain_path, retain_index {
+    Some(path), _ ->
+      forest.locate(state, path)
+      |> native_error
+      |> result.map(Some)
+    None, None -> Ok(None)
+    None, Some(index) ->
       forest.locate(state, [int.to_string(index)])
       |> native_error
       |> result.map(Some)
   })
   use execution <- result.try(apply_deltas(
     deltas,
-    Execution(state, retained, context, []),
+    Execution(
+      state,
+      retained,
+      identity_candidates |> option.unwrap([]),
+      context,
+      [],
+    ),
   ))
   Ok(array(list.reverse(execution.checkpoints)))
 }
@@ -226,6 +269,7 @@ fn apply_deltas(
               use after <- result.try(observe_after(
                 state,
                 execution.retained,
+                execution.identity_candidates,
                 execution.context,
               ))
               apply_deltas(
@@ -281,10 +325,11 @@ fn observe(state: forest.Forest, context: Context) -> Result(Json, String) {
 fn observe_after(
   state: forest.Forest,
   retained: Option(forest.NodeRef),
+  identity_candidates: List(List(String)),
   context: Context,
 ) -> Result(Json, String) {
   use observed <- result.try(observe(state, context))
-  use identity <- result.try(identity_json(state, retained))
+  use identity <- result.try(identity_json(state, retained, identity_candidates))
   use value <- result.try(codec.parse(observed))
   let assert VObject(fields) = value
   Ok(
@@ -307,6 +352,7 @@ fn observe_after(
 fn identity_json(
   state: forest.Forest,
   retained: Option(forest.NodeRef),
+  identity_candidates: List(List(String)),
 ) -> Result(Json, String) {
   case retained {
     None -> Ok(json.null())
@@ -316,12 +362,25 @@ fn identity_json(
           Ok(json.null())
         Error(error) -> native_error(Error(error))
         Ok(True) -> {
-          use values <- result.try(
-            forest.array_values(state, []) |> native_error,
-          )
-          use index <- result.try(find_attached(state, reference, values, 0))
-          Ok(path_json("rootFieldKey", index))
+          case identity_candidates {
+            [] -> {
+              use values <- result.try(
+                forest.array_values(state, []) |> native_error,
+              )
+              use index <- result.try(find_attached(state, reference, values, 0))
+              Ok(path_json("rootFieldKey", index))
+            }
+            candidates -> {
+              use path <- result.try(find_attached_candidate(
+                state,
+                reference,
+                candidates,
+              ))
+              user_path_json(path)
+            }
+          }
         }
+
         Ok(False) -> {
           use data <- result.try(forest.export_data(state) |> native_error)
           use root <- result.try(find_detached(state, reference, data.detached))
@@ -329,6 +388,67 @@ fn identity_json(
         }
       }
     }
+  }
+}
+
+fn path_segment(value: JsonValue) -> Result(String, String) {
+  case value {
+    VString(value) -> Ok(value)
+    VNumber(NInt(value)) -> Ok(int.to_string(value))
+    _ -> Error("retained path segments must be strings or integers")
+  }
+}
+
+fn find_attached_candidate(
+  state: forest.Forest,
+  reference: forest.NodeRef,
+  candidates: List(List(String)),
+) -> Result(List(String), String) {
+  case candidates {
+    [] -> Error("retained node is attached outside the candidate paths")
+    [path, ..rest] ->
+      case forest.locate(state, path) {
+        Ok(candidate) if candidate == reference -> Ok(path)
+        _ -> find_attached_candidate(state, reference, rest)
+      }
+  }
+}
+
+fn user_path_json(path: List(String)) -> Result(Json, String) {
+  case path {
+    [root_index, ..rest] -> {
+      use root_index <- result.try(
+        int.parse(root_index)
+        |> result.map_error(fn(_) {
+          "retained root path must start with an index"
+        }),
+      )
+      user_path_fields(rest, path_json("rootFieldKey", root_index))
+    }
+    _ -> Error("retained path must not be empty")
+  }
+}
+
+fn user_path_fields(steps: List(String), parent: Json) -> Result(Json, String) {
+  case steps {
+    [] -> Ok(parent)
+    [field, index, ..rest] -> {
+      use index <- result.try(
+        int.parse(index)
+        |> result.map_error(fn(_) {
+          "retained field path must contain an index"
+        }),
+      )
+      user_path_fields(
+        rest,
+        json.object([
+          #("field", json.string(field)),
+          #("index", json.int(index)),
+          #("parent", parent),
+        ]),
+      )
+    }
+    _ -> Error("retained field path must contain field and index pairs")
   }
 }
 
@@ -821,6 +941,23 @@ fn adapt_delta(data: forest.DeltaData) -> forest.DeltaData {
   forest.DeltaData(..data, fields:, global:)
 }
 
+fn wrap_delta_fields(data: forest.DeltaData, index: Int) -> forest.DeltaData {
+  let marks = case index {
+    0 -> []
+    index -> [forest.Mark(index, None, None, [])]
+  }
+  forest.DeltaData(..data, fields: [
+    #(
+      "rootFieldKey",
+      forest.FieldDelta(
+        list.append(marks, [
+          forest.Mark(1, None, None, data.fields),
+        ]),
+      ),
+    ),
+  ])
+}
+
 fn adapt_fields(
   fields: List(#(String, forest.FieldDelta)),
 ) -> List(#(String, forest.FieldDelta)) {
@@ -1032,13 +1169,17 @@ fn tree_json(value: types.TreeValue) -> Json {
 fn complete_node_fields(
   fields: List(#(String, types.TreeValue)),
 ) -> List(#(String, types.TreeValue)) {
-  list.fold(["label", "child"], fields, fn(fields, key) {
-    case list.key_find(fields, key) {
-      Ok(_) -> fields
-      Error(Nil) ->
-        list.append(fields, [#(key, types.ArrayValue(field_array_type, []))])
-    }
-  })
+  list.fold(
+    ["label", "child", "left0", "right0", "left1", "right1"],
+    fields,
+    fn(fields, key) {
+      case list.key_find(fields, key) {
+        Ok(_) -> fields
+        Error(Nil) ->
+          list.append(fields, [#(key, types.ArrayValue(field_array_type, []))])
+      }
+    },
+  )
 }
 
 fn field_json(value: types.TreeValue) -> Option(Json) {

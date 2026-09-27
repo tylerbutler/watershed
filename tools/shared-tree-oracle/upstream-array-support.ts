@@ -1203,11 +1203,124 @@ export function multiPassComposeInput(
 	};
 }
 
+export function multiRevisionInversionInput(
+	revisions: readonly [RevisionTag, RevisionTag, RevisionTag],
+	compressor: IIdCompressor,
+	contextRevisions: readonly RevisionTag[] = revisions,
+): ReplayInput {
+	const [firstRevision, secondRevision, inverseRevision] = revisions;
+	const atom = (revision: RevisionTag, localId: number): PlainAtom => ({
+		revision: Number(revision),
+		localId,
+	});
+	const parent = (field: string): PlainFieldId => ({ node: null, field });
+	const sequence = (change: unknown[]): PlainFieldChange => ({ kind: "Sequence", change });
+	const change: PlainModularChange = {
+		maxLocalId: 30,
+		revisions: [firstRevision, secondRevision].map((revision) => ({
+			revision: Number(revision),
+			rollbackOf: null,
+		})),
+		fields: [
+			["left0", sequence([{
+				type: "MoveIn",
+				id: 10,
+				count: 1,
+				cellId: atom(firstRevision, 12),
+				revision: Number(firstRevision),
+			}])],
+			["right0", sequence([{
+				type: "MoveOut",
+				id: 10,
+				count: 1,
+				revision: Number(firstRevision),
+				changes: atom(firstRevision, 30),
+			}])],
+			["left1", sequence([{
+				type: "MoveIn",
+				id: 10,
+				count: 1,
+				cellId: atom(secondRevision, 12),
+				revision: Number(secondRevision),
+			}])],
+			["right1", sequence([{
+				type: "MoveOut",
+				id: 10,
+				count: 1,
+				revision: Number(secondRevision),
+				changes: atom(secondRevision, 30),
+			}])],
+		],
+		nodes: [
+			[atom(firstRevision, 30), { fields: [] }],
+			[atom(secondRevision, 30), { fields: [] }],
+		],
+		parents: [
+			[atom(firstRevision, 30), parent("right0")],
+			[atom(secondRevision, 30), parent("right1")],
+		],
+		aliases: [],
+		crossFieldKeys: [
+			{
+				target: "source",
+				revision: Number(secondRevision),
+				localId: 10,
+				count: 1,
+				field: parent("right1"),
+			},
+			{
+				target: "source",
+				revision: Number(firstRevision),
+				localId: 10,
+				count: 1,
+				field: parent("right0"),
+			},
+			{
+				target: "destination",
+				revision: Number(secondRevision),
+				localId: 10,
+				count: 1,
+				field: parent("left1"),
+			},
+			{
+				target: "destination",
+				revision: Number(firstRevision),
+				localId: 10,
+				count: 1,
+				field: parent("left0"),
+			},
+		],
+		builds: [],
+		refreshers: [],
+		destroys: [],
+	};
+	return {
+		operation: "invert",
+		initialState: {},
+		operands: {
+			changes: [{ revision: Number(firstRevision), change }],
+			isRollback: false,
+			inverseRevision: Number(inverseRevision),
+		},
+		revisions: contextRevisions.map((revision) => ({
+			encoded: Number(revision),
+			stable: compressor.decompress(revision as SessionSpaceCompressedId),
+		})),
+		allocator: { maxLocalId: 30 },
+		compressor: {
+			sessionId: compressor.localSessionId,
+			serialized: serializeIdCompressor(compressor, true),
+		},
+		sequencing: { minimumSequenceNumber: 0, sequenceNumber: 0 },
+		schedule: ["invert"],
+	};
+}
+
 export function forestCheckpointInput(
 	revisions: readonly RevisionTag[],
 	compressor: IIdCompressor,
 ): Record<string, unknown> {
-	assert(revisions.length >= 5, "Forest checkpoints need five revisions.");
+	assert(revisions.length >= 12, "Forest checkpoints need twelve revisions.");
 	const context = {
 		idCompressor: compressor,
 		revisionTagCodec: new RevisionTagCodec(compressor),
@@ -1338,6 +1451,35 @@ export function forestCheckpointInput(
 	const raceChildTagged = taggedPlain(revisions[5], raceChild);
 	const removeAncestorTagged = taggedPlain(revisions[6], removeAncestor);
 	const replaceAncestorTagged = taggedPlain(revisions[8], replaceAncestor);
+	const inversionRetry = multiRevisionInversionInput(
+		[revisions[0], revisions[1], revisions[5]],
+		compressor,
+		revisions.slice(0, 11),
+	);
+	const inversionForward = inversionRetry.operands.changes[0];
+	const inversionForwardStep = {
+		id: "multi-revision-forward",
+		...replay("compose", [inversionForward]),
+	};
+	const inversionRetryStep = {
+		id: "multi-revision-inverse",
+		...inversionRetry,
+	};
+	const inversionInitialState = {
+		field: [{
+			type: "org.watershed.shared-tree.m3.ForestNode",
+			fields: [
+				["right0", [{ type: "com.fluidframework.leaf.string", value: "A", fields: [] }]],
+				["right1", [{ type: "com.fluidframework.leaf.string", value: "B", fields: [] }]],
+			],
+		}],
+	};
+	const inversionCandidates = [
+		[0, "left0", 0],
+		[0, "right0", 0],
+		[0, "left1", 0],
+		[0, "right1", 0],
+	];
 	return {
 		operation: "apply-modular",
 		initialState: {
@@ -1398,6 +1540,24 @@ export function forestCheckpointInput(
 							raceChildTagged,
 						]),
 					],
+				},
+				{
+					id: "inversion-retry-first",
+					initialState: inversionInitialState,
+					retainIndex: null,
+					retainPath: [0, "right0", 0],
+					identityCandidates: inversionCandidates,
+					wrapFieldsAtIndex: 0,
+					steps: [inversionForwardStep, inversionRetryStep],
+				},
+				{
+					id: "inversion-retry-second",
+					initialState: inversionInitialState,
+					retainIndex: null,
+					retainPath: [0, "right1", 0],
+					identityCandidates: inversionCandidates,
+					wrapFieldsAtIndex: 0,
+					steps: [inversionForwardStep, inversionRetryStep],
 				},
 			],
 		},

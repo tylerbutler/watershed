@@ -58,6 +58,7 @@ import {
 	crossFieldCoordinationInput,
 	encodeModularGraph,
 	multiPassComposeInput,
+	multiRevisionInversionInput,
 	replayArrayModularInput,
 	replayArrayModularInputRaw,
 } from "./watershedArraySupport.js";
@@ -2401,80 +2402,14 @@ async function makeCases() {
 	retrySecond.parents.push([atom(r6, 162), parent("convert", atom(r6, 61))]);
 	retrySecond.maxLocalId = 162;
 	nestedAliasedConversionRetry.allocator.maxLocalId = 163;
-	const multiRevisionInverse = emptyChange(r0, [
-		["left0", sequence([{
-			type: "MoveIn",
-			id: 10,
-			count: 1,
-			cellId: atom(r0, 12),
-			revision: Number(r0),
-		}])],
-		["right0", sequence([{
-			type: "MoveOut",
-			id: 10,
-			count: 1,
-			revision: Number(r0),
-			changes: atom(r0, 30),
-		}])],
-		["left1", sequence([{
-			type: "MoveIn",
-			id: 10,
-			count: 1,
-			cellId: atom(r1, 12),
-			revision: Number(r1),
-		}])],
-		["right1", sequence([{
-			type: "MoveOut",
-			id: 10,
-			count: 1,
-			revision: Number(r1),
-			changes: atom(r1, 30),
-		}])],
-	], {
-		maxLocalId: 30,
-		nodes: [
-			[atom(r0, 30), { fields: [] }],
-			[atom(r1, 30), { fields: [] }],
-		],
-		parents: [
-			[atom(r0, 30), parent("right0")],
-			[atom(r1, 30), parent("right1")],
-		],
-		crossFieldKeys: [
-			{
-				target: "source",
-				revision: Number(r1),
-				localId: 10,
-				count: 1,
-				field: parent("right1"),
-			},
-			{
-				target: "source",
-				revision: Number(r0),
-				localId: 10,
-				count: 1,
-				field: parent("right0"),
-			},
-			{
-				target: "destination",
-				revision: Number(r1),
-				localId: 10,
-				count: 1,
-				field: parent("left1"),
-			},
-			{
-				target: "destination",
-				revision: Number(r0),
-				localId: 10,
-				count: 1,
-				field: parent("left0"),
-			},
-		],
-	});
-	multiRevisionInverse.revisions.push({
-		revision: Number(r1),
-		rollbackOf: null,
-	});
+	const multiRevisionInverse = {
+		...multiRevisionInversionInput(
+			[r0, r1, r5],
+			modularCompressor,
+			modularRevisions,
+		),
+		initialState: visible(initialRoot()),
+	};
 	const sequenceAncestorAuthored = emptyChange(r7, [["outer", sequence([
 		{ count: 1, changes: atom(r7, 80) },
 	])]], {
@@ -2640,14 +2575,7 @@ async function makeCases() {
 		"nested-outer-effects": nestedOuterEffects as unknown as Record<string, unknown>,
 		"nested-aliased-conversion-retry":
 			nestedAliasedConversionRetry as unknown as Record<string, unknown>,
-		"multi-revision-inversion-retry": replayContext(
-			"invert",
-			[tagged(r0, multiRevisionInverse)],
-			{
-				isRollback: false,
-				inverseRevision: Number(r5),
-			},
-		),
+		"multi-revision-inversion-retry": multiRevisionInverse,
 		"three-pass-nested-moves": multiPassComposeInput(
 			[r0, r1, r2, r3, r4],
 			modularCompressor,
