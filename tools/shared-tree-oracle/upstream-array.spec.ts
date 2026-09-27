@@ -83,7 +83,8 @@ const scenarioIds = {
 		"schema-content-bytes",
 	],
 	"array-modular-algebra": [
-		"generic-to-sequence", "sequence-to-generic", "nested-conversions", "nested-ancestors",
+		"generic-to-sequence", "sequence-to-generic", "nested-conversions",
+		"nested-conversions-reversed", "nested-ancestors",
 		"common-ancestors", "cross-field-endpoints", "nested-cross-field-endpoints",
 		"nested-aliased-chain", "nested-outer-effects", "sequence-ancestor-rebase",
 		"node-table", "parent-table", "alias-table",
@@ -2427,6 +2428,10 @@ async function makeCases() {
 			tagged(r0, nestedGeneric),
 			tagged(r1, nestedSequence),
 		]),
+		"nested-conversions-reversed": replayContext("compose", [
+			tagged(r1, nestedSequence),
+			tagged(r0, nestedGeneric),
+		]),
 		"nested-ancestors": replayContext("invert", [tagged(r2, nestedMap)], {
 			isRollback: false,
 			inverseRevision: Number(r5),
@@ -2489,6 +2494,7 @@ async function makeCases() {
 					invalidateDependents?: boolean;
 					target?: string;
 					localId?: number;
+					found?: boolean;
 					count?: number;
 					returnedLength?: number;
 				}[];
@@ -2503,10 +2509,14 @@ async function makeCases() {
 		if (
 			id === "generic-to-sequence" ||
 			id === "sequence-to-generic" ||
-			id === "nested-conversions"
+			id === "nested-conversions" ||
+			id === "nested-conversions-reversed"
 		) {
 			const expectedDirection =
-				id === "sequence-to-generic" ? "generic-right" : "generic-left";
+				id === "sequence-to-generic" ||
+					id === "nested-conversions-reversed"
+					? "generic-right"
+					: "generic-left";
 			const conversion = Reflect.get(outputRecord, "conversion");
 			assert(
 				conversion !== null && typeof conversion === "object",
@@ -2517,7 +2527,10 @@ async function makeCases() {
 				[expectedDirection],
 				`${id}: the source handler must convert the Generic operand.`,
 			);
-			if (id === "nested-conversions") {
+			if (
+				id === "nested-conversions" ||
+				id === "nested-conversions-reversed"
+			) {
 				const calls = Reflect.get(conversion, "calls") as {
 					field: { node: { localId: number } | null; field: string };
 				}[];
@@ -2606,6 +2619,11 @@ async function makeCases() {
 				(call) => call.method === "set",
 			);
 			assert.deepEqual(
+				rawOutput.coordination.handlerCalls.map(({ field }) => field.field),
+				["outer", "right", "left", "right"],
+				"The deferred node round must be followed by a changed-information retry.",
+			);
+			assert.deepEqual(
 				writes.slice(0, 2).map(({ field, target, localId }) => [
 					field.node?.localId,
 					field.field,
@@ -2626,6 +2644,33 @@ async function makeCases() {
 					writes[0].sequence < firstNestedHandler.sequence &&
 					writes[1].sequence < firstNestedHandler.sequence,
 				"Both outer writes must precede the first nested handler.",
+			);
+			const destinationWrite = writes.find(
+				({ target, localId }) =>
+					target === "destination" && localId === 44,
+			);
+			const destinationReads = rawOutput.coordination.managerCalls.filter(
+				({ method, field, target, localId }) =>
+					method === "get" &&
+					field.field === "right" &&
+					target === "destination" &&
+					localId === 44,
+			);
+			assert(
+				destinationWrite !== undefined &&
+					destinationReads.some(({ sequence, count, returnedLength, found, addDependency }) =>
+						sequence < destinationWrite.sequence &&
+						count === 2 &&
+						returnedLength === 2 &&
+						found === false &&
+						addDependency === true) &&
+					destinationReads.some(({ sequence, count, returnedLength, found, addDependency }) =>
+						sequence > destinationWrite.sequence &&
+						count === 2 &&
+						returnedLength === 1 &&
+						found === true &&
+						addDependency === true),
+				"The retry must read destination 44 after its dependent absent read and causal write.",
 			);
 		}
 		if (id === "sequence-ancestor-rebase") {

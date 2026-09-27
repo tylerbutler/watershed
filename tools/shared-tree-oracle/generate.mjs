@@ -119,6 +119,7 @@ export const arrayScenarioIds = {
     "generic-to-sequence",
     "sequence-to-generic",
     "nested-conversions",
+    "nested-conversions-reversed",
     "nested-ancestors",
     "common-ancestors",
     "cross-field-endpoints",

@@ -3332,6 +3332,7 @@ fn compose_pair(
     first_data.fields,
     second_data.fields,
     None,
+    None,
     state,
   ))
   use state <- result.try(compose_invalidated(state, []))
@@ -3389,7 +3390,8 @@ fn canonicalize_pair_keys(
 fn compose_field_maps(
   first: List(#(String, FieldChange)),
   second: List(#(String, FieldChange)),
-  parent: Option(AtomId),
+  first_parent: Option(AtomId),
+  second_parent: Option(AtomId),
   state: ComposeState,
 ) -> Result(#(List(#(String, FieldChange)), ComposeState), TreeError) {
   use #(fields, remaining, state) <- result.try(
@@ -3401,7 +3403,8 @@ fn compose_field_maps(
           use #(field, state) <- result.try(compose_field(
             entry.1,
             other,
-            moves.FieldId(parent, entry.0),
+            moves.FieldId(first_parent, entry.0),
+            moves.FieldId(second_parent, entry.0),
             output.2,
           ))
           Ok(#(list.append(output.0, [#(entry.0, field)]), remaining, state))
@@ -3416,6 +3419,7 @@ fn compose_field(
   first: FieldChange,
   second: FieldChange,
   field_id: moves.FieldId,
+  second_field_id: moves.FieldId,
   state: ComposeState,
 ) -> Result(#(FieldChange, ComposeState), TreeError) {
   case first, second {
@@ -3454,6 +3458,7 @@ fn compose_field(
       })
     }
     GenericField(first), SequenceField(second) -> {
+      let conversion_field = field_id
       use field_id <- result.try(normalize_field_id(field_id, state.aliases))
       let state =
         ComposeState(
@@ -3462,7 +3467,7 @@ fn compose_field(
             state.move_context,
             "compose",
             "generic-left",
-            field_id,
+            conversion_field,
             first,
           ),
         )
@@ -3471,10 +3476,12 @@ fn compose_field(
         SequenceField(first),
         SequenceField(second),
         field_id,
+        second_field_id,
         state,
       )
     }
     SequenceField(first), GenericField(second) -> {
+      let conversion_field = second_field_id
       use field_id <- result.try(normalize_field_id(field_id, state.aliases))
       let state =
         ComposeState(
@@ -3483,7 +3490,7 @@ fn compose_field(
             state.move_context,
             "compose",
             "generic-right",
-            field_id,
+            conversion_field,
             second,
           ),
         )
@@ -3492,6 +3499,7 @@ fn compose_field(
         SequenceField(first),
         SequenceField(second),
         field_id,
+        second_field_id,
         state,
       )
     }
@@ -4455,6 +4463,7 @@ fn compose_nodes(
         first_fields,
         second_fields,
         Some(first_id),
+        Some(second_id),
         state,
       ))
       use parent <- result.try(parent_for(first_id, state.first.parents))
