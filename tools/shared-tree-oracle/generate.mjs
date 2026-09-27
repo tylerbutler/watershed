@@ -1256,6 +1256,17 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     && (value.revision === null || typeof value.revision === "string"
       || Number.isSafeInteger(value.revision))
     && Number.isSafeInteger(value.localId ?? value.minor);
+  const checkedRange = (index, count) => Number.isSafeInteger(index) && index >= 0
+    && Number.isSafeInteger(count) && count >= 0
+    && count <= Number.MAX_SAFE_INTEGER - index;
+  const checkedAtomRange = (value, count) => atomId(value)
+    && (value.localId ?? value.minor) >= 0
+    && count - 1 <= Number.MAX_SAFE_INTEGER - (value.localId ?? value.minor);
+  const checkedSequenceInsertOperands = (operands) =>
+    checkedRange(operands.index, operands.count)
+    && checkedAtomRange(operands.firstId, Math.max(1, operands.count))
+    && (typeof operands.revision === "string"
+      || Number.isSafeInteger(operands.revision));
   const plainDelta = (value, detail) => {
     check(object(value), `${detail} delta`);
     if (value.fields !== undefined) {
@@ -1400,9 +1411,7 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     if (label === "sequence-field-editor") {
       const op = input.operands;
       if (input.operation === "insert") {
-        check(Number.isSafeInteger(op.index) && Number.isSafeInteger(op.count)
-          && atomId(op.firstId)
-          && (typeof op.revision === "string" || Number.isSafeInteger(op.revision)),
+        check(checkedSequenceInsertOperands(op),
         `${input.id} insert operands`);
       } else if (input.operation === "remove") {
         check(Number.isSafeInteger(op.sourceIndex) && Number.isSafeInteger(op.count)
@@ -1509,7 +1518,8 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     if (Object.hasOwn(raw[index], "normalizedOutput")) {
       check(label === "sequence-field-editor"
         && input.operation === "insert"
-        && input.operands.count === 0,
+        && input.operands.count === 0
+        && checkedSequenceInsertOperands(input.operands),
       `${input.id} empty insert normalization`);
     }
     check(Object.hasOwn(observations[index], "result"), `${input.id} source result`);

@@ -654,6 +654,19 @@ export function replaySequenceEditorInput(input: Record<string, unknown>): unkno
 	const raw = replaySequenceEditorInputRaw(input);
 	object(input.operands, "The sequence editor input must contain operands.");
 	if (input.operation === "insert" && input.operands.count === 0) {
+		const index = input.operands.index;
+		const count = input.operands.count;
+		object(input.operands.firstId, "The checked empty insert first ID must be valid.");
+		const localId = input.operands.firstId.localId;
+		assert(
+			Number.isSafeInteger(index) && (index as number) >= 0
+				&& Number.isSafeInteger(count) && (count as number) >= 0
+				&& (count as number) <= Number.MAX_SAFE_INTEGER - (index as number)
+				&& Number.isSafeInteger(localId) && (localId as number) >= 0
+				&& Math.max(1, count as number) - 1
+					<= Number.MAX_SAFE_INTEGER - (localId as number),
+			"The checked empty insert operands must use safe nonnegative ranges.",
+		);
 		return { change: [], delta: {} };
 	}
 	return raw;
@@ -1507,6 +1520,25 @@ if (process.env.WATERSHED_ORACLE_CORPUS === "1") {
 				editorBaseline,
 				"Changing the serialized move gap must change the replay output.",
 			);
+			const emptyInsert = copy(cases[1].input.scenarios.find(
+				(scenario) => scenario.id === "empty-insert",
+			)) as Record<string, unknown> | undefined;
+			assert(emptyInsert !== undefined, "The empty insert replay input must exist.");
+			for (const mutate of [
+				(operands: Record<string, unknown>) => { operands.index = -1; },
+				(operands: Record<string, unknown>) => {
+					object(operands.firstId, "The empty insert first ID must exist.");
+					operands.firstId.localId = -1;
+				},
+			]) {
+				const invalid = copy(emptyInsert);
+				object(invalid.operands, "The empty insert operands must exist.");
+				mutate(invalid.operands);
+				assert.throws(
+					() => replaySequenceEditorInput(invalid),
+					/checked empty insert operands/,
+				);
+			}
 			assert.deepEqual(
 				cases.map(({ id }) => id),
 				[

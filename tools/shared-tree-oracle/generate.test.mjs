@@ -677,6 +677,27 @@ test("sequence normalization cannot hide other raw editor output", () => {
   assert.throws(() => validateArrayCase(value), /empty insert normalization/i);
 });
 
+test("sequence empty insert normalization requires checked operands", () => {
+  const fixture = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/sequence-field-editor.json", import.meta.url),
+    "utf8",
+  ));
+  for (const mutate of [
+    (operands) => { operands.index = -1; },
+    (operands) => { operands.index = Number.MAX_SAFE_INTEGER + 1; },
+    (operands) => { operands.firstId.localId = -1; },
+    (operands) => { operands.firstId.localId = Number.MAX_SAFE_INTEGER + 1; },
+    (operands) => { operands.revision = {}; },
+  ]) {
+    const value = structuredClone(fixture);
+    const input = value.input.scenarios.find(({ id }) => id === "empty-insert");
+    const raw = value.raw.scenarios.find(({ id }) => id === "empty-insert");
+    mutate(input.operands);
+    mutate(raw.input.operands);
+    assert.throws(() => validateArrayCase(value), /empty-insert insert operands/i);
+  }
+});
+
 function arrayCaseFixture() {
   const scenarios = [
     {
