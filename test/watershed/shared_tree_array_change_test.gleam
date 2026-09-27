@@ -8,6 +8,7 @@ import watershed/tree/array_fixture
 import watershed/tree/change
 import watershed/tree/fixtures
 import watershed/tree/forest
+import watershed/tree/sequence_field
 import watershed/tree/sequence_field/moves
 import watershed/tree/types
 
@@ -502,6 +503,37 @@ pub fn shared_tree_array_ownership_survives_roundtrip_and_singleton_compose_test
       change.TaggedChange(Some(revision()), None, authored),
     ])
   change.cross_field_keys(composed) |> expect.to_equal(original)
+}
+
+pub fn shared_tree_array_ownership_only_revisions_survive_identity_rebind_test() {
+  let assert Ok(empty_sequence) = sequence_field.from_marks([])
+  let data =
+    change.ChangeData(
+      max_local_id: 1,
+      revisions: [],
+      fields: [#("root", change.SequenceField(empty_sequence))],
+      nodes: [],
+      parents: [],
+      aliases: [],
+      builds: [],
+      destroys: [],
+      refreshers: [],
+      cross_field_keys: [
+        change.CrossFieldKey(
+          moves.Key(moves.Source, Some(revision()), 0),
+          1,
+          moves.FieldId(None, "root"),
+        ),
+        change.CrossFieldKey(
+          moves.Key(moves.Destination, Some(revision_b()), 0),
+          1,
+          moves.FieldId(None, "root"),
+        ),
+      ],
+    )
+  let assert Ok(authored) = change.from_data(data, identity_order())
+  change.rebind_identity_order(authored, identity_order(), [])
+  |> expect.to_equal(Ok(authored))
 }
 
 pub fn shared_tree_array_compose_runs_move_chain_to_fixed_point_test() {

@@ -329,8 +329,31 @@ fn data_identity_revisions(data: ChangeData) -> List(StableId) {
     })
   let destroys =
     list.flat_map(data.destroys, fn(entry) { atom_identity_revisions(entry.id) })
+  let cross_field_keys =
+    list.flat_map(data.cross_field_keys, fn(entry) {
+      let moves.Key(_, revision, _) = entry.key
+      list.append(
+        case revision {
+          None -> []
+          Some(revision) -> [revision]
+        },
+        case entry.field.parent {
+          None -> []
+          Some(parent) -> atom_identity_revisions(parent)
+        },
+      )
+    })
   list.unique(
-    list.flatten([metadata, fields, nodes, parents, aliases, builds, destroys]),
+    list.flatten([
+      metadata,
+      fields,
+      nodes,
+      parents,
+      aliases,
+      builds,
+      destroys,
+      cross_field_keys,
+    ]),
   )
 }
 
