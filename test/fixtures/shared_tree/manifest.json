@@ -224,7 +224,8 @@
       "map-schema-content",
       "map-field-algebra",
       "map-history-codecs",
-      "array-schema-content"
+      "array-schema-content",
+      "array-forest-delta"
     ],
     "erlang": [
       "id-ranges",
@@ -242,7 +243,8 @@
       "map-schema-content",
       "map-field-algebra",
       "map-history-codecs",
-      "array-schema-content"
+      "array-schema-content",
+      "array-forest-delta"
     ]
   },
   "cases": [

@@ -145,6 +145,10 @@ type Work {
   )
 }
 
+type TransferRange {
+  TransferRange(source: AtomId, destination: AtomId, count: Int)
+}
+
 pub fn new(
   view_id: StableId,
   schema: StoredSchema,
@@ -190,9 +194,12 @@ pub fn delta(data: DeltaData) -> Result(Delta, TreeError) {
       data.fields,
       list.flat_map(data.global, fn(change) { change.fields }),
     )
-  use _ <- result.try(unique(field_ids(all_fields, True), "attach sources"))
-  use _ <- result.try(unique(
-    field_ids(all_fields, False),
+  use _ <- result.try(nonoverlapping(
+    field_ranges(all_fields, True),
+    "attach sources",
+  ))
+  use _ <- result.try(nonoverlapping(
+    field_ranges(all_fields, False),
     "detach destinations",
   ))
   use _ <- result.try(
@@ -223,20 +230,20 @@ pub fn delta(data: DeltaData) -> Result(Delta, TreeError) {
   Ok(Delta(DeltaData(..data, rename: renames)))
 }
 
-fn field_ids(
+fn field_ranges(
   fields: List(#(String, FieldDelta)),
   attach: Bool,
-) -> List(AtomId) {
+) -> List(#(AtomId, Int)) {
   list.flat_map(fields, fn(pair) {
     list.flat_map(pair.1.marks, fn(mark) {
       let id = case attach {
         True -> mark.attach
         False -> mark.detach
       }
-      let nested = field_ids(mark.fields, attach)
+      let nested = field_ranges(mark.fields, attach)
       case id {
         None -> nested
-        Some(id) -> [id, ..nested]
+        Some(id) -> [#(id, mark.count), ..nested]
       }
     })
   })
@@ -288,10 +295,10 @@ pub fn apply_delta(state: Forest, delta: Delta) -> Result(Forest, TreeError) {
     }),
   )
   let transfers =
-    list.flat_map(data.rename, fn(rename) {
+    list.filter_map(data.rename, fn(rename) {
       case rename.old_id == rename.new_id {
-        True -> []
-        False -> expand_rename(rename, 0, [])
+        True -> Error(Nil)
+        False -> Ok(TransferRange(rename.old_id, rename.new_id, rename.count))
       }
     })
   use work <- result.try(transfer_roots(work, transfers))
@@ -458,21 +465,6 @@ fn offset(id: AtomId, amount: Int) -> AtomId {
   AtomId(..id, local_id: id.local_id + amount)
 }
 
-fn expand_rename(
-  rename: Rename,
-  index: Int,
-  pairs: List(#(AtomId, AtomId)),
-) -> List(#(AtomId, AtomId)) {
-  case index == rename.count {
-    True -> list.reverse(pairs)
-    False ->
-      expand_rename(rename, index + 1, [
-        #(offset(rename.old_id, index), offset(rename.new_id, index)),
-        ..pairs
-      ])
-  }
-}
-
 fn validate_atom(id: AtomId, count: Int) -> Result(Nil, TreeError) {
   check(
     id.local_id >= 0
@@ -547,9 +539,14 @@ fn validate_fields(
   list.try_each(fields, fn(pair) {
     list.try_each(pair.1.marks, fn(mark) {
       use _ <- result.try(check(
-        mark.count == 1,
+        mark.count > 0 && mark.count <= max_safe_integer,
         pair.0,
-        "object field marks must have count one",
+        "mark count is outside the safe range",
+      ))
+      use _ <- result.try(check(
+        list.is_empty(mark.fields) || mark.count == 1,
+        pair.0,
+        "nested changes require a single-node mark",
       ))
       use _ <- result.try(
         list.try_each([mark.attach, mark.detach], fn(id) {
@@ -818,6 +815,22 @@ fn child_at(
   })
 }
 
+fn input_range(
+  state: Forest,
+  parent: Parent,
+  key: String,
+  index: Int,
+  count: Int,
+) -> Result(List(Int), TreeError) {
+  use values <- result.try(children(state, parent, key))
+  use _ <- result.try(check(
+    index <= list.length(values) && count <= list.length(values) - index,
+    key,
+    "mark range is outside the field",
+  ))
+  Ok(values |> list.drop(index) |> list.take(count))
+}
+
 fn visit_fields(
   work: Work,
   parent: Parent,
@@ -846,9 +859,9 @@ fn visit_marks(
         Attach -> attach_mark(work, parent, key, mark, index)
       })
       let advance = case pass, mark.attach, mark.detach {
-        Detach, None, None -> 1
-        Attach, Some(_), _ -> 1
-        Attach, _, None -> 1
+        Detach, None, None -> mark.count
+        Attach, Some(_), _ -> mark.count
+        Attach, _, None -> mark.count
         _, _, _ -> 0
       }
       visit_marks(work, parent, key, rest, index + advance, pass)
@@ -874,26 +887,59 @@ fn detach_mark(
     None -> {
       use _ <- result.try(case mark.attach {
         None ->
-          child_at(work.state, parent, key, index) |> result.map(fn(_) { Nil })
+          input_range(work.state, parent, key, index, mark.count)
+          |> result.map(fn(_) { Nil })
         Some(_) -> Ok(Nil)
       })
       Ok(work)
     }
     Some(destination) -> {
-      use id <- result.try(child_at(work.state, parent, key, index))
+      use ids <- result.try(input_range(
+        work.state,
+        parent,
+        key,
+        index,
+        mark.count,
+      ))
       use before <- result.try(children(work.state, parent, key))
       use state <- result.try(set_children(
         work.state,
         parent,
         key,
-        list.append(list.take(before, index), list.drop(before, index + 1)),
+        list.append(
+          list.take(before, index),
+          list.drop(before, index + mark.count),
+        ),
       ))
-      use state <- result.try(register(state, destination, id, work.revision))
+      use state <- result.try(register_range(
+        state,
+        destination,
+        ids,
+        work.revision,
+      ))
       let pending = case mark.fields {
         [] -> work.pending
-        fields -> list.append(work.pending, [#(id, fields)])
+        fields -> {
+          let assert [id] = ids
+          list.append(work.pending, [#(id, fields)])
+        }
       }
       Ok(Work(..work, state:, pending:))
+    }
+  }
+}
+
+fn register_range(
+  state: Forest,
+  destination: AtomId,
+  ids: List(Int),
+  revision: Option(StableId),
+) -> Result(Forest, TreeError) {
+  case ids {
+    [] -> Ok(state)
+    [id, ..rest] -> {
+      use state <- result.try(register(state, destination, id, revision))
+      register_range(state, offset(destination, 1), rest, revision)
     }
   }
 }
@@ -908,8 +954,9 @@ fn attach_mark(
   use work <- result.try(case mark.attach {
     None -> Ok(work)
     Some(source) -> {
-      use work <- result.try(ensure_detached(work, source))
-      use entry <- result.try(detached_entry(work.state, source))
+      use #(work, ids) <- result.try(
+        take_detached(work, source, mark.count, []),
+      )
       use before <- result.try(children(work.state, parent, key))
       use _ <- result.try(check(
         index <= list.length(before),
@@ -917,15 +964,15 @@ fn attach_mark(
         "attach index is outside the field",
       ))
       use state <- result.try(set_children(
-        remove_entry(work.state, source),
+        work.state,
         parent,
         key,
-        list.append(list.take(before, index), [
-          entry.node_id,
-          ..list.drop(before, index)
-        ]),
+        list.append(
+          list.take(before, index),
+          list.append(ids, list.drop(before, index)),
+        ),
       ))
-      apply_pending(Work(..work, state:), entry.node_id)
+      list.try_fold(ids, Work(..work, state:), apply_pending)
     }
   })
   case mark.detach, mark.fields {
@@ -934,6 +981,27 @@ fn attach_mark(
       visit_fields(work, Child(id), mark.fields, Attach)
     }
     _, _ -> Ok(work)
+  }
+}
+
+fn take_detached(
+  work: Work,
+  source: AtomId,
+  count: Int,
+  ids: List(Int),
+) -> Result(#(Work, List(Int)), TreeError) {
+  case count {
+    0 -> Ok(#(work, list.reverse(ids)))
+    _ -> {
+      use work <- result.try(ensure_detached(work, source))
+      use entry <- result.try(detached_entry(work.state, source))
+      take_detached(
+        Work(..work, state: remove_entry(work.state, source)),
+        offset(source, 1),
+        count - 1,
+        [entry.node_id, ..ids],
+      )
+    }
   }
 }
 
@@ -963,32 +1031,41 @@ fn finish_pending(work: Work) -> Result(Work, TreeError) {
 
 fn transfer_roots(
   work: Work,
-  transfers: List(#(AtomId, AtomId)),
+  transfers: List(TransferRange),
 ) -> Result(Work, TreeError) {
   case transfers {
     [] -> Ok(work)
     _ -> {
-      use #(work, delayed) <- result.try(
-        list.try_fold(transfers, #(work, []), fn(acc, pair) {
-          let #(source, destination) = pair
+      use #(work, delayed, progressed) <- result.try(
+        list.try_fold(transfers, #(work, [], False), fn(acc, transfer) {
+          let TransferRange(source, destination, count) = transfer
+          let from_end =
+            source.revision == destination.revision
+            && source.local_id < destination.local_id
+          let range_offset = case from_end {
+            True -> count - 1
+            False -> 0
+          }
+          let current_source = offset(source, range_offset)
+          let current_destination = offset(destination, range_offset)
           let work = acc.0
           use work <- result.try(
             case
-              dict.has_key(work.state.detached.entries, source)
-              || dict.has_key(work.refreshers, source)
+              dict.has_key(work.state.detached.entries, current_source)
+              || dict.has_key(work.refreshers, current_source)
             {
-              True -> ensure_detached(work, source)
+              True -> ensure_detached(work, current_source)
               False -> Ok(work)
             },
           )
           case
-            dict.get(work.state.detached.entries, source),
-            dict.has_key(work.state.detached.entries, destination)
+            dict.get(work.state.detached.entries, current_source),
+            dict.has_key(work.state.detached.entries, current_destination)
           {
             Ok(entry), False -> {
               use state <- result.try(register(
                 work.state,
-                destination,
+                current_destination,
                 entry.node_id,
                 work.revision,
               ))
@@ -1002,17 +1079,40 @@ fn transfer_roots(
                     [#(entry.node_id, fields)],
                   )
               }
+              let remaining = case count {
+                1 -> acc.1
+                _ ->
+                  case from_end {
+                    True -> [
+                      TransferRange(source, destination, count - 1),
+                      ..acc.1
+                    ]
+                    False -> [
+                      TransferRange(
+                        offset(source, 1),
+                        offset(destination, 1),
+                        count - 1,
+                      ),
+                      ..acc.1
+                    ]
+                  }
+              }
               Ok(#(
-                Work(..work, state: remove_entry(state, source), pending:),
-                acc.1,
+                Work(
+                  ..work,
+                  state: remove_entry(state, current_source),
+                  pending:,
+                ),
+                remaining,
+                True,
               ))
             }
-            _, _ -> Ok(#(work, [pair, ..acc.1]))
+            _, _ -> Ok(#(work, [transfer, ..acc.1], acc.2))
           }
         }),
       )
       use _ <- result.try(check(
-        list.length(delayed) < list.length(transfers),
+        progressed,
         "rename",
         "sources are missing or destinations form an occupied cycle",
       ))

@@ -207,9 +207,6 @@ pub fn shared_tree_forest_delta_shape_refusals_test() -> Nil {
       #("rootFieldKey", forest.FieldDelta([forest.Mark(0, None, None, [])])),
     ]),
     forest.DeltaData(..empty_delta(), fields: [
-      #("rootFieldKey", forest.FieldDelta([forest.Mark(2, None, None, [])])),
-    ]),
-    forest.DeltaData(..empty_delta(), fields: [
       #(
         "rootFieldKey",
         forest.FieldDelta([
@@ -253,6 +250,9 @@ pub fn shared_tree_forest_failure_after_build_preserves_all_state_test() -> Nil 
           ]),
         ]),
       ),
+    ]),
+    forest.DeltaData(..build, fields: [
+      #("rootFieldKey", forest.FieldDelta([forest.Mark(2, None, None, [])])),
     ]),
     forest.DeltaData(..build, fields: [
       #(
