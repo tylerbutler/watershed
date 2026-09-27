@@ -46,25 +46,8 @@ pub fn wire_to_commit(
   wire: codec.WireCommit,
 ) -> Result(history.Commit, TreeError) {
   let codec.WireCommit(revision, originator, changes, _) = wire
-  use _ <- result.try(
-    list.try_each(changes, fn(item) {
-      case item {
-        shared_change.DataChange(_) -> Ok(Nil)
-        shared_change.SchemaChange(_, _, _) ->
-          Error(types.UnsupportedFeature(
-            "message.changeset",
-            "schema changes are not supported after initialization",
-          ))
-      }
-    }),
-  )
   use decoded <- result.try(shared_change.from_changes(changes))
-  use composed <- result.try(
-    shared_change.compose([
-      shared_change.TaggedChange(Some(revision), None, decoded),
-    ]),
-  )
-  Ok(history.Commit(revision, originator, composed))
+  Ok(history.Commit(revision, originator, decoded))
 }
 
 pub fn decode_message(

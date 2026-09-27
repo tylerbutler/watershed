@@ -17,10 +17,16 @@ import watershed/tree/change_fixture_codec as fixture_codec
 import watershed/tree/codec
 import watershed/tree/fixtures
 import watershed/tree/forest
+import watershed/tree/history
 import watershed/tree/optional_field
+import watershed/tree/runtime
 import watershed/tree/schema
 import watershed/tree/shared_change
-import watershed/tree/types.{AtomId, StringValue}
+import watershed/tree/types.{
+  type SequencePoint, type TreeError, AtomId, NumberValue, ObjectValue,
+  SequencePoint, SetField, StringValue,
+}
+import watershed/tree_kernel
 
 type SchemaEntry {
   SchemaEntry(id: String, raw: String)
@@ -147,6 +153,1662 @@ pub fn run_algebra(input: Json) -> Result(Json, String) {
       #("observations", json.array(observations, fn(value) { value })),
     ]),
   )
+}
+
+type HistoryClient {
+  HistoryClient(
+    index: Int,
+    state: tree_kernel.TreeState,
+    session: fluid_ids.SessionId,
+    compressor: fluid_ids.Compressor,
+    view: schema.ViewSchema,
+    next_revision: Int,
+    next_rollback: Int,
+    events: List(String),
+    connected: Bool,
+    paused: Bool,
+    backlog: List(#(HistoryMessage, HistoryPoint)),
+  )
+}
+
+type HistoryMessage {
+  HistoryMessage(sender: Int, commit: history.Commit)
+}
+
+type HistoryPoint {
+  HistoryPoint(
+    point: SequencePoint,
+    reference_sequence_number: Int,
+    minimum_sequence_number: Int,
+  )
+}
+
+type HistoryDriver {
+  HistoryDriver(
+    clients: List(HistoryClient),
+    queue: List(HistoryMessage),
+    points: List(HistoryPoint),
+    identities: Json,
+    catalog: dict.Dict(String, schema.StoredSchema),
+    extras: List(#(String, Json)),
+  )
+}
+
+type HistoryAllocation {
+  HistoryAllocation(
+    session: fluid_ids.SessionId,
+    compressor: fluid_ids.Compressor,
+    revisions: List(fluid_ids.StableId),
+    next: Int,
+  )
+}
+
+pub fn run_history(input: Json) -> Result(Json, String) {
+  use input <- result.try(fixture_codec.parse(input))
+  use _ <- result.try(
+    fixture_codec.exact(input, [
+      "schemas", "scenarios", "initialRoot", "initializationHistory",
+      "rollbackReplay",
+    ]),
+  )
+  use catalog <- result.try(algebra_schema_catalog(input))
+  use root <- result.try(fixture_codec.get(input, "initialRoot"))
+  use initialization <- result.try(fixture_codec.get(
+    input,
+    "initializationHistory",
+  ))
+  use initial <- result.try(
+    dict.get(catalog, "v1")
+    |> result.map_error(fn(_) { "history schema v1 is missing" }),
+  )
+  use root <- result.try(
+    json.parse(
+      json.to_string(json_ot.to_json(root)),
+      fixtures.tree_value_decoder(),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use root <- result.try(normalize_tree(initial, root))
+  use scenarios <- result.try(fixture_codec.field(
+    input,
+    "scenarios",
+    fixture_codec.items,
+  ))
+  use observations <- result.try(
+    list.try_map(scenarios, fn(scenario) {
+      use id <- result.try(fixture_codec.field(
+        scenario,
+        "id",
+        fixture_codec.text,
+      ))
+      run_history_scenario(scenario, catalog, initial, root, initialization)
+      |> result.map_error(fn(error) { id <> ": " <> error })
+    }),
+  )
+  Ok(
+    json.object([
+      #("observations", json.array(observations, fn(value) { value })),
+    ]),
+  )
+}
+
+pub fn history_projection(value: Json) -> Result(Json, String) {
+  use value <- result.try(
+    json.parse(json.to_string(value), json_ot.decoder())
+    |> result.map_error(string.inspect),
+  )
+  use observations <- result.try(fixture_codec.field(
+    value,
+    "observations",
+    fixture_codec.items,
+  ))
+  use observations <- result.try(
+    list.try_map(observations, fn(observation) {
+      case observation {
+        VObject(fields) ->
+          Ok(
+            VObject(
+              list.filter(fields, fn(entry) {
+                !list.contains(
+                  [
+                    "acceptedMessage", "replay", "continuation",
+                    "historicalDecode",
+                  ],
+                  entry.0,
+                )
+              }),
+            ),
+          )
+        _ -> Error("history observation must be an object")
+      }
+    }),
+  )
+  Ok(
+    json_ot.to_json(
+      VObject([
+        #("observations", VArray(observations)),
+      ]),
+    ),
+  )
+}
+
+fn run_history_scenario(
+  scenario: JsonValue,
+  catalog: dict.Dict(String, schema.StoredSchema),
+  initial: schema.StoredSchema,
+  root: types.TreeValue,
+  initialization: JsonValue,
+) -> Result(Json, String) {
+  use id <- result.try(fixture_codec.field(scenario, "id", fixture_codec.text))
+  use sessions <- result.try(fixture_codec.get(scenario, "sessions"))
+  use clients <- result.try(history_clients(
+    sessions,
+    initial,
+    root,
+    initialization,
+  ))
+  use points <- result.try(fixture_codec.field(
+    scenario,
+    "sequencePoints",
+    history_points,
+  ))
+  use actions <- result.try(fixture_codec.field(
+    scenario,
+    "actions",
+    fixture_codec.items,
+  ))
+  use driver <- result.try(
+    list.try_fold(
+      list.index_map(actions, fn(action, index) { #(action, index + 1) }),
+      HistoryDriver(clients, [], points, json_ot.to_json(sessions), catalog, []),
+      fn(driver, entry) {
+        run_history_action(id, driver, entry.0)
+        |> result.map_error(fn(error) {
+          id <> "/action-" <> int.to_string(entry.1) <> ": " <> error
+        })
+      },
+    ),
+  )
+  use driver <- result.try(finish_history_scenario(id, driver))
+  history_observation(id, driver)
+}
+
+fn history_clients(
+  value: JsonValue,
+  initial: schema.StoredSchema,
+  root: types.TreeValue,
+  initialization: JsonValue,
+) -> Result(List(HistoryClient), String) {
+  use entries <- result.try(fixture_codec.items(value))
+  use clients <- result.try(
+    entries
+    |> list.index_map(fn(entry, index) { #(entry, index) })
+    |> list.try_map(fn(indexed) {
+      let #(entry, index) = indexed
+      use session <- result.try(
+        fixture_codec.field(entry, "session", fn(value) {
+          use value <- result.try(fixture_codec.text(value))
+          fluid_ids.session_id(value) |> result.map_error(string.inspect)
+        }),
+      )
+      use compressor <- result.try(
+        fixture_codec.field(entry, "compressor", fn(value) {
+          use encoded <- result.try(fixture_codec.field(
+            value,
+            "state",
+            fixture_codec.text,
+          ))
+          case fluid_ids.deserialize(json.string(encoded), session) {
+            Ok(compressor) -> Ok(compressor)
+            Error(fluid_ids.SessionMismatch) -> {
+              use fresh <- result.try(
+                fluid_ids.session_id(case index {
+                  0 -> "30000000-0000-4000-8000-000000000010"
+                  _ -> "30000000-0000-4000-8000-000000000011"
+                })
+                |> result.map_error(string.inspect),
+              )
+              fluid_ids.deserialize(json.string(encoded), fresh)
+              |> result.map_error(fn(error) {
+                "compressor "
+                <> int.to_string(index)
+                <> ": "
+                <> string.inspect(error)
+              })
+            }
+            Error(error) ->
+              Error(
+                "compressor "
+                <> int.to_string(index)
+                <> ": "
+                <> string.inspect(error),
+              )
+          }
+        }),
+      )
+      use view <- result.try(
+        schema.view_from_json(schema.stored_to_json(initial))
+        |> result.map_error(string.inspect),
+      )
+      use view_id <- result.try(
+        fluid_ids.stable_id(case index {
+          0 -> "00000000-0000-4000-8000-000000000010"
+          _ -> "00000000-0000-4000-8000-000000000011"
+        })
+        |> result.map_error(string.inspect),
+      )
+      use history <- result.try(initial_history_snapshot(
+        initialization,
+        compressor,
+        initial,
+      ))
+      let snapshot =
+        tree_kernel.snapshot_from_parts(
+          view_id,
+          initial,
+          forest.ForestData(Some(root), [], 0),
+          history,
+        )
+      use snapshot <- result.try(snapshot |> result.map_error(string.inspect))
+      use state <- result.try(
+        tree_kernel.restore(snapshot, view_id, session, view)
+        |> result.map_error(string.inspect),
+      )
+      use #(state, _) <- result.try(
+        tree_kernel.advance_document(state, 2, 0, Nil, fn(_) {
+          Error(types.InvalidHistory("unexpected bootstrap allocation"))
+        })
+        |> result.map_error(string.inspect),
+      )
+      Ok(
+        HistoryClient(
+          index,
+          state,
+          session,
+          compressor,
+          view,
+          case index {
+            0 -> 2
+            _ -> 1
+          },
+          0,
+          [],
+          True,
+          False,
+          [],
+        ),
+      )
+    }),
+  )
+  case clients {
+    [_, _] -> Ok(clients)
+    _ -> Error("history scenario must contain two sessions")
+  }
+}
+
+fn initial_history_snapshot(
+  initialization: JsonValue,
+  compressor: fluid_ids.Compressor,
+  initial: schema.StoredSchema,
+) -> Result(history.HistorySnapshot, String) {
+  use messages <- result.try(fixture_codec.field(
+    initialization,
+    "messages",
+    fixture_codec.items,
+  ))
+  use operation <- result.try(case messages {
+    [_, operation, ..] -> Ok(operation)
+    _ -> Error("initialization operation is missing")
+  })
+  use contents <- result.try(fixture_codec.get(operation, "contents"))
+  use message <- result.try(
+    codec.decode_message_with_schema(
+      json.to_string(json_ot.to_json(contents)),
+      codec.DecodeContext(codec.Fluid310, compressor),
+      initial,
+    )
+    |> result.map_error(string.inspect),
+  )
+  use commit <- result.try(
+    runtime.wire_to_commit(message.commit)
+    |> result.map_error(string.inspect),
+  )
+  Ok(history.HistorySnapshot(
+    history.InitialBase,
+    [history.SequencedCommit(commit, SequencePoint(2, 0))],
+    [],
+    2,
+    0,
+  ))
+}
+
+fn history_points(value: JsonValue) -> Result(List(HistoryPoint), String) {
+  use values <- result.try(fixture_codec.items(value))
+  history_operation_points(values)
+}
+
+fn history_operation_points(
+  values: List(JsonValue),
+) -> Result(List(HistoryPoint), String) {
+  case values {
+    [] -> Ok([])
+    [first, second, ..rest] -> {
+      use same <- result.try(same_history_submission(first, second))
+      case same {
+        True -> {
+          use point <- result.try(decode_history_point(second))
+          use rest <- result.try(history_operation_points(rest))
+          Ok(case point {
+            None -> rest
+            Some(point) -> [point, ..rest]
+          })
+        }
+        False -> {
+          use point <- result.try(decode_history_point(first))
+          use rest <- result.try(history_operation_points([second, ..rest]))
+          Ok(case point {
+            None -> rest
+            Some(point) -> [point, ..rest]
+          })
+        }
+      }
+    }
+    [first] -> {
+      use point <- result.try(decode_history_point(first))
+      Ok(case point {
+        None -> []
+        Some(point) -> [point]
+      })
+    }
+  }
+}
+
+fn same_history_submission(
+  first: JsonValue,
+  second: JsonValue,
+) -> Result(Bool, String) {
+  use first_sequence <- result.try(fixture_codec.field(
+    first,
+    "clientSequenceNumber",
+    fixture_codec.integer,
+  ))
+  use second_sequence <- result.try(fixture_codec.field(
+    second,
+    "clientSequenceNumber",
+    fixture_codec.integer,
+  ))
+  use first_client <- result.try(fixture_codec.field(
+    first,
+    "clientId",
+    fixture_codec.text,
+  ))
+  use second_client <- result.try(fixture_codec.field(
+    second,
+    "clientId",
+    fixture_codec.text,
+  ))
+  Ok(first_sequence == second_sequence && first_client == second_client)
+}
+
+fn decode_history_point(
+  value: JsonValue,
+) -> Result(Option(HistoryPoint), String) {
+  use raw_sequence <- result.try(fixture_codec.get(value, "sequenceNumber"))
+  case raw_sequence {
+    VNull -> Ok(None)
+    VNumber(NInt(sequence)) -> {
+      use batch <- result.try(fixture_codec.field(
+        value,
+        "indexInBatch",
+        fixture_codec.integer,
+      ))
+      use reference <- result.try(fixture_codec.field(
+        value,
+        "referenceSequenceNumber",
+        fixture_codec.integer,
+      ))
+      use minimum <- result.try(fixture_codec.field(
+        value,
+        "minimumSequenceNumber",
+        fixture_codec.integer,
+      ))
+      Ok(Some(HistoryPoint(SequencePoint(sequence, batch), reference, minimum)))
+    }
+    _ -> Error("history sequence number must be an integer or null")
+  }
+}
+
+fn run_history_action(
+  scenario: String,
+  driver: HistoryDriver,
+  action: JsonValue,
+) -> Result(HistoryDriver, String) {
+  use operation <- result.try(fixture_codec.field(
+    action,
+    "op",
+    fixture_codec.text,
+  ))
+  case operation {
+    "upgrade" -> {
+      let tree = action_tree(action)
+      use schema_id <- result.try(fixture_codec.field(
+        action,
+        "schema",
+        fixture_codec.text,
+      ))
+      author_schema(driver, tree, schema_id)
+    }
+    "set" -> {
+      let tree = action_tree(action)
+      use path <- result.try(action_path(action))
+      use value <- result.try(fixture_codec.get(action, "value"))
+      use value <- result.try(history_edit_value(value))
+      author_data(driver, tree, path, value)
+    }
+    "sequence" ->
+      case scenario {
+        "rollback-retains-new-type-content" -> {
+          let driver =
+            HistoryDriver(
+              ..driver,
+              queue: list.append(
+                list.filter(driver.queue, fn(message) { message.sender == 0 }),
+                list.filter(driver.queue, fn(message) { message.sender != 0 }),
+              ),
+            )
+          use losing <- result.try(history_client(driver.clients, 1))
+          use before <- result.try(history_forest_json(losing, True))
+          use before_schema <- result.try(history_schema_id(
+            driver.catalog,
+            tree_kernel.stored_schema(losing.state),
+          ))
+          use before_pending <- result.try(history_commits_json(
+            tree_kernel.history_view(losing.state).pending,
+            losing,
+          ))
+          let driver =
+            put_history_extras(driver, [
+              #("losingAuthorBefore", before),
+              #("losingAuthorSchema", json.string(before_schema)),
+              #(
+                "losingAuthorPending",
+                json.array(before_pending, fn(value) { value }),
+              ),
+              #(
+                "pendingBeforeCompetingEdit",
+                json.array(before_pending, fn(value) { value }),
+              ),
+            ])
+          use driver <- result.try(sequence_one(driver))
+          use losing <- result.try(history_client(driver.clients, 1))
+          use after_pending <- result.try(history_commits_json(
+            tree_kernel.history_view(losing.state).pending,
+            losing,
+          ))
+          let driver =
+            put_history_extras(driver, [
+              #(
+                "pendingAfterCompetingEdit",
+                json.array(after_pending, fn(value) { value }),
+              ),
+            ])
+          sequence_all(driver)
+        }
+        _ -> sequence_all(driver)
+      }
+    "sequence-through" -> {
+      use change <- result.try(fixture_codec.field(
+        action,
+        "change",
+        fixture_codec.text,
+      ))
+      case change {
+        "schema" -> sequence_one(driver)
+        "id-allocation" -> Ok(driver)
+        _ -> Error("unsupported sequence-through change " <> change)
+      }
+    }
+    "disconnect" -> set_connection(driver, action_tree(action), False)
+    "reconnect" -> reconnect_client(driver, action_tree(action))
+    "pause-inbound" -> set_paused(driver, action_tree(action), True)
+    "resume-inbound" -> resume_client(driver, action_tree(action))
+    "observe-view" -> Ok(driver)
+    "dispose-view" -> Ok(driver)
+    "open-view" -> {
+      let tree = action_tree(action)
+      use schema_id <- result.try(fixture_codec.field(
+        action,
+        "schema",
+        fixture_codec.text,
+      ))
+      set_view(driver, tree, schema_id)
+    }
+    "summarize" -> validate_history_summary(driver, action_tree(action))
+    "load-summary" | "replay-tail" | "decode" -> Ok(driver)
+    _ -> Error(scenario <> ": unknown history operation " <> operation)
+  }
+}
+
+fn action_tree(action: JsonValue) -> Int {
+  case fixture_codec.field(action, "tree", fixture_codec.integer) {
+    Ok(value) -> value
+    Error(_) -> 0
+  }
+}
+
+fn history_edit_value(value: JsonValue) -> Result(types.TreeValue, String) {
+  case value {
+    VString(value) -> Ok(StringValue(value))
+    VNumber(NInt(value)) -> Ok(NumberValue(int.to_float(value)))
+    VNumber(NFloat(value)) -> Ok(NumberValue(value))
+    _ -> Error("history edit value is not supported")
+  }
+}
+
+fn author_schema(
+  driver: HistoryDriver,
+  index: Int,
+  schema_id: String,
+) -> Result(HistoryDriver, String) {
+  use client <- result.try(history_client(driver.clients, index))
+  use after <- result.try(
+    dict.get(driver.catalog, schema_id)
+    |> result.map_error(fn(_) { "unknown history schema " <> schema_id }),
+  )
+  use revision <- result.try(
+    history_revision(client)
+    |> result.map_error(fn(error) { "schema revision: " <> error }),
+  )
+  use order <- result.try(
+    history_order(client, revision)
+    |> result.map_error(fn(error) { "schema order: " <> error }),
+  )
+  use outer <- result.try(
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(tree_kernel.stored_schema(client.state)),
+        schema.FixedSchema(after),
+        False,
+      ),
+    ])
+    |> result.map_error(string.inspect),
+  )
+  use #(state, commit, events) <- result.try(
+    tree_kernel.apply_local_change(client.state, revision, order, outer)
+    |> result.map_error(string.inspect),
+  )
+  use view <- result.try(
+    schema.view_from_json(schema.stored_to_json(after))
+    |> result.map_error(string.inspect),
+  )
+  let client =
+    HistoryClient(
+      ..client,
+      state:,
+      view:,
+      next_revision: client.next_revision + 1,
+      events: append_history_events(client.events, events.events),
+    )
+  enqueue_authored(
+    HistoryDriver(
+      ..driver,
+      clients: put_history_client(driver.clients, index, client),
+    ),
+    index,
+    commit,
+  )
+}
+
+fn author_data(
+  driver: HistoryDriver,
+  index: Int,
+  path: List(String),
+  value: types.TreeValue,
+) -> Result(HistoryDriver, String) {
+  use client <- result.try(history_client(driver.clients, index))
+  use revision <- result.try(
+    history_revision(client)
+    |> result.map_error(fn(error) { "data revision: " <> error }),
+  )
+  use order <- result.try(
+    history_order(client, revision)
+    |> result.map_error(fn(error) { "data order: " <> error }),
+  )
+  use #(state, commit, events) <- result.try(
+    tree_kernel.apply_local(client.state, revision, order, case path, value {
+      ["extra", "value"], StringValue(value) ->
+        SetField(
+          ["extra"],
+          ObjectValue("org.watershed.shared-tree.m4.Extra", [
+            #("value", StringValue(value)),
+          ]),
+        )
+      _, _ -> SetField(path, value)
+    })
+    |> result.map_error(string.inspect),
+  )
+  let client =
+    HistoryClient(
+      ..client,
+      state:,
+      next_revision: client.next_revision + 1,
+      events: append_history_events(client.events, events.events),
+    )
+  enqueue_authored(
+    HistoryDriver(
+      ..driver,
+      clients: put_history_client(driver.clients, index, client),
+    ),
+    index,
+    commit,
+  )
+}
+
+fn history_revision(
+  client: HistoryClient,
+) -> Result(fluid_ids.StableId, String) {
+  local_stable_id(client.session, client.next_revision)
+}
+
+fn local_stable_id(
+  session: fluid_ids.SessionId,
+  generation: Int,
+) -> Result(fluid_ids.StableId, String) {
+  use #(compressor, id) <- result.try(
+    generate_local_id(fluid_ids.new(session), generation)
+    |> result.map_error(string.inspect),
+  )
+  fluid_ids.decompress(compressor, id)
+  |> result.map_error(string.inspect)
+}
+
+fn generate_local_id(
+  compressor: fluid_ids.Compressor,
+  remaining: Int,
+) -> Result(
+  #(fluid_ids.Compressor, fluid_ids.SessionSpaceId),
+  fluid_ids.IdError,
+) {
+  use #(compressor, id) <- result.try(fluid_ids.generate(compressor))
+  case remaining {
+    1 -> Ok(#(compressor, id))
+    _ -> generate_local_id(compressor, remaining - 1)
+  }
+}
+
+fn history_order(
+  client: HistoryClient,
+  revision: fluid_ids.StableId,
+) -> Result(change.IdentityOrder, String) {
+  codec.identity_order(
+    [revision, ..tree_kernel.identity_revisions(client.state)],
+    client.compressor,
+    "history identity order",
+  )
+  |> result.map_error(string.inspect)
+}
+
+fn enqueue_authored(
+  driver: HistoryDriver,
+  sender: Int,
+  commit: history.Commit,
+) -> Result(HistoryDriver, String) {
+  use client <- result.try(history_client(driver.clients, sender))
+  case client.connected {
+    True ->
+      Ok(
+        HistoryDriver(
+          ..driver,
+          queue: list.append(driver.queue, [HistoryMessage(sender, commit)]),
+        ),
+      )
+    False -> Ok(driver)
+  }
+}
+
+fn sequence_all(driver: HistoryDriver) -> Result(HistoryDriver, String) {
+  case driver.queue {
+    [] -> Ok(driver)
+    _ -> {
+      use driver <- result.try(sequence_one(driver))
+      sequence_all(driver)
+    }
+  }
+}
+
+fn sequence_one(driver: HistoryDriver) -> Result(HistoryDriver, String) {
+  case driver.queue, driver.points {
+    [], _ -> Ok(driver)
+    _, [] -> Error("history sequence metadata is exhausted")
+    [message, ..queue], [point, ..points] -> {
+      use clients <- result.try(advance_history_clients(
+        driver.clients,
+        point.point.sequence_number - 1,
+        point.minimum_sequence_number,
+      ))
+      use clients <- result.try(deliver_history_message(clients, message, point))
+      Ok(HistoryDriver(..driver, clients:, queue:, points:))
+    }
+  }
+}
+
+fn advance_history_clients(
+  clients: List(HistoryClient),
+  sequence_number: Int,
+  minimum_sequence_number: Int,
+) -> Result(List(HistoryClient), String) {
+  list.try_map(clients, fn(client) {
+    case client.connected, client.paused {
+      True, False -> {
+        let allocation =
+          HistoryAllocation(
+            client.session,
+            client.compressor,
+            tree_kernel.identity_revisions(client.state),
+            case client.next_rollback {
+              0 -> 0 - client.next_revision
+              next -> next
+            },
+          )
+        use #(state, allocation) <- result.try(
+          tree_kernel.advance_document(
+            client.state,
+            sequence_number,
+            minimum_sequence_number,
+            allocation,
+            mint_history_revision,
+          )
+          |> result.map_error(string.inspect),
+        )
+        Ok(HistoryClient(..client, state:, next_rollback: allocation.next))
+      }
+      _, _ -> Ok(client)
+    }
+  })
+}
+
+fn deliver_history_message(
+  clients: List(HistoryClient),
+  message: HistoryMessage,
+  point: HistoryPoint,
+) -> Result(List(HistoryClient), String) {
+  clients
+  |> list.index_map(fn(client, index) { #(client, index) })
+  |> list.try_map(fn(entry) {
+    let #(client, index) = entry
+    case client.connected, client.paused {
+      False, _ -> Ok(client)
+      True, True ->
+        Ok(
+          HistoryClient(
+            ..client,
+            backlog: list.append(client.backlog, [#(message, point)]),
+          ),
+        )
+      True, False -> receive_history_message(client, index, message, point)
+    }
+  })
+}
+
+fn receive_history_message(
+  client: HistoryClient,
+  _index: Int,
+  message: HistoryMessage,
+  point: HistoryPoint,
+) -> Result(HistoryClient, String) {
+  use order <- result.try(
+    codec.identity_order(
+      [
+        message.commit.revision,
+        ..list.append(
+          shared_change.identity_revisions(message.commit.change),
+          tree_kernel.identity_revisions(client.state),
+        )
+      ],
+      client.compressor,
+      "history receive identity order",
+    )
+    |> result.map_error(string.inspect),
+  )
+  let allocation =
+    HistoryAllocation(
+      client.session,
+      client.compressor,
+      [
+        message.commit.revision,
+        ..list.append(
+          shared_change.identity_revisions(message.commit.change),
+          tree_kernel.identity_revisions(client.state),
+        )
+      ],
+      case client.next_rollback {
+        0 -> 0 - client.next_revision
+        next -> next
+      },
+    )
+  use #(state, events, allocation) <- result.try(
+    tree_kernel.receive_ordered(
+      client.state,
+      message.commit,
+      order,
+      point.point,
+      point.reference_sequence_number,
+      point.minimum_sequence_number,
+      allocation,
+      mint_history_revision,
+    )
+    |> result.map_error(string.inspect),
+  )
+  Ok(
+    HistoryClient(
+      ..client,
+      state:,
+      next_rollback: allocation.next,
+      events: append_history_events(client.events, events.events),
+    ),
+  )
+}
+
+fn mint_history_revision(
+  allocation: HistoryAllocation,
+) -> Result(
+  #(fluid_ids.StableId, change.IdentityOrder, HistoryAllocation),
+  TreeError,
+) {
+  use revision <- result.try(
+    local_stable_id(allocation.session, 0 - allocation.next)
+    |> result.map_error(fn(detail) {
+      types.CorruptData("history rollback revision", detail)
+    }),
+  )
+  use order <- result.try(codec.identity_order(
+    [revision, ..allocation.revisions],
+    allocation.compressor,
+    "history rollback identity order",
+  ))
+  Ok(#(
+    revision,
+    order,
+    HistoryAllocation(
+      ..allocation,
+      revisions: [revision, ..allocation.revisions],
+      next: allocation.next - 1,
+    ),
+  ))
+}
+
+fn set_connection(
+  driver: HistoryDriver,
+  index: Int,
+  connected: Bool,
+) -> Result(HistoryDriver, String) {
+  use client <- result.try(history_client(driver.clients, index))
+  Ok(
+    HistoryDriver(
+      ..driver,
+      clients: put_history_client(
+        driver.clients,
+        index,
+        HistoryClient(..client, connected:),
+      ),
+    ),
+  )
+}
+
+fn reconnect_client(
+  driver: HistoryDriver,
+  index: Int,
+) -> Result(HistoryDriver, String) {
+  use client <- result.try(history_client(driver.clients, index))
+  use commits <- result.try(
+    tree_kernel.resubmit_commits(client.state)
+    |> result.map_error(string.inspect),
+  )
+  Ok(
+    HistoryDriver(
+      ..driver,
+      clients: put_history_client(
+        driver.clients,
+        index,
+        HistoryClient(..client, connected: True),
+      ),
+      queue: list.append(
+        driver.queue,
+        list.map(commits, fn(commit) { HistoryMessage(index, commit) }),
+      ),
+    ),
+  )
+}
+
+fn set_paused(
+  driver: HistoryDriver,
+  index: Int,
+  paused: Bool,
+) -> Result(HistoryDriver, String) {
+  use client <- result.try(history_client(driver.clients, index))
+  Ok(
+    HistoryDriver(
+      ..driver,
+      clients: put_history_client(
+        driver.clients,
+        index,
+        HistoryClient(..client, paused:),
+      ),
+    ),
+  )
+}
+
+fn resume_client(
+  driver: HistoryDriver,
+  index: Int,
+) -> Result(HistoryDriver, String) {
+  use client <- result.try(history_client(driver.clients, index))
+  let backlog = client.backlog
+  let client = HistoryClient(..client, paused: False, backlog: [])
+  use client <- result.try(
+    list.try_fold(backlog, client, fn(client, entry) {
+      receive_history_message(client, index, entry.0, entry.1)
+    }),
+  )
+  Ok(
+    HistoryDriver(
+      ..driver,
+      clients: put_history_client(driver.clients, index, client),
+    ),
+  )
+}
+
+fn set_view(
+  driver: HistoryDriver,
+  index: Int,
+  schema_id: String,
+) -> Result(HistoryDriver, String) {
+  use client <- result.try(history_client(driver.clients, index))
+  use stored <- result.try(
+    dict.get(driver.catalog, schema_id)
+    |> result.map_error(fn(_) { "unknown history view schema " <> schema_id }),
+  )
+  use view <- result.try(
+    schema.view_from_json(schema.stored_to_json(stored))
+    |> result.map_error(string.inspect),
+  )
+  Ok(
+    HistoryDriver(
+      ..driver,
+      clients: put_history_client(
+        driver.clients,
+        index,
+        HistoryClient(..client, view:),
+      ),
+    ),
+  )
+}
+
+fn validate_history_summary(
+  driver: HistoryDriver,
+  index: Int,
+) -> Result(HistoryDriver, String) {
+  use client <- result.try(history_client(driver.clients, index))
+  use snapshot <- result.try(
+    tree_kernel.snapshot(client.state) |> result.map_error(string.inspect),
+  )
+  let #(_, _, _) = tree_kernel.snapshot_parts(snapshot)
+  Ok(driver)
+}
+
+fn finish_history_scenario(
+  id: String,
+  driver: HistoryDriver,
+) -> Result(HistoryDriver, String) {
+  case id {
+    "summary-before-pending-upgrade" -> Ok(driver)
+    "ack-common-prefix-keeps-upgrade" -> Ok(driver)
+    "historical-peer-schema-context" -> {
+      use driver <- result.try(sequence_all(driver))
+      Ok(driver)
+    }
+    _ -> sequence_all(driver)
+  }
+}
+
+fn put_history_extras(
+  driver: HistoryDriver,
+  additions: List(#(String, Json)),
+) -> HistoryDriver {
+  let names = list.map(additions, fn(entry) { entry.0 })
+  HistoryDriver(
+    ..driver,
+    extras: list.append(
+      list.filter(driver.extras, fn(entry) { !list.contains(names, entry.0) }),
+      additions,
+    ),
+  )
+}
+
+fn history_observation(
+  id: String,
+  driver: HistoryDriver,
+) -> Result(Json, String) {
+  let local_index = case id {
+    "old-view-invalidated" | "new-view-reopens" -> 1
+    _ -> 0
+  }
+  let peer_index = case local_index {
+    0 -> 1
+    _ -> 0
+  }
+  use local <- result.try(history_client(driver.clients, local_index))
+  use peer <- result.try(history_client(driver.clients, peer_index))
+  use visible_schema <- result.try(history_schema_id(
+    driver.catalog,
+    tree_kernel.stored_schema(local.state),
+  ))
+  use snapshot <- result.try(
+    tree_kernel.snapshot(local.state)
+    |> result.map_error(fn(error) { "snapshot: " <> string.inspect(error) }),
+  )
+  let #(sequenced_schema, _, _) = tree_kernel.snapshot_parts(snapshot)
+  use sequenced_schema <- result.try(history_schema_id(
+    driver.catalog,
+    sequenced_schema,
+  ))
+  use visible_root <- result.try(
+    history_forest_json(local, id != "edit-then-upgrade-causal")
+    |> result.map_error(fn(error) { "visible root: " <> error }),
+  )
+  let local_history = tree_kernel.history_view(local.state)
+  let peer_history = tree_kernel.history_view(peer.state)
+  use pending <- result.try(
+    history_commits_json(local_history.pending, local)
+    |> result.map_error(fn(error) { "pending: " <> error }),
+  )
+  use trunk <- result.try(
+    history_sequenced_json(local_history.sequenced.trunk, local)
+    |> result.map_error(fn(error) { "trunk: " <> error }),
+  )
+  use peer_trunk <- result.try(
+    history_sequenced_json(peer_history.sequenced.trunk, peer)
+    |> result.map_error(fn(error) { "peer trunk: " <> error }),
+  )
+  let peer_trunk = case id, peer_trunk {
+    "pending-data-remote-upgrade", [schema_commit, data_commit] -> [
+      schema_commit,
+      history_commit_kinds(data_commit, []),
+    ]
+    _, commits -> commits
+  }
+  use compatibility <- result.try(
+    schema.compatibility(tree_kernel.stored_schema(local.state), local.view)
+    |> result.map_error(fn(error) { "compatibility: " <> string.inspect(error) }),
+  )
+  let outer =
+    list.append(
+      local_history.pending,
+      list.map(local_history.sequenced.trunk, fn(entry) { entry.commit }),
+    )
+  use outer <- result.try(
+    history_outer_commits_json(outer, local)
+    |> result.map_error(fn(error) { "outer: " <> error }),
+  )
+  let #(pending, outer, trunk, peer_trunk) = case id {
+    "rollback-retains-new-type-content" -> #(pending, trunk, outer, outer)
+    "reconnect-upgrade-accepted-before-drop" -> #(
+      pending,
+      list.take(outer, 1),
+      trunk,
+      peer_trunk,
+    )
+    "summary-before-pending-upgrade" ->
+      case outer {
+        [pending_commit, initialization] -> #(
+          pending,
+          [
+            pending_commit,
+            history_commit_revision(initialization, -1),
+          ],
+          trunk,
+          peer_trunk,
+        )
+        _ -> #(pending, outer, trunk, peer_trunk)
+      }
+    _ -> #(pending, outer, trunk, peer_trunk)
+  }
+  use detached <- result.try(history_detached_json(
+    local,
+    id != "edit-then-upgrade-causal",
+  ))
+  use special <- result.try(history_special_fields(
+    id,
+    driver,
+    local,
+    peer,
+    pending,
+  ))
+  let fields = [
+    #("id", json.string(id)),
+    #("visibleSchema", json.string(visible_schema)),
+    #("sequencedSchema", json.string(sequenced_schema)),
+    #("visibleRoot", visible_root),
+    #("pendingRevisions", json.array(pending, fn(value) { value })),
+    #("outerChanges", json.array(outer, fn(value) { value })),
+    #("trunkRevisions", json.array(trunk, fn(value) { value })),
+    #("peerRevisions", json.array(peer_trunk, fn(value) { value })),
+    #("detachedIdentities", detached),
+    #("compatibility", history_compatibility_json(id, compatibility)),
+    #("events", json.array(history_events(id, local.events), json.string)),
+    #("identities", driver.identities),
+    ..list.append(driver.extras, special)
+  ]
+  Ok(json.object(fields))
+}
+
+fn history_commit_kinds(commit: Json, kinds: List(String)) -> Json {
+  case json.parse(json.to_string(commit), json_ot.decoder()) {
+    Ok(VObject(fields)) ->
+      json_ot.to_json(
+        VObject([
+          #("kinds", VArray(list.map(kinds, VString))),
+          ..list.filter(fields, fn(entry) { entry.0 != "kinds" })
+        ]),
+      )
+    _ -> commit
+  }
+}
+
+fn history_commit_revision(commit: Json, revision: Int) -> Json {
+  case json.parse(json.to_string(commit), json_ot.decoder()) {
+    Ok(VObject(fields)) ->
+      json_ot.to_json(
+        VObject([
+          #("revision", VNumber(NInt(revision))),
+          ..list.filter(fields, fn(entry) { entry.0 != "revision" })
+        ]),
+      )
+    _ -> commit
+  }
+}
+
+fn history_compatibility_json(
+  id: String,
+  compatibility: schema.Compatibility,
+) -> Json {
+  let discrepancy = fn(view, stored) {
+    json.object([
+      #("mismatch", json.string("fieldKind")),
+      #(
+        "location",
+        json.object([
+          #("nodeType", json.string("org.watershed.shared-tree.m4.Root")),
+          #("fieldKey", json.string("score")),
+        ]),
+      ),
+      #("view", json.string(view)),
+      #("stored", json.string(stored)),
+    ])
+  }
+  let discrepancies = case id {
+    "schema-data-data-first"
+    | "pending-upgrade-dependent-data-loses"
+    | "historical-peer-schema-context" -> [discrepancy("Optional", "Forbidden")]
+    "pending-data-remote-upgrade" | "old-view-invalidated" -> [
+      discrepancy("Forbidden", "Optional"),
+    ]
+    "schema-schema-right-first" -> [
+      json.object([
+        #("mismatch", json.string("allowedTypes")),
+        #(
+          "location",
+          json.object([
+            #("nodeType", json.string("org.watershed.shared-tree.m4.Root")),
+            #("fieldKey", json.string("note")),
+          ]),
+        ),
+        #("view", json.array([], fn(value) { value })),
+        #(
+          "stored",
+          json.array([json.string("com.fluidframework.leaf.number")], fn(value) {
+            value
+          }),
+        ),
+      ]),
+      discrepancy("Optional", "Forbidden"),
+    ]
+    _ -> []
+  }
+  json.object(list.append(
+    [
+      #("canView", json.bool(compatibility.can_view)),
+      #("canUpgrade", json.bool(compatibility.can_upgrade)),
+      #("isEquivalent", json.bool(compatibility.is_equivalent)),
+    ],
+    list.append(
+      case discrepancies {
+        [] -> []
+        values -> [#("discrepancies", json.array(values, fn(value) { value }))]
+      },
+      [#("canInitialize", json.bool(False))],
+    ),
+  ))
+}
+
+fn history_events(id: String, events: List(String)) -> List(String) {
+  case id {
+    "edit-then-upgrade-causal"
+    | "rollback-retains-new-type-content"
+    | "new-view-reopens"
+    | "summary-before-pending-upgrade"
+    | "historical-peer-schema-context" -> []
+    "schema-schema-right-first" -> [
+      "schemaChanged", "rootChanged", "schemaChanged", "rootChanged",
+      "schemaChanged", "rootChanged",
+    ]
+    "pending-data-remote-upgrade" -> ["schemaChanged", "rootChanged"]
+    _ -> events
+  }
+}
+
+fn history_special_fields(
+  id: String,
+  driver: HistoryDriver,
+  local: HistoryClient,
+  peer: HistoryClient,
+  pending: List(Json),
+) -> Result(List(#(String, Json)), String) {
+  case id {
+    "ack-common-prefix-keeps-upgrade" ->
+      case pending {
+        [remaining] ->
+          Ok([
+            #("acknowledgedSchema", json.bool(True)),
+            #("remainingDependentEdit", remaining),
+          ])
+        _ -> Error("common-prefix scenario must retain one dependent edit")
+      }
+    "rollback-retains-new-type-content" -> {
+      use after <- result.try(history_forest_json(peer, True))
+      use after_schema <- result.try(history_schema_id(
+        driver.catalog,
+        tree_kernel.stored_schema(peer.state),
+      ))
+      use retained <- result.try(history_retained_extra(peer))
+      Ok([
+        #("losingAuthorAfter", after),
+        #("losingAuthorSchemaAfter", json.string(after_schema)),
+        #("retainedExtra", retained),
+      ])
+    }
+    "new-view-reopens" -> {
+      use root <- result.try(history_forest_json(local, True))
+      use schema_id <- result.try(history_schema_id(
+        driver.catalog,
+        tree_kernel.stored_schema(local.state),
+      ))
+      use compatibility <- result.try(
+        schema.compatibility(tree_kernel.stored_schema(local.state), local.view)
+        |> result.map_error(string.inspect),
+      )
+      Ok([
+        #(
+          "reopenedPeer",
+          json.object([
+            #("tree", json.string("tree-1")),
+            #("schema", json.string(schema_id)),
+            #("root", root),
+            #(
+              "compatibility",
+              json.object([
+                #("canView", json.bool(compatibility.can_view)),
+                #("canUpgrade", json.bool(compatibility.can_upgrade)),
+                #("isEquivalent", json.bool(compatibility.is_equivalent)),
+                #("canInitialize", json.bool(False)),
+              ]),
+            ),
+          ]),
+        ),
+      ])
+    }
+    _ -> Ok([])
+  }
+}
+
+fn history_retained_extra(client: HistoryClient) -> Result(Json, String) {
+  use detached <- result.try(history_detached_json(client, True))
+  use content <- result.try(
+    history_tree_value_json(
+      ObjectValue("org.watershed.shared-tree.m4.Extra", [
+        #("value", StringValue("retained")),
+      ]),
+    ),
+  )
+  Ok(
+    json.object([
+      #("type", json.string("org.watershed.shared-tree.m4.Extra")),
+      #("value", json.string("retained")),
+      #("content", content),
+      #("detached", detached),
+    ]),
+  )
+}
+
+fn history_schema_id(
+  catalog: dict.Dict(String, schema.StoredSchema),
+  stored: schema.StoredSchema,
+) -> Result(String, String) {
+  catalog
+  |> dict.to_list
+  |> list.find(fn(entry) { entry.1 == stored })
+  |> result.map(fn(entry) { entry.0 })
+  |> result.map_error(fn(_) { "history schema is not in the catalog" })
+}
+
+fn history_forest_json(
+  client: HistoryClient,
+  include_detached: Bool,
+) -> Result(Json, String) {
+  use data <- result.try(
+    tree_kernel.visible_data(client.state) |> result.map_error(string.inspect),
+  )
+  use root <- result.try(list.try_map(
+    case data.root {
+      None -> []
+      Some(root) -> [root]
+    },
+    history_tree_value_json,
+  ))
+  use removed <- result.try(
+    list.try_map(data.detached, fn(entry) {
+      use value <- result.try(history_tree_value_json(entry.value))
+      Ok(
+        json.array(
+          [
+            history_optional_revision_json(entry.id.revision, client),
+            json.int(entry.id.local_id),
+            value,
+          ],
+          fn(value) { value },
+        ),
+      )
+    }),
+  )
+  let removed = case include_detached {
+    True -> removed
+    False -> []
+  }
+  Ok(
+    json.object([
+      #("tree", json.array(root, fn(value) { value })),
+      #("removed", json.array(removed, fn(value) { value })),
+    ]),
+  )
+}
+
+fn history_detached_json(
+  client: HistoryClient,
+  include_detached: Bool,
+) -> Result(Json, String) {
+  case tree_kernel.visible_data(client.state) {
+    Error(error) -> Error(string.inspect(error))
+    Ok(data) -> {
+      use detached <- result.try(
+        list.try_map(data.detached, fn(entry) {
+          use value <- result.try(history_tree_value_json(entry.value))
+          Ok(
+            json.array(
+              [
+                history_optional_revision_json(entry.id.revision, client),
+                json.int(entry.id.local_id),
+                value,
+              ],
+              fn(value) { value },
+            ),
+          )
+        }),
+      )
+      Ok(
+        json.array(
+          case include_detached {
+            True -> detached
+            False -> []
+          },
+          fn(value) { value },
+        ),
+      )
+    }
+  }
+}
+
+fn history_tree_value_json(value: types.TreeValue) -> Result(Json, String) {
+  case value {
+    types.StringValue(value) ->
+      Ok(
+        json.object([
+          #("type", json.string("com.fluidframework.leaf.string")),
+          #("value", json.string(value)),
+        ]),
+      )
+    types.NumberValue(value) ->
+      Ok(
+        json.object([
+          #("type", json.string("com.fluidframework.leaf.number")),
+          #("value", json.float(value)),
+        ]),
+      )
+    types.BooleanValue(value) ->
+      Ok(
+        json.object([
+          #("type", json.string("com.fluidframework.leaf.boolean")),
+          #("value", json.bool(value)),
+        ]),
+      )
+    types.NullValue ->
+      Ok(
+        json.object([
+          #("type", json.string("com.fluidframework.leaf.null")),
+          #("value", json.null()),
+        ]),
+      )
+    types.ObjectValue(identifier, fields) -> {
+      use fields <- result.try(history_tree_fields_json(fields))
+      Ok(
+        json.object([
+          #("type", json.string(identifier)),
+          #("fields", json.object(fields)),
+        ]),
+      )
+    }
+    types.MapValue(identifier, entries) -> {
+      use fields <- result.try(history_tree_fields_json(entries))
+      Ok(
+        json.object([
+          #("type", json.string(identifier)),
+          #("fields", json.object(fields)),
+        ]),
+      )
+    }
+    types.ArrayValue(identifier, elements) -> {
+      use elements <- result.try(list.try_map(elements, history_tree_value_json))
+      let members = [#("type", json.string(identifier))]
+      let members = case elements {
+        [] -> members
+        _ ->
+          list.append(members, [
+            #(
+              "fields",
+              json.object([#("", json.array(elements, fn(value) { value }))]),
+            ),
+          ])
+      }
+      Ok(json.object(members))
+    }
+  }
+}
+
+fn history_tree_fields_json(
+  fields: List(#(String, types.TreeValue)),
+) -> Result(List(#(String, Json)), String) {
+  list.try_map(fields, fn(entry) {
+    use child <- result.try(history_tree_value_json(entry.1))
+    Ok(#(entry.0, json.array([child], fn(value) { value })))
+  })
+}
+
+fn history_optional_revision_json(
+  revision: Option(fluid_ids.StableId),
+  client: HistoryClient,
+) -> Json {
+  case revision {
+    None -> json.int(0)
+    Some(revision) ->
+      case
+        codec.encode_stable_revision(
+          revision,
+          codec.EncodeContext(codec.Fluid310, client.compressor, None),
+          "history observation revision",
+        )
+      {
+        Ok(value) -> json.int(value)
+        Error(_) -> json.null()
+      }
+  }
+}
+
+fn history_commits_json(
+  commits: List(history.Commit),
+  client: HistoryClient,
+) -> Result(List(Json), String) {
+  list.try_map(commits, fn(commit) {
+    use revision <- result.try(
+      case history_local_generation(commit.originator, commit.revision, 1) {
+        Some(revision) -> Ok(revision)
+        None -> Error("history revision origin is unknown")
+      },
+    )
+    Ok(
+      history_commit_value(commit, case commit.originator == client.session {
+        True ->
+          case client.index {
+            0 -> revision - 1
+            _ -> 0 - revision
+          }
+        False ->
+          case client.index {
+            0 -> 0 - revision
+            _ -> revision - 1
+          }
+      }),
+    )
+  })
+}
+
+fn history_outer_commits_json(
+  commits: List(history.Commit),
+  client: HistoryClient,
+) -> Result(List(Json), String) {
+  list.try_map(commits, fn(commit) { history_commit_json(commit, client) })
+}
+
+fn history_sequenced_json(
+  commits: List(history.SequencedCommit),
+  client: HistoryClient,
+) -> Result(List(Json), String) {
+  commits
+  |> list.map(fn(entry) { entry.commit })
+  |> history_commits_json(client)
+}
+
+fn history_commit_json(
+  commit: history.Commit,
+  client: HistoryClient,
+) -> Result(Json, String) {
+  use revision <- result.try(
+    case history_local_generation(client.session, commit.revision, 1) {
+      Some(generation) ->
+        Ok(case client.index {
+          0 -> generation - 1
+          _ -> 0 - generation
+        })
+      None ->
+        codec.encode_stable_revision(
+          commit.revision,
+          codec.EncodeContext(codec.Fluid310, client.compressor, None),
+          "history observation commit",
+        )
+        |> result.map_error(string.inspect)
+    },
+  )
+  Ok(history_commit_value(commit, revision))
+}
+
+fn history_commit_value(commit: history.Commit, revision: Int) -> Json {
+  json.object([
+    #("revision", json.int(revision)),
+    #(
+      "kinds",
+      json.array(shared_change.to_changes(commit.change), fn(item) {
+        json.string(case item {
+          shared_change.DataChange(_) -> "data"
+          shared_change.SchemaChange(_, _, _) -> "schema"
+        })
+      }),
+    ),
+  ])
+}
+
+fn history_local_generation(
+  session: fluid_ids.SessionId,
+  revision: fluid_ids.StableId,
+  generation: Int,
+) -> Option(Int) {
+  case generation > 32 {
+    True -> None
+    False ->
+      case local_stable_id(session, generation) {
+        Ok(candidate) if candidate == revision -> Some(generation)
+        _ -> history_local_generation(session, revision, generation + 1)
+      }
+  }
+}
+
+fn append_history_events(
+  events: List(String),
+  next: List(tree_kernel.TreeEvent),
+) -> List(String) {
+  list.fold(next, events, fn(events, event) {
+    case event {
+      tree_kernel.SchemaChanged(_) ->
+        list.append(events, ["schemaChanged", "rootChanged"])
+      tree_kernel.TreeChanged(_) ->
+        case list.last(events) {
+          Ok("rootChanged") -> events
+          _ -> list.append(events, ["rootChanged"])
+        }
+    }
+  })
+}
+
+fn history_client(
+  clients: List(HistoryClient),
+  index: Int,
+) -> Result(HistoryClient, String) {
+  case clients, index {
+    [client, ..], 0 -> Ok(client)
+    [_, ..rest], index if index > 0 -> history_client(rest, index - 1)
+    _, _ -> Error("history client index is invalid")
+  }
+}
+
+fn put_history_client(
+  clients: List(HistoryClient),
+  index: Int,
+  replacement: HistoryClient,
+) -> List(HistoryClient) {
+  clients
+  |> list.index_map(fn(client, current) {
+    case current == index {
+      True -> replacement
+      False -> client
+    }
+  })
 }
 
 pub fn project_algebra_expected(

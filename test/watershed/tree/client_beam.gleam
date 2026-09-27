@@ -19,7 +19,7 @@ import watershed/tree/client_retained_evidence
 @target(erlang)
 import watershed/tree/types.{ObjectValue}
 @target(erlang)
-import watershed/tree_kernel.{TreeChanged}
+import watershed/tree_kernel.{SchemaChanged, TreeChanged}
 @target(erlang)
 import watershed_beam as watershed
 
@@ -443,6 +443,8 @@ fn drain(
 ) -> List(Json) {
   case process.receive(from: events, within: 0) {
     Error(_) -> list.reverse(collected)
+    Ok(SchemaChanged(local)) ->
+      drain(events, [json.object([#("local", json.bool(local))]), ..collected])
     Ok(TreeChanged(local)) ->
       drain(events, [json.object([#("local", json.bool(local))]), ..collected])
   }

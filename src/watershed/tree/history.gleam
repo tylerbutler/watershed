@@ -371,10 +371,6 @@ fn receive_duplicate(
   minimum_sequence_number: Int,
   allocation: allocation,
 ) -> Result(#(HistoryUpdate, allocation), TreeError) {
-  use _ <- result.try(check(
-    existing.point == point,
-    "duplicate commit sequence point does not match",
-  ))
   use receipt <- result.try(
     case
       list.find(state.receipts, fn(receipt) {
@@ -397,22 +393,71 @@ fn receive_duplicate(
     expected_commit == commit,
     "duplicate commit contents do not match",
   ))
-  use expected_reference <- result.try(case receipt.reference_sequence_number {
-    Some(reference) -> Ok(reference)
-    None ->
-      Error(InvalidHistory(
-        "duplicate commit reference is unavailable after restore",
+  case existing.point == point {
+    False ->
+      receive_replayed_duplicate(
+        state,
+        commit,
+        point,
+        reference_sequence_number,
+        minimum_sequence_number,
+        allocation,
+      )
+    True -> {
+      use expected_reference <- result.try(
+        case receipt.reference_sequence_number {
+          Some(reference) -> Ok(reference)
+          None ->
+            Error(InvalidHistory(
+              "duplicate commit reference is unavailable after restore",
+            ))
+        },
+      )
+      use _ <- result.try(check(
+        expected_reference == reference_sequence_number,
+        "duplicate commit reference does not match",
       ))
-  })
+      use _ <- result.try(check(
+        receipt.minimum_sequence_number == Some(minimum_sequence_number),
+        "duplicate commit minimum sequence number does not match",
+      ))
+      Ok(#(HistoryUpdate(state, [], [], []), allocation))
+    }
+  }
+}
+
+fn receive_replayed_duplicate(
+  state: History,
+  commit: Commit,
+  point: SequencePoint,
+  reference_sequence_number: Int,
+  supplied_minimum: Int,
+  allocation: allocation,
+) -> Result(#(HistoryUpdate, allocation), TreeError) {
   use _ <- result.try(check(
-    expected_reference == reference_sequence_number,
-    "duplicate commit reference does not match",
+    supplied_minimum >= state.minimum_sequence_number,
+    "minimum sequence number regresses",
   ))
-  use _ <- result.try(check(
-    receipt.minimum_sequence_number == Some(minimum_sequence_number),
-    "duplicate commit minimum sequence number does not match",
-  ))
-  Ok(#(HistoryUpdate(state, [], [], []), allocation))
+  use _ <- result.try(validate_new_receive_order(state, point))
+  let sequenced = SequencedCommit(commit, point)
+  let receipt =
+    RetainedReceipt(
+      commit.revision,
+      Some(commit),
+      point,
+      Some(reference_sequence_number),
+      Some(supplied_minimum),
+    )
+  use effects <- result.try(shared_change.effects(tagged_commit(commit)))
+  let next =
+    History(
+      ..state,
+      trunk: list.append(state.trunk, [sequenced]),
+      receipts: replace_receipt(state.receipts, receipt),
+      sequence_number: int_max(state.sequence_number, point.sequence_number),
+      minimum_sequence_number: supplied_minimum,
+    )
+  Ok(#(HistoryUpdate(next, effects, effects, []), allocation))
 }
 
 fn receive_local(
@@ -1744,6 +1789,20 @@ fn replace_peer(peers: List(PeerState), updated: PeerState) -> List(PeerState) {
       case first.originator == updated.originator {
         True -> [updated, ..rest]
         False -> [first, ..replace_peer(rest, updated)]
+      }
+  }
+}
+
+fn replace_receipt(
+  receipts: List(RetainedReceipt),
+  updated: RetainedReceipt,
+) -> List(RetainedReceipt) {
+  case receipts {
+    [] -> [updated]
+    [first, ..rest] ->
+      case first.revision == updated.revision {
+        True -> [updated, ..rest]
+        False -> [first, ..replace_receipt(rest, updated)]
       }
   }
 }

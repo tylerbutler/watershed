@@ -25,7 +25,6 @@ pub opaque type TreeSnapshot {
 
 pub opaque type TreeState {
   TreeState(
-    stored: schema.StoredSchema,
     visible: forest.Forest,
     sequenced: forest.Forest,
     history: history.History,
@@ -36,6 +35,7 @@ pub opaque type TreeState {
 }
 
 pub type TreeEvent {
+  SchemaChanged(local: Bool)
   TreeChanged(local: Bool)
 }
 
@@ -92,7 +92,6 @@ pub fn restore(
     local_session,
   ))
   Ok(TreeState(
-    snapshot.stored,
     visible,
     visible,
     history,
@@ -167,7 +166,7 @@ pub fn ensure_attached(
 pub fn snapshot(state: TreeState) -> Result(TreeSnapshot, TreeError) {
   use data <- result.try(forest.export_data(state.sequenced))
   Ok(TreeSnapshot(
-    state.stored,
+    forest.stored_schema(state.sequenced),
     data,
     history.inspect(state.history).sequenced,
     state.retained_wire,
@@ -237,7 +236,7 @@ pub fn resubmit_commits(
 }
 
 pub fn stored_schema(state: TreeState) -> schema.StoredSchema {
-  state.stored
+  forest.stored_schema(state.visible)
 }
 
 pub fn identity_revisions(state: TreeState) -> List(fluid_ids.StableId) {
@@ -281,7 +280,7 @@ pub fn advance_processed(
 }
 
 pub fn validate_edit(state: TreeState, edit: Edit) -> Result(Nil, TreeError) {
-  change.validate_edit(state.stored, state.visible, edit)
+  change.validate_edit(forest.stored_schema(state.visible), state.visible, edit)
 }
 
 pub fn apply_local(
@@ -292,7 +291,7 @@ pub fn apply_local(
 ) -> Result(#(TreeState, history.Commit, ChangeEvents), TreeError) {
   use _ <- result.try(validate_edit(state, edit))
   use authored <- result.try(change.edit_from(
-    state.stored,
+    forest.stored_schema(state.visible),
     state.visible,
     revision,
     edit,
@@ -300,6 +299,20 @@ pub fn apply_local(
     state.next_local_id,
   ))
   let outer = shared_change.from_data(authored)
+  apply_local_change(state, revision, order, outer)
+}
+
+pub fn apply_local_change(
+  state: TreeState,
+  revision: fluid_ids.StableId,
+  order: change.IdentityOrder,
+  outer: shared_change.Changeset,
+) -> Result(#(TreeState, history.Commit, ChangeEvents), TreeError) {
+  use outer <- result.try(shared_change.rebind_identity_order(
+    outer,
+    order,
+    [revision, ..shared_change.identity_revisions(outer)] |> list.unique,
+  ))
   let commit = history.Commit(revision, state.local_session, outer)
   use update <- result.try(history.append_local(state.history, commit))
   use #(visible, array_changed) <- result.try(apply_effects_with_array_changes(
@@ -317,7 +330,10 @@ pub fn apply_local(
       ..state,
       visible:,
       history: update.history,
-      next_local_id: shared_change.max_local_id(outer) + 1,
+      next_local_id: int_max(
+        state.next_local_id,
+        shared_change.max_local_id(outer) + 1,
+      ),
     ),
     commit,
     events,
@@ -333,6 +349,7 @@ pub fn receive(
   allocation: allocation,
   mint: history.MintRevision(allocation),
 ) -> Result(#(TreeState, ChangeEvents, allocation), TreeError) {
+  use _ <- result.try(validate_forward_schema_changes(commit.change))
   use #(update, allocation) <- result.try(history.receive(
     state.history,
     commit,
@@ -398,10 +415,20 @@ fn apply_effects(
   list.try_fold(effects, state, fn(state, effect) {
     case effect {
       shared_change.DataDelta(delta) -> forest.apply_delta(state, delta)
-      shared_change.SchemaDelta(_, _, _) ->
+      shared_change.SchemaDelta(
+        schema.FixedSchema(before),
+        schema.FixedSchema(after),
+        False,
+      ) -> {
+        use _ <- result.try(schema.validate_upgrade(before, after))
+        forest.replace_schema(state, after)
+      }
+      shared_change.SchemaDelta(_, schema.FixedSchema(after), _) ->
+        forest.replace_schema(state, after)
+      shared_change.SchemaDelta(_, schema.EmptySchema, _) ->
         Error(types.UnsupportedFeature(
-          "tree history effects",
-          "schema effects are not supported before schema state migration",
+          "tree.schema",
+          "live transition to an uninitialized tree",
         ))
     }
   })
@@ -419,11 +446,28 @@ fn apply_effects_with_array_changes(
         )
         Ok(#(state, acc.1 || changed))
       }
-      shared_change.SchemaDelta(_, _, _) ->
-        Error(types.UnsupportedFeature(
-          "tree history effects",
-          "schema effects are not supported before schema state migration",
-        ))
+      shared_change.SchemaDelta(_, _, _) -> {
+        use state <- result.try(apply_effects(acc.0, [effect]))
+        Ok(#(state, acc.1))
+      }
+    }
+  })
+}
+
+fn validate_forward_schema_changes(
+  changeset: shared_change.Changeset,
+) -> Result(Nil, TreeError) {
+  changeset
+  |> shared_change.to_changes
+  |> list.try_each(fn(item) {
+    case item {
+      shared_change.SchemaChange(
+        schema.FixedSchema(before),
+        schema.FixedSchema(after),
+        False,
+      ) -> schema.validate_upgrade(before, after)
+      shared_change.SchemaChange(_, _, _) | shared_change.DataChange(_) ->
+        Ok(Nil)
     }
   })
 }
@@ -496,13 +540,27 @@ fn changed_events(
   local: Bool,
   array_changed: Bool,
 ) -> Result(ChangeEvents, TreeError) {
-  use before <- result.try(forest.visible_root(before))
-  use after <- result.try(forest.visible_root(after))
+  use before_root <- result.try(forest.visible_root(before))
+  use after_root <- result.try(forest.visible_root(after))
+  let schema_events = case
+    forest.stored_schema(before) == forest.stored_schema(after)
+  {
+    True -> []
+    False -> [SchemaChanged(local)]
+  }
+  let tree_events = case before_root == after_root && !array_changed {
+    True -> []
+    False -> [TreeChanged(local)]
+  }
   Ok(ChangeEvents(
-    events: case before == after && !array_changed {
-      True -> []
-      False -> [TreeChanged(local)]
-    },
+    events: list.append(schema_events, tree_events),
     array_changed:,
   ))
+}
+
+fn int_max(left: Int, right: Int) -> Int {
+  case left > right {
+    True -> left
+    False -> right
+  }
 }

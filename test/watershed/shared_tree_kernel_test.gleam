@@ -18,6 +18,8 @@ const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\
 
 const optional_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
+const score_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+
 fn session() -> fluid_ids.SessionId {
   let assert Ok(id) =
     fluid_ids.session_id("00000000-0000-4000-8000-000000000001")
@@ -574,4 +576,88 @@ pub fn shared_tree_kernel_local_ids_continue_after_ack_test() {
   let assert Ok(data) = tree_kernel.visible_data(cleared)
   let assert [detached] = data.detached
   detached.id |> expect.to_equal(AtomId(Some(other_revision()), 3))
+}
+
+pub fn shared_tree_kernel_pending_schema_is_not_snapshotted_test() {
+  let state = initial_state()
+  let assert Ok(before) = schema.stored_from_string(tree_schema)
+  let assert Ok(after) = schema.stored_from_string(score_schema)
+  let assert Ok(change) =
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(before),
+        schema.FixedSchema(after),
+        False,
+      ),
+    ])
+  let assert Ok(order) = change.identity_order([#(revision(), -1)])
+  let assert Ok(#(updated, _, events)) =
+    tree_kernel.apply_local_change(state, revision(), order, change)
+
+  schema.stored_to_json(tree_kernel.stored_schema(updated))
+  |> expect.to_equal(schema.stored_to_json(after))
+  events.events |> expect.to_equal([tree_kernel.SchemaChanged(True)])
+
+  let assert Ok(snapshot) = tree_kernel.snapshot(updated)
+  let #(snapshotted, _, _) = tree_kernel.snapshot_parts(snapshot)
+  schema.stored_to_json(snapshotted)
+  |> expect.to_equal(schema.stored_to_json(before))
+}
+
+pub fn shared_tree_kernel_rejects_invalid_schema_change_atomically_test() {
+  let state = initial_state()
+  let assert Ok(before) = schema.stored_from_string(tree_schema)
+  let assert Ok(after) = schema.stored_from_string(score_schema)
+  let assert Ok(invalid) =
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(after),
+        schema.FixedSchema(before),
+        False,
+      ),
+    ])
+  let assert Ok(order) = change.identity_order([#(revision(), -1)])
+  let assert Ok(snapshot) = tree_kernel.snapshot(state)
+
+  tree_kernel.apply_local_change(state, revision(), order, invalid)
+  |> expect.to_be_error
+  tree_kernel.snapshot(state) |> expect.to_equal(Ok(snapshot))
+  tree_kernel.history_view(state).pending |> expect.to_equal([])
+  tree_kernel.stored_schema(state) |> expect.to_equal(before)
+}
+
+pub fn shared_tree_kernel_orders_schema_before_tree_events_test() {
+  let state = initial_state()
+  let assert Ok(before) = schema.stored_from_string(tree_schema)
+  let assert Ok(after) = schema.stored_from_string(score_schema)
+  let assert Ok(authoring_forest) = forest.new(view_id(), after, Some(root()))
+  let assert Ok(order) = change.identity_order([#(revision(), -1)])
+  let assert Ok(data) =
+    change.edit_from(
+      after,
+      authoring_forest,
+      revision(),
+      SetField(["score"], NumberValue(7.0)),
+      order,
+      0,
+    )
+  let assert Ok(outer) =
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(before),
+        schema.FixedSchema(after),
+        False,
+      ),
+      shared_change.DataChange(data),
+    ])
+  let assert Ok(#(updated, _, events)) =
+    tree_kernel.apply_local_change(state, revision(), order, outer)
+
+  events.events
+  |> expect.to_equal([
+    tree_kernel.SchemaChanged(True),
+    tree_kernel.TreeChanged(True),
+  ])
+  tree_kernel.read(updated, ["score"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
 }

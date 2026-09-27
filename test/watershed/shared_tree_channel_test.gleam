@@ -65,26 +65,28 @@ pub fn shared_tree_channel_dispatches_checked_restored_tree_test() {
   |> expect.to_equal(True)
 }
 
-pub fn shared_tree_bridge_rejects_schema_changes_test() {
+pub fn shared_tree_bridge_retains_schema_changes_test() {
   let assert Ok(session) =
     fluid_ids.session_id("00000000-0000-4000-8000-000000000001")
   let assert Ok(revision) =
     fluid_ids.stable_id("00000000-0000-4000-8000-000000000003")
   let assert Ok(stored) = schema.stored_from_string(schema_text)
-  tree_runtime.wire_to_commit(codec.WireCommit(
-    revision,
-    session,
-    [
-      shared_change.DataChange(change.empty()),
-      shared_change.SchemaChange(
-        schema.FixedSchema(stored),
-        schema.EmptySchema,
-        False,
-      ),
-    ],
-    None,
-  ))
-  |> expect.to_be_error()
+  let changes = [
+    shared_change.DataChange(change.empty()),
+    shared_change.SchemaChange(
+      schema.FixedSchema(stored),
+      schema.EmptySchema,
+      False,
+    ),
+  ]
+  let assert Ok(commit) =
+    tree_runtime.wire_to_commit(codec.WireCommit(
+      revision,
+      session,
+      changes,
+      None,
+    ))
+  shared_change.to_changes(commit.change) |> expect.to_equal(changes)
   Nil
 }
 

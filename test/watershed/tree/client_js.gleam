@@ -23,7 +23,7 @@ import watershed/tree/client_retained_evidence
 @target(javascript)
 import watershed/tree/types.{ObjectValue}
 @target(javascript)
-import watershed/tree_kernel.{TreeChanged}
+import watershed/tree_kernel.{SchemaChanged, TreeChanged}
 
 @target(javascript)
 @external(javascript, "./client_io.mjs", "descriptor")
@@ -276,6 +276,13 @@ fn execute(
               let subscriber =
                 watershed.subscribe_tree(tree, fn(event) {
                   case event {
+                    SchemaChanged(local) -> {
+                      let previous = transport_js.get_cell(events)
+                      transport_js.set_cell(events, [
+                        json.object([#("local", json.bool(local))]),
+                        ..previous
+                      ])
+                    }
                     TreeChanged(local) -> {
                       let previous = transport_js.get_cell(events)
                       transport_js.set_cell(events, [

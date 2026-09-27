@@ -3,9 +3,11 @@ import gleam/option.{None, Some}
 import startest/expect
 import watershed/fluid_ids
 import watershed/tree/change
+import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/schema
+import watershed/tree/schema_evolution_fixture
 import watershed/tree/shared_change
 import watershed/tree/types.{
   type TreeError, InvalidHistory, NumberValue, ObjectValue, SetField,
@@ -202,6 +204,18 @@ pub fn shared_tree_history_starts_empty_test() -> Nil {
     [],
     0,
   ))
+}
+
+pub fn shared_tree_schema_evolution_history_test() -> Nil {
+  let assert Ok(fixture) = fixtures.load("schema-evolution-history")
+  let assert Ok(actual) = schema_evolution_fixture.run_history(fixture.input)
+  let assert Ok(actual) = schema_evolution_fixture.history_projection(actual)
+  let assert Ok(expected) =
+    schema_evolution_fixture.history_projection(fixture.expected)
+  case fixtures.first_difference(actual, expected) {
+    Ok(Nil) -> Nil
+    Error(path) -> panic as { "schema evolution history differs at " <> path }
+  }
 }
 
 pub fn shared_tree_history_schema_only_commit_retains_outer_revision_test() -> Nil {
