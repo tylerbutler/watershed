@@ -6,7 +6,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import watershed/json_ot.{type JsonValue, NInt, VArray, VNumber, VObject}
 import watershed/tree/sequence_field
-import watershed/tree/types.{type AtomId, type TreeError, CorruptData}
+import watershed/tree/types.{type AtomId, type TreeError, AtomId, CorruptData}
 
 const max_safe_integer = 9_007_199_254_740_991
 
@@ -96,16 +96,22 @@ fn decode_effect(
   use members <- result.try(object(value, location))
   case members {
     [#("insert", value)] ->
-      decode_attach(value, "insert", decode_atom, location <> ".insert")
+      decode_attach(value, "insert", decode_atom, False, location <> ".insert")
       |> result.map(sequence_field.Attach)
     [#("moveIn", value)] ->
-      decode_attach(value, "moveIn", decode_atom, location <> ".moveIn")
+      decode_attach(value, "moveIn", decode_atom, False, location <> ".moveIn")
       |> result.map(sequence_field.Attach)
     [#("remove", value)] ->
-      decode_detach(value, "remove", decode_atom, location <> ".remove")
+      decode_detach(value, "remove", decode_atom, False, location <> ".remove")
       |> result.map(sequence_field.Detach)
     [#("moveOut", value)] ->
-      decode_detach(value, "moveOut", decode_atom, location <> ".moveOut")
+      decode_detach(
+        value,
+        "moveOut",
+        decode_atom,
+        False,
+        location <> ".moveOut",
+      )
       |> result.map(sequence_field.Detach)
     [#("attachAndDetach", value)] ->
       decode_attach_and_detach(
@@ -138,33 +144,54 @@ fn decode_attach_and_detach(
   location: String,
 ) -> Result(sequence_field.Effect, TreeError) {
   use members <- result.try(object(value, location))
-  use _ <- result.try(exact_keys(members, ["attach", "detach"], location))
+  use _ <- result.try(
+    case has_duplicate_keys(list.map(members, fn(item) { item.0 })) {
+      True ->
+        Error(CorruptData(location, "object contains a duplicate property"))
+      False -> Ok(Nil)
+    },
+  )
   use attach <- result.try(required(members, "attach", location <> ".attach"))
   use detach <- result.try(required(members, "detach", location <> ".detach"))
   use attach <- result.try(decode_union_attach(
     attach,
     decode_atom,
+    True,
     location <> ".attach",
   ))
   use detach <- result.try(decode_union_detach(
     detach,
     decode_atom,
+    True,
     location <> ".detach",
   ))
-  Ok(sequence_field.AttachAndDetach(attach, detach))
+  case attach, detach {
+    sequence_field.MoveIn(id, _),
+      sequence_field.MoveOut(_, _, Some(id_override))
+      if id.local_id == -1
+    -> Ok(sequence_field.Rename(id_override))
+    _, _ -> Ok(sequence_field.AttachAndDetach(attach, detach))
+  }
 }
 
 fn decode_union_attach(
   value: JsonValue,
   decode_atom: fn(JsonValue, String) -> Result(AtomId, TreeError),
+  allow_reserved: Bool,
   location: String,
 ) -> Result(sequence_field.Attach, TreeError) {
   use members <- result.try(object(value, location))
   case members {
     [#("insert", value)] ->
-      decode_attach(value, "insert", decode_atom, location <> ".insert")
+      decode_attach(value, "insert", decode_atom, False, location <> ".insert")
     [#("moveIn", value)] ->
-      decode_attach(value, "moveIn", decode_atom, location <> ".moveIn")
+      decode_attach(
+        value,
+        "moveIn",
+        decode_atom,
+        allow_reserved,
+        location <> ".moveIn",
+      )
     _ -> Error(CorruptData(location, "attach must contain one operation"))
   }
 }
@@ -172,14 +199,21 @@ fn decode_union_attach(
 fn decode_union_detach(
   value: JsonValue,
   decode_atom: fn(JsonValue, String) -> Result(AtomId, TreeError),
+  allow_reserved: Bool,
   location: String,
 ) -> Result(sequence_field.Detach, TreeError) {
   use members <- result.try(object(value, location))
   case members {
     [#("remove", value)] ->
-      decode_detach(value, "remove", decode_atom, location <> ".remove")
+      decode_detach(value, "remove", decode_atom, False, location <> ".remove")
     [#("moveOut", value)] ->
-      decode_detach(value, "moveOut", decode_atom, location <> ".moveOut")
+      decode_detach(
+        value,
+        "moveOut",
+        decode_atom,
+        allow_reserved,
+        location <> ".moveOut",
+      )
     _ -> Error(CorruptData(location, "detach must contain one operation"))
   }
 }
@@ -188,6 +222,7 @@ fn decode_attach(
   value: JsonValue,
   kind: String,
   decode_atom: fn(JsonValue, String) -> Result(AtomId, TreeError),
+  allow_reserved: Bool,
   location: String,
 ) -> Result(sequence_field.Attach, TreeError) {
   use members <- result.try(object(value, location))
@@ -199,7 +234,12 @@ fn decode_attach(
     },
     location,
   ))
-  use id <- result.try(decode_effect_id(members, decode_atom, location))
+  use id <- result.try(decode_effect_id(
+    members,
+    decode_atom,
+    allow_reserved,
+    location,
+  ))
   case kind {
     "insert" -> Ok(sequence_field.Insert(id))
     _ -> {
@@ -217,6 +257,7 @@ fn decode_detach(
   value: JsonValue,
   kind: String,
   decode_atom: fn(JsonValue, String) -> Result(AtomId, TreeError),
+  allow_reserved: Bool,
   location: String,
 ) -> Result(sequence_field.Detach, TreeError) {
   use members <- result.try(object(value, location))
@@ -228,7 +269,12 @@ fn decode_detach(
     },
     location,
   ))
-  use id <- result.try(decode_effect_id(members, decode_atom, location))
+  use id <- result.try(decode_effect_id(
+    members,
+    decode_atom,
+    allow_reserved,
+    location,
+  ))
   use id_override <- result.try(decode_optional_atom(
     optional(members, "idOverride"),
     decode_atom,
@@ -250,17 +296,22 @@ fn decode_detach(
 fn decode_effect_id(
   members: List(#(String, JsonValue)),
   decode_atom: fn(JsonValue, String) -> Result(AtomId, TreeError),
+  allow_reserved: Bool,
   location: String,
 ) -> Result(AtomId, TreeError) {
   use id <- result.try(required(members, "id", location <> ".id"))
-  use _ <- result.try(integer(id, location <> ".id"))
+  use local_id <- result.try(integer(id, location <> ".id"))
+  let callback_id = case allow_reserved && local_id == -1 {
+    True -> VNumber(NInt(0))
+    False -> id
+  }
   let encoded = case optional(members, "revision") {
-    None -> id
-    Some(revision) -> VArray([id, revision])
+    None -> callback_id
+    Some(revision) -> VArray([callback_id, revision])
   }
   use decoded <- result.try(decode_atom(encoded, location <> ".id"))
   case decoded.revision {
-    Some(_) -> Ok(decoded)
+    Some(_) -> Ok(AtomId(..decoded, local_id:))
     None ->
       Error(CorruptData(
         location <> ".revision",

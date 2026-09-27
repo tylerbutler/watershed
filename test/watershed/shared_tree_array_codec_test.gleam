@@ -163,3 +163,104 @@ pub fn sequence_v3_codec_propagates_callback_and_validation_errors_test() -> Nil
     )
   Nil
 }
+
+pub fn sequence_v3_codec_decodes_reserved_rename_representation_test() -> Nil {
+  let assert Ok(revision) = fluid_ids.stable_id(revision_a)
+  let assert Ok(value) =
+    json_ot.parse_json(
+      "[{\"count\":1,\"cellId\":0,\"effect\":{\"attachAndDetach\":{\"attach\":{\"moveIn\":{\"id\":-1}},\"detach\":{\"moveOut\":{\"id\":-1,\"idOverride\":1}}}}}]",
+    )
+  let decode_atom = fn(value, location) {
+    case value {
+      json_ot.VNumber(json_ot.NInt(local_id)) if local_id >= 0 ->
+        Ok(AtomId(Some(revision), local_id))
+      _ -> Error(CorruptData(location, "invalid local identifier"))
+    }
+  }
+  let assert Ok(#(decoded, Nil)) =
+    sequence_codec.decode(
+      value,
+      Nil,
+      decode_atom,
+      fn(_value, _state, location) {
+        Error(CorruptData(location, "unexpected child"))
+      },
+      "sequence",
+    )
+  sequence_field.to_marks(decoded)
+  |> expect.to_equal([
+    sequence_field.Mark(
+      1,
+      Some(AtomId(Some(revision), 0)),
+      sequence_field.Rename(AtomId(Some(revision), 1)),
+      None,
+    ),
+  ])
+}
+
+pub fn sequence_v3_codec_accepts_open_attach_and_detach_object_test() -> Nil {
+  let assert Ok(revision) = fluid_ids.stable_id(revision_a)
+  let assert Ok(value) =
+    json_ot.parse_json(
+      "[{\"count\":1,\"cellId\":2,\"effect\":{\"attachAndDetach\":{\"attach\":{\"insert\":{\"id\":2}},\"detach\":{\"remove\":{\"id\":3}},\"extra\":true}}}]",
+    )
+  let decode_atom = fn(value, location) {
+    case value {
+      json_ot.VNumber(json_ot.NInt(local_id)) if local_id >= 0 ->
+        Ok(AtomId(Some(revision), local_id))
+      _ -> Error(CorruptData(location, "invalid local identifier"))
+    }
+  }
+  let assert Ok(#(decoded, Nil)) =
+    sequence_codec.decode(
+      value,
+      Nil,
+      decode_atom,
+      fn(_value, _state, location) {
+        Error(CorruptData(location, "unexpected child"))
+      },
+      "sequence",
+    )
+  sequence_field.to_marks(decoded)
+  |> expect.to_equal([
+    sequence_field.Mark(
+      1,
+      Some(AtomId(Some(revision), 2)),
+      sequence_field.AttachAndDetach(
+        sequence_field.Insert(AtomId(Some(revision), 2)),
+        sequence_field.Remove(AtomId(Some(revision), 3), None),
+      ),
+      None,
+    ),
+  ])
+}
+
+pub fn sequence_v3_codec_rejects_reserved_rename_near_misses_test() -> Nil {
+  let assert Ok(revision) = fluid_ids.stable_id(revision_a)
+  let decode_atom = fn(value, location) {
+    case value {
+      json_ot.VNumber(json_ot.NInt(local_id)) if local_id >= 0 ->
+        Ok(AtomId(Some(revision), local_id))
+      _ -> Error(CorruptData(location, "invalid local identifier"))
+    }
+  }
+  [
+    "[{\"count\":1,\"cellId\":0,\"effect\":{\"moveIn\":{\"id\":-1}}}]",
+    "[{\"count\":1,\"cellId\":0,\"effect\":{\"attachAndDetach\":{\"attach\":{\"moveIn\":{\"id\":-1}},\"detach\":{\"moveOut\":{\"id\":-1}}}}}]",
+    "[{\"count\":1,\"cellId\":0,\"effect\":{\"attachAndDetach\":{\"attach\":{\"moveIn\":{\"id\":-1,\"extra\":true}},\"detach\":{\"moveOut\":{\"id\":-1,\"idOverride\":1}}}}}]",
+  ]
+  |> list.each(fn(raw) {
+    let assert Ok(value) = json_ot.parse_json(raw)
+    let assert Error(_) =
+      sequence_codec.decode(
+        value,
+        Nil,
+        decode_atom,
+        fn(_value, _state, location) {
+          Error(CorruptData(location, "unexpected child"))
+        },
+        "sequence",
+      )
+    Nil
+  })
+}
