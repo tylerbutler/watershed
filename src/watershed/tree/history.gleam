@@ -1314,17 +1314,11 @@ pub fn resubmit(
   use commits <- result.try(
     list.try_map(state.pending, fn(entry) {
       let commit = entry.current.commit
-      use roots <- result.try(removed_roots(commit.change))
+      use external_roots <- result.try(required_repair_roots(commit.change))
       let provided = case list.key_find(repair, commit.revision) {
         Ok(builds) -> builds
         Error(Nil) -> []
       }
-      let external_roots =
-        list.filter(roots, fn(root) {
-          !list.any(builds(commit.change), fn(build) {
-            build_covers(build, root)
-          })
-        })
       use _ <- result.try(validate_repair_roots(external_roots, provided))
       use updated <- result.try(update_refreshers(commit.change, provided))
       Ok(Commit(..commit, change: updated))
@@ -1350,47 +1344,61 @@ fn outer_revisions(
   [revision, ..shared_change.identity_revisions(changeset)] |> list.unique
 }
 
-fn removed_roots(
+fn required_repair_roots(
   changeset: shared_change.Changeset,
 ) -> Result(List(types.AtomId), TreeError) {
-  changeset
-  |> shared_change.to_changes
-  |> list.try_fold([], fn(roots, item) {
-    case item {
-      shared_change.SchemaChange(_, _, _) -> Ok(roots)
-      shared_change.DataChange(data) -> {
-        use next <- result.try(change.relevant_removed_roots(data))
-        Ok(list.append(roots, next))
+  use #(roots, _) <- result.try(
+    changeset
+    |> shared_change.to_changes
+    |> list.try_fold(#([], []), fn(state, item) {
+      case item {
+        shared_change.SchemaChange(_, _, _) -> Ok(state)
+        shared_change.DataChange(data) -> {
+          use #(next, available) <- result.try(unavailable_roots(data, state.1))
+          Ok(#(list.append(state.0, next), available))
+        }
       }
-    }
-  })
+    }),
+  )
+  Ok(roots)
 }
 
-fn builds(changeset: shared_change.Changeset) -> List(forest.Build) {
-  changeset
-  |> shared_change.to_changes
-  |> list.flat_map(fn(item) {
-    case item {
-      shared_change.SchemaChange(_, _, _) -> []
-      shared_change.DataChange(data) -> change.to_data(data).builds
-    }
-  })
+fn unavailable_roots(
+  data: change.Changeset,
+  prior_builds: List(forest.Build),
+) -> Result(#(List(types.AtomId), List(forest.Build)), TreeError) {
+  let available = list.append(prior_builds, change.to_data(data).builds)
+  use roots <- result.try(change.relevant_removed_roots(data))
+  Ok(#(
+    list.filter(roots, fn(root) {
+      !list.any(available, fn(build) { build_covers(build, root) })
+    }),
+    available,
+  ))
 }
 
 fn update_refreshers(
   changeset: shared_change.Changeset,
   repair: List(forest.Build),
 ) -> Result(shared_change.Changeset, TreeError) {
-  use items <- result.try(
+  use #(items, _) <- result.try(
     changeset
     |> shared_change.to_changes
-    |> list.try_map(fn(item) {
+    |> list.try_fold(#([], []), fn(state, item) {
       case item {
-        shared_change.SchemaChange(_, _, _) -> Ok(item)
+        shared_change.SchemaChange(_, _, _) ->
+          Ok(#(list.append(state.0, [item]), state.1))
         shared_change.DataChange(data) -> {
-          use roots <- result.try(change.relevant_removed_roots(data))
-          change.update_refreshers(data, roots, repair)
-          |> result.map(shared_change.DataChange)
+          use #(roots, available) <- result.try(unavailable_roots(data, state.1))
+          use updated <- result.try(change.update_refreshers(
+            data,
+            roots,
+            repair,
+          ))
+          Ok(#(
+            list.append(state.0, [shared_change.DataChange(updated)]),
+            available,
+          ))
         }
       }
     }),

@@ -55,6 +55,38 @@ fn scalar_commit(commit_revision: fluid_ids.StableId) -> history.Commit {
   history.Commit(commit_revision, session(), shared_change.from_data(authored))
 }
 
+fn mixed_run_scalar_commit(
+  commit_revision: fluid_ids.StableId,
+) -> history.Commit {
+  let history.Commit(_, _, change) = scalar_commit(commit_revision)
+  let assert [shared_change.DataChange(authored)] =
+    shared_change.to_changes(change)
+  let data = change.to_data(authored)
+  let assert Ok(order) = change.identity_order([#(commit_revision, -1)])
+  let assert Ok(build) =
+    change.from_data(
+      change.ChangeData(
+        ..data,
+        fields: [],
+        nodes: [],
+        parents: [],
+        aliases: [],
+        destroys: [],
+        refreshers: [],
+      ),
+      order,
+    )
+  let assert Ok(attach) =
+    change.from_data(change.ChangeData(..data, builds: []), order)
+  let assert Ok(outer) =
+    shared_change.from_changes([
+      shared_change.DataChange(build),
+      shared_change.SchemaChange(schema.EmptySchema, schema.EmptySchema, False),
+      shared_change.DataChange(attach),
+    ])
+  history.Commit(commit_revision, session(), outer)
+}
+
 pub fn shared_tree_history_resubmit_rejects_duplicate_repairs_test() -> Nil {
   let pending = commit(revision("01"))
   let assert Ok(local) = history.append_local(history.new(session()), pending)
@@ -76,6 +108,12 @@ pub fn shared_tree_history_resubmit_rejects_extraneous_commit_test() -> Nil {
 
 pub fn shared_tree_history_resubmits_own_scalar_build_without_repair_test() -> Nil {
   let pending = scalar_commit(revision("01"))
+  let assert Ok(local) = history.append_local(history.new(session()), pending)
+  history.resubmit(local.history, []) |> expect.to_equal(Ok([pending]))
+}
+
+pub fn shared_tree_history_resubmits_prior_run_build_without_repair_test() -> Nil {
+  let pending = mixed_run_scalar_commit(revision("01"))
   let assert Ok(local) = history.append_local(history.new(session()), pending)
   history.resubmit(local.history, []) |> expect.to_equal(Ok([pending]))
 }
