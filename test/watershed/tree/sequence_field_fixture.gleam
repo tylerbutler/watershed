@@ -14,6 +14,7 @@ import watershed/tree/sequence_field
 import watershed/tree/sequence_field/compose
 import watershed/tree/sequence_field/invert
 import watershed/tree/sequence_field/moves
+import watershed/tree/sequence_field/rebase
 import watershed/tree/types
 
 type Context {
@@ -38,6 +39,15 @@ type InvertState {
   InvertState(context: Context, aliases: sequence_field.AliasContext)
 }
 
+type RebaseState {
+  RebaseState(
+    authored: Context,
+    base: Context,
+    output: Context,
+    callbacks: List(Json),
+  )
+}
+
 pub fn run_editor(input: Json) -> Result(Json, String) {
   use value <- result.try(codec.parse(input))
   use _ <- result.try(codec.exact(value, ["scenarios"]))
@@ -52,6 +62,105 @@ pub fn run_compose_invert(input: Json) -> Result(Json, String) {
   use scenarios <- result.try(codec.field(value, "scenarios", codec.items))
   use observations <- result.try(run_algebra_scenarios(scenarios, []))
   Ok(json.object([#("observations", array(list.reverse(observations)))]))
+}
+
+pub fn run_rebase(input: Json) -> Result(Json, String) {
+  use value <- result.try(codec.parse(input))
+  use _ <- result.try(codec.exact(value, ["scenarios"]))
+  use scenarios <- result.try(codec.field(value, "scenarios", codec.items))
+  use observations <- result.try(run_rebase_scenarios(scenarios, []))
+  Ok(json.object([#("observations", array(list.reverse(observations)))]))
+}
+
+fn run_rebase_scenarios(
+  scenarios: List(JsonValue),
+  observations: List(Json),
+) -> Result(List(Json), String) {
+  case scenarios {
+    [] -> Ok(observations)
+    [scenario, ..rest] -> {
+      use observation <- result.try(run_rebase_scenario(scenario))
+      run_rebase_scenarios(rest, [observation, ..observations])
+    }
+  }
+}
+
+fn run_rebase_scenario(value: JsonValue) -> Result(Json, String) {
+  use id <- result.try(codec.field(value, "id", codec.text))
+  use operation <- result.try(codec.field(value, "operation", codec.text))
+  use _ <- result.try(case operation {
+    "rebase" -> Ok(Nil)
+    _ -> Error("unsupported sequence rebase operation: " <> operation)
+  })
+  use revisions <- result.try(
+    codec.field(value, "revisions", fn(value) {
+      codec.many(value, codec.integer)
+    }),
+  )
+  use operands <- result.try(
+    codec.field(value, "operands", fn(value) { Ok(value) }),
+  )
+  use context <- result.try(
+    context(list.unique(list.append(revisions, collect_revisions(operands)))),
+  )
+  use authored_value <- result.try(
+    codec.field(operands, "change", fn(value) { Ok(value) }),
+  )
+  use base_value <- result.try(
+    codec.field(operands, "base", fn(value) { Ok(value) }),
+  )
+  use #(authored, authored_revision, authored_context) <- result.try(
+    decode_tagged(authored_value, context),
+  )
+  use #(base, base_revision, base_context) <- result.try(decode_tagged(
+    base_value,
+    context,
+  ))
+  let state = RebaseState(authored_context, base_context, context, [])
+  use #(rebased, state, move_context) <- result.try(
+    rebase.rebase(
+      authored,
+      base,
+      state,
+      rebase_children,
+      rebase_algebra(context, authored_revision, base_revision),
+      fixture_field(),
+      moves.new(),
+    )
+    |> native_error,
+  )
+  let #(invalidated, move_context) = moves.take_invalidated(move_context)
+  use #(rebased, state) <- result.try(case invalidated {
+    [] -> Ok(#(rebased, state))
+    _ ->
+      rebase.rebase(
+        authored,
+        base,
+        state,
+        rebase_children,
+        rebase_algebra(context, authored_revision, base_revision),
+        fixture_field(),
+        move_context,
+      )
+      |> native_error
+      |> result.map(fn(value) { #(value.0, value.1) })
+  })
+  let RebaseState(output:, callbacks:, ..) = state
+  use value <- result.try(encode_change(rebased, output))
+  let result_json =
+    json.object([
+      #("value", value),
+      #("callbacks", array(list.reverse(callbacks))),
+    ])
+  Ok(
+    json.object([
+      #("id", json.string(id)),
+      #("executed", json.bool(True)),
+      #("accepted", json.bool(True)),
+      #("value", result_json),
+      #("result", result_json),
+    ]),
+  )
 }
 
 fn run_algebra_scenarios(
@@ -658,6 +767,108 @@ fn compose_children(
   ))
 }
 
+fn rebase_children(
+  authored_id: Option(types.AtomId),
+  base_id: Option(types.AtomId),
+  attach_state: sequence_field.AttachState,
+  state: RebaseState,
+) -> Result(#(Option(types.AtomId), RebaseState), types.TreeError) {
+  let RebaseState(authored, base, output, callbacks) = state
+  let callback =
+    json.object([
+      #("change", option_child_json(authored_id, authored)),
+      #("base", option_child_json(base_id, base)),
+    ])
+  use authored_child <- result.try(find_child(authored_id, authored))
+  use base_child <- result.try(find_child(base_id, base))
+  use child <- result.try(rebase_child_value(
+    authored_id,
+    authored_child,
+    base_child,
+    attach_state,
+  ))
+  let Context(revisions, children) = output
+  let output = case child {
+    Some(child) -> Context(revisions, put_child_value(children, child))
+    None -> output
+  }
+  Ok(#(
+    child |> option.map(fn(child) { child.id }),
+    RebaseState(authored, base, output, [callback, ..callbacks]),
+  ))
+}
+
+fn rebase_child_value(
+  authored_id: Option(types.AtomId),
+  authored: Option(Child),
+  base: Option(Child),
+  _attach_state: sequence_field.AttachState,
+) -> Result(Option(Child), types.TreeError) {
+  case authored_id, authored, base {
+    None, None, _ -> Ok(None)
+    None, Some(_), _ ->
+      Error(types.CorruptData(
+        "sequence fixture child",
+        "authored child has no identifier",
+      ))
+    Some(id), Some(authored), None ->
+      normalize_child(id, authored) |> result.map(Some)
+    Some(id), Some(authored), Some(base) -> {
+      use authored_input <- result.try(require_child_context(
+        authored.input_context,
+        authored.output_context,
+      ))
+      use base_context <- result.try(require_child_context(
+        base.input_context,
+        base.output_context,
+      ))
+      case authored_input, base_context {
+        None, _ -> normalize_child(id, authored) |> result.map(Some)
+        Some(#(authored_input, _)), Some(#(base_input, base_output)) -> {
+          use _ <- result.try(case authored_input == base_input {
+            True -> Ok(Nil)
+            False ->
+              Error(types.CorruptData(
+                "sequence fixture child",
+                "rebased child input context does not match base input context",
+              ))
+          })
+          Ok(
+            Some(Child(
+              id,
+              authored.source_revision,
+              Some(base_output),
+              authored.intentions,
+              Some(compose_intentions(base_output, authored.intentions)),
+            )),
+          )
+        }
+        Some(_), None -> normalize_child(id, authored) |> result.map(Some)
+      }
+    }
+    Some(_), None, _ ->
+      Error(types.CorruptData(
+        "sequence fixture child",
+        "unknown authored child change",
+      ))
+  }
+}
+
+fn require_child_context(
+  input: Option(List(Int)),
+  output: Option(List(Int)),
+) -> Result(Option(#(List(Int), List(Int))), types.TreeError) {
+  case input, output {
+    None, None -> Ok(None)
+    Some(input), Some(output) -> Ok(Some(#(input, output)))
+    _, _ ->
+      Error(types.CorruptData(
+        "sequence fixture child",
+        "child change has incomplete context",
+      ))
+  }
+}
+
 fn option_child_json(id: Option(types.AtomId), context: Context) -> Json {
   case id {
     None -> json.null()
@@ -858,6 +1069,25 @@ fn algebra(context: Context) -> sequence_field.AlgebraContext {
       })
     },
     rollback_of: fn(_) { Ok(None) },
+  )
+}
+
+fn rebase_algebra(
+  context: Context,
+  authored_revision: StableId,
+  base_revision: StableId,
+) -> sequence_field.AlgebraContext {
+  let identity = algebra(context)
+  sequence_field.AlgebraContext(
+    compare_atoms: identity.compare_atoms,
+    revision_index: fn(revision) {
+      case revision == base_revision, revision == authored_revision {
+        True, _ -> Ok(0)
+        _, True -> Ok(1)
+        False, False -> identity.revision_index(revision)
+      }
+    },
+    rollback_of: identity.rollback_of,
   )
 }
 

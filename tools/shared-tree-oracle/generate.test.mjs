@@ -1429,7 +1429,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
       "bootstrap-map-handles", "batched-commits",
       "map-schema-content", "map-field-algebra", "map-history-codecs",
       "array-schema-content", "array-forest-delta", "sequence-field-editor",
-      "sequence-compose-invert",
+      "sequence-compose-invert", "sequence-rebase",
     ]);
   }
 });

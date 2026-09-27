@@ -15,6 +15,7 @@ import watershed/tree/sequence_field
 import watershed/tree/sequence_field/compose
 import watershed/tree/sequence_field/invert
 import watershed/tree/sequence_field/moves
+import watershed/tree/sequence_field/rebase
 import watershed/tree/sequence_field_fixture
 import watershed/tree/types
 
@@ -47,6 +48,15 @@ fn no_child_compose(
   }
 }
 
+fn no_child_rebase(
+  authored: Option(types.AtomId),
+  _: Option(types.AtomId),
+  _: sequence_field.AttachState,
+  state: state,
+) -> Result(#(Option(types.AtomId), state), types.TreeError) {
+  Ok(#(authored, state))
+}
+
 fn test_algebra() -> sequence_field.AlgebraContext {
   sequence_field.AlgebraContext(
     compare_atoms: fn(first, second) {
@@ -56,6 +66,29 @@ fn test_algebra() -> sequence_field.AlgebraContext {
       })
     },
     revision_index: fn(_) { Ok(0) },
+    rollback_of: fn(_) { Ok(None) },
+  )
+}
+
+fn ordered_algebra(
+  older: fluid_ids.StableId,
+  younger: fluid_ids.StableId,
+) -> sequence_field.AlgebraContext {
+  sequence_field.AlgebraContext(
+    compare_atoms: fn(first, second) {
+      Ok(case first == second {
+        True -> order.Eq
+        False -> order.Lt
+      })
+    },
+    revision_index: fn(value) {
+      case value == older, value == younger {
+        True, _ -> Ok(0)
+        _, True -> Ok(1)
+        False, False ->
+          Error(types.InvalidHistory("test revision has no chronology"))
+      }
+    },
     rollback_of: fn(_) { Ok(None) },
   )
 }
@@ -103,6 +136,378 @@ pub fn shared_tree_sequence_compose_invert_matches_upstream_test() {
     "sequence-compose-invert",
     sequence_field_fixture.run_compose_invert,
   )
+}
+
+pub fn shared_tree_sequence_rebase_matches_upstream_test() {
+  fixtures.assert_case("sequence-rebase", sequence_field_fixture.run_rebase)
+}
+
+pub fn shared_tree_sequence_rebase_uses_child_callback_result_and_state_test() {
+  let authored_child = atom(None, 1)
+  let base_child = atom(None, 2)
+  let replacement = atom(None, 3)
+  let assert Ok(authored) =
+    sequence_field.from_marks([
+      sequence_field.Mark(1, None, sequence_field.Noop, Some(authored_child)),
+    ])
+  let assert Ok(base) =
+    sequence_field.from_marks([
+      sequence_field.Mark(1, None, sequence_field.Noop, Some(base_child)),
+    ])
+  let assert Ok(#(rebased, 1, _)) =
+    rebase.rebase(
+      authored,
+      base,
+      0,
+      fn(actual_authored, actual_base, attach_state, calls) {
+        actual_authored |> expect.to_equal(Some(authored_child))
+        actual_base |> expect.to_equal(Some(base_child))
+        attach_state |> expect.to_equal(sequence_field.Attached)
+        Ok(#(Some(replacement), calls + 1))
+      },
+      test_algebra(),
+      moves.FieldId(None, "field"),
+      moves.new(),
+    )
+  sequence_field.to_marks(rebased)
+  |> expect.to_equal([
+    sequence_field.Mark(1, None, sequence_field.Noop, Some(replacement)),
+  ])
+}
+
+pub fn shared_tree_sequence_rebase_reports_detached_child_state_and_error_test() {
+  let child = atom(None, 4)
+  let assert Ok(authored) =
+    sequence_field.from_marks([
+      sequence_field.Mark(1, None, sequence_field.Noop, Some(child)),
+    ])
+  let assert Ok(base) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        None,
+        sequence_field.Detach(sequence_field.Remove(atom(None, 10), None)),
+        None,
+      ),
+    ])
+  let assert Ok(#(rebased, 1, _)) =
+    rebase.rebase(
+      authored,
+      base,
+      0,
+      fn(actual, over, attach_state, calls) {
+        actual |> expect.to_equal(Some(child))
+        over |> expect.to_equal(None)
+        attach_state |> expect.to_equal(sequence_field.DetachedNode)
+        Ok(#(actual, calls + 1))
+      },
+      test_algebra(),
+      moves.FieldId(None, "field"),
+      moves.new(),
+    )
+  sequence_field.to_marks(rebased)
+  |> expect.to_equal([
+    sequence_field.Mark(
+      1,
+      Some(atom(None, 10)),
+      sequence_field.Noop,
+      Some(child),
+    ),
+  ])
+  rebase.rebase(
+    authored,
+    base,
+    Nil,
+    fn(_, _, _, _) { Error(types.CorruptData("test", "child rebase failed")) },
+    test_algebra(),
+    moves.FieldId(None, "field"),
+    moves.new(),
+  )
+  |> expect.to_equal(Error(types.CorruptData("test", "child rebase failed")))
+}
+
+pub fn shared_tree_sequence_rebase_uses_only_fixture_input_test() {
+  let assert Ok(fixture) = fixtures.load("sequence-rebase")
+  let assert Ok(original) = sequence_field_fixture.run_rebase(fixture.input)
+  let raw = json.to_string(fixture.input)
+  let changed_gap = string.replace(raw, "\"count\":2", "\"count\":3")
+  let assert False = changed_gap == raw
+  let assert Ok(changed_gap) = json_ot.parse_json(changed_gap)
+  case sequence_field_fixture.run_rebase(json_ot.to_json(changed_gap)) {
+    Error(_) -> Nil
+    Ok(mutated_gap) -> {
+      let _ =
+        fixtures.first_difference(original, mutated_gap) |> expect.to_be_error
+      Nil
+    }
+  }
+
+  let changed_child = string.replace(raw, "\"localId\":40", "\"localId\":41")
+  let assert False = changed_child == raw
+  let assert Ok(changed_child) = json_ot.parse_json(changed_child)
+  case sequence_field_fixture.run_rebase(json_ot.to_json(changed_child)) {
+    Error(_) -> Nil
+    Ok(mutated_child) -> {
+      let _ =
+        fixtures.first_difference(original, mutated_child)
+        |> expect.to_be_error
+      Nil
+    }
+  }
+}
+
+pub fn shared_tree_sequence_rebase_coordinates_split_cross_field_moves_test() {
+  let base_revision = revision("30")
+  let authored_revision = revision("31")
+  let child = atom(None, 40)
+  let left_field = moves.FieldId(Some(atom(None, 1)), "left")
+  let right_field = moves.FieldId(Some(atom(None, 2)), "right")
+  let assert Ok(empty) = sequence_field.from_marks([])
+  let assert Ok(left_base) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        2,
+        Some(atom(Some(base_revision), 12)),
+        sequence_field.Attach(sequence_field.MoveIn(
+          atom(Some(base_revision), 10),
+          None,
+        )),
+        None,
+      ),
+    ])
+  let assert Ok(right_authored) =
+    sequence_field.from_marks([
+      sequence_field.Mark(1, None, sequence_field.Noop, None),
+      sequence_field.Mark(
+        1,
+        None,
+        sequence_field.Detach(sequence_field.MoveOut(
+          atom(Some(authored_revision), 20),
+          None,
+          None,
+        )),
+        Some(child),
+      ),
+    ])
+  let assert Ok(right_base) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        2,
+        None,
+        sequence_field.Detach(sequence_field.MoveOut(
+          atom(Some(base_revision), 10),
+          None,
+          None,
+        )),
+        None,
+      ),
+    ])
+  let assert Ok(#(left_before, Nil, move_context)) =
+    rebase.rebase(
+      empty,
+      left_base,
+      Nil,
+      no_child_rebase,
+      test_algebra(),
+      left_field,
+      moves.new(),
+    )
+  sequence_field.to_marks(left_before) |> expect.to_equal([])
+  let assert Ok(#(_, Nil, move_context)) =
+    rebase.rebase(
+      right_authored,
+      right_base,
+      Nil,
+      no_child_rebase,
+      test_algebra(),
+      right_field,
+      move_context,
+    )
+  let #(invalidated, move_context) = moves.take_invalidated(move_context)
+  invalidated |> expect.to_equal([left_field])
+  let assert Ok(#(left_after, Nil, move_context)) =
+    rebase.rebase(
+      empty,
+      left_base,
+      Nil,
+      no_child_rebase,
+      test_algebra(),
+      left_field,
+      move_context,
+    )
+  sequence_field.to_marks(left_after)
+  |> expect.to_equal([
+    sequence_field.Mark(1, None, sequence_field.Noop, None),
+    sequence_field.Mark(
+      1,
+      None,
+      sequence_field.Detach(sequence_field.MoveOut(
+        atom(Some(authored_revision), 20),
+        None,
+        None,
+      )),
+      Some(child),
+    ),
+  ])
+  moves.notifications(move_context)
+  |> expect.to_equal([
+    moves.KeyMoved(
+      moves.Key(moves.Source, Some(authored_revision), 20),
+      1,
+      left_field,
+    ),
+    moves.NodeMoved(child, left_field),
+  ])
+}
+
+pub fn shared_tree_sequence_rebase_propagates_identity_comparison_error_test() {
+  let assert Ok(authored) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        Some(atom(Some(revision("32")), 1)),
+        sequence_field.Noop,
+        None,
+      ),
+    ])
+  let assert Ok(base) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        Some(atom(Some(revision("33")), 1)),
+        sequence_field.Noop,
+        None,
+      ),
+    ])
+  let failure = types.InvalidHistory("identity comparison failed")
+  rebase.rebase(
+    authored,
+    base,
+    Nil,
+    no_child_rebase,
+    sequence_field.AlgebraContext(
+      compare_atoms: fn(_, _) { Error(failure) },
+      revision_index: fn(_) { Ok(0) },
+      rollback_of: fn(_) { Ok(None) },
+    ),
+    moves.FieldId(None, "field"),
+    moves.new(),
+  )
+  |> expect.to_equal(Error(failure))
+}
+
+pub fn shared_tree_sequence_rebase_insert_orders_apply_to_native_forest_test() {
+  let older = revision("34")
+  let younger = revision("35")
+  let older_id = atom(Some(older), 10)
+  let younger_id = atom(Some(younger), 20)
+  let assert Ok(older_change) =
+    sequence_field.insert(0, 1, older_id, Some(older))
+  let assert Ok(younger_change) =
+    sequence_field.insert(0, 1, younger_id, Some(younger))
+  let assert Ok(#(younger_rebased, Nil, _)) =
+    rebase.rebase(
+      younger_change,
+      older_change,
+      Nil,
+      no_child_rebase,
+      ordered_algebra(older, younger),
+      moves.FieldId(None, "rootFieldKey"),
+      moves.new(),
+    )
+  let assert Ok(after_older) =
+    apply_root_change([], Ok(older_change), [
+      forest.Build(older_id, [types.StringValue("older")]),
+    ])
+  let assert Ok(after_both) =
+    apply_change_to_root(after_older, younger_rebased, [
+      forest.Build(younger_id, [types.StringValue("younger")]),
+    ])
+  forest.array_values(after_both, [])
+  |> expect.to_equal(
+    Ok([
+      types.StringValue("younger"),
+      types.StringValue("older"),
+    ]),
+  )
+}
+
+pub fn shared_tree_sequence_rebase_move_delete_applies_with_identity_test() {
+  let move_revision = revision("36")
+  let remove_revision = revision("37")
+  let move_id = atom(Some(move_revision), 10)
+  let move_cell = atom(Some(move_revision), 12)
+  let remove_id = atom(Some(remove_revision), 20)
+  let assert Ok(move_change) = sequence_field.move(0, 2, 4, move_id, move_cell)
+  let assert Ok(remove_change) = sequence_field.remove(1, 1, remove_id)
+  let field = moves.FieldId(None, "rootFieldKey")
+  let assert Ok(#(remove_rebased, Nil, remove_moves)) =
+    rebase.rebase(
+      remove_change,
+      move_change,
+      Nil,
+      no_child_rebase,
+      ordered_algebra(move_revision, remove_revision),
+      field,
+      moves.new(),
+    )
+  let #(remove_invalidated, remove_moves) = moves.take_invalidated(remove_moves)
+  let assert Ok(#(remove_rebased, Nil, _)) = case remove_invalidated {
+    [] -> Ok(#(remove_rebased, Nil, remove_moves))
+    _ ->
+      rebase.rebase(
+        remove_change,
+        move_change,
+        Nil,
+        no_child_rebase,
+        ordered_algebra(move_revision, remove_revision),
+        field,
+        remove_moves,
+      )
+  }
+  sequence_field.to_marks(remove_rebased)
+  |> expect.to_equal([
+    sequence_field.Mark(
+      2,
+      Some(atom(Some(move_revision), 10)),
+      sequence_field.Noop,
+      None,
+    ),
+    sequence_field.Mark(3, None, sequence_field.Noop, None),
+    sequence_field.Mark(
+      1,
+      None,
+      sequence_field.Detach(sequence_field.Remove(remove_id, None)),
+      None,
+    ),
+  ])
+  let assert Ok(initial) =
+    forest.new(
+      array_fixture.view_id(),
+      array_fixture.stored("rootArray"),
+      Some(
+        types.ArrayValue(items_type, [
+          types.StringValue("A"),
+          types.StringValue("B"),
+          types.StringValue("C"),
+          types.StringValue("D"),
+        ]),
+      ),
+    )
+  let assert Ok(retained_a) = forest.locate(initial, ["0"])
+  let assert Ok(move_first) = apply_change_to_root(initial, move_change, [])
+  let assert Ok(move_then_remove) =
+    apply_change_to_root(move_first, remove_rebased, [])
+  forest.array_values(move_then_remove, [])
+  |> expect.to_equal(
+    Ok([
+      types.StringValue("C"),
+      types.StringValue("D"),
+      types.StringValue("A"),
+    ]),
+  )
+  forest.locate(move_then_remove, ["2"]) |> expect.to_equal(Ok(retained_a))
+  forest.is_attached(move_then_remove, retained_a) |> expect.to_equal(Ok(True))
 }
 
 pub fn shared_tree_sequence_compose_invert_uses_only_fixture_input_test() {

@@ -62,6 +62,11 @@ pub type AlgebraContext {
   )
 }
 
+pub type AttachState {
+  Attached
+  DetachedNode
+}
+
 pub opaque type AliasContext {
   AliasContext(
     reservations: List(#(Option(StableId), Int, Int)),

@@ -227,7 +227,8 @@
       "array-schema-content",
       "array-forest-delta",
       "sequence-field-editor",
-      "sequence-compose-invert"
+      "sequence-compose-invert",
+      "sequence-rebase"
     ],
     "erlang": [
       "id-ranges",
@@ -248,7 +249,8 @@
       "array-schema-content",
       "array-forest-delta",
       "sequence-field-editor",
-      "sequence-compose-invert"
+      "sequence-compose-invert",
+      "sequence-rebase"
     ]
   },
   "cases": [

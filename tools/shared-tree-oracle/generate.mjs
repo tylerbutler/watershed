@@ -3048,7 +3048,7 @@ export async function writeCorpus(output, cases, smoke) {
         "bootstrap-map-handles", "batched-commits",
         "map-schema-content", "map-field-algebra", "map-history-codecs",
         "array-schema-content", "array-forest-delta", "sequence-field-editor",
-        "sequence-compose-invert",
+        "sequence-compose-invert", "sequence-rebase",
       ],
       erlang: [
         "id-ranges", "schema-validation", "forest-delta",
@@ -3058,7 +3058,7 @@ export async function writeCorpus(output, cases, smoke) {
         "bootstrap-map-handles", "batched-commits",
         "map-schema-content", "map-field-algebra", "map-history-codecs",
         "array-schema-content", "array-forest-delta", "sequence-field-editor",
-        "sequence-compose-invert",
+        "sequence-compose-invert", "sequence-rebase",
       ],
     },
     cases: requiredCases.map(([id, domain]) => ({ id, domain, file: `cases/${id}.json` })),
