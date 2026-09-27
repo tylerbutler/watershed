@@ -15,7 +15,9 @@ import watershed/tree/codec/field_batch
 import watershed/tree/forest
 import watershed/tree/optional_field
 import watershed/tree/schema
-import watershed/tree/types.{type TreeError, CorruptData, InvalidHistory}
+import watershed/tree/types.{
+  type TreeError, CorruptData, InvalidHistory, UnsupportedFeature,
+}
 
 const max_safe_integer = 9_007_199_254_740_991
 
@@ -1302,6 +1304,11 @@ fn encode_field_map(
             location <> ".change",
           )
           |> result.map(fn(value) { #("ModularEditBuilder.Generic", value) })
+        change.SequenceField(_) ->
+          Error(UnsupportedFeature(
+            location,
+            "Sequence field V3 encoding is not implemented",
+          ))
       })
       Ok(
         VObject([
@@ -1788,6 +1795,7 @@ fn collect_field_revisions(
         list.fold(children, revisions, fn(revisions, child) {
           collect_atom_revision(child.1, revisions)
         })
+      change.SequenceField(_) -> revisions
       change.ValueField(field) | change.OptionalField(field) -> {
         let revisions =
           list.fold(field.moves, revisions, fn(revisions, move) {

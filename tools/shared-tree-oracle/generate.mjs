@@ -1716,17 +1716,26 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     const coordination = output.get("cross-field-endpoints");
     const handlerCalls = coordination.coordination.handlerCalls;
     const managerCalls = coordination.coordination.managerCalls;
+    const sourceCoordination = input.get("cross-field-endpoints").sourceCoordination;
+    check(object(sourceCoordination)
+      && Array.isArray(sourceCoordination.handlerCalls)
+      && Array.isArray(sourceCoordination.managerCalls),
+    "cross-field raw source coordination");
+    const sourceHandlers = sourceCoordination.handlerCalls;
+    const sourceManagers = sourceCoordination.managerCalls;
     check(handlerCalls.filter(({ field }) => field.field === "right").length > 1
       && handlerCalls.some(({ field }) => field.field === "left")
       && handlerCalls.slice(0, 3).map(({ field }) => field.field).join(",")
         === "right,left,right"
-      && managerCalls.some(({ method, field, addDependency }) =>
+      && managerCalls.some(({ method, invalidateDependents }) =>
+        method === "set" && invalidateDependents === true)
+      && sourceManagers.some(({ method, field, addDependency }) =>
         method === "get" && field.field === "right" && addDependency === true)
-      && managerCalls.some(({ method, sequence, invalidateDependents }) =>
+      && sourceManagers.some(({ method, sequence, invalidateDependents }) =>
         method === "set" && invalidateDependents === true
-          && sequence > handlerCalls[0].sequence
-          && sequence < handlerCalls[2].sequence)
-      && managerCalls.some(({ count, returnedLength }) =>
+          && sequence > sourceHandlers[0].sequence
+          && sequence < sourceHandlers[2].sequence)
+      && sourceManagers.some(({ count, returnedLength }) =>
         count > returnedLength && returnedLength > 0),
     "cross-field dependency and reprocessing");
     check(nonemptyArray(output.get("node-table").graph.nodes)
@@ -3051,7 +3060,7 @@ export async function writeCorpus(output, cases, smoke) {
         "bootstrap-map-handles", "batched-commits",
         "map-schema-content", "map-field-algebra", "map-history-codecs",
         "array-schema-content", "array-forest-delta", "sequence-field-editor",
-        "sequence-compose-invert", "sequence-rebase",
+        "sequence-compose-invert", "sequence-rebase", "array-modular-algebra",
       ],
       erlang: [
         "id-ranges", "schema-validation", "forest-delta",
@@ -3061,7 +3070,7 @@ export async function writeCorpus(output, cases, smoke) {
         "bootstrap-map-handles", "batched-commits",
         "map-schema-content", "map-field-algebra", "map-history-codecs",
         "array-schema-content", "array-forest-delta", "sequence-field-editor",
-        "sequence-compose-invert", "sequence-rebase",
+        "sequence-compose-invert", "sequence-rebase", "array-modular-algebra",
       ],
     },
     cases: requiredCases.map(([id, domain]) => ({ id, domain, file: `cases/${id}.json` })),

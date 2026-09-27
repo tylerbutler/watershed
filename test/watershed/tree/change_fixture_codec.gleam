@@ -12,6 +12,7 @@ import watershed/tree/change
 import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/optional_field
+import watershed/tree/sequence_field
 import watershed/tree/types
 
 pub fn parse(value: Json) -> Result(JsonValue, String) {
@@ -404,6 +405,7 @@ fn field_json(value: change.FieldChange) -> Json {
       ])
     change.ValueField(value) -> concrete_json("Value", value)
     change.OptionalField(value) -> concrete_json("Optional", value)
+    change.SequenceField(value) -> sequence_json(value)
   }
 }
 
@@ -433,6 +435,84 @@ fn concrete_json(kind: String, value: optional_field.FieldChange) -> Json {
       }),
     ),
   ])
+}
+
+fn sequence_json(value: sequence_field.Changeset) -> Json {
+  json.object([
+    #("kind", json.string("Sequence")),
+    #(
+      "marks",
+      json.array(sequence_field.to_marks(value), fn(mark) {
+        json.object([
+          #("count", json.int(mark.count)),
+          #("cellId", nullable(mark.cell_id, atom_json)),
+          #("effect", sequence_effect_json(mark.effect)),
+          #("child", nullable(mark.child, atom_json)),
+        ])
+      }),
+    ),
+  ])
+}
+
+fn sequence_effect_json(value: sequence_field.Effect) -> Json {
+  case value {
+    sequence_field.Noop -> json.object([#("type", json.string("Noop"))])
+    sequence_field.Rename(id) ->
+      json.object([
+        #("type", json.string("Rename")),
+        #("idOverride", atom_json(id)),
+      ])
+    sequence_field.Attach(attach) ->
+      json.object([
+        #("type", json.string("Attach")),
+        #("attach", sequence_attach_json(attach)),
+      ])
+    sequence_field.Detach(detach) ->
+      json.object([
+        #("type", json.string("Detach")),
+        #("detach", sequence_detach_json(detach)),
+      ])
+    sequence_field.AttachAndDetach(attach, detach) ->
+      json.object([
+        #("type", json.string("AttachAndDetach")),
+        #("attach", sequence_attach_json(attach)),
+        #("detach", sequence_detach_json(detach)),
+      ])
+  }
+}
+
+fn sequence_attach_json(value: sequence_field.Attach) -> Json {
+  case value {
+    sequence_field.Insert(id) ->
+      json.object([
+        #("type", json.string("Insert")),
+        #("id", atom_json(id)),
+      ])
+    sequence_field.MoveIn(id, endpoint) ->
+      json.object([
+        #("type", json.string("MoveIn")),
+        #("id", atom_json(id)),
+        #("finalEndpoint", nullable(endpoint, atom_json)),
+      ])
+  }
+}
+
+fn sequence_detach_json(value: sequence_field.Detach) -> Json {
+  case value {
+    sequence_field.Remove(id, id_override) ->
+      json.object([
+        #("type", json.string("Remove")),
+        #("id", atom_json(id)),
+        #("idOverride", nullable(id_override, atom_json)),
+      ])
+    sequence_field.MoveOut(id, endpoint, id_override) ->
+      json.object([
+        #("type", json.string("MoveOut")),
+        #("id", atom_json(id)),
+        #("finalEndpoint", nullable(endpoint, atom_json)),
+        #("idOverride", nullable(id_override, atom_json)),
+      ])
+  }
 }
 
 fn register_json(value: optional_field.RegisterId) -> Json {
@@ -627,6 +707,8 @@ fn wire_fields(
           )
           Ok(#("ModularEditBuilder.Generic", array(children)))
         }
+        change.SequenceField(_) ->
+          Error("Sequence field V3 wire encoding is not implemented")
       })
       Ok(
         json.object([

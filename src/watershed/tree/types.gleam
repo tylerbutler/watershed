@@ -25,6 +25,15 @@ pub type Edit {
   ClearField(path: FieldPath)
   MapSet(path: FieldPath, key: String, value: TreeValue)
   MapDelete(path: FieldPath, key: String)
+  ArrayInsert(path: FieldPath, index: Int, values: List(TreeValue))
+  ArrayRemove(path: FieldPath, start: Int, end: Int)
+  ArrayMove(
+    source_path: FieldPath,
+    source_start: Int,
+    source_end: Int,
+    destination_path: FieldPath,
+    destination_gap: Int,
+  )
 }
 
 pub type TreeError {

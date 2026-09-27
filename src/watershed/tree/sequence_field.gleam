@@ -356,6 +356,24 @@ pub fn prune(
   from_marks(marks)
 }
 
+pub fn prune_with_state(
+  change: Changeset,
+  state: state,
+  prune_child: fn(AtomId, state) -> Result(#(Option(AtomId), state), TreeError),
+) -> Result(#(Changeset, state), TreeError) {
+  use #(marks, state) <- result.try(
+    list.try_fold(change.marks, #([], state), fn(output, mark) {
+      use #(child, state) <- result.try(case mark.child {
+        None -> Ok(#(None, output.1))
+        Some(child) -> prune_child(child, output.1)
+      })
+      Ok(#([Mark(..mark, child:), ..output.0], state))
+    }),
+  )
+  use change <- result.try(from_marks(list.reverse(marks)))
+  Ok(#(change, state))
+}
+
 pub fn relevant_removed_roots(
   change: Changeset,
   roots_from_child: fn(AtomId) -> Result(List(AtomId), TreeError),

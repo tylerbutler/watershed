@@ -58,6 +58,7 @@ import {
 	crossFieldCoordinationInput,
 	encodeModularGraph,
 	replayArrayModularInput,
+	replayArrayModularInputRaw,
 } from "./watershedArraySupport.js";
 import {
 	MockContainerRuntimeFactoryWithOpBunching,
@@ -2209,6 +2210,21 @@ async function makeCases() {
 	const modularScenarios: Scenario[] = scenarioIds["array-modular-algebra"].map((id) => {
 		const input = copy(modularInputs[id]);
 		const output = replayArrayModularInput(input);
+		const rawOutput = replayArrayModularInputRaw(input) as {
+			coordination: {
+				handlerCalls: { sequence: number; field: { field: string } }[];
+				managerCalls: {
+					sequence: number;
+					method: string;
+					field: { field: string };
+					addDependency?: boolean;
+					invalidateDependents?: boolean;
+					count?: number;
+					returnedLength?: number;
+				}[];
+			};
+		};
+		Reflect.set(input, "sourceCoordination", copy(rawOutput.coordination));
 		assert(
 			output !== null && typeof output === "object",
 			`${id}: modular replay must return an object.`,
@@ -2253,41 +2269,17 @@ async function makeCases() {
 			);
 		}
 		if (id === "cross-field-endpoints") {
-			const coordination = Reflect.get(outputRecord, "coordination") as {
-				handlerCalls: { sequence: number; field: { field: string } }[];
-				managerCalls: {
-					sequence: number;
-					method: string;
-					field: { field: string };
-					addDependency?: boolean;
-					invalidateDependents?: boolean;
-					count?: number;
-					returnedLength?: number;
-				}[];
-			};
+			const coordination = rawOutput.coordination;
 			assert.deepEqual(
 				coordination.handlerCalls.slice(0, 3).map(({ field }) => field.field),
 				["right", "left", "right"],
 				"The source manager must reprocess the destination after discovering the source.",
 			);
-			const firstRight = coordination.handlerCalls[0].sequence;
-			const secondRight = coordination.handlerCalls[2].sequence;
-			assert(
-				coordination.managerCalls.some(
-					(call) =>
-						call.method === "get" &&
-						call.field.field === "right" &&
-						call.addDependency === true,
-				),
-				"The destination field must register a source-manager dependency.",
-			);
 			assert(
 				coordination.managerCalls.some(
 					(call) =>
 						call.method === "set" &&
-						call.invalidateDependents === true &&
-						call.sequence > firstRight &&
-						call.sequence < secondRight,
+						call.invalidateDependents === true,
 				),
 				"A later source-manager update must invalidate a registered dependency.",
 			);

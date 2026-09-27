@@ -1,5 +1,6 @@
 //// Pure modular changes for the fixed SharedTree profile.
 
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/order
@@ -12,10 +13,15 @@ import watershed/tree/schema.{
   type Cardinality, type FieldSchema, type StoredSchema, FieldSchema, Optional,
   Required,
 }
+import watershed/tree/sequence_field
+import watershed/tree/sequence_field/compose as sequence_compose
+import watershed/tree/sequence_field/invert as sequence_invert
+import watershed/tree/sequence_field/moves
+import watershed/tree/sequence_field/rebase as sequence_rebase
 import watershed/tree/types.{
-  type AtomId, type Edit, type FieldPath, type TreeError, type TreeValue, AtomId,
-  ClearField, CorruptData, InvalidEdit, InvalidHistory, MapDelete, MapSet,
-  ObjectValue, SetField,
+  type AtomId, type Edit, type FieldPath, type TreeError, type TreeValue,
+  ArrayInsert, ArrayMove, ArrayRemove, AtomId, ClearField, CorruptData,
+  InvalidEdit, InvalidHistory, MapDelete, MapSet, ObjectValue, SetField,
 }
 
 const max_safe_integer = 9_007_199_254_740_991
@@ -27,6 +33,7 @@ pub type RevisionInfo {
 pub type FieldChange {
   ValueField(optional_field.FieldChange)
   OptionalField(optional_field.FieldChange)
+  SequenceField(sequence_field.Changeset)
   GenericField(children: List(#(Int, AtomId)))
 }
 
@@ -36,6 +43,10 @@ pub type NodeChange {
 
 pub type ParentField {
   ParentField(parent: Option(AtomId), field: String)
+}
+
+pub type CrossFieldKey {
+  CrossFieldKey(key: moves.Key, count: Int, field: moves.FieldId)
 }
 
 pub type ChangeData {
@@ -57,7 +68,11 @@ pub opaque type IdentityOrder {
 }
 
 pub opaque type Changeset {
-  Changeset(data: ChangeData, identity_order: IdentityOrder)
+  Changeset(
+    data: ChangeData,
+    identity_order: IdentityOrder,
+    cross_field_keys: List(CrossFieldKey),
+  )
 }
 
 pub type TaggedChange {
@@ -76,11 +91,30 @@ type Ownership {
   Ownership(id: AtomId, parent: ParentField)
 }
 
+type Branch {
+  Branch(
+    field: String,
+    index: Int,
+    top: AtomId,
+    nodes: List(#(AtomId, NodeChange)),
+    parents: List(#(AtomId, ParentField)),
+    next_id: Int,
+  )
+}
+
 type DeltaParts {
   DeltaParts(
     fields: List(#(String, forest.FieldDelta)),
     global: List(forest.DetachedChange),
     rename: List(forest.Rename),
+  )
+}
+
+type ComposeWork {
+  ComposeWork(
+    field: moves.FieldId,
+    first: sequence_field.Changeset,
+    second: sequence_field.Changeset,
   )
 }
 
@@ -92,6 +126,10 @@ type ComposeState {
     first: ChangeData,
     second: ChangeData,
     pairs: List(#(AtomId, AtomId)),
+    algebra: sequence_field.AlgebraContext,
+    move_context: moves.Context,
+    work: List(ComposeWork),
+    field_results: List(#(moves.FieldId, FieldChange)),
   )
 }
 
@@ -121,7 +159,33 @@ type RebaseState {
     base: ChangeData,
     base_to_rebased: List(#(AtomId, AtomId)),
     pairs: List(#(AtomId, AtomId)),
+    algebra: sequence_field.AlgebraContext,
+    move_context: moves.Context,
+    work: List(RebaseWork),
+    field_results: List(#(moves.FieldId, FieldChange)),
   )
+}
+
+type RebaseWork {
+  RebaseWork(
+    field: moves.FieldId,
+    authored: sequence_field.Changeset,
+    base: sequence_field.Changeset,
+  )
+}
+
+type InvertState {
+  InvertState(
+    aliases: sequence_field.AliasContext,
+    move_context: moves.Context,
+    watermark: Int,
+    work: List(InvertWork),
+    field_results: List(#(moves.FieldId, FieldChange)),
+  )
+}
+
+type InvertWork {
+  InvertWork(field: moves.FieldId, change: sequence_field.Changeset)
 }
 
 pub fn empty() -> Changeset {
@@ -138,6 +202,7 @@ pub fn empty() -> Changeset {
       refreshers: [],
     ),
     IdentityOrder([]),
+    [],
   )
 }
 
@@ -175,7 +240,8 @@ pub fn from_data(
   use _ <- result.try(validate_data(data))
   use _ <- result.try(validate_data_identity_order(data, identity_order))
   use data <- result.try(sort_atom_tables(data, identity_order))
-  Ok(Changeset(data, identity_order))
+  use keys <- result.try(derived_cross_field_keys(data, identity_order))
+  Ok(Changeset(data, identity_order, keys))
 }
 
 pub fn with_identity_order(
@@ -186,7 +252,8 @@ pub fn with_identity_order(
     change.identity_order,
     identity_order,
   ))
-  from_data(change.data, identity_order)
+  use rebound <- result.try(from_data(change.data, identity_order))
+  Ok(Changeset(..rebound, cross_field_keys: change.cross_field_keys))
 }
 
 pub fn rebind_identity_order(
@@ -197,7 +264,8 @@ pub fn rebind_identity_order(
   let IdentityOrder(entries) = identity_order
   let used = list.append(tagged_revisions, data_identity_revisions(change.data))
   let entries = list.filter(entries, fn(entry) { list.contains(used, entry.0) })
-  from_data(change.data, IdentityOrder(entries))
+  use rebound <- result.try(from_data(change.data, IdentityOrder(entries)))
+  Ok(Changeset(..rebound, cross_field_keys: change.cross_field_keys))
 }
 
 pub fn identity_revisions(change: Changeset) -> List(StableId) {
@@ -253,6 +321,9 @@ fn field_identity_revisions(field: FieldChange) -> List(StableId) {
   case field {
     GenericField(children) ->
       list.flat_map(children, fn(child) { atom_identity_revisions(child.1) })
+    SequenceField(change) ->
+      sequence_field.to_marks(change)
+      |> list.flat_map(sequence_mark_identity_revisions)
     ValueField(change) | OptionalField(change) -> {
       let optional_field.FieldChange(moves, children, replacement) = change
       let moves =
@@ -285,6 +356,66 @@ fn field_identity_revisions(field: FieldChange) -> List(StableId) {
   }
 }
 
+fn sequence_mark_identity_revisions(
+  mark: sequence_field.Mark,
+) -> List(StableId) {
+  let effect = case mark.effect {
+    sequence_field.Noop -> []
+    sequence_field.Rename(id) -> atom_identity_revisions(id)
+    sequence_field.Attach(attach) -> attach_identity_revisions(attach)
+    sequence_field.Detach(detach) -> detach_identity_revisions(detach)
+    sequence_field.AttachAndDetach(attach, detach) ->
+      list.append(
+        attach_identity_revisions(attach),
+        detach_identity_revisions(detach),
+      )
+  }
+  list.flatten([
+    case mark.cell_id {
+      None -> []
+      Some(id) -> atom_identity_revisions(id)
+    },
+    effect,
+    case mark.child {
+      None -> []
+      Some(id) -> atom_identity_revisions(id)
+    },
+  ])
+}
+
+fn attach_identity_revisions(attach: sequence_field.Attach) -> List(StableId) {
+  case attach {
+    sequence_field.Insert(id) -> atom_identity_revisions(id)
+    sequence_field.MoveIn(id, endpoint) ->
+      list.append(atom_identity_revisions(id), case endpoint {
+        None -> []
+        Some(id) -> atom_identity_revisions(id)
+      })
+  }
+}
+
+fn detach_identity_revisions(detach: sequence_field.Detach) -> List(StableId) {
+  case detach {
+    sequence_field.Remove(id, id_override) ->
+      list.append(atom_identity_revisions(id), case id_override {
+        None -> []
+        Some(id) -> atom_identity_revisions(id)
+      })
+    sequence_field.MoveOut(id, endpoint, id_override) ->
+      list.flatten([
+        atom_identity_revisions(id),
+        case endpoint {
+          None -> []
+          Some(id) -> atom_identity_revisions(id)
+        },
+        case id_override {
+          None -> []
+          Some(id) -> atom_identity_revisions(id)
+        },
+      ])
+  }
+}
+
 fn atom_identity_revisions(atom: AtomId) -> List(StableId) {
   case atom.revision {
     None -> []
@@ -296,11 +427,206 @@ pub fn to_data(change: Changeset) -> ChangeData {
   change.data
 }
 
+pub fn cross_field_keys(
+  change: Changeset,
+) -> Result(List(CrossFieldKey), TreeError) {
+  Ok(change.cross_field_keys)
+}
+
+fn derived_cross_field_keys(
+  data: ChangeData,
+  identity_order: IdentityOrder,
+) -> Result(List(CrossFieldKey), TreeError) {
+  use root <- result.try(cross_field_keys_from_fields(data.fields, None))
+  use nested <- result.try(
+    list.try_fold(data.nodes, [], fn(keys, entry) {
+      let NodeChange(fields) = entry.1
+      use found <- result.try(cross_field_keys_from_fields(
+        fields,
+        Some(entry.0),
+      ))
+      Ok(list.append(keys, found))
+    }),
+  )
+  use keys <- result.try(sort_cross_field_keys(
+    list.append(root, nested),
+    identity_order,
+  ))
+  Ok(coalesce_cross_field_keys(keys))
+}
+
+fn coalesce_cross_field_keys(keys: List(CrossFieldKey)) -> List(CrossFieldKey) {
+  case keys {
+    [] -> []
+    [first] -> [first]
+    [first, second, ..rest] -> {
+      let CrossFieldKey(first_key, first_count, first_field) = first
+      let CrossFieldKey(second_key, second_count, second_field) = second
+      let moves.Key(first_side, first_revision, first_local_id) = first_key
+      let moves.Key(second_side, second_revision, second_local_id) = second_key
+      case
+        first_side == second_side
+        && first_revision == second_revision
+        && first_field == second_field
+        && first_local_id + first_count == second_local_id
+      {
+        True ->
+          coalesce_cross_field_keys([
+            CrossFieldKey(first_key, first_count + second_count, first_field),
+            ..rest
+          ])
+        False -> [first, ..coalesce_cross_field_keys([second, ..rest])]
+      }
+    }
+  }
+}
+
+fn cross_field_keys_from_fields(
+  fields: List(#(String, FieldChange)),
+  parent: Option(AtomId),
+) -> Result(List(CrossFieldKey), TreeError) {
+  list.try_fold(fields, [], fn(keys, entry) {
+    case entry.1 {
+      SequenceField(change) ->
+        Ok(list.append(
+          keys,
+          sequence_field.to_marks(change)
+            |> list.flat_map(fn(mark) {
+              sequence_effect_keys(
+                mark.effect,
+                mark.count,
+                moves.FieldId(parent, entry.0),
+              )
+            }),
+        ))
+      _ -> Ok(keys)
+    }
+  })
+}
+
+fn sequence_effect_keys(
+  effect: sequence_field.Effect,
+  count: Int,
+  field: moves.FieldId,
+) -> List(CrossFieldKey) {
+  case effect {
+    sequence_field.Noop | sequence_field.Rename(_) -> []
+    sequence_field.Attach(sequence_field.MoveIn(id, _)) -> [
+      CrossFieldKey(
+        moves.Key(moves.Destination, id.revision, id.local_id),
+        count,
+        field,
+      ),
+    ]
+    sequence_field.Detach(sequence_field.MoveOut(id, _, _)) -> [
+      CrossFieldKey(
+        moves.Key(moves.Source, id.revision, id.local_id),
+        count,
+        field,
+      ),
+    ]
+    sequence_field.AttachAndDetach(attach, detach) ->
+      list.append(
+        sequence_effect_keys(sequence_field.Attach(attach), count, field),
+        sequence_effect_keys(sequence_field.Detach(detach), count, field),
+      )
+    _ -> []
+  }
+}
+
+fn sort_cross_field_keys(
+  keys: List(CrossFieldKey),
+  identity_order: IdentityOrder,
+) -> Result(List(CrossFieldKey), TreeError) {
+  list.try_fold(keys, [], fn(sorted, key) {
+    insert_cross_field_key(key, sorted, identity_order)
+  })
+}
+
+fn insert_cross_field_key(
+  key: CrossFieldKey,
+  keys: List(CrossFieldKey),
+  identity_order: IdentityOrder,
+) -> Result(List(CrossFieldKey), TreeError) {
+  case keys {
+    [] -> Ok([key])
+    [first, ..rest] -> {
+      use compared <- result.try(compare_move_keys(
+        key.key,
+        first.key,
+        identity_order,
+      ))
+      case compared {
+        order.Lt | order.Eq -> Ok([key, ..keys])
+        order.Gt -> {
+          use rest <- result.try(insert_cross_field_key(
+            key,
+            rest,
+            identity_order,
+          ))
+          Ok([first, ..rest])
+        }
+      }
+    }
+  }
+}
+
+fn compare_move_keys(
+  left: moves.Key,
+  right: moves.Key,
+  identity_order: IdentityOrder,
+) -> Result(order.Order, TreeError) {
+  case left.side, right.side {
+    moves.Source, moves.Destination -> Ok(order.Lt)
+    moves.Destination, moves.Source -> Ok(order.Gt)
+    _, _ ->
+      compare_atom(
+        AtomId(left.revision, left.local_id),
+        AtomId(right.revision, right.local_id),
+        identity_order,
+      )
+  }
+}
+
 pub fn rebase_context(
   revisions: List(RevisionInfo),
 ) -> Result(RebaseContext, TreeError) {
   use _ <- result.try(validate_revisions(revisions))
   Ok(RebaseContext(revisions))
+}
+
+fn algebra_context(
+  identity_order: IdentityOrder,
+  revisions: List(RevisionInfo),
+) -> sequence_field.AlgebraContext {
+  sequence_field.AlgebraContext(
+    compare_atoms: fn(left, right) { compare_atom(left, right, identity_order) },
+    revision_index: fn(revision) {
+      Ok(revision_position(revisions, revision, 0))
+    },
+    rollback_of: fn(revision) {
+      Ok(
+        revision_info(revisions, revision)
+        |> option.map(fn(info) { info.rollback_of })
+        |> option.flatten,
+      )
+    },
+  )
+}
+
+fn revision_position(
+  revisions: List(RevisionInfo),
+  revision: StableId,
+  index: Int,
+) -> Option(Int) {
+  case revisions {
+    [] -> None
+    [info, ..rest] ->
+      case info.revision == revision {
+        True -> Some(index)
+        False -> revision_position(rest, revision, index + 1)
+      }
+  }
 }
 
 pub fn edit(
@@ -327,6 +653,68 @@ pub fn edit_from(
     "change allocator",
     "invalid next identifier",
   ))
+  case operation {
+    ArrayInsert(path, index, values) ->
+      author_array_insert(
+        schema,
+        forest,
+        revision,
+        path,
+        index,
+        values,
+        identity_order,
+        first_local_id,
+      )
+    ArrayRemove(path, start, end) ->
+      author_array_remove(
+        schema,
+        forest,
+        revision,
+        path,
+        start,
+        end,
+        identity_order,
+        first_local_id,
+      )
+    ArrayMove(
+      source_path,
+      source_start,
+      source_end,
+      destination_path,
+      destination_gap,
+    ) ->
+      author_array_move(
+        schema,
+        forest,
+        revision,
+        source_path,
+        source_start,
+        source_end,
+        destination_path,
+        destination_gap,
+        identity_order,
+        first_local_id,
+      )
+    _ ->
+      author_scalar_edit(
+        schema,
+        forest,
+        revision,
+        operation,
+        identity_order,
+        first_local_id,
+      )
+  }
+}
+
+fn author_scalar_edit(
+  schema: StoredSchema,
+  forest: forest.Forest,
+  revision: StableId,
+  operation: Edit,
+  identity_order: IdentityOrder,
+  first_local_id: Int,
+) -> Result(Changeset, TreeError) {
   use #(field_schema, parent_path, field, was_empty, value, is_root) <- result.try(
     operation_destination(schema, forest, operation),
   )
@@ -338,9 +726,12 @@ pub fn edit_from(
     revision,
     first_local_id,
   ))
+  use parent_steps <- result.try(case is_root {
+    True -> Ok([])
+    False -> forest.node_path(forest, parent_path)
+  })
   use #(fields, nodes, parents, max_local_id) <- result.try(wrap_ancestors(
-    is_root,
-    parent_path,
+    parent_steps,
     field,
     field_change,
     revision,
@@ -367,7 +758,31 @@ pub fn validate_edit(
   forest: forest.Forest,
   operation: Edit,
 ) -> Result(Nil, TreeError) {
-  use _ <- result.try(operation_destination(schema, forest, operation))
+  use _ <- result.try(case operation {
+    ArrayInsert(path, index, values) ->
+      validate_array_insert(schema, forest, path, index, values)
+    ArrayRemove(path, start, end) ->
+      validate_array_remove(forest, path, start, end)
+    ArrayMove(
+      source_path,
+      source_start,
+      source_end,
+      destination_path,
+      destination_gap,
+    ) ->
+      validate_array_move(
+        schema,
+        forest,
+        source_path,
+        source_start,
+        source_end,
+        destination_path,
+        destination_gap,
+      )
+    _ ->
+      operation_destination(schema, forest, operation)
+      |> result.map(fn(_) { Nil })
+  })
   Ok(Nil)
 }
 
@@ -418,7 +833,665 @@ fn operation_destination(
       )
       Ok(#(field_schema, parent_path, field, was_empty, None, False))
     }
+    ArrayInsert(_, _, _) | ArrayRemove(_, _, _) | ArrayMove(_, _, _, _, _) ->
+      Error(types.UnsupportedFeature(
+        "field edit",
+        "array operations are not authored by scalar dispatch",
+      ))
   }
+}
+
+fn validate_array_insert(
+  stored: StoredSchema,
+  visible: forest.Forest,
+  path: FieldPath,
+  index: Int,
+  values: List(TreeValue),
+) -> Result(Nil, TreeError) {
+  use array_type <- result.try(forest.array_type(visible, path))
+  use current <- result.try(forest.array_values(visible, path))
+  use _ <- result.try(validate_gap(path, index, list.length(current)))
+  schema.validate_array_elements(stored, array_type, values)
+}
+
+fn validate_array_remove(
+  visible: forest.Forest,
+  path: FieldPath,
+  start: Int,
+  end: Int,
+) -> Result(Nil, TreeError) {
+  use current <- result.try(forest.array_values(visible, path))
+  validate_half_open_range(path, start, end, list.length(current))
+}
+
+fn validate_array_move(
+  stored: StoredSchema,
+  visible: forest.Forest,
+  source_path: FieldPath,
+  source_start: Int,
+  source_end: Int,
+  destination_path: FieldPath,
+  destination_gap: Int,
+) -> Result(Nil, TreeError) {
+  use source <- result.try(forest.array_values(visible, source_path))
+  use _ <- result.try(validate_half_open_range(
+    source_path,
+    source_start,
+    source_end,
+    list.length(source),
+  ))
+  use destination <- result.try(forest.array_values(visible, destination_path))
+  use _ <- result.try(validate_gap(
+    destination_path,
+    destination_gap,
+    list.length(destination),
+  ))
+  let moved =
+    source |> list.drop(source_start) |> list.take(source_end - source_start)
+  use destination_type <- result.try(forest.array_type(
+    visible,
+    destination_path,
+  ))
+  use _ <- result.try(schema.validate_array_elements(
+    stored,
+    destination_type,
+    moved,
+  ))
+  case source_path == destination_path {
+    True -> Ok(Nil)
+    False -> {
+      use source_steps <- result.try(forest.node_path(visible, source_path))
+      use destination_steps <- result.try(forest.node_path(
+        visible,
+        destination_path,
+      ))
+      reject_move_cycle(
+        source_path,
+        source_steps,
+        source_start,
+        source_end,
+        destination_steps,
+      )
+    }
+  }
+}
+
+fn validate_gap(path: FieldPath, index: Int, length: Int) {
+  case index >= 0 && index <= max_safe_integer && index <= length {
+    True -> Ok(Nil)
+    False -> Error(InvalidEdit(path, "array gap is outside the valid range"))
+  }
+}
+
+fn validate_half_open_range(
+  path: FieldPath,
+  start: Int,
+  end: Int,
+  length: Int,
+) {
+  case
+    start >= 0
+    && start <= max_safe_integer
+    && end >= start
+    && end <= max_safe_integer
+    && end <= length
+  {
+    True -> Ok(Nil)
+    False -> Error(InvalidEdit(path, "array range is outside the valid range"))
+  }
+}
+
+fn author_array_insert(
+  stored: StoredSchema,
+  visible: forest.Forest,
+  revision: StableId,
+  path: FieldPath,
+  index: Int,
+  values: List(TreeValue),
+  identity_order: IdentityOrder,
+  first_local_id: Int,
+) -> Result(Changeset, TreeError) {
+  use _ <- result.try(validate_array_insert(
+    stored,
+    visible,
+    path,
+    index,
+    values,
+  ))
+  let count = list.length(values)
+  use #(first, next_id) <- result.try(allocate_range(
+    revision,
+    first_local_id,
+    count,
+  ))
+  use field <- result.try(sequence_field.insert(
+    index,
+    count,
+    first,
+    Some(revision),
+  ))
+  author_array_field(
+    visible,
+    path,
+    SequenceField(field),
+    revision,
+    next_id,
+    case values {
+      [] -> []
+      _ -> [forest.Build(first, values)]
+    },
+    identity_order,
+  )
+}
+
+fn author_array_remove(
+  _stored: StoredSchema,
+  visible: forest.Forest,
+  revision: StableId,
+  path: FieldPath,
+  start: Int,
+  end: Int,
+  identity_order: IdentityOrder,
+  first_local_id: Int,
+) -> Result(Changeset, TreeError) {
+  use _ <- result.try(validate_array_remove(visible, path, start, end))
+  let count = end - start
+  use #(first, next_id) <- result.try(allocate_range(
+    revision,
+    first_local_id,
+    count,
+  ))
+  use field <- result.try(sequence_field.remove(start, count, first))
+  author_array_field(
+    visible,
+    path,
+    SequenceField(field),
+    revision,
+    next_id,
+    [],
+    identity_order,
+  )
+}
+
+fn author_array_move(
+  stored: StoredSchema,
+  visible: forest.Forest,
+  revision: StableId,
+  source_path: FieldPath,
+  source_start: Int,
+  source_end: Int,
+  destination_path: FieldPath,
+  destination_gap: Int,
+  identity_order: IdentityOrder,
+  first_local_id: Int,
+) -> Result(Changeset, TreeError) {
+  use _ <- result.try(validate_array_move(
+    stored,
+    visible,
+    source_path,
+    source_start,
+    source_end,
+    destination_path,
+    destination_gap,
+  ))
+  let count = source_end - source_start
+  case source_path == destination_path {
+    False -> {
+      use source_steps <- result.try(forest.node_path(visible, source_path))
+      use destination_steps <- result.try(forest.node_path(
+        visible,
+        destination_path,
+      ))
+      use _ <- result.try(reject_move_cycle(
+        source_path,
+        source_steps,
+        source_start,
+        source_end,
+        destination_steps,
+      ))
+      use #(detach, next_id) <- result.try(allocate_range(
+        revision,
+        first_local_id,
+        count,
+      ))
+      use #(attach, next_id) <- result.try(allocate_range(
+        revision,
+        next_id,
+        count,
+      ))
+      use source <- result.try(sequence_field.move_out(
+        source_start,
+        count,
+        detach,
+      ))
+      use destination <- result.try(sequence_field.move_in(
+        destination_gap,
+        count,
+        detach,
+        attach,
+      ))
+      author_cross_array_fields(
+        source_steps,
+        SequenceField(source),
+        destination_steps,
+        SequenceField(destination),
+        revision,
+        next_id,
+        identity_order,
+      )
+    }
+    True -> {
+      use #(detach, next_id) <- result.try(allocate_range(
+        revision,
+        first_local_id,
+        count,
+      ))
+      use #(attach, next_id) <- result.try(allocate_range(
+        revision,
+        next_id,
+        count,
+      ))
+      use field <- result.try(sequence_field.move(
+        source_start,
+        count,
+        destination_gap,
+        detach,
+        attach,
+      ))
+      author_array_field(
+        visible,
+        source_path,
+        SequenceField(field),
+        revision,
+        next_id,
+        [],
+        identity_order,
+      )
+    }
+  }
+}
+
+fn reject_move_cycle(
+  source_path: FieldPath,
+  source_steps: List(forest.FieldStep),
+  source_start: Int,
+  source_end: Int,
+  destination_steps: List(forest.FieldStep),
+) -> Result(Nil, TreeError) {
+  case drop_step_prefix(destination_steps, source_steps) {
+    Some([forest.FieldStep("", index), ..])
+      if index >= source_start && index < source_end
+    ->
+      Error(InvalidEdit(source_path, "move destination is inside moved content"))
+    _ -> Ok(Nil)
+  }
+}
+
+fn drop_step_prefix(
+  steps: List(forest.FieldStep),
+  prefix: List(forest.FieldStep),
+) -> Option(List(forest.FieldStep)) {
+  case steps, prefix {
+    _, [] -> Some(steps)
+    [step, ..steps], [expected, ..prefix] if step == expected ->
+      drop_step_prefix(steps, prefix)
+    _, _ -> None
+  }
+}
+
+fn author_cross_array_fields(
+  source_steps: List(forest.FieldStep),
+  source: FieldChange,
+  destination_steps: List(forest.FieldStep),
+  destination: FieldChange,
+  revision: StableId,
+  next_id: Int,
+  identity_order: IdentityOrder,
+) -> Result(Changeset, TreeError) {
+  let #(common, source_rest, destination_rest) =
+    split_common_steps(source_steps, destination_steps, [])
+  case source_rest, destination_rest {
+    [], [] ->
+      Error(CorruptData("array move", "distinct array paths resolved equally"))
+    [_source, ..], [] ->
+      author_ancestor_array_fields(
+        common,
+        destination,
+        source_rest,
+        source,
+        revision,
+        next_id,
+        identity_order,
+      )
+    [], [_destination, ..] ->
+      author_ancestor_array_fields(
+        common,
+        source,
+        destination_rest,
+        destination,
+        revision,
+        next_id,
+        identity_order,
+      )
+    _, _ ->
+      author_sibling_array_fields(
+        common,
+        source_rest,
+        source,
+        destination_rest,
+        destination,
+        revision,
+        next_id,
+        identity_order,
+      )
+  }
+}
+
+fn author_sibling_array_fields(
+  common: List(forest.FieldStep),
+  first_steps: List(forest.FieldStep),
+  first: FieldChange,
+  second_steps: List(forest.FieldStep),
+  second: FieldChange,
+  revision: StableId,
+  next_id: Int,
+  identity_order: IdentityOrder,
+) -> Result(Changeset, TreeError) {
+  use first_branch <- result.try(build_branch(
+    first_steps,
+    "",
+    first,
+    revision,
+    next_id,
+  ))
+  use second_branch <- result.try(build_branch(
+    second_steps,
+    "",
+    second,
+    revision,
+    first_branch.next_id,
+  ))
+  use branch_fields <- result.try(merge_branch_fields(
+    first_branch,
+    second_branch,
+  ))
+  use #(common_id, next_id) <- result.try(allocate(
+    revision,
+    second_branch.next_id,
+  ))
+  let nodes =
+    list.flatten([
+      first_branch.nodes,
+      second_branch.nodes,
+      [#(common_id, NodeChange(branch_fields))],
+    ])
+  let parents =
+    list.flatten([
+      first_branch.parents,
+      second_branch.parents,
+      [
+        #(first_branch.top, ParentField(Some(common_id), first_branch.field)),
+        #(second_branch.top, ParentField(Some(common_id), second_branch.field)),
+      ],
+    ])
+  finish_cross_array_graph(
+    common,
+    common_id,
+    nodes,
+    parents,
+    revision,
+    next_id,
+    identity_order,
+  )
+}
+
+fn author_ancestor_array_fields(
+  common: List(forest.FieldStep),
+  direct: FieldChange,
+  descendant_steps: List(forest.FieldStep),
+  descendant: FieldChange,
+  revision: StableId,
+  next_id: Int,
+  identity_order: IdentityOrder,
+) -> Result(Changeset, TreeError) {
+  use branch <- result.try(build_branch(
+    descendant_steps,
+    "",
+    descendant,
+    revision,
+    next_id,
+  ))
+  use direct <- result.try(case direct {
+    SequenceField(sequence) if branch.field == "" ->
+      sequence_with_child(sequence, branch.index, branch.top)
+      |> result.map(SequenceField)
+    _ ->
+      Error(CorruptData(
+        "array move",
+        "ancestor array branch is not a sequence child",
+      ))
+  })
+  use #(common_id, next_id) <- result.try(allocate(revision, branch.next_id))
+  finish_cross_array_graph(
+    common,
+    common_id,
+    list.append(branch.nodes, [#(common_id, NodeChange([#("", direct)]))]),
+    list.append(branch.parents, [
+      #(branch.top, ParentField(Some(common_id), "")),
+    ]),
+    revision,
+    next_id,
+    identity_order,
+  )
+}
+
+fn finish_cross_array_graph(
+  common: List(forest.FieldStep),
+  common_id: AtomId,
+  nodes: List(#(AtomId, NodeChange)),
+  parents: List(#(AtomId, ParentField)),
+  revision: StableId,
+  next_id: Int,
+  identity_order: IdentityOrder,
+) -> Result(Changeset, TreeError) {
+  use #(top, nodes, parents, next_id) <- result.try(wrap_parent_fields(
+    list.reverse(common),
+    common_id,
+    revision,
+    next_id,
+    nodes,
+    parents,
+  ))
+  let assert [forest.FieldStep(root_field, root_index), ..] = common
+  from_data(
+    ChangeData(
+      max_local_id: next_id - 1,
+      revisions: [RevisionInfo(revision, None)],
+      fields: [#(root_field, GenericField([#(root_index, top)]))],
+      nodes: nodes,
+      parents: list.append(parents, [
+        #(top, ParentField(None, root_field)),
+      ]),
+      aliases: [],
+      builds: [],
+      destroys: [],
+      refreshers: [],
+    ),
+    identity_order,
+  )
+}
+
+fn sequence_with_child(
+  change: sequence_field.Changeset,
+  index: Int,
+  child: AtomId,
+) -> Result(sequence_field.Changeset, TreeError) {
+  use marks <- result.try(
+    add_sequence_child(sequence_field.to_marks(change), index, 0, child, []),
+  )
+  sequence_field.from_marks(marks)
+}
+
+fn add_sequence_child(
+  marks: List(sequence_field.Mark),
+  index: Int,
+  position: Int,
+  child: AtomId,
+  output: List(sequence_field.Mark),
+) -> Result(List(sequence_field.Mark), TreeError) {
+  case marks {
+    [] -> {
+      let output = case index - position {
+        0 -> output
+        gap -> [
+          sequence_field.Mark(gap, None, sequence_field.Noop, None),
+          ..output
+        ]
+      }
+      Ok(
+        list.reverse([
+          sequence_field.Mark(1, None, sequence_field.Noop, Some(child)),
+          ..output
+        ]),
+      )
+    }
+    [mark, ..rest] -> {
+      let length = sequence_field.input_length(mark)
+      case length == 0 || index >= position + length {
+        True ->
+          add_sequence_child(rest, index, position + length, child, [
+            mark,
+            ..output
+          ])
+        False ->
+          case mark.effect, mark.cell_id, mark.child {
+            sequence_field.Noop, None, None -> {
+              let before = index - position
+              let after = length - before - 1
+              let output = case before {
+                0 -> output
+                _ -> [
+                  sequence_field.Mark(before, None, sequence_field.Noop, None),
+                  ..output
+                ]
+              }
+              let output = [
+                sequence_field.Mark(1, None, sequence_field.Noop, Some(child)),
+                ..output
+              ]
+              let output = case after {
+                0 -> output
+                _ -> [
+                  sequence_field.Mark(after, None, sequence_field.Noop, None),
+                  ..output
+                ]
+              }
+              Ok(list.append(list.reverse(output), rest))
+            }
+            _, _, _ ->
+              Error(CorruptData(
+                "array move",
+                "ancestor child overlaps an effectful sequence mark",
+              ))
+          }
+      }
+    }
+  }
+}
+
+fn split_common_steps(
+  left: List(forest.FieldStep),
+  right: List(forest.FieldStep),
+  common: List(forest.FieldStep),
+) -> #(List(forest.FieldStep), List(forest.FieldStep), List(forest.FieldStep)) {
+  case left, right {
+    [left_step, ..left], [right_step, ..right] if left_step == right_step ->
+      split_common_steps(left, right, [left_step, ..common])
+    _, _ -> #(list.reverse(common), left, right)
+  }
+}
+
+fn build_branch(
+  steps: List(forest.FieldStep),
+  field: String,
+  field_change: FieldChange,
+  revision: StableId,
+  next_id: Int,
+) -> Result(Branch, TreeError) {
+  let assert [forest.FieldStep(branch_field, branch_index), ..] = steps
+  use #(leaf, next_id) <- result.try(allocate(revision, next_id))
+  use #(top, nodes, parents, next_id) <- result.try(
+    wrap_parent_fields(
+      list.reverse(steps),
+      leaf,
+      revision,
+      next_id,
+      [#(leaf, NodeChange([#(field, field_change)]))],
+      [],
+    ),
+  )
+  Ok(Branch(branch_field, branch_index, top, nodes, parents, next_id))
+}
+
+fn merge_branch_fields(
+  first: Branch,
+  second: Branch,
+) -> Result(List(#(String, FieldChange)), TreeError) {
+  case first.field == second.field {
+    False ->
+      Ok([
+        #(first.field, GenericField([#(first.index, first.top)])),
+        #(second.field, GenericField([#(second.index, second.top)])),
+      ])
+    True ->
+      case first.index == second.index {
+        True ->
+          Error(CorruptData("array move", "divergent paths have the same child"))
+        False ->
+          Ok([
+            #(
+              first.field,
+              GenericField([
+                #(first.index, first.top),
+                #(second.index, second.top),
+              ]),
+            ),
+          ])
+      }
+  }
+}
+
+fn author_array_field(
+  visible: forest.Forest,
+  path: FieldPath,
+  field_change: FieldChange,
+  revision: StableId,
+  next_id: Int,
+  builds: List(forest.Build),
+  identity_order: IdentityOrder,
+) -> Result(Changeset, TreeError) {
+  use steps <- result.try(forest.node_path(visible, path))
+  use #(fields, nodes, parents, max_local_id) <- result.try(wrap_ancestors(
+    steps,
+    "",
+    field_change,
+    revision,
+    next_id,
+  ))
+  from_data(
+    ChangeData(
+      max_local_id: max_local_id,
+      revisions: [RevisionInfo(revision, None)],
+      fields: fields,
+      nodes: nodes,
+      parents: parents,
+      aliases: [],
+      builds: builds,
+      destroys: [],
+      refreshers: [],
+    ),
+    identity_order,
+  )
 }
 
 pub fn into_delta(change: TaggedChange) -> Result(forest.Delta, TreeError) {
@@ -436,21 +1509,30 @@ pub fn into_delta(change: TaggedChange) -> Result(forest.Delta, TreeError) {
 }
 
 pub fn compose(changes: List(TaggedChange)) -> Result(Changeset, TreeError) {
+  compose_with_trace(changes) |> result.map(fn(output) { output.0 })
+}
+
+pub fn compose_with_trace(
+  changes: List(TaggedChange),
+) -> Result(#(Changeset, List(moves.TraceEvent)), TreeError) {
   let #(revisions, max_local_id) = composition_metadata(changes)
   use changes <- result.try(bind_composition_identity_order(changes))
-  use composed <- result.try(balanced_compose(
+  use #(composed, trace) <- result.try(balanced_compose(
     list.map(changes, fn(change) { change.change }),
     revisions,
     max_local_id,
   ))
-  from_data(
+  let cross_field_keys = composed.cross_field_keys
+  use composed <- result.try(from_data(
     ChangeData(
       ..composed.data,
       max_local_id: max_local_id,
       revisions: revisions,
     ),
     composed.identity_order,
-  )
+  ))
+  let composed = Changeset(..composed, cross_field_keys:)
+  Ok(#(composed, trace))
 }
 
 fn bind_composition_identity_order(
@@ -527,7 +1609,12 @@ pub fn replace_revisions(
       destroys: destroys,
       refreshers: refreshers,
     )
-  from_data(data, change.identity_order)
+  use replaced <- result.try(from_data(data, change.identity_order))
+  use cross_field_keys <- result.try(replace_cross_field_keys(
+    change.cross_field_keys,
+    state,
+  ))
+  Ok(Changeset(..replaced, cross_field_keys:))
 }
 
 pub fn prune(change: Changeset) -> Result(Changeset, TreeError) {
@@ -537,7 +1624,7 @@ pub fn prune(change: Changeset) -> Result(Changeset, TreeError) {
     PruneState(data.nodes, data.parents),
     data.aliases,
   ))
-  from_data(
+  use pruned <- result.try(from_data(
     ChangeData(
       ..data,
       fields: fields,
@@ -545,7 +1632,8 @@ pub fn prune(change: Changeset) -> Result(Changeset, TreeError) {
       parents: state.parents,
     ),
     change.identity_order,
-  )
+  ))
+  Ok(Changeset(..pruned, cross_field_keys: change.cross_field_keys))
 }
 
 pub fn relevant_removed_roots(
@@ -578,7 +1666,8 @@ pub fn update_refreshers(
     }),
   )
   let data = ChangeData(..change.data, refreshers: refreshers)
-  from_data(data, change.identity_order)
+  use updated <- result.try(from_data(data, change.identity_order))
+  Ok(Changeset(..updated, cross_field_keys: change.cross_field_keys))
 }
 
 pub fn invert(
@@ -586,6 +1675,15 @@ pub fn invert(
   is_rollback: Bool,
   inverse_revision: StableId,
 ) -> Result(Changeset, TreeError) {
+  invert_with_trace(change, is_rollback, inverse_revision)
+  |> result.map(fn(output) { output.0 })
+}
+
+pub fn invert_with_trace(
+  change: TaggedChange,
+  is_rollback: Bool,
+  inverse_revision: StableId,
+) -> Result(#(Changeset, List(moves.TraceEvent)), TreeError) {
   use _ <- result.try(require_identity_revision(
     change.change.identity_order,
     inverse_revision,
@@ -601,24 +1699,39 @@ pub fn invert(
     data.max_local_id,
     list.length(allocation_revisions),
   ))
-  use #(fields, watermark) <- result.try(invert_field_map(
+  use aliases <- result.try(
+    sequence_field.new_alias_context(
+      list.map(allocation_revisions, fn(info) {
+        #(Some(info.revision), data.max_local_id)
+      }),
+    ),
+  )
+  let state = InvertState(aliases, moves.new(), watermark, [], [])
+  use #(fields, state) <- result.try(invert_field_map(
     data.fields,
+    None,
     is_rollback,
     inverse_revision,
-    watermark,
+    state,
   ))
-  use #(nodes, watermark) <- result.try(
-    list.try_fold(data.nodes, #([], watermark), fn(output, entry) {
+  use #(nodes, state) <- result.try(
+    list.try_fold(data.nodes, #([], state), fn(output, entry) {
       let NodeChange(fields) = entry.1
-      use #(fields, watermark) <- result.try(invert_field_map(
+      use #(fields, state) <- result.try(invert_field_map(
         fields,
+        Some(entry.0),
         is_rollback,
         inverse_revision,
         output.1,
       ))
-      Ok(#(list.append(output.0, [#(entry.0, NodeChange(fields))]), watermark))
+      Ok(#(list.append(output.0, [#(entry.0, NodeChange(fields))]), state))
     }),
   )
+  use state <- result.try(
+    invert_invalidated(state, is_rollback, inverse_revision, []),
+  )
+  let fields = replace_field_results(fields, None, state.field_results)
+  let nodes = replace_node_field_results(nodes, state.field_results)
   use parents <- result.try(rebuild_parents(fields, nodes, data.aliases))
   let destroys = case is_rollback {
     True ->
@@ -629,7 +1742,10 @@ pub fn invert(
   }
   let inverted =
     ChangeData(
-      max_local_id: watermark,
+      max_local_id: int_max(
+        state.watermark,
+        sequence_field.alias_max_id(state.aliases),
+      ),
       revisions: [
         RevisionInfo(inverse_revision, case is_rollback {
           True -> change.revision
@@ -644,7 +1760,8 @@ pub fn invert(
       destroys: destroys,
       refreshers: [],
     )
-  from_data(inverted, change.change.identity_order)
+  use inverted <- result.try(from_data(inverted, change.change.identity_order))
+  Ok(#(inverted, moves.trace(state.move_context)))
 }
 
 pub fn rebase(
@@ -652,6 +1769,15 @@ pub fn rebase(
   over: TaggedChange,
   context: RebaseContext,
 ) -> Result(Changeset, TreeError) {
+  rebase_with_trace(change, over, context)
+  |> result.map(fn(output) { output.0 })
+}
+
+pub fn rebase_with_trace(
+  change: TaggedChange,
+  over: TaggedChange,
+  context: RebaseContext,
+) -> Result(#(Changeset, List(moves.TraceEvent)), TreeError) {
   use _ <- result.try(validate_rebase_inputs(change, over, context))
   use identity_order <- result.try(merge_identity_orders(
     change.change.identity_order,
@@ -659,20 +1785,48 @@ pub fn rebase(
   ))
   let authored = change.change.data
   let base = over.change.data
-  let state = RebaseState([], [], authored.aliases, authored, base, [], [])
+  let state =
+    RebaseState(
+      [],
+      [],
+      authored.aliases,
+      authored,
+      base,
+      [],
+      [],
+      algebra_context(identity_order, context.revisions),
+      moves.new(),
+      [],
+      [],
+    )
   use #(fields, state) <- result.try(rebase_field_maps(
     authored.fields,
     base.fields,
+    None,
     state,
   ))
-  use parents <- result.try(rebuild_parents(fields, state.nodes, state.aliases))
+  use state <- result.try(rebase_invalidated(state, []))
+  let fields = replace_field_results(fields, None, state.field_results)
+  let nodes = replace_node_field_results(state.nodes, state.field_results)
+  use parents <- result.try(rebuild_parents(fields, nodes, state.aliases))
+  use parents <- result.try(apply_rebase_notifications(
+    parents,
+    state.aliases,
+    moves.notifications(state.move_context),
+  ))
+  use cross_field_keys <- result.try(apply_rebase_key_notifications(
+    change.change.cross_field_keys,
+    state.aliases,
+    moves.notifications(state.move_context),
+    identity_order,
+  ))
   let revisions = tagged_revision_infos(change)
   let data =
     ChangeData(
       max_local_id: int_max(authored.max_local_id, base.max_local_id),
       revisions: revisions,
       fields: fields,
-      nodes: state.nodes,
+      nodes: nodes,
       parents: parents,
       aliases: state.aliases,
       builds: authored.builds,
@@ -680,7 +1834,9 @@ pub fn rebase(
       refreshers: authored.refreshers,
     )
   use rebased <- result.try(from_data(data, identity_order))
-  prune(rebased)
+  use rebased <- result.try(prune(rebased))
+  let rebased = Changeset(..rebased, cross_field_keys:)
+  Ok(#(rebased, moves.trace(state.move_context)))
 }
 
 fn validate_rebase_inputs(
@@ -706,6 +1862,7 @@ fn validate_rebase_inputs(
 fn rebase_field_maps(
   authored: List(#(String, FieldChange)),
   base: List(#(String, FieldChange)),
+  parent: Option(AtomId),
   state: RebaseState,
 ) -> Result(#(List(#(String, FieldChange)), RebaseState), TreeError) {
   list.try_fold(authored, #([], state), fn(output, entry) {
@@ -718,6 +1875,7 @@ fn rebase_field_maps(
         use #(field, state) <- result.try(rebase_field(
           entry.1,
           base_field,
+          moves.FieldId(parent, entry.0),
           output.1,
         ))
         Ok(#(list.append(output.0, [#(entry.0, field)]), state))
@@ -729,12 +1887,60 @@ fn rebase_field_maps(
 fn rebase_field(
   authored: FieldChange,
   base: FieldChange,
+  field_id: moves.FieldId,
   state: RebaseState,
 ) -> Result(#(FieldChange, RebaseState), TreeError) {
   case authored, base {
     GenericField(authored), GenericField(base) -> {
       use #(children, state) <- result.try(rebase_generic(authored, base, state))
       Ok(#(GenericField(children), state))
+    }
+    SequenceField(authored), SequenceField(base) -> {
+      use field_id <- result.try(normalize_field_id(field_id, state.aliases))
+      let move_context =
+        moves.enter_field(state.move_context, "rebase", field_id)
+      sequence_rebase.rebase(
+        authored,
+        base,
+        state,
+        rebase_sequence_child,
+        state.algebra,
+        field_id,
+        move_context,
+      )
+      |> result.map(fn(output) {
+        let field = SequenceField(output.0)
+        #(
+          field,
+          RebaseState(
+            ..output.1,
+            move_context: output.2,
+            work: put_rebase_work(
+              output.1.work,
+              RebaseWork(field_id, authored, base),
+            ),
+            field_results: put_pair(output.1.field_results, field_id, field),
+          ),
+        )
+      })
+    }
+    GenericField(authored), SequenceField(base) -> {
+      use authored <- result.try(generic_as_sequence(authored))
+      rebase_field(
+        SequenceField(authored),
+        SequenceField(base),
+        field_id,
+        state,
+      )
+    }
+    SequenceField(authored), GenericField(base) -> {
+      use base <- result.try(generic_as_sequence(base))
+      rebase_field(
+        SequenceField(authored),
+        SequenceField(base),
+        field_id,
+        state,
+      )
     }
     ValueField(authored), ValueField(base) ->
       optional_field.rebase(authored, base, state, rebase_child)
@@ -776,6 +1982,23 @@ fn rebase_field(
       |> result.map(fn(output) { #(OptionalField(output.0), output.1) })
     _, _ -> Error(CorruptData("rebase", "field kinds do not match"))
   }
+}
+
+fn rebase_sequence_child(
+  authored: Option(AtomId),
+  base: Option(AtomId),
+  attach: sequence_field.AttachState,
+  state: RebaseState,
+) -> Result(#(Option(AtomId), RebaseState), TreeError) {
+  rebase_child(
+    authored,
+    base,
+    case attach {
+      sequence_field.Attached -> optional_field.Attached
+      sequence_field.DetachedNode -> optional_field.DetachedNode
+    },
+    state,
+  )
 }
 
 fn rebase_generic(
@@ -865,6 +2088,7 @@ fn rebase_nodes(
       use #(fields, state) <- result.try(rebase_field_maps(
         authored_fields,
         base_fields,
+        Some(authored),
         state,
       ))
       let nodes = put_pair(state.nodes, authored, NodeChange(fields))
@@ -909,45 +2133,76 @@ fn copy_authored_node(
 
 fn invert_field_map(
   fields: List(#(String, FieldChange)),
+  parent: Option(AtomId),
   is_rollback: Bool,
   inverse_revision: StableId,
-  watermark: Int,
-) -> Result(#(List(#(String, FieldChange)), Int), TreeError) {
-  list.try_fold(fields, #([], watermark), fn(output, entry) {
-    use #(field, watermark) <- result.try(invert_field(
+  state: InvertState,
+) -> Result(#(List(#(String, FieldChange)), InvertState), TreeError) {
+  list.try_fold(fields, #([], state), fn(output, entry) {
+    use #(field, state) <- result.try(invert_field(
       entry.1,
+      moves.FieldId(parent, entry.0),
       is_rollback,
       inverse_revision,
       output.1,
     ))
-    Ok(#(list.append(output.0, [#(entry.0, field)]), watermark))
+    Ok(#(list.append(output.0, [#(entry.0, field)]), state))
   })
 }
 
 fn invert_field(
   field: FieldChange,
+  field_id: moves.FieldId,
   is_rollback: Bool,
   inverse_revision: StableId,
-  watermark: Int,
-) -> Result(#(FieldChange, Int), TreeError) {
+  state: InvertState,
+) -> Result(#(FieldChange, InvertState), TreeError) {
   case field {
-    GenericField(children) -> Ok(#(GenericField(children), watermark))
-    ValueField(change) ->
-      optional_field.invert(
+    GenericField(children) -> Ok(#(GenericField(children), state))
+    SequenceField(change) -> {
+      let move_context =
+        moves.enter_field(state.move_context, "invert", field_id)
+      sequence_invert.invert(
+        change,
+        is_rollback,
+        state.aliases,
+        sequence_field.alias,
+        Some(inverse_revision),
+        field_id,
+        move_context,
+      )
+      |> result.map(fn(output) {
+        let field = SequenceField(output.0)
+        #(
+          field,
+          InvertState(
+            ..state,
+            aliases: output.1,
+            move_context: output.2,
+            work: put_invert_work(state.work, InvertWork(field_id, change)),
+            field_results: put_pair(state.field_results, field_id, field),
+          ),
+        )
+      })
+    }
+    ValueField(change) -> {
+      use #(change, watermark) <- result.try(optional_field.invert(
         change,
         is_rollback,
         Some(inverse_revision),
-        watermark,
-      )
-      |> result.map(fn(output) { #(ValueField(output.0), output.1) })
-    OptionalField(change) ->
-      optional_field.invert(
+        state.watermark,
+      ))
+      Ok(#(ValueField(change), InvertState(..state, watermark:)))
+    }
+    OptionalField(change) -> {
+      use #(change, watermark) <- result.try(optional_field.invert(
         change,
         is_rollback,
         Some(inverse_revision),
-        watermark,
-      )
-      |> result.map(fn(output) { #(OptionalField(output.0), output.1) })
+        state.watermark,
+      ))
+      Ok(#(OptionalField(change), InvertState(..state, watermark:)))
+    }
   }
 }
 
@@ -1086,6 +2341,22 @@ fn visit_field(
       list.try_fold(children, state, fn(state, child) {
         visit_atom(child.1, 1, state)
       })
+    SequenceField(change) ->
+      list.try_fold(sequence_field.to_marks(change), state, fn(state, mark) {
+        use state <- result.try(case mark.cell_id {
+          None -> Ok(state)
+          Some(id) -> visit_atom(id, mark.count, state)
+        })
+        use state <- result.try(visit_sequence_effect(
+          mark.effect,
+          mark.count,
+          state,
+        ))
+        case mark.child {
+          None -> Ok(state)
+          Some(id) -> visit_atom(id, 1, state)
+        }
+      })
     ValueField(change) | OptionalField(change) -> {
       let optional_field.FieldChange(moves, children, replacement) = change
       use state <- result.try(case replacement {
@@ -1111,6 +2382,67 @@ fn visit_field(
         use state <- result.try(visit_atom(move.0, 1, state))
         visit_atom(move.1, 1, state)
       })
+    }
+  }
+}
+
+fn visit_sequence_effect(
+  effect: sequence_field.Effect,
+  count: Int,
+  state: ReplaceState,
+) -> Result(ReplaceState, TreeError) {
+  case effect {
+    sequence_field.Noop -> Ok(state)
+    sequence_field.Rename(id) -> visit_atom(id, count, state)
+    sequence_field.Attach(attach) -> visit_sequence_attach(attach, count, state)
+    sequence_field.Detach(detach) -> visit_sequence_detach(detach, count, state)
+    sequence_field.AttachAndDetach(attach, detach) -> {
+      use state <- result.try(visit_sequence_attach(attach, count, state))
+      visit_sequence_detach(detach, count, state)
+    }
+  }
+}
+
+fn visit_sequence_attach(
+  attach: sequence_field.Attach,
+  count: Int,
+  state: ReplaceState,
+) -> Result(ReplaceState, TreeError) {
+  case attach {
+    sequence_field.Insert(id) -> visit_atom(id, count, state)
+    sequence_field.MoveIn(id, endpoint) -> {
+      use state <- result.try(visit_atom(id, count, state))
+      case endpoint {
+        None -> Ok(state)
+        Some(id) -> visit_atom(id, count, state)
+      }
+    }
+  }
+}
+
+fn visit_sequence_detach(
+  detach: sequence_field.Detach,
+  count: Int,
+  state: ReplaceState,
+) -> Result(ReplaceState, TreeError) {
+  case detach {
+    sequence_field.Remove(id, id_override) -> {
+      use state <- result.try(visit_atom(id, count, state))
+      case id_override {
+        None -> Ok(state)
+        Some(id) -> visit_atom(id, count, state)
+      }
+    }
+    sequence_field.MoveOut(id, endpoint, id_override) -> {
+      use state <- result.try(visit_atom(id, count, state))
+      use state <- result.try(case endpoint {
+        None -> Ok(state)
+        Some(id) -> visit_atom(id, count, state)
+      })
+      case id_override {
+        None -> Ok(state)
+        Some(id) -> visit_atom(id, count, state)
+      }
     }
   }
 }
@@ -1300,6 +2632,26 @@ fn replaced_atom(id: AtomId, state: ReplaceState) -> Result(AtomId, TreeError) {
   }
 }
 
+fn replace_cross_field_keys(
+  keys: List(CrossFieldKey),
+  state: ReplaceState,
+) -> Result(List(CrossFieldKey), TreeError) {
+  list.try_map(keys, fn(entry) {
+    let CrossFieldKey(key, count, field) = entry
+    let moves.Key(side, revision, local_id) = key
+    use key <- result.try(replaced_atom(AtomId(revision, local_id), state))
+    use parent <- result.try(case field.parent {
+      None -> Ok(None)
+      Some(parent) -> replaced_atom(parent, state) |> result.map(Some)
+    })
+    Ok(CrossFieldKey(
+      moves.Key(side, key.revision, key.local_id),
+      count,
+      moves.FieldId(parent, field.field),
+    ))
+  })
+}
+
 fn replace_field_map(
   fields: List(#(String, FieldChange)),
   state: ReplaceState,
@@ -1321,6 +2673,12 @@ fn replace_field(
         Ok(#(child.0, id))
       })
       |> result.map(GenericField)
+    SequenceField(change) ->
+      sequence_field.replace_revisions(change, fn(id, count) {
+        use _ <- result.try(validate_range(id, count, "revision replacement"))
+        replaced_atom(id, state)
+      })
+      |> result.map(SequenceField)
     ValueField(change) ->
       optional_field.replace_revisions(change, fn(id) {
         replaced_atom(id, state)
@@ -1374,6 +2732,17 @@ fn prune_field(
       case children {
         [] -> Ok(#(None, state))
         _ -> Ok(#(Some(GenericField(children)), state))
+      }
+    }
+    SequenceField(change) -> {
+      use #(pruned, state) <- result.try(
+        sequence_field.prune_with_state(change, state, fn(child, state) {
+          prune_node(child, state, aliases)
+        }),
+      )
+      case sequence_field.to_marks(pruned) {
+        [] -> Ok(#(None, state))
+        _ -> Ok(#(Some(SequenceField(pruned)), state))
       }
     }
     ValueField(change) -> prune_concrete(change, state, aliases, True)
@@ -1472,6 +2841,13 @@ fn removed_roots_from_field(
     GenericField(children) ->
       list.try_fold(children, roots, fn(roots, child) {
         removed_roots_from_child(child.1, data, roots)
+      })
+    SequenceField(change) ->
+      sequence_field.relevant_removed_roots(change, fn(child) {
+        removed_roots_from_child(child, data, [])
+      })
+      |> result.map(fn(found) {
+        list.fold(found, roots, fn(roots, root) { append_unique(roots, root) })
       })
     ValueField(change) | OptionalField(change) -> {
       let optional_field.FieldChange(moves, children, replacement) = change
@@ -1615,16 +2991,30 @@ fn balanced_compose(
   changes: List(Changeset),
   revisions: List(RevisionInfo),
   max_local_id: Int,
-) -> Result(Changeset, TreeError) {
+) -> Result(#(Changeset, List(moves.TraceEvent)), TreeError) {
   case changes {
-    [] -> Ok(empty())
-    [change] -> Ok(change)
+    [] -> Ok(#(empty(), []))
+    [change] -> Ok(#(change, []))
     _ -> {
       let split = list.length(changes) / 2
       let #(left, right) = split_at(changes, split, [])
-      use left <- result.try(balanced_compose(left, revisions, max_local_id))
-      use right <- result.try(balanced_compose(right, revisions, max_local_id))
-      compose_pair(left, right, revisions, max_local_id)
+      use #(left, left_trace) <- result.try(balanced_compose(
+        left,
+        revisions,
+        max_local_id,
+      ))
+      use #(right, right_trace) <- result.try(balanced_compose(
+        right,
+        revisions,
+        max_local_id,
+      ))
+      use #(composed, trace) <- result.try(compose_pair(
+        left,
+        right,
+        revisions,
+        max_local_id,
+      ))
+      Ok(#(composed, list.flatten([left_trace, right_trace, trace])))
     }
   }
 }
@@ -1642,7 +3032,7 @@ fn compose_pair(
   second: Changeset,
   revisions: List(RevisionInfo),
   max_local_id: Int,
-) -> Result(Changeset, TreeError) {
+) -> Result(#(Changeset, List(moves.TraceEvent)), TreeError) {
   use identity_order <- result.try(merge_identity_orders(
     first.identity_order,
     second.identity_order,
@@ -1657,30 +3047,61 @@ fn compose_pair(
   let merged_parents = merge_pairs(first_data.parents, second_data.parents)
   use nodes <- result.try(canonicalize_pair_keys(merged_nodes, aliases))
   use parents <- result.try(canonicalize_pair_keys(merged_parents, aliases))
-  let state = ComposeState(nodes, parents, aliases, first_data, second_data, [])
+  let state =
+    ComposeState(
+      nodes,
+      parents,
+      aliases,
+      first_data,
+      second_data,
+      [],
+      algebra_context(identity_order, revisions),
+      moves.new(),
+      [],
+      [],
+    )
   use #(fields, state) <- result.try(compose_field_maps(
     first_data.fields,
     second_data.fields,
+    None,
     state,
+  ))
+  use state <- result.try(compose_invalidated(state, []))
+  let fields = replace_field_results(fields, None, state.field_results)
+  let nodes = replace_node_field_results(state.nodes, state.field_results)
+  use parents <- result.try(apply_compose_notifications(
+    state.parents,
+    state.aliases,
+    moves.notifications(state.move_context),
   ))
   use #(builds, destroys, refreshers) <- result.try(compose_detached(
     first_data,
     second_data,
   ))
-  from_data(
+  use composed <- result.try(from_data(
     ChangeData(
       max_local_id: max_local_id,
       revisions: revisions,
       fields: fields,
-      nodes: state.nodes,
-      parents: state.parents,
+      nodes: nodes,
+      parents: parents,
       aliases: state.aliases,
       builds: builds,
       destroys: destroys,
       refreshers: refreshers,
     ),
     identity_order,
-  )
+  ))
+  use cross_field_keys <- result.try(sort_cross_field_keys(
+    list.append(first.cross_field_keys, second.cross_field_keys),
+    identity_order,
+  ))
+  let composed =
+    Changeset(
+      ..composed,
+      cross_field_keys: coalesce_cross_field_keys(cross_field_keys),
+    )
+  Ok(#(composed, moves.trace(state.move_context)))
 }
 
 fn canonicalize_pair_keys(
@@ -1703,6 +3124,7 @@ fn canonicalize_pair_keys(
 fn compose_field_maps(
   first: List(#(String, FieldChange)),
   second: List(#(String, FieldChange)),
+  parent: Option(AtomId),
   state: ComposeState,
 ) -> Result(#(List(#(String, FieldChange)), ComposeState), TreeError) {
   use #(fields, remaining, state) <- result.try(
@@ -1714,6 +3136,7 @@ fn compose_field_maps(
           use #(field, state) <- result.try(compose_field(
             entry.1,
             other,
+            moves.FieldId(parent, entry.0),
             output.2,
           ))
           Ok(#(list.append(output.0, [#(entry.0, field)]), remaining, state))
@@ -1727,12 +3150,60 @@ fn compose_field_maps(
 fn compose_field(
   first: FieldChange,
   second: FieldChange,
+  field_id: moves.FieldId,
   state: ComposeState,
 ) -> Result(#(FieldChange, ComposeState), TreeError) {
   case first, second {
     GenericField(first), GenericField(second) -> {
       use #(children, state) <- result.try(compose_generic(first, second, state))
       Ok(#(GenericField(children), state))
+    }
+    SequenceField(first), SequenceField(second) -> {
+      use field_id <- result.try(normalize_field_id(field_id, state.aliases))
+      let move_context =
+        moves.enter_field(state.move_context, "compose", field_id)
+      sequence_compose.compose(
+        first,
+        second,
+        state,
+        compose_child,
+        state.algebra,
+        field_id,
+        move_context,
+      )
+      |> result.map(fn(output) {
+        let field = SequenceField(output.0)
+        #(
+          field,
+          ComposeState(
+            ..output.1,
+            move_context: output.2,
+            work: put_compose_work(
+              output.1.work,
+              ComposeWork(field_id, first, second),
+            ),
+            field_results: put_pair(output.1.field_results, field_id, field),
+          ),
+        )
+      })
+    }
+    GenericField(first), SequenceField(second) -> {
+      use first <- result.try(generic_as_sequence(first))
+      compose_field(
+        SequenceField(first),
+        SequenceField(second),
+        field_id,
+        state,
+      )
+    }
+    SequenceField(first), GenericField(second) -> {
+      use second <- result.try(generic_as_sequence(second))
+      compose_field(
+        SequenceField(first),
+        SequenceField(second),
+        field_id,
+        state,
+      )
     }
     ValueField(first), ValueField(second) ->
       optional_field.compose(first, second, state, compose_child)
@@ -1784,6 +3255,390 @@ fn generic_as_optional(
     list.map(children, fn(child) { #(optional_field.Active, child.1) }),
     None,
   )
+}
+
+fn generic_as_sequence(
+  children: List(#(Int, AtomId)),
+) -> Result(sequence_field.Changeset, TreeError) {
+  sequence_field.build_child_changes(children)
+}
+
+fn normalize_field_id(
+  field: moves.FieldId,
+  aliases: List(#(AtomId, AtomId)),
+) -> Result(moves.FieldId, TreeError) {
+  case field.parent {
+    None -> Ok(field)
+    Some(parent) ->
+      resolve_alias(parent, aliases)
+      |> result.map(fn(parent) { moves.FieldId(Some(parent), field.field) })
+  }
+}
+
+fn put_compose_work(
+  work: List(ComposeWork),
+  entry: ComposeWork,
+) -> List(ComposeWork) {
+  let ComposeWork(field, _, _) = entry
+  case
+    list.any(work, fn(existing) {
+      let ComposeWork(existing, _, _) = existing
+      existing == field
+    })
+  {
+    True -> work
+    False -> list.append(work, [entry])
+  }
+}
+
+fn put_rebase_work(
+  work: List(RebaseWork),
+  entry: RebaseWork,
+) -> List(RebaseWork) {
+  let RebaseWork(field, _, _) = entry
+  case
+    list.any(work, fn(existing) {
+      let RebaseWork(existing, _, _) = existing
+      existing == field
+    })
+  {
+    True -> work
+    False -> list.append(work, [entry])
+  }
+}
+
+fn put_invert_work(
+  work: List(InvertWork),
+  entry: InvertWork,
+) -> List(InvertWork) {
+  let InvertWork(field, _) = entry
+  case
+    list.any(work, fn(existing) {
+      let InvertWork(existing, _) = existing
+      existing == field
+    })
+  {
+    True -> work
+    False -> list.append(work, [entry])
+  }
+}
+
+fn compose_invalidated(
+  state: ComposeState,
+  processed: List(#(moves.FieldId, FieldChange, moves.Context)),
+) -> Result(ComposeState, TreeError) {
+  case moves.invalidated(state.move_context) {
+    [] -> Ok(state)
+    [field, ..] -> {
+      use work <- result.try(find_compose_work(state.work, field))
+      let #(found, move_context) =
+        moves.take_invalidated_for(state.move_context, field)
+      use _ <- result.try(check(
+        found,
+        "compose",
+        "invalidated sequence field has no pending work",
+      ))
+      let ComposeWork(_, first, second) = work
+      let move_context = moves.enter_field(move_context, "compose", field)
+      use #(change, next, move_context) <- result.try(sequence_compose.compose(
+        first,
+        second,
+        state,
+        compose_child,
+        state.algebra,
+        field,
+        move_context,
+      ))
+      let result = SequenceField(change)
+      use _ <- result.try(check(
+        !list.any(processed, fn(previous) {
+          previous.0 == field
+          && previous.1 == result
+          && moves.same_work_state(previous.2, move_context)
+        }),
+        "compose",
+        "sequence field reprocessing made no progress",
+      ))
+      compose_invalidated(
+        ComposeState(
+          ..next,
+          move_context:,
+          field_results: put_pair(next.field_results, field, result),
+        ),
+        [#(field, result, move_context), ..processed],
+      )
+    }
+  }
+}
+
+fn rebase_invalidated(
+  state: RebaseState,
+  processed: List(#(moves.FieldId, FieldChange, moves.Context)),
+) -> Result(RebaseState, TreeError) {
+  case moves.invalidated(state.move_context) {
+    [] -> Ok(state)
+    [field, ..] -> {
+      use work <- result.try(find_rebase_work(state.work, field))
+      let #(found, move_context) =
+        moves.take_invalidated_for(state.move_context, field)
+      use _ <- result.try(check(
+        found,
+        "rebase",
+        "invalidated sequence field has no pending work",
+      ))
+      let RebaseWork(_, authored, base) = work
+      let move_context = moves.enter_field(move_context, "rebase", field)
+      use #(change, next, move_context) <- result.try(sequence_rebase.rebase(
+        authored,
+        base,
+        state,
+        rebase_sequence_child,
+        state.algebra,
+        field,
+        move_context,
+      ))
+      let result = SequenceField(change)
+      use _ <- result.try(check(
+        !list.any(processed, fn(previous) {
+          previous.0 == field
+          && previous.1 == result
+          && moves.same_work_state(previous.2, move_context)
+        }),
+        "rebase",
+        "sequence field reprocessing made no progress",
+      ))
+      rebase_invalidated(
+        RebaseState(
+          ..next,
+          move_context:,
+          field_results: put_pair(next.field_results, field, result),
+        ),
+        [#(field, result, move_context), ..processed],
+      )
+    }
+  }
+}
+
+fn invert_invalidated(
+  state: InvertState,
+  is_rollback: Bool,
+  inverse_revision: StableId,
+  processed: List(#(moves.FieldId, FieldChange, moves.Context)),
+) -> Result(InvertState, TreeError) {
+  case moves.invalidated(state.move_context) {
+    [] -> Ok(state)
+    [field, ..] -> {
+      use work <- result.try(find_invert_work(state.work, field))
+      let #(found, move_context) =
+        moves.take_invalidated_for(state.move_context, field)
+      use _ <- result.try(check(
+        found,
+        "invert",
+        "invalidated sequence field has no pending work",
+      ))
+      let InvertWork(_, change) = work
+      let move_context = moves.enter_field(move_context, "invert", field)
+      use #(change, aliases, move_context) <- result.try(sequence_invert.invert(
+        change,
+        is_rollback,
+        state.aliases,
+        sequence_field.alias,
+        Some(inverse_revision),
+        field,
+        move_context,
+      ))
+      let result = SequenceField(change)
+      use _ <- result.try(check(
+        !list.any(processed, fn(previous) {
+          previous.0 == field
+          && previous.1 == result
+          && moves.same_work_state(previous.2, move_context)
+        }),
+        "invert",
+        "sequence field reprocessing made no progress",
+      ))
+      invert_invalidated(
+        InvertState(
+          ..state,
+          aliases:,
+          move_context:,
+          field_results: put_pair(state.field_results, field, result),
+        ),
+        is_rollback,
+        inverse_revision,
+        [#(field, result, move_context), ..processed],
+      )
+    }
+  }
+}
+
+fn find_compose_work(
+  work: List(ComposeWork),
+  field: moves.FieldId,
+) -> Result(ComposeWork, TreeError) {
+  list.find(work, fn(entry) {
+    let ComposeWork(found, _, _) = entry
+    found == field
+  })
+  |> result.map_error(fn(_) {
+    CorruptData("compose", "invalidated sequence field is unknown")
+  })
+}
+
+fn find_rebase_work(
+  work: List(RebaseWork),
+  field: moves.FieldId,
+) -> Result(RebaseWork, TreeError) {
+  list.find(work, fn(entry) {
+    let RebaseWork(found, _, _) = entry
+    found == field
+  })
+  |> result.map_error(fn(_) {
+    CorruptData("rebase", "invalidated sequence field is unknown")
+  })
+}
+
+fn find_invert_work(
+  work: List(InvertWork),
+  field: moves.FieldId,
+) -> Result(InvertWork, TreeError) {
+  list.find(work, fn(entry) {
+    let InvertWork(found, _) = entry
+    found == field
+  })
+  |> result.map_error(fn(_) {
+    CorruptData("invert", "invalidated sequence field is unknown")
+  })
+}
+
+fn replace_field_results(
+  fields: List(#(String, FieldChange)),
+  parent: Option(AtomId),
+  replacements: List(#(moves.FieldId, FieldChange)),
+) -> List(#(String, FieldChange)) {
+  list.map(fields, fn(entry) {
+    let field = moves.FieldId(parent, entry.0)
+    #(entry.0, option.unwrap(pair_value(replacements, field), entry.1))
+  })
+}
+
+fn replace_node_field_results(
+  nodes: List(#(AtomId, NodeChange)),
+  replacements: List(#(moves.FieldId, FieldChange)),
+) -> List(#(AtomId, NodeChange)) {
+  list.map(nodes, fn(entry) {
+    let NodeChange(fields) = entry.1
+    #(
+      entry.0,
+      NodeChange(replace_field_results(fields, Some(entry.0), replacements)),
+    )
+  })
+}
+
+fn apply_compose_notifications(
+  parents: List(#(AtomId, ParentField)),
+  aliases: List(#(AtomId, AtomId)),
+  notifications: List(moves.Notification),
+) -> Result(List(#(AtomId, ParentField)), TreeError) {
+  list.try_fold(notifications, parents, fn(parents, notification) {
+    case notification {
+      moves.NodeMoved(node, field) -> {
+        use node <- result.try(resolve_alias(node, aliases))
+        use field <- result.try(normalize_field_id(field, aliases))
+        Ok(put_pair(parents, node, ParentField(field.parent, field.field)))
+      }
+      moves.KeyMoved(_, _, _) ->
+        Error(types.UnsupportedFeature("sequence compose", "key relocation"))
+    }
+  })
+}
+
+fn apply_rebase_notifications(
+  parents: List(#(AtomId, ParentField)),
+  aliases: List(#(AtomId, AtomId)),
+  notifications: List(moves.Notification),
+) -> Result(List(#(AtomId, ParentField)), TreeError) {
+  list.try_fold(notifications, parents, fn(parents, notification) {
+    case notification {
+      moves.NodeMoved(node, field) -> {
+        use node <- result.try(resolve_alias(node, aliases))
+        use field <- result.try(normalize_field_id(field, aliases))
+        Ok(put_pair(parents, node, ParentField(field.parent, field.field)))
+      }
+      moves.KeyMoved(_, _, _) -> Ok(parents)
+    }
+  })
+}
+
+fn apply_rebase_key_notifications(
+  keys: List(CrossFieldKey),
+  aliases: List(#(AtomId, AtomId)),
+  notifications: List(moves.Notification),
+  identity_order: IdentityOrder,
+) -> Result(List(CrossFieldKey), TreeError) {
+  use keys <- result.try(
+    list.try_fold(notifications, keys, fn(keys, notification) {
+      case notification {
+        moves.NodeMoved(_, _) -> Ok(keys)
+        moves.KeyMoved(key, count, field) -> {
+          use field <- result.try(normalize_field_id(field, aliases))
+          Ok(move_cross_field_key(keys, key, count, field))
+        }
+      }
+    }),
+  )
+  use keys <- result.try(sort_cross_field_keys(keys, identity_order))
+  Ok(coalesce_cross_field_keys(keys))
+}
+
+fn move_cross_field_key(
+  keys: List(CrossFieldKey),
+  moved: moves.Key,
+  count: Int,
+  field: moves.FieldId,
+) -> List(CrossFieldKey) {
+  list.flat_map(keys, fn(entry) {
+    let CrossFieldKey(key, entry_count, owner) = entry
+    let moves.Key(side, revision, start) = key
+    let moves.Key(moved_side, moved_revision, moved_start) = moved
+    let entry_end = start + entry_count
+    let moved_end = moved_start + count
+    case
+      side == moved_side
+      && revision == moved_revision
+      && start < moved_end
+      && moved_start < entry_end
+    {
+      False -> [entry]
+      True -> {
+        let overlap_start = int.max(start, moved_start)
+        let overlap_end = int.min(entry_end, moved_end)
+        list.flatten([
+          case overlap_start > start {
+            True -> [CrossFieldKey(key, overlap_start - start, owner)]
+            False -> []
+          },
+          [
+            CrossFieldKey(
+              moves.Key(side, revision, overlap_start),
+              overlap_end - overlap_start,
+              field,
+            ),
+          ],
+          case overlap_end < entry_end {
+            True -> [
+              CrossFieldKey(
+                moves.Key(side, revision, overlap_end),
+                entry_end - overlap_end,
+                owner,
+              ),
+            ]
+            False -> []
+          },
+        ])
+      }
+    }
+  })
 }
 
 fn compose_generic(
@@ -1850,6 +3705,7 @@ fn compose_nodes(
       use #(fields, state) <- result.try(compose_field_maps(
         first_fields,
         second_fields,
+        Some(first_id),
         state,
       ))
       use first_canonical <- result.try(resolve_alias(first_id, state.aliases))
@@ -2299,6 +4155,10 @@ fn edit_destination(
       use parent_type <- result.try(case parent {
         None -> Error(InvalidEdit(path, "parent field is absent"))
         Some(ObjectValue(identifier, _)) -> Ok(identifier)
+        Some(types.ArrayValue(_, _)) ->
+          Error(InvalidEdit(path, "array slots cannot be assigned"))
+        Some(types.MapValue(_, _)) ->
+          Error(InvalidEdit(path, "map entries require a map edit"))
         Some(_) -> Error(InvalidEdit(path, "parent schema is a leaf"))
       })
       use definition <- result.try(schema.field_schema(
@@ -2380,8 +4240,7 @@ fn authored_field(
 }
 
 fn wrap_ancestors(
-  is_root: Bool,
-  parent_path: FieldPath,
+  parent_steps: List(forest.FieldStep),
   field: String,
   field_change: FieldChange,
   revision: StableId,
@@ -2395,14 +4254,14 @@ fn wrap_ancestors(
   ),
   TreeError,
 ) {
-  case is_root {
-    True -> Ok(#([#(field, field_change)], [], [], next_id - 1))
-    False -> {
+  case parent_steps {
+    [] -> Ok(#([#(field, field_change)], [], [], next_id - 1))
+    _ -> {
       use #(child, next_id) <- result.try(allocate(revision, next_id))
       let nodes = [#(child, NodeChange([#(field, field_change)]))]
       use #(top, nodes, parents, next_id) <- result.try(
         wrap_parent_fields(
-          list.reverse(parent_path),
+          list.reverse(parent_steps),
           child,
           revision,
           next_id,
@@ -2410,11 +4269,12 @@ fn wrap_ancestors(
           [],
         ),
       )
+      let assert [forest.FieldStep(root_field, root_index), ..] = parent_steps
       Ok(#(
-        [#("rootFieldKey", GenericField([#(0, top)]))],
+        [#(root_field, GenericField([#(root_index, top)]))],
         nodes,
         list.append(parents, [
-          #(top, ParentField(None, "rootFieldKey")),
+          #(top, ParentField(None, root_field)),
         ]),
         next_id - 1,
       ))
@@ -2423,7 +4283,7 @@ fn wrap_ancestors(
 }
 
 fn wrap_parent_fields(
-  fields: FieldPath,
+  steps: List(forest.FieldStep),
   child: AtomId,
   revision: StableId,
   next_id: Int,
@@ -2433,9 +4293,9 @@ fn wrap_parent_fields(
   #(AtomId, List(#(AtomId, NodeChange)), List(#(AtomId, ParentField)), Int),
   TreeError,
 ) {
-  case fields {
-    [] -> Ok(#(child, nodes, parents, next_id))
-    [field, ..rest] -> {
+  case steps {
+    [] | [_] -> Ok(#(child, nodes, parents, next_id))
+    [forest.FieldStep(field, index), ..rest] -> {
       use #(parent, next_id) <- result.try(allocate(revision, next_id))
       wrap_parent_fields(
         rest,
@@ -2443,7 +4303,7 @@ fn wrap_parent_fields(
         revision,
         next_id,
         list.append(nodes, [
-          #(parent, NodeChange([#(field, GenericField([#(0, child)]))])),
+          #(parent, NodeChange([#(field, GenericField([#(index, child)]))])),
         ]),
         list.append(parents, [
           #(child, ParentField(Some(parent), field)),
@@ -2461,6 +4321,26 @@ fn allocate(
     True -> Ok(#(AtomId(Some(revision), next_id), next_id + 1))
     False -> Error(CorruptData("change allocator", "identifiers are exhausted"))
   }
+}
+
+fn allocate_range(
+  revision: StableId,
+  next_id: Int,
+  count: Int,
+) -> Result(#(AtomId, Int), TreeError) {
+  use _ <- result.try(check(
+    count >= 0
+      && count <= max_safe_integer
+      && next_id >= 0
+      && next_id <= max_safe_integer
+      && case count {
+      0 -> True
+      _ -> count - 1 <= max_safe_integer - next_id
+    },
+    "change allocator",
+    "identifiers are exhausted",
+  ))
+  Ok(#(AtomId(Some(revision), next_id), next_id + count))
 }
 
 fn delta_fields(
@@ -2492,20 +4372,28 @@ fn delta_field(
   case field {
     GenericField(children) -> {
       use child_parts <- result.try(
-        list.try_map(children, fn(child) {
+        children
+        |> list.sort(fn(left, right) { int.compare(left.0, right.0) })
+        |> list.try_map(fn(child) {
           delta_child(child.1, data)
-          |> result.map(fn(parts) { #(child.1, parts) })
+          |> result.map(fn(parts) { #(child.0, child.1, parts) })
         }),
       )
-      let marks =
-        list.map(child_parts, fn(child) {
-          forest.Mark(1, None, None, child.1.fields)
-        })
+      let marks = generic_delta_marks(child_parts, 0, [])
       Ok(#(
         Some(forest.FieldDelta(marks)),
-        list.flat_map(child_parts, fn(child) { child.1.global }),
-        list.flat_map(child_parts, fn(child) { child.1.rename }),
+        list.flat_map(child_parts, fn(child) { child.2.global }),
+        list.flat_map(child_parts, fn(child) { child.2.rename }),
       ))
+    }
+
+    SequenceField(change) -> {
+      use delta <- result.try(
+        sequence_field.into_delta(change, fn(id) {
+          delta_child(id, data) |> result.map(fn(parts) { parts.fields })
+        }),
+      )
+      Ok(#(delta.local, delta.global, delta.rename))
     }
     ValueField(change) | OptionalField(change) -> {
       let optional_field.FieldChange(_, children, _) = change
@@ -2535,6 +4423,26 @@ fn delta_field(
           rename,
         ),
       ))
+    }
+  }
+}
+
+fn generic_delta_marks(
+  children: List(#(Int, AtomId, DeltaParts)),
+  position: Int,
+  marks: List(forest.Mark),
+) -> List(forest.Mark) {
+  case children {
+    [] -> list.reverse(marks)
+    [child, ..rest] -> {
+      let marks = case child.0 - position {
+        0 -> marks
+        gap -> [forest.Mark(gap, None, None, []), ..marks]
+      }
+      generic_delta_marks(rest, child.0 + 1, [
+        forest.Mark(1, None, None, child.2.fields),
+        ..marks
+      ])
     }
   }
 }
@@ -2693,6 +4601,13 @@ fn validate_field_identity_order(
       list.try_each(children, fn(child) {
         validate_atom_identity_order(child.1, identity_order)
       })
+    SequenceField(change) ->
+      sequence_field.to_marks(change)
+      |> list.try_each(fn(mark) {
+        list.try_each(sequence_mark_atoms(mark), fn(id) {
+          validate_atom_identity_order(id, identity_order)
+        })
+      })
     ValueField(change) | OptionalField(change) -> {
       let optional_field.FieldChange(moves, children, replacement) = change
       use _ <- result.try(
@@ -2802,6 +4717,9 @@ fn validate_field(field: FieldChange) -> Result(Nil, TreeError) {
   case field {
     ValueField(change) | OptionalField(change) ->
       optional_field.validate(change)
+    SequenceField(change) ->
+      sequence_field.from_marks(sequence_field.to_marks(change))
+      |> result.map(fn(_) { Nil })
     GenericField(children) -> {
       use _ <- result.try(unique_by(
         children,
@@ -2810,9 +4728,9 @@ fn validate_field(field: FieldChange) -> Result(Nil, TreeError) {
       ))
       list.try_each(children, fn(child) {
         use _ <- result.try(check(
-          child.0 == 0,
+          child.0 >= 0 && child.0 <= max_safe_integer,
           "generic field",
-          "only child index zero is supported",
+          "child index is outside the safe integer range",
         ))
         validate_atom(child.1, "generic field")
       })
@@ -2974,9 +4892,77 @@ fn walk_child(
 fn field_children(field: FieldChange) -> List(AtomId) {
   case field {
     GenericField(children) -> list.map(children, fn(child) { child.1 })
+    SequenceField(change) ->
+      sequence_field.to_marks(change)
+      |> list.fold([], fn(children, mark) {
+        case mark.child {
+          None -> children
+          Some(child) -> [child, ..children]
+        }
+      })
+      |> list.reverse
     ValueField(optional_field.FieldChange(_, children, _))
     | OptionalField(optional_field.FieldChange(_, children, _)) ->
       list.map(children, fn(child) { child.1 })
+  }
+}
+
+fn sequence_mark_atoms(mark: sequence_field.Mark) -> List(AtomId) {
+  let effect = case mark.effect {
+    sequence_field.Noop -> []
+    sequence_field.Rename(id) -> [id]
+    sequence_field.Attach(attach) -> sequence_attach_atoms(attach)
+    sequence_field.Detach(detach) -> sequence_detach_atoms(detach)
+    sequence_field.AttachAndDetach(attach, detach) ->
+      list.append(sequence_attach_atoms(attach), sequence_detach_atoms(detach))
+  }
+  list.flatten([
+    case mark.cell_id {
+      None -> []
+      Some(id) -> [id]
+    },
+    effect,
+    case mark.child {
+      None -> []
+      Some(id) -> [id]
+    },
+  ])
+}
+
+fn sequence_attach_atoms(attach: sequence_field.Attach) -> List(AtomId) {
+  case attach {
+    sequence_field.Insert(id) -> [id]
+    sequence_field.MoveIn(id, endpoint) -> [
+      id,
+      ..case endpoint {
+        None -> []
+        Some(id) -> [id]
+      }
+    ]
+  }
+}
+
+fn sequence_detach_atoms(detach: sequence_field.Detach) -> List(AtomId) {
+  case detach {
+    sequence_field.Remove(id, id_override) -> [
+      id,
+      ..case id_override {
+        None -> []
+        Some(id) -> [id]
+      }
+    ]
+    sequence_field.MoveOut(id, endpoint, id_override) ->
+      list.flatten([
+        [id],
+        case endpoint {
+          None -> []
+          Some(id) -> [id]
+        },
+        case id_override {
+          None -> []
+          Some(id) -> [id]
+        },
+      ])
   }
 }
 

@@ -807,7 +807,10 @@ function makeInstrumentedArrayModularFamily(
 	};
 }
 
-export function replayArrayModularInput(input: Record<string, unknown>): unknown {
+function replayArrayModular(
+	input: Record<string, unknown>,
+	rawCoordination: boolean,
+): unknown {
 	object(input, "The modular replay input must be an object.");
 	assert(
 		input.operation === "compose" ||
@@ -922,6 +925,10 @@ export function replayArrayModularInput(input: Record<string, unknown>): unknown
 			),
 		);
 	}
+	const coordination = {
+		handlerCalls: instrumentation.handlerCalls,
+		managerCalls: instrumentation.managerCalls,
+	};
 	return {
 		graph: encodeModularGraph(result),
 		delta: delta(intoDelta(tagChange(result, resultRevision))),
@@ -929,11 +936,25 @@ export function replayArrayModularInput(input: Record<string, unknown>): unknown
 			directions: instrumentation.conversionCalls.map((call) => call.direction),
 			calls: instrumentation.conversionCalls,
 		},
-		coordination: {
-			handlerCalls: instrumentation.handlerCalls,
-			managerCalls: instrumentation.managerCalls,
-		},
+		coordination: rawCoordination
+			? coordination
+			: {
+					handlerCalls: coordination.handlerCalls.map(
+						({ sequence: _, ...call }) => call,
+					),
+					managerCalls: coordination.managerCalls
+						.filter((call) => call.method !== "get")
+						.map(({ sequence: _, ...call }) => call),
+				},
 	};
+}
+
+export function replayArrayModularInput(input: Record<string, unknown>): unknown {
+	return replayArrayModular(input, false);
+}
+
+export function replayArrayModularInputRaw(input: Record<string, unknown>): unknown {
+	return replayArrayModular(input, true);
 }
 
 function crossFieldChange(

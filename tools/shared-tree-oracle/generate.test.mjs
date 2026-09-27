@@ -1114,12 +1114,13 @@ test("array modular validation requires replayable graphs and observed source co
   assert.deepEqual(outputs.get("generic-to-sequence").conversion.directions, ["generic-left"]);
   assert.deepEqual(outputs.get("sequence-to-generic").conversion.directions, ["generic-right"]);
   const coordination = outputs.get("cross-field-endpoints").coordination;
+  const sourceCoordination = scenarios.get("cross-field-endpoints").sourceCoordination;
   assert(coordination.handlerCalls.filter(({ field }) => field.field === "right").length > 1);
-  assert(coordination.managerCalls.some(({ method, field, addDependency }) =>
+  assert(sourceCoordination.managerCalls.some(({ method, field, addDependency }) =>
     method === "get" && field.field === "right" && addDependency === true));
   assert(coordination.managerCalls.some(({ method, field, invalidateDependents }) =>
     method === "set" && field.field === "right" && invalidateDependents === true));
-  assert(coordination.managerCalls.some(({ count, returnedLength }) =>
+  assert(sourceCoordination.managerCalls.some(({ count, returnedLength }) =>
     count > returnedLength && returnedLength > 0));
   assert.doesNotThrow(() => validateArrayCase(value));
 });
@@ -1429,7 +1430,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
       "bootstrap-map-handles", "batched-commits",
       "map-schema-content", "map-field-algebra", "map-history-codecs",
       "array-schema-content", "array-forest-delta", "sequence-field-editor",
-      "sequence-compose-invert", "sequence-rebase",
+      "sequence-compose-invert", "sequence-rebase", "array-modular-algebra",
     ]);
   }
 });

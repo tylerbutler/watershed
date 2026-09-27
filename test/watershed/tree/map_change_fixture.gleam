@@ -15,6 +15,7 @@ import watershed/tree/forest
 import watershed/tree/map_forest_fixture
 import watershed/tree/optional_field
 import watershed/tree/schema
+import watershed/tree/sequence_field
 import watershed/tree/types
 
 const allocation_session = "00000000-0000-4000-b000-000000000000"
@@ -846,6 +847,9 @@ fn fields_atoms(
   list.flat_map(fields, fn(entry) {
     case entry.1 {
       change.GenericField(children) -> list.map(children, fn(child) { child.1 })
+      change.SequenceField(field) ->
+        sequence_field.to_marks(field)
+        |> list.flat_map(sequence_mark_atoms)
       change.ValueField(field) | change.OptionalField(field) ->
         optional_atoms(field)
     }
@@ -919,6 +923,56 @@ fn normalize_field(
       change.ValueField(normalize_optional(field, mappings))
     change.OptionalField(field) ->
       change.OptionalField(normalize_optional(field, mappings))
+    change.SequenceField(field) -> {
+      let assert Ok(field) =
+        sequence_field.replace_revisions(field, fn(id, _) {
+          Ok(normalize_atom(id, mappings))
+        })
+      change.SequenceField(field)
+    }
+  }
+}
+
+fn sequence_mark_atoms(mark: sequence_field.Mark) -> List(types.AtomId) {
+  let effect = case mark.effect {
+    sequence_field.Noop -> []
+    sequence_field.Rename(id) -> [id]
+    sequence_field.Attach(sequence_field.Insert(id)) -> [id]
+    sequence_field.Attach(sequence_field.MoveIn(id, endpoint)) -> [
+      id,
+      ..option_list(endpoint)
+    ]
+    sequence_field.Detach(sequence_field.Remove(id, id_override)) -> [
+      id,
+      ..option_list(id_override)
+    ]
+    sequence_field.Detach(sequence_field.MoveOut(id, endpoint, id_override)) -> [
+      id,
+      ..list.append(option_list(endpoint), option_list(id_override))
+    ]
+    sequence_field.AttachAndDetach(attach, detach) ->
+      list.append(
+        sequence_mark_atoms(sequence_field.Mark(
+          mark.count,
+          None,
+          sequence_field.Attach(attach),
+          None,
+        )),
+        sequence_mark_atoms(sequence_field.Mark(
+          mark.count,
+          None,
+          sequence_field.Detach(detach),
+          None,
+        )),
+      )
+  }
+  list.flatten([option_list(mark.cell_id), effect, option_list(mark.child)])
+}
+
+fn option_list(value: Option(a)) -> List(a) {
+  case value {
+    None -> []
+    Some(value) -> [value]
   }
 }
 

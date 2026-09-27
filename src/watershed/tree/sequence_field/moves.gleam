@@ -10,6 +10,10 @@ import watershed/tree/types.{
   type AtomId, type TreeError, AtomId, CorruptData, UnsupportedFeature,
 }
 
+pub fn invalidated(context: Context) -> List(FieldId) {
+  list.reverse(context.invalidated)
+}
+
 const max_safe_integer = 9_007_199_254_740_991
 
 pub type Side {
@@ -46,6 +50,21 @@ pub type Notification {
   KeyMoved(key: Key, count: Int, field: FieldId)
 }
 
+pub type TraceEvent {
+  HandlerCalled(operation: String, field: FieldId)
+  RangeRead(
+    field: FieldId,
+    key: Key,
+    count: Int,
+    add_dependency: Bool,
+    found: Bool,
+    returned_length: Int,
+  )
+  RangeWritten(field: FieldId, key: Key, count: Int, invalidate: Bool)
+  MoveInNotified(field: FieldId, node: AtomId)
+  KeyMoveNotified(field: FieldId, key: Key, count: Int)
+}
+
 type Entry {
   Entry(key: Key, count: Int, effect: Effect)
 }
@@ -60,11 +79,35 @@ pub opaque type Context {
     dependencies: List(Dependency),
     invalidated: List(FieldId),
     notifications: List(Notification),
+    active_field: Option(FieldId),
+    trace: List(TraceEvent),
   )
 }
 
 pub fn new() -> Context {
-  Context([], [], [], [])
+  Context([], [], [], [], None, [])
+}
+
+pub fn enter_field(
+  context: Context,
+  operation: String,
+  field: FieldId,
+) -> Context {
+  Context(..context, active_field: Some(field), trace: [
+    HandlerCalled(operation, field),
+    ..context.trace
+  ])
+}
+
+pub fn trace(context: Context) -> List(TraceEvent) {
+  list.reverse(context.trace)
+}
+
+pub fn same_work_state(first: Context, second: Context) -> Bool {
+  first.entries == second.entries
+  && first.dependencies == second.dependencies
+  && first.invalidated == second.invalidated
+  && first.notifications == second.notifications
 }
 
 pub fn get(
@@ -74,13 +117,44 @@ pub fn get(
   dependent: Option(FieldId),
 ) -> Result(#(Query, Context), TreeError) {
   use _ <- result.try(validate_range(key, count))
-  let Context(entries, dependencies, invalidated, notifications) = context
+  let Context(
+    entries,
+    dependencies,
+    invalidated,
+    notifications,
+    active_field,
+    trace,
+  ) = context
   let query = query(entries, key, count)
   let dependencies = case dependent {
     None -> dependencies
     Some(field) -> put_dependency(dependencies, Dependency(key, count, field))
   }
-  Ok(#(query, Context(entries, dependencies, invalidated, notifications)))
+  let trace = case active_field {
+    None -> trace
+    Some(field) -> [
+      RangeRead(
+        field,
+        key,
+        count,
+        dependent != None,
+        query.effect != None,
+        query.count,
+      ),
+      ..trace
+    ]
+  }
+  Ok(#(
+    query,
+    Context(
+      entries,
+      dependencies,
+      invalidated,
+      notifications,
+      active_field,
+      trace,
+    ),
+  ))
 }
 
 pub fn set(
@@ -91,7 +165,14 @@ pub fn set(
 ) -> Result(Context, TreeError) {
   use _ <- result.try(validate_range(key, count))
   use _ <- result.try(validate_effect(effect, count))
-  let Context(entries, dependencies, invalidated, notifications) = context
+  let Context(
+    entries,
+    dependencies,
+    invalidated,
+    notifications,
+    active_field,
+    trace,
+  ) = context
   let unchanged = range_matches(entries, key, count, effect)
   let entries = replace_range(entries, key, count, effect)
   let invalidated = case unchanged {
@@ -104,19 +185,41 @@ pub fn set(
         }
       })
   }
-  Ok(Context(entries, dependencies, invalidated, notifications))
+  let trace = case active_field {
+    None -> trace
+    Some(field) -> [RangeWritten(field, key, count, True), ..trace]
+  }
+  Ok(Context(
+    entries,
+    dependencies,
+    invalidated,
+    notifications,
+    active_field,
+    trace,
+  ))
 }
 
 pub fn take_invalidated(context: Context) -> #(List(FieldId), Context) {
-  let Context(entries, _, invalidated, notifications) = context
-  #(list.reverse(invalidated), Context(entries, [], [], notifications))
+  let Context(entries, _, invalidated, notifications, active_field, trace) =
+    context
+  #(
+    list.reverse(invalidated),
+    Context(entries, [], [], notifications, active_field, trace),
+  )
 }
 
 pub fn take_invalidated_for(
   context: Context,
   field: FieldId,
 ) -> #(Bool, Context) {
-  let Context(entries, dependencies, invalidated, notifications) = context
+  let Context(
+    entries,
+    dependencies,
+    invalidated,
+    notifications,
+    active_field,
+    trace,
+  ) = context
   #(
     list.contains(invalidated, field),
     Context(
@@ -126,6 +229,8 @@ pub fn take_invalidated_for(
         invalidated_field != field
       }),
       notifications,
+      active_field,
+      trace,
     ),
   )
 }
@@ -136,14 +241,25 @@ pub fn on_move_in(
   field: FieldId,
 ) -> Result(Context, TreeError) {
   use _ <- result.try(validate_atom(node, 1))
-  let Context(entries, dependencies, invalidated, notifications) = context
-  let notification = NodeMoved(node, field)
-  Ok(Context(
+  let Context(
     entries,
     dependencies,
     invalidated,
-    put_unique(notifications, notification),
-  ))
+    notifications,
+    active_field,
+    trace,
+  ) = context
+  let notification = NodeMoved(node, field)
+  Ok(
+    Context(
+      entries,
+      dependencies,
+      invalidated,
+      put_unique(notifications, notification),
+      active_field,
+      [MoveInNotified(field, node), ..trace],
+    ),
+  )
 }
 
 pub fn move_key(
@@ -153,14 +269,25 @@ pub fn move_key(
   field: FieldId,
 ) -> Result(Context, TreeError) {
   use _ <- result.try(validate_range(key, count))
-  let Context(entries, dependencies, invalidated, notifications) = context
-  let notification = KeyMoved(key, count, field)
-  Ok(Context(
+  let Context(
     entries,
     dependencies,
     invalidated,
-    put_unique(notifications, notification),
-  ))
+    notifications,
+    active_field,
+    trace,
+  ) = context
+  let notification = KeyMoved(key, count, field)
+  Ok(
+    Context(
+      entries,
+      dependencies,
+      invalidated,
+      put_unique(notifications, notification),
+      active_field,
+      [KeyMoveNotified(field, key, count), ..trace],
+    ),
+  )
 }
 
 pub fn compose_move_key(
