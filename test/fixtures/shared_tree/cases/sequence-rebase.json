@@ -428,6 +428,88 @@
         ]
       },
       {
+        "id": "competing-moves-reverse",
+        "operation": "rebase",
+        "initialState": {
+          "field": []
+        },
+        "operands": {
+          "change": {
+            "change": [
+              {
+                "type": "MoveIn",
+                "id": 10,
+                "count": 2,
+                "cellId": {
+                  "revision": -6,
+                  "localId": 12
+                },
+                "revision": -6
+              },
+              {
+                "count": 1
+              },
+              {
+                "type": "MoveOut",
+                "id": 10,
+                "count": 2,
+                "revision": -6
+              }
+            ],
+            "revision": -6
+          },
+          "base": {
+            "change": [
+              {
+                "type": "MoveOut",
+                "id": 6,
+                "count": 2,
+                "revision": -5
+              },
+              {
+                "count": 2
+              },
+              {
+                "type": "MoveIn",
+                "id": 6,
+                "count": 2,
+                "cellId": {
+                  "revision": -5,
+                  "localId": 8
+                },
+                "revision": -5
+              }
+            ],
+            "revision": -5
+          },
+          "childRebaser": "test-node"
+        },
+        "revisions": [
+          -6,
+          -5
+        ],
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "composeAllocator": "unused-by-pinned-source",
+          "rebaseAllocator": "unused-by-pinned-source"
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "rebase"
+          }
+        ]
+      },
+      {
         "id": "partial-overlap-moves",
         "operation": "rebase",
         "initialState": {
@@ -487,6 +569,164 @@
         "revisions": [
           -8,
           -9
+        ],
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "composeAllocator": "unused-by-pinned-source",
+          "rebaseAllocator": "unused-by-pinned-source"
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "rebase"
+          }
+        ]
+      },
+      {
+        "id": "partial-overlap-moves-reverse",
+        "operation": "rebase",
+        "initialState": {
+          "field": []
+        },
+        "operands": {
+          "change": {
+            "change": [
+              {
+                "type": "MoveIn",
+                "id": 20,
+                "count": 3,
+                "cellId": {
+                  "revision": -9,
+                  "localId": 23
+                },
+                "revision": -9
+              },
+              {
+                "count": 2
+              },
+              {
+                "type": "MoveOut",
+                "id": 20,
+                "count": 3,
+                "revision": -9
+              }
+            ],
+            "revision": -9
+          },
+          "base": {
+            "change": [
+              {
+                "type": "MoveOut",
+                "id": 14,
+                "count": 3,
+                "revision": -8
+              },
+              {
+                "count": 2
+              },
+              {
+                "type": "MoveIn",
+                "id": 14,
+                "count": 3,
+                "cellId": {
+                  "revision": -8,
+                  "localId": 17
+                },
+                "revision": -8
+              }
+            ],
+            "revision": -8
+          },
+          "childRebaser": "test-node"
+        },
+        "revisions": [
+          -9,
+          -8
+        ],
+        "algorithm": {
+          "localIds": "supplied-by-operands",
+          "composeAllocator": "unused-by-pinned-source",
+          "rebaseAllocator": "unused-by-pinned-source"
+        },
+        "compressor": {
+          "mode": "test",
+          "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
+        },
+        "sequencing": {
+          "sequenceNumber": 0,
+          "referenceSequenceNumber": 0,
+          "minimumSequenceNumber": 0
+        },
+        "schedule": [
+          {
+            "step": "rebase"
+          }
+        ]
+      },
+      {
+        "id": "move-gap-insert",
+        "operation": "rebase",
+        "initialState": {
+          "field": []
+        },
+        "operands": {
+          "change": {
+            "change": [
+              {
+                "count": 4
+              },
+              {
+                "type": "Insert",
+                "id": 26,
+                "count": 1,
+                "cellId": {
+                  "revision": -10,
+                  "localId": 26
+                },
+                "revision": -10
+              }
+            ],
+            "revision": -10
+          },
+          "base": {
+            "change": [
+              {
+                "type": "MoveOut",
+                "id": 6,
+                "count": 2,
+                "revision": -5
+              },
+              {
+                "count": 2
+              },
+              {
+                "type": "MoveIn",
+                "id": 6,
+                "count": 2,
+                "cellId": {
+                  "revision": -5,
+                  "localId": 8
+                },
+                "revision": -5
+              }
+            ],
+            "revision": -5
+          },
+          "childRebaser": "test-node"
+        },
+        "revisions": [
+          -10,
+          -5
         ],
         "algorithm": {
           "localIds": "supplied-by-operands",
@@ -1139,6 +1379,85 @@
         }
       },
       {
+        "id": "competing-moves-reverse",
+        "executed": true,
+        "accepted": true,
+        "value": {
+          "value": [
+            {
+              "type": "MoveIn",
+              "id": 10,
+              "count": 2,
+              "cellId": {
+                "revision": -6,
+                "localId": 12
+              },
+              "revision": -6
+            },
+            {
+              "count": 2,
+              "cellId": {
+                "revision": -5,
+                "localId": 6
+              }
+            },
+            {
+              "type": "MoveOut",
+              "id": 11,
+              "count": 1,
+              "revision": -6
+            },
+            {
+              "count": 2
+            },
+            {
+              "count": 1,
+              "type": "MoveOut",
+              "id": 10,
+              "revision": -6
+            }
+          ],
+          "callbacks": []
+        },
+        "result": {
+          "value": [
+            {
+              "type": "MoveIn",
+              "id": 10,
+              "count": 2,
+              "cellId": {
+                "revision": -6,
+                "localId": 12
+              },
+              "revision": -6
+            },
+            {
+              "count": 2,
+              "cellId": {
+                "revision": -5,
+                "localId": 6
+              }
+            },
+            {
+              "type": "MoveOut",
+              "id": 11,
+              "count": 1,
+              "revision": -6
+            },
+            {
+              "count": 2
+            },
+            {
+              "count": 1,
+              "type": "MoveOut",
+              "id": 10,
+              "revision": -6
+            }
+          ],
+          "callbacks": []
+        }
+      },
+      {
         "id": "partial-overlap-moves",
         "executed": true,
         "accepted": true,
@@ -1212,6 +1531,140 @@
                 "localId": 17
               },
               "revision": -8
+            }
+          ],
+          "callbacks": []
+        }
+      },
+      {
+        "id": "partial-overlap-moves-reverse",
+        "executed": true,
+        "accepted": true,
+        "value": {
+          "value": [
+            {
+              "type": "MoveIn",
+              "id": 20,
+              "count": 3,
+              "cellId": {
+                "revision": -9,
+                "localId": 23
+              },
+              "revision": -9
+            },
+            {
+              "count": 3,
+              "cellId": {
+                "revision": -8,
+                "localId": 14
+              }
+            },
+            {
+              "type": "MoveOut",
+              "id": 21,
+              "count": 2,
+              "revision": -9
+            },
+            {
+              "count": 2
+            },
+            {
+              "count": 1,
+              "type": "MoveOut",
+              "id": 20,
+              "revision": -9
+            }
+          ],
+          "callbacks": []
+        },
+        "result": {
+          "value": [
+            {
+              "type": "MoveIn",
+              "id": 20,
+              "count": 3,
+              "cellId": {
+                "revision": -9,
+                "localId": 23
+              },
+              "revision": -9
+            },
+            {
+              "count": 3,
+              "cellId": {
+                "revision": -8,
+                "localId": 14
+              }
+            },
+            {
+              "type": "MoveOut",
+              "id": 21,
+              "count": 2,
+              "revision": -9
+            },
+            {
+              "count": 2
+            },
+            {
+              "count": 1,
+              "type": "MoveOut",
+              "id": 20,
+              "revision": -9
+            }
+          ],
+          "callbacks": []
+        }
+      },
+      {
+        "id": "move-gap-insert",
+        "executed": true,
+        "accepted": true,
+        "value": {
+          "value": [
+            {
+              "count": 2,
+              "cellId": {
+                "revision": -5,
+                "localId": 6
+              }
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "Insert",
+              "id": 26,
+              "count": 1,
+              "cellId": {
+                "revision": -10,
+                "localId": 26
+              },
+              "revision": -10
+            }
+          ],
+          "callbacks": []
+        },
+        "result": {
+          "value": [
+            {
+              "count": 2,
+              "cellId": {
+                "revision": -5,
+                "localId": 6
+              }
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "Insert",
+              "id": 26,
+              "count": 1,
+              "cellId": {
+                "revision": -10,
+                "localId": 26
+              },
+              "revision": -10
             }
           ],
           "callbacks": []
@@ -2029,6 +2482,128 @@
         }
       },
       {
+        "id": "competing-moves-reverse",
+        "input": {
+          "id": "competing-moves-reverse",
+          "operation": "rebase",
+          "initialState": {
+            "field": []
+          },
+          "operands": {
+            "change": {
+              "change": [
+                {
+                  "type": "MoveIn",
+                  "id": 10,
+                  "count": 2,
+                  "cellId": {
+                    "revision": -6,
+                    "localId": 12
+                  },
+                  "revision": -6
+                },
+                {
+                  "count": 1
+                },
+                {
+                  "type": "MoveOut",
+                  "id": 10,
+                  "count": 2,
+                  "revision": -6
+                }
+              ],
+              "revision": -6
+            },
+            "base": {
+              "change": [
+                {
+                  "type": "MoveOut",
+                  "id": 6,
+                  "count": 2,
+                  "revision": -5
+                },
+                {
+                  "count": 2
+                },
+                {
+                  "type": "MoveIn",
+                  "id": 6,
+                  "count": 2,
+                  "cellId": {
+                    "revision": -5,
+                    "localId": 8
+                  },
+                  "revision": -5
+                }
+              ],
+              "revision": -5
+            },
+            "childRebaser": "test-node"
+          },
+          "revisions": [
+            -6,
+            -5
+          ],
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "composeAllocator": "unused-by-pinned-source",
+            "rebaseAllocator": "unused-by-pinned-source"
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "rebase"
+            }
+          ]
+        },
+        "output": {
+          "value": [
+            {
+              "type": "MoveIn",
+              "id": 10,
+              "count": 2,
+              "cellId": {
+                "revision": -6,
+                "localId": 12
+              },
+              "revision": -6
+            },
+            {
+              "count": 2,
+              "cellId": {
+                "revision": -5,
+                "localId": 6
+              }
+            },
+            {
+              "type": "MoveOut",
+              "id": 11,
+              "count": 1,
+              "revision": -6
+            },
+            {
+              "count": 2
+            },
+            {
+              "count": 1,
+              "type": "MoveOut",
+              "id": 10,
+              "revision": -6
+            }
+          ],
+          "callbacks": []
+        }
+      },
+      {
         "id": "partial-overlap-moves",
         "input": {
           "id": "partial-overlap-moves",
@@ -2145,6 +2720,232 @@
                 "localId": 17
               },
               "revision": -8
+            }
+          ],
+          "callbacks": []
+        }
+      },
+      {
+        "id": "partial-overlap-moves-reverse",
+        "input": {
+          "id": "partial-overlap-moves-reverse",
+          "operation": "rebase",
+          "initialState": {
+            "field": []
+          },
+          "operands": {
+            "change": {
+              "change": [
+                {
+                  "type": "MoveIn",
+                  "id": 20,
+                  "count": 3,
+                  "cellId": {
+                    "revision": -9,
+                    "localId": 23
+                  },
+                  "revision": -9
+                },
+                {
+                  "count": 2
+                },
+                {
+                  "type": "MoveOut",
+                  "id": 20,
+                  "count": 3,
+                  "revision": -9
+                }
+              ],
+              "revision": -9
+            },
+            "base": {
+              "change": [
+                {
+                  "type": "MoveOut",
+                  "id": 14,
+                  "count": 3,
+                  "revision": -8
+                },
+                {
+                  "count": 2
+                },
+                {
+                  "type": "MoveIn",
+                  "id": 14,
+                  "count": 3,
+                  "cellId": {
+                    "revision": -8,
+                    "localId": 17
+                  },
+                  "revision": -8
+                }
+              ],
+              "revision": -8
+            },
+            "childRebaser": "test-node"
+          },
+          "revisions": [
+            -9,
+            -8
+          ],
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "composeAllocator": "unused-by-pinned-source",
+            "rebaseAllocator": "unused-by-pinned-source"
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "rebase"
+            }
+          ]
+        },
+        "output": {
+          "value": [
+            {
+              "type": "MoveIn",
+              "id": 20,
+              "count": 3,
+              "cellId": {
+                "revision": -9,
+                "localId": 23
+              },
+              "revision": -9
+            },
+            {
+              "count": 3,
+              "cellId": {
+                "revision": -8,
+                "localId": 14
+              }
+            },
+            {
+              "type": "MoveOut",
+              "id": 21,
+              "count": 2,
+              "revision": -9
+            },
+            {
+              "count": 2
+            },
+            {
+              "count": 1,
+              "type": "MoveOut",
+              "id": 20,
+              "revision": -9
+            }
+          ],
+          "callbacks": []
+        }
+      },
+      {
+        "id": "move-gap-insert",
+        "input": {
+          "id": "move-gap-insert",
+          "operation": "rebase",
+          "initialState": {
+            "field": []
+          },
+          "operands": {
+            "change": {
+              "change": [
+                {
+                  "count": 4
+                },
+                {
+                  "type": "Insert",
+                  "id": 26,
+                  "count": 1,
+                  "cellId": {
+                    "revision": -10,
+                    "localId": 26
+                  },
+                  "revision": -10
+                }
+              ],
+              "revision": -10
+            },
+            "base": {
+              "change": [
+                {
+                  "type": "MoveOut",
+                  "id": 6,
+                  "count": 2,
+                  "revision": -5
+                },
+                {
+                  "count": 2
+                },
+                {
+                  "type": "MoveIn",
+                  "id": 6,
+                  "count": 2,
+                  "cellId": {
+                    "revision": -5,
+                    "localId": 8
+                  },
+                  "revision": -5
+                }
+              ],
+              "revision": -5
+            },
+            "childRebaser": "test-node"
+          },
+          "revisions": [
+            -10,
+            -5
+          ],
+          "algorithm": {
+            "localIds": "supplied-by-operands",
+            "composeAllocator": "unused-by-pinned-source",
+            "rebaseAllocator": "unused-by-pinned-source"
+          },
+          "compressor": {
+            "mode": "test",
+            "session": "ba6ca8d4-71ea-4abb-a919-5c0e2c252e75",
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAB1LiUsDlwZ6a6qx1GjsukCAAAAAAAAOEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAA4QA=="
+          },
+          "sequencing": {
+            "sequenceNumber": 0,
+            "referenceSequenceNumber": 0,
+            "minimumSequenceNumber": 0
+          },
+          "schedule": [
+            {
+              "step": "rebase"
+            }
+          ]
+        },
+        "output": {
+          "value": [
+            {
+              "count": 2,
+              "cellId": {
+                "revision": -5,
+                "localId": 6
+              }
+            },
+            {
+              "count": 2
+            },
+            {
+              "type": "Insert",
+              "id": 26,
+              "count": 1,
+              "cellId": {
+                "revision": -10,
+                "localId": 26
+              },
+              "revision": -10
             }
           ],
           "callbacks": []

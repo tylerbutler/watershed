@@ -129,10 +129,11 @@ fn run_rebase_scenario(value: JsonValue) -> Result(Json, String) {
     )
     |> native_error,
   )
-  let #(invalidated, move_context) = moves.take_invalidated(move_context)
+  let #(invalidated, move_context) =
+    moves.take_invalidated_for(move_context, fixture_field())
   use #(rebased, state) <- result.try(case invalidated {
-    [] -> Ok(#(rebased, state))
-    _ ->
+    False -> Ok(#(rebased, state))
+    True ->
       rebase.rebase(
         authored,
         base,
@@ -253,14 +254,22 @@ fn run_codec(operands: JsonValue, context: Context) -> Result(Json, String) {
 
 fn run_compose(operands: JsonValue, context: Context) -> Result(Json, String) {
   use encoded <- result.try(codec.field(operands, "changes", codec.items))
-  use #(changes, context) <- result.try(decode_changes(encoded, context, []))
+  use #(tagged, context) <- result.try(decode_changes(encoded, context, []))
+  let changes = list.map(tagged, fn(pair) { pair.0 })
+  let chronology = list.map(tagged, fn(pair) { pair.1 })
   use operands_json <- result.try(
     list.try_map(changes, encode_change(_, context)),
   )
   let state = ComposeState(context, [])
   use empty <- result.try(sequence_field.from_marks([]) |> native_error)
   use #(composed, state, _) <- result.try(
-    compose_changes([empty, ..changes], state, moves.new()) |> native_error,
+    compose_changes(
+      [empty, ..changes],
+      state,
+      moves.new(),
+      algebra_with_revisions(context, chronology),
+    )
+    |> native_error,
   )
   let ComposeState(context, callbacks) = state
   use composed <- result.try(encode_change(composed, context))
@@ -316,7 +325,7 @@ fn run_compose_and_invert(
       inverted,
       compose_state,
       compose_children,
-      algebra(context),
+      algebra_with_revisions(context, [original_revision, inverse_revision]),
       fixture_field(),
       move_context,
     )
@@ -466,13 +475,16 @@ fn run_removed_roots(
 fn decode_changes(
   encoded: List(JsonValue),
   context: Context,
-  output: List(sequence_field.Changeset),
-) -> Result(#(List(sequence_field.Changeset), Context), String) {
+  output: List(#(sequence_field.Changeset, StableId)),
+) -> Result(#(List(#(sequence_field.Changeset, StableId)), Context), String) {
   case encoded {
     [] -> Ok(#(list.reverse(output), context))
     [value, ..rest] -> {
-      use #(change, _, context) <- result.try(decode_tagged(value, context))
-      decode_changes(rest, context, [change, ..output])
+      use #(change, revision, context) <- result.try(decode_tagged(
+        value,
+        context,
+      ))
+      decode_changes(rest, context, [#(change, revision), ..output])
     }
   }
 }
@@ -680,6 +692,7 @@ fn compose_changes(
   changes: List(sequence_field.Changeset),
   state: ComposeState,
   move_context: moves.Context,
+  algebra: sequence_field.AlgebraContext,
 ) -> Result(
   #(sequence_field.Changeset, ComposeState, moves.Context),
   types.TreeError,
@@ -691,15 +704,14 @@ fn compose_changes(
     }
     [change] -> Ok(#(change, state, move_context))
     [first, second, ..rest] -> {
-      let ComposeState(context, _) = state
       use #(composed, state, move_context) <- result.try(compose_pair_fixture(
         first,
         second,
         state,
         move_context,
-        algebra(context),
+        algebra,
       ))
-      compose_changes([composed, ..rest], state, move_context)
+      compose_changes([composed, ..rest], state, move_context, algebra)
     }
   }
 }
@@ -811,8 +823,7 @@ fn rebase_child_value(
         "sequence fixture child",
         "authored child has no identifier",
       ))
-    Some(id), Some(authored), None ->
-      normalize_child(id, authored) |> result.map(Some)
+    Some(id), Some(authored), None -> Ok(Some(Child(..authored, id:)))
     Some(id), Some(authored), Some(base) -> {
       use authored_input <- result.try(require_child_context(
         authored.input_context,
@@ -843,7 +854,7 @@ fn rebase_child_value(
             )),
           )
         }
-        Some(_), None -> normalize_child(id, authored) |> result.map(Some)
+        Some(_), None -> Ok(Some(Child(..authored, id:)))
       }
     }
     Some(_), None, _ ->
@@ -1053,6 +1064,14 @@ fn fixture_field() -> moves.FieldId {
 }
 
 fn algebra(context: Context) -> sequence_field.AlgebraContext {
+  let Context(revisions:, ..) = context
+  algebra_with_revisions(context, list.map(revisions, fn(pair) { pair.1 }))
+}
+
+fn algebra_with_revisions(
+  context: Context,
+  revisions: List(StableId),
+) -> sequence_field.AlgebraContext {
   sequence_field.AlgebraContext(
     compare_atoms: fn(first, second) {
       use first_revision <- result.try(atom_revision_index(first, context))
@@ -1063,13 +1082,33 @@ fn algebra(context: Context) -> sequence_field.AlgebraContext {
       })
     },
     revision_index: fn(revision) {
-      revision_position(revision, context)
-      |> result.map_error(fn(_) {
-        types.InvalidHistory("fixture revision has no chronology")
-      })
+      case revision_window_position(revisions, revision, 0) {
+        Ok(index) -> Ok(Some(index))
+        Error(_) ->
+          case revision_position(revision, context) {
+            Ok(_) -> Ok(None)
+            Error(_) ->
+              Error(types.InvalidHistory("fixture revision is unknown"))
+          }
+      }
     },
     rollback_of: fn(_) { Ok(None) },
   )
+}
+
+fn revision_window_position(
+  revisions: List(StableId),
+  revision: StableId,
+  index: Int,
+) -> Result(Int, Nil) {
+  case revisions {
+    [] -> Error(Nil)
+    [candidate, ..rest] ->
+      case candidate == revision {
+        True -> Ok(index)
+        False -> revision_window_position(rest, revision, index + 1)
+      }
+  }
 }
 
 fn rebase_algebra(
@@ -1082,9 +1121,14 @@ fn rebase_algebra(
     compare_atoms: identity.compare_atoms,
     revision_index: fn(revision) {
       case revision == base_revision, revision == authored_revision {
-        True, _ -> Ok(0)
-        _, True -> Ok(1)
-        False, False -> identity.revision_index(revision)
+        True, _ -> Ok(Some(0))
+        _, True -> Ok(Some(1))
+        False, False ->
+          case revision_position(revision, context) {
+            Ok(_) -> Ok(None)
+            Error(_) ->
+              Error(types.InvalidHistory("fixture revision is unknown"))
+          }
       }
     },
     rollback_of: identity.rollback_of,

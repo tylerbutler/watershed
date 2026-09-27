@@ -57,7 +57,7 @@ pub type DeltaResult {
 pub type AlgebraContext {
   AlgebraContext(
     compare_atoms: fn(AtomId, AtomId) -> Result(Order, TreeError),
-    revision_index: fn(StableId) -> Result(Int, TreeError),
+    revision_index: fn(StableId) -> Result(Option(Int), TreeError),
     rollback_of: fn(StableId) -> Result(Option(StableId), TreeError),
   )
 }

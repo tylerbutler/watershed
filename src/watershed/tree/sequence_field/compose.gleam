@@ -395,10 +395,20 @@ fn compare_cells(
             Some(new_revision), Some(old_revision) -> {
               use old_index <- result.try(algebra.revision_index(old_revision))
               use new_index <- result.try(algebra.revision_index(new_revision))
-              Ok(case int.compare(new_index, old_index) {
-                Gt -> NewThenOld
-                Lt | Eq -> OldThenNew
-              })
+              case old_index, new_index {
+                Some(old_index), Some(new_index) ->
+                  Ok(case int.compare(new_index, old_index) {
+                    Gt -> NewThenOld
+                    Lt | Eq -> OldThenNew
+                  })
+                None, Some(_) -> Ok(NewThenOld)
+                Some(_), None -> Ok(OldThenNew)
+                None, None ->
+                  Error(CorruptData(
+                    "sequence compose",
+                    "cell revisions are outside the metadata window",
+                  ))
+              }
             }
           }
       }

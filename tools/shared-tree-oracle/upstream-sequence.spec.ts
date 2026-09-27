@@ -87,8 +87,9 @@ const scenarioIds = {
 	],
 	"sequence-rebase": [
 		"insert-insert", "insert-remove", "remove-remove", "move-edit", "move-delete",
-		"competing-moves", "partial-overlap-moves", "empty-cells", "detached-children",
-		"endpoint-invalidation",
+		"competing-moves", "competing-moves-reverse", "partial-overlap-moves",
+		"partial-overlap-moves-reverse", "move-gap-insert", "empty-cells",
+		"detached-children", "endpoint-invalidation",
 	],
 } as const;
 
@@ -1349,13 +1350,90 @@ export function replaySequenceRebaseInput(input: Record<string, unknown>): unkno
 	return { value, callbacks };
 }
 
+function assertSequenceRebaseContracts(revs: RevisionTag[]): void {
+	const nodeId: ChangeAtomId = { localId: brand(0) };
+	const baseNodeId: ChangeAtomId = { revision: revs[0], localId: brand(1) };
+	const startEndpoint: ChangeAtomId = { revision: revs[1], localId: brand(0) };
+	const endCellId: ChangeAtomId = { revision: revs[2], localId: brand(0) };
+	const inputChildChange = TestNodeId.create(nodeId, TestChange.mint([], 2));
+	const baseChildChange = TestNodeId.create(baseNodeId, TestChange.mint([], 1));
+	const expectedChildChange = TestNodeId.create(nodeId, TestChange.mint([1], 2));
+	const rebasee = [
+		Mark.moveOut(1, startEndpoint, {
+			changes: inputChildChange,
+			idOverride: endCellId,
+			finalEndpoint: endCellId,
+		}),
+		Mark.skip(1),
+		Mark.moveIn(1, endCellId, {
+			finalEndpoint: startEndpoint,
+		}),
+	] as Changeset;
+	const baseMove = [
+		Mark.moveOut(
+			1,
+			{ revision: revs[3], localId: brand(4) },
+			{ changes: baseChildChange },
+		),
+		Mark.moveIn(1, { revision: revs[3], localId: brand(4) }),
+	] as Changeset;
+	assert.deepEqual(
+		testRebase(
+			tagChange(rebasee, revs[1]),
+			tagChange(baseMove, revs[3]),
+			{ childRebaser: TestNodeId.rebaseChild },
+		),
+		[
+			Mark.rename(
+				1,
+				{ revision: revs[3], localId: brand(4) },
+				endCellId,
+			),
+			Mark.moveOut(1, startEndpoint, {
+				changes: expectedChildChange,
+				finalEndpoint: endCellId,
+			}),
+			Mark.skip(1),
+			Mark.moveIn(1, endCellId, {
+				finalEndpoint: startEndpoint,
+			}),
+		],
+	);
+
+	const removeA = [Mark.remove(1, { revision: revs[2], localId: brand(0) })];
+	const insertB = [Mark.insert(1, { revision: revs[3], localId: brand(0) })];
+	const insertC = [
+		Mark.skip(1),
+		Mark.insert(1, { revision: revs[4], localId: brand(0) }),
+	];
+	const c2 = testRebase(
+		tagChange(insertC, revs[4]),
+		tagChange(removeA, revs[2]),
+	);
+	assert.deepEqual(c2, [
+		Mark.tomb(revs[2], brand(0)),
+		Mark.insert(1, { revision: revs[4], localId: brand(0) }),
+	]);
+	assert.deepEqual(
+		testRebase(tagChange(c2, revs[4]), tagChange(insertB, revs[3])),
+		[
+			Mark.skip(1),
+			Mark.tomb(revs[2], brand(0)),
+			Mark.insert(1, { revision: revs[4], localId: brand(0) }),
+		],
+	);
+}
+
 function rebaseCase(revs: RevisionTag[], compressor: IIdCompressor) {
+	assertSequenceRebaseContracts(revs);
 	const insertA = Change.insert(0, 1, revs[0], { localId: brand(0), revision: revs[0] });
 	const insertB = Change.insert(0, 1, revs[1], { localId: brand(1), revision: revs[1] });
 	const removeA = Change.remove(0, 2, revs[2], brand(2));
 	const removeB = Change.remove(1, 2, revs[3], brand(4));
 	const moveA = Change.move(0, 2, 4, revs[4], brand(6));
 	const moveB = Change.move(1, 2, 0, revs[5], brand(10));
+	const partialA = Change.move(0, 3, 5, revs[7], brand(14));
+	const partialB = Change.move(2, 3, 0, revs[8], brand(20));
 	const child = TestNodeId.create({ localId: brand(40) }, TestChange.mint([], 4));
 	const edit = Change.modify(1, child);
 	const detachedEdit = Change.modifyDetached(0, child, {
@@ -1369,11 +1447,14 @@ function rebaseCase(revs: RevisionTag[], compressor: IIdCompressor) {
 		"move-edit": [edit, revs[6], moveA, revs[4]],
 		"move-delete": [moveA, revs[4], removeB, revs[3]],
 		"competing-moves": [moveA, revs[4], moveB, revs[5]],
-		"partial-overlap-moves": [
-			Change.move(0, 3, 5, revs[7], brand(14)),
-			revs[7],
-			Change.move(2, 3, 0, revs[8], brand(20)),
-			revs[8],
+		"competing-moves-reverse": [moveB, revs[5], moveA, revs[4]],
+		"partial-overlap-moves": [partialA, revs[7], partialB, revs[8]],
+		"partial-overlap-moves-reverse": [partialB, revs[8], partialA, revs[7]],
+		"move-gap-insert": [
+			Change.insert(4, 1, revs[9], { revision: revs[9], localId: brand(26) }),
+			revs[9],
+			moveA,
+			revs[4],
 		],
 		"empty-cells": [
 			[Mark.tomb(revs[2], brand(2))],

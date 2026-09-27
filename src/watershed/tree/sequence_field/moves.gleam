@@ -112,6 +112,24 @@ pub fn take_invalidated(context: Context) -> #(List(FieldId), Context) {
   #(list.reverse(invalidated), Context(entries, [], [], notifications))
 }
 
+pub fn take_invalidated_for(
+  context: Context,
+  field: FieldId,
+) -> #(Bool, Context) {
+  let Context(entries, dependencies, invalidated, notifications) = context
+  #(
+    list.contains(invalidated, field),
+    Context(
+      entries,
+      list.filter(dependencies, fn(dependency) { dependency.field != field }),
+      list.filter(invalidated, fn(invalidated_field) {
+        invalidated_field != field
+      }),
+      notifications,
+    ),
+  )
+}
+
 pub fn on_move_in(
   context: Context,
   node: AtomId,

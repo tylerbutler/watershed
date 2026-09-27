@@ -65,7 +65,7 @@ fn test_algebra() -> sequence_field.AlgebraContext {
         False -> order.Lt
       })
     },
-    revision_index: fn(_) { Ok(0) },
+    revision_index: fn(_) { Ok(Some(0)) },
     rollback_of: fn(_) { Ok(None) },
   )
 }
@@ -83,8 +83,8 @@ fn ordered_algebra(
     },
     revision_index: fn(value) {
       case value == older, value == younger {
-        True, _ -> Ok(0)
-        _, True -> Ok(1)
+        True, _ -> Ok(Some(0))
+        _, True -> Ok(Some(1))
         False, False ->
           Error(types.InvalidHistory("test revision has no chronology"))
       }
@@ -360,6 +360,393 @@ pub fn shared_tree_sequence_rebase_coordinates_split_cross_field_moves_test() {
   ])
 }
 
+pub fn shared_tree_sequence_rebase_consumes_qualified_move_in_identity_test() {
+  let source_revision = revision("38")
+  let destination_revision = revision("39")
+  let authored_revision = revision("3a")
+  let source_id = atom(Some(source_revision), 10)
+  let destination_id = atom(Some(destination_revision), 20)
+  let authored_id = atom(Some(authored_revision), 30)
+  let child = atom(None, 40)
+  let source_field = moves.FieldId(Some(atom(None, 1)), "source")
+  let destination_field = moves.FieldId(Some(atom(None, 2)), "destination")
+  let unrelated_field = moves.FieldId(Some(atom(None, 3)), "unrelated")
+  let unrelated_key = moves.Key(moves.Source, Some(destination_revision), 50)
+  let assert Ok(authored) =
+    sequence_field.from_marks([
+      sequence_field.Mark(1, None, sequence_field.Noop, None),
+      sequence_field.Mark(
+        1,
+        None,
+        sequence_field.Detach(sequence_field.Remove(
+          sequence_field.offset_atom(authored_id, 1),
+          None,
+        )),
+        Some(child),
+      ),
+    ])
+  let assert Ok(source_base) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        2,
+        None,
+        sequence_field.Detach(sequence_field.MoveOut(
+          source_id,
+          Some(destination_id),
+          None,
+        )),
+        None,
+      ),
+    ])
+  let assert Ok(destination_base) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        2,
+        Some(atom(Some(destination_revision), 22)),
+        sequence_field.Attach(sequence_field.MoveIn(
+          destination_id,
+          Some(source_id),
+        )),
+        None,
+      ),
+    ])
+  let assert Ok(empty) = sequence_field.from_marks([])
+  let assert Ok(#(before_retry, Nil, context)) =
+    rebase.rebase(
+      empty,
+      destination_base,
+      Nil,
+      no_child_rebase,
+      test_algebra(),
+      destination_field,
+      moves.new(),
+    )
+  sequence_field.to_marks(before_retry) |> expect.to_equal([])
+  let assert Ok(#(_, context)) =
+    moves.get(context, unrelated_key, 1, Some(unrelated_field))
+  let assert Ok(#(_, Nil, context)) =
+    rebase.rebase(
+      authored,
+      source_base,
+      Nil,
+      no_child_rebase,
+      test_algebra(),
+      source_field,
+      context,
+    )
+  let assert #(True, context) =
+    moves.take_invalidated_for(context, destination_field)
+  let assert Ok(#(after_retry, Nil, context)) =
+    rebase.rebase(
+      empty,
+      destination_base,
+      Nil,
+      no_child_rebase,
+      test_algebra(),
+      destination_field,
+      context,
+    )
+  let assert Ok(context) =
+    moves.set(
+      context,
+      unrelated_key,
+      1,
+      moves.MoveEffect(
+        modify_after: None,
+        moved_effect: None,
+        rebased_child: None,
+        endpoint: None,
+        truncated_endpoint: None,
+        truncated_endpoint_for_inner: None,
+      ),
+    )
+  moves.take_invalidated_for(context, unrelated_field).0
+  |> expect.to_be_true()
+  sequence_field.to_marks(after_retry)
+  |> expect.to_equal([
+    sequence_field.Mark(1, None, sequence_field.Noop, None),
+    sequence_field.Mark(
+      1,
+      None,
+      sequence_field.Detach(sequence_field.Remove(
+        sequence_field.offset_atom(authored_id, 1),
+        None,
+      )),
+      Some(child),
+    ),
+  ])
+  moves.notifications(context)
+  |> expect.to_equal([moves.NodeMoved(child, destination_field)])
+}
+
+pub fn shared_tree_sequence_rebase_moves_child_across_three_fields_test() {
+  let source_revision = revision("65")
+  let middle_revision = revision("66")
+  let destination_revision = revision("67")
+  let authored_revision = revision("68")
+  let source_id = atom(Some(source_revision), 10)
+  let middle_id = atom(Some(middle_revision), 20)
+  let destination_id = atom(Some(destination_revision), 30)
+  let authored_id = atom(Some(authored_revision), 40)
+  let child = atom(None, 50)
+  let source_field = moves.FieldId(Some(atom(None, 1)), "source")
+  let middle_field = moves.FieldId(Some(atom(None, 2)), "middle")
+  let destination_field = moves.FieldId(Some(atom(None, 3)), "destination")
+  let assert Ok(authored) =
+    sequence_field.from_marks([
+      sequence_field.Mark(1, None, sequence_field.Noop, None),
+      sequence_field.Mark(
+        1,
+        None,
+        sequence_field.Detach(sequence_field.Remove(
+          sequence_field.offset_atom(authored_id, 1),
+          None,
+        )),
+        Some(child),
+      ),
+    ])
+  let assert Ok(source_base) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        2,
+        None,
+        sequence_field.Detach(sequence_field.MoveOut(
+          source_id,
+          Some(middle_id),
+          None,
+        )),
+        None,
+      ),
+    ])
+  let assert Ok(middle_base) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        2,
+        Some(atom(Some(middle_revision), 22)),
+        sequence_field.AttachAndDetach(
+          sequence_field.MoveIn(middle_id, Some(source_id)),
+          sequence_field.MoveOut(middle_id, Some(destination_id), None),
+        ),
+        None,
+      ),
+    ])
+  let assert Ok(destination_base) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        2,
+        Some(atom(Some(destination_revision), 32)),
+        sequence_field.Attach(sequence_field.MoveIn(
+          destination_id,
+          Some(middle_id),
+        )),
+        None,
+      ),
+    ])
+  let assert Ok(empty) = sequence_field.from_marks([])
+  let assert Ok(#(first_destination, Nil, context)) =
+    rebase.rebase(
+      empty,
+      destination_base,
+      Nil,
+      no_child_rebase,
+      test_algebra(),
+      destination_field,
+      moves.new(),
+    )
+  sequence_field.to_marks(first_destination) |> expect.to_equal([])
+  let assert Ok(#(_, Nil, context)) =
+    rebase.rebase(
+      empty,
+      middle_base,
+      Nil,
+      no_child_rebase,
+      test_algebra(),
+      middle_field,
+      context,
+    )
+  let assert Ok(#(_, Nil, context)) =
+    rebase.rebase(
+      authored,
+      source_base,
+      Nil,
+      no_child_rebase,
+      test_algebra(),
+      source_field,
+      context,
+    )
+  let assert #(True, context) =
+    moves.take_invalidated_for(context, middle_field)
+  let assert Ok(#(_, Nil, context)) =
+    rebase.rebase(
+      empty,
+      middle_base,
+      Nil,
+      no_child_rebase,
+      test_algebra(),
+      middle_field,
+      context,
+    )
+  let assert #(True, context) =
+    moves.take_invalidated_for(context, destination_field)
+  let assert Ok(#(after_chain, Nil, context)) =
+    rebase.rebase(
+      empty,
+      destination_base,
+      Nil,
+      no_child_rebase,
+      test_algebra(),
+      destination_field,
+      context,
+    )
+  sequence_field.to_marks(after_chain)
+  |> expect.to_equal([
+    sequence_field.Mark(1, None, sequence_field.Noop, None),
+    sequence_field.Mark(
+      1,
+      None,
+      sequence_field.Detach(sequence_field.Remove(
+        sequence_field.offset_atom(authored_id, 1),
+        None,
+      )),
+      Some(child),
+    ),
+  ])
+  moves.notifications(context)
+  |> expect.to_equal([
+    moves.NodeMoved(child, middle_field),
+    moves.NodeMoved(child, destination_field),
+  ])
+}
+
+pub fn shared_tree_sequence_rebase_orders_historical_cells_from_metadata_test() {
+  let authored_revision = revision("3b")
+  let base_revision = revision("3c")
+  let historical_revision = revision("3d")
+  let authored_cell = atom(Some(authored_revision), 1)
+  let historical_cell = atom(Some(historical_revision), 2)
+  let assert Ok(authored) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        Some(authored_cell),
+        sequence_field.Attach(sequence_field.Insert(authored_cell)),
+        None,
+      ),
+    ])
+  let assert Ok(base) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        Some(historical_cell),
+        sequence_field.Attach(
+          sequence_field.Insert(atom(Some(base_revision), 3)),
+        ),
+        None,
+      ),
+    ])
+  let algebra =
+    sequence_field.AlgebraContext(
+      compare_atoms: fn(first, second) {
+        Ok(case first == second {
+          True -> order.Eq
+          False -> order.Lt
+        })
+      },
+      revision_index: fn(value) {
+        case value == authored_revision, value == base_revision {
+          True, _ -> Ok(Some(1))
+          _, True -> Ok(Some(0))
+          False, False -> Ok(None)
+        }
+      },
+      rollback_of: fn(_) { Ok(None) },
+    )
+  let assert Ok(#(rebased, Nil, _)) =
+    rebase.rebase(
+      authored,
+      base,
+      Nil,
+      no_child_rebase,
+      algebra,
+      moves.FieldId(None, "field"),
+      moves.new(),
+    )
+  sequence_field.to_marks(rebased)
+  |> expect.to_equal(sequence_field.to_marks(authored))
+
+  let assert Ok(historical_authored) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        Some(historical_cell),
+        sequence_field.Attach(
+          sequence_field.Insert(atom(Some(authored_revision), 5)),
+        ),
+        None,
+      ),
+    ])
+  let assert Ok(active_base) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        Some(atom(Some(base_revision), 6)),
+        sequence_field.Attach(
+          sequence_field.Insert(atom(Some(base_revision), 6)),
+        ),
+        None,
+      ),
+    ])
+  let assert Ok(#(historical_rebased, Nil, _)) =
+    rebase.rebase(
+      historical_authored,
+      active_base,
+      Nil,
+      no_child_rebase,
+      algebra,
+      moves.FieldId(None, "field"),
+      moves.new(),
+    )
+  sequence_field.to_marks(historical_rebased)
+  |> expect.to_equal([
+    sequence_field.Mark(1, None, sequence_field.Noop, None),
+    ..sequence_field.to_marks(historical_authored)
+  ])
+
+  let assert Ok(other_historical) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        Some(atom(Some(revision("3e")), 4)),
+        sequence_field.Noop,
+        None,
+      ),
+    ])
+  let _ =
+    rebase.rebase(
+      other_historical,
+      base,
+      Nil,
+      no_child_rebase,
+      algebra,
+      moves.FieldId(None, "field"),
+      moves.new(),
+    )
+    |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_sequence_fixture_rebase_preserves_no_base_child_test() {
+  let input =
+    "{\"scenarios\":[{\"id\":\"preserve-child\",\"operation\":\"rebase\",\"revisions\":[1,2],\"operands\":{\"change\":{\"revision\":1,\"change\":[{\"count\":1,\"changes\":{\"localId\":40,\"testChange\":{\"inputContext\":[],\"intentions\":[4,-4],\"outputContext\":[]}}}]},\"base\":{\"revision\":2,\"change\":[]},\"childRebaser\":\"test-node\"}}]}"
+  let assert Ok(value) = json_ot.parse_json(input)
+  let assert Ok(output) =
+    sequence_field_fixture.run_rebase(json_ot.to_json(value))
+  let encoded = json.to_string(output)
+  encoded |> string.contains("\"intentions\":[4,-4]") |> expect.to_be_true
+  encoded |> string.contains("\"inputContext\":[]") |> expect.to_be_true
+  encoded |> string.contains("\"outputContext\":[]") |> expect.to_be_true
+}
+
 pub fn shared_tree_sequence_rebase_propagates_identity_comparison_error_test() {
   let assert Ok(authored) =
     sequence_field.from_marks([
@@ -387,7 +774,7 @@ pub fn shared_tree_sequence_rebase_propagates_identity_comparison_error_test() {
     no_child_rebase,
     sequence_field.AlgebraContext(
       compare_atoms: fn(_, _) { Error(failure) },
-      revision_index: fn(_) { Ok(0) },
+      revision_index: fn(_) { Ok(Some(0)) },
       rollback_of: fn(_) { Ok(None) },
     ),
     moves.FieldId(None, "field"),
@@ -430,6 +817,103 @@ pub fn shared_tree_sequence_rebase_insert_orders_apply_to_native_forest_test() {
       types.StringValue("older"),
     ]),
   )
+}
+
+pub fn shared_tree_sequence_rebase_three_client_insert_checkpoints_test() {
+  let removed_revision = revision("60")
+  let earlier_insert_revision = revision("61")
+  let later_insert_revision = revision("62")
+  let removed_id = atom(Some(removed_revision), 0)
+  let earlier_id = atom(Some(earlier_insert_revision), 0)
+  let later_id = atom(Some(later_insert_revision), 0)
+  let assert Ok(remove_a) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        None,
+        sequence_field.Detach(sequence_field.Remove(removed_id, None)),
+        None,
+      ),
+    ])
+  let assert Ok(insert_b) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        Some(earlier_id),
+        sequence_field.Attach(sequence_field.Insert(earlier_id)),
+        None,
+      ),
+    ])
+  let assert Ok(insert_c) =
+    sequence_field.from_marks([
+      sequence_field.Mark(1, None, sequence_field.Noop, None),
+      sequence_field.Mark(
+        1,
+        Some(later_id),
+        sequence_field.Attach(sequence_field.Insert(later_id)),
+        None,
+      ),
+    ])
+  let field = moves.FieldId(None, "rootFieldKey")
+  let assert Ok(#(after_remove, Nil, _)) =
+    rebase.rebase(
+      insert_c,
+      remove_a,
+      Nil,
+      no_child_rebase,
+      ordered_algebra(removed_revision, later_insert_revision),
+      field,
+      moves.new(),
+    )
+  sequence_field.to_marks(after_remove)
+  |> expect.to_equal([
+    sequence_field.Mark(1, Some(removed_id), sequence_field.Noop, None),
+    sequence_field.Mark(
+      1,
+      Some(later_id),
+      sequence_field.Attach(sequence_field.Insert(later_id)),
+      None,
+    ),
+  ])
+
+  let second_algebra =
+    sequence_field.AlgebraContext(
+      compare_atoms: fn(first, second) {
+        Ok(case first == second {
+          True -> order.Eq
+          False -> order.Lt
+        })
+      },
+      revision_index: fn(value) {
+        case value == earlier_insert_revision, value == later_insert_revision {
+          True, _ -> Ok(Some(0))
+          _, True -> Ok(Some(1))
+          False, False -> Ok(None)
+        }
+      },
+      rollback_of: fn(_) { Ok(None) },
+    )
+  let assert Ok(#(after_both, Nil, _)) =
+    rebase.rebase(
+      after_remove,
+      insert_b,
+      Nil,
+      no_child_rebase,
+      second_algebra,
+      field,
+      moves.new(),
+    )
+  sequence_field.to_marks(after_both)
+  |> expect.to_equal([
+    sequence_field.Mark(1, None, sequence_field.Noop, None),
+    sequence_field.Mark(1, Some(removed_id), sequence_field.Noop, None),
+    sequence_field.Mark(
+      1,
+      Some(later_id),
+      sequence_field.Attach(sequence_field.Insert(later_id)),
+      None,
+    ),
+  ])
 }
 
 pub fn shared_tree_sequence_rebase_move_delete_applies_with_identity_test() {
@@ -508,6 +992,70 @@ pub fn shared_tree_sequence_rebase_move_delete_applies_with_identity_test() {
   )
   forest.locate(move_then_remove, ["2"]) |> expect.to_equal(Ok(retained_a))
   forest.is_attached(move_then_remove, retained_a) |> expect.to_equal(Ok(True))
+}
+
+pub fn shared_tree_sequence_rebase_delete_then_move_retains_identity_test() {
+  let move_revision = revision("63")
+  let remove_revision = revision("64")
+  let move_id = atom(Some(move_revision), 10)
+  let move_cell = atom(Some(move_revision), 12)
+  let remove_id = atom(Some(remove_revision), 20)
+  let assert Ok(move_change) = sequence_field.move(0, 2, 4, move_id, move_cell)
+  let assert Ok(remove_change) = sequence_field.remove(1, 1, remove_id)
+  let field = moves.FieldId(None, "rootFieldKey")
+  let assert Ok(#(move_rebased, Nil, move_context)) =
+    rebase.rebase(
+      move_change,
+      remove_change,
+      Nil,
+      no_child_rebase,
+      ordered_algebra(remove_revision, move_revision),
+      field,
+      moves.new(),
+    )
+  let #(invalidated, move_context) =
+    moves.take_invalidated_for(move_context, field)
+  let assert Ok(#(move_rebased, Nil, _)) = case invalidated {
+    False -> Ok(#(move_rebased, Nil, move_context))
+    True ->
+      rebase.rebase(
+        move_change,
+        remove_change,
+        Nil,
+        no_child_rebase,
+        ordered_algebra(remove_revision, move_revision),
+        field,
+        move_context,
+      )
+  }
+  let assert Ok(initial) =
+    forest.new(
+      array_fixture.view_id(),
+      array_fixture.stored("rootArray"),
+      Some(
+        types.ArrayValue(items_type, [
+          types.StringValue("A"),
+          types.StringValue("B"),
+          types.StringValue("C"),
+          types.StringValue("D"),
+        ]),
+      ),
+    )
+  let assert Ok(retained_a) = forest.locate(initial, ["0"])
+  let assert Ok(remove_first) = apply_change_to_root(initial, remove_change, [])
+  let assert Ok(remove_then_move) =
+    apply_change_to_root(remove_first, move_rebased, [])
+  forest.array_values(remove_then_move, [])
+  |> expect.to_equal(
+    Ok([
+      types.StringValue("C"),
+      types.StringValue("D"),
+      types.StringValue("A"),
+      types.StringValue("B"),
+    ]),
+  )
+  forest.locate(remove_then_move, ["2"]) |> expect.to_equal(Ok(retained_a))
+  forest.is_attached(remove_then_move, retained_a) |> expect.to_equal(Ok(True))
 }
 
 pub fn shared_tree_sequence_compose_invert_uses_only_fixture_input_test() {
@@ -989,6 +1537,40 @@ pub fn shared_tree_sequence_move_dependencies_do_not_shrink_test() {
   let assert Ok(segmented) =
     moves.set(segmented, moves.Key(moves.Source, Some(revision), 12), 1, effect)
   moves.take_invalidated(segmented).0 |> expect.to_equal([field])
+}
+
+pub fn shared_tree_sequence_move_retry_preserves_unrelated_dependencies_test() {
+  let revision = revision("1b")
+  let retry_field = moves.FieldId(None, "retry")
+  let later_field = moves.FieldId(None, "later")
+  let pending_field = moves.FieldId(None, "pending")
+  let retry_key = moves.Key(moves.Source, Some(revision), 10)
+  let later_key = moves.Key(moves.Source, Some(revision), 20)
+  let pending_key = moves.Key(moves.Source, Some(revision), 30)
+  let effect =
+    moves.MoveEffect(
+      modify_after: None,
+      moved_effect: None,
+      rebased_child: None,
+      endpoint: Some(atom(Some(revision), 40)),
+      truncated_endpoint: None,
+      truncated_endpoint_for_inner: None,
+    )
+  let assert Ok(#(_, context)) =
+    moves.get(moves.new(), retry_key, 1, Some(retry_field))
+  let assert Ok(#(_, context)) =
+    moves.get(context, later_key, 1, Some(later_field))
+  let assert Ok(#(_, context)) =
+    moves.get(context, pending_key, 1, Some(pending_field))
+  let assert Ok(context) = moves.set(context, retry_key, 1, effect)
+  let assert Ok(context) = moves.set(context, pending_key, 1, effect)
+
+  let assert #(True, context) = moves.take_invalidated_for(context, retry_field)
+  let assert Ok(context) = moves.set(context, later_key, 1, effect)
+  moves.take_invalidated_for(context, later_field).0
+  |> expect.to_be_true()
+  moves.take_invalidated_for(context, pending_field).0
+  |> expect.to_be_true()
 }
 
 pub fn shared_tree_sequence_move_effect_ranges_split_and_validate_test() {
