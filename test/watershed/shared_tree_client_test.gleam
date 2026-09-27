@@ -224,6 +224,39 @@ pub fn shared_tree_client_decodes_map_commands_test() -> Nil {
   )
 }
 
+pub fn shared_tree_client_decodes_schema_commands_test() -> Nil {
+  client_protocol.decode_request(
+    "{\"requestId\":6,\"command\":\"schema-compatibility\",\"view\":\"optional\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(
+      6,
+      client_protocol.SchemaCompatibility("optional"),
+    )),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":7,\"command\":\"schema-upgrade\",\"view\":\"optional\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(7, client_protocol.SchemaUpgrade("optional"))),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":8,\"command\":\"open-view\",\"view\":\"v1\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(8, client_protocol.OpenView("v1"))),
+  )
+  list.each(
+    [
+      "{\"requestId\":6,\"command\":\"schema-compatibility\"}",
+      "{\"requestId\":7,\"command\":\"schema-upgrade\",\"view\":\"\"}",
+      "{\"requestId\":8,\"command\":\"open-view\",\"view\":2}",
+    ],
+    fn(raw) { client_protocol.decode_request(raw) |> expect.to_be_error() },
+  )
+  Nil
+}
+
 pub fn shared_tree_client_rejects_invalid_map_commands_test() -> Nil {
   list.each(
     [

@@ -1,3 +1,4 @@
+import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/int
@@ -25,6 +26,7 @@ pub type Descriptor {
     host: String,
     port: Int,
     view: schema.ViewSchema,
+    views: List(#(String, schema.ViewSchema)),
   )
 }
 
@@ -55,7 +57,44 @@ pub fn decode_descriptor(raw: String) -> Result(Descriptor, ProtocolError) {
       invalid("viewSchema", "unsupported view schema")
     }),
   )
-  Ok(Descriptor(run_id, document_id, tenant, socket_url, host, port, view))
+  use raw_views <- result.try(
+    decode.run(data, {
+      use views <- decode.optional_field(
+        "viewSchemas",
+        dict.from_list([#("default", schema_json)]),
+        decode.dict(decode.string, decode.string),
+      )
+      decode.success(views)
+    })
+    |> result.map_error(fn(_) {
+      invalid("viewSchemas", "invalid view schema catalogue")
+    }),
+  )
+  use views <- result.try(
+    raw_views
+    |> dict.to_list
+    |> list.try_map(fn(entry) {
+      use _ <- result.try(case string.is_empty(entry.0) {
+        True -> Error(invalid("viewSchemas", "empty view label"))
+        False -> Ok(Nil)
+      })
+      schema.view_from_string(entry.1)
+      |> result.map(fn(view) { #(entry.0, view) })
+      |> result.map_error(fn(_) {
+        invalid("viewSchemas", "unsupported view schema")
+      })
+    }),
+  )
+  Ok(Descriptor(
+    run_id,
+    document_id,
+    tenant,
+    socket_url,
+    host,
+    port,
+    view,
+    views,
+  ))
 }
 
 fn nonempty(data: Dynamic, key: String) -> Result(String, ProtocolError) {
@@ -75,13 +114,12 @@ pub type Command {
   MapDelete(FieldPath, String)
   MapKeys(FieldPath)
   MapEntries(FieldPath)
-  ArrayGet(FieldPath, Int)
-  ArrayValues(FieldPath)
-  ArrayInsert(FieldPath, Int, List(TreeValue))
-  ArrayRemove(FieldPath, Int, Int)
-  ArrayMove(FieldPath, Int, Int, FieldPath, Int)
+  SchemaCompatibility(String)
+  SchemaUpgrade(String)
+  OpenView(String)
   AwaitSynced(Int)
   Checkpoint
+  PendingSummaryEvidence
   Summarize
   Disconnect
   Reconnect
@@ -167,49 +205,10 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
     }
     "map-keys" -> decode_path(data) |> result.map(MapKeys)
     "map-entries" -> decode_path(data) |> result.map(MapEntries)
-    "array-get" -> {
-      use path <- result.try(decode_path(data))
-      use index <- result.try(decode_safe_index(data, "index"))
-      Ok(ArrayGet(path, index))
-    }
-    "array-values" -> decode_path(data) |> result.map(ArrayValues)
-    "array-insert" -> {
-      use path <- result.try(decode_path(data))
-      use index <- result.try(decode_safe_index(data, "index"))
-      use values <- result.try(required(
-        data,
-        "values",
-        decode.list(decode.dynamic),
-      ))
-      use values <- result.try(list.try_map(values, decode_value))
-      Ok(ArrayInsert(path, index, values))
-    }
-    "array-remove" -> {
-      use path <- result.try(decode_path(data))
-      use start <- result.try(decode_safe_index(data, "start"))
-      use end <- result.try(decode_safe_index(data, "end"))
-      Ok(ArrayRemove(path, start, end))
-    }
-    "array-move" -> {
-      use source_path <- result.try(decode_named_path(data, "sourcePath"))
-      use source_start <- result.try(decode_safe_index(data, "sourceStart"))
-      use source_end <- result.try(decode_safe_index(data, "sourceEnd"))
-      use destination_path <- result.try(decode_named_path(
-        data,
-        "destinationPath",
-      ))
-      use destination_gap <- result.try(decode_safe_index(
-        data,
-        "destinationGap",
-      ))
-      Ok(ArrayMove(
-        source_path,
-        source_start,
-        source_end,
-        destination_path,
-        destination_gap,
-      ))
-    }
+    "schema-compatibility" ->
+      decode_view_label(data) |> result.map(SchemaCompatibility)
+    "schema-upgrade" -> decode_view_label(data) |> result.map(SchemaUpgrade)
+    "open-view" -> decode_view_label(data) |> result.map(OpenView)
     "await-synced" -> {
       use watermark <- result.try(required(
         data,
@@ -222,6 +221,7 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
       }
     }
     "checkpoint" -> Ok(Checkpoint)
+    "pending-summary-evidence" -> Ok(PendingSummaryEvidence)
     "summarize" -> Ok(Summarize)
     "disconnect" -> Ok(Disconnect)
     "reconnect" -> Ok(Reconnect)
@@ -234,29 +234,31 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
 }
 
 fn decode_path(data: Dynamic) -> Result(FieldPath, ProtocolError) {
-  decode_named_path(data, "path")
-}
-
-fn decode_named_path(
-  data: Dynamic,
-  name: String,
-) -> Result(FieldPath, ProtocolError) {
-  required(data, name, decode.list(decode.string))
-}
-
-fn decode_safe_index(
-  data: Dynamic,
-  name: String,
-) -> Result(Int, ProtocolError) {
-  use value <- result.try(required(data, name, decode.int))
-  case value >= 0 && value <= max_safe_integer {
-    True -> Ok(value)
-    False -> Error(invalid(name, name <> " is not a safe nonnegative integer"))
+  use path <- result.try(required(data, "path", decode.list(decode.string)))
+  case list.all(path, fn(segment) { !string.is_empty(segment) }) {
+    True -> Ok(path)
+    False -> Error(invalid("path", "path contains an empty field name"))
   }
 }
 
 fn decode_key(data: Dynamic) -> Result(String, ProtocolError) {
   required(data, "key", decode.string)
+}
+
+fn decode_view_label(data: Dynamic) -> Result(String, ProtocolError) {
+  nonempty(data, "view")
+}
+
+pub fn descriptor_view(
+  descriptor: Descriptor,
+  label: String,
+) -> Result(schema.ViewSchema, ProtocolError) {
+  descriptor.views
+  |> list.find(fn(entry) { entry.0 == label })
+  |> result.map(fn(entry) { entry.1 })
+  |> result.map_error(fn(_) {
+    invalid("view", "view label is not in the input profile")
+  })
 }
 
 fn decode_value(value: Dynamic) -> Result(TreeValue, ProtocolError) {
@@ -471,8 +473,12 @@ pub fn encode_map_entries(entries: List(#(String, TreeValue))) -> Json {
   |> json.preprocessed_array
 }
 
-pub fn encode_array_values(values: List(TreeValue)) -> Json {
-  values |> list.map(encode_value) |> json.preprocessed_array
+pub fn encode_compatibility(status: schema.Compatibility) -> Json {
+  json.object([
+    #("canView", json.bool(status.can_view)),
+    #("canUpgrade", json.bool(status.can_upgrade)),
+    #("isEquivalent", json.bool(status.is_equivalent)),
+  ])
 }
 
 pub fn encode_read(value: Option(TreeValue)) -> Json {
@@ -490,16 +496,18 @@ pub fn encode_checkpoint(
   root: Json,
   values: List(#(String, Json)),
   events: List(Json),
-  retained: Option(Json),
+  history: Json,
+  read_error: Option(String),
 ) -> Json {
   let fields = [
     #("root", root),
     #("values", json.object(values)),
     #("events", json.array(events, fn(event) { event })),
+    #("history", history),
   ]
-  json.object(case retained {
+  json.object(case read_error {
+    Some(reason) -> list.append(fields, [#("readError", json.string(reason))])
     None -> fields
-    Some(retained) -> list.append(fields, [#("retained", retained)])
   })
 }
 

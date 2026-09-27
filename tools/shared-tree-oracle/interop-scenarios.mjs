@@ -3,11 +3,13 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { isDeepStrictEqual } from "node:util";
 import {
   SchemaFactory,
   TreeViewConfiguration,
 } from "fluid-framework/alpha";
 import { SharedMap } from "@fluidframework/map/internal";
+import { SummaryType } from "@fluidframework/driver-definitions/internal";
 import {
   defineDataStore,
   sharedObjectRegistryFromIterable,
@@ -17,19 +19,15 @@ import { Tree } from "@fluidframework/tree/internal";
 import { startClient } from "./client-driver.mjs";
 import { DeliveryGate } from "./delivery-gate.mjs";
 import {
-  arrayServiceStore,
   mapServiceStore,
   openSession,
+  schemaEvolutionServiceStore,
   tokenProvider,
 } from "./service.mjs";
 import {
-  ArrayMap,
-  ArrayPoint,
-  ArrayRoot,
   DynamicMap,
-  Items,
   MapPoint,
-  Points,
+  schemaEvolutionConfigurations,
 } from "./schema.mjs";
 
 const implementations = ["upstream", "javascript", "erlang"];
@@ -46,11 +44,9 @@ const mapSeededTemplates = [
   "map-nested-conflict",
   "map-recursive-delete",
 ];
-const arraySeededTemplates = [
-  "array-same-gap",
-  "array-insert-remove",
-  "array-cross-parent",
-  "array-nested-reconnect",
+const schemaSeededTemplates = [
+  "schema-data-concurrent",
+  "schema-reconnect-summary",
 ];
 const replayReference = {
   package: "@fluidframework/tree",
@@ -70,19 +66,22 @@ const invalidProfilePath = join(
 );
 
 const excludedFactory = new SchemaFactory("org.watershed.shared-tree.m1");
+const ExcludedArray = excludedFactory.array("ExcludedArray", [excludedFactory.number]);
 const ExcludedMap = excludedFactory.map("ExcludedMap", [excludedFactory.number]);
 
-function excludedStore() {
-  const schema = ExcludedMap;
+function excludedStore(kind) {
+  const schema = kind === "array" ? ExcludedArray : ExcludedMap;
   const config = new TreeViewConfiguration({ schema });
   return defineDataStore({
-    type: "org.watershed.shared-tree.m1.excluded-map",
+    type: `org.watershed.shared-tree.m1.excluded-${kind}`,
     registry: sharedObjectRegistryFromIterable([SharedMap, SharedTree]),
     async instantiateFirstTime(rootCreator, creator) {
       const bootstrap = await rootCreator.createSharedObject(SharedMap);
       const tree = await creator.createSharedObject(SharedTree);
       const view = tree.viewWith(config);
-      view.initialize(new ExcludedMap([["key", 1]]));
+      view.initialize(kind === "array"
+        ? new ExcludedArray([1, 2])
+        : new ExcludedMap([["key", 1]]));
       view.dispose();
       bootstrap.set("tree", tree.handle);
       return bootstrap;
@@ -98,12 +97,1150 @@ function excludedStore() {
   });
 }
 
+function notificationEvidence(checkpoints) {
+  return Object.fromEntries(implementations.map((implementation) => {
+    const events = checkpoints.flatMap(({ observations }) =>
+      observations.find((observation) =>
+        observation.implementation === implementation)?.events ?? []);
+    return [implementation, {
+      schema: events.filter(({ kind }) => kind === "schema"),
+      data: events.filter(({ kind }) => kind === "data"),
+    }];
+  }));
+}
+
+export function reconciledRaceCheckpoint(checkpoint, losingAuthor, winnerSequenceNumber) {
+  const loser = checkpoint.observations.find(
+    ({ implementation }) => implementation === losingAuthor,
+  );
+  return checkpoint.observations.every(
+    ({ sequenceNumber }) => sequenceNumber >= winnerSequenceNumber,
+  )
+    && loser?.history?.pending?.length > 0
+    && loser.history.pending.every(
+      ({ changeset }) => changeset?.changeCount === 0,
+    );
+}
+
+export function matchReconnectOperations(originals, accepted) {
+  assert.equal(originals.length, 2, "Reconnect requires exactly two original operations");
+  assert.equal(accepted.length, 2, "Reconnect has unrelated accepted operations");
+  const remaining = [...accepted];
+  const mappings = originals.map((original, originalIndex) => {
+    const originalPayload = decodeReconnectPayload(original.payload);
+    const matches = remaining.flatMap((candidate, index) =>
+      candidate.originatorId === original.originatorId
+        && isDeepStrictEqual(decodeReconnectPayload(candidate.payload), originalPayload)
+        ? [{ candidate, index }]
+        : []);
+    assert.equal(matches.length, 1, "Reconnect operation mapping is not one-to-one");
+    const [{ candidate, index }] = matches;
+    remaining.splice(index, 1);
+    return {
+      originalRevision: original.revision,
+      acceptedRevision: candidate.revision,
+    };
+  });
+  assert.equal(remaining.length, 0, "Reconnect has unrelated accepted operations");
+  assert.deepEqual(mappings.map(({ acceptedRevision }) => acceptedRevision),
+    accepted.map(({ revision }) => revision),
+  "Reconnect operation order changed");
+  return mappings;
+}
+
+export function commitKinds(commit) {
+  return commit.changeset.flatMap((change) => {
+    const kinds = [];
+    if (change?.schema !== undefined) kinds.push("schema");
+    if (change?.data !== undefined) kinds.push("data");
+    return kinds;
+  });
+}
+
+function parsedPayload(payload) {
+  if (typeof payload !== "string") return payload;
+  try {
+    return JSON.parse(payload);
+  } catch {
+    return payload;
+  }
+}
+
+function canonicalSchemaValue(value, key = "") {
+  if (Array.isArray(value)) {
+    const items = value.map((item) => canonicalSchemaValue(item));
+    if (key === "types" || key === "entries") {
+      return items.sort((left, right) =>
+        JSON.stringify(left).localeCompare(JSON.stringify(right)));
+    }
+    return items;
+  }
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.keys(value).sort().map((name) => [
+    name,
+    canonicalSchemaValue(value[name], name),
+  ]));
+}
+
+function schemaEntries(value) {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.entries)) return value.entries;
+  if (Array.isArray(value?._root?.keys)
+    && Array.isArray(value._root.values)
+    && value._root.keys.length === value._root.values.length) {
+    return value._root.keys.map((name, index) => [
+      name,
+      value._root.values[index],
+    ]);
+  }
+  return Object.entries(value ?? {});
+}
+
+function schemaMetadata(value, ignored) {
+  const metadata = Object.fromEntries(Object.entries(value ?? {})
+    .filter(([name]) => !ignored.includes(name))
+    .map(([name, item]) => [name, canonicalSchemaValue(item, name)]));
+  return Object.keys(metadata).length === 0 ? undefined : metadata;
+}
+
+function canonicalSchemaTypes(value) {
+  const types = Array.isArray(value) ? value : value?.values ?? [];
+  return types.map((type) => canonicalSchemaValue(type))
+    .sort((left, right) =>
+      JSON.stringify(left).localeCompare(JSON.stringify(right)));
+}
+
+function canonicalFieldSchema(field) {
+  const metadata = schemaMetadata(field, ["kind", "types"]);
+  return {
+    kind: field?.kind,
+    types: canonicalSchemaTypes(field?.types),
+    ...(metadata === undefined ? {} : { metadata }),
+  };
+}
+
+function canonicalNodeSchema(node) {
+  const storedKind = node?.kind;
+  const kindMetadata = schemaMetadata(storedKind, ["leaf", "object", "map"]);
+  if (storedKind?.leaf !== undefined || node?.leafValue !== undefined) {
+    const metadata = schemaMetadata(node, ["kind", "leafValue", "isShared"]);
+    return {
+      kind: "leaf",
+      value: storedKind?.leaf ?? node.leafValue,
+      ...(kindMetadata === undefined ? {} : { kindMetadata }),
+      ...(metadata === undefined ? {} : { metadata }),
+    };
+  }
+  const object = storedKind?.object ?? node?.objectNodeFields;
+  if (object !== undefined) {
+    const metadata = schemaMetadata(node,
+      ["kind", "objectNodeFields", "isShared"]);
+    return {
+      kind: "object",
+      fields: schemaEntries(object)
+        .map(([name, field]) => [name, canonicalFieldSchema(field)])
+        .sort(([left], [right]) => left.localeCompare(right)),
+      ...(kindMetadata === undefined ? {} : { kindMetadata }),
+      ...(metadata === undefined ? {} : { metadata }),
+    };
+  }
+  const map = storedKind?.map ?? node?.mapFields;
+  if (map !== undefined) {
+    const metadata = schemaMetadata(node, ["kind", "mapFields", "isShared"]);
+    return {
+      kind: "map",
+      field: canonicalFieldSchema(map),
+      ...(kindMetadata === undefined ? {} : { kindMetadata }),
+      ...(metadata === undefined ? {} : { metadata }),
+    };
+  }
+  return canonicalSchemaValue(node);
+}
+
+function canonicalSchema(schema) {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    return canonicalSchemaValue(schema);
+  }
+  const nodes = schema.nodes
+    ?? schema.nodeSchema
+    ?? schema.nodeSchemaData;
+  const root = schema.root
+    ?? schema.rootFieldSchema
+    ?? schema.rootFieldSchemaData;
+  if (nodes === undefined || root === undefined) {
+    return canonicalSchemaValue(schema);
+  }
+  const metadata = schemaMetadata(schema, [
+    "nodes",
+    "nodeSchema",
+    "nodeSchemaData",
+    "root",
+    "rootFieldSchema",
+    "rootFieldSchemaData",
+    "version",
+    "_events",
+    "events",
+  ]);
+  return {
+    version: schema.version ?? 2,
+    nodes: schemaEntries(nodes)
+      .map(([name, node]) => [name, canonicalNodeSchema(node)])
+      .sort(([left], [right]) => left.localeCompare(right)),
+    root: canonicalFieldSchema(root),
+    ...(metadata === undefined ? {} : { metadata }),
+  };
+}
+
+function schemaDiagnostic(value) {
+  return value.replace(/\s+/g, " ").replace(/\s*([,[\]()])\s*/g, "$1").trim();
+}
+
+function persistedSchemaDiagnostic(value) {
+  const persisted = value.indexOf("persisted:");
+  const positional = value.indexOf('VObject([#("nodes"');
+  if (persisted < 0 && positional < 0) return schemaDiagnostic(value);
+  let index = persisted < 0 ? positional : value.indexOf("VObject", persisted);
+  assert(index >= 0, "Reconnect schema diagnostic lacks persisted schema content");
+
+  const skipSpace = () => {
+    while (/\s/.test(value[index])) index += 1;
+  };
+  const consume = (token) => {
+    skipSpace();
+    assert.equal(value.slice(index, index + token.length), token,
+      "Reconnect schema diagnostic has invalid persisted schema content");
+    index += token.length;
+  };
+  const parseString = () => {
+    skipSpace();
+    const start = index;
+    consume("\"");
+    let escaped = false;
+    while (index < value.length) {
+      const character = value[index];
+      index += 1;
+      if (!escaped && character === "\"") {
+        return JSON.parse(value.slice(start, index));
+      }
+      escaped = !escaped && character === "\\";
+      if (character !== "\\") escaped = false;
+    }
+    assert.fail("Reconnect schema diagnostic has an unterminated string");
+  };
+  const parseList = (parseItem) => {
+    const items = [];
+    consume("[");
+    skipSpace();
+    while (value[index] !== "]") {
+      items.push(parseItem());
+      skipSpace();
+      if (value[index] === ",") {
+        index += 1;
+        skipSpace();
+      } else {
+        break;
+      }
+    }
+    consume("]");
+    return items;
+  };
+  const parseValue = () => {
+    skipSpace();
+    if (value.startsWith("VObject", index)) {
+      consume("VObject(");
+      const entries = parseList(() => {
+        consume("#(");
+        const name = parseString();
+        consume(",");
+        const item = parseValue();
+        consume(")");
+        return [name, item];
+      });
+      consume(")");
+      return Object.fromEntries(entries);
+    }
+    if (value.startsWith("VArray", index)) {
+      consume("VArray(");
+      const items = parseList(parseValue);
+      consume(")");
+      return items;
+    }
+    if (value.startsWith("VString", index)) {
+      consume("VString(");
+      const text = parseString();
+      consume(")");
+      return text;
+    }
+    if (value.startsWith("VNumber", index)) {
+      consume("VNumber(");
+      const kind = value.startsWith("NInt", index) ? "NInt" : "NFloat";
+      consume(`${kind}(`);
+      skipSpace();
+      const match = value.slice(index).match(/^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/i);
+      assert(match, "Reconnect schema diagnostic has an invalid number");
+      index += match[0].length;
+      consume("))");
+      return Number(match[0]);
+    }
+    if (value.startsWith("VBool", index)) {
+      consume("VBool(");
+      skipSpace();
+      const boolean = value.startsWith("True", index);
+      consume(boolean ? "True" : "False");
+      consume(")");
+      return boolean;
+    }
+    if (value.startsWith("VNull", index)) {
+      consume("VNull");
+      return null;
+    }
+    assert.fail("Reconnect schema diagnostic has an unsupported persisted value");
+  };
+
+  return canonicalSchema(parseValue());
+}
+
+function parseNativeDiagnostic(value) {
+  let index = 0;
+  const skipSpace = () => {
+    while (/\s/.test(value[index])) index += 1;
+  };
+  const consume = (token) => {
+    skipSpace();
+    assert.equal(value.slice(index, index + token.length), token,
+      "Reconnect payload has invalid native operation structure");
+    index += token.length;
+  };
+  const parseDelimited = (end) => {
+    const items = [];
+    skipSpace();
+    while (value[index] !== end) {
+      items.push(parseValue());
+      skipSpace();
+      if (value[index] === ",") {
+        index += 1;
+        skipSpace();
+      } else {
+        break;
+      }
+    }
+    consume(end);
+    return items;
+  };
+  const parseString = () => {
+    skipSpace();
+    const start = index;
+    consume("\"");
+    let escaped = false;
+    while (index < value.length) {
+      const character = value[index];
+      index += 1;
+      const wasEscaped = escaped;
+      if (character === "\"" && !wasEscaped) {
+        return {
+          kind: "string",
+          value: JSON.parse(value.slice(start, index)),
+          raw: value.slice(start, index),
+        };
+      }
+      escaped = character === "\\" && !wasEscaped;
+    }
+    assert.fail("Reconnect payload has an unterminated native string");
+  };
+  const parseValue = () => {
+    skipSpace();
+    const start = index;
+    if (value[index] === "\"") return parseString();
+    if (value.startsWith("#(", index)) {
+      index += 2;
+      const items = parseDelimited(")");
+      return {
+        kind: "tuple",
+        items,
+        raw: value.slice(start, index),
+      };
+    }
+    if (value[index] === "[") {
+      index += 1;
+      const items = parseDelimited("]");
+      return {
+        kind: "list",
+        items,
+        raw: value.slice(start, index),
+      };
+    }
+    const number = value.slice(index).match(/^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/i);
+    if (number) {
+      index += number[0].length;
+      return {
+        kind: "number",
+        value: Number(number[0]),
+        raw: value.slice(start, index),
+      };
+    }
+    const identifier = value.slice(index).match(/^[A-Za-z_][A-Za-z0-9_.]*/);
+    assert(identifier, "Reconnect payload has invalid native operation structure");
+    index += identifier[0].length;
+    skipSpace();
+    if (value[index] === ":") {
+      index += 1;
+      const item = parseValue();
+      return {
+        kind: "named",
+        name: identifier[0],
+        value: item,
+        raw: value.slice(start, index),
+      };
+    }
+    if (value[index] !== "(") {
+      return {
+        kind: "atom",
+        name: identifier[0],
+        raw: value.slice(start, index).trim(),
+      };
+    }
+    index += 1;
+    const args = parseDelimited(")");
+    return {
+      kind: "call",
+      name: identifier[0],
+      args,
+      raw: value.slice(start, index),
+    };
+  };
+
+  const parsed = parseValue();
+  skipSpace();
+  assert.equal(index, value.length,
+    "Reconnect payload has trailing native operation content");
+  return parsed;
+}
+
+function nativeCall(value, name, argumentCount) {
+  assert(value?.kind === "call" && value.name === name,
+    `Reconnect payload requires ${name}`);
+  if (argumentCount !== undefined) {
+    assert.equal(value.args.length, argumentCount,
+      `Reconnect payload has invalid ${name} arguments`);
+  }
+  return value;
+}
+
+function nativeArguments(value, name, fields) {
+  const call = nativeCall(value, name);
+  const named = call.args.some(({ kind }) => kind === "named");
+  if (!named) {
+    assert.equal(call.args.length, fields.length,
+      `Reconnect payload has invalid ${name} arguments`);
+    return call.args;
+  }
+  assert(call.args.every(({ kind }) => kind === "named"),
+    `Reconnect payload has mixed ${name} arguments`);
+  assert.equal(call.args.length, fields.length,
+    `Reconnect payload has invalid ${name} arguments`);
+  const entries = new Map(call.args.map((argument) => [
+    argument.name,
+    argument.value,
+  ]));
+  assert.equal(entries.size, fields.length,
+    `Reconnect payload has duplicate ${name} arguments`);
+  assert.deepEqual([...entries.keys()].sort(), [...fields].sort(),
+    `Reconnect payload has invalid ${name} argument names`);
+  return fields.map((field) => entries.get(field));
+}
+
+function nativeAtom(value, names, label) {
+  assert(value?.kind === "atom" && names.includes(value.name),
+    `Reconnect payload has invalid ${label}`);
+  return value.name;
+}
+
+function nativeNumber(value, label, integer = false) {
+  assert(value?.kind === "number" && Number.isFinite(value.value),
+    `Reconnect payload has invalid ${label}`);
+  if (integer) {
+    assert(Number.isSafeInteger(value.value),
+      `Reconnect payload has invalid ${label}`);
+  }
+  return value.value;
+}
+
+function nativeString(value, label) {
+  assert(value?.kind === "string",
+    `Reconnect payload has invalid ${label}`);
+  return value.value;
+}
+
+function nativeList(value, validate, label) {
+  assert(value?.kind === "list",
+    `Reconnect payload has invalid ${label}`);
+  return value.items.map(validate);
+}
+
+function nativeTuple(value, length, label) {
+  assert(value?.kind === "tuple" && value.items.length === length,
+    `Reconnect payload has invalid ${label}`);
+  return value.items;
+}
+
+function nativeBoolean(value, label) {
+  return nativeAtom(value, ["True", "False"], label) === "True";
+}
+
+function validateNativeOption(value, validate, label) {
+  if (value?.kind === "atom") {
+    nativeAtom(value, ["None"], label);
+    return undefined;
+  }
+  const [item] = nativeArguments(value, "Some", ["value"]);
+  return validate(item);
+}
+
+function validateNativeUuid(value) {
+  const limbs = nativeArguments(value, "Uuid", [
+    "high",
+    "middle_high",
+    "middle_low",
+    "low",
+  ]);
+  for (const limb of limbs) {
+    const number = nativeNumber(limb, "UUID limb", true);
+    assert(number >= 0 && number <= 0xffff_ffff,
+      "Reconnect payload has invalid UUID limb");
+  }
+}
+
+function validateNativeStableId(value) {
+  const [uuid] = nativeArguments(value, "StableId", ["uuid"]);
+  validateNativeUuid(uuid);
+}
+
+function validateNativeAtomId(value) {
+  const [revision, localId] = nativeArguments(value, "AtomId", [
+    "revision",
+    "local_id",
+  ]);
+  validateNativeOption(revision, validateNativeStableId, "atom revision");
+  nativeNumber(localId, "atom local ID", true);
+}
+
+function validateNativeRevisionInfo(value) {
+  const [revision, rollbackOf] = nativeArguments(value, "RevisionInfo", [
+    "revision",
+    "rollback_of",
+  ]);
+  validateNativeStableId(revision);
+  validateNativeOption(rollbackOf, validateNativeStableId, "rollback revision");
+}
+
+function validateNativeRegister(value) {
+  if (value?.kind === "atom") {
+    nativeAtom(value, ["Active"], "register");
+    return { kind: "active" };
+  }
+  const [id] = nativeArguments(value, "Detached", ["id"]);
+  validateNativeAtomId(id);
+  return { kind: "detached", id: id.raw };
+}
+
+function validateNativeReplacement(value) {
+  const [wasEmpty, source, detachId] = nativeArguments(value, "Replacement", [
+    "was_empty",
+    "source",
+    "detach_id",
+  ]);
+  const empty = nativeBoolean(wasEmpty, "replacement empty marker");
+  const sourceRegister =
+    validateNativeOption(source, validateNativeRegister, "replacement source");
+  validateNativeAtomId(detachId);
+  if (sourceRegister?.kind === "detached") return sourceRegister.id;
+  if (sourceRegister?.kind === "active" || empty) {
+    assert.fail("Reconnect payload has a non-substantive field replacement");
+  }
+  assert.fail(
+    "Reconnect payload field replacement does not attach a built value",
+  );
+}
+
+function validateNativeOptionalFieldChange(value) {
+  const [moves, childChanges, replacement] = nativeArguments(
+    value,
+    "FieldChange",
+    ["moves", "child_changes", "replacement"],
+  );
+  nativeList(moves, (move) => {
+    const [source, destination] = nativeTuple(move, 2, "field move");
+    validateNativeAtomId(source);
+    validateNativeAtomId(destination);
+  }, "field moves");
+  nativeList(childChanges, (change) => {
+    const [register, child] = nativeTuple(change, 2, "child change");
+    validateNativeRegister(register);
+    validateNativeAtomId(child);
+  }, "child changes");
+  const source =
+    validateNativeOption(replacement, validateNativeReplacement, "replacement");
+  assert(source !== undefined,
+    "Reconnect payload has a non-substantive field replacement");
+  return source;
+}
+
+function validateNativeFieldChange(value) {
+  if (value?.kind !== "call") {
+    assert.fail("Reconnect payload has invalid field change");
+  }
+  if (value.name === "ValueField" || value.name === "OptionalField") {
+    const [change] = nativeArguments(value, value.name, ["change"]);
+    return {
+      kind: value.name,
+      source: validateNativeOptionalFieldChange(change),
+    };
+  }
+  if (value.name === "GenericField") {
+    const [children] = nativeArguments(value, "GenericField", ["children"]);
+    nativeList(children, (child) => {
+      const [index, id] = nativeTuple(child, 2, "generic child");
+      nativeNumber(index, "generic child index", true);
+      validateNativeAtomId(id);
+    }, "generic children");
+    return { kind: value.name, source: undefined };
+  }
+  assert.fail(`Reconnect payload has unsupported ${value.name} constructor`);
+}
+
+function validateNativeFieldEntries(value) {
+  return nativeList(value, (entry) => {
+    const [name, change] = nativeTuple(entry, 2, "field entry");
+    const field = nativeString(name, "field name");
+    const validated = validateNativeFieldChange(change);
+    return validated.kind === "GenericField"
+      ? []
+      : [{ field, source: validated.source }];
+  }, "field entries").flat();
+}
+
+function validateNativeNodeChange(value) {
+  const [fields] = nativeArguments(value, "NodeChange", ["fields"]);
+  return validateNativeFieldEntries(fields);
+}
+
+function validateNativeParentField(value) {
+  const [parent, field] = nativeArguments(value, "ParentField", [
+    "parent",
+    "field",
+  ]);
+  validateNativeOption(parent, validateNativeAtomId, "parent atom");
+  nativeString(field, "parent field");
+}
+
+function validateNativeTreeValue(value) {
+  if (value?.kind === "atom") {
+    nativeAtom(value, ["NullValue"], "tree value");
+    return [null];
+  }
+  if (value?.kind !== "call") {
+    assert.fail("Reconnect payload has invalid tree value");
+  }
+  if (value.name === "StringValue") {
+    const [item] = nativeArguments(value, "StringValue", ["value"]);
+    return [nativeString(item, "string value")];
+  }
+  if (value.name === "NumberValue") {
+    const [item] = nativeArguments(value, "NumberValue", ["value"]);
+    return [nativeNumber(item, "number value")];
+  }
+  if (value.name === "BooleanValue") {
+    const [item] = nativeArguments(value, "BooleanValue", ["value"]);
+    return [nativeBoolean(item, "boolean value")];
+  }
+  if (value.name === "ObjectValue" || value.name === "MapValue") {
+    const [schemaId, entries] = nativeArguments(value, value.name, [
+      "schema_id",
+      value.name === "ObjectValue" ? "fields" : "entries",
+    ]);
+    nativeString(schemaId, "tree schema ID");
+    return nativeList(entries, (entry) => {
+      const [name, item] = nativeTuple(entry, 2, "tree value entry");
+      nativeString(name, "tree value field");
+      return validateNativeTreeValue(item);
+    }, "tree value entries").flat();
+  }
+  assert.fail(`Reconnect payload has unsupported ${value.name} constructor`);
+}
+
+function validateNativeBuild(value) {
+  const [id, trees] = nativeArguments(value, "Build", ["id", "trees"]);
+  validateNativeAtomId(id);
+  return {
+    id: id.raw,
+    values: nativeList(trees, validateNativeTreeValue, "built trees").flat(),
+  };
+}
+
+function validateNativeDestroy(value) {
+  const [id, count] = nativeArguments(value, "Destroy", ["id", "count"]);
+  validateNativeAtomId(id);
+  nativeNumber(count, "destroy count", true);
+}
+
+function validateNativeCrossFieldKey(value) {
+  const [key, count, field] = nativeArguments(value, "CrossFieldKey", [
+    "key",
+    "count",
+    "field",
+  ]);
+  const [side, revision, localId] = nativeArguments(key, "Key", [
+    "side",
+    "revision",
+    "local_id",
+  ]);
+  nativeAtom(side, ["Source", "Destination"], "cross-field side");
+  validateNativeOption(revision, validateNativeStableId, "cross-field revision");
+  nativeNumber(localId, "cross-field local ID", true);
+  nativeNumber(count, "cross-field count", true);
+  const [parent, name] = nativeArguments(field, "FieldId", ["parent", "field"]);
+  validateNativeOption(parent, validateNativeAtomId, "cross-field parent");
+  nativeString(name, "cross-field name");
+}
+
+function validateNativeChangeData(value) {
+  const call = nativeCall(value, "ChangeData");
+  const named = call.args.some(({ kind }) => kind === "named");
+  let values;
+  if (named) {
+    assert(call.args.every(({ kind }) => kind === "named"),
+      "Reconnect payload has mixed ChangeData arguments");
+    const names = call.args.map(({ name }) => name).sort();
+    const complete = [
+      "aliases",
+      "builds",
+      "cross_field_keys",
+      "destroys",
+      "fields",
+      "max_local_id",
+      "nodes",
+      "parents",
+      "refreshers",
+      "revisions",
+    ];
+    assert.deepEqual(names, complete,
+      "Reconnect payload has invalid ChangeData argument names");
+    const entries = new Map(call.args.map((argument) => [
+      argument.name,
+      argument.value,
+    ]));
+    assert.equal(entries.size, call.args.length,
+      "Reconnect payload has duplicate ChangeData arguments");
+    values = entries;
+  } else {
+    assert.equal(call.args.length, 10,
+      "Reconnect payload has invalid ChangeData arguments");
+    values = new Map([
+      ["max_local_id", call.args[0]],
+      ["revisions", call.args[1]],
+      ["fields", call.args[2]],
+      ["nodes", call.args[3]],
+      ["parents", call.args[4]],
+      ["aliases", call.args[5]],
+      ["builds", call.args[6]],
+      ["destroys", call.args[7]],
+      ["refreshers", call.args[8]],
+      ["cross_field_keys", call.args[9]],
+    ]);
+  }
+  if (values.has("max_local_id")) {
+    nativeNumber(values.get("max_local_id"), "maximum local ID", true);
+  }
+  if (values.has("revisions")) {
+    nativeList(values.get("revisions"), validateNativeRevisionInfo, "revisions");
+  }
+  const fields = validateNativeFieldEntries(values.get("fields"));
+  if (values.has("nodes")) {
+    fields.push(...nativeList(values.get("nodes"), (entry) => {
+      const [id, change] = nativeTuple(entry, 2, "node change entry");
+      validateNativeAtomId(id);
+      return validateNativeNodeChange(change);
+    }, "node changes").flat());
+  }
+  if (values.has("parents")) {
+    nativeList(values.get("parents"), (entry) => {
+      const [id, parent] = nativeTuple(entry, 2, "parent entry");
+      validateNativeAtomId(id);
+      validateNativeParentField(parent);
+    }, "parents");
+  }
+  if (values.has("aliases")) {
+    nativeList(values.get("aliases"), (entry) => {
+      const [oldId, newId] = nativeTuple(entry, 2, "alias entry");
+      validateNativeAtomId(oldId);
+      validateNativeAtomId(newId);
+    }, "aliases");
+  }
+  const builds = nativeList(
+    values.get("builds"),
+    validateNativeBuild,
+    "builds",
+  );
+  if (values.has("destroys")) {
+    nativeList(values.get("destroys"), validateNativeDestroy, "destroys");
+  }
+  if (values.has("refreshers")) {
+    nativeList(values.get("refreshers"), validateNativeBuild, "refreshers");
+  }
+  nativeList(
+    values.get("cross_field_keys"),
+    validateNativeCrossFieldKey,
+    "cross-field keys",
+  );
+  assert(fields.every(({ source }) =>
+    builds.some(({ id }) => id === source)),
+  "Reconnect payload field replacement does not use a built value");
+  return {
+    fields: fields.map(({ field }) => field),
+    values: builds.flatMap(({ values }) => values),
+  };
+}
+
+function validateNativeIdentityOrder(value) {
+  const [entries] = nativeArguments(value, "IdentityOrder", ["entries"]);
+  nativeList(entries, (entry) => {
+    const [revision, position] = nativeTuple(entry, 2, "identity entry");
+    validateNativeStableId(revision);
+    nativeNumber(position, "identity position", true);
+  }, "identity entries");
+}
+
+function validateNativeStringList(value, label) {
+  nativeList(value, (item) => nativeString(item, label), label);
+}
+
+function validateNativeFieldSchema(value) {
+  const [cardinality, allowedTypes] = nativeArguments(value, "FieldSchema", [
+    "cardinality",
+    "allowed_types",
+  ]);
+  nativeAtom(cardinality, ["Required", "Optional"], "field cardinality");
+  validateNativeStringList(allowedTypes, "allowed schema types");
+}
+
+function validateNativeDictionary(value, validate, label) {
+  const [entries] = nativeArguments(value, "dict.from_list", ["entries"]);
+  nativeList(entries, (entry) => {
+    const [name, item] = nativeTuple(entry, 2, label);
+    nativeString(name, `${label} name`);
+    validate(item);
+  }, label);
+}
+
+function validateNativeNodeSchema(value) {
+  if (value?.kind !== "call") {
+    assert.fail("Reconnect payload has invalid node schema");
+  }
+  if (value.name === "Leaf") {
+    const [kind] = nativeArguments(value, "Leaf", ["kind"]);
+    nativeAtom(kind, ["StringLeaf", "NumberLeaf", "BooleanLeaf", "NullLeaf"],
+      "leaf kind");
+    return;
+  }
+  if (value.name === "Object") {
+    const [fields] = nativeArguments(value, "Object", ["fields"]);
+    nativeList(fields, (entry) => {
+      const [name, field] = nativeTuple(entry, 2, "object schema field");
+      nativeString(name, "object schema field name");
+      validateNativeFieldSchema(field);
+    }, "object schema fields");
+    return;
+  }
+  if (value.name === "Map") {
+    const [entries] = nativeArguments(value, "Map", ["entries"]);
+    validateNativeFieldSchema(entries);
+    return;
+  }
+  assert.fail(`Reconnect payload has unsupported ${value.name} constructor`);
+}
+
+function validateNativeComparisonField(value) {
+  const [kind, allowedTypes] = nativeArguments(value, "ComparisonField", [
+    "kind",
+    "allowed_types",
+  ]);
+  nativeAtom(kind, [
+    "ForbiddenKind",
+    "OptionalKind",
+    "RequiredKind",
+    "SequenceKind",
+    "IdentifierKind",
+  ], "comparison field kind");
+  validateNativeStringList(allowedTypes, "comparison allowed types");
+}
+
+function validateNativeComparisonNode(value) {
+  if (value?.kind !== "call") {
+    assert.fail("Reconnect payload has invalid comparison node");
+  }
+  if (value.name === "ComparisonLeaf") {
+    const [kind] = nativeArguments(value, "ComparisonLeaf", ["kind"]);
+    nativeAtom(kind, [
+      "ComparisonStringLeaf",
+      "ComparisonNumberLeaf",
+      "ComparisonBooleanLeaf",
+      "ComparisonHandleLeaf",
+      "ComparisonNullLeaf",
+    ], "comparison leaf kind");
+    return;
+  }
+  if (value.name === "ComparisonObject") {
+    const [fields] = nativeArguments(value, "ComparisonObject", ["fields"]);
+    nativeList(fields, (entry) => {
+      const [name, field] = nativeTuple(entry, 2, "comparison object field");
+      nativeString(name, "comparison object field name");
+      validateNativeComparisonField(field);
+    }, "comparison object fields");
+    return;
+  }
+  if (value.name === "ComparisonMap") {
+    const [entries] = nativeArguments(value, "ComparisonMap", ["entries"]);
+    validateNativeComparisonField(entries);
+    return;
+  }
+  assert.fail(`Reconnect payload has unsupported ${value.name} constructor`);
+}
+
+function validateNativeJson(value) {
+  if (value?.kind === "atom") {
+    nativeAtom(value, ["VNull"], "persisted JSON value");
+    return;
+  }
+  if (value?.kind !== "call") {
+    assert.fail("Reconnect payload has invalid persisted JSON value");
+  }
+  if (value.name === "VBool") {
+    const [item] = nativeArguments(value, "VBool", ["value"]);
+    nativeBoolean(item, "persisted JSON boolean");
+    return;
+  }
+  if (value.name === "VString") {
+    const [item] = nativeArguments(value, "VString", ["value"]);
+    nativeString(item, "persisted JSON string");
+    return;
+  }
+  if (value.name === "VNumber") {
+    const [item] = nativeArguments(value, "VNumber", ["value"]);
+    assert(item?.kind === "call" && ["NInt", "NFloat"].includes(item.name),
+      "Reconnect payload has invalid persisted JSON number");
+    const [number] = nativeArguments(item, item.name, ["value"]);
+    nativeNumber(number, "persisted JSON number", item.name === "NInt");
+    return;
+  }
+  if (value.name === "VArray") {
+    const [items] = nativeArguments(value, "VArray", ["items"]);
+    nativeList(items, validateNativeJson, "persisted JSON array");
+    return;
+  }
+  if (value.name === "VObject") {
+    const [entries] = nativeArguments(value, "VObject", ["entries"]);
+    nativeList(entries, (entry) => {
+      const [name, item] = nativeTuple(entry, 2, "persisted JSON member");
+      nativeString(name, "persisted JSON member name");
+      validateNativeJson(item);
+    }, "persisted JSON object");
+    return;
+  }
+  assert.fail(`Reconnect payload has unsupported ${value.name} constructor`);
+}
+
+function validateNativeStoredSchema(value) {
+  if (value?.kind === "call"
+    && value.name === "StoredSchema"
+    && value.args.length === 2
+    && value.args.every(({ kind }) => kind === "named")) {
+    const entries = new Map(value.args.map((argument) => [
+      argument.name,
+      argument.value,
+    ]));
+    assert.deepEqual([...entries.keys()].sort(),
+      ["persisted", "profile_supported"],
+    "Reconnect payload has invalid StoredSchema argument names");
+    validateNativeJson(entries.get("persisted"));
+    nativeBoolean(entries.get("profile_supported"), "schema profile marker");
+    return;
+  }
+  const [repository] = nativeArguments(value, "StoredSchema", ["repository"]);
+  const [root, nodes, comparisonRoot, comparisonNodes, persisted, supported] =
+    nativeArguments(repository, "Repository", [
+      "root",
+      "nodes",
+      "comparison_root",
+      "comparison_nodes",
+      "persisted",
+      "profile_supported",
+    ]);
+  validateNativeFieldSchema(root);
+  validateNativeDictionary(nodes, validateNativeNodeSchema, "schema nodes");
+  validateNativeComparisonField(comparisonRoot);
+  validateNativeDictionary(
+    comparisonNodes,
+    validateNativeComparisonNode,
+    "comparison nodes",
+  );
+  validateNativeJson(persisted);
+  nativeBoolean(supported, "schema profile marker");
+}
+
+function validateNativeSchemaState(value) {
+  if (value?.kind === "atom") {
+    nativeAtom(value, ["EmptySchema"], "schema state");
+    return;
+  }
+  const [schema] = nativeArguments(value, "FixedSchema", ["schema"]);
+  validateNativeStoredSchema(schema);
+}
+
+function nativeOperation(value) {
+  const changeset = nativeCall(parseNativeDiagnostic(value), "Changeset", 1);
+  const changes = changeset.args[0]?.kind === "named"
+    && changeset.args[0].name === "changes"
+    ? changeset.args[0].value
+    : changeset.args[0];
+  assert(changes?.kind === "list" && changes.items.length === 1,
+    "Reconnect payload must contain exactly one change");
+  return changes.items[0];
+}
+
+function builtValues(value) {
+  if (!Array.isArray(value)) return [];
+  if (typeof value[1] === "string"
+    && value[1].includes("com.fluidframework.leaf.")
+    && value[2] === true) {
+    return [value[3]];
+  }
+  if (value.length === 2
+    && (typeof value[1] === "string" || Number.isFinite(value[1]))) {
+    return [value[1]];
+  }
+  return value.flatMap(builtValues);
+}
+
+export function decodeReconnectPayload(payload) {
+  const value = parsedPayload(payload);
+  if (typeof value === "string") {
+    const operation = nativeOperation(value);
+    if (operation?.kind === "call" && operation.name === "SchemaChange") {
+      const [oldSchema, newSchema, inverse] = nativeArguments(
+        operation,
+        "SchemaChange",
+        ["before", "after", "is_inverse"],
+      );
+      validateNativeSchemaState(oldSchema);
+      validateNativeSchemaState(newSchema);
+      assert.equal(nativeBoolean(inverse, "inverse marker"), false,
+      "Reconnect schema payload has an invalid inverse marker");
+      return {
+        kind: "schema",
+        old: persistedSchemaDiagnostic(oldSchema.raw),
+        new: persistedSchemaDiagnostic(newSchema.raw),
+      };
+    }
+    if (operation?.kind === "call" && operation.name === "DataChange") {
+      const [innerValue] = nativeArguments(operation, "DataChange", ["change"]);
+      const inner = nativeCall(innerValue, "Changeset");
+      const [data, identityOrder, crossFieldKeys] = nativeArguments(
+        inner,
+        "Changeset",
+        [
+          "data",
+          "identity_order",
+          "cross_field_keys",
+        ],
+      );
+      validateNativeIdentityOrder(identityOrder);
+      nativeList(
+        crossFieldKeys,
+        validateNativeCrossFieldKey,
+        "cross-field keys",
+      );
+      const { fields, values } = validateNativeChangeData(data);
+      assert.equal(fields.length, 1,
+        "Reconnect data payload lacks one edited field");
+      assert.equal(values.length, 1,
+        "Reconnect data payload lacks one built value");
+      return {
+        kind: "data",
+        field: fields[0],
+        value: values[0],
+      };
+    }
+    assert.fail("Reconnect payload is not a schema or data operation");
+  }
+  const changes = Array.isArray(value)
+    ? value
+    : value?.changeset ?? value?.changes;
+  assert(Array.isArray(changes) && changes.length === 1,
+    "Reconnect payload must contain exactly one change");
+  const change = changes[0];
+  if (change?.schema !== undefined) {
+    return {
+      kind: "schema",
+      old: canonicalSchema(change.schema.old),
+      new: canonicalSchema(change.schema.new),
+    };
+  }
+  if (change?.type === "schema") {
+    const schema = change.innerChange?.schema;
+    assert(schema, "Reconnect schema payload is missing schema content");
+    return {
+      kind: "schema",
+      old: canonicalSchema(schema.old),
+      new: canonicalSchema(schema.new),
+    };
+  }
+  const data = change?.data ?? (change?.type === "data" ? change.innerChange : undefined);
+  assert(data, "Reconnect payload is not a schema or data operation");
+  if (Array.isArray(data.path) && data.path.length > 0 && "value" in data) {
+    return { kind: "data", field: data.path.at(-1), value: data.value };
+  }
+  const fields = change?.data
+    ? data.changes?.flatMap(({ change: entries }) =>
+      entries.flatMap(([, node]) =>
+        node.fieldChanges?.map(({ fieldKey }) => fieldKey) ?? [])) ?? []
+    : data.nodeChanges?._root?.values?.flatMap((node) =>
+      node.fieldChanges?.entries?.map(([field]) => field) ?? []) ?? [];
+  const values = change?.data
+    ? builtValues(data.builds?.trees?.data)
+    : data.builds?._root?.values?.flatMap(({ value: built }) =>
+      typeof built === "string" || Number.isFinite(built) ? [built] : []) ?? [];
+  assert.equal(fields.length, 1, "Reconnect data payload lacks one edited field");
+  assert.equal(values.length, 1, "Reconnect data payload lacks one built value");
+  return { kind: "data", field: fields[0], value: values[0] };
+}
+
 const excludedStores = {
-  map: excludedStore(),
+  array: excludedStore("array"),
+  map: excludedStore("map"),
 };
 
 function parsed(value) {
   return typeof value === "string" ? JSON.parse(value) : value;
+}
+
+function summaryEntryEvidence(entry) {
+  if (entry?.type === SummaryType.Tree) {
+    return {
+      type: "tree",
+      entries: Object.entries(entry.tree).map(([name, child]) =>
+        [name, summaryEntryEvidence(child)]),
+    };
+  }
+  if (entry?.type === SummaryType.Blob) {
+    const bytes = typeof entry.content === "string"
+      ? Buffer.from(entry.content)
+      : Buffer.from(entry.content);
+    return { type: "blob", base64: bytes.toString("base64") };
+  }
+  if (entry?.type === SummaryType.Handle) {
+    return { type: "handle", handleType: entry.handleType, path: entry.handle };
+  }
+  throw new Error("Unsupported pending summary entry");
 }
 
 function allocation(contents) {
@@ -124,16 +1261,21 @@ export function decodeTreeSubmissions(messages) {
   return messages.flatMap((message) => {
     if (message.type !== "op") return [];
     const outer = parsed(message.contents);
-    if (outer?.type !== "groupedBatch" || !Array.isArray(outer.contents)) return [];
-    const allocations = outer.contents.flatMap((item) => {
+    const items = outer?.type === "groupedBatch" && Array.isArray(outer.contents)
+      ? outer.contents
+      : outer?.type === "component"
+        ? [{ contents: outer, metadata: message.metadata }]
+        : [];
+    if (items.length === 0) return [];
+    const allocations = items.flatMap((item) => {
       if (item.contents?.type !== "idAllocation") return [];
       const decoded = allocation(item.contents.contents);
       return decoded ? [decoded] : [];
     });
-    const batchId = outer.contents
+    const batchId = items
       .map(({ metadata }) => metadata?.batchId)
       .find((value) => typeof value === "string" && value.length > 0);
-    const commits = outer.contents.flatMap((item, innerIndex) => {
+    const commits = items.flatMap((item, innerIndex) => {
       const tree = item.contents?.type === "component"
         ? item.contents.contents?.contents?.content?.contents
         : undefined;
@@ -207,10 +1349,6 @@ function mapCells(cells) {
   return cells.map((cell) => ({ ...cell, profile: "map" }));
 }
 
-function arrayCells(cells) {
-  return cells.map((cell) => ({ ...cell, profile: "array" }));
-}
-
 const scenarioCells = [
   ...pairCells("independent-scalar"),
   ...pairCells("independent-nested"),
@@ -240,19 +1378,25 @@ const scenarioCells = [
   ...mapCells(pairCells("map-recursive-conflict", true)),
   ...mapCells(authorCells("map-reconnect-pending")),
   ...mapCells(authorCells("map-summary-tail")),
-  ...arrayCells(pairCells("array-independent-insert")),
-  ...arrayCells(pairCells("array-same-gap-insert", true)),
-  ...arrayCells(pairCells("array-insert-remove", true)),
-  ...arrayCells(pairCells("array-overlapping-remove", true)),
-  ...arrayCells(pairCells("array-move-child-edit", true)),
-  ...arrayCells(pairCells("array-move-delete", true)),
-  ...arrayCells(pairCells("array-competing-moves", true)),
-  ...arrayCells(pairCells("array-overlapping-moves", true)),
-  ...arrayCells(pairCells("array-cross-parent-move", true)),
-  ...arrayCells(pairCells("array-ancestor-replace", true)),
-  ...arrayCells(pairCells("array-recursive-map-path", true)),
-  ...arrayCells(authorCells("array-reconnect-pending")),
-  ...arrayCells(authorCells("array-summary-tail")),
+];
+
+const schemaRaceCells = [
+  ...orderedPairs.flatMap(([upgrader, competitor]) =>
+    ["schema-data", "schema-schema"].flatMap((family) =>
+      ["upgrade-first", "competitor-first"].map((order) => ({
+        id: `${family}:${upgrader}->${competitor}:${order}`,
+        family,
+        upgrader,
+        competitor,
+        order,
+      })))),
+  ...implementations.map((upgrader) => ({
+    id: `upgrade-then-edit:${upgrader}:causal`,
+    family: "upgrade-then-edit",
+    upgrader,
+    competitor: upgrader,
+    order: "causal",
+  })),
 ];
 
 const localRefusals = [
@@ -262,26 +1406,7 @@ const localRefusals = [
   ["unknown-field", "set", ["notAField", "unknown field"]],
   ["wrong-schema-id", "set", ["NotPoint", "node type"]],
 ];
-const sequenceRefusalCases = new Set([
-  "malformed-sequence-payload",
-  "malformed-range-count",
-  "missing-range-endpoint",
-  "bad-child-ownership",
-  "invalid-sequence-content",
-]);
 const injectedRefusals = [
-  ["malformed-sequence-payload", "operation-decode", "connection-failed",
-    "stopped-after-ready", ["changes[0].change", "expected an array"]],
-  ["malformed-range-count", "operation-decode", "connection-failed",
-    "stopped-after-ready", ["change[0].count", "positive integer"]],
-  ["missing-range-endpoint", "operation-decode", "connection-failed",
-    "stopped-after-ready", ["finalEndpoint", "atom"]],
-  ["bad-child-ownership", "operation-decode", "connection-failed",
-    "stopped-after-ready", ["cross-field ownership", "overlap"]],
-  ["invalid-sequence-content", "operation-decode", "connection-failed",
-    "stopped-after-ready", [".change[0].changes", "unknown property content"]],
-  ["corrupt-retained-summary", "summary-load", "bootstrap-failed",
-    "never-ready", ["DetachedFieldIndex", "sequence"]],
   ["unsupported-message-version", "operation-decode", "connection-failed",
     "stopped-after-ready", ["Message", "999"]],
   ["unsupported-summary-version", "summary-load", "bootstrap-failed",
@@ -307,9 +1432,10 @@ const failureCells = [
       diagnosticTerms,
       clientState: "ready-local",
     }))),
-  ...nativeTargets.map((target) => ({
-      id: `unsupported-map-schema:${target}`,
-      caseId: "unsupported-map-schema",
+  ...["array", "map"].flatMap((kind) =>
+    nativeTargets.map((target) => ({
+      id: `unsupported-${kind}-schema:${target}`,
+      caseId: `unsupported-${kind}-schema`,
       target,
       kind: "stored-schema-refusal",
       expectedStage: "resolve-view",
@@ -317,7 +1443,7 @@ const failureCells = [
       errorOperation: "resolve-view",
       diagnosticTerms: ["root", "incompatible field schema"],
       clientState: "never-ready",
-    })),
+    }))),
   ...injectedRefusals.flatMap(([
     caseId,
     expectedStage,
@@ -340,6 +1466,10 @@ const failureCells = [
 
 export function requiredScenarioCells() {
   return structuredClone(scenarioCells);
+}
+
+export function requiredSchemaRaceCells() {
+  return structuredClone(schemaRaceCells);
 }
 
 export function requiredFailureCells() {
@@ -387,7 +1517,7 @@ function edit(type, author, path, value, outboundHeld = false) {
     ...(type === "set" ? { value } : {}),
     preconditions: {
       ...connected(author),
-      pathType: pathTypes[path[0]] ?? (path.at(-1) === "x" ? "number" : undefined),
+      pathType: pathTypes[path[0]],
       ...(outboundHeld ? { outboundHeld: true } : {}),
     },
   };
@@ -403,19 +1533,6 @@ function mapEdit(type, author, key, value, outboundHeld = false) {
     preconditions: {
       ...connected(author),
       pathType: "dynamic-map",
-      ...(outboundHeld ? { outboundHeld: true } : {}),
-    },
-  };
-}
-
-function arrayEdit(type, author, fields, outboundHeld = false) {
-  return {
-    type,
-    author,
-    ...fields,
-    preconditions: {
-      ...connected(author),
-      pathType: "array",
       ...(outboundHeld ? { outboundHeld: true } : {}),
     },
   };
@@ -559,6 +1676,7 @@ function generatedMapActions(seed, index, template, roles, random) {
     actions.push(control("hold-inbound", author, false));
     actions.push(control("hold-outbound", author, false));
   }
+
   const magnitude = 100 + seed + index;
   if (template === "map-object-conflict") {
     actions.push(mapEdit(
@@ -700,115 +1818,69 @@ function generatedMapActions(seed, index, template, roles, random) {
   return actions;
 }
 
-function arrayPoint(label, x) {
-  return {
-    kind: "object",
-    schemaId: "org.watershed.shared-tree.m3.Point",
-    fields: [
-      ["label", { kind: "string", value: label }],
-      ["x", { kind: "number", value: x }],
-    ],
-  };
-}
-
-function generatedArrayActions(seed, index, template, roles, random) {
-  const magnitude = 100 + seed + index;
-  const actions = [
-    arrayEdit("array-insert", roles.third, {
-      path: ["left"],
-      index: 0,
-      values: [
-        arrayPoint(`base-${seed}-${index}-a`, magnitude),
-        arrayPoint(`base-${seed}-${index}-b`, magnitude + 1),
-        {
-          kind: "array",
-          schemaId: "org.watershed.shared-tree.m3.Items",
-          elements: [arrayPoint(`nested-${seed}-${index}`, magnitude + 2)],
-        },
-        arrayPoint(`base-${seed}-${index}-c`, magnitude + 3),
-      ],
-    }),
-    arrayEdit("array-insert", roles.third, {
-      path: ["right"],
-      index: 0,
-      values: [
-        arrayPoint(`right-${seed}-${index}-a`, magnitude + 4),
-        arrayPoint(`right-${seed}-${index}-b`, magnitude + 5),
-        arrayPoint(`right-${seed}-${index}-c`, magnitude + 6),
-      ],
-    }),
-    {
-      type: "checkpoint",
-      label: "initial",
-      stage: "quiescent",
-      preconditions: { connected: [...implementations] },
-    },
-  ];
-  for (const author of [roles.first, roles.second, roles.third]) {
+function generatedSchemaActions(seed, index, template, roles, random) {
+  const actions = [{
+    type: "checkpoint",
+    label: "initial",
+    stage: "quiescent",
+    preconditions: { connected: [...implementations] },
+  }];
+  for (const author of implementations) {
     actions.push(control("hold-inbound", author, false));
     actions.push(control("hold-outbound", author, false));
   }
-  actions.push(arrayEdit("array-insert", roles.first, {
-    path: ["left"],
-    index: 1,
-    values: [
-      { kind: "string", value: `${template}-${roles.first}` },
-      { kind: "number", value: magnitude + 7 },
-    ],
-  }, true));
-  switch (template) {
-    case "array-same-gap":
-      actions.push(arrayEdit("array-insert", roles.second, {
-        path: ["left"],
-        index: 1,
-        values: [
-          { kind: "string", value: `${template}-${roles.second}` },
-          { kind: "number", value: magnitude + 8 },
-        ],
-      }, true));
-      break;
-    case "array-insert-remove":
-      actions.push(arrayEdit("array-remove", roles.second, {
-        path: ["left"], start: 0, end: 2,
-      }, true));
-      break;
-    case "array-cross-parent":
-      actions.push(arrayEdit("array-move", roles.second, {
-        sourcePath: ["left"],
-        sourceStart: 0,
-        sourceEnd: 2,
-        destinationPath: ["right"],
-        destinationGap: 1,
-      }, true));
-      break;
-    case "array-nested-reconnect":
-      actions.push(arrayEdit("array-move", roles.second, {
-        sourcePath: ["left"],
-        sourceStart: 0,
-        sourceEnd: 2,
-        destinationPath: ["left"],
-        destinationGap: 3,
-      }, true));
-      break;
-    default:
-      assert.fail(`Unknown array seeded template: ${template}`);
-  }
-  actions.push(edit("set", roles.third, ["left", "2", "0", "x"], -magnitude, true));
+  actions.push({
+    type: "schema-compatibility",
+    author: roles.first,
+    view: "optional",
+    preconditions: connected(roles.first),
+  });
+  actions.push({
+    type: "schema-upgrade",
+    author: roles.first,
+    fromView: "v1",
+    view: "optional",
+    preconditions: connected(roles.first, "outbound", true),
+  });
+  actions.push({
+    type: "open-view",
+    author: roles.first,
+    view: "optional",
+    preconditions: connected(roles.first),
+  });
+  actions.push({
+    type: "set",
+    author: roles.second,
+    path: ["title"],
+    value: `schema-${seed}-${index}`,
+    preconditions: {
+      connected: [roles.second],
+      pathType: "string",
+      outboundHeld: true,
+    },
+  });
+  actions.push({
+    type: "set",
+    author: roles.third,
+    path: ["point", random() % 2 === 0 ? "x" : "y"],
+    value: 200 + index,
+    preconditions: {
+      connected: [roles.third],
+      pathType: "number",
+      outboundHeld: true,
+    },
+  });
   actions.push({
     type: "checkpoint",
     label: "optimistic",
     stage: "intermediate",
     preconditions: { connected: [...implementations] },
   });
-  const inboundOrder = random() % 2 === 0 ? "fifo" : "reverse";
-  const conflictOrder = random() % 2 === 0
-    ? [roles.first, roles.second]
-    : [roles.second, roles.first];
-  const releaseOrder = [...conflictOrder, roles.third];
-  for (const author of releaseOrder) {
+  for (const author of [roles.first, roles.second, roles.third]) {
     actions.push(release(author, "outbound", "fifo", false));
   }
-  for (const author of releaseOrder) {
+  const inboundOrder = random() % 2 === 0 ? "fifo" : "reverse";
+  for (const author of [roles.first, roles.second, roles.third]) {
     actions.push(release(
       author,
       "inbound",
@@ -816,7 +1888,28 @@ function generatedArrayActions(seed, index, template, roles, random) {
       false,
     ));
   }
-  if (template === "array-nested-reconnect" || (index + seed) % 5 === 4) {
+  for (const author of implementations) {
+    actions.push({
+      type: "open-view",
+      author,
+      view: "optional",
+      preconditions: connected(author),
+    });
+  }
+  actions.push({
+    type: "checkpoint",
+    label: "after-acknowledgement",
+    stage: "quiescent",
+    preconditions: { connected: [...implementations] },
+  });
+  actions.push({
+    type: "set",
+    author: roles.first,
+    path: ["score"],
+    value: index,
+    preconditions: { connected: [roles.first], pathType: "number" },
+  });
+  if (template === "schema-reconnect-summary") {
     actions.push({
       type: "checkpoint",
       label: "before-reconnect",
@@ -834,27 +1927,26 @@ function generatedArrayActions(seed, index, template, roles, random) {
       preconditions: { disconnected: [roles.reload] },
     });
   }
-  if ((index + seed) % 7 === 6) {
-    actions.push({
-      type: "checkpoint",
-      label: "before-publish",
-      stage: "quiescent",
-      preconditions: { connected: [...implementations] },
-    });
-    actions.push({
-      type: "summarize",
-      author: roles.first,
-      preconditions: { connected: [...implementations], quiescent: true },
-    });
-    actions.push({
-      type: "reload",
-      author: roles.reload,
-      preconditions: {
-        connected: [...implementations],
-        summaryAvailable: true,
-      },
-    });
-  }
+  actions.push({
+    type: "checkpoint",
+    label: "before-publish",
+    stage: "quiescent",
+    preconditions: { connected: [...implementations] },
+  });
+  actions.push({
+    type: "summarize",
+    author: roles.first,
+    preconditions: { connected: [...implementations], quiescent: true },
+  });
+  actions.push({
+    type: "reload",
+    author: roles.reload,
+    view: "optional",
+    preconditions: {
+      connected: [...implementations],
+      summaryAvailable: true,
+    },
+  });
   actions.push({
     type: "checkpoint",
     label: "settled",
@@ -864,58 +1956,53 @@ function generatedArrayActions(seed, index, template, roles, random) {
   return actions;
 }
 
-function generateSchedule({ seed, index, profile }) {
-  const subSeed = scheduleSubSeed(seed, index);
-  let state = subSeed;
-  const random = () => {
-    state ^= state << 13;
-    state ^= state >>> 17;
-    state ^= state << 5;
-    return state >>>= 0;
-  };
-  const templates = profile === "map"
-    ? mapSeededTemplates
-    : profile === "array" ? arraySeededTemplates : seededTemplates;
-  const template = templates[random() % templates.length];
-  const rotation = (seed + index + 1) % implementations.length;
-  const authors = [
-    ...implementations.slice(rotation),
-    ...implementations.slice(0, rotation),
-  ];
-  const roles = {
-    first: authors[0],
-    second: authors[1],
-    third: authors[2],
-    reload: authors[0],
-  };
-  return {
-    formatVersion: 1,
-    profile,
-    index,
-    seed,
-    subSeed,
-    template,
-    authors: [...implementations],
-    roles,
-    actions: profile === "map"
-      ? generatedMapActions(seed, index, template, roles, random)
-      : profile === "array"
-        ? generatedArrayActions(seed, index, template, roles, random)
-        : generatedActions(seed, index, template, roles, random),
-  };
-}
-
 export function generateSchedules({ seed, iterations }) {
   assert(Number.isSafeInteger(seed) && seed >= 0 && seed <= 0xffff_ffff,
     "Schedule seed must be an unsigned 32-bit integer");
   assert(Number.isSafeInteger(iterations) && iterations >= 0,
     "Schedule iterations must be a nonnegative integer");
-  const legacyCount = 2 * Math.floor(iterations / 3);
   return Array.from({ length: iterations }, (_, index) => {
-    const profile = index < legacyCount
-      ? (index % 2 === 0 ? "object" : "map")
-      : "array";
-    return generateSchedule({ seed, index, profile });
+    const subSeed = scheduleSubSeed(seed, index);
+    let state = subSeed;
+    const random = () => {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      return state >>>= 0;
+    };
+    const profile = index % 3 === 0 ? "object" : index % 3 === 1 ? "map" : "schema";
+    const templates = profile === "map"
+      ? mapSeededTemplates
+      : profile === "schema"
+        ? schemaSeededTemplates
+        : seededTemplates;
+    const template = templates[random() % templates.length];
+    const rotation = (seed + index + 1) % implementations.length;
+    const authors = [
+      ...implementations.slice(rotation),
+      ...implementations.slice(0, rotation),
+    ];
+    const roles = {
+      first: authors[0],
+      second: authors[1],
+      third: authors[2],
+      reload: authors[0],
+    };
+    return {
+      formatVersion: 1,
+      profile,
+      index,
+      seed,
+      subSeed,
+      template,
+      authors: [...implementations],
+      roles,
+      actions: profile === "map"
+        ? generatedMapActions(seed, index, template, roles, random)
+        : profile === "schema"
+          ? generatedSchemaActions(seed, index, template, roles, random)
+          : generatedActions(seed, index, template, roles, random),
+    };
   });
 }
 
@@ -928,13 +2015,10 @@ function validateSchedule(schedule) {
   assert(Number.isSafeInteger(schedule.seed)
     && schedule.seed >= 0 && schedule.seed <= 0xffff_ffff,
   "Seeded schedule has an invalid seed");
-  assert(["object", "map", "array"].includes(schedule.profile),
-    "Seeded schedule has an invalid profile");
-  const expected = generateSchedule({
+  const expected = generateSchedules({
     seed: schedule.seed,
-    index: schedule.index,
-    profile: schedule.profile,
-  });
+    iterations: schedule.index + 1,
+  })[schedule.index];
   assert.deepEqual(schedule, expected, "Seeded schedule expansion or path is invalid");
   return schedule;
 }
@@ -971,27 +2055,8 @@ export function validateReplayArtifact(artifact, expected) {
     assert(Array.isArray(identity.clientIds), "Replay identity lacks client IDs");
     assert(Array.isArray(identity.originatorIds), "Replay identity lacks originator IDs");
   }
-  assert(Array.isArray(artifact.checkpoints) && artifact.checkpoints.length > 0,
+  assert(Array.isArray(artifact.checkpoints),
     "Replay artifact lacks checkpoints");
-  const actionFailure = artifact.failedCheckpoint === null
-    && artifact.failedAction
-    && typeof artifact.failedAction === "object"
-    && !Array.isArray(artifact.failedAction)
-    && Number.isSafeInteger(artifact.failedAction.index)
-    && typeof artifact.failedAction.type === "string"
-    && artifact.failedAction.type !== "checkpoint";
-  if (artifact.profile === "array") {
-    if (actionFailure) {
-      assert.equal(artifact.firstDifferencePath, null,
-        "Array action failure has a difference path");
-    } else {
-      assert(artifact.checkpoints.some(({ stage }) => stage === "intermediate"),
-        "Array replay artifact lacks an intermediate checkpoint");
-      assert(typeof artifact.firstDifferencePath === "string"
-        && artifact.firstDifferencePath.length > 0,
-      "Array replay artifact lacks the first difference path");
-    }
-  }
   assert(Array.isArray(artifact.rawSequencedOperations),
   "Replay artifact lacks sequenced operations");
   assert(Array.isArray(artifact.summaries), "Replay artifact lacks summaries");
@@ -1002,15 +2067,6 @@ export function validateReplayArtifact(artifact, expected) {
   assert(typeof artifact.error?.name === "string"
     && typeof artifact.error?.message === "string",
   "Replay artifact lacks the original error");
-  if (artifact.error.cause !== undefined) {
-    assert(artifact.error.cause
-      && typeof artifact.error.cause === "object"
-      && !Array.isArray(artifact.error.cause)
-      && typeof artifact.error.cause.code === "string"
-      && typeof artifact.error.cause.operation === "string"
-      && typeof artifact.error.cause.message === "string",
-    "Replay artifact has an invalid structured error cause");
-  }
   return artifact;
 }
 
@@ -1074,58 +2130,49 @@ function mapRootValue(root) {
   };
 }
 
-function hasSchema(value, schema) {
-  return value !== null
-    && typeof value === "object"
-    && Tree.schema(value).identifier === schema.identifier;
-}
-
-function arrayTreeValue(value) {
-  if (value === null) return { kind: "null" };
-  if (typeof value === "string") return { kind: "string", value };
-  if (typeof value === "number") return { kind: "number", value };
-  if (typeof value === "boolean") return { kind: "boolean", value };
-  if (hasSchema(value, ArrayPoint)) {
-    return {
-      kind: "object",
-      schemaId: "org.watershed.shared-tree.m3.Point",
-      fields: [
-        ["label", arrayTreeValue(value.label)],
-        ["x", arrayTreeValue(value.x)],
-      ],
-    };
-  }
-  if (hasSchema(value, Items) || hasSchema(value, Points)) {
-    return {
-      kind: "array",
-      schemaId: hasSchema(value, Points)
-        ? "org.watershed.shared-tree.m3.Points"
-        : "org.watershed.shared-tree.m3.Items",
-      elements: [...value].map(arrayTreeValue),
-    };
-  }
-  if (hasSchema(value, ArrayMap)) {
-    return {
+function schemaRootValue(root) {
+  const fields = [
+    ["items", {
       kind: "map",
-      schemaId: "org.watershed.shared-tree.m3.ArrayMap",
-      entries: [...value.entries()].map(([key, item]) => [key, arrayTreeValue(item)]),
-    };
-  }
-  throw new TypeError("Unsupported upstream array value");
-}
-
-function arrayRootValue(root) {
+      schemaId: "org.watershed.shared-tree.m4.Items",
+      entries: [...root.items.entries()].map(([key, value]) => [
+        key,
+        typeof value === "string"
+          ? { kind: "string", value }
+          : {
+            kind: "object",
+            schemaId: "org.watershed.shared-tree.m4.Point",
+            fields: [
+              ["x", { kind: "number", value: value.x }],
+              ["y", { kind: "number", value: value.y }],
+            ],
+          },
+      ]),
+    }],
+    ["note", root.note === undefined
+      ? undefined
+      : { kind: typeof root.note === "number" ? "number" : "string", value: root.note }],
+    ["point", {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m4.Point",
+      fields: [
+        ["x", { kind: "number", value: root.point.x }],
+        ["y", { kind: "number", value: root.point.y }],
+      ],
+    }],
+    ["score", root.score === undefined
+      ? undefined
+      : { kind: "number", value: root.score }],
+    ["title", root.title === undefined
+      ? undefined
+      : { kind: "string", value: root.title }],
+  ].filter(([, value]) => value !== undefined);
   return {
     present: true,
     value: {
       kind: "object",
-      schemaId: "org.watershed.shared-tree.m3.Root",
-      fields: [
-        ["byKey", arrayTreeValue(root.byKey)],
-        ["left", arrayTreeValue(root.left)],
-        ["narrow", arrayTreeValue(root.narrow)],
-        ["right", arrayTreeValue(root.right)],
-      ],
+      schemaId: "org.watershed.shared-tree.m4.Root",
+      fields,
     },
   };
 }
@@ -1158,19 +2205,45 @@ function pendingTreeCommits(session) {
   return commits.length;
 }
 
+function upstreamHistoryEvidence(session) {
+  const kernel = Reflect.get(session.data.tree, "kernel");
+  assert(kernel && typeof kernel === "object", "Missing pinned SharedTree kernel");
+  const manager = Reflect.get(kernel, "editManager");
+  assert.equal(manager?.constructor.name, "EditManager", "Unexpected pinned edit manager");
+  const persist = (value) => {
+    const encoded = JSON.stringify(value, (_key, item) =>
+      item instanceof Map
+        ? { type: "Map", entries: [...item.entries()] }
+        : item instanceof Set
+          ? { type: "Set", values: [...item.values()] }
+          : item);
+    return encoded === undefined ? null : JSON.parse(encoded);
+  };
+  const commits = (values, originatorId) => values.map(({ revision, change }) => ({
+    revision: String(revision),
+    originatorId,
+    changeset: {
+      changeCount: change.changes.length,
+      raw: persist(change),
+    },
+  }));
+  const originatorId = String(manager.localSessionId);
+  return {
+    pending: commits(manager.getLocalCommits("main"), originatorId),
+    trunk: commits(manager.getTrunkCommits?.("main") ?? [], null),
+    forest: persist(session.data.tree.contentSnapshot?.()),
+  };
+}
+
 function setUpstream(root, path, value) {
   assert(path.length > 0, "Upstream path must not be empty");
   let parent = root;
   for (const segment of path.slice(0, -1)) {
-    parent = hasSchema(parent, DynamicMap) || hasSchema(parent, ArrayMap)
-      ? parent.get(segment)
-      : parent[segment];
+    parent = parent instanceof DynamicMap ? parent.get(segment) : parent[segment];
     assert(parent !== undefined, `Missing upstream path segment: ${segment}`);
   }
   const field = path.at(-1);
-  if (hasSchema(parent, DynamicMap) || hasSchema(parent, ArrayMap)) {
-    parent.set(field, value);
-  }
+  if (parent instanceof DynamicMap) parent.set(field, value);
   else parent[field] = value;
 }
 
@@ -1230,60 +2303,12 @@ function upstreamMapValue(value) {
   }
 }
 
-function upstreamArrayValue(value) {
-  assert(value && typeof value === "object", "Array value must be tagged");
-  switch (value.kind) {
-    case "null":
-      return null;
-    case "string":
-    case "number":
-    case "boolean":
-      return value.value;
-    case "object": {
-      assert.equal(
-        value.schemaId,
-        "org.watershed.shared-tree.m3.Point",
-        "Unsupported array object schema",
-      );
-      const fields = Object.fromEntries(value.fields);
-      assert.deepEqual(Object.keys(fields).sort(), ["label", "x"]);
-      return new ArrayPoint({
-        label: upstreamArrayValue(fields.label),
-        x: upstreamArrayValue(fields.x),
-      });
-    }
-    case "array": {
-      const values = value.elements.map(upstreamArrayValue);
-      if (value.schemaId === "org.watershed.shared-tree.m3.Items") {
-        return new Items(values);
-      }
-      if (value.schemaId === "org.watershed.shared-tree.m3.Points") {
-        return new Points(values);
-      }
-      throw new TypeError(`Unsupported array schema: ${value.schemaId}`);
-    }
-    case "map": {
-      assert.equal(
-        value.schemaId,
-        "org.watershed.shared-tree.m3.ArrayMap",
-        "Unsupported array map schema",
-      );
-      const keys = value.entries.map(([key]) => key);
-      assert.equal(new Set(keys).size, keys.length, "Duplicate array map key");
-      return new ArrayMap(value.entries.map(([key, item]) =>
-        [key, upstreamArrayValue(item)]));
-    }
-    default:
-      throw new TypeError(`Unsupported array value kind: ${value.kind}`);
-  }
-}
-
 function mapTreeValue(value) {
   if (value === null) return { kind: "null" };
   if (typeof value === "string") return { kind: "string", value };
   if (typeof value === "number") return { kind: "number", value };
   if (typeof value === "boolean") return { kind: "boolean", value };
-  if (hasSchema(value, MapPoint)) {
+  if (value instanceof MapPoint) {
     return {
       kind: "object",
       schemaId: "org.watershed.shared-tree.m2.Point",
@@ -1293,7 +2318,7 @@ function mapTreeValue(value) {
       ],
     };
   }
-  if (hasSchema(value, DynamicMap)) {
+  if (value instanceof DynamicMap) {
     return {
       kind: "map",
       schemaId: "org.watershed.shared-tree.m2.DynamicMap",
@@ -1306,33 +2331,8 @@ function mapTreeValue(value) {
 
 function mapAt(root, path) {
   const value = path.reduce((node, segment) =>
-    hasSchema(node, DynamicMap) || hasSchema(node, ArrayMap)
-      ? node.get(segment)
-      : node[segment], root);
-  assert(hasSchema(value, DynamicMap) || hasSchema(value, ArrayMap),
-    `Path is not a dynamic map: ${path.join(".")}`);
-  return value;
-}
-
-function mapInput(map, value) {
-  return hasSchema(map, ArrayMap)
-    ? upstreamArrayValue(value)
-    : upstreamMapValue(value);
-}
-
-function mapOutput(map, value) {
-  return hasSchema(map, ArrayMap)
-    ? arrayTreeValue(value)
-    : mapTreeValue(value);
-}
-
-function arrayAt(root, path) {
-  const value = path.reduce((node, segment) => {
-    if (hasSchema(node, ArrayMap)) return node.get(segment);
-    return node[segment];
-  }, root);
-  assert(hasSchema(value, Items) || hasSchema(value, Points),
-    `Path is not an array: ${path.join(".")}`);
+    node instanceof DynamicMap ? node.get(segment) : node[segment], root);
+  assert(value instanceof DynamicMap, `Path is not a dynamic map: ${path.join(".")}`);
   return value;
 }
 
@@ -1347,7 +2347,7 @@ function canonicalMapEntries(entries) {
     .sort(([left], [right]) => Buffer.from(left).compare(Buffer.from(right)));
 }
 
-export function upstreamAdapter(session) {
+export function upstreamAdapter(session, viewConfigurations = {}) {
   const instanceId = randomUUID();
   const events = [];
   const connectionEvents = [];
@@ -1355,7 +2355,35 @@ export function upstreamAdapter(session) {
     connectionEvents.push({ reason, ...(error ? { error: replayError(error) } : {}) });
   });
   let connected = session.container.connected;
-  Tree.on(session.data.view.root, "treeChanged", () => events.push({ kind: "treeChanged" }));
+  let activeView = session.data.view;
+  let activeViewLabel = viewConfigurations.v1 ? "v1" : null;
+  let unsubscribeActiveView;
+  let unsubscribeSchema;
+  const subscribeActiveView = () => {
+    unsubscribeSchema = activeView.events?.on(
+      "schemaChanged",
+      () => events.push({ kind: "schema" }),
+    );
+    if (activeView.compatibility?.canView !== false) {
+      unsubscribeActiveView = Tree.on(
+        activeView.root,
+        "treeChanged",
+        () => events.push({ kind: "data" }),
+      );
+    }
+  };
+  const replaceActiveView = (label) => {
+    const config = viewConfigurations[label]?.config;
+    assert(config, `Unknown upstream view: ${label}`);
+    unsubscribeActiveView?.();
+    unsubscribeSchema?.();
+    activeView.dispose();
+    activeView = session.data.tree.viewWith(config);
+    activeViewLabel = label;
+    subscribeActiveView();
+    return activeView;
+  };
+  subscribeActiveView();
   const clientIds = new Set();
   if (session.container.clientId) clientIds.add(session.container.clientId);
   return {
@@ -1365,87 +2393,84 @@ export function upstreamAdapter(session) {
     clientIds,
     connectionEvents,
     async set(path, value) {
-      setUpstream(session.data.view.root, path, value);
+      setUpstream(activeView.root, path, value);
     },
     async clear(path) {
       assert.deepEqual(path, ["note"], "Only the optional note can be cleared");
-      delete session.data.view.root.note;
+      delete activeView.root.note;
     },
     async mapGet(path, key) {
-      const map = mapAt(session.data.view.root, path);
+      const map = mapAt(activeView.root, path);
       return map.has(key)
-        ? { present: true, value: canonicalValue(mapOutput(map, map.get(key))) }
+        ? { present: true, value: canonicalValue(mapTreeValue(map.get(key))) }
         : { present: false };
     },
     async mapSet(path, key, value) {
-      const map = mapAt(session.data.view.root, path);
-      map.set(key, mapInput(map, value));
+      mapAt(activeView.root, path).set(key, upstreamMapValue(value));
     },
     async mapDelete(path, key) {
-      mapAt(session.data.view.root, path).delete(key);
+      mapAt(activeView.root, path).delete(key);
     },
     async mapKeys(path) {
-      return canonicalMapKeys(mapAt(session.data.view.root, path).keys());
+      return canonicalMapKeys(mapAt(activeView.root, path).keys());
     },
     async mapEntries(path) {
-      const map = mapAt(session.data.view.root, path);
       return canonicalMapEntries(
-        [...map.entries()]
-          .map(([key, value]) => [key, mapOutput(map, value)]),
-      );
-    },
-    async arrayGet(path, index) {
-      const array = arrayAt(session.data.view.root, path);
-      return index < array.length
-        ? { present: true, value: canonicalValue(arrayTreeValue(array[index])) }
-        : { present: false };
-    },
-    async arrayValues(path) {
-      return [...arrayAt(session.data.view.root, path)]
-        .map((value) => canonicalValue(arrayTreeValue(value)));
-    },
-    async arrayInsert(path, index, values) {
-      arrayAt(session.data.view.root, path).insertAt(
-        index,
-        ...values.map(upstreamArrayValue),
-      );
-    },
-    async arrayRemove(path, start, end) {
-      arrayAt(session.data.view.root, path).removeRange(start, end);
-    },
-    async arrayMove(sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) {
-      const source = arrayAt(session.data.view.root, sourcePath);
-      const destination = arrayAt(session.data.view.root, destinationPath);
-      destination.moveRangeToIndex(
-        destinationGap,
-        sourceStart,
-        sourceEnd,
-        source,
+        [...mapAt(activeView.root, path).entries()]
+          .map(([key, value]) => [key, mapTreeValue(value)]),
       );
     },
     async checkpoint() {
       if (session.container.clientId) clientIds.add(session.container.clientId);
       const captured = events.splice(0);
-      const arrayRetained = hasSchema(session.data.view.root, ArrayRoot)
-        ? { removed: session.data.tree.contentSnapshot().removed }
-        : undefined;
+      let wholeTree = null;
+      let readError;
+      try {
+        wholeTree = canonicalValue(activeView.root.items instanceof DynamicMap
+          ? mapRootValue(activeView.root)
+          : Tree.schema(activeView.root).identifier
+              === "org.watershed.shared-tree.m4.Root"
+            ? schemaRootValue(activeView.root)
+            : rootValue(activeView.root));
+      } catch (error) {
+        readError = error instanceof Error ? error.message : String(error);
+      }
       return {
         implementation: "upstream",
         instanceId,
         sequenceNumber: session.container.deltaManager.lastSequenceNumber,
         pendingTreeCount: pendingTreeCommits(session),
         inflightSubmissionCount: session.container.deltaManager.outbound.length,
-        wholeTree: canonicalValue(
-          hasSchema(session.data.view.root, ArrayRoot)
-            ? arrayRootValue(session.data.view.root)
-            : hasSchema(session.data.view.root.items, DynamicMap)
-              ? mapRootValue(session.data.view.root)
-              : rootValue(session.data.view.root),
-        ),
+        wholeTree,
         events: captured,
+        history: upstreamHistoryEvidence(session),
+        readError,
         clientId: session.container.clientId,
         connectionEvents: [...connectionEvents],
-        ...(arrayRetained ? { retained: arrayRetained } : {}),
+      };
+    },
+    async pendingSummaryEvidence() {
+      const kernel = Reflect.get(session.data.tree, "kernel");
+      const serializer = Reflect.get(kernel, "serializer");
+      assert(serializer, "Missing pinned SharedTree serializer");
+      const entries = Reflect.get(kernel, "summarizables").slice(1).map(
+        (summarizable) => [
+          summarizable.key,
+          summarizable.summarize({
+            stringify: (contents) =>
+              serializer.stringify(contents, session.data.tree.handle),
+            fullTree: true,
+            telemetryContext: undefined,
+            incrementalSummaryContext: undefined,
+          }).summary,
+        ],
+      );
+      return {
+        sequenceNumber: session.container.deltaManager.lastSequenceNumber,
+        tree: summaryEntryEvidence({
+          type: SummaryType.Tree,
+          tree: Object.fromEntries(entries),
+        }),
       };
     },
     async holdInbound() {
@@ -1504,6 +2529,26 @@ export function upstreamAdapter(session) {
         await until(() => !session.container.connected, "upstream disconnect");
       }
       connected = false;
+    },
+    async schemaCompatibility(label) {
+      assert(activeViewLabel, "Upstream schema adapter has no active view label");
+      const previous = activeViewLabel;
+      const {
+        canView,
+        canUpgrade,
+        isEquivalent,
+      } = replaceActiveView(label).compatibility;
+      replaceActiveView(previous);
+      return { canView, canUpgrade, isEquivalent };
+    },
+    async schemaUpgrade(label) {
+      assert(activeViewLabel, "Upstream schema adapter has no active view label");
+      const previous = activeViewLabel;
+      replaceActiveView(label).upgradeSchema();
+      replaceActiveView(previous);
+    },
+    async openView(label) {
+      replaceActiveView(label);
     },
     isConnected: () => connected && session.container.connected,
   };
@@ -1575,26 +2620,14 @@ export async function nativeAdapter(
     async mapEntries(path) {
       return canonicalMapEntries(await client.mapEntries(path));
     },
-    async arrayGet(path, index) {
-      return canonicalValue(await client.arrayGet(path, index));
+    async schemaCompatibility(view) {
+      return canonicalValue(await client.schemaCompatibility(view));
     },
-    async arrayValues(path) {
-      return canonicalValue(await client.arrayValues(path));
+    async schemaUpgrade(view) {
+      await client.schemaUpgrade(view);
     },
-    async arrayInsert(path, index, values) {
-      await client.arrayInsert(path, index, values);
-    },
-    async arrayRemove(path, start, end) {
-      await client.arrayRemove(path, start, end);
-    },
-    async arrayMove(sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) {
-      await client.arrayMove(
-        sourcePath,
-        sourceStart,
-        sourceEnd,
-        destinationPath,
-        destinationGap,
-      );
+    async openView(view) {
+      await client.openView(view);
     },
     async checkpoint() {
       const reply = success(await client.request({ command: "checkpoint" }),
@@ -1608,10 +2641,17 @@ export async function nativeAdapter(
         inflightSubmissionCount: reply.observation.inFlightCount,
         wholeTree: canonicalValue(reply.result.root),
         events: reply.result.events,
+        history: reply.result.history,
+        readError: reply.result.readError,
+        connection: reply.observation,
         clientId: reply.observation.clientId,
         reconnectRetries: structuredClone(reconnectRetries),
-        ...(reply.result.retained ? { retained: reply.result.retained } : {}),
       };
+    },
+    async pendingSummaryEvidence() {
+      return success(await client.request({
+        command: "pending-summary-evidence",
+      }), `${target} pending summary evidence`).result;
     },
     async holdInbound() {
       inboundEvidenceOffset = client.gate.evidence().held.length;
@@ -1746,6 +2786,508 @@ export async function serverHistory(session, sequenceNumber) {
   }
 }
 
+async function schemaEnvironment(config, context) {
+  const containers = [];
+  const natives = [];
+  const creator = await openSession(config, containers, undefined, false, {
+    store: schemaEvolutionServiceStore,
+  });
+  const documentId = creator.container.resolvedUrl.id;
+  await publishUpstreamSummary(
+    config,
+    containers,
+    documentId,
+    "Task 10 schema bootstrap",
+    { store: schemaEvolutionServiceStore },
+  );
+  const upstream = upstreamAdapter(await openSession(
+    config,
+    containers,
+    documentId,
+    false,
+    { store: schemaEvolutionServiceStore },
+  ), schemaEvolutionConfigurations);
+  const { jwt } = await tokenProvider(config).fetchOrdererToken(
+    config.tenantId,
+    documentId,
+  );
+  for (const target of nativeTargets) {
+    natives.push(await nativeAdapter(target, config, {
+      runId: context.runId,
+      documentId,
+      tenant: config.tenantId,
+      viewSchema: context.schemaViews.v1,
+      viewSchemas: context.schemaViews,
+    }, jwt));
+  }
+  const adapters = {
+    upstream,
+    javascript: natives[0],
+    erlang: natives[1],
+  };
+  await Promise.all(nativeTargets.map((target) => adapters[target].awaitSynced()));
+  await settle(adapters);
+  return { adapters, containers, creator, documentId, jwt, natives };
+}
+
+function cleanupSchemaEnvironment(environment, originalError) {
+  const failures = [];
+  return (async () => {
+    for (const native of environment.natives.toReversed()) {
+      try {
+        await native.close();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    for (const container of environment.containers.toReversed()) {
+      try {
+        if (!container.closed) container.dispose();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length === 0) return;
+    if (originalError) {
+      originalError.cleanupErrors = failures;
+      return;
+    }
+    throw new AggregateError(failures, "Schema environment cleanup failed");
+  })();
+}
+
+async function runSchemaCompatibilityTarget(config, context, target) {
+  const environment = await schemaEnvironment(config, context);
+  let failure;
+  try {
+    const adapter = environment.adapters[target];
+    const compatibility = await adapter.schemaCompatibility("optional");
+    assert.deepEqual(compatibility, {
+      canView: false,
+      canUpgrade: true,
+      isEquivalent: false,
+    }, `${target} reported another optional-schema compatibility`);
+    return {
+      target,
+      protocolVersion: replayReference.version,
+      skipped: false,
+      observations: [{
+        storedView: "v1",
+        requestedView: "optional",
+        compatibility,
+        documentId: environment.documentId,
+        instanceId: adapter.instanceId,
+      }],
+    };
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    await cleanupSchemaEnvironment(environment, failure);
+  }
+}
+
+export async function runSchemaCompatibility(config, context, {
+  runTarget = runSchemaCompatibilityTarget,
+} = {}) {
+  return Promise.all(implementations.map((target) =>
+    runTarget(config, context, target)));
+}
+
+async function openSchemaView(adapters, label) {
+  await Promise.all(implementations.map((target) =>
+    adapters[target].openView(label)));
+}
+
+async function runCausalSchemaRace(config, context, cell) {
+  const environment = await schemaEnvironment(config, context);
+  let failure;
+  try {
+    const adapter = environment.adapters[cell.upgrader];
+    const before = await adapter.checkpoint();
+    await adapter.schemaUpgrade("optional");
+    await Promise.all(implementations.map((target) =>
+      environment.adapters[target].awaitSynced()));
+    await openSchemaView(environment.adapters, "optional");
+    await adapter.set(["score"], 7);
+    const final = await settle(environment.adapters);
+    assert(final.observations.every(({ wholeTree }) =>
+      wholeTree.value.fields.some(([name, value]) =>
+        name === "score" && value.value === 7)),
+    "Causal schema upgrade lost its dependent edit");
+    const history = decodeTreeSubmissions(await serverHistory(environment.creator));
+    return {
+      ...cell,
+      documentId: environment.documentId,
+      instanceIds: Object.fromEntries(implementations.map((target) =>
+        [target, environment.adapters[target].instanceId])),
+      skipped: false,
+      observations: [{
+        before,
+        final,
+        referenceSequenceNumbers: history.flatMap(({ commits, referenceSequenceNumber }) =>
+          commits.map(() => referenceSequenceNumber)),
+        dependentEditRetained: true,
+      }],
+    };
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    await cleanupSchemaEnvironment(environment, failure);
+  }
+}
+
+async function runConcurrentSchemaRace(config, context, cell) {
+  const environment = await schemaEnvironment(config, context);
+  let failure;
+  try {
+    const { adapters } = environment;
+    const before = await captureCheckpoint("initial", "quiescent", adapters);
+    const participants = [cell.upgrader, cell.competitor];
+    for (const target of implementations) {
+      await adapters[target].holdInbound();
+    }
+    for (const author of participants) {
+      await adapters[author].holdOutbound();
+    }
+    const upgrade = () => adapters[cell.upgrader].schemaUpgrade("optional");
+    const compete = cell.family === "schema-data"
+      ? () => adapters[cell.competitor].set(["title"], `race-${cell.id}`)
+      : () => adapters[cell.competitor].schemaUpgrade("object-union");
+    if (cell.order === "upgrade-first") {
+      await upgrade();
+      await compete();
+    } else {
+      await compete();
+      await upgrade();
+    }
+    let oldViewRejected = false;
+    try {
+      await adapters[cell.upgrader].set(["title"], "stale-view-write");
+    } catch {
+      oldViewRejected = true;
+    }
+    await adapters[cell.upgrader].openView("optional");
+    if (cell.family === "schema-schema") {
+      await adapters[cell.competitor].openView("object-union");
+    }
+    const optimistic = await captureCheckpoint("optimistic", "intermediate", adapters);
+    const releaseOrder = cell.order === "upgrade-first"
+      ? [cell.upgrader, cell.competitor]
+      : [cell.competitor, cell.upgrader];
+    const accepted = [];
+    const firstAuthor = releaseOrder[0];
+    const losingAuthor = releaseOrder[1];
+    let after = (await serverHistory(environment.creator)).at(-1)?.sequenceNumber ?? 0;
+    await adapters[firstAuthor].releaseOutbound({ order: "fifo", duplicate: false });
+    accepted.push(await waitForAuthorSubmission(
+      environment.creator,
+      adapters,
+      firstAuthor,
+      after,
+      1,
+    ));
+    const firstSequenceNumber = accepted[0].outerSequenceNumber;
+    for (const target of implementations) {
+      if (participants.includes(target)) {
+        await adapters[target].awaitInbound([firstSequenceNumber]);
+      }
+      await adapters[target].releaseInbound({ order: "fifo", duplicate: false });
+    }
+    let rollback;
+    const polling = [];
+    await until(async () => {
+      const checkpoint = await captureCheckpoint(
+        "loser-before-ack",
+        "intermediate",
+        adapters,
+      );
+      polling.push(checkpoint);
+      if (!reconciledRaceCheckpoint(
+        checkpoint,
+        losingAuthor,
+        firstSequenceNumber,
+      )) return false;
+      rollback = checkpoint;
+      return true;
+    }, `${cell.id} losing reconciliation`, 5_000);
+    for (const author of participants) await adapters[author].holdInbound();
+    after = (await serverHistory(environment.creator)).at(-1)?.sequenceNumber ?? 0;
+    await adapters[losingAuthor].releaseOutbound({ order: "fifo", duplicate: false });
+    accepted.push(await waitForAuthorSubmission(
+      environment.creator,
+      adapters,
+      losingAuthor,
+      after,
+      1,
+    ));
+    const sequenceNumbers = accepted.map(({ outerSequenceNumber }) => outerSequenceNumber);
+    for (const target of implementations) {
+      await adapters[target].releaseInbound({ order: "fifo", duplicate: false });
+    }
+    await Promise.all(implementations.map((target) =>
+      adapters[target].awaitSynced(Math.max(...sequenceNumbers))));
+    const compatibility = await Promise.all(implementations.map(async (target) => ({
+      target,
+      optional: await adapters[target].schemaCompatibility("optional"),
+      objectUnion: await adapters[target].schemaCompatibility("object-union"),
+    })));
+    const winnerView = compatibility[0].optional.isEquivalent
+      ? "optional"
+      : compatibility[0].objectUnion.isEquivalent
+        ? "object-union"
+        : "v1";
+    await openSchemaView(adapters, winnerView);
+    const final = await settle(adapters);
+    const submissions = decodeTreeSubmissions(await serverHistory(environment.creator))
+      .filter(({ outerSequenceNumber }) => sequenceNumbers.includes(outerSequenceNumber));
+    const referenceSequenceNumbers = submissions.map(
+      ({ referenceSequenceNumber }) => referenceSequenceNumber,
+    );
+    assert.equal(new Set(referenceSequenceNumbers).size, 1,
+      `${cell.id} submissions were not concurrent`);
+    const losingView = winnerView === "optional" ? "objectUnion" : "optional";
+    const losingCompatibility = compatibility.find(
+      ({ target }) => target === losingAuthor,
+    )?.[losingView];
+    const losingSettled = final.observations.find(
+      ({ implementation }) => implementation === losingAuthor,
+    );
+    const losingBeforeAck = rollback.observations.find(
+      ({ implementation }) => implementation === losingAuthor,
+    );
+    const reconciledPending = losingBeforeAck?.history?.pending?.find(
+      ({ changeset }) => changeset?.changeCount === 0,
+    );
+    assert(reconciledPending, `${cell.id} lacks an empty losing changeset`);
+    if (cell.family === "schema-schema") {
+      assert(reconciledPending, `${cell.id} lacks the losing empty outer change`);
+    }
+    const losingSubmission = submissions.find(({ clientId }) =>
+      adapters[losingAuthor].clientIds.has(clientId));
+    assert(losingSubmission, `${cell.id} lacks the losing submission identity`);
+    const losingCommit = losingSubmission.commits[0];
+    const originalPending = optimistic.observations.find(
+      ({ implementation }) => implementation === losingAuthor,
+    )?.history?.pending?.find(({ originatorId, changeset }) =>
+      originatorId === losingCommit.originatorId
+      && changeset?.changeCount > 0);
+    assert(originalPending, `${cell.id} lacks the original losing pending change`);
+    const intermediateRollback =
+      losingBeforeAck.pendingTreeCount > 0
+      && losingSettled?.pendingTreeCount === 0;
+    assert.equal(intermediateRollback, true,
+      `${cell.id} lacks rollback evidence before acknowledgement`);
+    assert.equal(oldViewRejected, true, `${cell.id} did not invalidate the old view`);
+    const notifications = notificationEvidence([optimistic, ...polling, final]);
+    assert(Object.values(notifications).some(({ schema }) => schema.length > 0),
+      `${cell.id} lacks schema notification evidence`);
+    if (cell.family === "schema-data") {
+      assert(Object.values(notifications).some(({ data }) => data.length > 0),
+        `${cell.id} lacks data notification evidence`);
+    }
+    return {
+      ...cell,
+      documentId: environment.documentId,
+      instanceIds: Object.fromEntries(implementations.map((target) =>
+        [target, adapters[target].instanceId])),
+      skipped: false,
+      observations: [{
+        before,
+        optimistic,
+        rollback,
+        final,
+        compatibility,
+        submissions,
+        losingAuthor,
+        losingSubmission,
+        originalPending,
+        reconciledPending,
+        notifications,
+        sequenceNumbers,
+        referenceSequenceNumbers,
+        intermediateRollback,
+        oldViewRejected,
+        documentHealthy: true,
+      }],
+    };
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    await cleanupSchemaEnvironment(environment, failure);
+  }
+}
+
+async function runSchemaRaceCell(config, context, cell) {
+  return cell.family === "upgrade-then-edit"
+    ? runCausalSchemaRace(config, context, cell)
+    : runConcurrentSchemaRace(config, context, cell);
+}
+
+export async function runSchemaRaces(config, context, {
+  runCell = runSchemaRaceCell,
+} = {}) {
+  const results = [];
+  for (const cell of schemaRaceCells) {
+    results.push(await runCell(config, context, structuredClone(cell)));
+  }
+  return results;
+}
+
+async function runSchemaReconnectTarget(config, context, target) {
+  const observations = [];
+  for (const acceptedBeforeDrop of [false, true]) {
+    const environment = await schemaEnvironment(config, context);
+    let failure;
+    try {
+      const adapter = environment.adapters[target];
+      const historyBeforeChanges = await serverHistory(environment.creator);
+      const baselineSequenceNumber =
+        historyBeforeChanges.at(-1)?.sequenceNumber ?? 0;
+      await adapter.holdInbound();
+      await adapter.holdOutbound();
+      const before = await adapter.checkpoint();
+      await adapter.schemaUpgrade("optional");
+      await adapter.openView("optional");
+      await adapter.set(["score"], acceptedBeforeDrop ? 82 : 81);
+      const pending = await adapter.checkpoint();
+      assert(pending.pendingTreeCount >= 2,
+        `${target} reconnect upgrade and dependent data were not pending`);
+      assert(pending.history?.pending?.length >= 2,
+        `${target} reconnect lacks original pending history`);
+      const originalRevisions = pending.history.pending.map(({ revision }) => revision);
+      const originatorIds = [...new Set(pending.history.pending.map(
+        ({ originatorId }) => originatorId,
+      ))];
+      assert.equal(originatorIds.length, 1,
+        `${target} reconnect lacks one pending operation originator`);
+      const finalScore = 81 + Number(acceptedBeforeDrop);
+      const originalOperations = pending.history.pending.map((commit) => ({
+        revision: commit.revision,
+        originatorId: commit.originatorId,
+        payload: commit.changeset.payload ?? commit.changeset.raw,
+      }));
+      let acceptedSequenceNumber = null;
+      if (acceptedBeforeDrop) {
+        await adapter.releaseOutbound({ order: "fifo", duplicate: false });
+        const accepted = await waitForAuthorSubmission(
+          environment.creator,
+          environment.adapters,
+          target,
+          baselineSequenceNumber,
+          2,
+        );
+        acceptedSequenceNumber = accepted.outerSequenceNumber;
+      }
+      await adapter.disconnect();
+      if (target === "upstream") {
+        await adapter.releaseInbound({ order: "fifo", duplicate: false });
+      }
+      await adapter.reconnect();
+      if (target === "upstream" && !acceptedBeforeDrop) {
+        await adapter.releaseOutbound({ order: "fifo", duplicate: false });
+      }
+      await Promise.all(implementations.map((implementation) =>
+        environment.adapters[implementation].awaitSynced()));
+      await openSchemaView(environment.adapters, "optional");
+      const final = await settle(environment.adapters);
+      const rawHistory = await serverHistory(environment.creator);
+      const history = decodeTreeSubmissions(rawHistory);
+      const acceptedSubmissions = history.filter(
+        ({ outerSequenceNumber, clientId }) =>
+          outerSequenceNumber > baselineSequenceNumber
+          && adapter.clientIds.has(clientId),
+      );
+      const acceptedCommits = acceptedSubmissions.flatMap(
+        ({ outerSequenceNumber, commits }) => commits.map((commit) => ({
+          outerSequenceNumber,
+          revision: commit.revision,
+          originatorId: commit.originatorId,
+          kinds: commitKinds(commit),
+          changeset: commit.changeset,
+        })),
+      );
+      assert(acceptedCommits.some(({ kinds }) => kinds.includes("schema")),
+        `${target} reconnect did not accept the upgrade`);
+      assert(acceptedCommits.some(({ kinds }) => kinds.includes("data")),
+        `${target} reconnect did not accept dependent data: ${JSON.stringify({
+          originalRevisions,
+          knownClientIds: [...adapter.clientIds],
+          submissionsAfterBaseline: history.filter(
+            ({ outerSequenceNumber }) => outerSequenceNumber > baselineSequenceNumber,
+          ),
+          rawMessagesAfterBaseline: rawHistory.filter(
+            ({ sequenceNumber }) => sequenceNumber > baselineSequenceNumber,
+          ),
+          acceptedSubmissions,
+          acceptedCommits,
+          final: final.observations.map(
+            ({ implementation, pendingTreeCount, wholeTree }) =>
+              ({ implementation, pendingTreeCount, wholeTree }),
+          ),
+        })}`);
+      const acceptedOperations = acceptedCommits.map((commit) => ({
+        ...commit,
+        payload: commit.changeset,
+      }));
+      const acceptedMappings = matchReconnectOperations(
+        originalOperations,
+        acceptedOperations,
+      );
+      const schemaIndex = acceptedCommits.findIndex(({ kinds }) => kinds.includes("schema"));
+      const dataIndex = acceptedCommits.findIndex(({ kinds }) => kinds.includes("data"));
+      assert(schemaIndex >= 0 && dataIndex > schemaIndex,
+        `${target} reconnect replayed dependent data before its upgrade`);
+      assert(final.observations.every(({ wholeTree }) =>
+        wholeTree.value.fields.some(([name, field]) =>
+          name === "score" && field.value === finalScore)),
+      `${target} reconnect did not converge dependent data on every client`);
+      observations.push({
+        caseId: acceptedBeforeDrop
+          ? "upgrade-accepted-before-drop"
+          : "upgrade-unacknowledged",
+        documentId: environment.documentId,
+        instanceId: adapter.instanceId,
+        acceptedBeforeDrop,
+        acceptedSequenceNumber,
+        pendingTreeCount: pending.pendingTreeCount,
+        originalRevisions,
+        originalOperations,
+        acceptedCommits,
+        acceptedMappings,
+        orderedReplay: true,
+        exactlyOnce: true,
+        allClientsObservedDependentData: true,
+        before,
+        pending,
+        final,
+      });
+    } catch (error) {
+      failure = error;
+      throw error;
+    } finally {
+      await cleanupSchemaEnvironment(environment, failure);
+    }
+  }
+  return {
+    target,
+    skipped: false,
+    observations,
+  };
+}
+
+export async function runSchemaReconnect(config, context, {
+  runTarget = runSchemaReconnectTarget,
+} = {}) {
+  const results = [];
+  for (const target of implementations) {
+    results.push(await runTarget(config, context, target));
+  }
+  return results;
+}
+
 export async function publishUpstreamSummary(
   config,
   containers,
@@ -1762,7 +3304,10 @@ export async function publishUpstreamSummary(
   assert(broadcast.success, `Summary broadcast failed: ${broadcast.error}`);
   const acknowledged = await result.receivedSummaryAckOrNack;
   assert(acknowledged.success, `Summary acknowledgement failed: ${acknowledged.error}`);
-  return acknowledged.data;
+  return {
+    ...acknowledged.data,
+    summarizeOp: broadcast.data.summarizeOp,
+  };
 }
 
 function safeName(value) {
@@ -2976,277 +4521,10 @@ async function runMapCell(config, context, cell) {
   }
 }
 
-async function applyArrayFamily(cell, adapters) {
-  const [first, second = first] = cell.authors;
-  const point = (label, x) => arrayPoint(`${cell.family}-${label}`, x);
-  switch (cell.family) {
-    case "array-independent-insert":
-      await adapters[first].arrayInsert(["left"], 1, [point(first, 10), point(first, 11)]);
-      await adapters[second].arrayInsert(["right"], 1, [point(second, 20), point(second, 21)]);
-      break;
-    case "array-same-gap-insert":
-      await adapters[first].arrayInsert(["left"], 1, [point(first, 10), point(first, 11)]);
-      await adapters[second].arrayInsert(["left"], 1, [point(second, 20), point(second, 21)]);
-      break;
-    case "array-insert-remove":
-      await adapters[first].arrayInsert(["left"], 1, [point(first, 10), point(first, 11)]);
-      await adapters[second].arrayRemove(["left"], 0, 2);
-      break;
-    case "array-overlapping-remove":
-      await adapters[first].arrayRemove(["left"], 0, 2);
-      await adapters[second].arrayRemove(["left"], 1, 3);
-      break;
-    case "array-move-child-edit":
-      await adapters[first].arrayMove(["left"], 0, 2, ["right"], 1);
-      await adapters[second].set(["left", "0", "x"], 42);
-      break;
-    case "array-move-delete":
-      await adapters[first].arrayMove(["left"], 0, 2, ["right"], 1);
-      await adapters[second].arrayRemove(["left"], 0, 2);
-      break;
-    case "array-competing-moves":
-      await adapters[first].arrayMove(["left"], 0, 2, ["right"], 1);
-      await adapters[second].arrayMove(["left"], 0, 2, ["right"], 0);
-      break;
-    case "array-overlapping-moves":
-      await adapters[first].arrayMove(["left"], 0, 2, ["right"], 1);
-      await adapters[second].arrayMove(["left"], 1, 3, ["right"], 1);
-      break;
-    case "array-cross-parent-move":
-      await adapters[first].arrayMove(["left"], 0, 2, ["right"], 1);
-      await adapters[second].arrayInsert(["left"], 1, [point(second, 20)]);
-      break;
-    case "array-ancestor-replace":
-      await adapters[first].arrayRemove(["left"], 2, 3);
-      await adapters[first].arrayInsert(["left"], 2, [{
-        kind: "array",
-        schemaId: "org.watershed.shared-tree.m3.Items",
-        elements: [point(first, 10)],
-      }]);
-      await adapters[second].set(["left", "2", "0", "x"], 42);
-      break;
-    case "array-recursive-map-path":
-      await adapters[first].mapSet(["byKey"], "nested", {
-        kind: "array",
-        schemaId: "org.watershed.shared-tree.m3.Items",
-        elements: [{
-          kind: "map",
-          schemaId: "org.watershed.shared-tree.m3.ArrayMap",
-          entries: [["point", point(first, 10)]],
-        }],
-      });
-      await adapters[second].mapSet(["byKey"], "", {
-        kind: "array",
-        schemaId: "org.watershed.shared-tree.m3.Items",
-        elements: [point(second, 20)],
-      });
-      break;
-    case "array-reconnect-pending":
-      await adapters[first].arrayInsert(["left"], 1, [point(first, 10), point(first, 11)]);
-      await adapters[first].disconnect();
-      await adapters[first].reconnect();
-      break;
-    case "array-summary-tail":
-      await adapters[first].arrayMove(["left"], 0, 2, ["right"], 1);
-      break;
-    default:
-      assert.fail(`Unknown array family: ${cell.family}`);
-  }
-}
-
-async function runArrayCell(config, context, cell) {
-  const containers = [];
-  const natives = [];
-  let scenarioError;
-  try {
-    const creator = await openSession(
-      config,
-      containers,
-      undefined,
-      false,
-      { store: arrayServiceStore },
-    );
-    const documentId = creator.container.resolvedUrl.id;
-    await publishUpstreamSummary(
-      config,
-      containers,
-      documentId,
-      `Task 11 ${cell.id} bootstrap`,
-      { store: arrayServiceStore },
-    );
-    const upstreamSession = await openSession(
-      config,
-      containers,
-      documentId,
-      false,
-      { store: arrayServiceStore },
-    );
-    const upstream = upstreamAdapter(upstreamSession);
-    const { jwt } = await tokenProvider(config)
-      .fetchOrdererToken(config.tenantId, documentId);
-    for (const target of nativeTargets) {
-      natives.push(await nativeAdapter(target, config, {
-        runId: context.runId,
-        documentId,
-        tenant: config.tenantId,
-        viewSchema: context.arrayViewSchema,
-      }, jwt));
-    }
-    const adapters = {
-      upstream,
-      javascript: natives[0],
-      erlang: natives[1],
-    };
-    await upstream.arrayInsert(["left"], 0, [
-      arrayPoint("duplicate", 1),
-      arrayPoint("duplicate", 1),
-      {
-        kind: "array",
-        schemaId: "org.watershed.shared-tree.m3.Items",
-        elements: [arrayPoint("nested", 2)],
-      },
-    ]);
-    await upstream.arrayInsert(["right"], 0, [
-      {
-        kind: "map",
-        schemaId: "org.watershed.shared-tree.m3.ArrayMap",
-        entries: [["inside", arrayPoint("map-child", 3)]],
-      },
-    ]);
-    await upstream.mapSet(["byKey"], "", {
-      kind: "array",
-      schemaId: "org.watershed.shared-tree.m3.Items",
-      elements: [],
-    });
-    await upstream.mapSet(["byKey"], "0", {
-      kind: "array",
-      schemaId: "org.watershed.shared-tree.m3.Items",
-      elements: [arrayPoint("numeric", 0)],
-    });
-    const initial = await settle(adapters);
-    initial.label = "initial";
-    const retained = [
-      upstreamSession.data.view.root.left[0],
-      upstreamSession.data.view.root.left[1],
-    ];
-    const authoredPrefixes = [];
-    for (const author of cell.authors) {
-      const checkpoint = await adapters[author].checkpoint();
-      authoredPrefixes.push({
-        author,
-        referenceSequenceNumber: checkpoint.sequenceNumber,
-      });
-      await adapters[author].holdOutbound();
-    }
-    await applyArrayFamily(cell, adapters);
-    const optimistic = await captureCheckpoint("optimistic", "intermediate", adapters);
-    const releaseOrder = cell.order === null
-      ? cell.authors
-      : [
-        cell.order.slice(0, -"-first".length),
-        ...cell.authors.filter((author) =>
-          author !== cell.order.slice(0, -"-first".length)),
-      ];
-    for (const author of releaseOrder) {
-      await adapters[author].releaseOutbound();
-      await waitForAuthorSubmission(
-        creator,
-        adapters,
-        author,
-        authoredPrefixes.find((prefix) => prefix.author === author)
-          .referenceSequenceNumber,
-      );
-    }
-    const settled = await settle(adapters);
-    settled.label = "settled";
-    if (cell.family === "array-summary-tail") {
-      await publishUpstreamSummary(
-        config,
-        containers,
-        documentId,
-        `Task 11 ${cell.id} selected summary`,
-        { store: arrayServiceStore },
-      );
-      await adapters[cell.authors[0]].set(["right", "1", "x"], 42);
-      await adapters[cell.authors[0]].arrayInsert(
-        ["right"],
-        3,
-        [arrayPoint("tail", 99)],
-      );
-      await settle(adapters);
-    }
-    const history = await serverHistory(creator);
-    const decoded = decodedEvidence(history, adapters, cell.authors);
-    const final = await adapters.upstream.checkpoint();
-    const movedReferences = retained.map((reference) => {
-      const root = upstreamSession.data.view.root;
-      return [...root.left, ...root.right].includes(reference);
-    });
-    const item = {
-      ...cell,
-      runId: context.runId,
-      profileDigest: context.profileDigest,
-      documentId,
-      instanceIds: Object.fromEntries(implementations.map((implementation) =>
-        [implementation, adapters[implementation].instanceId])),
-      authorCoverage: [...cell.authors],
-      checkpoints: [initial, optimistic, settled],
-      evidence: {
-        authoredPrefixes,
-        submissions: decoded.submissions,
-        notifications: {
-          intermediateLocalAuthors: [...cell.authors],
-          settledRemoteObservers: implementations.filter(
-            (implementation) => !cell.authors.includes(implementation),
-          ),
-        },
-        array: {
-          finalTree: final.wholeTree,
-          retainedObjectReferences: movedReferences,
-          childEditObserved: JSON.stringify(final.wholeTree).includes("42"),
-        },
-      },
-      artifacts: [],
-      passed: true,
-      skipped: false,
-    };
-    item.artifacts = [await writeArtifact(context, item, {
-      history,
-      decoded: decoded.decoded,
-      gates: Object.fromEntries(nativeTargets.map((target) =>
-        [target, adapters[target].evidence()])),
-    })];
-    return item;
-  } catch (error) {
-    scenarioError = error;
-    throw error;
-  } finally {
-    const cleanupErrors = [];
-    for (const native of natives.toReversed()) {
-      try {
-        await native.close();
-      } catch (error) {
-        cleanupErrors.push(error);
-      }
-    }
-    for (const container of containers.toReversed()) {
-      try {
-        if (!container.closed) container.dispose();
-      } catch (error) {
-        cleanupErrors.push(error);
-      }
-    }
-    if (cleanupErrors.length > 0) {
-      if (scenarioError) scenarioError.cleanupErrors = cleanupErrors;
-      else throw new AggregateError(cleanupErrors, `Cleanup failed for ${cell.id}`);
-    }
-  }
-}
-
 export async function runDeterministicCases(
   config,
   context,
-  { runObject = runCell, runMap = runMapCell, runArray = runArrayCell } = {},
+  { runObject = runCell, runMap = runMapCell } = {},
 ) {
   assert(typeof context?.runId === "string" && context.runId.length > 0,
     "runDeterministicCases context requires runId");
@@ -3256,17 +4534,12 @@ export async function runDeterministicCases(
     "runDeterministicCases context requires viewSchema");
   assert(typeof context.mapViewSchema === "string" && context.mapViewSchema.length > 0,
     "runDeterministicCases context requires mapViewSchema");
-  assert(typeof context.arrayViewSchema === "string" && context.arrayViewSchema.length > 0,
-    "runDeterministicCases context requires arrayViewSchema");
   assert(typeof context.artifactDirectory === "string"
     && context.artifactDirectory.length > 0,
   "runDeterministicCases context requires artifactDirectory");
   const results = [];
   for (const cell of requiredScenarioCells()) {
-    const execute = cell.profile === "map"
-      ? runMap
-      : cell.profile === "array" ? runArray : runObject;
-    results.push(await execute(
+    results.push(await (cell.profile === "map" ? runMap : runObject)(
       config,
       context,
       cell,
@@ -3290,6 +4563,7 @@ function seededMeasuredPayload(item) {
     identityMapping: item.identityMapping,
     summaries: item.summaries,
     reloads: item.reloads,
+    schemaTransitions: item.schemaTransitions,
     evidence: item.evidence,
   };
 }
@@ -3362,32 +4636,11 @@ function identityMapping(adapters, decoded) {
   }));
 }
 
-function structuredNativeCause(error) {
-  const seen = new Set();
-  let current = error?.cause;
-  while (current && typeof current === "object" && !seen.has(current)) {
-    seen.add(current);
-    if (typeof current.code === "string"
-      && typeof current.operation === "string"
-      && typeof current.message === "string") {
-      return {
-        code: current.code,
-        operation: current.operation,
-        message: current.message,
-      };
-    }
-    current = current.cause;
-  }
-  return undefined;
-}
-
 function replayError(error) {
-  const cause = structuredNativeCause(error);
   return {
     name: error?.name ?? "Error",
     message: error?.message ?? String(error),
     ...(error?.code === undefined ? {} : { code: error.code }),
-    ...(cause === undefined ? {} : { cause }),
     ...(error?.stack === undefined ? {} : { stack: error.stack }),
   };
 }
@@ -3451,6 +4704,7 @@ export async function writeSeededFailure(context, schedule, state, error) {
         .filter(([key]) => key !== "index"))
       : null,
     failedCheckpoint: error.checkpoint ?? null,
+    schemaTransitions: state.schemaTransitions,
     firstDifferencePath: error.checkpoint ? checkpointDifference([error.checkpoint]) : null,
     error: replayError(error),
   };
@@ -3477,10 +4731,14 @@ export async function freshReload(
 ) {
   const store = profile === "map"
     ? mapServiceStore
-    : profile === "array" ? arrayServiceStore : undefined;
+    : profile === "schema"
+      ? schemaEvolutionServiceStore
+      : undefined;
   const viewSchema = profile === "map"
     ? context.mapViewSchema
-    : profile === "array" ? context.arrayViewSchema : context.viewSchema;
+    : profile === "schema"
+      ? context.schemaViews.v1
+      : context.viewSchema;
   if (author === "upstream") {
     const containers = [];
     let failure;
@@ -3490,7 +4748,10 @@ export async function freshReload(
         observeStorage: true,
         ...(store ? { store } : {}),
       });
-      const adapter = upstreamAdapter(session);
+      const adapter = upstreamAdapter(session, profile === "schema"
+        ? schemaEvolutionConfigurations
+        : undefined);
+      if (profile === "schema") await adapter.openView("optional");
       const observation = await adapter.checkpoint();
       assert.deepEqual(observation.wholeTree, expectedTree,
         "Fresh upstream reload observed another tree");
@@ -3523,10 +4784,12 @@ export async function freshReload(
     documentId,
     tenant: config.tenantId,
     viewSchema,
+    ...(profile === "schema" ? { viewSchemas: context.schemaViews } : {}),
   }, token);
   let failure;
   try {
     await adapter.awaitSynced();
+    if (profile === "schema") await adapter.openView("optional");
     const observation = await adapter.checkpoint();
     assert.deepEqual(observation.wholeTree, expectedTree,
       `Fresh ${author} reload observed another tree`);
@@ -3594,21 +4857,31 @@ export async function executeScheduleAction(
   } else if (action.type === "map-delete") {
     await adapters[action.author].mapDelete(action.path, action.key);
     state.quiescent = false;
-  } else if (action.type === "array-insert") {
-    await adapters[action.author].arrayInsert(action.path, action.index, action.values);
+  } else if (action.type === "schema-compatibility") {
+    const compatibility = await adapters[action.author]
+      .schemaCompatibility(action.view);
+    state.schemaTransitions.push({
+      author: action.author,
+      operation: action.type,
+      view: action.view,
+      compatibility,
+    });
+  } else if (action.type === "schema-upgrade") {
+    await adapters[action.author].schemaUpgrade(action.view);
+    state.schemaTransitions.push({
+      author: action.author,
+      operation: action.type,
+      fromView: action.fromView,
+      view: action.view,
+    });
     state.quiescent = false;
-  } else if (action.type === "array-remove") {
-    await adapters[action.author].arrayRemove(action.path, action.start, action.end);
-    state.quiescent = false;
-  } else if (action.type === "array-move") {
-    await adapters[action.author].arrayMove(
-      action.sourcePath,
-      action.sourceStart,
-      action.sourceEnd,
-      action.destinationPath,
-      action.destinationGap,
-    );
-    state.quiescent = false;
+  } else if (action.type === "open-view") {
+    await adapters[action.author].openView(action.view);
+    state.schemaTransitions.push({
+      author: action.author,
+      operation: action.type,
+      view: action.view,
+    });
   } else if (action.type === "hold-inbound") {
     await adapters[action.author].holdInbound();
     state.held[action.author].inbound = true;
@@ -3682,7 +4955,9 @@ export async function executeScheduleAction(
         `Task 6 seeded ${schedule.index}`,
         schedule.profile === "map"
           ? { store: mapServiceStore }
-          : schedule.profile === "array" ? { store: arrayServiceStore } : undefined,
+          : schedule.profile === "schema"
+            ? { store: schemaEvolutionServiceStore }
+            : undefined,
       )
       : await adapters[action.author].summarize();
     state.summaries.push({
@@ -3717,10 +4992,10 @@ export async function runSeededSchedule(config, context, schedule) {
       && context.mapViewSchema.length > 0,
     "runSeededSchedule context requires mapViewSchema");
   }
-  if (schedule.profile === "array") {
-    assert(typeof context.arrayViewSchema === "string"
-      && context.arrayViewSchema.length > 0,
-    "runSeededSchedule context requires arrayViewSchema");
+  if (schedule.profile === "schema") {
+    assert(context.schemaViews && typeof context.schemaViews.v1 === "string"
+      && typeof context.schemaViews.optional === "string",
+    "runSeededSchedule context requires schemaViews");
   }
   const state = {
     adapters: undefined,
@@ -3740,13 +5015,16 @@ export async function runSeededSchedule(config, context, schedule) {
     quiescent: false,
     reloads: [],
     summaries: [],
+    schemaTransitions: [],
     token: undefined,
   };
   let scheduleError;
   try {
     const store = schedule.profile === "map"
       ? mapServiceStore
-      : schedule.profile === "array" ? arrayServiceStore : undefined;
+      : schedule.profile === "schema"
+        ? schemaEvolutionServiceStore
+        : undefined;
     state.creator = await openSession(
       config,
       state.containers,
@@ -3768,7 +5046,7 @@ export async function runSeededSchedule(config, context, schedule) {
       state.documentId,
       false,
       store ? { store } : undefined,
-    ));
+    ), schedule.profile === "schema" ? schemaEvolutionConfigurations : undefined);
     const { jwt } = await tokenProvider(config)
       .fetchOrdererToken(config.tenantId, state.documentId);
     state.token = jwt;
@@ -3779,9 +5057,12 @@ export async function runSeededSchedule(config, context, schedule) {
         tenant: config.tenantId,
         viewSchema: schedule.profile === "map"
           ? context.mapViewSchema
-          : schedule.profile === "array"
-            ? context.arrayViewSchema
+          : schedule.profile === "schema"
+            ? context.schemaViews.v1
             : context.viewSchema,
+        ...(schedule.profile === "schema"
+          ? { viewSchemas: context.schemaViews }
+          : {}),
       }, jwt));
     }
     state.adapters = {
@@ -3828,6 +5109,7 @@ export async function runSeededSchedule(config, context, schedule) {
       identityMapping: mapping,
       summaries: state.summaries,
       reloads: state.reloads,
+      schemaTransitions: state.schemaTransitions,
       evidence: {
         submissions: decoded.submissions,
         rawSequencedOperationCount: finalHistory.length,
@@ -3895,10 +5177,6 @@ export async function runSeededSchedules(config, context, schedules) {
       generated: schedules.length,
       executed: results.length,
       seed: schedules[0]?.seed,
-      profiles: Object.fromEntries(["object", "map", "array"].map((profile) => [
-        profile,
-        results.filter((result) => result.profile === profile).length,
-      ])),
     },
   };
 }
@@ -3918,30 +5196,19 @@ export function sameReplayFailure(original, replayed) {
     ({ implementation, wholeTree, pendingTreeCount, inflightSubmissionCount }) =>
       ({ implementation, wholeTree, pendingTreeCount, inflightSubmissionCount }),
   );
-  const actionFailure = original.failedCheckpoint === null
-    && original.failedAction
-    && original.failedAction?.type !== "checkpoint";
   return original.firstDifferencePath === replayed.firstDifferencePath
     && JSON.stringify(original.failedAction) === JSON.stringify(replayed.failedAction)
     && JSON.stringify(observations(original)) === JSON.stringify(observations(replayed))
     && original.error.name === replayed.error.name
     && original.error.code === replayed.error.code
-    && original.error.message === replayed.error.message
-    && (!actionFailure
-      || original.error.cause === undefined
-      || JSON.stringify(original.error.cause) === JSON.stringify(replayed.error.cause));
+    && original.error.message === replayed.error.message;
 }
 
-export async function replayFailure(
-  config,
-  context,
-  artifact,
-  { runSchedule = runSeededSchedule } = {},
-) {
+export async function replayFailure(config, context, artifact) {
   validateRunnerContext("replayFailure", context);
   validateReplayArtifact(artifact, { profileDigest: context.profileDigest });
   try {
-    const result = await runSchedule(config, context, artifact.schedule);
+    const result = await runSeededSchedule(config, context, artifact.schedule);
     return {
       mode: "replay",
       accepted: false,
@@ -3954,25 +5221,9 @@ export async function replayFailure(
     };
   } catch (error) {
     if (!error.failurePath) throw error;
-    let replayArtifact;
-    try {
-      replayArtifact = await loadReplayArtifact(error.failurePath, {
-        profileDigest: context.profileDigest,
-      });
-    } catch (artifactError) {
-      return {
-        mode: "replay",
-        accepted: false,
-        reproduced: false,
-        originalRunId: artifact.runId,
-        originalDocumentId: artifact.originalDocumentId,
-        originalIdentityMapping: artifact.identityMapping,
-        replayIdentityMapping: undefined,
-        diagnostic: replayError(error),
-        artifactDiagnostic: replayError(artifactError),
-        failurePath: error.failurePath,
-      };
-    }
+    const replayArtifact = await loadReplayArtifact(error.failurePath, {
+      profileDigest: context.profileDigest,
+    });
     return {
       mode: "replay",
       accepted: false,
@@ -4094,53 +5345,7 @@ function treeMessage(value) {
   return undefined;
 }
 
-function collectSequenceFields(value, fields = []) {
-  if (Array.isArray(value)) {
-    for (const item of value) collectSequenceFields(item, fields);
-  } else if (value && typeof value === "object") {
-    if (value.fieldKind === "Sequence" && Object.hasOwn(value, "change")) {
-      fields.push(value);
-    }
-    for (const item of Object.values(value)) collectSequenceFields(item, fields);
-  }
-  return fields;
-}
-
-function corruptSequenceChange(caseId, data) {
-  const fields = collectSequenceFields(data.changes);
-  assert(fields.length > 0, `${caseId} injection found no Sequence V3 field`);
-  const first = fields[0];
-  switch (caseId) {
-    case "malformed-sequence-payload":
-      first.change = "not-an-array";
-      break;
-    case "malformed-range-count":
-      first.change[0].count = 0;
-      break;
-    case "missing-range-endpoint": {
-      const mark = fields.flatMap(({ change }) => change)
-        .find(({ effect }) => effect?.moveIn);
-      assert(mark, `${caseId} injection found no move-in endpoint`);
-      mark.effect.moveIn.finalEndpoint = [];
-      break;
-    }
-    case "bad-child-ownership": {
-      const field = fields.find(({ change }) =>
-        change.some(({ effect }) => effect?.moveOut));
-      const index = field?.change.findIndex(({ effect }) => effect?.moveOut);
-      assert(field && index >= 0, `${caseId} injection found no owned range`);
-      field.change.splice(index + 1, 0, structuredClone(field.change[index]));
-      break;
-    }
-    case "invalid-sequence-content":
-      first.change[0].changes = { content: { kind: "unknown" } };
-      break;
-    default:
-      assert.fail(`Unknown sequence injection: ${caseId}`);
-  }
-}
-
-export function operationTransform(caseId, invalidProfile) {
+function operationTransform(caseId, invalidProfile) {
   const mutations = invalidProfile.input.mutations;
   return (payload) => {
     const message = sequencedMessage(payload);
@@ -4159,18 +5364,6 @@ export function operationTransform(caseId, invalidProfile) {
       const inner = treeMessage(contents);
       assert(inner, `${caseId} injection found no SharedTree message`);
       inner.changeset = structuredClone(source.message.contents.changeset);
-      message.contents = encodedLike(message.contents, contents);
-    } else if (sequenceRefusalCases.has(caseId)) {
-      const contents = parsed(message.contents);
-      const inner = treeMessage(contents);
-      assert(inner, `${caseId} injection found no SharedTree message`);
-      const dataChange = inner.changeset.find(
-        (change) => change && typeof change === "object" && !Array.isArray(change)
-          && change.data && typeof change.data === "object"
-          && !Array.isArray(change.data),
-      );
-      assert(dataChange, `${caseId} injection found no ModularChange payload`);
-      corruptSequenceChange(caseId, dataChange.data);
       message.contents = encodedLike(message.contents, contents);
     } else if (caseId === "malformed-allocation-range") {
       const source = mutations.find(({ operation }) => operation === "finalizeCreationRange");
@@ -4205,7 +5398,7 @@ function decodedStorageBody(bytes) {
   }
 }
 
-export function storageTransform(caseId) {
+function storageTransform(caseId) {
   return (payload) => {
     const body = decodedStorageBody(payload.bytes);
     if (body === undefined) return undefined;
@@ -4242,27 +5435,6 @@ export function storageTransform(caseId) {
         status: 404,
         bytes: Buffer.from(JSON.stringify({ error: "missing forest blob" })),
       };
-    }
-    if (caseId === "corrupt-retained-summary") {
-      if (typeof body?.content !== "string") return undefined;
-      let decoded;
-      try {
-        decoded = JSON.parse(
-          Buffer.from(body.content, body.encoding ?? "base64").toString("utf8"),
-        );
-      } catch {
-        return undefined;
-      }
-      if (decoded?.version !== 2
-        || !Array.isArray(decoded.data)
-        || !Number.isSafeInteger(decoded.maxId)) return undefined;
-      decoded.corruptSequenceRetainedState = {
-        field: "DetachedFieldIndex",
-        range: [2, 1],
-      };
-      body.content = Buffer.from(JSON.stringify(decoded)).toString("base64");
-      body.encoding = "base64";
-      return { ...payload, bytes: Buffer.from(JSON.stringify(body)) };
     }
     assert.fail(`Unknown storage injection: ${caseId}`);
   };
@@ -4495,7 +5667,7 @@ async function expectedStartupFailure(
 
 async function runStoredSchemaFailure(config, context, cell, control) {
   const containers = [];
-  const kind = "map";
+  const kind = cell.caseId === "unsupported-array-schema" ? "array" : "map";
   try {
     const store = excludedStores[kind];
     const creator = await openSession(config, containers, undefined, false, { store });
@@ -4550,42 +5722,10 @@ async function runInjectedFailure(config, context, cell, control, invalidProfile
   let rawClient;
   let failure;
   try {
-    const sequenceRefusal = sequenceRefusalCases.has(cell.caseId);
-    const sessionOptions = sequenceRefusal ? { store: arrayServiceStore } : undefined;
-    const creator = await openSession(
-      config,
-      containers,
-      undefined,
-      false,
-      sessionOptions,
-    );
+    const creator = await openSession(config, containers);
     const documentId = creator.container.resolvedUrl.id;
-    if (sequenceRefusal) {
-      const creatorAdapter = upstreamAdapter(creator);
-      await creatorAdapter.arrayInsert(["left"], 0, [
-        { kind: "string", value: "sequence-control" },
-        { kind: "string", value: "sequence-control-tail" },
-      ]);
-      await creatorAdapter.arrayInsert(["right"], 0, [
-        { kind: "string", value: "sequence-destination" },
-      ]);
-      await creatorAdapter.awaitSynced();
-    }
-    await publishUpstreamSummary(
-      config,
-      containers,
-      documentId,
-      `Task 5 ${cell.id}`,
-      sessionOptions,
-    );
-    const upstreamSession = await openSession(
-      config,
-      containers,
-      documentId,
-      false,
-      sessionOptions,
-    );
-    const upstream = upstreamAdapter(upstreamSession);
+    await publishUpstreamSummary(config, containers, documentId, `Task 5 ${cell.id}`);
+    const upstream = await openSession(config, containers, documentId);
     const { jwt } = await tokenProvider(config).fetchOrdererToken(
       config.tenantId,
       documentId,
@@ -4632,7 +5772,7 @@ async function runInjectedFailure(config, context, cell, control, invalidProfile
       runId: context.runId,
       documentId,
       tenant: config.tenantId,
-      viewSchema: sequenceRefusal ? context.arrayViewSchema : context.viewSchema,
+      viewSchema: context.viewSchema,
     }, jwt);
     await native.awaitSynced();
     const before = await native.checkpoint();
@@ -4644,15 +5784,8 @@ async function runInjectedFailure(config, context, cell, control, invalidProfile
       kind: "op",
       transform: operationTransform(cell.caseId, invalidProfile),
     });
-    if (sequenceRefusal) {
-      await upstream.arrayMove(["left"], 0, 1, ["right"], 0);
-    } else {
-      upstreamSession.data.view.root.title = `trigger-${randomUUID()}`;
-    }
-    await until(
-      () => !upstreamSession.container.isDirty,
-      `${cell.id} trigger sequencing`,
-    );
+    upstream.data.view.root.title = `trigger-${randomUUID()}`;
+    await until(() => !upstream.container.isDirty, `${cell.id} trigger sequencing`);
     await until(
       () => native.evidence().injections.length === 1,
       `${cell.id} injected operation delivery`,

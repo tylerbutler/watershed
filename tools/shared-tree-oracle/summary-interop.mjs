@@ -1,19 +1,21 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { parseArgs, promisify } from "node:util";
+import { isDeepStrictEqual, parseArgs, promisify } from "node:util";
 import { SummaryType } from "@fluidframework/driver-definitions/internal";
+import { rootDataStoreId } from "@fluidframework/runtime-utils/internal";
 
 import { DeliveryGate } from "./delivery-gate.mjs";
-import { Point } from "./schema.mjs";
+import { Point, schemaEvolutionConfigurations } from "./schema.mjs";
 import {
   canonicalValue,
+  decodeReconnectPayload,
   decodeTreeSubmissions,
   nativeAdapter,
   publishUpstreamSummary,
@@ -24,10 +26,11 @@ import {
   success,
   until,
   upstreamAdapter,
+  waitForAuthorSubmission,
 } from "./interop-scenarios.mjs";
 import {
-  arrayServiceStore, mapServiceStore, openSession, preflight, serviceConfig,
-  tokenProvider, withLocalFloodgate,
+  mapServiceStore, openSession, preflight, schemaEvolutionServiceStore,
+  serviceConfig, tokenProvider, withLocalFloodgate,
 } from "./service.mjs";
 import { makeEnvironment, publishSummary, readSnapshot } from "./container-corpus.mjs";
 import { captureSource, reference } from "./source.mjs";
@@ -44,6 +47,206 @@ const persistenceStates = [
   "initial", "concurrent-detached", "after-peer-leave", "after-nontree-tail",
 ];
 
+function summaryBlobs(entry, path = []) {
+  if (entry?.type === "blob") {
+    return [{
+      path: path.join("/"),
+      content: Buffer.from(entry.base64, "base64").toString("utf8"),
+    }];
+  }
+  if (entry?.type !== "tree" || !Array.isArray(entry.entries)) return [];
+  return entry.entries.flatMap(([name, child]) =>
+    summaryBlobs(child, [...path, name]));
+}
+
+function pendingSummaryCapture(evidence) {
+  const blobs = summaryBlobs(evidence.tree);
+  const schema = blobs.find(({ path }) =>
+    path.endsWith("Schema/SchemaString"));
+  const forest = blobs.filter(({ path }) =>
+    path.startsWith("Forest/") || path.includes("/Forest/"));
+  assert(schema, "Pending writer summary encoding lacks the schema blob");
+  assert(forest.length > 0, "Pending writer summary encoding lacks forest blobs");
+  return {
+    sequenceNumber: evidence.sequenceNumber,
+    schema,
+    forest,
+  };
+}
+
+function sameBlobContents(left, right) {
+  return [...left].map(({ content }) => content).sort()
+    .every((content, index) =>
+      content === [...right].map(({ content }) => content).sort()[index])
+    && left.length === right.length;
+}
+
+function historyContains(history, accepted, kind) {
+  return history.trunk.some((entry) => {
+    const commit = entry.commit ?? entry;
+    if (commit.changeset?.changeCount <= 0) return false;
+    if (commit.originatorId !== null && commit.originatorId !== undefined
+      && commit.originatorId !== accepted.originatorId) return false;
+    try {
+      const decoded = decodeReconnectPayload(commit.changeset.raw);
+      return decoded.kind === kind
+        && isDeepStrictEqual(decoded, decodeReconnectPayload(accepted.changeset));
+    } catch {
+      return false;
+    }
+  });
+}
+
+function textualHistoryChanges(raw, label) {
+  assert(/^Changeset\(/.test(raw),
+    `${label} contains an invalid operation`);
+  const start = raw.indexOf("[");
+  assert(start >= 0, `${label} contains an invalid operation`);
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  let end = -1;
+  for (let index = start; index < raw.length; index += 1) {
+    const character = raw[index];
+    if (quoted) {
+      const wasEscaped = escaped;
+      if (character === "\"" && !wasEscaped) quoted = false;
+      escaped = character === "\\" && !wasEscaped;
+      continue;
+    }
+    if (character === "\"") {
+      quoted = true;
+    } else if (character === "[") {
+      depth += 1;
+    } else if (character === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        end = index;
+        break;
+      }
+    }
+  }
+  assert(end >= 0 && /^\s*\)$/.test(raw.slice(end + 1)),
+    `${label} contains an invalid operation`);
+  const body = raw.slice(start + 1, end).trim();
+  if (body.length === 0) return [];
+  const changes = [];
+  let changeStart = 0;
+  depth = 0;
+  quoted = false;
+  escaped = false;
+  for (let index = 0; index <= body.length; index += 1) {
+    const character = body[index];
+    if (quoted) {
+      const wasEscaped = escaped;
+      if (character === "\"" && !wasEscaped) quoted = false;
+      escaped = character === "\\" && !wasEscaped;
+      continue;
+    }
+    if (character === "\"") {
+      quoted = true;
+    } else if (character !== undefined && "([{".includes(character)) {
+      depth += 1;
+    } else if (character !== undefined && ")]}".includes(character)) {
+      depth -= 1;
+    } else if ((character === "," && depth === 0)
+      || character === undefined) {
+      changes.push(body.slice(changeStart, index).trim());
+      changeStart = index + 1;
+    }
+  }
+  assert(changes.every((change) => /^(?:SchemaChange|DataChange)\(/.test(change)),
+    `${label} contains an invalid operation`);
+  return changes;
+}
+
+function decodeHistoryOperation(raw, label) {
+  try {
+    return decodeReconnectPayload(raw);
+  } catch (error) {
+    assert.fail(`${label} contains an invalid operation: ${error.message}`);
+  }
+}
+
+function historyOperations(changeset, label) {
+  assert(Number.isSafeInteger(changeset?.changeCount)
+    && changeset.changeCount > 0,
+  `${label} contains an empty operation`);
+  const raw = changeset.payload ?? changeset.raw;
+  let encoded;
+  let textual = false;
+  if (typeof raw === "string") {
+    try {
+      encoded = JSON.parse(raw);
+    } catch {
+      encoded = textualHistoryChanges(raw, label);
+      textual = true;
+    }
+  } else {
+    encoded = raw;
+  }
+  const changes = textual
+    ? encoded
+    : Array.isArray(encoded)
+      ? encoded
+      : encoded?.changes ?? encoded?.changeset;
+  assert(Array.isArray(changes) && changes.length > 0,
+    `${label} contains an empty operation`);
+  assert.equal(changes.length, changeset.changeCount,
+    `${label} contains a mismatched operation count`);
+  return changes.map((change) => decodeHistoryOperation(
+    textual ? `Changeset([${change}])` : [change],
+    label,
+  ));
+}
+
+function schemaFields(schema) {
+  if (!schema || typeof schema !== "object") return new Set();
+  const fields = new Set();
+  for (const [, node] of schema.nodes ?? []) {
+    if (node?.kind !== "object") continue;
+    for (const [name] of node.fields ?? []) fields.add(name);
+  }
+  return fields;
+}
+
+function validatePostUpgradeHistory(history, upgrade, label) {
+  const decodedUpgrade = decodeReconnectPayload(upgrade.changeset);
+  assert.equal(decodedUpgrade.kind, "schema",
+    `${label} lacks the expected schema upgrade`);
+  const oldFields = schemaFields(decodedUpgrade.old);
+  const addedFields = new Set(
+    [...schemaFields(decodedUpgrade.new)].filter((field) => !oldFields.has(field)),
+  );
+  const operations = [];
+  for (const entry of history.trunk) {
+    const commit = entry.commit ?? entry;
+    operations.push(...historyOperations(commit.changeset, label));
+  }
+  assert(operations.some((operation) =>
+    isDeepStrictEqual(operation, decodedUpgrade)
+      || (operation.kind === "data" && addedFields.has(operation.field))),
+  `${label} lacks an upgrade-bearing operation`);
+}
+
+function pendingSummaryBinding(capture, reference, upgraded) {
+  assert.equal(capture.sequenceNumber, reference.sequenceNumber,
+    "Pending encoder reference does not identify the captured sequenced state");
+  assert(capture.sequenceNumber < upgraded.sequenceNumber,
+    "Pending encoder capture did not precede the sequenced upgrade");
+  assert.deepEqual(JSON.parse(capture.schema.content),
+    JSON.parse(reference.schema.content),
+  "Pending encoder schema differs from sequenced state at capture");
+  assert(sameBlobContents(capture.forest, reference.forest),
+    "Pending encoder forest differs from sequenced state at capture");
+  return {
+    schema: "sequenced-at-capture",
+    forest: "sequenced-at-capture",
+    captureSequenceNumber: capture.sequenceNumber,
+    upgradeSequenceNumber: upgraded.sequenceNumber,
+  };
+}
+
 async function within(promise, label, milliseconds = 60_000) {
   let timer;
   try {
@@ -56,65 +259,6 @@ async function within(promise, label, milliseconds = 60_000) {
   } finally {
     clearTimeout(timer);
   }
-}
-
-function retainedMoveIdentity(history) {
-  assert(Array.isArray(history) && history.length > 0,
-    "Array reload lacks retained summary history");
-  const endpoints = { moveOut: [], moveIn: [] };
-  function collect(value, revision) {
-    if (Array.isArray(value)) {
-      for (const item of value) collect(item, revision);
-      return;
-    }
-    if (!value || typeof value !== "object") return;
-    for (const [key, item] of Object.entries(value)) {
-      if (key === "moveOut" || key === "moveIn") {
-        assert(Number.isSafeInteger(item?.id),
-          "Retained move endpoint lacks an atom ID");
-        const endpointRevision = item.revision ?? revision;
-        assert(Number.isSafeInteger(endpointRevision),
-          "Retained move endpoint lacks a revision");
-        endpoints[key].push({ id: item.id, revision: endpointRevision });
-      }
-      collect(item, revision);
-    }
-  }
-  const moves = history.filter((entry) => {
-    const before = endpoints.moveOut.length + endpoints.moveIn.length;
-    collect(entry.changes, entry.revision);
-    return endpoints.moveOut.length + endpoints.moveIn.length > before;
-  });
-  assert.equal(moves.length, 1, "Array reload lacks one retained move commit");
-  const [move] = moves;
-  return {
-    revision: move.revision,
-    originatorId: move.originatorId,
-    ...endpoints,
-  };
-}
-
-function submissionHistory(submission) {
-  return submission.commits.map(({ revision, originatorId, changeset }) => ({
-    revision,
-    originatorId,
-    changes: [changeset],
-  }));
-}
-
-function retainedDeletedPoint(entry) {
-  if (!Array.isArray(entry)) return false;
-  const node = entry[2];
-  if (!node || typeof node !== "object") return false;
-  if (node.type === "org.watershed.shared-tree.m3.Point") {
-    return node.fields?.label?.[0]?.value === "deleted"
-      && node.fields?.x?.[0]?.value === 9;
-  }
-  if (node.kind !== "object"
-    || node.schemaId !== "org.watershed.shared-tree.m3.Point"
-    || !Array.isArray(node.fields)) return false;
-  const fields = Object.fromEntries(node.fields);
-  return fields.label?.value === "deleted" && fields.x?.value === 9;
 }
 
 async function observed(predicate, label) {
@@ -186,6 +330,69 @@ async function publishedSequence(config, document, jwt, version) {
   assert(Number.isSafeInteger(attributes.sequenceNumber)
     && attributes.sequenceNumber > 0, "Published snapshot has no sequence number");
   return attributes.sequenceNumber;
+}
+
+async function publishedSchemaSnapshot(config, document, jwt, version) {
+  const base = `${config.httpUrl}/repos/${config.tenantId}/git`;
+  async function object(path) {
+    const response = await fetch(`${base}/${path}`, {
+      headers: { Authorization: ["Bearer", jwt].join(" ") },
+    });
+    assert.equal(response.status, 200, `Cannot read published summary: ${path}`);
+    return response.json();
+  }
+  const commit = await object(`commits/${version}`);
+  const trees = [];
+  const blobs = [];
+  let schema;
+  let forest;
+  async function visit(treeId, path = []) {
+    trees.push(treeId);
+    const tree = await object(`trees/${treeId}`);
+    for (const entry of tree.tree) {
+      const entryPath = [...path, entry.path];
+      if (entry.type === "tree") {
+        if (entry.path === "Forest") {
+          forest = {
+            path: entryPath.join("/"),
+            treeId: entry.sha,
+            blobs: [],
+          };
+        }
+        await visit(entry.sha, entryPath);
+      } else if (entry.type === "blob") {
+        blobs.push(entry.sha);
+        if (entryPath.slice(-2).join("/") !== "Schema/SchemaString"
+          && !entryPath.includes("Forest")) continue;
+        const blob = await object(`blobs/${entry.sha}`);
+        assert(["base64", "utf-8"].includes(blob.encoding),
+          `Summary blob uses unsupported encoding: ${entryPath.join("/")}`);
+        const content = blob.encoding === "base64"
+          ? Buffer.from(blob.content, "base64").toString("utf8")
+          : blob.content;
+        const evidence = {
+          path: entryPath.join("/"),
+          id: entry.sha,
+          byteLength: Buffer.byteLength(content),
+          hash: createHash("sha256").update(content).digest("hex"),
+          content,
+        };
+        if (entryPath.at(-2) === "Schema") schema = evidence;
+        else forest?.blobs.push(evidence);
+      }
+    }
+  }
+  await visit(commit.tree.sha);
+  assert(schema, "Selected summary lacks its stored schema blob");
+  assert(forest?.blobs.length > 0, "Selected summary lacks its stored forest blobs");
+  return {
+    version,
+    rootTreeId: commit.tree.sha,
+    treeIds: trees,
+    blobIds: blobs,
+    schema,
+    forest,
+  };
 }
 
 async function publicationSequence(config, document, jwt, version, snapshot) {
@@ -466,135 +673,6 @@ export function validateMapResults(results) {
         "Map retained-state verifier did not consume the summary");
       assert(Array.isArray(cell.artifacts) && cell.artifacts.length > 0,
         "Missing map reload artifact");
-    }
-  }
-  return results;
-}
-
-export function validateArrayResults(results) {
-  assert(results && typeof results === "object" && !Array.isArray(results),
-    "Array summary interop needs a nested reload matrix");
-  assert.deepEqual(Object.keys(results).sort(), [...implementations].sort(),
-    "Array summary interop needs all three writers");
-  const readerInstances = new Set();
-  for (const writer of implementations) {
-    assert.deepEqual(Object.keys(results[writer] ?? {}).sort(),
-      [...implementations].sort(),
-    `Array summary interop needs all three readers for ${writer}`);
-    for (const reader of implementations) {
-      const cell = results[writer][reader];
-      assert.equal(cell.profile, "array", "Array reload has another profile");
-      assert.equal(cell.writer, writer, "Invalid array writer identity");
-      assert.equal(cell.reader, reader, "Invalid array reader identity");
-      assert(typeof cell.runId === "string" && cell.runId.length > 0,
-        "Missing array reload run ID");
-      assert.match(cell.profileDigest, /^[0-9a-f]{64}$/,
-        "Missing array reload profile digest");
-      assert(typeof cell.documentId === "string" && cell.documentId.length > 0,
-        "Missing array reload document ID");
-      assert(typeof cell.writerVersion === "string" && cell.writerVersion.length > 0,
-        "Missing array writer version");
-      assert.equal(cell.loadedVersion, cell.writerVersion,
-        "Array reload selected another version");
-      assert(typeof cell.readerInstanceId === "string"
-        && cell.readerInstanceId.length > 0, "Missing fresh array reader instance");
-      assert(!readerInstances.has(cell.readerInstanceId),
-        "Array reload reused a reader instance");
-      readerInstances.add(cell.readerInstanceId);
-      assert(Number.isSafeInteger(cell.snapshotSequenceNumber)
-        && Number.isSafeInteger(cell.dataEditSequenceNumber)
-        && Number.isSafeInteger(cell.publicationSequenceNumber)
-        && Number.isSafeInteger(cell.tailSequenceNumber)
-        && cell.snapshotSequenceNumber < cell.dataEditSequenceNumber
-        && cell.dataEditSequenceNumber < cell.publicationSequenceNumber
-        && cell.publicationSequenceNumber < cell.tailSequenceNumber,
-      "Array reload has invalid summary and tail sequencing");
-      assert(Number.isSafeInteger(cell.replayStartSequenceNumber)
-        && cell.replayStartSequenceNumber >= cell.snapshotSequenceNumber,
-      "Array reload fell back to origin replay");
-      assert(reader === "upstream"
-        ? cell.replayEvidence === "upstream-delta-storage"
-        : ["native-delivery", "native-handshake"].includes(cell.replayEvidence),
-      "Array reload lacks measured replay evidence");
-      assert(Array.isArray(cell.selectedSummaryRequests)
-        && cell.selectedSummaryRequests.includes(cell.loadedVersion),
-      "Array reload did not request the selected summary");
-      assert.equal(cell.scenarioId, "array-summary-tail-retained");
-      assert.equal(cell.loaded, true);
-      assert.equal(cell.tailObserved, true);
-      assert.equal(cell.continuedEditing, true);
-      assert.equal(cell.peerObservedEdit, true);
-      assert.equal(cell.pendingTreeCount, 0);
-      assert.equal(cell.inflightSubmissionCount, 0);
-      assert.deepEqual(cell.wholeTree, expectedArrayTree(writer),
-        "Array reload loaded another tagged tree");
-      assert(typeof cell.continuationLabel === "string"
-        && cell.continuationLabel.startsWith(`${writer}-${reader}-`),
-      "Array reload lacks the exact continuation label");
-      assert.deepEqual(cell.continuationTree,
-        expectedArrayTree(writer, cell.continuationLabel),
-        "Array reload continuation has another value or order");
-      assert.deepEqual(cell.continuationTree, cell.peerWholeTree,
-        "Array reload continuation differs from the independent peer");
-      assert(Array.isArray(cell.retained?.removed)
-        && cell.retained.removed.length > 0,
-      "Array reload lacks retained deleted content");
-      assert(cell.retained.removed.some(retainedDeletedPoint),
-        "Array reload retained the wrong deleted content");
-      assert.equal(cell.retained.selectedVersion, cell.loadedVersion,
-        "Array reload retained content came from another summary");
-      assert.equal(cell.retained.reader, reader,
-        "Array reload retained evidence came from another reader");
-      assert.equal(cell.retained.readerInstanceId, cell.readerInstanceId,
-        "Array reload retained evidence came from another reader instance");
-      assert.equal(cell.retained.source, reader === "upstream"
-        ? "upstream-runtime-and-wire"
-        : "native-runtime-snapshot",
-      "Array reload retained evidence has another source");
-      assert.equal(cell.retained.loadedVersion, cell.loadedVersion,
-        "Array reload retained evidence has another loaded version");
-      assert.equal(cell.retained.snapshotSequenceNumber, cell.snapshotSequenceNumber,
-        "Array reload retained evidence has another snapshot sequence");
-      assert(Number.isSafeInteger(cell.retained.sequenceNumber)
-        && cell.retained.sequenceNumber >= cell.snapshotSequenceNumber
-        && cell.retained.sequenceNumber <= cell.replayWatermark,
-      "Array reload retained evidence is outside the loaded snapshot sequence");
-      assert(Array.isArray(cell.retained.history)
-        && cell.retained.history.length > 0,
-      "Array reload lacks retained summary history");
-      const moveIdentity = cell.retained.moveIdentity;
-      assert.deepEqual(moveIdentity, retainedMoveIdentity(cell.retained.history),
-        "Array reload move identity differs from retained summary history");
-      assert(Number.isSafeInteger(moveIdentity?.revision)
-        && typeof moveIdentity.originatorId === "string"
-        && moveIdentity.originatorId.length > 0
-        && Array.isArray(moveIdentity.moveOut)
-        && moveIdentity.moveOut.length === 1
-        && Array.isArray(moveIdentity.moveIn)
-        && moveIdentity.moveIn.length === 1,
-      "Array reload lacks persisted move identity");
-      const [moveOut] = moveIdentity.moveOut;
-      const [moveIn] = moveIdentity.moveIn;
-      assert(Number.isSafeInteger(moveOut.id)
-        && Number.isSafeInteger(moveOut.revision)
-        && Number.isSafeInteger(moveIn.id)
-        && Number.isSafeInteger(moveIn.revision)
-        && moveOut.id === moveIn.id
-        && moveOut.revision === moveIdentity.revision
-        && moveIn.revision === moveIdentity.revision,
-      "Array reload has invalid persisted move atoms");
-      assert.equal(cell.retained.childEditObserved, true,
-        "Array reload lacks the moved-child edit proof");
-      assert.equal(cell.retained.summaryConsumed, true,
-        "Array retained-state verifier did not consume the summary");
-      const continuation = cell.continuationIdentity;
-      assert(typeof continuation?.clientId === "string"
-        && Number.isSafeInteger(continuation.referenceSequenceNumber)
-        && Array.isArray(continuation.revisions)
-        && continuation.revisions.length > 0,
-      "Array reload lacks continuation identity");
-      assert(Array.isArray(cell.artifacts) && cell.artifacts.length > 0,
-        "Missing array reload artifact");
     }
   }
   return results;
@@ -913,22 +991,6 @@ async function writeMapReloadArtifact(context, item, raw) {
   return relative;
 }
 
-async function writeArrayReloadArtifact(context, item, raw) {
-  const relative = `array-reload/${item.writer}-${item.reader}.json`;
-  const path = join(context.artifactDirectory, relative);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({
-    formatVersion: 1,
-    runId: context.runId,
-    profileDigest: context.profileDigest,
-    kind: "array-reload",
-    subject: `${item.writer}->${item.reader}`,
-    documentId: item.documentId,
-    measured: reloadMeasuredPayload(item),
-    raw,
-  })}\n`, { mode: 0o600 });
-  return relative;
-}
 export function loadRequests(evidence, version, snapshotSequenceNumber) {
   assert(Number.isSafeInteger(snapshotSequenceNumber) && snapshotSequenceNumber >= 0,
     "Native reader lacks a selected-summary sequence");
@@ -939,9 +1001,17 @@ export function loadRequests(evidence, version, snapshotSequenceNumber) {
   }))];
   assert(selectedSummaryRequests.includes(version),
     "Native reader did not request the selected summary commit");
-  assert(successful.some(({ path }) => path.includes("/git/trees/")),
+  const selectedTreeRequests = [...new Set(successful.flatMap(({ path }) => {
+    const match = path.match(/\/git\/trees\/([^/?]+)/);
+    return match ? [decodeURIComponent(match[1])] : [];
+  }))];
+  assert(selectedTreeRequests.length > 0,
     "Native reader did not request the selected summary trees");
-  assert(successful.some(({ path }) => path.includes("/git/blobs/")),
+  const selectedBlobRequests = [...new Set(successful.flatMap(({ path }) => {
+    const match = path.match(/\/git\/blobs\/([^/?]+)/);
+    return match ? [decodeURIComponent(match[1])] : [];
+  }))];
+  assert(selectedBlobRequests.length > 0,
     "Native reader did not request the selected summary blobs");
   const deliveredSequences = evidence.delivered
     .filter(({ direction, kind }) => direction === "inbound" && kind === "op")
@@ -963,6 +1033,8 @@ export function loadRequests(evidence, version, snapshotSequenceNumber) {
   return {
     loadedVersion: version,
     selectedSummaryRequests,
+    selectedTreeRequests,
+    selectedBlobRequests,
     replayStartSequenceNumber: Math.min(...measuredStarts),
     replayEvidence: deliveryStarts.length > 0 ? "native-delivery" : "native-handshake",
   };
@@ -984,15 +1056,26 @@ function restoredDetachedPoint(removed) {
 }
 
 function storageLoad(observations, version) {
-  const selectedSummaryRequests = [...new Set(observations.flatMap((observation) =>
-    observation.operation === "getVersions"
-      ? observation.versions.map(({ id }) => id)
-      : []))];
+  const selectedVersions = observations.flatMap((observation) =>
+    observation.operation === "getVersions" ? observation.versions : []);
+  const selectedSummaryRequests = [...new Set(selectedVersions.map(({ id }) => id))];
   assert(selectedSummaryRequests.includes(version),
     "Upstream reader did not select the published summary version");
-  assert(observations.some(({ operation }) => operation === "getSnapshotTree"),
+  const selectedSummaryTreeId = selectedVersions.find(({ id }) => id === version)?.treeId;
+  assert(typeof selectedSummaryTreeId === "string" && selectedSummaryTreeId.length > 0,
+    "Selected summary version lacks its tree");
+  const selectedTreeRequests = observations
+    .filter(({ operation }) => operation === "getSnapshotTree")
+    .flatMap(({ id }) => typeof id === "string" && id.length > 0 ? [id] : []);
+  assert(selectedTreeRequests.includes(selectedSummaryTreeId),
     "Upstream reader did not request the selected snapshot");
-  assert(observations.some(({ operation }) => operation === "readBlob"),
+  const selectedBlobRequests = observations
+    .filter(({ operation }) => operation === "readBlob")
+    .map(({ id, byteLength, hash }) => ({ id, byteLength, hash }));
+  assert(selectedBlobRequests.some(({ id, byteLength, hash }) =>
+    typeof id === "string" && id.length > 0
+      && Number.isSafeInteger(byteLength) && byteLength > 0
+      && typeof hash === "string" && hash.length > 0),
     "Upstream reader did not read the selected summary hierarchy");
   const replayStarts = observations.flatMap(({ operation, from }) =>
     operation === "fetchMessages" && Number.isSafeInteger(from) ? [from] : []);
@@ -1000,6 +1083,9 @@ function storageLoad(observations, version) {
   return {
     loadedVersion: version,
     selectedSummaryRequests,
+    selectedSummaryTreeId,
+    selectedTreeRequests,
+    selectedBlobRequests,
     replayStartSequenceNumber: Math.min(...replayStarts),
     replayEvidence: "upstream-delta-storage",
   };
@@ -1166,6 +1252,84 @@ async function publishWriterSummary(
     dataEditSequenceNumber: dataEdit.outerSequenceNumber,
     publicationSequenceNumber,
   };
+}
+
+async function publishPendingSchemaSummary(
+  config,
+  containers,
+  documentId,
+  jwt,
+  writer,
+  adapters,
+  context,
+) {
+  let publisher;
+  try {
+    const version = writer === "upstream"
+      ? (await publishUpstreamSummary(
+        config,
+        containers,
+        documentId,
+        `Task 10 ${writer} pending schema capture`,
+        { store: schemaEvolutionServiceStore },
+      )).summaryAckOp.contents.handle
+      : await (async () => {
+        publisher = await nativeAdapter(writer, config, {
+          runId: context.runId,
+          documentId,
+          tenant: config.tenantId,
+          viewSchema: context.schemaViews.v1,
+          viewSchemas: context.schemaViews,
+        }, jwt);
+        await publisher.awaitSynced();
+        return publisher.summarize();
+      })();
+    const snapshotSequenceNumber = await publishedSequence(
+      config,
+      documentId,
+      jwt,
+      version,
+    );
+    return {
+      version,
+      snapshotSequenceNumber,
+      publicationSequenceNumber: await publicationSequence(
+        config,
+        documentId,
+        jwt,
+        version,
+        snapshotSequenceNumber,
+      ),
+    };
+  } finally {
+    await publisher?.close();
+  }
+}
+
+async function verifyPendingSchemaPublication(
+  config,
+  containers,
+  documentId,
+  version,
+  snapshotSequenceNumber,
+) {
+  const session = await openSession(
+    config,
+    containers,
+    documentId,
+    false,
+    {
+      cache: false,
+      observeStorage: true,
+      store: schemaEvolutionServiceStore,
+    },
+  );
+  const adapter = upstreamAdapter(session, schemaEvolutionConfigurations);
+  await adapter.awaitSynced(snapshotSequenceNumber);
+  const checkpoint = await adapter.checkpoint();
+  const load = storageLoad(session.storageObservations, version);
+  session.container.dispose();
+  return { checkpoint, load };
 }
 
 export async function readCell(config, context, row, reader, {
@@ -1385,6 +1549,7 @@ async function runWriterRow(config, context, writer) {
       jwt,
       writer,
       adapters,
+      context,
     );
 
     for (const native of natives.toReversed()) await native.close();
@@ -1643,386 +1808,6 @@ export function mapEntryMatches(root, key, expected) {
   return false;
 }
 
-const arrayPointValue = (label, x) => ({
-  kind: "object",
-  schemaId: "org.watershed.shared-tree.m3.Point",
-  fields: [
-    ["label", { kind: "string", value: label }],
-    ["x", { kind: "number", value: x }],
-  ],
-});
-
-const arrayItemsValue = (elements) => ({
-  kind: "array",
-  schemaId: "org.watershed.shared-tree.m3.Items",
-  elements,
-});
-
-const arrayMapValue = (entries) => ({
-  kind: "map",
-  schemaId: "org.watershed.shared-tree.m3.ArrayMap",
-  entries,
-});
-
-function expectedArrayTree(writer, continuationLabel = undefined) {
-  const moved = continuationLabel === undefined
-    ? arrayPointValue("moved", 4)
-    : arrayPointValue(continuationLabel, 42);
-  return {
-    present: true,
-    value: {
-      kind: "object",
-      schemaId: "org.watershed.shared-tree.m3.Root",
-      fields: [
-        ["byKey", arrayMapValue([
-          ["", arrayItemsValue([])],
-          ["0", arrayItemsValue([arrayPointValue("numeric", 0)])],
-        ])],
-        ["left", arrayItemsValue([
-          ...(continuationLabel === undefined ? [] : [moved]),
-          arrayPointValue("duplicate", 1),
-          arrayPointValue("duplicate", 1),
-          arrayItemsValue([arrayPointValue("nested", 2)]),
-        ])],
-        ["narrow", {
-          kind: "array",
-          schemaId: "org.watershed.shared-tree.m3.Points",
-          elements: [],
-        }],
-        ["right", arrayItemsValue([
-          arrayMapValue([["inside", arrayPointValue("map-child", 3)]]),
-          ...(continuationLabel === undefined ? [moved] : []),
-          arrayPointValue(`after-summary-${writer}`, 7),
-        ])],
-      ],
-    },
-  };
-}
-
-export async function continueArrayReader(adapter, label) {
-  await adapter.arrayMove(["right"], 1, 2, ["left"], 0);
-  await adapter.set(["left", "0", "label"], label);
-  await adapter.set(["left", "0", "x"], 42);
-}
-
-export async function restoreArrayReader(adapter) {
-  await adapter.set(["left", "0", "label"], "moved");
-  await adapter.set(["left", "0", "x"], 4);
-  await adapter.arrayMove(["left"], 0, 1, ["right"], 1);
-}
-
-async function readArrayCell(config, context, row, reader) {
-  const containers = [];
-  let adapter;
-  let readError;
-  try {
-    const headBefore = await publishedVersion(config, row.documentId, row.jwt);
-    assert.equal(headBefore, row.version, "Array writer head changed before reload");
-    let load;
-    let rawLoad;
-    if (reader === "upstream") {
-      const session = await openSession(
-        config,
-        containers,
-        row.documentId,
-        false,
-        { cache: false, observeStorage: true, store: arrayServiceStore },
-      );
-      adapter = upstreamAdapter(session);
-      await adapter.awaitSynced(row.publicationSequenceNumber);
-      load = storageLoad(session.storageObservations, row.version);
-      rawLoad = session.storageObservations;
-    } else {
-      adapter = await nativeAdapter(reader, config, {
-        runId: context.runId,
-        documentId: row.documentId,
-        tenant: config.tenantId,
-        viewSchema: context.arrayViewSchema,
-      }, row.jwt);
-      await adapter.awaitSynced(row.publicationSequenceNumber);
-      rawLoad = adapter.evidence();
-      load = loadRequests(rawLoad, row.version, row.snapshotSequenceNumber);
-    }
-    assert(load.replayStartSequenceNumber >= row.snapshotSequenceNumber,
-      "Fresh array reader replayed from before the selected summary");
-    const loaded = await adapter.checkpoint();
-    const expected = await row.observerAdapter.checkpoint();
-    assert.deepEqual(loaded.wholeTree, expected.wholeTree,
-      `${reader} loaded a different array root`);
-    assert((await adapter.arrayValues(["right"]))
-      .some((value) => JSON.stringify(value) === JSON.stringify(row.tailValue)),
-    `${reader} missed the post-summary array tail`);
-
-    const retained = loaded.retained;
-    assert(retained && Array.isArray(retained.removed),
-      `${reader} array checkpoint lacks reader-owned removed content`);
-    const removed = retained.removed;
-    assert(removed.length > 0, `${reader} array checkpoint omitted deleted content`);
-    const retainedHistory = reader === "upstream"
-      ? row.selectedMoveHistory
-      : retained.history;
-    const persistedMoveIdentity = retainedMoveIdentity(retainedHistory);
-    const peer = await openSession(
-      config,
-      containers,
-      row.documentId,
-      false,
-      { cache: false, store: arrayServiceStore },
-    );
-
-    const continuationLabel = `${row.writer}-${reader}-${randomUUID()}`;
-    const baseline = loaded.sequenceNumber;
-    await continueArrayReader(adapter, continuationLabel);
-    await adapter.awaitSynced();
-    const continuation = await acknowledgedSubmission(
-      row.observer,
-      adapter,
-      baseline,
-      reader,
-    );
-    const continuationCheckpoint = await adapter.checkpoint();
-    const peerAdapter = upstreamAdapter(peer);
-    await peerAdapter.awaitSynced(continuation.outerSequenceNumber);
-    const peerCheckpoint = await peerAdapter.checkpoint();
-    assert.deepEqual(peerCheckpoint.wholeTree, continuationCheckpoint.wholeTree,
-      `${reader} array continuation differs on an independent peer`);
-    const history = await serverHistory(row.observer);
-    const headAfter = await publishedVersion(config, row.documentId, row.jwt);
-    assert.equal(headAfter, row.version, "Array reader unexpectedly changed the writer head");
-    const item = {
-      runId: context.runId,
-      profileDigest: context.profileDigest,
-      profile: "array",
-      writer: row.writer,
-      reader,
-      writerVersion: row.version,
-      loadedVersion: load.loadedVersion,
-      readerInstanceId: adapter.instanceId,
-      snapshotSequenceNumber: row.snapshotSequenceNumber,
-      dataEditSequenceNumber: row.dataEditSequenceNumber,
-      publicationSequenceNumber: row.publicationSequenceNumber,
-      tailSequenceNumber: row.tailSequenceNumber,
-      replayWatermark: continuationCheckpoint.sequenceNumber,
-      replayStartSequenceNumber: load.replayStartSequenceNumber,
-      replayEvidence: load.replayEvidence,
-      selectedSummaryRequests: load.selectedSummaryRequests,
-      scenarioId: "array-summary-tail-retained",
-      loaded: true,
-      tailObserved: true,
-      continuedEditing: true,
-      peerObservedEdit: true,
-      pendingTreeCount: continuationCheckpoint.pendingTreeCount,
-      inflightSubmissionCount: continuationCheckpoint.inflightSubmissionCount,
-      wholeTree: loaded.wholeTree,
-      continuationTree: continuationCheckpoint.wholeTree,
-      peerWholeTree: peerCheckpoint.wholeTree,
-      continuationLabel,
-      documentId: row.documentId,
-      writerVersionBeforeLoad: headBefore,
-      writerVersionAfterLoad: headAfter,
-      retained: {
-        removed,
-        reader,
-        readerInstanceId: adapter.instanceId,
-        source: reader === "upstream"
-          ? "upstream-runtime-and-wire"
-          : "native-runtime-snapshot",
-        loadedVersion: load.loadedVersion,
-        snapshotSequenceNumber: row.snapshotSequenceNumber,
-        sequenceNumber: loaded.sequenceNumber,
-        selectedVersion: load.loadedVersion,
-        history: retainedHistory,
-        moveIdentity: persistedMoveIdentity,
-        childEditObserved: JSON.stringify(peerCheckpoint.wholeTree)
-          .includes(continuationLabel),
-        summaryConsumed: true,
-      },
-      continuationIdentity: continuationIdentity(
-        history,
-        adapter,
-        continuation.outerSequenceNumber,
-      ),
-      artifacts: [],
-    };
-    item.artifacts = [await writeArrayReloadArtifact(context, item, {
-      load: rawLoad,
-      history,
-      retained,
-    })];
-    await restoreArrayReader(adapter);
-    await adapter.awaitSynced();
-    return item;
-  } catch (error) {
-    readError = error;
-    throw error;
-  } finally {
-    const cleanup = [];
-    if (reader === "upstream") {
-      for (const container of containers.toReversed()) {
-        if (!container.closed) cleanup.push(() => container.dispose());
-      }
-    } else if (adapter) {
-      cleanup.push(() => adapter.close());
-      for (const container of containers.toReversed()) {
-        if (!container.closed) cleanup.push(() => container.dispose());
-      }
-    }
-    await cleanupAll(readError, `${reader} array reload reader cleanup failed`, cleanup);
-  }
-}
-
-async function runArrayWriterRow(config, context, writer) {
-  const containers = [];
-  const natives = [];
-  let rowError;
-  try {
-    const creator = await openSession(
-      config,
-      containers,
-      undefined,
-      false,
-      { store: arrayServiceStore },
-    );
-    const documentId = creator.container.resolvedUrl.id;
-    await publishUpstreamSummary(
-      config,
-      containers,
-      documentId,
-      `M3 ${writer} bootstrap`,
-      { store: arrayServiceStore },
-    );
-    const bootstrapSummarizer = containers.at(-1);
-    if (bootstrapSummarizer !== creator.container) bootstrapSummarizer.dispose();
-    const upstreamSession = await openSession(
-      config,
-      containers,
-      documentId,
-      false,
-      { store: arrayServiceStore },
-    );
-    const upstream = upstreamAdapter(upstreamSession);
-    const creatorAdapter = upstreamAdapter(creator);
-    const { jwt } = await tokenProvider(config).fetchOrdererToken(
-      config.tenantId,
-      documentId,
-    );
-    for (const target of nativeTargets) {
-      natives.push(await nativeAdapter(target, config, {
-        runId: context.runId,
-        documentId,
-        tenant: config.tenantId,
-        viewSchema: context.arrayViewSchema,
-      }, jwt));
-    }
-    const adapters = {
-      upstream,
-      javascript: natives[0],
-      erlang: natives[1],
-    };
-    await settle(adapters);
-    await adapters[writer].arrayInsert(["left"], 0, [
-      arrayPointValue("duplicate", 1),
-      arrayPointValue("duplicate", 1),
-      arrayItemsValue([arrayPointValue("nested", 2)]),
-      arrayPointValue("moved", 4),
-      arrayPointValue("deleted", 9),
-    ]);
-    await adapters[writer].arrayInsert(["right"], 0, [
-      arrayMapValue([["inside", arrayPointValue("map-child", 3)]]),
-    ]);
-    await adapters[writer].mapSet(["byKey"], "", arrayItemsValue([]));
-    await adapters[writer].mapSet(
-      ["byKey"],
-      "0",
-      arrayItemsValue([arrayPointValue("numeric", 0)]),
-    );
-    await adapters[writer].awaitSynced();
-    await settle(adapters);
-    const moveBaseline = (await adapters[writer].checkpoint()).sequenceNumber;
-    await adapters[writer].arrayMove(["left"], 3, 4, ["right"], 1);
-    await adapters[writer].awaitSynced();
-    const selectedMove = await acknowledgedSubmission(
-      creator,
-      adapters[writer],
-      moveBaseline,
-      writer,
-    );
-    await adapters[writer].arrayRemove(["left"], 3, 4);
-    await adapters[writer].awaitSynced();
-    await settle(adapters);
-    const tailValue = arrayPointValue(`after-summary-${writer}`, 7);
-    const publication = await publishWriterSummary(
-      config,
-      containers,
-      creator,
-      documentId,
-      jwt,
-      writer,
-      adapters,
-      {
-        store: arrayServiceStore,
-        tailEdit: (adapter) => adapter.arrayInsert(["right"], 2, [tailValue]),
-      },
-    );
-
-    for (const native of natives.toReversed()) await native.close();
-    natives.length = 0;
-    if (!upstream.session.container.closed) upstream.session.container.dispose();
-
-    creator.data.bootstrap.set("historyFence", `array-after-${writer}-${randomUUID()}`);
-    await until(() => !creator.container.isDirty, `${writer} array non-tree tail`);
-    const tailHistory = await serverHistory(creator);
-    const tail = tailHistory.findLast(({ clientId, sequenceNumber, type }) =>
-      clientId === creator.container.clientId
-        && sequenceNumber > publication.publicationSequenceNumber
-        && type === "op");
-    assert(tail, `${writer} lacks an array non-tree tail after publication`);
-
-    const row = {
-      writer,
-      documentId,
-      jwt,
-      observer: creator,
-      observerAdapter: creatorAdapter,
-      tailSequenceNumber: tail.sequenceNumber,
-      tailValue,
-      selectedMoveHistory: submissionHistory(selectedMove),
-      ...publication,
-    };
-    const results = {};
-    for (const reader of implementations) {
-      results[reader] = await readArrayCell(config, context, row, reader);
-    }
-    return results;
-  } catch (error) {
-    rowError = error;
-    throw error;
-  } finally {
-    const cleanupErrors = [];
-    for (const native of natives.toReversed()) {
-      try {
-        await native.close();
-      } catch (error) {
-        cleanupErrors.push(error);
-      }
-    }
-    for (const container of containers.toReversed()) {
-      try {
-        if (!container.closed) container.dispose();
-      } catch (error) {
-        cleanupErrors.push(error);
-      }
-    }
-    if (cleanupErrors.length > 0) {
-      if (rowError) rowError.cleanupErrors = cleanupErrors;
-      else throw new AggregateError(
-        cleanupErrors,
-        `Cleanup failed for ${writer} array reload row`,
-      );
-    }
-  }
-}
-
 async function runMapWriterRow(config, context, writer) {
   const containers = [];
   const natives = [];
@@ -2215,25 +2000,812 @@ export async function runMapReloadMatrix(config, context, {
   return validateMapResults(results);
 }
 
-export async function runArrayReloadMatrix(config, context, {
-  runRow,
+function validateSchemaMatrix(results, summaryKind) {
+  assert.deepEqual(Object.keys(results).sort(), [...implementations].sort(),
+    "Schema reload matrix lacks a writer");
+  for (const writer of implementations) {
+    assert.deepEqual(Object.keys(results[writer]).sort(), [...implementations].sort(),
+      `Schema reload matrix lacks a reader for ${writer}`);
+    for (const reader of implementations) {
+      const cell = results[writer][reader];
+      assert.equal(cell.writer, writer, "Schema reload writer changed");
+      assert.equal(cell.reader, reader, "Schema reload reader changed");
+      assert.equal(cell.skipped, false, "Schema reload cell was skipped");
+      assert(Array.isArray(cell.observations) && cell.observations.length > 0,
+        "Schema reload cell has zero observations");
+      for (const observation of cell.observations) {
+        assert.equal(observation.compatibility?.canView, true,
+          "Schema reload reader cannot view the stored schema");
+        assert.equal(observation.compatibility?.isEquivalent, true,
+          "Schema reload reader reported a non-equivalent schema");
+        assert.equal(typeof observation.compatibility?.canUpgrade, "boolean",
+          "Schema reload reader omitted upgrade compatibility");
+        assert.equal(observation.openedView, "optional");
+        for (const field of [
+          "continuedEditing",
+          "peerObservedEdit",
+          "summaryConsumed",
+          "replayedTail",
+          "retainedPeer",
+          "pendingSummaryUsedSequencedSchema",
+        ]) {
+          assert.equal(observation[field], true,
+            `Schema reload ${writer}->${reader} lacks ${field}`);
+        }
+        assert(typeof observation.documentId === "string"
+          && observation.documentId.length > 0,
+        "Schema reload lacks a document");
+        assert(typeof observation.readerInstanceId === "string"
+          && observation.readerInstanceId.length > 0,
+        "Schema reload lacks a fresh reader instance");
+        assert(typeof observation.pendingWriterInstanceId === "string"
+          && observation.pendingWriterInstanceId.length > 0,
+        "Schema reload lacks the pending writer instance");
+          assert.equal(observation.summaryKind, summaryKind,
+            "Schema reload used another summary kind");
+          const selectedStoredState = summaryKind === "post-upgrade"
+            ? observation.upgradedStoredState
+            : observation.pendingStoredState;
+          assert(typeof observation.loadedVersion === "string"
+            && observation.loadedVersion === selectedStoredState.version,
+          "Schema reload did not load the required summary");
+        assert(Array.isArray(observation.selectedSummaryRequests)
+          && observation.selectedSummaryRequests.includes(observation.loadedVersion),
+        "Schema reload did not select its summary version");
+        assert(Array.isArray(observation.selectedTreeRequests)
+          && observation.selectedTreeRequests.length > 0,
+        "Schema reload did not select summary trees");
+        assert(Array.isArray(observation.selectedBlobRequests)
+          && observation.selectedBlobRequests.length > 0,
+        "Schema reload did not read summary blobs");
+        assert(Number.isSafeInteger(observation.pendingSummaryReferenceSequenceNumber)
+          && Number.isSafeInteger(observation.schemaUpgradeSequenceNumber)
+          && observation.schemaUpgradeSequenceNumber
+            > observation.pendingSummaryReferenceSequenceNumber,
+        "Schema reload lacks an upgrade-bearing tail");
+        const pendingUpgradeRevisions =
+          observation.pendingWriterCheckpoint?.history?.pending?.map(
+            ({ revision }) => revision,
+          ) ?? [];
+        assert(pendingUpgradeRevisions.length > 0,
+          "Schema reload lacks writer pending history");
+        const acceptedUpgradeRevisions =
+          observation.acceptedUpgrade?.commits?.filter(({ changeset }) =>
+            changeset.some((change) => change?.schema !== undefined))
+            .map(({ revision }) => revision) ?? [];
+        const sameRevision = acceptedUpgradeRevisions.some((revision) =>
+          pendingUpgradeRevisions.map(String).includes(String(revision)));
+        const sameOriginator = observation.acceptedUpgrade?.commits?.some(
+          ({ originatorId, changeset }) =>
+            changeset.some((change) => change?.schema !== undefined)
+            && observation.pendingWriterCheckpoint?.history?.pending?.some(
+              (pending) => pending.originatorId === originatorId,
+            ),
+        );
+        assert(sameRevision || sameOriginator,
+          "Schema reload accepted upgrade does not match writer pending history");
+        assert(observation.pendingWriterCheckpoint.history.pending.every(
+          ({ changeset }) => changeset?.changeCount > 0
+            && (typeof changeset.raw === "string"
+              ? /SchemaChange|type.?[:=].?["']?schema/i.test(changeset.raw)
+              : changeset.raw?.changes?.some(({ type }) => type === "schema")),
+        ), "Schema reload pending operation is not a schema upgrade");
+        assert.equal(observation.acceptedUpgrade.outerSequenceNumber,
+          observation.schemaUpgradeSequenceNumber,
+        "Schema reload accepted upgrade sequence changed");
+        assert.equal(observation.pendingStoredState?.version,
+          observation.pendingSummaryVersion,
+        "Schema reload inspected another sequenced baseline summary");
+        assert.equal(observation.pendingSummaryPublication?.version,
+          observation.pendingSummaryVersion,
+        "Schema reload publication names another pending summary version");
+        assert(observation.pendingSummaryPublication?.snapshotSequenceNumber
+          >= observation.pendingSummaryReferenceSequenceNumber,
+        "Schema reload publication preceded the pending capture reference");
+        assert(Number.isSafeInteger(
+          observation.pendingSummaryPublication?.publicationSequenceNumber,
+        ) && observation.pendingSummaryPublication.publicationSequenceNumber
+          > observation.pendingSummaryReferenceSequenceNumber,
+        "Schema reload lacks pending summary publication evidence");
+        assert(observation.pendingPublicationVerification?.load
+          ?.selectedSummaryRequests.includes(observation.pendingSummaryVersion),
+        "Schema reload did not freshly load the pending summary version");
+        assert.deepEqual(
+          observation.pendingPublicationVerification.checkpoint.wholeTree,
+          observation.captureSequencedCheckpoint.wholeTree,
+        "Schema reload pending publication decoded another sequenced tree");
+        assert.deepEqual(
+          observation.pendingPublicationVerification.checkpoint.history.storedSchema,
+          observation.captureSequencedCheckpoint.history.storedSchema,
+        "Schema reload pending publication decoded another sequenced schema");
+        assert.equal(observation.pendingSummaryCapture?.sequenceNumber,
+          observation.pendingSummaryReferenceSequenceNumber,
+        "Schema reload pending encoder used another sequence point");
+        assert.equal(observation.upgradedStoredState?.version,
+          observation.upgradedSummaryVersion,
+        "Schema reload inspected another upgraded summary");
+        const measuredBinding = pendingSummaryBinding(
+          observation.pendingSummaryCapture,
+          observation.pendingSummaryCaptureSourceBehavior
+              === "upstream-optimistic-encoder-retained-future-state"
+            ? observation.captureEncoderReference
+            : observation.retainedEncoderReference,
+          observation.sequencedEncoderReference,
+        );
+        assert.deepEqual(observation.pendingSummaryBinding, measuredBinding,
+          "Schema reload pending encoder binding changed");
+        assert.equal(observation.retainedEncoderReference.sequenceNumber,
+          observation.acceptedRetainedPeer.outerSequenceNumber,
+        "Schema reload retained encoder reference identifies another operation");
+        assert.equal(observation.captureEncoderReference.sequenceNumber,
+          observation.pendingSummaryReferenceSequenceNumber,
+        "Schema reload capture encoder reference identifies another operation");
+        assert([
+          "stable-reference",
+          "reference-advanced-without-tree-change",
+          "upstream-optimistic-encoder-retained-future-state",
+        ].includes(observation.pendingSummaryCaptureSourceBehavior),
+        "Schema reload lacks pending capture source behavior");
+        if (writer === "upstream") {
+          assert.equal(observation.pendingSummaryCaptureSourceBehavior,
+            "upstream-optimistic-encoder-retained-future-state",
+          "Schema reload omitted upstream optimistic encoder behavior");
+          assert(!isDeepStrictEqual(
+            JSON.parse(observation.pendingSummaryInitialCapture.schema.content),
+            JSON.parse(observation.pendingSummaryCapture.schema.content),
+          ), "Schema reload did not preserve upstream optimistic encoder evidence");
+        } else {
+          assert.deepEqual(
+            JSON.parse(observation.pendingSummaryInitialCapture.schema.content),
+            JSON.parse(observation.pendingSummaryCapture.schema.content),
+          "Schema reload native pending schema changed while its reference advanced");
+          assert(sameBlobContents(
+            observation.pendingSummaryInitialCapture.forest,
+            observation.pendingSummaryCapture.forest,
+          ), "Schema reload native pending forest changed while its reference advanced");
+        }
+        assert(observation.sequencedWriterCheckpoint?.sequenceNumber
+            >= observation.schemaUpgradeSequenceNumber
+          && observation.sequencedWriterCheckpoint.pendingTreeCount === 0,
+        "Schema reload encoder reference precedes upgrade reconciliation");
+        assert(typeof observation.pendingStoredState.rootTreeId === "string"
+          && observation.pendingStoredState.treeIds?.includes(
+            observation.pendingStoredState.rootTreeId,
+          ),
+        "Schema reload stored-state tree is not bound to the selected version");
+        for (const [name, blob] of [["schema", observation.pendingStoredState.schema]]) {
+          assert(typeof blob?.id === "string" && blob.id.length > 0
+            && Number.isSafeInteger(blob.byteLength) && blob.byteLength > 0
+            && typeof blob.hash === "string" && /^[0-9a-f]{64}$/.test(blob.hash)
+            && typeof blob.content === "string" && blob.content.length > 0,
+          `Schema reload stored ${name} blob is incomplete`);
+        }
+        assert(typeof observation.pendingStoredState.forest?.treeId === "string"
+          && observation.pendingStoredState.treeIds.includes(
+            observation.pendingStoredState.forest.treeId,
+          )
+          && observation.pendingStoredState.forest.blobs?.length > 0
+          && observation.pendingStoredState.forest.blobs.every((blob) =>
+            typeof blob.id === "string" && blob.id.length > 0
+              && Number.isSafeInteger(blob.byteLength) && blob.byteLength > 0
+              && typeof blob.hash === "string" && /^[0-9a-f]{64}$/.test(blob.hash)
+              && typeof blob.content === "string" && blob.content.length > 0),
+        "Schema reload stored forest evidence is incomplete");
+        assert.deepEqual(JSON.parse(observation.pendingStoredState.schema.content),
+          JSON.parse(observation.pendingSummaryCapture.schema.content),
+        "Schema reload pending publication differs from captured schema");
+        const acceptedSchemaChange = observation.acceptedUpgrade.commits
+          .flatMap(({ changeset }) => changeset)
+          .find((change) => change?.schema !== undefined);
+        assert.deepEqual(JSON.parse(observation.pendingStoredState.schema.content),
+          acceptedSchemaChange.schema.old,
+        "Schema reload stored pending schema instead of historical schema");
+        assert.deepEqual(JSON.parse(observation.upgradedStoredState.schema.content),
+          acceptedSchemaChange.schema.new,
+        "Schema reload stored summary omitted the upgraded schema context");
+        const retainedPendingRevisions =
+          observation.retainedPeerCheckpoint?.history?.pending?.map(
+            ({ revision }) => revision,
+          ) ?? [];
+        assert(retainedPendingRevisions.length > 0,
+          "Schema reload lacks retained peer pending history");
+        assert(observation.acceptedRetainedPeer?.commits?.some(({ changeset }) =>
+          changeset.some((change) => change?.data !== undefined)),
+        "Schema reload accepted peer history lacks its data change");
+        assert.equal(observation.retainedPeerAuthor,
+          writer === "upstream" ? "javascript" : "upstream",
+        "Schema reload retained the wrong earlier-schema peer");
+        assert(observation.freshLoadCheckpoint.history.trunk.length > 0,
+          "Schema reload fresh reader history is empty");
+        assert(observation.beforeContinuation.history.trunk.length > 0,
+          "Schema reload pre-continuation history is empty");
+        const retainedCommit = observation.acceptedRetainedPeer.commits.find(
+          ({ changeset }) => changeset.some((change) => change.data !== undefined),
+        );
+        const upgradeCommit = observation.acceptedUpgrade.commits.find(
+          ({ changeset }) => changeset.some((change) => change.schema !== undefined),
+        );
+        assert(retainedCommit && upgradeCommit,
+          "Schema reload lacks accepted retained and upgrade operations");
+        if (summaryKind === "post-upgrade") {
+          validatePostUpgradeHistory(
+            observation.freshLoadCheckpoint.history,
+            upgradeCommit,
+            "Schema reload post-upgrade fresh-reader history",
+          );
+          validatePostUpgradeHistory(
+            observation.beforeContinuation.history,
+            upgradeCommit,
+            "Schema reload post-upgrade pre-continuation history",
+          );
+        }
+        const retainedPending = observation.retainedPeerCheckpoint.history.pending.find(
+          ({ originatorId, changeset }) =>
+            originatorId === retainedCommit.originatorId
+            && changeset?.changeCount > 0,
+        );
+        assert(retainedPending
+          && isDeepStrictEqual(
+            decodeReconnectPayload(
+              retainedPending.changeset.payload ?? retainedPending.changeset.raw,
+            ),
+            decodeReconnectPayload(retainedCommit.changeset),
+          ),
+        "Schema reload retained pending history differs from its accepted operation");
+        if (summaryKind === "earlier-summary-upgrade-tail") {
+          for (const [historyLabel, history] of [
+            ["fresh-load", observation.freshLoadCheckpoint.history],
+            ["pre-continuation", observation.beforeContinuation.history],
+          ]) {
+            assert(historyContains(history, upgradeCommit, "schema"),
+              `Schema reload ${writer}->${reader} ${historyLabel} history `
+                + "omitted the accepted schema operation");
+          }
+        }
+        assert(observation.upgradedStoredState.forest.blobs.some(({ content }) =>
+          content.includes(`retained-${writer}`)),
+        "Schema reload stored summary omitted the retained peer value");
+        assert(observation.beforeContinuation.wholeTree.value.fields.some(
+          ([name, field]) =>
+            name === "title" && field.value === `retained-${writer}`,
+        ), "Schema reload fresh reader omitted the retained peer value");
+        const storedTreeIds = new Set(selectedStoredState.treeIds);
+        assert(observation.selectedTreeRequests.length > 0
+          && observation.selectedTreeRequests.every((request) =>
+            storedTreeIds.has(typeof request === "string" ? request : request.id)),
+        "Schema reload requested an unrelated summary tree");
+        if (typeof observation.selectedSummaryTreeId === "string") {
+          assert.equal(observation.selectedSummaryTreeId,
+            selectedStoredState.rootTreeId,
+          "Schema reload selected another summary tree");
+          assert(observation.selectedTreeRequests.includes(
+            observation.selectedSummaryTreeId,
+          ), "Schema reload did not request the selected summary tree");
+        }
+        const storedBlobIds = new Set([
+          ...selectedStoredState.blobIds,
+        ]);
+        assert(observation.selectedBlobRequests.length > 0
+          && observation.selectedBlobRequests.every((request) =>
+            storedBlobIds.has(typeof request === "string" ? request : request.id)),
+        "Schema reload requested unrelated summary blobs");
+        assert(observation.acceptedRetainedPeer.outerSequenceNumber
+          <= observation.pendingSummaryReferenceSequenceNumber,
+        "Schema reload retained peer was not accepted before pending capture");
+        assert(observation.acceptedRetainedPeer.outerSequenceNumber
+            < observation.schemaUpgradeSequenceNumber
+            && observation.acceptedRetainedPeer.outerSequenceNumber
+              <= observation.snapshotSequenceNumber,
+          "Schema reload retained peer was not accepted before upgraded summary capture");
+          if (summaryKind === "earlier-summary-upgrade-tail") {
+            assert(observation.snapshotSequenceNumber
+                < observation.schemaUpgradeSequenceNumber
+              && observation.replayWatermark
+                >= observation.schemaUpgradeSequenceNumber,
+            "Schema reload did not cross the schema boundary from the earlier summary");
+          }
+            assert(observation.freshLoadCheckpoint?.history
+              && observation.beforeContinuation?.history,
+          "Schema reload lacks fresh pre-continuation state");
+      }
+    }
+  }
+  return results;
+}
+
+export function validateSchemaReloadResults(results) {
+  return validateSchemaMatrix(results, "post-upgrade");
+}
+
+export function validateSchemaTailReloadResults(results) {
+  return validateSchemaMatrix(results, "earlier-summary-upgrade-tail");
+}
+
+async function schemaReader(config, context, row, reader) {
+  const containers = [];
+  let adapter;
+  let failure;
+  try {
+    if (reader === "upstream") {
+      const session = await openSession(
+        config,
+        containers,
+        row.documentId,
+        false,
+        {
+          cache: false,
+          observeStorage: true,
+          store: schemaEvolutionServiceStore,
+        },
+      );
+      adapter = upstreamAdapter(session, schemaEvolutionConfigurations);
+      await adapter.awaitSynced(row.replayWatermark);
+    } else {
+      adapter = await nativeAdapter(reader, config, {
+        runId: context.runId,
+        documentId: row.documentId,
+        tenant: config.tenantId,
+        viewSchema: context.schemaViews.optional,
+        viewSchemas: context.schemaViews,
+      }, row.jwt);
+      await adapter.awaitSynced(row.publicationSequenceNumber);
+    }
+    const rawLoad = reader === "upstream"
+      ? adapter.session.storageObservations
+      : adapter.evidence();
+    const load = reader === "upstream"
+      ? storageLoad(rawLoad, row.version)
+      : loadRequests(rawLoad, row.version, row.snapshotSequenceNumber);
+    const freshLoadCheckpoint = await adapter.checkpoint();
+    const compatibility = await adapter.schemaCompatibility("optional");
+    assert.equal(compatibility.canView, true,
+      `${reader} did not replay the upgrade-bearing tail`);
+    await adapter.openView("optional");
+    const beforeContinuation = await adapter.checkpoint();
+    assert(beforeContinuation.wholeTree.value.fields.some(([name, field]) =>
+      name === "note" && field.value === row.tailNote),
+    `${reader} did not replay the schema tail before continuation`);
+    assert(beforeContinuation.wholeTree.value.fields.some(([name, field]) =>
+      name === "title" && field.value === `retained-${row.writer}`),
+    `${reader} did not load the retained peer value before continuation`);
+    const value = 1000 + implementations.indexOf(reader);
+    await adapter.set(["score"], value);
+    await adapter.awaitSynced();
+    await row.observerAdapter.openView("optional");
+    await row.observerAdapter.awaitSynced();
+    const observed = await row.observerAdapter.checkpoint();
+    assert(observed.wholeTree.value.fields.some(([name, field]) =>
+      name === "score" && field.value === value),
+    `${row.writer} schema reload continuation was not observed`);
+    return {
+      writer: row.writer,
+      reader,
+      skipped: false,
+      observations: [{
+        compatibility,
+        freshLoadCheckpoint,
+        beforeContinuation,
+        openedView: "optional",
+        continuedEditing: true,
+        peerObservedEdit: true,
+        summaryConsumed: load.selectedSummaryRequests.includes(row.version),
+        replayedTail: observed.wholeTree.value.fields.some(([name, field]) =>
+          name === "note" && field.value === row.tailNote),
+        retainedPeer: row.retainedPeer,
+        retainedPeerAuthor: row.retainedPeerAuthor,
+        pendingSummaryUsedSequencedSchema: row.pendingSummaryUsedSequencedSchema,
+        pendingSummaryVersion: row.pendingSummaryVersion,
+        pendingSummaryPublication: row.pendingSummaryPublication,
+        pendingPublicationVerification: row.pendingPublicationVerification,
+        captureSequencedCheckpoint: row.captureSequencedCheckpoint,
+        pendingSummaryReferenceSequenceNumber:
+          row.pendingSummaryReferenceSequenceNumber,
+        pendingSummaryCapture: row.pendingSummaryCapture,
+        pendingSummaryInitialCapture: row.pendingSummaryInitialCapture,
+        pendingSummaryCaptureSourceBehavior:
+          row.pendingSummaryCaptureSourceBehavior,
+        captureEncoderReference: row.captureEncoderReference,
+        retainedEncoderReference: row.retainedEncoderReference,
+        sequencedEncoderReference: row.sequencedEncoderReference,
+        pendingSummaryBinding: row.pendingSummaryBinding,
+        upgradedSummaryVersion: row.version,
+        schemaUpgradeSequenceNumber: row.schemaUpgradeSequenceNumber,
+        acceptedUpgrade: row.acceptedUpgrade,
+        sequencedWriterCheckpoint: row.sequencedWriterCheckpoint,
+        retainedPeerCheckpoint: row.retainedPeerCheckpoint,
+        acceptedRetainedPeer: row.acceptedRetainedPeer,
+        pendingWriterInstanceId: row.pendingWriterInstanceId,
+        pendingWriterCheckpoint: row.pendingWriterCheckpoint,
+        pendingStoredState: row.pendingStoredState,
+        upgradedStoredState: row.upgradedStoredState,
+        summaryKind: row.summaryKind,
+        snapshotSequenceNumber: row.snapshotSequenceNumber,
+        publicationSequenceNumber: row.publicationSequenceNumber,
+        dataEditSequenceNumber: row.dataEditSequenceNumber,
+        replayWatermark: beforeContinuation.sequenceNumber,
+        documentId: row.documentId,
+        loadedVersion: load.loadedVersion,
+        selectedSummaryRequests: load.selectedSummaryRequests,
+        selectedSummaryTreeId: load.selectedSummaryTreeId,
+        selectedTreeRequests: load.selectedTreeRequests,
+        selectedBlobRequests: load.selectedBlobRequests,
+        replayStartSequenceNumber: load.replayStartSequenceNumber,
+        replayEvidence: load.replayEvidence,
+        readerInstanceId: adapter.instanceId,
+      }],
+    };
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    const cleanupErrors = [];
+    if (reader !== "upstream" && adapter) {
+      try {
+        await adapter.close();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const container of containers.toReversed()) {
+      try {
+        if (!container.closed) container.dispose();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      if (failure) failure.cleanupErrors = cleanupErrors;
+      else throw new AggregateError(cleanupErrors, "Schema reader cleanup failed");
+    }
+  }
+}
+
+async function runSchemaWriterRow(config, context, writer) {
+  const containers = [];
+  const natives = [];
+  let failure;
+  try {
+    const creator = await openSession(config, containers, undefined, false, {
+      store: schemaEvolutionServiceStore,
+    });
+    const documentId = creator.container.resolvedUrl.id;
+    await publishUpstreamSummary(
+      config,
+      containers,
+      documentId,
+      `Task 10 ${writer} schema bootstrap`,
+      { store: schemaEvolutionServiceStore },
+    );
+    const upstreamSession = await openSession(
+      config,
+      containers,
+      documentId,
+      writer === "upstream",
+      { store: schemaEvolutionServiceStore },
+    );
+    if (writer === "upstream") {
+      const rootHandle =
+        await upstreamSession.runtime.getAliasedDataStoreEntryPoint(rootDataStoreId);
+      assert(rootHandle, "Upstream summarizer lacks the schema data store");
+      upstreamSession.summarizer = upstreamSession.data.ISummarizer;
+      upstreamSession.data = await rootHandle.get();
+    }
+    const upstream = upstreamAdapter(upstreamSession, schemaEvolutionConfigurations);
+    const observerAdapter = upstreamAdapter(creator, schemaEvolutionConfigurations);
+    const { jwt } = await tokenProvider(config).fetchOrdererToken(
+      config.tenantId,
+      documentId,
+    );
+    for (const target of nativeTargets) {
+      natives.push(await nativeAdapter(target, config, {
+        runId: context.runId,
+        documentId,
+        tenant: config.tenantId,
+        viewSchema: context.schemaViews.v1,
+        viewSchemas: context.schemaViews,
+      }, jwt));
+    }
+    const adapters = {
+      upstream,
+      javascript: natives[0],
+      erlang: natives[1],
+    };
+    await settle(adapters);
+
+    const retainedPeerAuthor = writer === "upstream" ? "javascript" : "upstream";
+    await adapters[retainedPeerAuthor].holdOutbound();
+    await adapters[retainedPeerAuthor].set(["title"], `retained-${writer}`);
+    const retainedPeerCheckpoint = await adapters[retainedPeerAuthor].checkpoint();
+    assert(retainedPeerCheckpoint.pendingTreeCount > 0,
+      `${writer} lacks a retained pre-upgrade peer branch`);
+    await adapters[retainedPeerAuthor].releaseOutbound({
+      order: "fifo",
+      duplicate: false,
+    });
+    const acceptedRetainedPeer = await waitForAuthorSubmission(
+      creator,
+      adapters,
+      retainedPeerAuthor,
+      retainedPeerCheckpoint.sequenceNumber,
+      1,
+    );
+    await Promise.all(implementations.map((target) =>
+      adapters[target].awaitSynced(acceptedRetainedPeer.outerSequenceNumber)));
+    const retainedEncoderReference = pendingSummaryCapture(
+      await adapters[writer].pendingSummaryEvidence(),
+    );
+    assert.equal(
+      retainedEncoderReference.sequenceNumber,
+      acceptedRetainedPeer.outerSequenceNumber,
+      `${writer} retained encoder reference used another sequence point`,
+    );
+
+    await adapters[writer].holdOutbound();
+    await adapters[writer].schemaUpgrade("optional");
+    await adapters[writer].openView("optional");
+    const pending = await adapters[writer].checkpoint();
+    assert(pending.pendingTreeCount > 0, `${writer} schema upgrade was not pending`);
+    const initialPendingCapture = pendingSummaryCapture(
+      await adapters[writer].pendingSummaryEvidence(),
+    );
+    assert.equal(initialPendingCapture.sequenceNumber, pending.sequenceNumber,
+      `${writer} pending summary capture used another sequence point`);
+    await observerAdapter.awaitSynced(pending.sequenceNumber);
+    const captureSequencedCheckpoint = await observerAdapter.checkpoint();
+    const captureEncoderReference = pendingSummaryCapture(
+      await observerAdapter.pendingSummaryEvidence(),
+    );
+    const pendingPublication = await publishPendingSchemaSummary(
+      config,
+      containers,
+      documentId,
+      jwt,
+      writer,
+      adapters,
+      context,
+    );
+    assert(Number.isSafeInteger(pendingPublication.snapshotSequenceNumber),
+    `${writer} pending summary publication lacks a sequence point`);
+    let pendingCapture;
+    let pendingSummaryCaptureSourceBehavior;
+    if (writer === "upstream") {
+      pendingCapture = captureEncoderReference;
+      pendingSummaryCaptureSourceBehavior =
+        "upstream-optimistic-encoder-retained-future-state";
+    } else {
+      pendingCapture = initialPendingCapture;
+      pendingSummaryCaptureSourceBehavior = "stable-reference";
+    }
+    assert(pendingPublication.snapshotSequenceNumber
+      >= pendingCapture.sequenceNumber,
+    `${writer} pending publication preceded the capture reference`);
+    const pendingStoredState = await publishedSchemaSnapshot(
+      config,
+      documentId,
+      jwt,
+      pendingPublication.version,
+    );
+    const pendingSummaryReferenceSequenceNumber = pendingCapture.sequenceNumber;
+    assert(Number.isSafeInteger(pendingSummaryReferenceSequenceNumber),
+      `${writer} pending summary capture lacks a reference sequence number`);
+    assert.deepEqual(JSON.parse(pendingStoredState.schema.content),
+      JSON.parse(context.schemaViews.v1),
+      `${writer} pending summary did not store the sequenced schema`);
+    assert.deepEqual(JSON.parse(pendingStoredState.schema.content),
+      JSON.parse(pendingCapture.schema.content),
+    `${writer} pending publication differs from the captured schema`);
+    const pendingPublicationVerification = await verifyPendingSchemaPublication(
+      config,
+      containers,
+      documentId,
+      pendingPublication.version,
+      pendingPublication.snapshotSequenceNumber,
+    );
+    assert.deepEqual(pendingPublicationVerification.checkpoint.wholeTree,
+      captureSequencedCheckpoint.wholeTree,
+    `${writer} pending publication decoded another sequenced tree state`);
+    assert.deepEqual(
+      pendingPublicationVerification.checkpoint.history.storedSchema,
+      captureSequencedCheckpoint.history.storedSchema,
+    `${writer} pending publication decoded another sequenced schema`);
+    await adapters[writer].releaseOutbound({ order: "fifo", duplicate: false });
+    const acceptedUpgrade = await waitForAuthorSubmission(
+      creator,
+      adapters,
+      writer,
+      pending.sequenceNumber,
+      1,
+    );
+    await adapters[writer].awaitSynced(acceptedUpgrade.outerSequenceNumber);
+    let sequencedWriterCheckpoint;
+    await until(async () => {
+      sequencedWriterCheckpoint = await adapters[writer].checkpoint();
+      return sequencedWriterCheckpoint.sequenceNumber
+          >= acceptedUpgrade.outerSequenceNumber
+        && sequencedWriterCheckpoint.pendingTreeCount === 0;
+    }, `${writer} accepted upgrade reconciliation`);
+    const sequencedEncoderReference = pendingSummaryCapture(
+      await adapters[writer].pendingSummaryEvidence(),
+    );
+    assert(
+      sequencedEncoderReference.sequenceNumber
+        >= acceptedUpgrade.outerSequenceNumber,
+      `${writer} encoder reference preceded the sequenced upgrade`,
+    );
+    const binding = pendingSummaryBinding(
+      pendingCapture,
+      writer === "upstream"
+        ? captureEncoderReference
+        : retainedEncoderReference,
+      sequencedEncoderReference,
+    );
+    await Promise.all(implementations.map((target) => adapters[target].awaitSynced()));
+    const settledUpgrade = await adapters[writer].checkpoint();
+    assert(settledUpgrade.sequenceNumber > pendingSummaryReferenceSequenceNumber,
+      `${writer} schema upgrade did not sequence after the pending summary`);
+    await Promise.all(implementations.map((target) =>
+      adapters[target].openView("optional")));
+    await adapters[writer].set(["score"], 10 + implementations.indexOf(writer));
+    await settle(adapters);
+
+    const tailNote = `schema-tail-${writer}`;
+    await adapters[writer].set(["note"], tailNote);
+    const tailCheckpoint = await settle(adapters);
+    const commonRow = {
+      writer,
+      documentId,
+      jwt,
+      observerAdapter,
+      tailNote,
+      retainedPeer: true,
+      retainedPeerAuthor,
+      retainedPeerCheckpoint,
+      acceptedRetainedPeer,
+      pendingSummaryUsedSequencedSchema: true,
+      pendingSummaryVersion: pendingPublication.version,
+      pendingSummaryPublication: pendingPublication,
+      pendingPublicationVerification,
+      captureSequencedCheckpoint,
+      pendingSummaryReferenceSequenceNumber,
+      pendingSummaryCapture: pendingCapture,
+      pendingSummaryInitialCapture: initialPendingCapture,
+      pendingSummaryCaptureSourceBehavior,
+      captureEncoderReference,
+      retainedEncoderReference,
+      sequencedEncoderReference,
+      pendingSummaryBinding: binding,
+      schemaUpgradeSequenceNumber: acceptedUpgrade.outerSequenceNumber,
+      acceptedUpgrade,
+      sequencedWriterCheckpoint,
+      pendingWriterInstanceId: adapters[writer].instanceId,
+      pendingWriterCheckpoint: pending,
+      pendingStoredState,
+      replayWatermark: tailCheckpoint.observations[0].sequenceNumber,
+    };
+    const earlierRow = {
+      ...commonRow,
+      summaryKind: "earlier-summary-upgrade-tail",
+      upgradedStoredState: pendingStoredState,
+      version: pendingPublication.version,
+      snapshotSequenceNumber: pendingPublication.snapshotSequenceNumber,
+      publicationSequenceNumber: pendingPublication.publicationSequenceNumber,
+      dataEditSequenceNumber: acceptedRetainedPeer.outerSequenceNumber,
+      tailSequenceNumber: tailCheckpoint.observations[0].sequenceNumber,
+    };
+    const earlierSummary = {};
+    for (const reader of implementations) {
+      earlierSummary[reader] = await schemaReader(config, context, earlierRow, reader);
+    }
+    const publication = await publishWriterSummary(
+      config,
+      containers,
+      creator,
+      documentId,
+      jwt,
+      writer,
+      adapters,
+      {
+        store: schemaEvolutionServiceStore,
+        tailEdit: (adapter) => adapter.set(
+          ["note"],
+          `${tailNote}-post-summary`,
+        ),
+      },
+    );
+    const upgradedStoredState = await publishedSchemaSnapshot(
+      config,
+      documentId,
+      jwt,
+      publication.version,
+    );
+    assert.deepEqual(JSON.parse(upgradedStoredState.schema.content),
+      JSON.parse(context.schemaViews.optional),
+      `${writer} upgraded summary did not store the upgraded schema`);
+    assert(upgradedStoredState.forest.blobs.some(({ content }) =>
+      content.includes(`retained-${writer}`)),
+    `${writer} upgraded summary omitted the retained peer value`);
+    for (const item of Object.values(earlierSummary)) {
+      item.observations[0].upgradedStoredState = upgradedStoredState;
+      item.observations[0].upgradedSummaryVersion = publication.version;
+    }
+    const retainedPeerRevisions = retainedPeerCheckpoint.history?.pending?.map(
+      ({ revision }) => String(revision),
+    ) ?? [];
+    assert(acceptedRetainedPeer,
+      `${writer} retained peer commit is missing from accepted history: ${JSON.stringify({
+        retainedPeerAuthor,
+        retainedPeerRevisions,
+        clientIds: [...adapters[retainedPeerAuthor].clientIds],
+      })}`);
+    for (const native of natives.toReversed()) await native.close();
+    natives.length = 0;
+    if (!upstream.session.container.closed) upstream.session.container.dispose();
+
+    const row = {
+      ...commonRow,
+      summaryKind: "post-upgrade",
+      tailNote: `${tailNote}-post-summary`,
+      upgradedStoredState,
+      version: publication.version,
+      snapshotSequenceNumber: publication.snapshotSequenceNumber,
+      publicationSequenceNumber: publication.publicationSequenceNumber,
+      dataEditSequenceNumber: publication.dataEditSequenceNumber,
+      tailSequenceNumber: publication.dataEditSequenceNumber,
+      replayWatermark: publication.publicationSequenceNumber,
+    };
+    const postUpgrade = {};
+    for (const reader of implementations) {
+      postUpgrade[reader] = await schemaReader(config, context, row, reader);
+    }
+    return { postUpgrade, earlierSummary };
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    const cleanupErrors = [];
+    for (const native of natives.toReversed()) {
+      try {
+        await native.close();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const container of containers.toReversed()) {
+      try {
+        if (!container.closed) container.dispose();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      if (failure) failure.cleanupErrors = cleanupErrors;
+      else throw new AggregateError(cleanupErrors, "Schema writer cleanup failed");
+    }
+  }
+}
+
+export async function runSchemaReloadMatrix(config, context, {
+  runRow = runSchemaWriterRow,
 } = {}) {
-  assert(typeof context?.runId === "string" && context.runId.length > 0,
-    "runArrayReloadMatrix context requires runId");
-  assert(typeof context.profileDigest === "string"
-    && /^[0-9a-f]{64}$/.test(context.profileDigest),
-  "runArrayReloadMatrix context requires profileDigest");
-  assert(typeof context.arrayViewSchema === "string" && context.arrayViewSchema.length > 0,
-    "runArrayReloadMatrix context requires arrayViewSchema");
-  assert(typeof context.artifactDirectory === "string"
-    && context.artifactDirectory.length > 0,
-  "runArrayReloadMatrix context requires artifactDirectory");
-  const executeRow = runRow ?? runArrayWriterRow;
   const results = {};
   for (const writer of implementations) {
-    results[writer] = await executeRow(config, context, writer);
+    const row = await runRow(config, context, writer);
+    results[writer] = row.postUpgrade ?? row;
   }
-  return validateArrayResults(results);
+  return results;
+}
+
+export async function runSchemaReloadMatrices(config, context, {
+  runRow = runSchemaWriterRow,
+} = {}) {
+  const postUpgrade = {};
+  const earlierSummary = {};
+  for (const writer of implementations) {
+    const row = await runRow(config, context, writer);
+    postUpgrade[writer] = row.postUpgrade;
+    earlierSummary[writer] = row.earlierSummary;
+  }
+  return { postUpgrade, earlierSummary };
 }
 
 export async function runService(config) {

@@ -1,42 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  continueArrayReader,
-  loadRequests, mapEntryMatches, readCell, runArrayReloadMatrix, runArtifactInterop,
-  restoreArrayReader,
-  runMapReloadMatrix, runReloadMatrix, validateArrayResults, validateMapResults,
-  validateResults, validateSummaryArtifact,
+  loadRequests, mapEntryMatches, readCell, runArtifactInterop, runMapReloadMatrix,
+  runReloadMatrix, runSchemaReloadMatrix, validateMapResults, validateResults,
+  validateSchemaReloadResults, validateSummaryArtifact,
 } from "./summary-interop.mjs";
-
-test("array reader continuation preserves pre-existing right-side tail values", async () => {
-  const initial = {
-    left: [
-      { label: "duplicate", x: 1 },
-      { label: "duplicate", x: 1 },
-      [{ label: "nested", x: 2 }],
-    ],
-    right: [
-      { inside: { label: "map-child", x: 3 } },
-      { label: "moved", x: 4 },
-      { label: "after-summary", x: 7 },
-    ],
-  };
-  const state = structuredClone(initial);
-  const adapter = {
-    async arrayMove(sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) {
-      const source = state[sourcePath[0]];
-      const destination = state[destinationPath[0]];
-      destination.splice(destinationGap, 0, ...source.splice(sourceStart, sourceEnd - sourceStart));
-    },
-    async set(path, value) {
-      state[path[0]][Number(path[1])][path[2]] = value;
-    },
-  };
-  await continueArrayReader(adapter, "continued");
-  assert.deepEqual(state.right.at(-1), initial.right.at(-1));
-  await restoreArrayReader(adapter);
-  assert.deepEqual(state, initial);
-});
 
 const implementations = ["upstream", "javascript", "erlang"];
 const reference = {
@@ -158,142 +126,6 @@ const mapCells = Object.fromEntries(implementations.map((writer, writerIndex) =>
     },
   ])),
 ]));
-const arrayPoint = (label, x) => ({
-  kind: "object",
-  schemaId: "org.watershed.shared-tree.m3.Point",
-  fields: [
-    ["label", { kind: "string", value: label }],
-    ["x", { kind: "number", value: x }],
-  ],
-});
-const removedArrayPoint = () => ({
-  type: "org.watershed.shared-tree.m3.Point",
-  fields: {
-    label: [{ type: "com.fluidframework.leaf.string", value: "deleted" }],
-    x: [{ type: "com.fluidframework.leaf.number", value: 9 }],
-  },
-});
-const nativeRemovedArrayPoint = () => ({
-  kind: "object",
-  schemaId: "org.watershed.shared-tree.m3.Point",
-  fields: [
-    ["label", { kind: "string", value: "deleted" }],
-    ["x", { kind: "number", value: 9 }],
-  ],
-});
-const arrayValue = (elements) => ({
-  kind: "array",
-  schemaId: "org.watershed.shared-tree.m3.Items",
-  elements,
-});
-const arrayMap = (entries) => ({
-  kind: "map",
-  schemaId: "org.watershed.shared-tree.m3.ArrayMap",
-  entries,
-});
-const arrayTree = (writer, continuationLabel = undefined) => ({
-  present: true,
-  value: {
-    kind: "object",
-    schemaId: "org.watershed.shared-tree.m3.Root",
-    fields: [
-      ["byKey", arrayMap([
-        ["", arrayValue([])],
-        ["0", arrayValue([arrayPoint("numeric", 0)])],
-      ])],
-      ["left", arrayValue([
-        ...(continuationLabel ? [arrayPoint(continuationLabel, 42)] : []),
-        arrayPoint("duplicate", 1),
-        arrayPoint("duplicate", 1),
-        arrayValue([arrayPoint("nested", 2)]),
-      ])],
-      ["narrow", {
-        kind: "array",
-        schemaId: "org.watershed.shared-tree.m3.Points",
-        elements: [],
-      }],
-      ["right", arrayValue([
-        arrayMap([["inside", arrayPoint("map-child", 3)]]),
-        ...(continuationLabel ? [] : [arrayPoint("moved", 4)]),
-        arrayPoint(`after-summary-${writer}`, 7),
-      ])],
-    ],
-  },
-});
-const arrayCells = Object.fromEntries(implementations.map((writer, writerIndex) => [
-  writer,
-  Object.fromEntries(implementations.map((reader, readerIndex) => [
-    reader,
-    {
-      runId: "run",
-      profileDigest: "a".repeat(64),
-      profile: "array",
-      writer,
-      reader,
-      writerVersion: `${writer}-array-commit`,
-      loadedVersion: `${writer}-array-commit`,
-      readerInstanceId: `${writer}-${reader}-array-reader`,
-      snapshotSequenceNumber: 40 + writerIndex,
-      dataEditSequenceNumber: 44 + writerIndex,
-      publicationSequenceNumber: 48 + writerIndex,
-      tailSequenceNumber: 52 + writerIndex,
-      replayWatermark: 56 + readerIndex,
-      replayStartSequenceNumber: 40 + writerIndex,
-      replayEvidence: reader === "upstream"
-        ? "upstream-delta-storage"
-        : "native-handshake",
-      selectedSummaryRequests: [`${writer}-array-commit`],
-      scenarioId: "array-summary-tail-retained",
-      loaded: true,
-      tailObserved: true,
-      continuedEditing: true,
-      peerObservedEdit: true,
-      pendingTreeCount: 0,
-      inflightSubmissionCount: 0,
-      wholeTree: arrayTree(writer),
-      continuationTree: arrayTree(writer, `${writer}-${reader}-continuation`),
-      peerWholeTree: arrayTree(writer, `${writer}-${reader}-continuation`),
-      continuationLabel: `${writer}-${reader}-continuation`,
-      retained: {
-        removed: [[1027, 4, reader === "upstream"
-          ? removedArrayPoint()
-          : nativeRemovedArrayPoint()]],
-        reader: reader,
-        readerInstanceId: `${writer}-${reader}-array-reader`,
-        source: reader === "upstream"
-          ? "upstream-runtime-and-wire"
-          : "native-runtime-snapshot",
-        loadedVersion: `${writer}-array-commit`,
-        snapshotSequenceNumber: 40 + writerIndex,
-        sequenceNumber: 56 + readerIndex,
-        selectedVersion: `${writer}-array-commit`,
-        history: [{
-          revision: 1,
-          originatorId: `${reader}-originator`,
-          changes: [{
-            moveOut: { id: 0 },
-            moveIn: { id: 0 },
-          }],
-        }],
-        moveIdentity: {
-          revision: 1,
-          originatorId: `${reader}-originator`,
-          moveOut: [{ id: 0, revision: 1 }],
-          moveIn: [{ id: 0, revision: 1 }],
-        },
-        childEditObserved: true,
-        summaryConsumed: true,
-      },
-      continuationIdentity: {
-        clientId: `${reader}-client`,
-        referenceSequenceNumber: 52 + writerIndex,
-        revisions: [{ revision: 1, originatorId: `${reader}-originator` }],
-      },
-      documentId: `${writer}-array-document`,
-      artifacts: [`array-reload/${writer}-${reader}.json`],
-    },
-  ])),
-]));
 
 test("reload matrix rejects unmeasured selected-summary loads", () => {
   assert.equal(Object.keys(validateResults(cells)).length, 3);
@@ -385,87 +217,6 @@ test("map continuation observation requires the exact value", () => {
   }), false);
 });
 
-test("array reload matrix requires nine exact tail and continuation cells", () => {
-  assert.equal(Object.keys(validateArrayResults(arrayCells)).length, 3);
-  for (const [label, mutation] of [
-    ["missing cell", (copy) => { delete copy.upstream.javascript; }],
-    ["wrong profile", (copy) => { copy.upstream.javascript.profile = "map"; }],
-    ["reordered array", (copy) => {
-      copy.upstream.javascript.wholeTree.value.fields[1][1].elements.reverse();
-    }],
-    ["missing tail", (copy) => { copy.upstream.javascript.tailObserved = false; }],
-    ["missing retained history", (copy) => {
-      copy.upstream.javascript.retained.removed = [];
-    }],
-    ["wrong retained version", (copy) => {
-      copy.upstream.javascript.retained.selectedVersion = "other";
-    }],
-    ["missing move identity", (copy) => {
-      delete copy.upstream.javascript.retained.moveIdentity;
-    }],
-    ["mismatched move atom", (copy) => {
-      copy.upstream.javascript.retained.moveIdentity.moveIn[0].id = 1;
-    }],
-    ["missing move revision", (copy) => {
-      delete copy.upstream.javascript.retained.moveIdentity.moveOut[0].revision;
-    }],
-    ["corrupt continuation", (copy) => {
-      copy.upstream.javascript.peerWholeTree.value.fields[3][1].elements[1]
-        .fields[1][1].value = 41;
-    }],
-  ]) {
-    const copy = structuredClone(arrayCells);
-    mutation(copy);
-    assert.throws(() => validateArrayResults(copy), undefined, label);
-  }
-});
-
-test("array reload retained evidence is required for every reader", () => {
-  for (const writer of implementations) {
-    for (const reader of implementations) {
-      for (const [label, mutation, message] of [
-        ["removed content", (retained) => { retained.removed = []; },
-          /retained deleted content/i],
-        ["persisted history", (retained) => { retained.history = []; },
-          /retained summary history/i],
-      ]) {
-        const copy = structuredClone(arrayCells);
-        mutation(copy[writer][reader].retained);
-        assert.throws(
-          () => validateArrayResults(copy),
-          message,
-          `${writer}->${reader} ${label}`,
-        );
-      }
-    }
-  }
-});
-
-test("array reload binds retained evidence to the loaded reader and summary", () => {
-  for (const [label, mutation] of [
-    ["wrong reader", (cell) => { cell.retained.reader = "upstream"; }],
-    ["wrong reader instance", (cell) => {
-      cell.retained.readerInstanceId = "another-reader";
-    }],
-    ["wrong evidence source", (cell) => {
-      cell.retained.source = "upstream-runtime-snapshot";
-    }],
-    ["wrong loaded version", (cell) => {
-      cell.retained.loadedVersion = "another-version";
-    }],
-    ["wrong snapshot sequence", (cell) => {
-      cell.retained.snapshotSequenceNumber -= 1;
-    }],
-    ["evidence before load checkpoint", (cell) => {
-      cell.retained.sequenceNumber = cell.snapshotSequenceNumber - 1;
-    }],
-  ]) {
-    const copy = structuredClone(arrayCells);
-    mutation(copy.upstream.javascript);
-    assert.throws(() => validateArrayResults(copy), undefined, label);
-  }
-});
-
 test("native replay start prefers delivered operations over stale handshake context", () => {
   const version = "selected-version";
   const load = loadRequests({
@@ -488,6 +239,8 @@ test("native replay start prefers delivered operations over stale handshake cont
   assert.deepEqual(load, {
     loadedVersion: version,
     selectedSummaryRequests: [version],
+    selectedTreeRequests: ["tree"],
+    selectedBlobRequests: ["blob"],
     replayStartSequenceNumber: 129,
     replayEvidence: "native-delivery",
   });
@@ -715,31 +468,423 @@ test("map reload runner returns one row for every writer", async () => {
       return structuredClone(mapCells[writer]);
     },
   });
-
-  test("array reload runner requires the array schema and returns every writer row", async () => {
-    await assert.rejects(
-      runArrayReloadMatrix({}, {
-        runId: "run",
-        profileDigest: "a".repeat(64),
-        artifactDirectory: "/tmp",
-      }),
-      /runArrayReloadMatrix context requires arrayViewSchema/,
-    );
-    const seen = [];
-    const result = await runArrayReloadMatrix({}, {
-      runId: "run",
-      profileDigest: "a".repeat(64),
-      arrayViewSchema: "array-schema",
-      artifactDirectory: "/tmp",
-    }, {
-      runRow: async (_config, _context, writer) => {
-        seen.push(writer);
-        return structuredClone(arrayCells[writer]);
-      },
-    });
-    assert.deepEqual(seen, implementations);
-    assert.deepEqual(result, arrayCells);
-  });
   assert.deepEqual(seen, implementations);
   assert.deepEqual(result, mapCells);
+});
+
+test("schema reload matrix requires all nine continued-write cells", () => {
+  const matrix = Object.fromEntries(implementations.map((writer) => [
+    writer,
+    Object.fromEntries(implementations.map((reader) => [
+      reader,
+      {
+        writer,
+        reader,
+        skipped: false,
+        observations: [{
+          compatibility: {
+            canView: true,
+            canUpgrade: false,
+            isEquivalent: true,
+          },
+          openedView: "optional",
+          continuedEditing: true,
+          peerObservedEdit: true,
+          summaryConsumed: true,
+          replayedTail: true,
+          retainedPeer: true,
+          pendingSummaryUsedSequencedSchema: true,
+          pendingSummaryVersion: `${writer}-baseline-summary`,
+          pendingSummaryPublication: {
+            version: `${writer}-baseline-summary`,
+            snapshotSequenceNumber: 40,
+            publicationSequenceNumber: 41,
+          },
+          pendingPublicationVerification: {
+            checkpoint: {
+              wholeTree: { value: { title: `retained-${writer}` } },
+              history: { storedSchema: "v1" },
+            },
+            load: {
+              selectedSummaryRequests: [`${writer}-baseline-summary`],
+            },
+          },
+          captureSequencedCheckpoint: {
+            wholeTree: { value: { title: `retained-${writer}` } },
+            history: { storedSchema: "v1" },
+          },
+          pendingSummaryReferenceSequenceNumber: 40,
+          pendingSummaryCapture: {
+            sequenceNumber: 40,
+            schema: { content: "\"v1\"" },
+            forest: [{ content: "{}" }],
+          },
+          pendingSummaryInitialCapture: {
+            sequenceNumber: 40,
+            schema: {
+              content: writer === "upstream" ? "\"optional\"" : "\"v1\"",
+            },
+            forest: [{ content: "{}" }],
+          },
+          pendingSummaryCaptureSourceBehavior: writer === "upstream"
+            ? "upstream-optimistic-encoder-retained-future-state"
+            : "stable-reference",
+          captureEncoderReference: {
+            sequenceNumber: 40,
+            schema: { content: "\"v1\"" },
+            forest: [{ content: "{}" }],
+          },
+          retainedEncoderReference: {
+            sequenceNumber: 40,
+            schema: { content: "\"v1\"" },
+            forest: [{ content: "{}" }],
+          },
+          sequencedEncoderReference: {
+            sequenceNumber: 41,
+            schema: { content: "\"optional\"" },
+            forest: [{ content: "{\"schema\":\"optional\"}" }],
+          },
+          pendingSummaryBinding: {
+            schema: "sequenced-at-capture",
+            forest: "sequenced-at-capture",
+            captureSequenceNumber: 40,
+            upgradeSequenceNumber: 41,
+          },
+          upgradedSummaryVersion: `${writer}-summary`,
+          schemaUpgradeSequenceNumber: 41,
+          snapshotSequenceNumber: 42,
+          acceptedUpgrade: {
+            outerSequenceNumber: 41,
+            commits: [{
+              revision: `${writer}-upgrade`,
+              changeset: [{ schema: { old: "v1", new: "optional" } }],
+            }],
+          },
+          sequencedWriterCheckpoint: {
+            sequenceNumber: 41,
+            pendingTreeCount: 0,
+          },
+          retainedPeerAuthor: writer === "upstream" ? "javascript" : "upstream",
+          retainedPeerCheckpoint: {
+            history: {
+              pending: [{
+                revision: `${writer}-retained`,
+                originatorId: `${writer}-peer-origin`,
+                changeset: {
+                  changeCount: 1,
+                  raw: [{
+                    data: {
+                      path: ["title"],
+                      value: `retained-${writer}`,
+                    },
+                  }],
+                },
+              }],
+            },
+          },
+          acceptedRetainedPeer: {
+            outerSequenceNumber: 40,
+            commits: [{
+              revision: `${writer}-retained`,
+              originatorId: `${writer}-peer-origin`,
+              changeset: [{
+                data: { path: ["title"], value: `retained-${writer}` },
+              }],
+            }],
+          },
+          pendingWriterInstanceId: `${writer}-writer`,
+          pendingWriterCheckpoint: {
+            history: {
+              pending: [{
+                revision: `${writer}-upgrade`,
+                changeset: {
+                  changeCount: 1,
+                  raw: { changes: [{ type: "schema" }] },
+                },
+              }],
+            },
+          },
+          pendingStoredState: {
+            version: `${writer}-baseline-summary`,
+            rootTreeId: `${writer}-root-tree`,
+            treeIds: [`${writer}-root-tree`, `${writer}-schema-tree`],
+            schema: {
+              path: ".app/.channels/A/.channels/_C/indexes/Schema/SchemaString",
+              id: `${writer}-schema-blob`,
+              byteLength: 4,
+              hash: "a".repeat(64),
+              content: "\"v1\"",
+            },
+            forest: {
+              path: ".app/.channels/A/.channels/_C/indexes/Forest",
+              treeId: `${writer}-schema-tree`,
+              blobs: [{
+                path: ".app/.channels/A/.channels/_C/indexes/Forest/String",
+                id: `${writer}-forest-blob`,
+                byteLength: 2,
+                hash: "b".repeat(64),
+                content: "{}",
+              }],
+            },
+          },
+          upgradedStoredState: {
+            version: `${writer}-summary`,
+            rootTreeId: `${writer}-tree`,
+            treeIds: [`${writer}-tree`],
+            blobIds: [
+              `${writer}-upgraded-schema-blob`,
+              `${writer}-upgraded-forest-blob`,
+            ],
+              schema: {
+                id: `${writer}-upgraded-schema-blob`,
+                content: "\"optional\"",
+              },
+              forest: {
+              blobs: [{
+                id: `${writer}-upgraded-forest-blob`,
+                content: `{"title":"retained-${writer}"}`,
+              }],
+            },
+          },
+          summaryKind: "post-upgrade",
+          beforeContinuation: {
+            history: {
+              pending: [],
+              trunk: [
+                {
+                  revision: `${writer}-retained`,
+                  changeset: {
+                    changeCount: 1,
+                    raw: {
+                      changes: [{
+                        type: "data",
+                        innerChange: {
+                          path: ["title"],
+                          value: `retained-${writer}`,
+                        },
+                      }],
+                    },
+                  },
+                },
+                {
+                  revision: `${writer}-upgrade`,
+                  changeset: {
+                    changeCount: 1,
+                    raw: {
+                      changes: [{
+                        type: "schema",
+                        innerChange: {
+                          schema: { old: "v1", new: "optional" },
+                        },
+                      }],
+                    },
+                  },
+                },
+              ],
+            },
+            wholeTree: {
+              value: {
+                fields: [[
+                  "title",
+                  { kind: "string", value: `retained-${writer}` },
+                ]],
+              },
+            },
+          },
+          freshLoadCheckpoint: {
+            history: {
+              pending: [],
+              trunk: [
+                {
+                  revision: `${writer}-retained`,
+                  changeset: {
+                    changeCount: 1,
+                    raw: {
+                      changes: [{
+                        type: "data",
+                        innerChange: {
+                          path: ["title"],
+                          value: `retained-${writer}`,
+                        },
+                      }],
+                    },
+                  },
+                },
+                {
+                  revision: `${writer}-upgrade`,
+                  changeset: {
+                    changeCount: 1,
+                    raw: {
+                      changes: [{
+                        type: "schema",
+                        innerChange: {
+                          schema: { old: "v1", new: "optional" },
+                        },
+                      }],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+          documentId: `${writer}-document`,
+          loadedVersion: `${writer}-summary`,
+          selectedSummaryRequests: [`${writer}-summary`],
+          selectedSummaryTreeId: `${writer}-tree`,
+          selectedTreeRequests: [`${writer}-tree`],
+          selectedBlobRequests: reader === "upstream"
+            ? [{
+              id: `${writer}-upgraded-schema-blob`,
+              byteLength: 100,
+              hash: "b".repeat(64),
+            }]
+            : [`${writer}-upgraded-schema-blob`],
+          replayStartSequenceNumber: 40,
+          replayWatermark: 42,
+          replayEvidence: reader === "upstream"
+            ? "upstream-delta-storage"
+            : "native-handshake",
+          readerInstanceId: `${writer}-${reader}-reader`,
+        }],
+      },
+    ])),
+  ]));
+  assert.equal(validateSchemaReloadResults(matrix), matrix);
+  const escapedQuoteHistory = structuredClone(matrix);
+  const escapedQuoteChangeset = {
+    changeCount: 1,
+    raw: 'Changeset([DataChange(Changeset(ChangeData('
+      + '2, [], [#("title", OptionalField(FieldChange([], [], '
+      + "Some(Replacement(False, Some(Detached(AtomId(None, 0))), "
+      + "AtomId(None, 1))))))], [], [], [], "
+      + '[Build(AtomId(None, 0), [StringValue("quoted \\"value, still text")])], '
+      + "[], []), IdentityOrder([])))])",
+  };
+  for (const checkpoint of [
+    escapedQuoteHistory.upstream.javascript.observations[0].freshLoadCheckpoint,
+    escapedQuoteHistory.upstream.javascript.observations[0].beforeContinuation,
+  ]) {
+    checkpoint.history.trunk = [
+      {
+        revision: "escaped-quote",
+        changeset: escapedQuoteChangeset,
+      },
+      checkpoint.history.trunk[1],
+    ];
+  }
+  assert.equal(
+    validateSchemaReloadResults(escapedQuoteHistory),
+    escapedQuoteHistory,
+  );
+  const upgradeableEquivalent = structuredClone(matrix);
+  for (const row of Object.values(upgradeableEquivalent)) {
+    for (const cell of Object.values(row)) {
+      cell.observations[0].compatibility.canUpgrade = true;
+    }
+  }
+  assert.equal(
+    validateSchemaReloadResults(upgradeableEquivalent),
+    upgradeableEquivalent,
+  );
+  for (const mutate of [
+    (copy) => { delete copy.javascript.erlang; },
+    (copy) => { copy.erlang.upstream.observations = []; },
+    (copy) => { copy.upstream.javascript.skipped = true; },
+    (copy) => {
+      copy.javascript.upstream.observations[0].continuedEditing = false;
+    },
+    (copy) => {
+      delete copy.upstream.javascript.observations[0].pendingWriterInstanceId;
+    },
+    (copy) => {
+      copy.upstream.javascript.observations[0]
+        .pendingWriterCheckpoint.history.pending = [];
+    },
+    (copy) => {
+      copy.upstream.javascript.observations[0].pendingStoredState.version =
+        "another-summary";
+    },
+    (copy) => {
+      copy.upstream.javascript.observations[0]
+        .pendingStoredState.schema.content = "{\"wrong\":true}";
+    },
+    (copy) => {
+      copy.upstream.javascript.observations[0].acceptedUpgrade.commits = [];
+    },
+    (copy) => {
+      copy.upstream.javascript.observations[0].selectedTreeRequests = [];
+    },
+    (copy) => {
+      copy.upstream.javascript.observations[0].selectedBlobRequests = [];
+    },
+    (copy) => {
+      copy.upstream.javascript.observations[0]
+        .retainedPeerCheckpoint.history.pending = [];
+    },
+    (copy) => {
+      copy.upstream.javascript.observations[0]
+        .acceptedRetainedPeer.commits[0].changeset = [];
+    },
+    (copy) => {
+      delete copy.upstream.javascript.observations[0].beforeContinuation.history;
+    },
+    (copy) => {
+      copy.upstream.javascript.observations[0].freshLoadCheckpoint.history.trunk = [];
+    },
+    (copy) => {
+      copy.upstream.javascript.observations[0].retainedPeerAuthor = "erlang";
+    },
+    (copy) => {
+      copy.upstream.javascript.observations[0]
+        .pendingWriterCheckpoint.history.pending[0] = {
+          revision: "wrong-pending",
+          changeset: { changeCount: 1, raw: { changes: [{ type: "data" }] } },
+        };
+    },
+    (copy) => {
+      copy.upstream.javascript.observations[0].pendingSummaryBinding =
+        { schema: "other", forest: "baseline" };
+    },
+    (copy) => {
+      const observation = copy.upstream.javascript.observations[0];
+      observation.pendingSummaryCapture =
+        structuredClone(observation.sequencedEncoderReference);
+      observation.pendingSummaryCapture.sequenceNumber =
+        observation.pendingSummaryReferenceSequenceNumber;
+      observation.pendingSummaryBinding = {
+        schema: "upgrade-sequenced",
+        forest: "upgrade-sequenced",
+        captureSequenceNumber: 40,
+        upgradeSequenceNumber: 41,
+      };
+    },
+    (copy) => {
+      copy.upstream.javascript.observations[0].selectedTreeRequests =
+        ["unrelated-tree"];
+    },
+    (copy) => {
+      copy.upstream.javascript.observations[0].selectedBlobRequests =
+        ["unrelated-blob"];
+    },
+  ]) {
+    const copy = structuredClone(matrix);
+    mutate(copy);
+    assert.throws(() => validateSchemaReloadResults(copy));
+  }
+});
+
+test("schema reload runner executes one row for every writer", async () => {
+  const seen = [];
+  const result = await runSchemaReloadMatrix({}, {}, {
+    runRow: async (_config, _context, writer) => {
+      seen.push(writer);
+      return { writer };
+    },
+  });
+  assert.deepEqual(seen, implementations);
+  assert.deepEqual(result, {
+    upstream: { writer: "upstream" },
+    javascript: { writer: "javascript" },
+    erlang: { writer: "erlang" },
+  });
 });

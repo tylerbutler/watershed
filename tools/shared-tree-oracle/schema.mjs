@@ -193,3 +193,12 @@ export const schemaEvolutionConfigurations = {
   narrow: narrowSchemaEvolutionSchema(),
   "new-required": schemaEvolutionSchema({ requiredScore: true }),
 };
+
+export function initialSchemaEvolutionRoot() {
+  const { Root, Point, Items } = schemaEvolutionConfigurations.v1;
+  return new Root({
+    title: "",
+    point: new Point({ x: 0, y: 0 }),
+    items: new Items([]),
+  });
+}

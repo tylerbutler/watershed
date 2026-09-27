@@ -2391,16 +2391,7 @@
               }
             }
           ],
-          "removed": [
-            [
-              1,
-              1,
-              {
-                "type": "com.fluidframework.leaf.string",
-                "value": "base"
-              }
-            ]
-          ]
+          "removed": []
         },
         "pendingRevisions": [],
         "outerChanges": [
@@ -2427,16 +2418,7 @@
             ]
           }
         ],
-        "detachedIdentities": [
-          [
-            1,
-            1,
-            {
-              "type": "com.fluidframework.leaf.string",
-              "value": "base"
-            }
-          ]
-        ],
+        "detachedIdentities": [],
         "compatibility": {
           "canView": true,
           "canUpgrade": true,

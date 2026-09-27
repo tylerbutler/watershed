@@ -30,7 +30,9 @@ import {
   initialArrayRoot,
   initialMapRoot,
   initialRoot,
+  initialSchemaEvolutionRoot,
   mapTreeConfig,
+  schemaEvolutionConfigurations,
   treeConfig,
 } from "./schema.mjs";
 import {
@@ -122,6 +124,10 @@ function createServiceStore(config, initialRoot) {
 export const serviceStore = createServiceStore(treeConfig, initialRoot);
 export const mapServiceStore = createServiceStore(mapTreeConfig, initialMapRoot);
 export const arrayServiceStore = createServiceStore(arrayTreeConfig, initialArrayRoot);
+export const schemaEvolutionServiceStore = createServiceStore(
+  schemaEvolutionConfigurations.v1.config,
+  initialSchemaEvolutionRoot,
+);
 
 export function serviceConfig(environment = process.env) {
   const secret = environment.FLOODGATE_JWT_SECRET;

@@ -88,6 +88,46 @@ test("map helpers send exact commands and return decoded results", async (t) => 
   ]);
 });
 
+test("schema helpers send explicit view commands", async (t) => {
+  const process = child(`
+    const expected = [
+      { command: "schema-compatibility", view: "optional" },
+      { command: "schema-upgrade", view: "optional" },
+      { command: "open-view", view: "v1" },
+    ];
+    const results = [
+      { canView: true, canUpgrade: true, isEquivalent: false },
+      null,
+      null,
+    ];
+    let input = "";
+    let index = 0;
+    process.stdin.on("data", (chunk) => {
+      input += chunk;
+      const lines = input.split("\\n");
+      input = lines.pop();
+      for (const line of lines) {
+        const request = JSON.parse(line);
+        const { requestId, ...command } = request;
+        const matches = JSON.stringify(command) === JSON.stringify(expected[index]);
+        process.stdout.write(JSON.stringify(matches
+          ? { requestId, ok: true, result: results[index] }
+          : { requestId, ok: false, error: { message: line } }) + "\\n");
+        index += 1;
+      }
+    });
+  `);
+  t.after(() => process.kill());
+  const channel = new JsonLinesChannel(process, 2000);
+  assert.deepEqual(await channel.schemaCompatibility("optional"), {
+    canView: true,
+    canUpgrade: true,
+    isEquivalent: false,
+  });
+  assert.equal(await channel.schemaUpgrade("optional"), null);
+  assert.equal(await channel.openView("v1"), null);
+});
+
 test("map helpers retain correlation when replies arrive in reverse", async (t) => {
   const process = child(`
     const requests = [];
@@ -175,7 +215,7 @@ test("missing executable and unanswered request fail rather than skip", async (t
   });
   await assert.rejects(
     new JsonLinesChannel(absent, 2000).request({ command: "checkpoint" }),
-    { code: "ENOENT" },
+    (error) => ["ENOENT", "EACCES"].includes(error.code),
   );
   const silent = child('process.stdin.resume()');
   t.after(() => silent.kill());

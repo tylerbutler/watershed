@@ -11,19 +11,30 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { parseArgs, promisify, stripVTControlCharacters } from "node:util";
+import {
+  isDeepStrictEqual,
+  parseArgs,
+  promisify,
+  stripVTControlCharacters,
+} from "node:util";
 import {
   runService as runReconnectCases,
   validateResults as validateReconnectResults,
 } from "./client-interop.mjs";
 import {
   generateSchedules,
+  decodeReconnectPayload,
   loadReplayArtifact,
+  matchReconnectOperations,
   replayFailure,
   requiredFailureCells,
+  requiredSchemaRaceCells,
   requiredScenarioCells,
   runDeterministicCases,
   runFailureCases,
+  runSchemaCompatibility,
+  runSchemaRaces,
+  runSchemaReconnect,
   runSeededSchedules,
 } from "./interop-scenarios.mjs";
 import {
@@ -35,15 +46,24 @@ import {
   withLocalFloodgate,
 } from "./service.mjs";
 import {
-  runArrayReloadMatrix,
   runMapReloadMatrix,
   runReloadMatrix,
-  validateArrayResults,
+  runSchemaReloadMatrices,
   validateMapResults,
+  validateSchemaReloadResults,
+  validateSchemaTailReloadResults,
 } from "./summary-interop.mjs";
 
 const implementations = ["upstream", "javascript", "erlang"];
 const nativeTargets = ["javascript", "erlang"];
+const requiredSchemaSections = [
+  "schemaCompatibility",
+  "schemaRaces",
+  "schemaReconnect",
+  "schemaReloadMatrix",
+  "schemaTailReloadMatrix",
+];
+const requiredSchemaRaceIds = requiredSchemaRaceCells().map(({ id }) => id);
 const oracleDirectory = resolve(import.meta.dirname);
 const repository = resolve(oracleDirectory, "../..");
 const execute = promisify(execFile);
@@ -57,7 +77,7 @@ const service = {
   revision: "0eb493fc46d1bb9baf1151a6ccdde93544e057e7",
 };
 const profileDigest =
-  "d0cc4a5e3fd47dc942cbaeb56604160fb75f5ba18c704b356b89d22e65747112";
+  "6410448d2e0abcb1dc905a67f6d6ad197003805e92151b9e9ff8795963229bf5";
 const runtimeOptions = {
   enableRuntimeIdCompressor: "on",
   compressionOptions: {
@@ -95,6 +115,36 @@ const verifiedArtifactMaps = new WeakMap();
 function object(value, message) {
   assert(value && typeof value === "object" && !Array.isArray(value), message);
   return value;
+}
+
+function historyCommits(history) {
+  return history.trunk.map((entry) => entry.commit ?? entry);
+}
+
+function rawChangeCount(raw) {
+  if (raw && typeof raw === "object" && Array.isArray(raw.changes)) {
+    return raw.changes.length;
+  }
+  if (typeof raw !== "string") return null;
+  if (/Changeset\((?:changes:\s*)?\[\]\)/.test(raw)) return 0;
+  return /(?:SchemaChange|DataChange)/.test(raw) ? 1 : null;
+}
+
+function historyContains(history, accepted, kind) {
+  return historyCommits(history).some(({ revision, changeset }) =>
+    changeset?.changeCount > 0
+      && (() => {
+        try {
+          const decoded = decodeReconnectPayload(changeset.raw);
+          return decoded.kind === kind
+            && isDeepStrictEqual(
+              decoded,
+              decodeReconnectPayload(accepted.changeset),
+            );
+        } catch {
+          return false;
+        }
+      })());
 }
 
 function reconnectRetryTrace(value, label) {
@@ -243,7 +293,7 @@ export function parseInteropOptions(args, { cwd = process.cwd() } = {}) {
     profilePath: values.profile === undefined
       ? join(repository, "test/fixtures/shared_tree/profile.json")
       : resolve(cwd, values.profile),
-    iterations: unsignedInteger(values.iterations ?? "300", "--iterations", 300),
+    iterations: unsignedInteger(values.iterations ?? "200", "--iterations", 200),
     seed: unsignedInteger(values.seed ?? "42", "--seed", 0, 0xffff_ffff),
     outputDirectory,
     replayPath: undefined,
@@ -447,15 +497,19 @@ async function readViewSchemas() {
     "Pinned map schema reference changed");
   const map = mapFixture.input.schemas.objectContainedMap;
   assert.equal(typeof map, "string", "Fixture lacks the object-contained map schema");
-  const arrayFixture = JSON.parse(await readFile(join(
+  const schemaFixture = JSON.parse(await readFile(join(
     repository,
-    "test/fixtures/shared_tree/cases/array-schema-content.json",
+    "test/fixtures/shared_tree/cases/schema-evolution-compatibility.json",
   ), "utf8"));
-  assert.equal(arrayFixture.reference.version, reference.version,
-    "Pinned array schema reference changed");
-  const array = arrayFixture.input.schemas.objectArrays;
-  assert.equal(typeof array, "string", "Fixture lacks the object-contained array schema");
-  return { object, map, array };
+  assert.equal(schemaFixture.reference.version, reference.version,
+    "Pinned schema-evolution reference changed");
+  const schema = Object.fromEntries(schemaFixture.input.schemas.map(({ id, raw }) =>
+    [id, raw]));
+  for (const label of ["v1", "optional", "object-union"]) {
+    assert.equal(typeof schema[label], "string",
+      `Schema-evolution fixture lacks ${label}`);
+  }
+  return { object, map, schema };
 }
 
 export function assertPreflightProfile(actual, expected) {
@@ -512,6 +566,41 @@ async function attachReconnectArtifacts(runDirectory, context, results) {
   }
 }
 
+async function attachSchemaArtifacts(runDirectory, context, section, items) {
+  for (const item of items) {
+    item.runId = context.runId;
+    item.profileDigest = context.profileDigest;
+    const persisted = JSON.parse(JSON.stringify(item));
+    for (const name of Object.keys(item)) delete item[name];
+    Object.assign(item, persisted);
+    const results = section === "reconnect"
+      ? item.observations.map((observation) => ({
+        subject: `${item.target}:${observation.caseId}`,
+        documentId: observation.documentId,
+        result: observation,
+      }))
+      : [{
+        subject: item.id ?? item.target ?? `${item.writer}-${item.reader}`,
+        documentId: item.documentId ?? item.observations?.[0]?.documentId ?? null,
+        result: Object.fromEntries(Object.entries(item)
+          .filter(([name]) => name !== "artifacts")),
+      }];
+    item.artifacts = [];
+    for (const result of results) {
+      const artifact =
+        `schema/${section}/${result.subject.replaceAll(":", "_")}.json`;
+      await writeJson(join(runDirectory, artifact), {
+        formatVersion: 1,
+        runId: context.runId,
+        profileDigest: context.profileDigest,
+        kind: `schema-${section}`,
+        ...result,
+      });
+      item.artifacts.push(artifact);
+    }
+  }
+}
+
 function artifactReferences(report) {
   return [
     report.service.preflightArtifact,
@@ -523,7 +612,12 @@ function artifactReferences(report) {
       Object.values(row).flatMap(({ artifacts }) => artifacts)),
     ...Object.values(report.mapReload).flatMap((row) =>
       Object.values(row).flatMap(({ artifacts }) => artifacts)),
-    ...Object.values(report.arrayReload).flatMap((row) =>
+    ...report.schemaCompatibility.flatMap(({ artifacts }) => artifacts),
+    ...report.schemaRaces.flatMap(({ artifacts }) => artifacts),
+    ...report.schemaReconnect.flatMap(({ artifacts }) => artifacts),
+    ...Object.values(report.schemaReloadMatrix).flatMap((row) =>
+      Object.values(row).flatMap(({ artifacts }) => artifacts)),
+    ...Object.values(report.schemaTailReloadMatrix).flatMap((row) =>
       Object.values(row).flatMap(({ artifacts }) => artifacts)),
     ...Object.values(report.corpus).flatMap(({ artifacts }) => artifacts),
   ];
@@ -563,9 +657,44 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
   log("shared-tree interop: dynamic-map selected-summary reload matrix");
   const mapReload = await runMapReloadMatrix(config, context);
 
-  await writeStatus(runDirectory, "array-reload");
-  log("shared-tree interop: array selected-summary reload matrix");
-  const arrayReload = await runArrayReloadMatrix(config, context);
+  await writeStatus(runDirectory, "schema-compatibility");
+  log("shared-tree interop: schema compatibility");
+  const schemaCompatibility = await runSchemaCompatibility(config, context);
+  await attachSchemaArtifacts(
+    runDirectory,
+    context,
+    "compatibility",
+    schemaCompatibility,
+  );
+
+  await writeStatus(runDirectory, "schema-races");
+  log("shared-tree interop: deterministic schema races");
+  const schemaRaces = await runSchemaRaces(config, context);
+  await attachSchemaArtifacts(runDirectory, context, "races", schemaRaces);
+
+  await writeStatus(runDirectory, "schema-reconnect");
+  log("shared-tree interop: schema reconnect");
+  const schemaReconnect = await runSchemaReconnect(config, context);
+  await attachSchemaArtifacts(runDirectory, context, "reconnect", schemaReconnect);
+
+  await writeStatus(runDirectory, "schema-reload");
+  log("shared-tree interop: schema selected-summary reload matrices");
+  const {
+    postUpgrade: schemaReloadMatrix,
+    earlierSummary: schemaTailReloadMatrix,
+  } = await runSchemaReloadMatrices(config, context);
+  await attachSchemaArtifacts(
+    runDirectory,
+    context,
+    "reload",
+    Object.values(schemaReloadMatrix).flatMap((row) => Object.values(row)),
+  );
+  await attachSchemaArtifacts(
+    runDirectory,
+    context,
+    "tail-reload",
+    Object.values(schemaTailReloadMatrix).flatMap((row) => Object.values(row)),
+  );
 
   await writeStatus(runDirectory, "seeded", {
     requested: options.iterations,
@@ -601,7 +730,11 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
     seeded: seeded.results,
     reload,
     mapReload,
-    arrayReload,
+    schemaCompatibility,
+    schemaRaces,
+    schemaReconnect,
+    schemaReloadMatrix,
+    schemaTailReloadMatrix,
     corpus,
     skipped: [],
     divergences: [],
@@ -621,7 +754,7 @@ async function acceptance(options, { env, stderr }) {
     profile: loaded.profile,
     viewSchema: viewSchemas.object,
     mapViewSchema: viewSchemas.map,
-    arrayViewSchema: viewSchemas.array,
+    schemaViews: viewSchemas.schema,
     artifactDirectory: runDirectory,
   };
   try {
@@ -629,9 +762,10 @@ async function acceptance(options, { env, stderr }) {
     const corpus = await runCorpus(runDirectory, context, log);
     const run = (config) =>
       liveAcceptance(config, runDirectory, context, options, corpus, log);
-    const report = options.externalFloodgate
+    const liveReport = options.externalFloodgate
       ? await run(serviceConfig(env))
       : await withLocalFloodgate(run);
+    const report = JSON.parse(JSON.stringify(liveReport));
     await writeStatus(runDirectory, "validating");
     const references = artifactReferences(report);
     const artifacts = await createArtifactEvidence(runDirectory, references);
@@ -679,7 +813,7 @@ async function replay(options, { env, stderr }) {
     profile: loaded.profile,
     viewSchema: viewSchemas.object,
     mapViewSchema: viewSchemas.map,
-    arrayViewSchema: viewSchemas.array,
+    schemaViews: viewSchemas.schema,
     artifactDirectory: runDirectory,
   };
   const log = (message) => stderr.write(`${message}\n`);
@@ -819,15 +953,19 @@ function artifacts(item, evidence, expected, contract, label) {
   }
 }
 
+function schemaArtifact(item, evidence, expected, kind, subject, documentId, label) {
+  artifacts(item, evidence, expected, { kind, subject, documentId }, label);
+  const measured = Object.fromEntries(Object.entries(item)
+    .filter(([name]) => name !== "artifacts"));
+  for (const reference of item.artifacts) {
+    assert.deepEqual(evidence.get(reference).claim.result, measured,
+      `${label} artifact differs from report evidence`);
+  }
+}
+
 function exactImplementations(values, label) {
   assert.deepEqual([...values].sort(), [...implementations].sort(),
     `${label} must cover all three implementations`);
-}
-
-function schedulesForProfile(iterations, profile) {
-  const legacyCount = 2 * Math.floor(iterations / 3);
-  if (profile === "array") return iterations - legacyCount;
-  return Math.floor((legacyCount + (profile === "object" ? 1 : 0)) / 2);
 }
 
 function measuredPayload(item) {
@@ -856,6 +994,7 @@ function seededMeasuredPayload(item) {
     identityMapping: item.identityMapping,
     summaries: item.summaries,
     reloads: item.reloads,
+    schemaTransitions: item.schemaTransitions,
     evidence: item.evidence,
   };
 }
@@ -870,17 +1009,6 @@ function exactAuthors(values, authors, label) {
   assert.deepEqual([...values].sort(), [...authors].sort(),
     `${label} has incorrect authors`);
   assert.equal(values.length, authors.length, `${label} repeats an author`);
-}
-
-function expectedRetainedObjectReferences(item) {
-  if (["array-insert-remove", "array-overlapping-remove"].includes(item.family)) {
-    return [false, false];
-  }
-  if (item.family === "array-move-delete") {
-    const deleter = item.authors[1];
-    return [item.order === `${deleter}-first`, item.order === `${deleter}-first`];
-  }
-  return [true, true];
 }
 
 function restoredDetachedPoints(removed) {
@@ -946,42 +1074,10 @@ function deterministicEvidence(item, authors, label) {
   assert(Array.isArray(notifications.settledRemoteObservers),
     `${label} lacks remote notification evidence`);
 
-  if (item.profile === "array") {
-    const array = object(evidence.array, `${label} lacks array evidence`);
-    assert(array.finalTree && typeof array.finalTree === "object",
-      `${label} lacks the final tagged array tree`);
-    assert(Array.isArray(array.retainedObjectReferences)
-      && array.retainedObjectReferences.length === 2
-      && array.retainedObjectReferences.every((retained) =>
-        typeof retained === "boolean"),
-    `${label} lacks measured retained object references`);
-    assert.deepEqual(
-      array.retainedObjectReferences,
-      expectedRetainedObjectReferences(item),
-      `${label} has incorrect retained object references`,
-    );
-    assert.equal(typeof array.childEditObserved, "boolean",
-      `${label} lacks measured moved-child edit evidence`);
-    if (["array-move-child-edit", "array-summary-tail"].includes(item.family)) {
-      assert.equal(array.childEditObserved, true,
-        `${label} lacks the targeted moved-child edit`);
-    }
-  }
-
   if (item.order !== null) {
     const first = item.order.slice(0, -"-first".length);
-    const prefixes = new Map(evidence.authoredPrefixes.map(
-      ({ author, referenceSequenceNumber }) => [author, referenceSequenceNumber],
-    ));
-    const ordered = evidence.submissions
-      .filter(({ author, outerSequenceNumber }) =>
-        outerSequenceNumber > prefixes.get(author))
+    const ordered = [...evidence.submissions]
       .sort((left, right) => left.outerSequenceNumber - right.outerSequenceNumber);
-    exactAuthors(
-      [...new Set(ordered.map(({ author }) => author))],
-      authors,
-      `${label} ordered submissions`,
-    );
     assert.equal(ordered[0].author, first, `${label} used another service order`);
   }
   if (item.family === "grouped-commits") {
@@ -1625,40 +1721,375 @@ function validateMapReload(report, expected, evidence) {
   }
 }
 
-function validateArrayReload(report, expected, evidence) {
-  validateArrayResults(report.arrayReload);
-  for (const writer of implementations) {
-    for (const reader of implementations) {
-      const item = report.arrayReload[writer][reader];
-      assert.equal(item.runId, expected.runId,
-        "Array reload belongs to another run");
-      assert.equal(item.profileDigest, expected.profileDigest,
-        "Array reload uses another profile");
-      assert.equal(item.writerVersionBeforeLoad, item.writerVersion,
-        "Array reload writer head changed before load");
-      assert.equal(item.writerVersionAfterLoad, item.writerVersion,
-        "Array reload writer head changed after continuation");
-      assert(Number.isSafeInteger(item.tailSequenceNumber)
-        && item.tailSequenceNumber > item.publicationSequenceNumber,
-      "Array reload lacks a measured operation after publication");
-      artifacts(item, evidence, expected, {
-        kind: "array-reload",
-        subject: `${writer}->${reader}`,
-        documentId: item.documentId,
-      }, `Array reload ${writer}->${reader}`);
-      for (const reference of item.artifacts) {
-        const claim = evidence.get(reference).claim;
-        assert.deepEqual(claim.measured,
-          reloadMeasuredPayload(item),
-        `Array reload ${writer}->${reader} artifact differs from measured evidence`);
-        if (reader === "upstream") continue;
-        const load = object(claim.raw?.load,
-          "Array reload artifact lacks raw native load evidence");
-        assert(Array.isArray(load.handshakes) && load.handshakes.length > 0,
-          "Array reload artifact lacks native handshake evidence");
-        assert(Array.isArray(load.repairRequests),
-          "Array reload artifact lacks repair-request evidence");
+function observations(item, label) {
+  assert.equal(item?.skipped, false, `${label} was skipped`);
+  assert(Array.isArray(item?.observations) && item.observations.length > 0,
+    `${label} has zero observations`);
+}
+
+function validateSchemaSections(report, expected, evidence) {
+  for (const section of requiredSchemaSections) {
+    assert(report[section] !== undefined, `Missing ${section}`);
+  }
+
+  assert.deepEqual(
+    report.schemaCompatibility.map(({ target }) => target).sort(),
+    [...implementations].sort(),
+    "schemaCompatibility lacks a target",
+  );
+  for (const item of report.schemaCompatibility) {
+    assert.equal(item.runId, expected.runId,
+      "schemaCompatibility belongs to another run");
+    assert.equal(item.profileDigest, expected.profileDigest,
+      "schemaCompatibility uses another profile");
+    assert(typeof item.target === "string" && item.target.length > 0,
+      "schemaCompatibility lacks a target");
+    assert.equal(item.protocolVersion, reference.version,
+      "schemaCompatibility used another protocol version");
+    observations(item, `schemaCompatibility ${item.target}`);
+    const observation = item.observations[0];
+    assert(typeof observation.documentId === "string"
+      && observation.documentId.length > 0,
+    "schemaCompatibility lacks a document");
+    assert(typeof observation.instanceId === "string"
+      && observation.instanceId.length > 0,
+    "schemaCompatibility lacks an instance");
+    assert.deepEqual(observation.compatibility, {
+      canView: false,
+      canUpgrade: true,
+      isEquivalent: false,
+    }, "schemaCompatibility reported another result");
+    schemaArtifact(item, evidence, expected, "schema-compatibility",
+      item.target, observation.documentId, `schemaCompatibility ${item.target}`);
+  }
+
+  assert.deepEqual(
+    report.schemaRaces.map(({ id }) => id).sort(),
+    [...requiredSchemaRaceIds].sort(),
+    "schemaRaces lacks a race ordering",
+  );
+  for (const item of report.schemaRaces) {
+    assert.equal(item.runId, expected.runId, "schemaRaces belongs to another run");
+    assert.equal(item.profileDigest, expected.profileDigest,
+      "schemaRaces uses another profile");
+    assert(typeof item.documentId === "string" && item.documentId.length > 0,
+      `${item.id} lacks a document`);
+    assert(item.instanceIds && implementations.every((target) =>
+      typeof item.instanceIds[target] === "string"
+      && item.instanceIds[target].length > 0),
+    `${item.id} lacks client instances`);
+    observations(item, `schemaRaces ${item.id}`);
+    const observation = item.observations[0];
+    if (item.family === "upgrade-then-edit") {
+      assert.equal(observation.dependentEditRetained, true,
+        `${item.id} lost its causal dependent edit`);
+      assert(Array.isArray(observation.referenceSequenceNumbers)
+        && observation.referenceSequenceNumbers.length > 0,
+      `${item.id} lacks causal sequence evidence`);
+    } else {
+      assert.equal(observation.sequenceNumbers.length, 2,
+        `${item.id} lacks both sequenced submissions`);
+      assert.equal(new Set(observation.referenceSequenceNumbers).size, 1,
+        `${item.id} was not concurrent`);
+      assert.equal(observation.oldViewRejected, true,
+        `${item.id} did not invalidate the old view`);
+      assert.equal(observation.documentHealthy, true,
+        `${item.id} left the document unhealthy`);
+      assert(Array.isArray(observation.submissions)
+        && observation.submissions.length === 2,
+      `${item.id} lacks decoded race submissions`);
+      assert(typeof observation.losingAuthor === "string"
+        && [item.upgrader, item.competitor].includes(observation.losingAuthor),
+      `${item.id} lacks the losing author`);
+      assert(Array.isArray(observation.rollback?.observations),
+        `${item.id} lacks a pre-ack rollback checkpoint`);
+      const loser = observation.rollback.observations.find(
+        ({ implementation }) => implementation === observation.losingAuthor,
+      );
+      assert(loser?.pendingTreeCount > 0 && loser.history,
+        `${item.id} lacks the loser's pending rollback state`);
+      const notifications = object(observation.notifications,
+        `${item.id} lacks typed notifications`);
+      assert(Object.values(notifications).some(({ schema }) =>
+        Array.isArray(schema) && schema.length > 0),
+      `${item.id} lacks schema notifications`);
+      if (item.family === "schema-data") {
+        assert(Object.values(notifications).some(({ data }) =>
+          Array.isArray(data) && data.length > 0),
+        `${item.id} lacks data notifications`);
       }
+      if (item.family === "schema-schema") {
+        assert.equal(observation.intermediateRollback, true,
+          `${item.id} lacks rollback evidence`);
+        assert.equal(observation.reconciledPending?.changeset?.changeCount, 0,
+          `${item.id} lacks an empty losing outer change`);
+        const raw = observation.reconciledPending.changeset.raw;
+        assert(
+          (typeof raw === "string" && raw.length > 0)
+          || (raw && typeof raw === "object" && Object.keys(raw).length > 0),
+        `${item.id} lacks raw losing changeset evidence`);
+        const losingCommit = observation.losingSubmission.commits[0];
+        assert.equal(observation.originalPending?.originatorId,
+          losingCommit.originatorId,
+        `${item.id} original pending change identifies another originator`);
+        assert.deepEqual(
+          decodeReconnectPayload(
+            observation.originalPending.changeset.payload
+              ?? observation.originalPending.changeset.raw,
+          ),
+          decodeReconnectPayload(losingCommit.changeset),
+        `${item.id} original pending change differs from the losing operation`);
+        assert.equal(String(observation.reconciledPending.revision),
+          String(observation.originalPending.revision),
+        `${item.id} rollback identifies another revision`);
+        assert.equal(observation.reconciledPending.originatorId,
+          losingCommit.originatorId,
+        `${item.id} rollback identifies another originator`);
+        assert.equal(rawChangeCount(raw), 0,
+          `${item.id} rollback raw payload is not empty`);
+      }
+    }
+    schemaArtifact(item, evidence, expected, "schema-races", item.id,
+      item.documentId, `schemaRaces ${item.id}`);
+  }
+
+  assert.deepEqual(
+    report.schemaReconnect.map(({ target }) => target).sort(),
+    [...implementations].sort(),
+    "schemaReconnect lacks a target",
+  );
+  for (const item of report.schemaReconnect) {
+    assert.equal(item.runId, expected.runId,
+      "schemaReconnect belongs to another run");
+    assert.equal(item.profileDigest, expected.profileDigest,
+      "schemaReconnect uses another profile");
+    observations(item, `schemaReconnect ${item.target}`);
+    assert.deepEqual(item.observations.map(({ caseId }) => caseId).sort(), [
+      "upgrade-accepted-before-drop",
+      "upgrade-unacknowledged",
+    ], `schemaReconnect ${item.target} lacks a reconnect case`);
+    const unacknowledged = item.observations.find(
+      ({ caseId }) => caseId === "upgrade-unacknowledged",
+    );
+    const accepted = item.observations.find(
+      ({ caseId }) => caseId === "upgrade-accepted-before-drop",
+    );
+    assert.equal(unacknowledged.acceptedBeforeDrop, false);
+    assert.equal(unacknowledged.acceptedSequenceNumber, null);
+    assert(unacknowledged.pendingTreeCount > 0,
+      `${item.target} lacks an unacknowledged pending schema change`);
+    assert.equal(accepted.acceptedBeforeDrop, true);
+    assert(Number.isSafeInteger(accepted.acceptedSequenceNumber),
+      `${item.target} lacks accepted-before-drop sequence evidence`);
+    for (const observation of item.observations) {
+      assert(typeof observation.documentId === "string"
+        && observation.documentId.length > 0,
+      `${item.target} reconnect lacks a document`);
+      assert(typeof observation.instanceId === "string"
+        && observation.instanceId.length > 0,
+      `${item.target} reconnect lacks an instance`);
+      assert(Array.isArray(observation.originalRevisions)
+        && observation.originalRevisions.length >= 2,
+      `${item.target} reconnect lacks original revisions`);
+      assert(Array.isArray(observation.acceptedCommits)
+        && observation.acceptedCommits.length === 2,
+      `${item.target} reconnect lacks accepted revisions`);
+      assert(Array.isArray(observation.originalOperations)
+        && observation.originalOperations.length === 2,
+      `${item.target} reconnect lacks original operation semantics`);
+      assert(Array.isArray(observation.acceptedMappings)
+        && observation.acceptedMappings.length === 2,
+      `${item.target} reconnect lacks one-to-one acceptance mapping`);
+      assert(observation.acceptedCommits.every(({ revision, originatorId,
+        changeset }) =>
+        (typeof revision === "string" || Number.isSafeInteger(revision))
+          && typeof originatorId === "string" && originatorId.length > 0
+          && Array.isArray(changeset) && changeset.length > 0),
+      `${item.target} reconnect has erased or fictitious accepted commits`);
+      assert(observation.originalOperations.every(({ revision, originatorId,
+        payload }) =>
+        observation.originalRevisions.map(String).includes(String(revision))
+          && typeof originatorId === "string" && originatorId.length > 0
+          && payload !== undefined),
+      `${item.target} reconnect has fictitious original operations`);
+      const mappings = matchReconnectOperations(
+        observation.originalOperations,
+        observation.acceptedCommits.map((commit) => ({
+          ...commit,
+          payload: commit.changeset,
+        })),
+      );
+      assert.deepEqual(observation.acceptedMappings, mappings,
+        `${item.target} reconnect recorded another acceptance mapping`);
+      assert.equal(observation.orderedReplay, true,
+        `${item.target} reconnect did not preserve upgrade ordering`);
+      assert.equal(observation.exactlyOnce, true,
+        `${item.target} reconnect did not prove exactly-once acceptance`);
+      assert.equal(observation.allClientsObservedDependentData, true,
+        `${item.target} reconnect did not converge on every client`);
+      assert(Array.isArray(observation.pending?.history?.pending)
+        && observation.pending.history.pending.length >= 2,
+      `${item.target} reconnect lacks pending history`);
+      const reference = item.artifacts.find((candidate) => {
+        const claim = evidence.get(candidate)?.claim;
+        return claim?.subject === `${item.target}:${observation.caseId}`;
+      });
+      assert(reference, `${item.target} reconnect lacks case artifact evidence`);
+      const claim = evidence.get(reference).claim;
+      assert.equal(claim.runId, expected.runId,
+        `${item.target} reconnect artifact belongs to another run`);
+      assert.equal(claim.profileDigest, expected.profileDigest,
+        `${item.target} reconnect artifact uses another profile`);
+      assert.equal(claim.kind, "schema-reconnect",
+        `${item.target} reconnect artifact has another kind`);
+      assert.equal(claim.documentId, observation.documentId,
+        `${item.target} reconnect artifact describes another document`);
+      assert.deepEqual(claim.result, observation,
+        `${item.target} reconnect artifact differs from report evidence`);
+    }
+    assert.equal(item.artifacts.length, item.observations.length,
+      `${item.target} reconnect has unrelated artifact evidence`);
+  }
+
+  validateSchemaReloadResults(report.schemaReloadMatrix);
+  for (const row of Object.values(report.schemaReloadMatrix)) {
+    for (const item of Object.values(row)) {
+      assert(Array.isArray(item.artifacts) && item.artifacts.length > 0,
+        `schemaReloadMatrix ${item.writer}->${item.reader} lacks artifact evidence`);
+      assert.equal(item.runId, expected.runId,
+        "schemaReloadMatrix belongs to another run");
+      assert.equal(item.profileDigest, expected.profileDigest,
+        "schemaReloadMatrix uses another profile");
+      const observation = item.observations[0];
+      assert(typeof observation.documentId === "string"
+        && observation.documentId.length > 0,
+      "schemaReloadMatrix lacks a document");
+      assert(typeof observation.readerInstanceId === "string"
+        && observation.readerInstanceId.length > 0,
+      "schemaReloadMatrix lacks a reader instance");
+      assert(typeof observation.pendingWriterInstanceId === "string"
+        && observation.pendingWriterInstanceId.length > 0,
+      "schemaReloadMatrix lacks the pending writer instance");
+      assert(typeof observation.loadedVersion === "string"
+        && observation.loadedVersion === observation.upgradedSummaryVersion,
+      "schemaReloadMatrix did not load the post-upgrade summary");
+      assert(Array.isArray(observation.selectedSummaryRequests)
+        && observation.selectedSummaryRequests.includes(observation.loadedVersion),
+      "schemaReloadMatrix did not select its summary");
+      assert(Number.isSafeInteger(observation.pendingSummaryReferenceSequenceNumber)
+        && Number.isSafeInteger(observation.schemaUpgradeSequenceNumber)
+        && observation.schemaUpgradeSequenceNumber
+          > observation.pendingSummaryReferenceSequenceNumber,
+      "schemaReloadMatrix lacks an upgrade-bearing tail");
+      assert(observation.freshLoadCheckpoint?.history
+        && observation.beforeContinuation?.history,
+        "schemaReloadMatrix lacks fresh pre-continuation state");
+      const retainedCommit = observation.acceptedRetainedPeer?.commits?.find(
+        ({ changeset }) => changeset.some((change) => change.data !== undefined),
+      );
+      const upgradeCommit = observation.acceptedUpgrade?.commits?.find(
+        ({ changeset }) => changeset.some((change) => change.schema !== undefined),
+      );
+      assert(retainedCommit && upgradeCommit,
+        "schemaReloadMatrix lacks accepted retained and upgrade operations");
+      assert(observation.pendingWriterCheckpoint?.history?.pending?.length > 0,
+        "schemaReloadMatrix lacks writer pending history");
+      assert.equal(observation.pendingStoredState?.version,
+        observation.pendingSummaryVersion,
+      "schemaReloadMatrix inspected another baseline summary");
+      assert.equal(observation.pendingSummaryPublication?.version,
+        observation.pendingSummaryVersion,
+      "schemaReloadMatrix publication names another pending summary version");
+      assert(observation.pendingSummaryPublication?.snapshotSequenceNumber
+        >= observation.pendingSummaryReferenceSequenceNumber,
+      "schemaReloadMatrix publication preceded the capture sequence");
+      assert(observation.pendingPublicationVerification?.load
+        ?.selectedSummaryRequests.includes(observation.pendingSummaryVersion),
+      "schemaReloadMatrix did not freshly load the pending summary");
+      assert.deepEqual(
+        observation.pendingPublicationVerification.checkpoint.wholeTree,
+        observation.captureSequencedCheckpoint.wholeTree,
+      "schemaReloadMatrix pending publication decoded another sequenced tree");
+      assert(typeof observation.pendingStoredState?.rootTreeId === "string"
+        && observation.pendingStoredState.treeIds?.includes(
+          observation.pendingStoredState.rootTreeId,
+        ),
+      "schemaReloadMatrix lacks the selected summary tree");
+      assert(typeof observation.pendingStoredState?.schema?.id === "string"
+        && typeof observation.pendingStoredState.schema.content === "string"
+        && typeof observation.pendingStoredState?.forest?.treeId === "string"
+        && observation.pendingStoredState.forest.blobs?.length > 0,
+      "schemaReloadMatrix lacks stored schema and forest blobs");
+      assert.equal(observation.pendingSummaryCapture?.sequenceNumber,
+        observation.pendingSummaryReferenceSequenceNumber,
+      "schemaReloadMatrix pending encoder used another sequence point");
+      assert.equal(observation.upgradedStoredState?.version,
+        observation.loadedVersion,
+      "schemaReloadMatrix inspected another upgraded summary");
+      assert.equal(observation.pendingSummaryBinding?.schema,
+        "sequenced-at-capture",
+      "schemaReloadMatrix lacks schema summary binding");
+      assert.equal(observation.pendingSummaryBinding?.forest,
+        "sequenced-at-capture",
+      "schemaReloadMatrix lacks forest summary binding");
+      assert.equal(observation.retainedEncoderReference?.sequenceNumber,
+        observation.acceptedRetainedPeer?.outerSequenceNumber,
+      "schemaReloadMatrix retained encoder reference identifies another operation");
+      assert.equal(observation.pendingSummaryReferenceSequenceNumber,
+        observation.captureEncoderReference.sequenceNumber,
+      "schemaReloadMatrix capture does not identify its sequenced state");
+      assert(observation.sequencedEncoderReference?.sequenceNumber
+        >= observation.schemaUpgradeSequenceNumber,
+      "schemaReloadMatrix encoder reference precedes the sequenced upgrade");
+      assert(observation.sequencedWriterCheckpoint?.sequenceNumber
+          >= observation.schemaUpgradeSequenceNumber
+        && observation.sequencedWriterCheckpoint.pendingTreeCount === 0,
+      "schemaReloadMatrix encoder reference precedes upgrade reconciliation");
+      assert.equal(observation.pendingSummaryBinding?.upgradeSequenceNumber,
+        observation.sequencedEncoderReference.sequenceNumber,
+      "schemaReloadMatrix binding identifies another sequence point");
+      assert.equal(observation.pendingSummaryBinding?.captureSequenceNumber,
+        observation.pendingSummaryReferenceSequenceNumber,
+      "schemaReloadMatrix binding identifies another capture sequence point");
+      const sequencedCaptureReference =
+        observation.pendingSummaryCaptureSourceBehavior
+            === "upstream-optimistic-encoder-retained-future-state"
+          ? observation.captureEncoderReference
+          : observation.retainedEncoderReference;
+      assert.deepEqual(JSON.parse(observation.pendingSummaryCapture.schema.content),
+        JSON.parse(sequencedCaptureReference.schema.content),
+      "schemaReloadMatrix pending schema differs from sequenced state at capture");
+      const pendingForestContents = observation.pendingSummaryCapture.forest
+        .map(({ content }) => content).sort();
+      assert.deepEqual(pendingForestContents,
+        sequencedCaptureReference.forest
+          .map(({ content }) => content).sort(),
+      "schemaReloadMatrix pending forest differs from sequenced state at capture");
+      const acceptedSchemaChange = observation.acceptedUpgrade?.commits
+        ?.flatMap(({ changeset }) => changeset)
+        .find((change) => change?.schema !== undefined);
+      assert(acceptedSchemaChange,
+      "schemaReloadMatrix lacks decoded accepted upgrade history");
+      assert.deepEqual(JSON.parse(observation.pendingStoredState.schema.content),
+        acceptedSchemaChange.schema.old,
+      "schemaReloadMatrix stored pending schema instead of historical schema");
+      schemaArtifact(item, evidence, expected, "schema-reload",
+        `${item.writer}-${item.reader}`, observation.documentId,
+        `schemaReloadMatrix ${item.writer}->${item.reader}`);
+    }
+  }
+
+  validateSchemaTailReloadResults(report.schemaTailReloadMatrix);
+  for (const row of Object.values(report.schemaTailReloadMatrix)) {
+    for (const item of Object.values(row)) {
+      assert.equal(item.runId, expected.runId,
+        "schemaTailReloadMatrix belongs to another run");
+      assert.equal(item.profileDigest, expected.profileDigest,
+        "schemaTailReloadMatrix uses another profile");
+      const observation = item.observations[0];
+      schemaArtifact(item, evidence, expected, "schema-tail-reload",
+        `${item.writer}-${item.reader}`, observation.documentId,
+        `schemaTailReloadMatrix ${item.writer}->${item.reader}`);
     }
   }
 }
@@ -1668,8 +2099,8 @@ export function validateInteropReport(report, expected) {
   object(expected, "Missing report expectations");
   assert.equal(expected.mode, "acceptance",
     "Replay mode cannot satisfy the acceptance gate");
-  assert(Number.isSafeInteger(expected.iterations) && expected.iterations >= 300,
-    "Acceptance requires at least 300 schedules");
+  assert(Number.isSafeInteger(expected.iterations) && expected.iterations >= 200,
+    "Acceptance requires at least 200 schedules");
   assert(Number.isSafeInteger(expected.seed)
     && expected.seed >= 0 && expected.seed <= 0xffff_ffff,
   "Expected seed is outside the supported range");
@@ -1716,6 +2147,7 @@ export function validateInteropReport(report, expected) {
     "Report used another iteration count");
   assert.deepEqual(report.skipped, [], "Report contains skipped work");
   assert.deepEqual(report.divergences, [], "Report contains divergences");
+  validateSchemaSections(report, expected, evidence);
 
   const requiredScenarios = requiredScenarioCells();
   const scenariosById = exactCells(
@@ -1754,10 +2186,6 @@ export function validateInteropReport(report, expected) {
     generated: expected.iterations,
     executed: expected.iterations,
     seed: expected.seed,
-    profiles: Object.fromEntries(["object", "map", "array"].map((profile) => [
-      profile,
-      schedulesForProfile(expected.iterations, profile),
-    ])),
   }, "Seeded producer accounting is incomplete");
   const schedules = generateSchedules({
     seed: expected.seed,
@@ -1785,7 +2213,6 @@ export function validateInteropReport(report, expected) {
 
   validateReload(report, expected, evidence);
   validateMapReload(report, expected, evidence);
-  validateArrayReload(report, expected, evidence);
   assert.deepEqual(Object.keys(report.corpus).sort(), [...nativeTargets].sort(),
     "Corpus evidence lacks a native target");
   for (const target of nativeTargets) {

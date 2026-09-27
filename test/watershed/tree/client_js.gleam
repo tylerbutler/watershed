@@ -19,8 +19,6 @@ import watershed/transport_js.{type Cell}
 @target(javascript)
 import watershed/tree/client_protocol as protocol
 @target(javascript)
-import watershed/tree/client_retained_evidence
-@target(javascript)
 import watershed/tree/types.{ObjectValue}
 @target(javascript)
 import watershed/tree_kernel.{SchemaChanged, TreeChanged}
@@ -117,11 +115,20 @@ pub fn main() -> Promise(Nil) {
                       promise.resolve(Nil)
                     }
                     Ok(tree) -> {
+                      let active_tree = transport_js.new_cell(tree)
                       let events = transport_js.new_cell([])
                       let subscription = transport_js.new_cell(None)
                       lines(
                         fn(raw) {
-                          execute(raw, document, tree, events, subscription)
+                          execute(
+                            raw,
+                            document,
+                            handle,
+                            config,
+                            active_tree,
+                            events,
+                            subscription,
+                          )
                         },
                         fn() { watershed.close(document) },
                       )
@@ -164,7 +171,9 @@ fn facade(operation: String, error: String) -> protocol.ProtocolError {
 fn execute(
   raw: String,
   document: watershed.Document(a),
-  tree: watershed.SharedTree,
+  handle: Json,
+  config: protocol.Descriptor,
+  active_tree: Cell(watershed.SharedTree),
   events: Cell(List(Json)),
   subscription: Cell(Option(watershed.SubscriptionToken)),
 ) -> Promise(String) {
@@ -172,6 +181,7 @@ fn execute(
     Error(error) ->
       promise.resolve(response(protocol.request_id(raw), Error(error), document))
     Ok(protocol.Request(id, command)) -> {
+      let tree = transport_js.get_cell(active_tree)
       let result = case command {
         protocol.Read(path) ->
           map_result(
@@ -217,49 +227,52 @@ fn execute(
             watershed.tree_map_entries(tree, path),
             protocol.encode_map_entries,
           )
-        protocol.ArrayGet(path, index) ->
-          map_result(
-            "array-get",
-            watershed.tree_array_get(tree, path, index),
-            protocol.encode_read,
-          )
-        protocol.ArrayValues(path) ->
-          map_result(
-            "array-values",
-            watershed.tree_array_values(tree, path),
-            protocol.encode_array_values,
-          )
-        protocol.ArrayInsert(path, index, values) ->
-          map_result(
-            "array-insert",
-            watershed.tree_array_insert(tree, path, index, values),
-            fn(_) { json.null() },
-          )
-        protocol.ArrayRemove(path, start, end) ->
-          map_result(
-            "array-remove",
-            watershed.tree_array_remove(tree, path, start, end),
-            fn(_) { json.null() },
-          )
-        protocol.ArrayMove(
-          source_path,
-          source_start,
-          source_end,
-          destination_path,
-          destination_gap,
-        ) ->
-          map_result(
-            "array-move",
-            watershed.tree_array_move(
-              tree,
-              source_path,
-              source_start,
-              source_end,
-              destination_path,
-              destination_gap,
-            ),
-            fn(_) { json.null() },
-          )
+        protocol.SchemaCompatibility(label) ->
+          case protocol.descriptor_view(config, label) {
+            Error(error) -> Error(error)
+            Ok(view) -> {
+              use opened <- result.try(
+                watershed.open_tree(document, handle, view)
+                |> result.map_error(fn(reason) {
+                  facade("schema-compatibility", reason)
+                }),
+              )
+              map_result(
+                "schema-compatibility",
+                watershed.tree_compatibility(opened),
+                protocol.encode_compatibility,
+              )
+            }
+          }
+        protocol.SchemaUpgrade(label) ->
+          case protocol.descriptor_view(config, label) {
+            Error(error) -> Error(error)
+            Ok(view) -> {
+              use opened <- result.try(
+                watershed.open_tree(document, handle, view)
+                |> result.map_error(fn(reason) {
+                  facade("schema-upgrade", reason)
+                }),
+              )
+              map_result(
+                "schema-upgrade",
+                watershed.tree_upgrade_schema(opened),
+                fn(_) { json.null() },
+              )
+            }
+          }
+        protocol.OpenView(label) ->
+          case protocol.descriptor_view(config, label) {
+            Error(error) -> Error(error)
+            Ok(view) -> {
+              use opened <- result.try(
+                watershed.open_tree(document, handle, view)
+                |> result.map_error(fn(reason) { facade("open-view", reason) }),
+              )
+              transport_js.set_cell(active_tree, opened)
+              Ok(json.null())
+            }
+          }
         protocol.Checkpoint -> checkpoint(tree, events)
         protocol.Disconnect -> {
           watershed.go_offline(document)
@@ -279,14 +292,20 @@ fn execute(
                     SchemaChanged(local) -> {
                       let previous = transport_js.get_cell(events)
                       transport_js.set_cell(events, [
-                        json.object([#("local", json.bool(local))]),
+                        json.object([
+                          #("kind", json.string("schema")),
+                          #("local", json.bool(local)),
+                        ]),
                         ..previous
                       ])
                     }
                     TreeChanged(local) -> {
                       let previous = transport_js.get_cell(events)
                       transport_js.set_cell(events, [
-                        json.object([#("local", json.bool(local))]),
+                        json.object([
+                          #("kind", json.string("data")),
+                          #("local", json.bool(local)),
+                        ]),
                         ..previous
                       ])
                     }
@@ -309,6 +328,12 @@ fn execute(
           watershed.close(document)
           Ok(json.null())
         }
+        protocol.PendingSummaryEvidence ->
+          map_result(
+            "pending-summary-evidence",
+            watershed.pending_summary_evidence(document),
+            fn(value) { value },
+          )
         protocol.AwaitSynced(_) | protocol.Summarize -> Ok(json.null())
       }
       case command {
@@ -335,63 +360,61 @@ fn checkpoint(
   tree: watershed.SharedTree,
   events: Cell(List(Json)),
 ) -> Result(Json, protocol.ProtocolError) {
-  use root_value <- result.try(
-    watershed.tree_get(tree, [])
+  use history <- result.try(
+    watershed.tree_history_evidence(tree)
     |> result.map_error(fn(reason) { facade("checkpoint", reason) }),
   )
-  let root = protocol.encode_read(root_value)
-  use values <- result.try(case root_value {
-    Some(ObjectValue("org.watershed.shared-tree.m2.Root", _)) -> {
-      use keys <- result.try(map_result(
-        "checkpoint",
-        watershed.tree_map_keys(tree, ["items"]),
-        protocol.encode_map_keys,
-      ))
-      use entries <- result.try(map_result(
-        "checkpoint",
-        watershed.tree_map_entries(tree, ["items"]),
-        protocol.encode_map_entries,
-      ))
-      Ok([#("keys", keys), #("entries", entries)])
-    }
-    Some(ObjectValue("org.watershed.shared-tree.m3.Root", _)) -> Ok([])
-    _ ->
-      list.try_map(
-        [
-          #("title", ["title"]),
-          #("enabled", ["enabled"]),
-          #("rating", ["rating"]),
-          #("marker", ["marker"]),
-          #("note", ["note"]),
-          #("point", ["point"]),
-          #("x", ["point", "x"]),
-          #("y", ["point", "y"]),
-        ],
-        fn(entry) {
-          map_result(
-            "checkpoint",
-            watershed.tree_get(tree, entry.1),
-            protocol.encode_read,
-          )
-          |> result.map(fn(value) { #(entry.0, value) })
-        },
-      )
-  })
   let changes = list.reverse(transport_js.get_cell(events))
   transport_js.set_cell(events, [])
-  use retained <- result.try(case root_value {
-    Some(ObjectValue("org.watershed.shared-tree.m3.Root", _)) -> {
-      use snapshot <- result.try(
-        watershed.tree_retained_snapshot(tree)
-        |> result.map_error(fn(reason) { facade("checkpoint", reason) }),
-      )
-      client_retained_evidence.encode(snapshot)
-      |> result.map(Some)
-      |> result.map_error(fn(reason) { facade("checkpoint", reason) })
+  case watershed.tree_get(tree, []) {
+    Error(reason) ->
+      Ok(protocol.encode_checkpoint(
+        protocol.encode_read(None),
+        [],
+        changes,
+        history,
+        Some(reason),
+      ))
+    Ok(root_value) -> {
+      let root = protocol.encode_read(root_value)
+      use values <- result.try(case root_value {
+        Some(ObjectValue("org.watershed.shared-tree.m2.Root", _)) -> {
+          use keys <- result.try(map_result(
+            "checkpoint",
+            watershed.tree_map_keys(tree, ["items"]),
+            protocol.encode_map_keys,
+          ))
+          use entries <- result.try(map_result(
+            "checkpoint",
+            watershed.tree_map_entries(tree, ["items"]),
+            protocol.encode_map_entries,
+          ))
+          Ok([#("keys", keys), #("entries", entries)])
+        }
+        _ ->
+          Ok(
+            [
+              #("title", ["title"]),
+              #("enabled", ["enabled"]),
+              #("rating", ["rating"]),
+              #("marker", ["marker"]),
+              #("note", ["note"]),
+              #("score", ["score"]),
+              #("point", ["point"]),
+              #("x", ["point", "x"]),
+              #("y", ["point", "y"]),
+            ]
+            |> list.filter_map(fn(entry) {
+              case watershed.tree_get(tree, entry.1) {
+                Ok(value) -> Ok(#(entry.0, protocol.encode_read(value)))
+                Error(_) -> Error(Nil)
+              }
+            }),
+          )
+      })
+      Ok(protocol.encode_checkpoint(root, values, changes, history, None))
     }
-    _ -> Ok(None)
-  })
-  Ok(protocol.encode_checkpoint(root, values, changes, retained))
+  }
 }
 
 @target(javascript)

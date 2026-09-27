@@ -19,6 +19,7 @@ import {
 import {
   generateSchedules,
   requiredFailureCells,
+  requiredSchemaRaceCells,
   requiredScenarioCells,
 } from "./interop-scenarios.mjs";
 
@@ -229,18 +230,6 @@ function deterministicEvidence(cell) {
       restoredAfter: `${cell.id}-before-${index}`,
     }));
   }
-  if (cell.profile === "array") {
-    const deleted = ["array-insert-remove", "array-overlapping-remove"]
-      .includes(cell.family)
-      || (cell.family === "array-move-delete"
-        && cell.order !== `${cell.authors[1]}-first`);
-    evidence.array = {
-      finalTree: { present: true, value: { kind: "object", fields: [] } },
-      retainedObjectReferences: [!deleted, !deleted],
-      childEditObserved: ["array-move-child-edit", "array-summary-tail"]
-        .includes(cell.family),
-    };
-  }
   return evidence;
 }
 
@@ -398,7 +387,7 @@ async function validFixture() {
       writableTreeExposedAfterRefusal: false,
     }),
   }));
-  const seeded = generateSchedules({ seed: 42, iterations: 300 })
+  const seeded = generateSchedules({ seed: 42, iterations: 200 })
     .map((schedule, index) => {
     const prefix = `seeded-${index}`;
     const item = {
@@ -428,6 +417,25 @@ async function validFixture() {
           instanceId: `${prefix}-${author}-fresh`,
           observation: { wholeTree: { schemaId: "Root" } },
           selectedSummaryRequests: [],
+        })),
+      schemaTransitions: schedule.actions
+        .filter(({ type }) => [
+          "schema-compatibility",
+          "schema-upgrade",
+          "open-view",
+        ].includes(type))
+        .map(({ type, author, view, fromView }) => ({
+          operation: type,
+          author,
+          view,
+          ...(fromView === undefined ? {} : { fromView }),
+          ...(type === "schema-compatibility" ? {
+            compatibility: {
+              canView: false,
+              canUpgrade: true,
+              isEquivalent: false,
+            },
+          } : {}),
         })),
     };
     item.evidence.rawSequencedOperationCount = 30;
@@ -490,6 +498,7 @@ async function validFixture() {
         identityMapping: item.identityMapping,
         summaries: item.summaries,
         reloads: item.reloads,
+        schemaTransitions: item.schemaTransitions,
         evidence: item.evidence,
       }, ...rawGates() },
     )];
@@ -685,155 +694,568 @@ async function validFixture() {
       return [reader, item];
     })),
   ]));
-  const arrayPoint = (label, x) => ({
-    kind: "object",
-    schemaId: "org.watershed.shared-tree.m3.Point",
-    fields: [
-      ["label", { kind: "string", value: label }],
-      ["x", { kind: "number", value: x }],
-    ],
+  const schemaCompatibility = implementations.map((target) => {
+    const item = {
+      runId: "current",
+      profileDigest: loaded.profileDigest,
+      target,
+      protocolVersion: reference.version,
+      skipped: false,
+      observations: [{
+        storedView: "v1",
+        requestedView: "optional",
+        documentId: `schema-compatibility-${target}`,
+        instanceId: `schema-compatibility-${target}-instance`,
+        compatibility: {
+          canView: false,
+          canUpgrade: true,
+          isEquivalent: false,
+        },
+      }],
+    };
+    item.artifacts = [artifact(
+      "schema-compatibility",
+      target,
+      item.observations[0].documentId,
+      { result: structuredClone(item) },
+    )];
+    return item;
   });
-  const removedArrayPoint = () => ({
-    type: "org.watershed.shared-tree.m3.Point",
-    fields: {
-      label: [{ type: "com.fluidframework.leaf.string", value: "deleted" }],
-      x: [{ type: "com.fluidframework.leaf.number", value: 9 }],
-    },
-  });
-  const array = (schemaId, elements) => ({ kind: "array", schemaId, elements });
-  const arrayTree = (writer, continuation) => ({
-    present: true,
-    value: {
-      kind: "object",
-      schemaId: "org.watershed.shared-tree.m3.Root",
-      fields: [
-        ["byKey", {
-          kind: "map",
-          schemaId: "org.watershed.shared-tree.m3.ArrayMap",
-          entries: [
-            ["", array("org.watershed.shared-tree.m3.Items", [])],
-            ["0", array("org.watershed.shared-tree.m3.Items", [
-              arrayPoint("numeric", 0),
-            ])],
-          ],
-        }],
-        ["left", array("org.watershed.shared-tree.m3.Items", [
-          ...(continuation ? [arrayPoint(continuation, 42)] : []),
-          arrayPoint("duplicate", 1),
-          arrayPoint("duplicate", 1),
-          array("org.watershed.shared-tree.m3.Items", [arrayPoint("nested", 2)]),
-        ])],
-        ["narrow", array("org.watershed.shared-tree.m3.Points", [])],
-        ["right", array("org.watershed.shared-tree.m3.Items", [
+  const schemaRaces = requiredSchemaRaceCells().map((cell, index) => {
+    const documentId = `schema-race-${index}`;
+    const instanceIds = Object.fromEntries(implementations.map((target) =>
+      [target, `${documentId}-${target}`]));
+    const losingAuthor = cell.order === "upgrade-first"
+      ? cell.competitor
+      : cell.upgrader;
+    const pendingHistory = {
+      pending: [{
+        revision: 2,
+        originatorId: `${cell.id}-origin-2`,
+        changeset: {
+          changeCount: cell.family === "schema-schema" ? 0 : 1,
+          raw: "Changeset([])",
+        },
+      }],
+    };
+    const observation = cell.family === "upgrade-then-edit"
+      ? {
+        referenceSequenceNumbers: [70 + index, 71 + index],
+        dependentEditRetained: true,
+      }
+      : {
+        sequenceNumbers: [70 + index * 2, 71 + index * 2],
+        referenceSequenceNumbers: [60 + index, 60 + index],
+        submissions: [
           {
-            kind: "map",
-            schemaId: "org.watershed.shared-tree.m3.ArrayMap",
-            entries: [["inside", arrayPoint("map-child", 3)]],
+            outerSequenceNumber: 70 + index * 2,
+            clientId: `${cell.id}-first`,
+            referenceSequenceNumber: 60 + index,
+            commits: [{
+              revision: 1,
+              originatorId: `${cell.id}-origin-1`,
+              changeset: [{ schema: {} }],
+            }],
           },
-          ...(continuation ? [] : [arrayPoint("moved", 4)]),
-          arrayPoint(`after-summary-${writer}`, 7),
-        ])],
-      ],
-    },
+          {
+            outerSequenceNumber: 71 + index * 2,
+            clientId: `${cell.id}-second`,
+            referenceSequenceNumber: 60 + index,
+            commits: [{
+              revision: 2,
+              originatorId: `${cell.id}-origin-2`,
+              changeset: [{ data: {} }],
+            }],
+          },
+        ],
+        losingAuthor,
+        losingSubmission: {
+          outerSequenceNumber: 71 + index * 2,
+          commits: [{
+            revision: 2,
+            originatorId: `${cell.id}-origin-2`,
+            changeset: [{ schema: { old: {}, new: {} } }],
+          }],
+        },
+        ...(cell.family === "schema-schema"
+          ? {
+            originalPending: {
+              revision: 2,
+              originatorId: `${cell.id}-origin-2`,
+              changeset: {
+                changeCount: 1,
+                raw: [{ schema: { old: {}, new: {} } }],
+              },
+            },
+            reconciledPending: pendingHistory.pending[0],
+          }
+          : {}),
+        rollback: {
+          label: "loser-before-ack",
+          stage: "intermediate",
+          observations: implementations.map((implementation) => ({
+            implementation,
+            instanceId: instanceIds[implementation],
+            sequenceNumber: 70 + index * 2,
+            pendingTreeCount: implementation === losingAuthor ? 1 : 0,
+            inflightSubmissionCount: implementation === losingAuthor ? 1 : 0,
+            wholeTree: { schemaId: "org.watershed.shared-tree.m4.Root" },
+            events: [],
+            history: implementation === losingAuthor ? pendingHistory : { pending: [] },
+          })),
+        },
+        notifications: Object.fromEntries(implementations.map((implementation) => [
+          implementation,
+          {
+            schema: [{ kind: "schema", local: implementation === cell.upgrader }],
+            data: cell.family === "schema-data"
+              ? [{ kind: "data", local: implementation === cell.competitor }]
+              : [],
+          },
+        ])),
+        intermediateRollback: cell.family === "schema-schema",
+        oldViewRejected: true,
+        documentHealthy: true,
+      };
+    const item = {
+      ...cell,
+      runId: "current",
+      profileDigest: loaded.profileDigest,
+      documentId,
+      instanceIds,
+      skipped: false,
+      observations: [observation],
+    };
+    item.artifacts = [artifact("schema-races", cell.id, documentId, {
+      result: structuredClone(item),
+    })];
+    return item;
   });
-  const arrayReload = Object.fromEntries(implementations.map((writer, writerIndex) => [
+  const schemaReconnect = implementations.map((target) => {
+    const item = {
+      runId: "current",
+      profileDigest: loaded.profileDigest,
+      target,
+      skipped: false,
+      observations: [
+      {
+        caseId: "upgrade-unacknowledged",
+        documentId: `schema-reconnect-${target}-unacknowledged`,
+        instanceId: `schema-reconnect-${target}-unacknowledged-instance`,
+        acceptedBeforeDrop: false,
+        acceptedSequenceNumber: null,
+        pendingTreeCount: 2,
+        originalRevisions: ["upgrade", "data"],
+        originalOperations: [
+          {
+            revision: "upgrade",
+            originatorId: target,
+            payload: [{ schema: { old: {}, new: { upgraded: true } } }],
+          },
+          {
+            revision: "data",
+            originatorId: target,
+            payload: [{ data: { path: ["score"], value: 81 } }],
+          },
+        ],
+        acceptedCommits: [
+          {
+            revision: 1,
+            originatorId: target,
+            kinds: ["schema"],
+            changeset: [{ schema: { old: {}, new: { upgraded: true } } }],
+          },
+          {
+            revision: 2,
+            originatorId: target,
+            kinds: ["data"],
+            changeset: [{ data: { path: ["score"], value: 81 } }],
+          },
+        ],
+        acceptedMappings: [
+          { originalRevision: "upgrade", acceptedRevision: 1 },
+          { originalRevision: "data", acceptedRevision: 2 },
+        ],
+        orderedReplay: true,
+        exactlyOnce: true,
+        allClientsObservedDependentData: true,
+        pending: { history: { pending: [{}, {}] } },
+      },
+      {
+        caseId: "upgrade-accepted-before-drop",
+        documentId: `schema-reconnect-${target}-accepted`,
+        instanceId: `schema-reconnect-${target}-accepted-instance`,
+        acceptedBeforeDrop: true,
+        acceptedSequenceNumber: 80,
+        pendingTreeCount: 2,
+        originalRevisions: ["upgrade", "data"],
+        originalOperations: [
+          {
+            revision: "upgrade",
+            originatorId: target,
+            payload: [{ schema: { old: {}, new: { upgraded: true } } }],
+          },
+          {
+            revision: "data",
+            originatorId: target,
+            payload: [{ data: { path: ["score"], value: 82 } }],
+          },
+        ],
+        acceptedCommits: [
+          {
+            revision: 1,
+            originatorId: target,
+            kinds: ["schema"],
+            changeset: [{ schema: { old: {}, new: { upgraded: true } } }],
+          },
+          {
+            revision: 2,
+            originatorId: target,
+            kinds: ["data"],
+            changeset: [{ data: { path: ["score"], value: 82 } }],
+          },
+        ],
+        acceptedMappings: [
+          { originalRevision: "upgrade", acceptedRevision: 1 },
+          { originalRevision: "data", acceptedRevision: 2 },
+        ],
+        orderedReplay: true,
+        exactlyOnce: true,
+        allClientsObservedDependentData: true,
+        pending: { history: { pending: [{}, {}] } },
+      },
+      ],
+      artifacts: [],
+    };
+    item.artifacts = item.observations.map((observation) => artifact(
+      "schema-reconnect",
+      `${target}:${observation.caseId}`,
+      observation.documentId,
+      { result: structuredClone(observation) },
+    ));
+    return item;
+  });
+  const schemaReloadMatrix = Object.fromEntries(implementations.map((writer) => [
     writer,
-    Object.fromEntries(implementations.map((reader, readerIndex) => {
-      const continuation = `${writer}-${reader}-continuation`;
+    Object.fromEntries(implementations.map((reader) => {
       const item = {
         runId: "current",
         profileDigest: loaded.profileDigest,
-        profile: "array",
         writer,
         reader,
-        writerVersion: `${writer}-array-version`,
-        loadedVersion: `${writer}-array-version`,
-        readerInstanceId: `array-reload-${writer}-${reader}`,
-        snapshotSequenceNumber: 110 + writerIndex,
-        dataEditSequenceNumber: 120 + writerIndex,
-        publicationSequenceNumber: 130 + writerIndex,
-        tailSequenceNumber: 140 + writerIndex,
-        replayWatermark: 150 + readerIndex,
-        replayStartSequenceNumber: 110 + writerIndex,
-        replayEvidence: reader === "upstream"
-          ? "upstream-delta-storage"
-          : "native-handshake",
-        selectedSummaryRequests: [`${writer}-array-version`],
-        scenarioId: "array-summary-tail-retained",
-        loaded: true,
-        tailObserved: true,
-        continuedEditing: true,
-        peerObservedEdit: true,
-        pendingTreeCount: 0,
-        inflightSubmissionCount: 0,
-        wholeTree: arrayTree(writer),
-        continuationTree: arrayTree(writer, continuation),
-        peerWholeTree: arrayTree(writer, continuation),
-        continuationLabel: continuation,
-        retained: {
-          removed: [[0, 1, removedArrayPoint()]],
-          reader,
-          readerInstanceId: `array-reload-${writer}-${reader}`,
-          source: reader === "upstream"
-            ? "upstream-runtime-and-wire"
-            : "native-runtime-snapshot",
-          loadedVersion: `${writer}-array-version`,
-          snapshotSequenceNumber: 110 + writerIndex,
-          sequenceNumber: 110 + writerIndex,
-          selectedVersion: `${writer}-array-version`,
-          history: [{
-            revision: 1,
-            originatorId: `${reader}-array-origin`,
-            changes: [{
-              moveOut: { id: 0 },
-              moveIn: { id: 0 },
-            }],
-          }],
-          moveIdentity: {
-            revision: 1,
-            originatorId: `${reader}-array-origin`,
-            moveOut: [{ id: 0, revision: 1 }],
-            moveIn: [{ id: 0, revision: 1 }],
+        skipped: false,
+        observations: [{
+          compatibility: {
+            canView: true,
+            canUpgrade: false,
+            isEquivalent: true,
           },
-          childEditObserved: true,
+          openedView: "optional",
+          continuedEditing: true,
+          peerObservedEdit: true,
           summaryConsumed: true,
-        },
-        continuationIdentity: {
-          clientId: `${reader}-array-client`,
-          referenceSequenceNumber: 150,
-          revisions: [{ revision: 1, originatorId: `${reader}-array-origin` }],
-        },
-        documentId: `array-reload-${writer}`,
-        writerVersionBeforeLoad: `${writer}-array-version`,
-        writerVersionAfterLoad: `${writer}-array-version`,
+          replayedTail: true,
+          retainedPeer: true,
+          pendingSummaryUsedSequencedSchema: true,
+          pendingSummaryVersion: `${writer}-baseline-version`,
+          pendingSummaryPublication: {
+            version: `${writer}-baseline-version`,
+            snapshotSequenceNumber: 90,
+            publicationSequenceNumber: 91,
+          },
+          pendingPublicationVerification: {
+            checkpoint: {
+              wholeTree: { value: { title: `retained-${writer}` } },
+              history: { storedSchema: {} },
+            },
+            load: {
+              selectedSummaryRequests: [`${writer}-baseline-version`],
+            },
+          },
+          captureSequencedCheckpoint: {
+            wholeTree: { value: { title: `retained-${writer}` } },
+            history: { storedSchema: {} },
+          },
+          pendingSummaryReferenceSequenceNumber: 90,
+          pendingSummaryCapture: {
+            sequenceNumber: 90,
+            schema: { content: "{}" },
+            forest: [{ content: "{}" }],
+          },
+          pendingSummaryInitialCapture: {
+            sequenceNumber: 90,
+            schema: {
+              content: writer === "upstream"
+                ? "{\"upgraded\":true}"
+                : "{}",
+            },
+            forest: [{ content: "{}" }],
+          },
+          pendingSummaryCaptureSourceBehavior: writer === "upstream"
+            ? "upstream-optimistic-encoder-retained-future-state"
+            : "stable-reference",
+          captureEncoderReference: {
+            sequenceNumber: 90,
+            schema: { content: "{}" },
+            forest: [{ content: "{}" }],
+          },
+          retainedEncoderReference: {
+            sequenceNumber: 90,
+            schema: { content: "{}" },
+            forest: [{ content: "{}" }],
+          },
+          sequencedEncoderReference: {
+            sequenceNumber: 91,
+            schema: { content: "{\"upgraded\":true}" },
+            forest: [{ content: "{\"schema\":\"upgraded\"}" }],
+          },
+          pendingSummaryBinding: {
+            schema: "sequenced-at-capture",
+            forest: "sequenced-at-capture",
+            captureSequenceNumber: 90,
+            upgradeSequenceNumber: 91,
+          },
+          upgradedSummaryVersion: `${writer}-pending-version`,
+          schemaUpgradeSequenceNumber: 91,
+          snapshotSequenceNumber: 92,
+          acceptedUpgrade: {
+            outerSequenceNumber: 91,
+            commits: [{
+              revision: "upgrade",
+              originatorId: `${writer}-origin`,
+              changeset: [{ schema: { old: {}, new: { upgraded: true } } }],
+            }],
+          },
+          sequencedWriterCheckpoint: {
+            sequenceNumber: 91,
+            pendingTreeCount: 0,
+          },
+          retainedPeerAuthor: writer === "upstream" ? "javascript" : "upstream",
+          retainedPeerCheckpoint: {
+            history: {
+              pending: [{
+                revision: "retained-peer",
+                originatorId: `${writer}-peer-origin`,
+                changeset: {
+                  changeCount: 1,
+                  raw: [{
+                    data: {
+                      path: ["title"],
+                      value: `retained-${writer}`,
+                    },
+                  }],
+                },
+              }],
+            },
+          },
+          acceptedRetainedPeer: {
+            outerSequenceNumber: 90,
+            commits: [{
+              revision: "retained-peer",
+              originatorId: `${writer}-peer-origin`,
+              changeset: [{
+                data: { path: ["title"], value: `retained-${writer}` },
+              }],
+            }],
+          },
+          pendingWriterInstanceId: `${writer}-pending-writer`,
+          pendingWriterCheckpoint: {
+            history: {
+              pending: [{
+                revision: "upgrade",
+                originatorId: `${writer}-origin`,
+                changeset: {
+                  changeCount: 1,
+                  raw: { changes: [{ type: "schema" }] },
+                },
+              }],
+            },
+          },
+          pendingStoredState: {
+            version: `${writer}-baseline-version`,
+            rootTreeId: `${writer}-root-tree`,
+            treeIds: [`${writer}-root-tree`, `${writer}-schema-tree`],
+            blobIds: [
+              `${writer}-schema-blob`,
+              `${writer}-forest-blob`,
+            ],
+            schema: {
+              path: ".app/.channels/A/.channels/_C/indexes/Schema/SchemaString",
+              id: `${writer}-schema-blob`,
+              byteLength: 2,
+              hash: "a".repeat(64),
+              content: "{}",
+            },
+            forest: {
+              path: ".app/.channels/A/.channels/_C/indexes/Forest",
+              treeId: `${writer}-schema-tree`,
+              blobs: [{
+                path: ".app/.channels/A/.channels/_C/indexes/Forest/String",
+                id: `${writer}-forest-blob`,
+                byteLength: 2,
+                hash: "b".repeat(64),
+                content: "{}",
+              }],
+            },
+          },
+          upgradedStoredState: {
+            version: `${writer}-pending-version`,
+            rootTreeId: `${writer}-tree`,
+            treeIds: [`${writer}-tree`],
+            blobIds: [
+              `${writer}-upgraded-schema-blob`,
+              `${writer}-upgraded-forest-blob`,
+            ],
+              schema: {
+                id: `${writer}-upgraded-schema-blob`,
+                content: "{\"upgraded\":true}",
+              },
+              forest: {
+              blobs: [{
+                id: `${writer}-upgraded-forest-blob`,
+                content: `{"title":"retained-${writer}"}`,
+              }],
+            },
+          },
+          summaryKind: "post-upgrade",
+          beforeContinuation: {
+            history: {
+              pending: [],
+              trunk: [
+                {
+                  revision: "retained-peer",
+                  changeset: {
+                    changeCount: 1,
+                    raw: {
+                      changes: [{
+                        type: "data",
+                        innerChange: {
+                          path: ["title"],
+                          value: `retained-${writer}`,
+                        },
+                      }],
+                    },
+                  },
+                },
+                {
+                  revision: "upgrade",
+                  changeset: {
+                    changeCount: 1,
+                    raw: {
+                      changes: [{
+                        type: "schema",
+                        innerChange: {
+                          schema: { old: {}, new: { upgraded: true } },
+                        },
+                      }],
+                    },
+                  },
+                },
+              ],
+            },
+            wholeTree: {
+              value: {
+                fields: [[
+                  "title",
+                  { kind: "string", value: `retained-${writer}` },
+                ]],
+              },
+            },
+          },
+          freshLoadCheckpoint: {
+            history: {
+              pending: [],
+              trunk: [
+                {
+                  revision: "retained-peer",
+                  changeset: {
+                    changeCount: 1,
+                    raw: {
+                      changes: [{
+                        type: "data",
+                        innerChange: {
+                          path: ["title"],
+                          value: `retained-${writer}`,
+                        },
+                      }],
+                    },
+                  },
+                },
+                {
+                  revision: "upgrade",
+                  changeset: {
+                    changeCount: 1,
+                    raw: {
+                      changes: [{
+                        type: "schema",
+                        innerChange: {
+                          schema: { old: {}, new: { upgraded: true } },
+                        },
+                      }],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+          documentId: `schema-reload-${writer}`,
+          loadedVersion: `${writer}-pending-version`,
+          selectedSummaryRequests: [`${writer}-pending-version`],
+          selectedSummaryTreeId: `${writer}-tree`,
+          selectedTreeRequests: [`${writer}-tree`],
+          selectedBlobRequests: reader === "upstream"
+            ? [{
+              id: `${writer}-upgraded-schema-blob`,
+              byteLength: 100,
+              hash: "b".repeat(64),
+            }]
+            : [`${writer}-upgraded-schema-blob`],
+          replayStartSequenceNumber: 90,
+          replayWatermark: 92,
+          replayEvidence: reader === "upstream"
+            ? "upstream-delta-storage"
+            : "native-handshake",
+          readerInstanceId: `${writer}-${reader}-schema-reader`,
+        }],
         artifacts: [],
       };
       item.artifacts = [artifact(
-        "array-reload",
-        `${writer}->${reader}`,
-        item.documentId,
+        "schema-reload",
+        `${writer}-${reader}`,
+        `schema-reload-${writer}`,
         {
-          measured: reloadMeasuredPayload(item),
-          ...(reader === "upstream" ? {} : {
-            raw: {
-              load: {
-                handshakes: [{
-                  checkpointSequenceNumber: item.snapshotSequenceNumber,
-                  summarySequenceNumber: item.snapshotSequenceNumber,
-                  initialMessageSequenceNumbers: [
-                    1,
-                    item.snapshotSequenceNumber + 1,
-                  ],
-                }],
-                repairRequests: [],
-              },
-            },
-          }),
+          result: Object.fromEntries(Object.entries(item)
+            .filter(([name]) => name !== "artifacts")),
         },
       )];
       return [reader, item];
     })),
   ]));
+  const schemaTailReloadMatrix = structuredClone(schemaReloadMatrix);
+  for (const [writer, row] of Object.entries(schemaTailReloadMatrix)) {
+    for (const [reader, item] of Object.entries(row)) {
+      const observation = item.observations[0];
+      observation.loadedVersion = observation.pendingSummaryVersion;
+      observation.summaryKind = "earlier-summary-upgrade-tail";
+      observation.snapshotSequenceNumber = 90;
+      observation.publicationSequenceNumber = 91;
+      observation.dataEditSequenceNumber = 90;
+      observation.replayStartSequenceNumber = 90;
+      observation.selectedSummaryRequests = [observation.loadedVersion];
+      observation.selectedSummaryTreeId = observation.pendingStoredState.rootTreeId;
+      observation.selectedTreeRequests = [observation.pendingStoredState.rootTreeId];
+      observation.selectedBlobRequests = [observation.pendingStoredState.schema.id];
+      item.artifacts = [artifact(
+        "schema-tail-reload",
+        `${writer}-${reader}`,
+        observation.documentId,
+        {
+          result: Object.fromEntries(Object.entries(item)
+            .filter(([name]) => name !== "artifacts")),
+        },
+      )];
+    }
+  }
   const report = {
     formatVersion: 1,
     runId: "current",
@@ -854,13 +1276,12 @@ async function validFixture() {
     realService: true,
     mode: "acceptance",
     seed: 42,
-    iterations: 300,
+    iterations: 200,
     seededAccounting: {
-      requested: 300,
-      generated: 300,
-      executed: 300,
+      requested: 200,
+      generated: 200,
+      executed: 200,
       seed: 42,
-      profiles: { object: 100, map: 100, array: 100 },
     },
     deterministic,
     reconnect,
@@ -868,7 +1289,11 @@ async function validFixture() {
     seeded,
     reload,
     mapReload,
-    arrayReload,
+    schemaCompatibility,
+    schemaRaces,
+    schemaReconnect,
+    schemaReloadMatrix,
+    schemaTailReloadMatrix,
     corpus: Object.fromEntries(implementations.slice(1).map((target) => {
       const output = "Running 1 tests\nTests: 1 passed (1)";
       return [target, {
@@ -897,7 +1322,7 @@ async function validFixture() {
     profileDigest: loaded.profileDigest,
     profile: loaded.profile,
     seed: 42,
-    iterations: 300,
+    iterations: 200,
     mode: "acceptance",
     artifactDirectory: owned,
     artifacts,
@@ -922,14 +1347,12 @@ test("an empty result cannot prove interoperability", async () => {
     realService: true,
     mode: "acceptance",
     seed: 42,
-    iterations: 300,
+    iterations: 200,
     deterministic: [],
     reconnect: [],
     failures: [],
     seeded: [],
     reload: {},
-    mapReload: {},
-    arrayReload: {},
     corpus: {},
     skipped: [],
     divergences: [],
@@ -941,80 +1364,6 @@ test("a complete current-run report satisfies the Task 15 coverage gate", async 
   assert.equal(validateInteropReport(report, expected), report);
 });
 
-test("sequence refusals require distinct diagnostics and a stopped document", async () => {
-  const { expected, report } = await validFixture();
-  const diagnostics = new Map([
-    ["malformed-sequence-payload",
-      "message.changeset[0].data.changes[0].change expected an array"],
-    ["malformed-range-count",
-      "message.changeset[0].data.changes[0].change[0].count expected a positive integer"],
-    ["missing-range-endpoint",
-      "message.changeset[0].data.changes[0].change[0].effect.moveIn.finalEndpoint atom"],
-    ["bad-child-ownership", "cross-field ownership owned ranges overlap"],
-    ["invalid-sequence-content",
-      "message.changeset[0].data.changes[0].change[0].changes unknown property content"],
-  ]);
-  const cases = report.failures.filter(({ target, caseId }) =>
-    target === "javascript" && diagnostics.has(caseId));
-  assert.equal(cases.length, diagnostics.size);
-  for (const item of cases) {
-    item.typedError.message = diagnostics.get(item.caseId);
-    assert.equal(item.clientState, "stopped-after-ready", item.caseId);
-    assert.equal(item.writableTreeExposedAfterRefusal, false, item.caseId);
-  }
-  assert.equal(validateInteropReport(report, expected), report);
-
-  for (const item of cases) {
-    const diagnostic = item.typedError.message;
-    item.typedError.message =
-      "message.changeset[0] change must contain exactly one data or schema member";
-    assert.throws(
-      () => validateInteropReport(report, expected),
-      /Failure diagnostic lacks source reason or location/,
-      item.caseId,
-    );
-    item.typedError.message = diagnostic;
-  }
-});
-
-test("deterministic service order ignores submissions before each authored prefix", async () => {
-  const { expected, report } = await validFixture();
-  const item = report.deterministic.find(
-    ({ id }) => id === "array-same-gap-insert:upstream->javascript:javascript-first",
-  );
-  item.evidence.submissions.unshift({
-    author: "upstream",
-    outerSequenceNumber: 7,
-    innerIndex: 0,
-    referenceSequenceNumber: 6,
-    revision: 99,
-    originatorId: "bootstrap-upstream",
-    allocations: [],
-  });
-  const claim = expected.artifacts.get(item.artifacts[0]).claim;
-  claim.measured.evidence = structuredClone(item.evidence);
-  assert.equal(validateInteropReport(report, expected), report);
-});
-
-test("array move families require exact retained object survival", async () => {
-  for (const [id, retainedObjectReferences] of [
-    ["array-move-child-edit:upstream->javascript:upstream-first", [false, false]],
-    ["array-move-delete:upstream->javascript:javascript-first", [false, false]],
-    ["array-move-delete:upstream->javascript:upstream-first", [true, true]],
-  ]) {
-    const { expected, report } = await validFixture();
-    const item = report.deterministic.find((candidate) => candidate.id === id);
-    item.evidence.array.retainedObjectReferences = retainedObjectReferences;
-    expected.artifacts.get(item.artifacts[0]).claim.measured.evidence =
-      structuredClone(item.evidence);
-    assert.throws(
-      () => validateInteropReport(report, expected),
-      /retained object references/i,
-      id,
-    );
-  }
-});
-
 test("the acceptance report requires all nine map reload cells", async () => {
   const { expected, report } = await validFixture();
   delete report.mapReload.upstream.javascript;
@@ -1022,21 +1371,241 @@ test("the acceptance report requires all nine map reload cells", async () => {
     /map summary interop needs all three readers/i);
 });
 
-test("the acceptance report requires all nine array reload cells", async () => {
-  const { expected, report } = await validFixture();
-  delete report.arrayReload.upstream.javascript;
-  assert.throws(() => validateInteropReport(report, expected),
-    /array summary interop needs all three readers/i);
+test("the acceptance report requires every schema section", async () => {
+  for (const section of [
+    "schemaCompatibility",
+    "schemaRaces",
+    "schemaReconnect",
+    "schemaReloadMatrix",
+    "schemaTailReloadMatrix",
+  ]) {
+    const { expected, report } = await validFixture();
+    delete report[section];
+    assert.throws(
+      () => validateInteropReport(report, expected),
+      new RegExp(section),
+    );
+  }
 });
 
-test("the acceptance report rejects one missing required array scenario cell", async () => {
-  const { expected, report } = await validFixture();
-  const index = report.deterministic.findIndex(({ profile }) => profile === "array");
-  assert(index >= 0);
-  report.deterministic.splice(index, 1);
-  assert.throws(() => validateInteropReport(report, expected),
-    /deterministic results/i);
+test("schema sections reject missing coverage and empty observations", async () => {
+  for (const [label, mutate] of [
+    ["missing target", (report) => report.schemaCompatibility.pop()],
+    ["missing race ordering", (report) => {
+      report.schemaRaces = report.schemaRaces.filter(
+        ({ family, order }) =>
+          !(family === "schema-data" && order === "competitor-first"),
+      );
+    }],
+    ["missing writer reader cell", (report) => {
+      delete report.schemaReloadMatrix.javascript.erlang;
+    }],
+    ["zero observations", (report) => {
+      report.schemaReconnect[0].observations = [];
+    }],
+    ["skipped required cell", (report) => {
+      report.schemaReloadMatrix.erlang.upstream.skipped = true;
+    }],
+  ]) {
+    const { expected, report } = await validFixture();
+    mutate(report);
+    assert.throws(() => validateInteropReport(report, expected), undefined, label);
+  }
 });
+
+test("schema evidence rejects missing, mismatched, and contradictory artifacts", async () => {
+  {
+    const { expected, report } = await validFixture();
+    report.schemaRaces[0].artifacts = ["evidence/does-not-exist.json"];
+    assert.throws(() => validateInteropReport(report, expected),
+      /unverified artifact/i);
+  }
+  for (const [label, mutate] of [
+    ["run", (claim) => { claim.runId = "another-run"; }],
+    ["subject", (claim) => { claim.subject = "another-subject"; }],
+    ["document", (claim) => { claim.documentId = "another-document"; }],
+    ["result", (claim) => {
+      claim.result.observations[0].documentHealthy = false;
+    }],
+  ]) {
+    const { artifacts, expected, owned, report } = await validFixture();
+    const references = [...artifacts.keys()];
+    const reference = report.schemaRaces.find(
+      ({ family }) => family === "schema-schema",
+    ).artifacts[0];
+    const claim = structuredClone(artifacts.get(reference).claim);
+    mutate(claim);
+    await writeFile(join(owned, reference), `${JSON.stringify(claim)}\n`);
+    const evidence = await createArtifactEvidence(owned, references);
+    assert.throws(() => validateInteropReport(report, {
+      ...expected,
+      artifacts: evidence,
+    }), undefined, label);
+  }
+});
+
+test("schema evidence requires substantive checkpoints and identities", async () => {
+  for (const [label, mutate] of [
+    ["rollback checkpoint", (report) => {
+      delete report.schemaRaces.find(
+        ({ family }) => family === "schema-schema",
+      ).observations[0].rollback;
+    }],
+    ["reconnect revisions", (report) => {
+      report.schemaReconnect[0].observations[0].originalRevisions = [];
+    }],
+    ["reload version", (report) => {
+      delete report.schemaReloadMatrix.upstream.javascript
+        .observations[0].loadedVersion;
+    }],
+    ["reload instance", (report) => {
+      delete report.schemaReloadMatrix.upstream.javascript
+        .observations[0].readerInstanceId;
+    }],
+    ["contradictory stored schema", (report) => {
+      report.schemaReloadMatrix.upstream.javascript
+        .observations[0].pendingStoredState.schema.content = "{\"wrong\":true}";
+    }],
+  ]) {
+    const { expected, report } = await validFixture();
+    mutate(report);
+    assert.throws(() => validateInteropReport(report, expected), undefined, label);
+  }
+});
+
+test("schema validators reject coordinated report and artifact false positives", async () => {
+  for (const [label, select, mutate] of [
+    ["empty accepted reconnect commits", (report) => report.schemaReconnect[0],
+      (observation) => { observation.acceptedCommits = []; }],
+    ["wrong reconnect original operation", (report) => report.schemaReconnect[0],
+      (observation) => {
+        observation.originalOperations[1].payload[0].data.value = 999;
+      }],
+    ["fictitious reconnect mapping", (report) => report.schemaReconnect[0],
+      (observation) => {
+        observation.acceptedMappings[0].acceptedRevision = "invented";
+      }],
+    ["erased reconnect changesets", (report) => report.schemaReconnect[0],
+      (observation) => {
+        observation.acceptedCommits[0].changeset = [];
+        observation.acceptedCommits[1].changeset = [];
+      }],
+    ["rollback payload is not empty",
+      (report) => report.schemaRaces.find(({ family }) => family === "schema-schema"),
+      (observation) => {
+        const loser = observation.rollback.observations.find(
+          ({ implementation }) => implementation === observation.losingAuthor,
+        );
+        loser.history.pending[0].changeset.raw =
+          { changes: [{ type: "data", innerChange: { invented: true } }] };
+      }],
+    ["empty fresh reader history",
+      (report) => report.schemaReloadMatrix.upstream.javascript,
+      (observation) => { observation.freshLoadCheckpoint.history.trunk = []; }],
+    ["wrong retained peer",
+      (report) => report.schemaReloadMatrix.upstream.javascript,
+      (observation) => { observation.retainedPeerAuthor = "erlang"; }],
+    ["wrong pending operation",
+      (report) => report.schemaReloadMatrix.upstream.javascript,
+      (observation) => {
+        observation.pendingWriterCheckpoint.history.pending[0] = {
+          revision: "wrong",
+          originatorId: "wrong",
+          changeset: { changeCount: 1, raw: { changes: [{ type: "data" }] } },
+        };
+      }],
+    ["unrelated tree request",
+      (report) => report.schemaReloadMatrix.upstream.javascript,
+      (observation) => { observation.selectedTreeRequests = ["unrelated-tree"]; }],
+    ["unrelated blob request",
+      (report) => report.schemaReloadMatrix.upstream.javascript,
+      (observation) => { observation.selectedBlobRequests = ["unrelated-blob"]; }],
+  ]) {
+    const { expected, owned, report } = await validFixture();
+    const item = select(report);
+    const observation = item.observations[0];
+    mutate(observation);
+    for (const reference of item.artifacts) {
+      const claim = structuredClone(expected.artifacts.get(reference).claim);
+      claim.result = item.writer === undefined
+        ? structuredClone(observation)
+        : Object.fromEntries(Object.entries(structuredClone(item))
+          .filter(([name]) => name !== "artifacts"));
+      await writeFile(join(owned, reference), `${JSON.stringify(claim)}\n`);
+    }
+    const artifacts = await createArtifactEvidence(
+      owned,
+      [...expected.artifacts.keys()],
+    );
+    assert.throws(() => validateInteropReport(report, {
+      ...expected,
+      artifacts,
+    }), undefined, label);
+  }
+});
+
+for (const [label, changeset] of [
+  ["empty raw history", { changeCount: 1, raw: [] }],
+  ["invented structured history", {
+    changeCount: 1,
+    raw: { changes: [{ type: "invented" }] },
+  }],
+  ["invented textual history", {
+    changeCount: 1,
+    raw: "Changeset([DataChange(invented)])",
+  }],
+  ["unknown nested textual constructors", {
+    changeCount: 1,
+    raw: 'Changeset([DataChange(Changeset(ChangeData('
+      + 'Invented(#("score", OptionalField(Bogus())), NumberValue(1000))'
+      + ")))])",
+  }],
+  ["fabricated native constructor shortcuts", {
+    changeCount: 1,
+    raw: 'Changeset([DataChange(Changeset(ChangeData('
+      + '[#("score", OptionalField(FieldChange()))], '
+      + '[Build(AtomId(0), [NumberValue(1000)])])))])',
+  }],
+  ["history count mismatch", {
+    changeCount: 2,
+    raw: {
+      changes: [{
+        type: "schema",
+        innerChange: { schema: { old: {}, new: { upgraded: true } } },
+      }],
+    },
+  }],
+]) {
+  test(`post-upgrade reload rejects ${label}`, async () => {
+    const { expected, owned, report } = await validFixture();
+    const item = report.schemaReloadMatrix.upstream.javascript;
+    const observation = item.observations[0];
+    observation.freshLoadCheckpoint.history.trunk[0] = {
+      revision: "invented",
+      originatorId: "invented",
+      changeset,
+    };
+    observation.beforeContinuation.history.trunk[0] =
+      structuredClone(observation.freshLoadCheckpoint.history.trunk[0]);
+    for (const reference of item.artifacts) {
+      const claim = structuredClone(expected.artifacts.get(reference).claim);
+      claim.result = Object.fromEntries(Object.entries(structuredClone(item))
+        .filter(([name]) => name !== "artifacts"));
+      await writeFile(join(owned, reference), `${JSON.stringify(claim)}\n`);
+    }
+    const artifacts = await createArtifactEvidence(
+      owned,
+      [...expected.artifacts.keys()],
+    );
+    assert.throws(
+      () => validateInteropReport(report, { ...expected, artifacts }),
+      {
+        name: "AssertionError",
+        message: /post-upgrade fresh-reader history contains an? (?:empty|invalid|mismatched) operation/i,
+      },
+    );
+  });
+}
 
 test("single-author algebra cells do not invent pending state", async () => {
   const { expected, report } = await validFixture();
@@ -1341,7 +1910,7 @@ test("partial, stale, and synthetic-shaped evidence cannot pass", async () => {
     ["duplicate seeded index", (copy) => { copy.seeded[1].index = 0; }],
     ["fewer seeded schedules", (copy) => { copy.seeded.pop(); }],
     ["incomplete seeded producer", (copy) => {
-      copy.seededAccounting.executed = 299;
+      copy.seededAccounting.executed = 199;
     }],
     ["missing seeded accounting", (copy) => {
       delete copy.seededAccounting;
@@ -1431,7 +2000,7 @@ test("the committed profile is hashed and every compatibility pin is validated",
   assert.match(loaded.profileDigest, /^[0-9a-f]{64}$/);
   assert.equal(
     loaded.profileDigest,
-    "d0cc4a5e3fd47dc942cbaeb56604160fb75f5ba18c704b356b89d22e65747112",
+    "6410448d2e0abcb1dc905a67f6d6ad197003805e92151b9e9ff8795963229bf5",
   );
   assert.deepEqual(loaded.profile.reference, reference);
   assert.deepEqual(
@@ -1451,13 +2020,23 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "recursive-map-values",
     "canonical-map-iteration",
     "bootstrap-map-handle",
-    "recursive-array-values",
-    "range-array-edits",
-    "cross-array-moves",
     "grouped-batches",
     "gc-metadata",
+    "strict-view-object-map-schema-evolution",
   ]);
-  assert(!loaded.profile.excludedFeatures.includes("arrays"));
+  assert.deepEqual(loaded.profile.excludedFeatures, [
+    "arrays",
+    "array-schema-evolution",
+    "staged-schema-upgrades",
+    "unknown-field-view-adapters",
+    "data-migrations",
+    "public-transactions",
+    "additional-upstream-versions",
+    "shared-branches",
+    "gc-sweep",
+    "compressed-ops",
+    "chunked-ops",
+  ]);
   assert(!loaded.profile.excludedFeatures.includes("maps-in-tree"));
   const directory = await mkdtemp(join(tmpdir(), "watershed-profile-"));
   const profile = JSON.parse(await readFile(profilePath, "utf8"));
@@ -1490,7 +2069,7 @@ test("CLI options accept only bounded acceptance or replay invocations", () => {
   assert.deepEqual(parseInteropOptions([], { cwd: repository }), {
     mode: "acceptance",
     profilePath,
-    iterations: 300,
+    iterations: 200,
     seed: 42,
     outputDirectory: join(repository, "tools/shared-tree-oracle/.output/interop"),
     replayPath: undefined,
@@ -1498,14 +2077,14 @@ test("CLI options accept only bounded acceptance or replay invocations", () => {
   });
   assert.deepEqual(parseInteropOptions([
     "--profile", "test/fixtures/shared_tree/profile.json",
-    "--iterations", "300",
+    "--iterations", "200",
     "--seed", "42",
     "--output", "artifacts",
     "--external-floodgate",
   ], { cwd: repository }), {
     mode: "acceptance",
     profilePath,
-    iterations: 300,
+    iterations: 200,
     seed: 42,
     outputDirectory: join(repository, "artifacts"),
     replayPath: undefined,
@@ -1514,7 +2093,7 @@ test("CLI options accept only bounded acceptance or replay invocations", () => {
   assert.deepEqual(parseInteropOptions([], { cwd: oracleDirectory }), {
     mode: "acceptance",
     profilePath,
-    iterations: 300,
+    iterations: 200,
     seed: 42,
     outputDirectory: join(repository, "tools/shared-tree-oracle/.output/interop"),
     replayPath: undefined,
@@ -1533,16 +2112,16 @@ test("CLI options accept only bounded acceptance or replay invocations", () => {
     externalFloodgate: false,
   });
   for (const args of [
-    ["--profile", "profile.json", "--iterations", "299", "--seed", "42"],
+    ["--profile", "profile.json", "--iterations", "199", "--seed", "42"],
     ["--profile", "profile.json", "--iterations", "0", "--seed", "42"],
     ["--profile", "profile.json", "--iterations", "-1", "--seed", "42"],
-    ["--profile", "profile.json", "--iterations", "300.5", "--seed", "42"],
+    ["--profile", "profile.json", "--iterations", "200.5", "--seed", "42"],
     ["--profile", "profile.json", "--iterations", "abc", "--seed", "42"],
-    ["--profile", "profile.json", "--iterations", "300", "--seed", "-1"],
-    ["--profile", "profile.json", "--iterations", "300", "--seed", "4294967296"],
-    ["--profile", "profile.json", "--iterations", "300", "--seed", "1.5"],
-    ["--profile", "profile.json", "--iterations", "300", "--seed", "42", "--unknown"],
-    ["--replay", "failure.json", "--iterations", "300"],
+    ["--profile", "profile.json", "--iterations", "200", "--seed", "-1"],
+    ["--profile", "profile.json", "--iterations", "200", "--seed", "4294967296"],
+    ["--profile", "profile.json", "--iterations", "200", "--seed", "1.5"],
+    ["--profile", "profile.json", "--iterations", "200", "--seed", "42", "--unknown"],
+    ["--replay", "failure.json", "--iterations", "200"],
     ["--replay", "failure.json", "--profile", "profile.json"],
     ["--replay", "failure.json", "--external-floodgate"],
   ]) {
@@ -1563,7 +2142,7 @@ test("the coordinator routes parsed defaults to the acceptance gate", async () =
   });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].profilePath, profilePath);
-  assert.equal(calls[0].iterations, 300);
+  assert.equal(calls[0].iterations, 200);
   assert.equal(calls[0].seed, 42);
   assert.equal(calls[0].externalFloodgate, false);
   assert.deepEqual(JSON.parse(output.join("")), {

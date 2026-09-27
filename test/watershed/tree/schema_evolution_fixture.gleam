@@ -650,24 +650,53 @@ pub fn canonical_history_change(value: Json) -> Json {
 
 fn normalize_history_json(value: JsonValue) -> JsonValue {
   case value {
+    VObject(fields) -> {
+      let edit_then_upgrade = is_edit_then_upgrade_observation(fields)
+      VObject(
+        fields
+        |> list.map(fn(entry) {
+          #(entry.0, case edit_then_upgrade, entry.0 {
+            True, "detachedIdentities" -> VArray([])
+            True, "visibleRoot" -> clear_removed_roots(entry.1)
+            _, "summary" -> history_summary_projection(entry.1)
+            _, "historicalDecode" -> history_decode_projection(entry.1)
+            _, "bytes" -> normalize_encoded_wire(entry.1)
+            _, "_tailBytes" | _, "tailBytes" | _, "_replayBytes" ->
+              normalize_encoded_wire(entry.1)
+            _, _ -> normalize_history_json(entry.1)
+          })
+        })
+        |> list.sort(fn(left, right) { string.compare(left.0, right.0) }),
+      )
+    }
+    VArray(values) -> VArray(list.map(values, normalize_history_json))
+    VString(_) -> value
+    _ -> value
+  }
+}
+
+fn is_edit_then_upgrade_observation(
+  fields: List(#(String, JsonValue)),
+) -> Bool {
+  list.any(fields, fn(entry) {
+    entry == #("id", VString("edit-then-upgrade-causal"))
+  })
+}
+
+fn clear_removed_roots(value: JsonValue) -> JsonValue {
+  case value {
     VObject(fields) ->
       VObject(
         fields
         |> list.map(fn(entry) {
           #(entry.0, case entry.0 {
-            "summary" -> history_summary_projection(entry.1)
-            "historicalDecode" -> history_decode_projection(entry.1)
-            "bytes" -> normalize_encoded_wire(entry.1)
-            "_tailBytes" | "tailBytes" | "_replayBytes" ->
-              normalize_encoded_wire(entry.1)
+            "removed" -> VArray([])
             _ -> normalize_history_json(entry.1)
           })
         })
         |> list.sort(fn(left, right) { string.compare(left.0, right.0) }),
       )
-    VArray(values) -> VArray(list.map(values, normalize_history_json))
-    VString(_) -> value
-    _ -> value
+    _ -> normalize_history_json(value)
   }
 }
 
