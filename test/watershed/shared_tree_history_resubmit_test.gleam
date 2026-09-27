@@ -1,4 +1,4 @@
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
 import watershed/fluid_ids
@@ -7,9 +7,14 @@ import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/schema
 import watershed/tree/shared_change
-import watershed/tree/types.{NumberValue, ObjectValue, SetField}
+import watershed/tree/types.{NumberValue, ObjectValue, SetField, StringValue}
+import watershed/tree_kernel
 
 const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+
+const title_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Root\":{\"kind\":{\"object\":{\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+
+const title_score_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Root\":{\"kind\":{\"object\":{\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
 fn session() -> fluid_ids.SessionId {
   let assert Ok(value) =
@@ -88,6 +93,27 @@ fn mixed_run_scalar_commit(
   history.Commit(commit_revision, session(), outer)
 }
 
+fn title_state() -> tree_kernel.TreeState {
+  let assert Ok(stored) = schema.stored_from_string(title_schema)
+  let assert Ok(view) = schema.view_from_string(title_schema)
+  let assert Ok(view_id) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000099")
+  let initial = history.inspect(history.new(session())).sequenced
+  let assert Ok(snapshot) =
+    tree_kernel.snapshot_from_parts(
+      view_id,
+      stored,
+      forest.ForestData(
+        Some(ObjectValue("Root", [#("title", StringValue("before"))])),
+        [],
+        0,
+      ),
+      initial,
+    )
+  let assert Ok(state) = tree_kernel.restore(snapshot, view_id, session(), view)
+  state
+}
+
 pub fn shared_tree_history_resubmit_rejects_duplicate_repairs_test() -> Nil {
   let pending = commit(revision("01"))
   let assert Ok(local) = history.append_local(history.new(session()), pending)
@@ -117,6 +143,61 @@ pub fn shared_tree_history_resubmits_prior_run_build_without_repair_test() -> Ni
   let pending = mixed_run_scalar_commit(revision("01"))
   let assert Ok(local) = history.append_local(history.new(session()), pending)
   history.resubmit(local.history, []) |> expect.to_equal(Ok([pending]))
+}
+
+pub fn shared_tree_history_resubmit_reuses_root_detached_before_schema_test() {
+  let state = title_state()
+  let assert Ok(before) = schema.stored_from_string(title_schema)
+  let assert Ok(after) = schema.stored_from_string(title_score_schema)
+  let outer_revision = revision("01")
+  let inverse_revision = revision("02")
+  let assert Ok(order) =
+    change.identity_order([
+      #(outer_revision, -2),
+      #(inverse_revision, -1),
+    ])
+  let assert Ok(base) =
+    forest.new(
+      revision("99"),
+      before,
+      Some(ObjectValue("Root", [#("title", StringValue("before"))])),
+    )
+  let assert Ok(replace) =
+    change.edit(
+      before,
+      base,
+      outer_revision,
+      SetField(["title"], StringValue("temporary")),
+      order,
+    )
+  let assert Ok(restore) =
+    change.invert(
+      change.TaggedChange(Some(outer_revision), None, replace),
+      False,
+      inverse_revision,
+    )
+  let assert Ok(outer) =
+    shared_change.from_changes([
+      shared_change.DataChange(replace),
+      shared_change.SchemaChange(
+        schema.FixedSchema(before),
+        schema.FixedSchema(after),
+        False,
+      ),
+      shared_change.DataChange(restore),
+    ])
+  let assert Ok(#(pending, _, _)) =
+    tree_kernel.apply_local_change(state, outer_revision, order, outer)
+  let assert Ok([rebuilt]) = tree_kernel.resubmit_commits(pending)
+  let assert [
+    shared_change.DataChange(_),
+    shared_change.SchemaChange(_, _, _),
+    shared_change.DataChange(restored),
+  ] = shared_change.to_changes(rebuilt.change)
+
+  change.to_data(restored).refreshers |> expect.to_equal([])
+  tree_kernel.read(pending, ["title"])
+  |> expect.to_equal(Ok(Some(StringValue("before"))))
 }
 
 pub fn shared_tree_history_resubmits_schema_only_commit_test() -> Nil {

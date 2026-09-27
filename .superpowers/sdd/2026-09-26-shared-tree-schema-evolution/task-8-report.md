@@ -51,3 +51,31 @@ delivery, and summary-plus-tail restoration.
 `just lint` stalled in Trellis after starting its two `gleam format --check`
 jobs and was stopped after ten minutes. The direct format check for every
 changed Gleam file completed successfully.
+
+## Fix round 1
+
+Reconnect resubmission now encodes each current pending commit from the schema
+at its sequenced-state replay start. The replay advances that context through
+preceding current commits and through schema changes inside each outer commit.
+This lets a client lose one pending upgrade, author another upgrade on the
+winning schema, reconnect, and resubmit both commits successfully.
+
+Pending replay and history refresher reconstruction now also retain roots
+detached by earlier data runs in the same outer commit as internally available.
+A later data run can restore such a root across an intervening schema change
+without emitting a redundant refresher.
+
+### RED
+
+- The competing-upgrade reconnect regression failed when resubmission could
+  not encode the later upgrade from the rebased winning schema.
+- The data/schema/data regression rebuilt the restoring data run with a
+  refresher for the title root detached by the first run.
+
+### GREEN
+
+- Focused Erlang runtime/history resubmit: 115 passed.
+- Focused JavaScript runtime/history resubmit: 104 passed.
+- Full `just shared-tree-test`: 591 Erlang tests and 580 JavaScript tests
+  passed; storage, bootstrap, and creation smoke tests passed.
+- Changed Gleam files pass `gleam format --check`; `git diff --check` passes.

@@ -1454,14 +1454,15 @@ pub fn resubmit(
     core.channels
     |> dict.to_list
     |> list.try_fold([], fn(commits, entry) {
+      let address = entry.0
       case entry.1 {
         channel.TreeState(state) ->
-          tree_kernel.resubmit_commits(state)
-          |> result.map_error(fn(error) { TreeOperationFailed(entry.0, error) })
+          tree_kernel.resubmit_commits_with_schema(state)
+          |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
           |> result.map(fn(pending) {
             list.append(
               commits,
-              list.map(pending, fn(commit) { #(entry.0, commit) }),
+              list.map(pending, fn(entry) { #(address, entry.0, entry.1) }),
             )
           })
         _ -> Ok(commits)
@@ -1589,14 +1590,14 @@ pub fn resubmit(
 fn resubmit_tree_batch(
   core: Core,
   compressor: Option(fluid_ids.Compressor),
-  remaining: List(#(String, history.Commit)),
+  remaining: List(#(String, history.Commit, tree_schema.StoredSchema)),
   entry: InFlight,
   csn: Int,
   last_tree_batch: Bool,
 ) -> Result(
   #(
     Option(fluid_ids.Compressor),
-    List(#(String, history.Commit)),
+    List(#(String, history.Commit, tree_schema.StoredSchema)),
     InFlight,
     wire.OutboundOperation,
   ),
@@ -1650,10 +1651,9 @@ fn resubmit_tree_batch(
             }),
           )
           use encoded <- result.try(
-            tree_runtime.encode_pending_commit(
+            tree_runtime.encode_pending_commit_from_schema(
               current.1,
-              state,
-              core.last_seen_sequence_number,
+              tree_schema.FixedSchema(current.2),
               compressor,
             )
             |> result.map_error(fn(error) {

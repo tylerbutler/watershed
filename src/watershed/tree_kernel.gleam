@@ -204,17 +204,29 @@ pub fn history_view(state: TreeState) -> history.HistoryView {
 pub fn resubmit_commits(
   state: TreeState,
 ) -> Result(List(history.Commit), TreeError) {
-  use #(scratch, repair) <- result.try(
+  resubmit_commits_with_schema(state)
+  |> result.map(fn(commits) { list.map(commits, fn(entry) { entry.0 }) })
+}
+
+/// Rebuild pending commits with each commit's replay authoring schema.
+pub fn resubmit_commits_with_schema(
+  state: TreeState,
+) -> Result(List(#(history.Commit, schema.StoredSchema)), TreeError) {
+  use #(scratch, repair, schemas) <- result.try(
     list.try_fold(
       history.pending(state.history),
-      #(state.sequenced, []),
+      #(state.sequenced, [], []),
       fn(acc, commit) {
-        let #(before, repairs) = acc
+        let #(before, repairs, schemas) = acc
         use #(after, external) <- result.try(replay_pending_commit(
           before,
           commit,
         ))
-        Ok(#(after, list.append(repairs, [#(commit.revision, external)])))
+        Ok(#(
+          after,
+          list.append(repairs, [#(commit.revision, external)]),
+          list.append(schemas, [forest.stored_schema(before)]),
+        ))
       },
     ),
   )
@@ -234,17 +246,18 @@ pub fn resubmit_commits(
     False ->
       Error(types.InvalidHistory("pending replay does not match visible tree"))
   })
-  history.resubmit(state.history, repair)
+  use commits <- result.try(history.resubmit(state.history, repair))
+  Ok(list.zip(commits, schemas))
 }
 
 fn replay_pending_commit(
   state: forest.Forest,
   commit: history.Commit,
 ) -> Result(#(forest.Forest, List(forest.Build)), TreeError) {
-  use #(state, _, repair, _, _) <- result.try(
+  use #(state, _, _, repair, _, _) <- result.try(
     shared_change.to_changes(commit.change)
-    |> list.try_fold(#(state, [], [], [], RequiredRepair), fn(output, item) {
-      let #(state, prior_builds, repair, supplied, required) = output
+    |> list.try_fold(#(state, [], [], [], [], RequiredRepair), fn(output, item) {
+      let #(state, prior_builds, detached, repair, supplied, required) = output
       case item {
         shared_change.SchemaChange(_, _, _) -> {
           use changeset <- result.try(shared_change.from_changes([item]))
@@ -256,12 +269,13 @@ fn replay_pending_commit(
             )),
           )
           use state <- result.try(apply_effects(state, effects))
-          Ok(#(state, prior_builds, repair, supplied, required))
+          Ok(#(state, prior_builds, detached, repair, supplied, required))
         }
         shared_change.DataChange(data) -> {
           use #(roots, available) <- result.try(unavailable_roots(
             data,
             prior_builds,
+            detached,
           ))
           let roots =
             list.filter(roots, fn(root) { !list.contains(supplied, root) })
@@ -297,9 +311,11 @@ fn replay_pending_commit(
             )),
           )
           use state <- result.try(apply_effects(state, effects))
+          use detached_roots <- result.try(change.detached_roots(data))
           Ok(#(
             state,
             available,
+            list.append(detached, detached_roots) |> list.unique,
             list.append(repair, found),
             list.append(supplied, found_roots),
             OptionalRepair,
@@ -696,12 +712,14 @@ fn validate_forward_schema_changes(
 fn unavailable_roots(
   data: change.Changeset,
   prior_builds: List(forest.Build),
+  detached: List(types.AtomId),
 ) -> Result(#(List(types.AtomId), List(forest.Build)), TreeError) {
   let available = list.append(prior_builds, change.to_data(data).builds)
   use roots <- result.try(change.relevant_removed_roots(data))
   Ok(#(
     list.filter(roots, fn(root) {
-      !list.any(available, fn(build) { history.build_covers(build, root) })
+      !list.contains(detached, root)
+      && !list.any(available, fn(build) { history.build_covers(build, root) })
     }),
     available,
   ))

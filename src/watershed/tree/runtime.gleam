@@ -132,6 +132,14 @@ pub fn encode_pending_commit(
     reference_sequence_number,
     commit.revision,
   ))
+  encode_pending_commit_from_schema(commit, start, compressor)
+}
+
+pub fn encode_pending_commit_from_schema(
+  commit: history.Commit,
+  start: schema.SchemaState,
+  compressor: fluid_ids.Compressor,
+) -> Result(Json, TreeError) {
   use finish <- result.try(tree_kernel.advance_authoring_schema(
     start,
     shared_change.to_changes(commit.change),

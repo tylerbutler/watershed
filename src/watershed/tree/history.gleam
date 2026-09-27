@@ -1562,12 +1562,14 @@ fn outer_revisions(
 fn unavailable_roots(
   data: change.Changeset,
   prior_builds: List(forest.Build),
+  detached: List(types.AtomId),
 ) -> Result(#(List(types.AtomId), List(forest.Build)), TreeError) {
   let available = list.append(prior_builds, change.to_data(data).builds)
   use roots <- result.try(change.relevant_removed_roots(data))
   Ok(#(
     list.filter(roots, fn(root) {
-      !list.any(available, fn(build) { build_covers(build, root) })
+      !list.contains(detached, root)
+      && !list.any(available, fn(build) { build_covers(build, root) })
     }),
     available,
   ))
@@ -1582,24 +1584,28 @@ fn update_refreshers(
       == list.length(repair),
     "resubmission repair contains a duplicate root",
   ))
-  use #(items, _, used, _) <- result.try(
+  use #(items, _, _, used, _) <- result.try(
     changeset
     |> shared_change.to_changes
-    |> list.try_fold(#([], [], [], RequiredRepair), fn(state, item) {
+    |> list.try_fold(#([], [], [], [], RequiredRepair), fn(state, item) {
       case item {
         shared_change.SchemaChange(_, _, _) ->
-          Ok(#(list.append(state.0, [item]), state.1, state.2, state.3))
+          Ok(#(list.append(state.0, [item]), state.1, state.2, state.3, state.4))
         shared_change.DataChange(data) -> {
-          use #(roots, available) <- result.try(unavailable_roots(data, state.1))
+          use #(roots, available) <- result.try(unavailable_roots(
+            data,
+            state.1,
+            state.2,
+          ))
           let roots =
             list.filter(roots, fn(root) {
-              !list.any(state.2, fn(supplied) { build_covers(supplied, root) })
+              !list.any(state.3, fn(supplied) { build_covers(supplied, root) })
             })
           let supplied =
             list.filter(repair, fn(build) {
               list.any(roots, fn(root) { build.id == root })
             })
-          use _ <- result.try(case state.3 {
+          use _ <- result.try(case state.4 {
             RequiredRepair -> validate_repair_roots(roots, supplied)
             OptionalRepair -> Ok(Nil)
           })
@@ -1609,10 +1615,12 @@ fn update_refreshers(
             refreshed_roots,
             supplied,
           ))
+          use detached_roots <- result.try(change.detached_roots(data))
           Ok(#(
             list.append(state.0, [shared_change.DataChange(updated)]),
             available,
-            list.append(state.2, supplied),
+            list.append(state.2, detached_roots) |> list.unique,
+            list.append(state.3, supplied),
             OptionalRepair,
           ))
         }

@@ -1877,6 +1877,10 @@ pub fn relevant_removed_roots(
   removed_roots_from_fields(change.data.fields, change.data, [])
 }
 
+pub fn detached_roots(change: Changeset) -> Result(List(AtomId), TreeError) {
+  detached_roots_from_fields(change.data.fields, change.data, [])
+}
+
 pub fn update_refreshers(
   change: Changeset,
   roots: List(AtomId),
@@ -3242,6 +3246,42 @@ fn removed_roots_from_child(
   use node <- result.try(node_for(canonical, data.nodes))
   let NodeChange(fields) = node
   removed_roots_from_fields(fields, data, roots)
+}
+
+fn detached_roots_from_fields(
+  fields: List(#(String, FieldChange)),
+  data: ChangeData,
+  roots: List(AtomId),
+) -> Result(List(AtomId), TreeError) {
+  list.try_fold(fields, roots, fn(roots, entry) {
+    case entry.1 {
+      GenericField(children) ->
+        list.try_fold(children, roots, fn(roots, child) {
+          detached_roots_from_child(child.1, data, roots)
+        })
+      ValueField(field) | OptionalField(field) -> {
+        let optional_field.FieldChange(_, children, replacement) = field
+        let roots = case replacement {
+          Some(replacement) -> append_unique(roots, replacement.detach_id)
+          None -> roots
+        }
+        list.try_fold(children, roots, fn(roots, child) {
+          detached_roots_from_child(child.1, data, roots)
+        })
+      }
+    }
+  })
+}
+
+fn detached_roots_from_child(
+  id: AtomId,
+  data: ChangeData,
+  roots: List(AtomId),
+) -> Result(List(AtomId), TreeError) {
+  use canonical <- result.try(resolve_alias(id, data.aliases))
+  use node <- result.try(node_for(canonical, data.nodes))
+  let NodeChange(fields) = node
+  detached_roots_from_fields(fields, data, roots)
 }
 
 fn append_unique(values: List(a), value: a) -> List(a) {

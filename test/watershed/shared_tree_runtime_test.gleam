@@ -607,6 +607,45 @@ pub fn shared_tree_losing_upgrade_resubmits_empty_commit_test() -> Nil {
   shared_change.to_changes(commit.change) |> expect.to_equal([])
 }
 
+pub fn shared_tree_upgrade_after_losing_upgrade_resubmits_test() -> Nil {
+  let assert Ok(left) =
+    runtime_fixture.routed_core_for(
+      "left",
+      "50000000-0000-4000-8000-000000000005",
+    )
+  let assert Ok(right) =
+    runtime_fixture.routed_core_for(
+      "right",
+      "60000000-0000-4000-8000-000000000006",
+    )
+  let address = "A/_C"
+  let left_view = upgraded_view(left, address, "Optional")
+  let right_view = optional_title_view(right, address)
+  let assert Ok(#(left, _, [left_outbound])) =
+    runtime_core.submit_tree_upgrade(left, address, left_view)
+  let assert Ok(#(right, _, [_])) =
+    runtime_core.submit_tree_upgrade(right, address, right_view)
+  let assert Ok(#(right, _)) =
+    runtime_core.handle_sequenced(right, map_message(left, left_outbound, 3))
+  let next_view = optional_title_view(right, address)
+  let assert Ok(#(right, _, [_])) =
+    runtime_core.submit_tree_upgrade(right, address, next_view)
+  let rejoined =
+    runtime_core.adopt_reconnect(
+      right,
+      runtime_fixture.connected("right-next", [], 3),
+    )
+  let assert Ok(#(resent, [losing, upgrade])) =
+    runtime_core.resubmit(runtime_core.go_live(rejoined))
+  let assert Ok(#(reader, _)) =
+    runtime_core.handle_sequenced(left, map_message(resent, losing, 4))
+  let assert Ok(#(reader, _)) =
+    runtime_core.handle_sequenced(reader, map_message(resent, upgrade, 5))
+
+  runtime_core.tree_read(reader, address, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue(""))))
+}
+
 pub fn shared_tree_resubmit_keeps_identity_and_visible_state_test() -> Nil {
   let assert Ok(core) = runtime_fixture.routed_core()
   let assert Ok(#(pending, _, [_])) =
