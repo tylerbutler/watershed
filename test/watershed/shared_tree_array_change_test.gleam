@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
@@ -233,6 +234,60 @@ pub fn shared_tree_array_change_validates_ranges_content_cycles_and_capacity_tes
   )
   |> expect.to_equal(
     Error(types.CorruptData("change allocator", "identifiers are exhausted")),
+  )
+  forest.export_data(initial) |> expect.to_equal(Ok(before))
+}
+
+pub fn shared_tree_array_change_rejects_atomic_move_validation_failures_test() {
+  let root =
+    types.ObjectValue("org.watershed.shared-tree.m3.Root", [
+      #("left", types.ArrayValue(items_type, [types.StringValue("A")])),
+      #("right", types.ArrayValue(items_type, [])),
+      #("byKey", types.MapValue("org.watershed.shared-tree.m3.ArrayMap", [])),
+      #("narrow", types.ArrayValue("org.watershed.shared-tree.m3.Points", [])),
+    ])
+  let stored = array_fixture.stored("objectArrays")
+  let assert Ok(initial) =
+    forest.new(array_fixture.view_id(), stored, Some(root))
+  let assert Ok(before) = forest.export_data(initial)
+  let assert Ok(unsafe) = int.parse("9007199254740992")
+
+  change.edit(
+    stored,
+    initial,
+    revision(),
+    types.ArrayMove(["left"], unsafe, unsafe, ["right"], 0),
+    identity_order(),
+  )
+  |> expect.to_equal(
+    Error(types.InvalidEdit(["left"], "array range is outside the valid range")),
+  )
+  forest.export_data(initial) |> expect.to_equal(Ok(before))
+
+  change.edit(
+    stored,
+    initial,
+    revision(),
+    types.ArrayMove(["left"], 0, 1, ["right"], 1),
+    identity_order(),
+  )
+  |> expect.to_equal(
+    Error(types.InvalidEdit(["right"], "array gap is outside the valid range")),
+  )
+  forest.export_data(initial) |> expect.to_equal(Ok(before))
+
+  change.edit(
+    stored,
+    initial,
+    revision(),
+    types.ArrayMove(["left"], 0, 1, ["narrow"], 0),
+    identity_order(),
+  )
+  |> expect.to_equal(
+    Error(types.InvalidEdit(
+      ["0"],
+      "node type is not allowed: com.fluidframework.leaf.string",
+    )),
   )
   forest.export_data(initial) |> expect.to_equal(Ok(before))
 }
