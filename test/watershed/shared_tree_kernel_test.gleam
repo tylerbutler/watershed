@@ -52,6 +52,12 @@ fn other_revision() -> fluid_ids.StableId {
   id
 }
 
+fn third_revision() -> fluid_ids.StableId {
+  let assert Ok(id) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000006")
+  id
+}
+
 fn root() -> types.TreeValue {
   ObjectValue("Root", [
     #("point", ObjectValue("Point", [#("x", NumberValue(1.0))])),
@@ -668,6 +674,158 @@ pub fn shared_tree_kernel_replayed_schema_keeps_pending_schema_test() {
   events.events |> expect.to_equal([])
   tree_kernel.stored_schema(replayed) |> expect.to_equal(optional_score)
   tree_kernel.history_view(replayed).pending |> expect.to_equal([second])
+}
+
+pub fn shared_tree_kernel_replayed_schema_after_empty_keeps_pending_schema_test() {
+  let state = initial_state()
+  let assert Ok(base) = schema.stored_from_string(tree_schema)
+  let assert Ok(optional) = schema.stored_from_string(optional_schema)
+  let assert Ok(optional_score) =
+    schema.stored_from_string(optional_score_schema)
+  let assert Ok(first_change) =
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(base),
+        schema.FixedSchema(optional),
+        False,
+      ),
+    ])
+  let assert Ok(first_order) = change.identity_order([#(revision(), -1)])
+  let assert Ok(#(pending, first, _)) =
+    tree_kernel.apply_local_change(state, revision(), first_order, first_change)
+  let assert Ok(#(acked, _, Nil)) =
+    tree_kernel.receive(
+      pending,
+      first,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let empty =
+    history.Commit(third_revision(), other_session(), shared_change.empty())
+  let assert Ok(#(advanced, _, Nil)) =
+    tree_kernel.receive(
+      acked,
+      empty,
+      types.SequencePoint(2, 0),
+      1,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(second_change) =
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(optional),
+        schema.FixedSchema(optional_score),
+        False,
+      ),
+    ])
+  let assert Ok(second_order) =
+    change.identity_order([
+      #(revision(), -3),
+      #(other_revision(), -2),
+      #(third_revision(), -1),
+    ])
+  let assert Ok(#(pending, second, _)) =
+    tree_kernel.apply_local_change(
+      advanced,
+      other_revision(),
+      second_order,
+      second_change,
+    )
+
+  let assert Ok(#(replayed, events, Nil)) =
+    tree_kernel.receive(
+      pending,
+      first,
+      types.SequencePoint(3, 0),
+      2,
+      0,
+      Nil,
+      no_mint,
+    )
+
+  events |> expect.to_equal([])
+  tree_kernel.stored_schema(replayed) |> expect.to_equal(optional_score)
+  tree_kernel.history_view(replayed).pending |> expect.to_equal([second])
+}
+
+pub fn shared_tree_kernel_replayed_schema_keeps_advanced_visible_and_snapshot_test() {
+  let state = initial_state()
+  let assert Ok(base) = schema.stored_from_string(tree_schema)
+  let assert Ok(optional) = schema.stored_from_string(optional_schema)
+  let assert Ok(optional_score) =
+    schema.stored_from_string(optional_score_schema)
+  let assert Ok(first_change) =
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(base),
+        schema.FixedSchema(optional),
+        False,
+      ),
+    ])
+  let assert Ok(order) =
+    change.identity_order([
+      #(revision(), -2),
+      #(other_revision(), -1),
+    ])
+  let assert Ok(#(pending, first, _)) =
+    tree_kernel.apply_local_change(state, revision(), order, first_change)
+  let assert Ok(#(acked, _, Nil)) =
+    tree_kernel.receive(
+      pending,
+      first,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(second_change) =
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(optional),
+        schema.FixedSchema(optional_score),
+        False,
+      ),
+    ])
+  let assert Ok(#(pending, second, _)) =
+    tree_kernel.apply_local_change(
+      acked,
+      other_revision(),
+      order,
+      second_change,
+    )
+  let assert Ok(#(advanced, _, Nil)) =
+    tree_kernel.receive(
+      pending,
+      second,
+      types.SequencePoint(2, 0),
+      1,
+      0,
+      Nil,
+      no_mint,
+    )
+
+  let assert Ok(#(replayed, events, Nil)) =
+    tree_kernel.receive(
+      advanced,
+      first,
+      types.SequencePoint(3, 0),
+      2,
+      0,
+      Nil,
+      no_mint,
+    )
+
+  events |> expect.to_equal([])
+  tree_kernel.stored_schema(replayed) |> expect.to_equal(optional_score)
+  let assert Ok(snapshot) = tree_kernel.snapshot(replayed)
+  let #(snapshotted, _, _) = tree_kernel.snapshot_parts(snapshot)
+  snapshotted |> expect.to_equal(optional_score)
 }
 
 pub fn shared_tree_kernel_rejects_invalid_schema_change_atomically_test() {

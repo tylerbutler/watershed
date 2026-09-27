@@ -111,3 +111,73 @@ projection exclusions remain unchanged.
 Retained replay entries intentionally keep more than one sequence point for the
 same revision because the pinned upstream history corpus observes both. All
 revision-based ancestry lookups therefore resolve the latest occurrence.
+
+## Fix round 2
+
+### Result
+
+Duplicate replay is now an identity-level no-op for both forests. The history
+still records the later sequence point, but it appends the commit content that
+was retained after the first reconciliation instead of the original incoming
+content. The pending branch base advances to the replayed revision without
+rebasing pending commits over an effect that the document already applied.
+
+This rule covers immediate replay, replay after an intervening empty commit,
+replay while a schema change is pending, replay after later sequenced work, and
+replay of a remote schema change that was previously muted by reconciliation.
+Receipt validation still compares the incoming commit with the original
+received content before accepting the duplicate.
+
+The history fixture now serializes every detached root from the executed forest.
+It no longer filters detached roots by the revisions that remain in history.
+
+### RED
+
+- `gleam test --target erlang -- shared_tree_history shared_tree_kernel`
+  failed three new replay regressions:
+  - replay after an intervening empty commit attempted a pending rebase and
+    failed because it requested rollback allocation;
+  - replay with no pending commits reapplied the visible schema and emitted
+    `SchemaChanged(False)`;
+  - replay of a previously muted remote schema commit appended the original
+    incoming schema content, so the retained duplicate contents disagreed.
+- After removing the detached-root filter, the existing history corpus failed
+  at `$.observations[1].detachedIdentities[0]`.
+
+### GREEN
+
+- `gleam test --target erlang -- shared_tree_history shared_tree_kernel`:
+  67 passed.
+- `gleam test --target javascript -- shared_tree_history shared_tree_kernel`:
+  67 passed.
+- `just shared-tree-test`: Erlang 558 passed, JavaScript 547 passed, storage
+  smoke passed, and bootstrap/creation smoke passed for both targets.
+- `git diff --check`: passed.
+
+### Files
+
+- `src/watershed/tree/history.gleam`
+- `test/fixtures/shared_tree/cases/schema-evolution-history.json`
+- `test/watershed/shared_tree_history_test.gleam`
+- `test/watershed/shared_tree_kernel_test.gleam`
+- `test/watershed/tree/schema_evolution_fixture.gleam`
+
+### Self-review
+
+- Duplicate validation still uses the original receipt, including exact commit,
+  originator, reference sequence number, and minimum sequence number checks.
+- The later trunk entry uses the prior retained commit, so muted content remains
+  muted and snapshot revision copies remain consistent.
+- Duplicate replay returns no visible or sequenced effects. Pending commits stay
+  unchanged, while their equivalent base advances to the later replay identity.
+- Acknowledgement behavior, history trimming, rollback evidence, and
+  accepted-before-drop receipts continue through their existing paths.
+- The fixture expectation changed only for the newly exposed removed root and
+  detached identity.
+
+### Concerns
+
+As before, a restored snapshot does not contain the original wire content in
+its receipt metadata, so it cannot authenticate a duplicate operation received
+after restore. Such duplicates remain rejected rather than accepted without
+evidence.

@@ -1786,15 +1786,8 @@ fn history_forest_json(client: HistoryClient) -> Result(Json, String) {
     },
     history_tree_value_json,
   ))
-  let retained = tree_kernel.identity_revisions(client.state)
   use removed <- result.try(
     data.detached
-    |> list.filter(fn(entry) {
-      case entry.id.revision {
-        None -> True
-        Some(revision) -> list.contains(retained, revision)
-      }
-    })
     |> list.try_map(fn(entry) {
       use value <- result.try(history_tree_value_json(entry.value))
       Ok(
@@ -1821,15 +1814,8 @@ fn history_detached_json(client: HistoryClient) -> Result(Json, String) {
   case tree_kernel.visible_data(client.state) {
     Error(error) -> Error(string.inspect(error))
     Ok(data) -> {
-      let retained = tree_kernel.identity_revisions(client.state)
       use detached <- result.try(
         data.detached
-        |> list.filter(fn(entry) {
-          case entry.id.revision {
-            None -> True
-            Some(revision) -> list.contains(retained, revision)
-          }
-        })
         |> list.try_map(fn(entry) {
           use value <- result.try(history_tree_value_json(entry.value))
           Ok(

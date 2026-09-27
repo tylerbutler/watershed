@@ -18,6 +18,10 @@ import watershed/tree/types.{
 
 const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
+const optional_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+
+const score_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+
 fn session(value: String) -> fluid_ids.SessionId {
   let assert Ok(id) = fluid_ids.session_id(value)
   id
@@ -34,6 +38,10 @@ fn local_session() -> fluid_ids.SessionId {
 
 fn peer_session() -> fluid_ids.SessionId {
   session("00000000-0000-4000-8000-000000000002")
+}
+
+fn other_peer_session() -> fluid_ids.SessionId {
+  session("00000000-0000-4000-8000-000000000003")
 }
 
 fn revision_a() -> fluid_ids.StableId {
@@ -190,6 +198,23 @@ fn peer_edit(value: Float) -> history.Commit {
     peer_session(),
     shared_change.from_data(authored),
   )
+}
+
+fn schema_commit(
+  revision: fluid_ids.StableId,
+  originator: fluid_ids.SessionId,
+  before: schema.StoredSchema,
+  after: schema.StoredSchema,
+) -> history.Commit {
+  let assert Ok(change) =
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(before),
+        schema.FixedSchema(after),
+        False,
+      ),
+    ])
+  history.Commit(revision, originator, change)
 }
 
 pub fn shared_tree_history_starts_empty_test() -> Nil {
@@ -572,6 +597,59 @@ pub fn shared_tree_history_later_replay_snapshot_restores_test() -> Nil {
   let assert Ok(snapshot) = history.snapshot(replayed.history)
 
   snapshot.trunk |> list.length |> expect.to_equal(2)
+  history.restore(snapshot, local_session()) |> expect.to_be_ok
+  Nil
+}
+
+pub fn shared_tree_history_replay_retains_muted_trunk_content_test() -> Nil {
+  let base = stored_schema()
+  let assert Ok(optional) = schema.stored_from_string(optional_schema)
+  let assert Ok(score) = schema.stored_from_string(score_schema)
+  let competing = schema_commit(revision_a(), peer_session(), base, optional)
+  let replayed = schema_commit(revision_b(), other_peer_session(), base, score)
+  let assert Ok(order) =
+    change.identity_order([
+      #(revision_a(), -3),
+      #(revision_b(), -2),
+      #(revision_r(), -1),
+    ])
+  let allocation = Allocation([revision_r()], order, 0)
+  let assert Ok(#(first, allocation)) =
+    history.receive(
+      history.new(local_session()),
+      competing,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      allocation,
+      mint,
+    )
+  let assert Ok(#(muted, allocation)) =
+    history.receive(
+      first.history,
+      replayed,
+      types.SequencePoint(2, 0),
+      0,
+      0,
+      allocation,
+      mint,
+    )
+  let assert [_, retained] = history.inspect(muted.history).sequenced.trunk
+  shared_change.to_changes(retained.commit.change) |> expect.to_equal([])
+
+  let assert Ok(#(duplicate, _)) =
+    history.receive(
+      muted.history,
+      replayed,
+      types.SequencePoint(3, 0),
+      2,
+      0,
+      allocation,
+      mint,
+    )
+  let assert Ok(snapshot) = history.snapshot(duplicate.history)
+  let assert [_, first_replay, second_replay] = snapshot.trunk
+  first_replay.commit.change |> expect.to_equal(second_replay.commit.change)
   history.restore(snapshot, local_session()) |> expect.to_be_ok
   Nil
 }

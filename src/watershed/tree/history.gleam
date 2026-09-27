@@ -314,7 +314,6 @@ pub fn receive(
           reference_sequence_number,
           minimum_sequence_number,
           allocation,
-          mint,
         )
       None -> {
         use _ <- result.try(check(
@@ -370,7 +369,6 @@ fn receive_duplicate(
   reference_sequence_number: Int,
   minimum_sequence_number: Int,
   allocation: allocation,
-  mint: MintRevision(allocation),
 ) -> Result(#(HistoryUpdate, allocation), TreeError) {
   use receipt <- result.try(
     case
@@ -398,12 +396,12 @@ fn receive_duplicate(
     False ->
       receive_replayed_duplicate(
         state,
+        existing.commit,
         commit,
         point,
         reference_sequence_number,
         minimum_sequence_number,
         allocation,
-        mint,
       )
     True -> {
       use expected_reference <- result.try(
@@ -430,35 +428,23 @@ fn receive_duplicate(
 
 fn receive_replayed_duplicate(
   state: History,
-  commit: Commit,
+  retained: Commit,
+  received: Commit,
   point: SequencePoint,
   reference_sequence_number: Int,
   supplied_minimum: Int,
   allocation: allocation,
-  mint: MintRevision(allocation),
 ) -> Result(#(HistoryUpdate, allocation), TreeError) {
   use _ <- result.try(check(
     supplied_minimum >= state.minimum_sequence_number,
     "minimum sequence number regresses",
   ))
   use _ <- result.try(validate_new_receive_order(state, point))
-  let next_trunk = list.append(state.trunk, [SequencedCommit(commit, point)])
-  let known_revisions = [commit.revision, ..history_revisions(state)]
-  use #(pending, local_base, effects, allocation, rollbacks, next_node_id) <- result.try(
-    rebase_pending(
-      state,
-      next_trunk,
-      state.rollbacks,
-      known_revisions,
-      state.next_node_id,
-      allocation,
-      mint,
-    ),
-  )
+  let next_trunk = list.append(state.trunk, [SequencedCommit(retained, point)])
   let receipt =
     RetainedReceipt(
-      commit.revision,
-      Some(commit),
+      received.revision,
+      Some(received),
       point,
       Some(reference_sequence_number),
       Some(supplied_minimum),
@@ -467,15 +453,15 @@ fn receive_replayed_duplicate(
     History(
       ..state,
       trunk: next_trunk,
-      pending: pending,
-      local_base: local_base,
-      rollbacks: rollbacks,
+      local_base: case state.pending {
+        [] -> None
+        _ -> Some(Revision(retained.revision))
+      },
       receipts: replace_receipt(state.receipts, receipt),
-      next_node_id: next_node_id,
       sequence_number: int_max(state.sequence_number, point.sequence_number),
       minimum_sequence_number: supplied_minimum,
     )
-  Ok(#(HistoryUpdate(next, effects, [], []), allocation))
+  Ok(#(HistoryUpdate(next, [], [], []), allocation))
 }
 
 fn receive_local(
