@@ -556,9 +556,11 @@ pub fn shared_tree_sequence_allows_populated_insert_with_child_change_test() {
   |> expect.to_equal(
     Ok(
       sequence_field.DeltaResult(
-        Some(forest.FieldDelta([
-          forest.Mark(1, None, None, fields),
-        ])),
+        Some(
+          forest.FieldDelta([
+            forest.Mark(1, None, None, fields),
+          ]),
+        ),
         [],
         [],
       ),
