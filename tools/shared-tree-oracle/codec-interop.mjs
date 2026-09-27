@@ -47,6 +47,7 @@ const requiredItemIds = [
   "summary-array-retained-history",
   "summary-array-full-summary",
   "summary-array-peer-history",
+  "summary-schema-initial",
 ];
 const point = (x, y) => ({
   type: "org.watershed.shared-tree.m1.Point",
@@ -184,6 +185,26 @@ const expectedObservations = [
   },
   {
     id: "summary-initial",
+    kind: "summary",
+    visible: visibleRoot(),
+    removed: [],
+    history: {
+      trunk: [{
+        revision: "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        session: "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        sequenceNumber: 2,
+        indexInBatch: null,
+      }],
+      peers: [{
+        session: "50000000-0000-4000-8000-000000000005",
+        base: "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        revisions: [],
+      }],
+    },
+    continued: "upstream-continuation",
+  },
+  {
+    id: "summary-schema-initial",
     kind: "summary",
     visible: visibleRoot(),
     removed: [],

@@ -443,3 +443,39 @@ test("array evidence rejects lost continuation, detached, peer, and refresher da
     );
   }
 });
+
+test("codec interop requires schema initialization summary evidence", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "watershed-codec-schema-summary-"));
+  t.after(async () => {
+    const { rm } = await import("node:fs/promises");
+    await rm(root, { recursive: true, force: true });
+  });
+  const { runCodecInterop } = await import("./codec-interop.mjs");
+  await assert.rejects(
+    runCodecInterop({
+      outputRoot: root,
+      produce: async (target, output) => {
+        const value = artifact();
+        value.target = target;
+        await writeFile(output, JSON.stringify(value));
+      },
+      consume: async (input, output) => {
+        const value = JSON.parse(await readFile(input, "utf8"));
+        await mkdir(output, { recursive: true });
+        await writeFile(join(output, "codec-observations.json"), JSON.stringify({
+          formatVersion: 1,
+          reference,
+          target: value.target,
+          observations: [{
+            id: "native-string",
+            kind: "fieldBatch",
+            fields: [],
+          }],
+        }));
+      },
+      expectedIds: ["native-string", "summary-schema-initial"],
+      expected: null,
+    }),
+    /required scenario IDs/,
+  );
+});

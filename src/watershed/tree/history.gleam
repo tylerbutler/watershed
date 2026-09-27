@@ -1327,7 +1327,13 @@ pub fn restore(
     local_base: None,
     rollbacks: [],
     receipts: list.map(snapshot.trunk, fn(entry) {
-      RetainedReceipt(entry.commit.revision, None, entry.point, None, None)
+      RetainedReceipt(
+        entry.commit.revision,
+        Some(entry.commit),
+        entry.point,
+        None,
+        None,
+      )
     }),
     next_node_id: next_node_id,
     sequence_number: snapshot.sequence_number,

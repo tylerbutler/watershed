@@ -633,12 +633,20 @@ test("reload tree mismatch remains primary when reader close also fails", async 
 });
 
 test("fresh summary artifacts require target, reference, cases and full hierarchy", () => {
+  const schema = Buffer.from(JSON.stringify({
+    nodes: { Root: { kind: { object: {} } } },
+    root: { kind: "Value", types: ["Root"] },
+  })).toString("base64");
   const artifact = {
     target: "javascript", reference, cases: [{
       id: "summary-tail", snapshotSequenceNumber: 7,
       publicationSequenceNumber: 7,
-      tree: { type: "tree", entries: [[".metadata", {
-        type: "blob", base64: "e30=",
+      tree: { type: "tree", entries: [["indexes", {
+        type: "tree", entries: [["Schema", {
+          type: "tree", entries: [["SchemaString", {
+            type: "blob", base64: schema,
+          }]],
+        }]],
       }]] },
     }],
   };
@@ -648,7 +656,15 @@ test("fresh summary artifacts require target, reference, cases and full hierarch
     (copy) => { copy.reference.commit = "stale"; },
     (copy) => { copy.cases = []; },
     (copy) => { copy.cases[0].tree.entries = []; },
-    (copy) => { copy.cases[0].tree.entries[0][1].base64 = "@@"; },
+    (copy) => {
+      copy.cases[0].tree.entries[0][1].entries[0][1].entries[0][1].base64 = "@@";
+    },
+    (copy) => {
+      copy.cases[0].tree.entries[0][1].entries[0][1].entries[0][1].base64 =
+        Buffer.from(JSON.stringify({
+          trunk: [{ change: [{ data: {} }] }],
+        })).toString("base64");
+    },
   ]) {
     const copy = structuredClone(artifact);
     change(copy);

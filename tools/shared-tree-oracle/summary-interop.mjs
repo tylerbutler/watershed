@@ -647,6 +647,38 @@ function validateEntry(value) {
   }
 }
 
+function retainsSchemaContext(
+  value, underEditManager = false, underSchemaIndex = false,
+) {
+  if (value.type === "blob") {
+    try {
+      const decoded = JSON.parse(Buffer.from(value.base64, "base64").toString("utf8"));
+      if (underSchemaIndex) {
+        return decoded?.nodes && typeof decoded.nodes === "object"
+          && decoded?.root && typeof decoded.root === "object";
+      }
+      if (underEditManager) {
+        const commits = [
+          ...(decoded.trunk ?? []),
+          ...(decoded.branches ?? []).flatMap((branch) => branch?.[1]?.commits ?? []),
+        ];
+        return commits.some((commit) =>
+          Array.isArray(commit.change)
+          && commit.change.some((change) => change?.schema));
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+  return value.entries.some(([name, entry]) =>
+    retainsSchemaContext(
+      entry,
+      underEditManager || name === "EditManager",
+      underSchemaIndex || name === "Schema",
+    ));
+}
+
 export function validateSummaryArtifact(output, target, cases = persistenceStates) {
   assert(output?.target === target, "Wrong summary artifact target");
   assert.deepEqual(output.reference, identity, "Stale summary reference");
@@ -664,6 +696,8 @@ export function validateSummaryArtifact(output, target, cases = persistenceState
     "Invalid summary sequence positions");
     validateEntry(item.tree);
     assert(item.tree.entries.length > 0, "Empty summary hierarchy");
+    assert(retainsSchemaContext(item.tree),
+      "Summary artifact lacks retained schema context");
   }
   assert.deepEqual(actual, cases, "Missing, repeated, or reordered summary scenarios");
   return output;

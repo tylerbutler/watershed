@@ -601,6 +601,38 @@ pub fn shared_tree_history_later_replay_snapshot_restores_test() -> Nil {
   Nil
 }
 
+pub fn shared_tree_history_restored_snapshot_authenticates_later_replay_test() -> Nil {
+  let commit = empty_commit(revision_a(), local_session())
+  let assert Ok(local) =
+    history.append_local(history.new(local_session()), commit)
+  let assert Ok(#(acked, Nil)) =
+    history.receive(
+      local.history,
+      commit,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(snapshot) = history.snapshot(acked.history)
+  let assert Ok(restored) = history.restore(snapshot, local_session())
+  let assert Ok(#(replayed, Nil)) =
+    history.receive(
+      restored,
+      commit,
+      types.SequencePoint(2, 0),
+      1,
+      0,
+      Nil,
+      no_mint,
+    )
+
+  history.inspect(replayed.history).sequenced.trunk
+  |> list.length
+  |> expect.to_equal(2)
+}
+
 pub fn shared_tree_history_replay_retains_muted_trunk_content_test() -> Nil {
   let base = stored_schema()
   let assert Ok(optional) = schema.stored_from_string(optional_schema)

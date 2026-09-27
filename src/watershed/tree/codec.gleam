@@ -84,6 +84,11 @@ type DecodeChangeState {
   )
 }
 
+type SchemaContext {
+  UnknownSchema
+  KnownSchema(schema.SchemaState)
+}
+
 /// Decode one Message V7 commit envelope.
 pub fn decode_message(
   raw: String,
@@ -155,7 +160,10 @@ fn decode_message_value(
     changeset,
     context,
     ChangeContext(originator, Some(revision), Message),
-    stored,
+    case stored {
+      Some(stored) -> KnownSchema(schema.FixedSchema(stored))
+      None -> UnknownSchema
+    },
     "message.changeset",
   ))
   use custom_metadata <- result.try(case optional(members, "customMetadata") {
@@ -192,11 +200,24 @@ pub fn encode_message(
     context,
     "message.revision",
   ))
-  use changeset <- result.try(encode_changes(
+  use initial_schema <- result.try(rewind_schema_context(
     changes,
-    context,
-    ChangeContext(originator, Some(revision), Message),
+    case context.schema {
+      Some(stored) -> KnownSchema(schema.FixedSchema(stored))
+      None -> UnknownSchema
+    },
+    "message.changeset",
   ))
+  use changeset <- result.try(
+    encode_changes_value(
+      changes,
+      context,
+      ChangeContext(originator, Some(revision), Message),
+      initial_schema,
+      "message.changeset",
+    )
+    |> result.map(json_ot.to_json),
+  )
   let fields = [
     #("revision", json.int(encoded_revision)),
     #("originatorId", json.string(fluid_ids.session_id_to_string(originator))),
@@ -255,7 +276,7 @@ pub fn decode_changes(
   change_context: ChangeContext,
 ) -> Result(List(shared_change.TreeChange), TreeError) {
   use value <- result.try(json_value(encoded, "changes"))
-  decode_changes_value(value, context, change_context, None, "changes")
+  decode_changes_value(value, context, change_context, UnknownSchema, "changes")
 }
 
 /// Decode SharedTreeChange V5 content with its active stored schema.
@@ -266,7 +287,30 @@ pub fn decode_changes_with_schema(
   stored: schema.StoredSchema,
 ) -> Result(List(shared_change.TreeChange), TreeError) {
   use value <- result.try(json_value(encoded, "changes"))
-  decode_changes_value(value, context, change_context, Some(stored), "changes")
+  decode_changes_value(
+    value,
+    context,
+    change_context,
+    KnownSchema(schema.FixedSchema(stored)),
+    "changes",
+  )
+}
+
+/// Decode SharedTreeChange V5 content with its active schema state.
+pub fn decode_changes_with_schema_state(
+  encoded: Json,
+  context: DecodeContext,
+  change_context: ChangeContext,
+  stored: schema.SchemaState,
+) -> Result(List(shared_change.TreeChange), TreeError) {
+  use value <- result.try(json_value(encoded, "changes"))
+  decode_changes_value(
+    value,
+    context,
+    change_context,
+    KnownSchema(stored),
+    "changes",
+  )
 }
 
 /// Encode an ordered SharedTreeChange V5 list.
@@ -275,7 +319,33 @@ pub fn encode_changes(
   context: EncodeContext,
   change_context: ChangeContext,
 ) -> Result(Json, TreeError) {
-  encode_changes_value(changes, context, change_context, "changes")
+  encode_changes_value(
+    changes,
+    context,
+    change_context,
+    case context.schema {
+      Some(stored) -> KnownSchema(schema.FixedSchema(stored))
+      None -> UnknownSchema
+    },
+    "changes",
+  )
+  |> result.map(json_ot.to_json)
+}
+
+/// Encode an ordered SharedTreeChange V5 list with its active schema state.
+pub fn encode_changes_with_schema_state(
+  changes: List(shared_change.TreeChange),
+  context: EncodeContext,
+  change_context: ChangeContext,
+  stored: schema.SchemaState,
+) -> Result(Json, TreeError) {
+  encode_changes_value(
+    changes,
+    context,
+    change_context,
+    KnownSchema(stored),
+    "changes",
+  )
   |> result.map(json_ot.to_json)
 }
 
@@ -403,60 +473,170 @@ fn decode_changes_value(
   value: JsonValue,
   context: DecodeContext,
   change_context: ChangeContext,
-  stored: Option(schema.StoredSchema),
+  stored: SchemaContext,
   location: String,
 ) -> Result(List(shared_change.TreeChange), TreeError) {
   use values <- result.try(array(value, location))
-  index_try_map(values, fn(value, index) {
-    let location = location <> "[" <> int.to_string(index) <> "]"
-    use members <- result.try(object(value, location))
-    case members {
-      [#("data", data)] ->
-        decode_modular_value(
-          data,
-          context,
-          change_context,
-          stored,
-          location <> ".data",
-        )
-        |> result.map(shared_change.DataChange)
-      [#("schema", schema_change)] ->
-        decode_schema_change(schema_change, location <> ".schema")
-      _ ->
-        Error(CorruptData(
-          location,
-          "change must contain exactly one data or schema member",
-        ))
-    }
-  })
+  use #(changes, _) <- result.try(
+    list.try_fold(
+      list.index_map(values, fn(value, index) { #(value, index) }),
+      #([], stored),
+      fn(state, entry) {
+        let item_location = location <> "[" <> int.to_string(entry.1) <> "]"
+        use members <- result.try(object(entry.0, item_location))
+        case members {
+          [#("data", data)] -> {
+            use decoded <- result.try(decode_modular_value(
+              data,
+              context,
+              change_context,
+              stored_schema(state.1),
+              item_location <> ".data",
+            ))
+            Ok(#([shared_change.DataChange(decoded), ..state.0], state.1))
+          }
+          [#("schema", schema_change)] -> {
+            use decoded <- result.try(decode_schema_change(
+              schema_change,
+              item_location <> ".schema",
+            ))
+            let assert shared_change.SchemaChange(_, after, _) = decoded
+            let next = KnownSchema(after)
+            Ok(#([decoded, ..state.0], next))
+          }
+          _ ->
+            Error(CorruptData(
+              item_location,
+              "change must contain exactly one data or schema member",
+            ))
+        }
+      },
+    ),
+  )
+  Ok(list.reverse(changes))
 }
 
 fn encode_changes_value(
   changes: List(shared_change.TreeChange),
   context: EncodeContext,
   change_context: ChangeContext,
+  stored: SchemaContext,
   location: String,
 ) -> Result(JsonValue, TreeError) {
-  use values <- result.try(
-    index_try_map(changes, fn(value, index) {
-      let location = location <> "[" <> int.to_string(index) <> "]"
-      case value {
-        shared_change.DataChange(change) ->
-          encode_modular_value(change, context, change_context, location)
-          |> result.map(fn(value) { VObject([#("data", value)]) })
-        shared_change.SchemaChange(before, after, _) -> {
-          use before <- result.try(encode_schema(before))
-          use before <- result.try(json_value(before, location <> ".schema.old"))
-          use after <- result.try(encode_schema(after))
-          use after <- result.try(json_value(after, location <> ".schema.new"))
-          Ok(
-            VObject([#("schema", VObject([#("old", before), #("new", after)]))]),
-          )
+  use #(values, _) <- result.try(
+    list.try_fold(
+      list.index_map(changes, fn(value, index) { #(value, index) }),
+      #([], stored),
+      fn(state, entry) {
+        let item_location = location <> "[" <> int.to_string(entry.1) <> "]"
+        case entry.0 {
+          shared_change.DataChange(change) -> {
+            use _ <- result.try(case state.1 {
+              KnownSchema(schema.EmptySchema) ->
+                Error(CorruptData(
+                  item_location <> ".data",
+                  "data change has no stored schema",
+                ))
+              _ -> Ok(Nil)
+            })
+            let item_context = encode_context_with_schema(context, state.1)
+            use encoded <- result.try(encode_modular_value(
+              change,
+              item_context,
+              change_context,
+              item_location <> ".data",
+            ))
+            Ok(#([VObject([#("data", encoded)]), ..state.0], state.1))
+          }
+          shared_change.SchemaChange(_, _, True) ->
+            Error(types.UnsupportedFeature(
+              item_location <> ".schema",
+              "inverse schema changes",
+            ))
+          shared_change.SchemaChange(before, after, False) -> {
+            use next <- result.try(advance_schema_context(
+              state.1,
+              entry.0,
+              item_location <> ".schema.old",
+            ))
+            use before <- result.try(encode_schema(before))
+            use before <- result.try(json_value(
+              before,
+              item_location <> ".schema.old",
+            ))
+            use after <- result.try(encode_schema(after))
+            use after <- result.try(json_value(
+              after,
+              item_location <> ".schema.new",
+            ))
+            Ok(#(
+              [
+                VObject([
+                  #("schema", VObject([#("old", before), #("new", after)])),
+                ]),
+                ..state.0
+              ],
+              next,
+            ))
+          }
         }
-      }
-    }),
+      },
+    ),
   )
-  Ok(VArray(values))
+  Ok(VArray(list.reverse(values)))
+}
+
+fn stored_schema(context: SchemaContext) -> Option(schema.StoredSchema) {
+  case context {
+    KnownSchema(schema.FixedSchema(stored)) -> Some(stored)
+    KnownSchema(schema.EmptySchema) | UnknownSchema -> None
+  }
+}
+
+fn encode_context_with_schema(
+  context: EncodeContext,
+  stored: SchemaContext,
+) -> EncodeContext {
+  EncodeContext(..context, schema: stored_schema(stored))
+}
+
+fn advance_schema_context(
+  current: SchemaContext,
+  change: shared_change.TreeChange,
+  location: String,
+) -> Result(SchemaContext, TreeError) {
+  let assert shared_change.SchemaChange(before, after, _) = change
+  use _ <- result.try(case current {
+    UnknownSchema -> Ok(Nil)
+    KnownSchema(current) if current == before -> Ok(Nil)
+    KnownSchema(_) ->
+      Error(CorruptData(location, "schema change does not match its context"))
+  })
+  Ok(KnownSchema(after))
+}
+
+fn rewind_schema_context(
+  changes: List(shared_change.TreeChange),
+  current: SchemaContext,
+  location: String,
+) -> Result(SchemaContext, TreeError) {
+  list.try_fold(list.reverse(changes), current, fn(current, item) {
+    case item {
+      shared_change.DataChange(_) -> Ok(current)
+      shared_change.SchemaChange(_, _, True) ->
+        Error(types.UnsupportedFeature(location, "inverse schema changes"))
+      shared_change.SchemaChange(before, after, False) ->
+        case current {
+          UnknownSchema -> Ok(UnknownSchema)
+          KnownSchema(current) if current == after -> Ok(KnownSchema(before))
+          KnownSchema(_) ->
+            Error(CorruptData(
+              location,
+              "schema change does not reach the current schema",
+            ))
+        }
+    }
+  })
 }
 
 fn decode_schema_change(
@@ -1577,9 +1757,10 @@ fn encode_builds(
   case builds {
     [] -> Ok(None)
     _ -> {
-      use trees <- result.try(
-        field_batch.encode(list.map(builds, fn(build) { build.trees })),
-      )
+      use trees <- result.try(field_batch.encode_with_schema(
+        list.map(builds, fn(build) { build.trees }),
+        context.schema,
+      ))
       use trees <- result.try(json_value(trees, location <> ".trees"))
       use entries <- result.try(
         index_try_map(builds, fn(build, index) {

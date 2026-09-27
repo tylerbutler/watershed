@@ -499,6 +499,18 @@ fn build_artifact(
     }),
   )
   use summary_items <- result.try(list.try_map(summaries, summary_item))
+  use initial_summary_source <- result.try(
+    list.find(summaries, fn(source) { source.0 == "initial" })
+    |> result.map_error(fn(_) { "missing initial summary" }),
+  )
+  use schema_initial_summary <- result.try(summary_item_named(
+    initial_summary_source,
+    "summary-schema-initial",
+  ))
+  let summary_items = case summary_items {
+    [initial, ..rest] -> [initial, schema_initial_summary, ..rest]
+    [] -> [schema_initial_summary]
+  }
   use initial <- result.try(summary_state(summaries, "initial"))
   use note <- result.try(summary_state(message_bases, "optional"))
   use settled <- result.try(summary_state(summaries, "settled-detached"))
@@ -1211,6 +1223,13 @@ fn restored_summary_item(
 fn summary_item(
   source: #(String, JsonValue, String, String),
 ) -> Result(Json, String) {
+  summary_item_named(source, "summary-" <> source.0)
+}
+
+fn summary_item_named(
+  source: #(String, JsonValue, String, String),
+  output_id: String,
+) -> Result(Json, String) {
   let #(id, encoded, session_raw, compressor_raw) = source
   use source_session <- result.try(
     fluid_ids.session_id(session_raw)
@@ -1244,7 +1263,7 @@ fn summary_item(
     |> result.map_error(string.inspect),
   )
   Ok(
-    item("summary-" <> id, "summary", summary_json(encoded), [
+    item(output_id, "summary", summary_json(encoded), [
       #("compressor", json.string(serialized)),
       #("compressorMode", json.string("summary")),
       #(

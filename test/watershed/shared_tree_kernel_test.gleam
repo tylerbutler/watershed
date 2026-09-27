@@ -748,7 +748,7 @@ pub fn shared_tree_kernel_replayed_schema_after_empty_keeps_pending_schema_test(
       no_mint,
     )
 
-  events |> expect.to_equal([])
+  events.events |> expect.to_equal([])
   tree_kernel.stored_schema(replayed) |> expect.to_equal(optional_score)
   tree_kernel.history_view(replayed).pending |> expect.to_equal([second])
 }
@@ -821,7 +821,7 @@ pub fn shared_tree_kernel_replayed_schema_keeps_advanced_visible_and_snapshot_te
       no_mint,
     )
 
-  events |> expect.to_equal([])
+  events.events |> expect.to_equal([])
   tree_kernel.stored_schema(replayed) |> expect.to_equal(optional_score)
   let assert Ok(snapshot) = tree_kernel.snapshot(replayed)
   let #(snapshotted, _, _) = tree_kernel.snapshot_parts(snapshot)

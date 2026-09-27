@@ -283,81 +283,18 @@ fn encode_commit(
   commit: history.Commit,
   original: Result(summary_codec.SummaryCommit, Nil),
 ) -> Result(codec.WireCommit, TreeError) {
-  case original {
-    Error(Nil) ->
-      Ok(codec.WireCommit(
-        commit.revision,
-        commit.originator,
-        shared_change.to_changes(commit.change),
-        None,
-      ))
+  let metadata = case original {
     Ok(summary_codec.SummaryCommit(
-      codec.WireCommit(_, _, changes, metadata),
+      codec.WireCommit(custom_metadata: metadata, ..),
       _,
       _,
-    )) -> {
-      let original_data =
-        list.flat_map(changes, fn(item) {
-          case item {
-            shared_change.DataChange(value) -> [value]
-            shared_change.SchemaChange(_, _, _) -> []
-          }
-        })
-      let current = shared_change.to_changes(commit.change)
-      use changes <- result.try(case has_schema(changes) {
-        True -> Ok(current)
-        False -> preserve_data_wire(changes, original_data, current, commit)
-      })
-      Ok(codec.WireCommit(commit.revision, commit.originator, changes, metadata))
-    }
+    )) -> metadata
+    Error(Nil) -> None
   }
-}
-
-fn has_schema(changes: List(shared_change.TreeChange)) -> Bool {
-  list.any(changes, fn(item) {
-    case item {
-      shared_change.DataChange(_) -> False
-      shared_change.SchemaChange(_, _, _) -> True
-    }
-  })
-}
-
-fn preserve_data_wire(
-  changes: List(shared_change.TreeChange),
-  original: List(change.Changeset),
-  current: List(shared_change.TreeChange),
-  commit: history.Commit,
-) -> Result(List(shared_change.TreeChange), TreeError) {
-  case current {
-    [] -> Ok([])
-    [shared_change.SchemaChange(_, _, _), ..] -> Ok(current)
-    [shared_change.DataChange(current_data)] ->
-      case original {
-        [] -> Ok(current)
-        [only] ->
-          case change.to_data(only) == change.to_data(current_data) {
-            True -> Ok(changes)
-            False -> Ok([shared_change.DataChange(current_data)])
-          }
-        [first, ..rest] -> {
-          use combined <- result.try(
-            change.compose([
-              change.TaggedChange(Some(commit.revision), None, first),
-              ..list.map(rest, fn(item) {
-                change.TaggedChange(None, None, item)
-              })
-            ]),
-          )
-          case change.to_data(combined) == change.to_data(current_data) {
-            True -> Ok(changes)
-            False ->
-              Error(CorruptData(
-                "summary.indexes.EditManager",
-                "cannot rewrite a rebased commit with multiple data changes",
-              ))
-          }
-        }
-      }
-    [shared_change.DataChange(_), ..] -> Ok(current)
-  }
+  Ok(codec.WireCommit(
+    commit.revision,
+    commit.originator,
+    shared_change.to_changes(commit.change),
+    metadata,
+  ))
 }

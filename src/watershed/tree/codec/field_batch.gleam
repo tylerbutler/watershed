@@ -195,6 +195,31 @@ pub fn encode(fields: List(List(TreeValue))) -> Result(Json, TreeError) {
   )
 }
 
+/// Encode fields and verify structural node kinds against stored schema.
+pub fn encode_with_schema(
+  fields: List(List(TreeValue)),
+  stored: Option(schema.StoredSchema),
+) -> Result(Json, TreeError) {
+  use _ <- result.try(case stored {
+    None -> Ok([])
+    Some(stored) ->
+      index_try_map(fields, fn(field, field_index) {
+        index_try_map(field, fn(value, value_index) {
+          validate_value_kind(
+            value,
+            stored,
+            "fieldBatch.data["
+              <> int.to_string(field_index)
+              <> "]["
+              <> int.to_string(value_index)
+              <> "]",
+          )
+        })
+      })
+  })
+  encode(fields)
+}
+
 fn decode_batch(value: JsonValue) -> Result(Batch, TreeError) {
   use members <- result.try(object(value, "fieldBatch"))
   use _ <- result.try(only_keys(
@@ -996,6 +1021,92 @@ fn encode_array_node(
       VArray(list.flatten(encoded)),
     ]),
   ])
+}
+
+fn classify_value(
+  value: TreeValue,
+  stored: schema.StoredSchema,
+  location: String,
+) -> Result(TreeValue, TreeError) {
+  case value {
+    ObjectValue(type_id, fields) -> {
+      use fields <- result.try(
+        list.try_map(fields, fn(field) {
+          classify_value(field.1, stored, location <> "." <> field.0)
+          |> result.map(fn(value) { #(field.0, value) })
+        }),
+      )
+      use node <- result.try(schema.node_schema(stored, type_id))
+      case node {
+        schema.Object(_) -> Ok(ObjectValue(type_id, fields))
+        schema.Map(_) -> Ok(MapValue(type_id, fields))
+        schema.Array(_) ->
+          Error(CorruptData(location, "array node uses an object shape"))
+        schema.Leaf(_) ->
+          Error(CorruptData(location, "leaf node uses a structural shape"))
+      }
+    }
+    MapValue(type_id, fields) -> {
+      use fields <- result.try(
+        list.try_map(fields, fn(field) {
+          classify_value(field.1, stored, location <> "." <> field.0)
+          |> result.map(fn(value) { #(field.0, value) })
+        }),
+      )
+      use node <- result.try(schema.node_schema(stored, type_id))
+      case node {
+        schema.Map(_) -> Ok(MapValue(type_id, fields))
+        schema.Object(_) -> Ok(ObjectValue(type_id, fields))
+        schema.Array(_) ->
+          Error(CorruptData(location, "array node uses an object shape"))
+        schema.Leaf(_) ->
+          Error(CorruptData(location, "leaf node uses a structural shape"))
+      }
+    }
+    ArrayValue(type_id, elements) -> {
+      use elements <- result.try(
+        list.try_map(elements, fn(element) {
+          classify_value(element, stored, location <> ".")
+        }),
+      )
+      use node <- result.try(schema.node_schema(stored, type_id))
+      case node {
+        schema.Array(_) -> Ok(ArrayValue(type_id, elements))
+        schema.Object(_) | schema.Map(_) ->
+          Error(CorruptData(location, "non-array node uses an array shape"))
+        schema.Leaf(_) ->
+          Error(CorruptData(location, "leaf node uses an array shape"))
+      }
+    }
+    other -> Ok(other)
+  }
+}
+
+fn validate_value_kind(
+  value: TreeValue,
+  stored: schema.StoredSchema,
+  location: String,
+) -> Result(Nil, TreeError) {
+  use classified <- result.try(classify_value(value, stored, location))
+  case value, classified {
+    ObjectValue(_, fields), ObjectValue(_, _) ->
+      list.try_each(fields, fn(field) {
+        validate_value_kind(field.1, stored, location <> "." <> field.0)
+      })
+    MapValue(_, entries), MapValue(_, _) ->
+      list.try_each(entries, fn(entry) {
+        validate_value_kind(entry.1, stored, location <> "." <> entry.0)
+      })
+    ArrayValue(_, elements), ArrayValue(_, _) ->
+      list.try_each(elements, fn(element) {
+        validate_value_kind(element, stored, location <> ".")
+      })
+    ObjectValue(_, _), MapValue(_, _) ->
+      Error(CorruptData(location, "object node uses a map schema"))
+    MapValue(_, _), ObjectValue(_, _) ->
+      Error(CorruptData(location, "map node uses an object schema"))
+    _, _ -> Ok(Nil)
+  }
 }
 
 fn encode_structural_node(

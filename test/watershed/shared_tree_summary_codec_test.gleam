@@ -7,6 +7,61 @@ import watershed/fluid_ids
 import watershed/json_ot.{
   type JsonValue, NInt, VArray, VNumber, VObject, VString,
 }
+
+fn summary_history_semantics_equal(
+  left: summary.EditManagerSummary,
+  right: summary.EditManagerSummary,
+) -> Bool {
+  let summary.EditManagerSummary(left_trunk, left_peers) = left
+  let summary.EditManagerSummary(right_trunk, right_peers) = right
+  list.length(left_trunk) == list.length(right_trunk)
+  && list.all(list.zip(left_trunk, right_trunk), fn(pair) {
+    summary_commit_semantics_equal(pair.0, pair.1)
+  })
+  && list.length(left_peers) == list.length(right_peers)
+  && list.all(list.zip(left_peers, right_peers), fn(pair) {
+    pair.0.session == pair.1.session
+    && pair.0.base == pair.1.base
+    && list.length(pair.0.commits) == list.length(pair.1.commits)
+    && list.all(list.zip(pair.0.commits, pair.1.commits), fn(commits) {
+      summary_commit_semantics_equal(commits.0, commits.1)
+    })
+  })
+}
+
+fn summary_commit_semantics_equal(
+  left: summary.SummaryCommit,
+  right: summary.SummaryCommit,
+) -> Bool {
+  left.sequence_number == right.sequence_number
+  && left.index_in_batch == right.index_in_batch
+  && left.commit.revision == right.commit.revision
+  && left.commit.originator == right.commit.originator
+  && left.commit.custom_metadata == right.commit.custom_metadata
+  && tree_changes_semantics_equal(left.commit.changes, right.commit.changes)
+}
+
+fn tree_changes_semantics_equal(
+  left: List(shared_change.TreeChange),
+  right: List(shared_change.TreeChange),
+) -> Bool {
+  list.length(left) == list.length(right)
+  && list.all(list.zip(left, right), fn(pair) {
+    case pair {
+      #(shared_change.DataChange(left), shared_change.DataChange(right)) ->
+        change.to_data(left) == change.to_data(right)
+      #(
+        shared_change.SchemaChange(left_before, left_after, left_inverse),
+        shared_change.SchemaChange(right_before, right_after, right_inverse),
+      ) ->
+        left_before == right_before
+        && left_after == right_after
+        && left_inverse == right_inverse
+      _ -> False
+    }
+  })
+}
+
 import watershed/tree/change
 import watershed/tree/codec
 import watershed/tree/codec/summary
@@ -131,6 +186,20 @@ pub fn shared_tree_summary_decodes_initial_bootstrap_test() {
     )
   list.map(fields, fn(field) { field.0 })
   |> expect.to_equal(["rootFieldKey"])
+}
+
+pub fn shared_tree_summary_reencodes_initial_bootstrap_with_schema_history_test() {
+  let #(entry, session, compressor) = summary_fixture("initial")
+  let decode_context = codec.DecodeContext(codec.Fluid310, compressor)
+  let assert Ok(decoded) = summary.decode(entry, None, session, decode_context)
+  let assert Ok(encoded) =
+    summary.encode(
+      decoded,
+      session,
+      codec.EncodeContext(codec.Fluid310, compressor, Some(decoded.schema)),
+    )
+  summary.decode(encoded, None, session, decode_context)
+  |> expect.to_equal(Ok(decoded))
 }
 
 pub fn shared_tree_summary_decodes_dynamic_map_forest_test() {
@@ -267,7 +336,8 @@ pub fn shared_tree_summary_restores_and_reexports_retained_history_test() {
   let assert Ok(output) = tree_summary.to_wire(snapshot)
   output.forest |> expect.to_equal(decoded.forest)
   output.detached |> expect.to_equal(decoded.detached)
-  output.history |> expect.to_equal(decoded.history)
+  summary_history_semantics_equal(output.history, decoded.history)
+  |> expect.to_be_true
 }
 
 pub fn shared_tree_summary_restores_initial_schema_commit_test() {

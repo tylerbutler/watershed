@@ -15,6 +15,7 @@ import watershed/json_ot.{
 import watershed/tree/codec
 import watershed/tree/codec/field_batch
 import watershed/tree/schema
+import watershed/tree/shared_change
 import watershed/tree/types.{
   type TreeError, type TreeValue, CorruptData, UnsupportedFormat,
 }
@@ -72,6 +73,11 @@ pub type TreeSummaryData {
     detached: DetachedFieldIndex,
     history: EditManagerSummary,
   )
+}
+
+type HistorySchemaContext {
+  UnknownHistorySchema
+  KnownHistorySchema(schema.SchemaState)
 }
 
 /// Decode one resolved SharedTree DDS summary subtree.
@@ -450,17 +456,35 @@ fn decode_edit_manager_value(
   use _ <- result.try(require_version("EditManager", version, 7))
   use trunk_value <- result.try(required(members, "trunk", "editManager.trunk"))
   use trunk_values <- result.try(array(trunk_value, "editManager.trunk"))
-  use trunk <- result.try(
-    index_try_map(trunk_values, fn(value, index) {
-      decode_commit(
-        value,
+  use initial <- result.try(case stored {
+    None -> Ok(UnknownHistorySchema)
+    Some(stored) -> {
+      use #(structural, _) <- result.try(decode_commits(
+        trunk_values,
         True,
         context,
-        stored,
-        "editManager.trunk[" <> int.to_string(index) <> "]",
+        UnknownHistorySchema,
+        "editManager.trunk",
+      ))
+      rewind_history_schema(
+        structural,
+        KnownHistorySchema(schema.FixedSchema(stored)),
+        "editManager.trunk",
       )
-    }),
-  )
+    }
+  })
+  use #(trunk, _) <- result.try(decode_commits(
+    trunk_values,
+    True,
+    context,
+    initial,
+    "editManager.trunk",
+  ))
+  use trunk_contexts <- result.try(commit_schema_contexts(
+    trunk,
+    initial,
+    "editManager.trunk",
+  ))
   use branches_value <- result.try(required(
     members,
     "branches",
@@ -472,7 +496,8 @@ fn decode_edit_manager_value(
       decode_branch(
         value,
         context,
-        stored,
+        initial,
+        trunk_contexts,
         "editManager.branches[" <> int.to_string(index) <> "]",
       )
     }),
@@ -488,18 +513,35 @@ pub fn encode_edit_manager(
 ) -> Result(Json, TreeError) {
   let EditManagerSummary(trunk, branches) = value
   use _ <- result.try(validate_history(trunk, branches))
-  use trunk <- result.try(
-    list.try_map(trunk, fn(commit) {
-      encode_commit(commit, True, context, "editManager.trunk")
+  use initial <- result.try(rewind_history_schema(
+    trunk,
+    case context.schema {
+      Some(stored) -> KnownHistorySchema(schema.FixedSchema(stored))
+      None -> UnknownHistorySchema
+    },
+    "editManager.trunk",
+  ))
+  use #(encoded_trunk, _) <- result.try(encode_commits(
+    trunk,
+    True,
+    context,
+    initial,
+    "editManager.trunk",
+  ))
+  use trunk_contexts <- result.try(commit_schema_contexts(
+    trunk,
+    initial,
+    "editManager.trunk",
+  ))
+  use encoded_branches <- result.try(
+    list.try_map(branches, fn(branch) {
+      encode_branch(branch, context, initial, trunk_contexts)
     }),
-  )
-  use branches <- result.try(
-    list.try_map(branches, fn(branch) { encode_branch(branch, context) }),
   )
   Ok(
     json.object([
-      #("trunk", json.array(trunk, fn(value) { value })),
-      #("branches", json.array(branches, fn(value) { value })),
+      #("trunk", json.array(encoded_trunk, fn(value) { value })),
+      #("branches", json.array(encoded_branches, fn(value) { value })),
       #("version", json.int(7)),
     ]),
   )
@@ -531,13 +573,104 @@ fn decode_edit_manager_string_with_schema(
   decode_edit_manager_with_schema(json_ot.to_json(value), context, stored)
 }
 
+fn decode_commits(
+  values: List(JsonValue),
+  sequenced: Bool,
+  context: codec.DecodeContext,
+  stored: HistorySchemaContext,
+  location: String,
+) -> Result(#(List(SummaryCommit), HistorySchemaContext), TreeError) {
+  use #(commits, stored) <- result.try(
+    list.try_fold(
+      list.index_map(values, fn(value, index) { #(value, index) }),
+      #([], stored),
+      fn(state, entry) {
+        use #(commit, next) <- result.try(decode_commit(
+          entry.0,
+          sequenced,
+          context,
+          state.1,
+          location <> "[" <> int.to_string(entry.1) <> "]",
+        ))
+        Ok(#([commit, ..state.0], next))
+      },
+    ),
+  )
+  Ok(#(list.reverse(commits), stored))
+}
+
+fn rewind_history_schema(
+  commits: List(SummaryCommit),
+  stored: HistorySchemaContext,
+  location: String,
+) -> Result(HistorySchemaContext, TreeError) {
+  list.try_fold(list.reverse(commits), stored, fn(stored, commit) {
+    let SummaryCommit(codec.WireCommit(changes: changes, ..), _, _) = commit
+    list.try_fold(list.reverse(changes), stored, fn(stored, item) {
+      case item {
+        shared_change.DataChange(_) -> Ok(stored)
+        shared_change.SchemaChange(before, after, _) ->
+          case stored {
+            UnknownHistorySchema -> Ok(UnknownHistorySchema)
+            KnownHistorySchema(current) if current == after ->
+              Ok(KnownHistorySchema(before))
+            KnownHistorySchema(_) ->
+              Error(CorruptData(
+                location,
+                "schema history does not reach the summary schema",
+              ))
+          }
+      }
+    })
+  })
+}
+
+fn commit_schema_contexts(
+  commits: List(SummaryCommit),
+  initial: HistorySchemaContext,
+  location: String,
+) -> Result(List(#(fluid_ids.StableId, HistorySchemaContext)), TreeError) {
+  use #(contexts, _) <- result.try(
+    list.try_fold(commits, #([], initial), fn(state, commit) {
+      let SummaryCommit(codec.WireCommit(revision, _, changes, _), _, _) =
+        commit
+      use next <- result.try(advance_history_schema(state.1, changes, location))
+      Ok(#([#(revision, next), ..state.0], next))
+    }),
+  )
+  Ok(list.reverse(contexts))
+}
+
+fn advance_history_schema(
+  stored: HistorySchemaContext,
+  changes: List(shared_change.TreeChange),
+  location: String,
+) -> Result(HistorySchemaContext, TreeError) {
+  list.try_fold(changes, stored, fn(stored, item) {
+    case item {
+      shared_change.DataChange(_) -> Ok(stored)
+      shared_change.SchemaChange(before, after, _) ->
+        case stored {
+          UnknownHistorySchema -> Ok(UnknownHistorySchema)
+          KnownHistorySchema(current) if current == before ->
+            Ok(KnownHistorySchema(after))
+          KnownHistorySchema(_) ->
+            Error(CorruptData(
+              location,
+              "schema change does not match its history context",
+            ))
+        }
+    }
+  })
+}
+
 fn decode_commit(
   value: JsonValue,
   sequenced: Bool,
   context: codec.DecodeContext,
-  stored: Option(schema.StoredSchema),
+  stored: HistorySchemaContext,
   location: String,
-) -> Result(SummaryCommit, TreeError) {
+) -> Result(#(SummaryCommit, HistorySchemaContext), TreeError) {
   use members <- result.try(object(value, location))
   let allowed = case sequenced {
     True -> [
@@ -580,14 +713,14 @@ fn decode_commit(
     location <> ".change",
   ))
   use changes <- result.try(case stored {
-    None ->
+    UnknownHistorySchema ->
       codec.decode_changes(
         json_ot.to_json(changes_value),
         context,
         codec.ChangeContext(session, Some(revision), codec.Summary),
       )
-    Some(stored) ->
-      codec.decode_changes_with_schema(
+    KnownHistorySchema(stored) ->
+      codec.decode_changes_with_schema_state(
         json_ot.to_json(changes_value),
         context,
         codec.ChangeContext(session, Some(revision), codec.Summary),
@@ -622,19 +755,50 @@ fn decode_commit(
       nonnegative_integer(value, location <> ".indexInBatch")
       |> result.map(Some)
   })
-  Ok(SummaryCommit(
-    codec.WireCommit(revision, session, changes, metadata),
-    sequence_number,
-    index_in_batch,
+  use next <- result.try(advance_history_schema(stored, changes, location))
+  Ok(#(
+    SummaryCommit(
+      codec.WireCommit(revision, session, changes, metadata),
+      sequence_number,
+      index_in_batch,
+    ),
+    next,
   ))
+}
+
+fn encode_commits(
+  commits: List(SummaryCommit),
+  sequenced: Bool,
+  context: codec.EncodeContext,
+  stored: HistorySchemaContext,
+  location: String,
+) -> Result(#(List(Json), HistorySchemaContext), TreeError) {
+  use #(encoded, stored) <- result.try(
+    list.try_fold(
+      list.index_map(commits, fn(commit, index) { #(commit, index) }),
+      #([], stored),
+      fn(state, entry) {
+        use #(commit, next) <- result.try(encode_commit(
+          entry.0,
+          sequenced,
+          context,
+          state.1,
+          location <> "[" <> int.to_string(entry.1) <> "]",
+        ))
+        Ok(#([commit, ..state.0], next))
+      },
+    ),
+  )
+  Ok(#(list.reverse(encoded), stored))
 }
 
 fn encode_commit(
   value: SummaryCommit,
   sequenced: Bool,
   context: codec.EncodeContext,
+  stored: HistorySchemaContext,
   location: String,
-) -> Result(Json, TreeError) {
+) -> Result(#(Json, HistorySchemaContext), TreeError) {
   let SummaryCommit(
     codec.WireCommit(revision, session, changes, metadata),
     sequence_number,
@@ -645,11 +809,21 @@ fn encode_commit(
     context,
     location <> ".revision",
   ))
-  use changes <- result.try(codec.encode_changes(
-    changes,
-    context,
-    codec.ChangeContext(session, Some(revision_id(value)), codec.Summary),
-  ))
+  use changes <- result.try(case stored {
+    UnknownHistorySchema ->
+      codec.encode_changes(
+        changes,
+        context,
+        codec.ChangeContext(session, Some(revision_id(value)), codec.Summary),
+      )
+    KnownHistorySchema(stored) ->
+      codec.encode_changes_with_schema_state(
+        changes,
+        context,
+        codec.ChangeContext(session, Some(revision_id(value)), codec.Summary),
+        stored,
+      )
+  })
   use fields <- result.try(case sequenced, sequence_number {
     True, Some(sequence_number) ->
       Ok([
@@ -681,13 +855,19 @@ fn encode_commit(
       ])
     None -> fields
   }
-  Ok(json.object(fields))
+  use next <- result.try(advance_history_schema(
+    stored,
+    value.commit.changes,
+    location,
+  ))
+  Ok(#(json.object(fields), next))
 }
 
 fn decode_branch(
   value: JsonValue,
   context: codec.DecodeContext,
-  stored: Option(schema.StoredSchema),
+  root_context: HistorySchemaContext,
+  trunk_contexts: List(#(fluid_ids.StableId, HistorySchemaContext)),
   location: String,
 ) -> Result(PeerBranch, TreeError) {
   use pair <- result.try(array(value, location))
@@ -721,41 +901,60 @@ fn decode_branch(
     commits_value,
     location <> "[1].commits",
   ))
-  use commits <- result.try(
-    index_try_map(commit_values, fn(value, index) {
-      decode_commit(
-        value,
-        False,
-        context,
-        stored,
-        location <> "[1].commits[" <> int.to_string(index) <> "]",
-      )
-    }),
-  )
+  use base_context <- result.try(case base {
+    RootRevision -> Ok(root_context)
+    StableRevision(revision) ->
+      list.key_find(list.reverse(trunk_contexts), revision)
+      |> result.map_error(fn(_) {
+        CorruptData(location <> "[1].base", "peer base is not in the trunk")
+      })
+  })
+  use #(commits, _) <- result.try(decode_commits(
+    commit_values,
+    False,
+    context,
+    base_context,
+    location <> "[1].commits",
+  ))
   Ok(PeerBranch(session, base, commits))
 }
 
 fn encode_branch(
   branch: PeerBranch,
   context: codec.EncodeContext,
+  root_context: HistorySchemaContext,
+  trunk_contexts: List(#(fluid_ids.StableId, HistorySchemaContext)),
 ) -> Result(Json, TreeError) {
   let PeerBranch(session, base, commits) = branch
-  use base <- result.try(encode_peer_base(
+  use encoded_base <- result.try(encode_peer_base(
     base,
     context,
     "editManager.branches.base",
   ))
-  use commits <- result.try(
-    list.try_map(commits, fn(commit) {
-      encode_commit(commit, False, context, "editManager.branches.commits")
-    }),
-  )
+  use base_context <- result.try(case base {
+    RootRevision -> Ok(root_context)
+    StableRevision(revision) ->
+      list.key_find(list.reverse(trunk_contexts), revision)
+      |> result.map_error(fn(_) {
+        CorruptData(
+          "editManager.branches.base",
+          "peer base is not in the trunk",
+        )
+      })
+  })
+  use #(commits, _) <- result.try(encode_commits(
+    commits,
+    False,
+    context,
+    base_context,
+    "editManager.branches.commits",
+  ))
   Ok(
     json.array(
       [
         json.string(fluid_ids.session_id_to_string(session)),
         json.object([
-          #("base", base),
+          #("base", encoded_base),
           #("commits", json.array(commits, fn(value) { value })),
         ]),
       ],

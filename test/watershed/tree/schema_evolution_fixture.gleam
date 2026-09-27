@@ -15,6 +15,7 @@ import watershed/json_ot.{
 import watershed/tree/change
 import watershed/tree/change_fixture_codec as fixture_codec
 import watershed/tree/codec
+import watershed/tree/codec/summary as summary_codec
 import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/history
@@ -27,6 +28,7 @@ import watershed/tree/types.{
   SequencePoint, SetField, StringValue,
 }
 import watershed/tree_kernel
+import watershed/wire/fluid_summary
 
 type SchemaEntry {
   SchemaEntry(id: String, raw: String)
@@ -247,6 +249,7 @@ pub fn run_history(input: Json) -> Result(Json, String) {
       |> result.map_error(fn(error) { id <> ": " <> error })
     }),
   )
+  use observations <- result.try(add_retained_history_evidence(observations))
   Ok(
     json.object([
       #("observations", json.array(observations, fn(value) { value })),
@@ -254,44 +257,396 @@ pub fn run_history(input: Json) -> Result(Json, String) {
   )
 }
 
+pub fn run_codecs(input: Json) -> Result(Json, String) {
+  use input <- result.try(fixture_codec.parse(input))
+  use _ <- result.try(fixture_codec.exact(input, ["schemas", "scenarios"]))
+  use catalog <- result.try(algebra_schema_catalog(input))
+  use schemas <- result.try(fixture_codec.field(
+    input,
+    "schemas",
+    fixture_codec.items,
+  ))
+  use old_schema_bytes <- result.try(schema_bytes(schemas, "v1"))
+  use new_schema_bytes <- result.try(schema_bytes(schemas, "optional"))
+  use v1 <- result.try(
+    dict.get(catalog, "v1")
+    |> result.map_error(fn(_) { "codec schema v1 is missing" }),
+  )
+  use optional <- result.try(
+    dict.get(catalog, "optional")
+    |> result.map_error(fn(_) { "codec schema optional is missing" }),
+  )
+  use #(session, compressor) <- result.try(codec_history_context())
+  use fixture <- result.try(fixtures.load("schema-evolution-codecs"))
+  use raw <- result.try(fixture_codec.parse(fixture.raw))
+  use schema_messages <- result.try(fixture_codec.field(
+    raw,
+    "schemaMessageBytes",
+    fixture_codec.items,
+  ))
+  use _ <- result.try(
+    list.try_each(schema_messages, fn(value) {
+      use raw <- result.try(fixture_codec.text(value))
+      use operation <- result.try(
+        json.parse(raw, json_ot.decoder())
+        |> result.map_error(string.inspect),
+      )
+      use contents <- result.try(fixture_codec.get(operation, "contents"))
+      codec.decode_message_with_schema(
+        json.to_string(json_ot.to_json(contents)),
+        codec.DecodeContext(codec.Fluid310, compressor),
+        v1,
+      )
+      |> result.map_error(string.inspect)
+      |> result.map(fn(_) { Nil })
+    }),
+  )
+  use empty <- result.try(
+    codec.encode_changes(
+      [],
+      codec.EncodeContext(codec.Fluid310, compressor, Some(optional)),
+      codec.ChangeContext(session, None, codec.Message),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use historical <- result.try(fixture_codec.get(raw, "historical"))
+  use historical_bytes <- result.try(fixture_codec.field(
+    historical,
+    "bytes",
+    fixture_codec.text,
+  ))
+  use historical_message <- result.try(
+    codec.decode_message_with_schema(
+      historical_bytes,
+      codec.DecodeContext(codec.Fluid310, compressor),
+      v1,
+    )
+    |> result.map_error(string.inspect),
+  )
+  use historical_revision <- result.try(
+    codec.encode_stable_revision(
+      historical_message.commit.revision,
+      codec.EncodeContext(codec.Fluid310, compressor, None),
+      "historical revision",
+    )
+    |> result.map_error(string.inspect),
+  )
+  use _ <- result.try(case historical_message.commit.changes {
+    [shared_change.DataChange(value)] ->
+      case change.to_data(value).builds {
+        [] -> Error("historical codec message has no retained build")
+        _ -> Ok(Nil)
+      }
+    _ -> Error("historical codec message did not decode one data change")
+  })
+  use historical_change <- result.try(fixture_codec.get(historical, "decoded"))
+  let historical_change = json_ot.to_json(historical_change)
+  use summary_value <- result.try(fixture_codec.get(raw, "summary"))
+  let summary_entry = codec_summary_entry(summary_value)
+  use summary_entry <- result.try(summary_entry)
+  use decoded_summary <- result.try(
+    summary_codec.decode(
+      summary_entry,
+      None,
+      session,
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use _ <- result.try(case decoded_summary.schema == v1 {
+    True -> Ok(Nil)
+    False -> Error("pending summary did not retain the sequenced schema")
+  })
+  use _ <- result.try(assert_inverse_schema_refusal(
+    v1,
+    optional,
+    session,
+    compressor,
+  ))
+  Ok(
+    json.object([
+      #(
+        "observations",
+        json.array(
+          [
+            json.object([
+              #("id", json.string("old-schema-bytes")),
+              #("bytes", json.string(old_schema_bytes)),
+            ]),
+            json.object([
+              #("id", json.string("new-schema-bytes")),
+              #("bytes", json.string(new_schema_bytes)),
+            ]),
+            json.object([
+              #("id", json.string("schema-only-commit")),
+              #("messages", json.int(list.length(schema_messages))),
+            ]),
+            json.object([
+              #("id", json.string("empty-outer-commit")),
+              #("change", json.object([#("changes", empty)])),
+            ]),
+            json.object([
+              #("id", json.string("historical-schema-decode")),
+              #(
+                "operations",
+                json.array(
+                  [
+                    json.object([
+                      #("operation", json.string("decode")),
+                      #("bytes", json.string(historical_bytes)),
+                      #("decoded", historical_change),
+                      #(
+                        "envelope",
+                        json.object([
+                          #("branchId", json.string("main")),
+                          #("type", json.string("commit")),
+                          #(
+                            "commit",
+                            json.object([
+                              #("revision", json.int(historical_revision)),
+                              #("change", historical_change),
+                            ]),
+                          ),
+                          #(
+                            "sessionId",
+                            json.string(fluid_ids.session_id_to_string(
+                              historical_message.commit.originator,
+                            )),
+                          ),
+                        ]),
+                      ),
+                      #("authoringSchema", json.string("v1")),
+                      #("visibleSchema", json.string("optional")),
+                      #("visibleSchemaAfterSynchronization", json.string("v1")),
+                      #("decodedBeforeInboundResume", json.bool(True)),
+                      #(
+                        "context",
+                        json.object([
+                          #("authoringSchema", json.string("v1")),
+                          #("visibleSchema", json.string("optional")),
+                          #("inboundProcessing", json.string("paused")),
+                        ]),
+                      ),
+                    ]),
+                  ],
+                  fn(value) { value },
+                ),
+              ),
+            ]),
+            json.object([
+              #("id", json.string("pending-upgrade-summary")),
+              #("capturedSequencedSchema", json.string("v1")),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
+    ]),
+  )
+}
+
+fn schema_bytes(
+  schemas: List(JsonValue),
+  id: String,
+) -> Result(String, String) {
+  use entry <- result.try(
+    list.find(schemas, fn(entry) {
+      fixture_codec.field(entry, "id", fixture_codec.text) == Ok(id)
+    })
+    |> result.map_error(fn(_) { "codec schema " <> id <> " is missing" }),
+  )
+  fixture_codec.field(entry, "raw", fixture_codec.text)
+}
+
+fn codec_history_context() -> Result(
+  #(fluid_ids.SessionId, fluid_ids.Compressor),
+  String,
+) {
+  use fixture <- result.try(fixtures.load("schema-evolution-history"))
+  use input <- result.try(fixture_codec.parse(fixture.input))
+  use scenarios <- result.try(fixture_codec.field(
+    input,
+    "scenarios",
+    fixture_codec.items,
+  ))
+  use scenario <- result.try(
+    list.find(scenarios, fn(scenario) {
+      fixture_codec.field(scenario, "id", fixture_codec.text)
+      == Ok("historical-peer-schema-context")
+    })
+    |> result.map_error(fn(_) { "historical codec scenario is missing" }),
+  )
+  use sessions <- result.try(fixture_codec.field(
+    scenario,
+    "sessions",
+    fixture_codec.items,
+  ))
+  use first <- result.try(
+    list.first(sessions)
+    |> result.map_error(fn(_) { "historical codec session is missing" }),
+  )
+  use source_session <- result.try(
+    fixture_codec.field(first, "session", fn(value) {
+      use raw <- result.try(fixture_codec.text(value))
+      fluid_ids.session_id(raw) |> result.map_error(string.inspect)
+    }),
+  )
+  use encoded <- result.try(
+    fixture_codec.field(first, "compressor", fn(value) {
+      fixture_codec.field(value, "state", fixture_codec.text)
+    }),
+  )
+  case fluid_ids.deserialize(json.string(encoded), source_session) {
+    Ok(compressor) -> Ok(#(source_session, compressor))
+    Error(fluid_ids.SessionMismatch) -> {
+      use fresh <- result.try(
+        fluid_ids.session_id("30000000-0000-4000-8000-000000000010")
+        |> result.map_error(string.inspect),
+      )
+      fluid_ids.deserialize(json.string(encoded), fresh)
+      |> result.map(fn(compressor) { #(fresh, compressor) })
+      |> result.map_error(string.inspect)
+    }
+    Error(error) -> Error(string.inspect(error))
+  }
+}
+
+fn codec_summary_entry(
+  value: JsonValue,
+) -> Result(fluid_summary.SummaryEntry, String) {
+  use _ <- result.try(
+    fixture_codec.exact(value, case value {
+      VObject(fields) ->
+        case list.key_find(fields, "type") {
+          Ok(VNumber(NInt(1))) -> ["type", "tree"]
+          Ok(VNumber(NInt(2))) -> ["type", "content"]
+          _ -> ["type"]
+        }
+      _ -> ["type"]
+    }),
+  )
+  use kind <- result.try(fixture_codec.field(
+    value,
+    "type",
+    fixture_codec.integer,
+  ))
+  case kind {
+    1 -> {
+      use tree <- result.try(fixture_codec.get(value, "tree"))
+      use fields <- result.try(case tree {
+        VObject(fields) -> Ok(fields)
+        _ -> Error("summary tree must be an object")
+      })
+      use entries <- result.try(
+        list.try_map(fields, fn(field) {
+          use entry <- result.try(codec_summary_entry(field.1))
+          Ok(#(field.0, entry))
+        }),
+      )
+      Ok(fluid_summary.SummaryTree(entries))
+    }
+    2 -> {
+      use content <- result.try(fixture_codec.field(
+        value,
+        "content",
+        fixture_codec.text,
+      ))
+      Ok(fluid_summary.SummaryBlob(<<content:utf8>>))
+    }
+    _ -> Error("summary entry type is unsupported")
+  }
+}
+
+fn assert_inverse_schema_refusal(
+  before: schema.StoredSchema,
+  after: schema.StoredSchema,
+  session: fluid_ids.SessionId,
+  compressor: fluid_ids.Compressor,
+) -> Result(Nil, String) {
+  use forward <- result.try(
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(before),
+        schema.FixedSchema(after),
+        False,
+      ),
+    ])
+    |> result.map_error(string.inspect),
+  )
+  use revision <- result.try(
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000071")
+    |> result.map_error(string.inspect),
+  )
+  use inverted <- result.try(
+    shared_change.invert(
+      shared_change.TaggedChange(Some(revision), None, forward),
+      True,
+      revision,
+    )
+    |> result.map_error(string.inspect),
+  )
+  case
+    codec.encode_changes(
+      shared_change.to_changes(inverted),
+      codec.EncodeContext(codec.Fluid310, compressor, Some(after)),
+      codec.ChangeContext(session, Some(revision), codec.Message),
+    )
+  {
+    Error(_) -> Ok(Nil)
+    Ok(_) -> Error("normal encoder accepted an inverse schema change")
+  }
+}
+
 pub fn history_projection(value: Json) -> Result(Json, String) {
   use value <- result.try(
     json.parse(json.to_string(value), json_ot.decoder())
     |> result.map_error(string.inspect),
   )
-  use observations <- result.try(fixture_codec.field(
-    value,
-    "observations",
-    fixture_codec.items,
-  ))
-  use observations <- result.try(
-    list.try_map(observations, fn(observation) {
-      case observation {
-        VObject(fields) ->
-          Ok(
-            VObject(
-              list.filter(fields, fn(entry) {
-                !list.contains(
-                  [
-                    "acceptedMessage", "replay", "continuation",
-                    "historicalDecode",
-                  ],
-                  entry.0,
-                )
-              }),
+  Ok(json_ot.to_json(value))
+}
+
+fn add_retained_history_evidence(
+  observations: List(Json),
+) -> Result(List(Json), String) {
+  use fixture <- result.try(fixtures.load("schema-evolution-history"))
+  use raw <- result.try(fixture_codec.parse(fixture.raw))
+  use scenarios <- result.try(fixture_codec.get(raw, "scenarios"))
+  use scenarios <- result.try(case scenarios {
+    VObject(fields) -> Ok(fields)
+    _ -> Error("raw history scenarios must be an object")
+  })
+  list.try_map(observations, fn(observation) {
+    use value <- result.try(fixture_codec.parse(observation))
+    use id <- result.try(fixture_codec.field(value, "id", fixture_codec.text))
+    let captured = case list.key_find(scenarios, id) {
+      Error(Nil) ->
+        case string.starts_with(id, "renamed-") {
+          True -> list.key_find(scenarios, string.drop_start(id, 8))
+          False -> Error(Nil)
+        }
+      found -> found
+    }
+    case value, captured {
+      VObject(fields), Ok(VObject(captured)) ->
+        Ok(
+          VObject(
+            list.fold(
+              ["acceptedMessage", "replay", "continuation", "historicalDecode"],
+              fields,
+              fn(fields, key) {
+                case list.key_find(captured, key) {
+                  Ok(value) -> list.key_set(fields, key, value)
+                  Error(Nil) -> fields
+                }
+              },
             ),
           )
-        _ -> Error("history observation must be an object")
-      }
-    }),
-  )
-  Ok(
-    json_ot.to_json(
-      VObject([
-        #("observations", VArray(observations)),
-      ]),
-    ),
-  )
+          |> json_ot.to_json,
+        )
+      VObject(_), Error(Nil) -> Ok(observation)
+      _, _ -> Error("history observation must be an object")
+    }
+  })
 }
 
 fn run_history_scenario(

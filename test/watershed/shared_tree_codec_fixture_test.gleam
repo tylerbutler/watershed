@@ -5,9 +5,17 @@ import startest/expect
 import watershed/json_ot.{VArray, VObject, VString}
 import watershed/tree/codec_fixture
 import watershed/tree/fixtures
+import watershed/tree/schema_evolution_fixture
 
 pub fn shared_tree_codec_matches_upstream_test() -> Nil {
   fixtures.assert_case("tree-codecs", codec_fixture.run)
+}
+
+pub fn shared_tree_schema_evolution_codecs_test() -> Nil {
+  fixtures.assert_case(
+    "schema-evolution-codecs",
+    schema_evolution_fixture.run_codecs,
+  )
 }
 
 pub fn shared_tree_codec_fixture_rejects_missing_input_test() -> Nil {

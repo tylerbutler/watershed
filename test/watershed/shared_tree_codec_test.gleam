@@ -288,6 +288,68 @@ pub fn shared_tree_codec_encodes_native_authored_change_test() {
   change.to_data(decoded) |> expect.to_equal(change.to_data(authored))
 }
 
+pub fn shared_tree_codec_uses_ordered_schema_for_data_builds_test() {
+  let owner = session(session_a)
+  let assert Ok(#(compressor, local)) =
+    fluid_ids.new(owner) |> fluid_ids.generate
+  let assert #(compressor, Some(range)) =
+    fluid_ids.take_creation_range(compressor)
+  let assert Ok(compressor) = fluid_ids.finalize(compressor, range)
+  let assert Ok(revision) = fluid_ids.decompress(compressor, local)
+  let assert Ok(stored) =
+    schema.stored_from_string(
+      "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Map\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Map\"]}}",
+    )
+  let assert Ok(order) = change.identity_order([#(revision, 0)])
+  let assert Ok(data) =
+    change.from_data(
+      change.ChangeData(
+        max_local_id: 0,
+        revisions: [change.RevisionInfo(revision, None)],
+        fields: [],
+        nodes: [],
+        parents: [],
+        aliases: [],
+        builds: [
+          forest.Build(types.AtomId(Some(revision), 0), [
+            types.MapValue("Map", []),
+          ]),
+        ],
+        destroys: [],
+        refreshers: [],
+        cross_field_keys: [],
+      ),
+      order,
+    )
+  let schema_change =
+    shared_change.SchemaChange(
+      schema.EmptySchema,
+      schema.FixedSchema(stored),
+      False,
+    )
+  let context = codec.EncodeContext(codec.Fluid310, compressor, None)
+  let change_context = codec.ChangeContext(owner, Some(revision), codec.Message)
+  case
+    codec.encode_changes_with_schema_state(
+      [schema_change, shared_change.DataChange(data)],
+      context,
+      change_context,
+      schema.EmptySchema,
+    )
+  {
+    Ok(_) -> Nil
+    Error(error) -> panic as { string.inspect(error) }
+  }
+  let assert Error(types.CorruptData("changes[0].data", _)) =
+    codec.encode_changes_with_schema_state(
+      [shared_change.DataChange(data), schema_change],
+      context,
+      change_context,
+      schema.EmptySchema,
+    )
+  Nil
+}
+
 pub fn shared_tree_codec_untagged_revisions_round_trip_test() {
   let owner = session(session_a)
   let assert Ok(#(compressor, first)) =
