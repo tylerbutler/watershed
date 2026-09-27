@@ -85,7 +85,8 @@ const scenarioIds = {
 	"array-modular-algebra": [
 		"generic-to-sequence", "sequence-to-generic", "nested-conversions", "nested-ancestors",
 		"common-ancestors", "cross-field-endpoints", "nested-cross-field-endpoints",
-		"nested-aliased-chain", "node-table", "parent-table", "alias-table",
+		"nested-aliased-chain", "nested-outer-effects", "sequence-ancestor-rebase",
+		"node-table", "parent-table", "alias-table",
 		"ownership-roundtrip",
 	],
 	"array-codecs": [
@@ -2268,6 +2269,136 @@ async function makeCases() {
 			field: { node: atom(r6, 61), field: "narrow" },
 		},
 	]);
+	const nestedOuterEffects = copy(nestedCrossField);
+	nestedOuterEffects.operands.changes.forEach(({ change }, index) => {
+		const node = atom(r6, 60 + index);
+		const move = 141 + index * 3;
+		change.fields = [["outer", sequence(index === 0
+			? [{
+				type: "MoveIn",
+				id: move,
+				count: 1,
+				cellId: atom(r6, move + 2),
+				revision: Number(r6),
+			}, { count: 1, changes: node }, {
+				type: "MoveOut",
+				id: move,
+				count: 1,
+				revision: Number(r6),
+			}]
+			: [{
+				type: "MoveOut",
+				id: move,
+				count: 1,
+				revision: Number(r6),
+			}, { count: 1, changes: node }, {
+				type: "MoveIn",
+				id: move,
+				count: 1,
+				cellId: atom(r6, move + 2),
+				revision: Number(r6),
+			}],
+		)]];
+		const sourceKeys = change.crossFieldKeys.filter((key) =>
+			Reflect.get(key, "target") === "source");
+		const destinationKeys = change.crossFieldKeys.filter((key) =>
+			Reflect.get(key, "target") === "destination");
+		Reflect.set(change, "crossFieldKeys", [
+			...sourceKeys,
+			{
+				target: "source",
+				revision: Number(r6),
+				localId: move,
+				count: 1,
+				field: { node: null, field: "outer" },
+			},
+			...destinationKeys,
+			{
+				target: "destination",
+				revision: Number(r6),
+				localId: move,
+				count: 1,
+				field: { node: null, field: "outer" },
+			},
+		]);
+		change.maxLocalId = move + 2;
+	});
+	nestedOuterEffects.allocator.maxLocalId = 146;
+	const sequenceAncestorAuthored = emptyChange(r7, [["outer", sequence([
+		{ count: 1, changes: atom(r7, 80) },
+	])]], {
+		maxLocalId: 84,
+		nodes: [
+			[atom(r7, 80), { fields: [["left", sequence([
+				{ count: 1, changes: atom(r7, 81) },
+			])]] }],
+			[atom(r7, 81), { fields: [["", sequence([
+				{ count: 1, changes: atom(r7, 83) },
+			])]] }],
+			[atom(r7, 83), { fields: [["x", generic([[0, atom(r7, 84)]])]] }],
+			[atom(r7, 84), { fields: [["", sequence([{
+				type: "Insert",
+				count: 1,
+				id: 0,
+				cellId: atom(r7, 0),
+				revision: Number(r7),
+			}])]] }],
+		],
+		parents: [
+			[atom(r7, 80), parent("outer")],
+			[atom(r7, 81), parent("left", atom(r7, 80))],
+			[atom(r7, 83), parent("", atom(r7, 81))],
+			[atom(r7, 84), parent("x", atom(r7, 83))],
+		],
+	});
+	const sequenceAncestorBase = emptyChange(r8, [["outer", sequence([
+		{ count: 1, changes: atom(r8, 90) },
+	])]], {
+		maxLocalId: 102,
+		nodes: [
+			[atom(r8, 90), { fields: [
+				["left", sequence([{ count: 1, changes: atom(r8, 91) }])],
+				["right", sequence([
+					{ count: 1 },
+					{ count: 1, changes: atom(r8, 92) },
+				])],
+			] }],
+			[atom(r8, 91), { fields: [["", sequence([{
+				type: "MoveOut",
+				id: 100,
+				count: 1,
+				revision: Number(r8),
+			}])]] }],
+			[atom(r8, 92), { fields: [["", sequence([{
+				type: "MoveIn",
+				id: 100,
+				count: 1,
+				cellId: atom(r8, 102),
+				revision: Number(r8),
+			}])]] }],
+		],
+		parents: [
+			[atom(r8, 90), parent("outer")],
+			[atom(r8, 91), parent("left", atom(r8, 90))],
+			[atom(r8, 92), parent("right", atom(r8, 90))],
+		],
+		crossFieldKeys: [
+			{
+				target: "source",
+				revision: Number(r8),
+				localId: 100,
+				count: 1,
+				field: { node: atom(r8, 91), field: "" },
+			},
+			{
+				target: "destination",
+				revision: Number(r8),
+				localId: 100,
+				count: 1,
+				field: { node: atom(r8, 92), field: "" },
+			},
+		],
+	});
 	const crossFieldInput =
 		crossFieldCoordinationInput(r6, modularCompressor) as unknown as Record<string, unknown>;
 	const crossFieldOutput = replayArrayModularInput(copy(crossFieldInput)) as {
@@ -2313,6 +2444,17 @@ async function makeCases() {
 		"cross-field-endpoints": crossFieldInput,
 		"nested-cross-field-endpoints": nestedCrossField as unknown as Record<string, unknown>,
 		"nested-aliased-chain": nestedAliasedChain as unknown as Record<string, unknown>,
+		"nested-outer-effects": nestedOuterEffects as unknown as Record<string, unknown>,
+		"sequence-ancestor-rebase": replayContext(
+			"rebase",
+			[tagged(r7, sequenceAncestorAuthored), tagged(r8, sequenceAncestorBase)],
+			{
+				revisionMetadata: [r7, r8].map((revision) => ({
+					revision: Number(revision),
+					rollbackOf: null,
+				})),
+			},
+		),
 		"node-table": replayContext("invert", [tagged(r2, nestedMap)], {
 			isRollback: true,
 			inverseRevision: Number(r7),
@@ -2329,13 +2471,24 @@ async function makeCases() {
 		const output = replayArrayModularInput(input);
 		const rawOutput = replayArrayModularInputRaw(input) as {
 			coordination: {
-				handlerCalls: { sequence: number; field: { field: string } }[];
+				handlerCalls: {
+					sequence: number;
+					field: {
+						node?: { revision: number | null; localId: number } | null;
+						field: string;
+					};
+				}[];
 				managerCalls: {
 					sequence: number;
 					method: string;
-					field: { field: string };
+					field: {
+						node?: { revision: number | null; localId: number } | null;
+						field: string;
+					};
 					addDependency?: boolean;
 					invalidateDependents?: boolean;
+					target?: string;
+					localId?: number;
 					count?: number;
 					returnedLength?: number;
 				}[];
@@ -2446,6 +2599,78 @@ async function makeCases() {
 				rawOutput.coordination.handlerCalls.map(({ field }) => field.field),
 				["outer", "right", "left", "narrow"],
 				"The nested chain must process both untouched endpoint owners.",
+			);
+		}
+		if (id === "nested-outer-effects") {
+			const writes = rawOutput.coordination.managerCalls.filter(
+				(call) => call.method === "set",
+			);
+			assert.deepEqual(
+				writes.slice(0, 2).map(({ field, target, localId }) => [
+					field.node?.localId,
+					field.field,
+					target,
+					localId,
+				]),
+				[
+					[undefined, "outer", "source", 141],
+					[undefined, "outer", "destination", 144],
+				],
+				"Outer move writes must execute under the outer field before nested work.",
+			);
+			const firstNestedHandler = rawOutput.coordination.handlerCalls.find(
+				({ field }) => field.node !== null && field.node !== undefined,
+			);
+			assert(
+				firstNestedHandler !== undefined &&
+					writes[0].sequence < firstNestedHandler.sequence &&
+					writes[1].sequence < firstNestedHandler.sequence,
+				"Both outer writes must precede the first nested handler.",
+			);
+		}
+		if (id === "sequence-ancestor-rebase") {
+			const graph = Reflect.get(outputRecord, "graph") as {
+				nodes: [ReturnType<typeof atom>, {
+					fields: [string, { kind: string; change: unknown[] }][];
+				}][];
+				parents: [ReturnType<typeof atom>, {
+					node: ReturnType<typeof atom> | null;
+					field: string;
+				}][];
+			};
+			const parentNode = graph.nodes.find(([id]) =>
+				id.revision === Number(r7) && id.localId === 80);
+			const right = parentNode?.[1].fields.find(([field]) => field === "right");
+			assert.deepEqual(
+				right,
+				["right", sequence([
+					{ count: 1 },
+					{ count: 1, changes: atom(r8, 92) },
+				])],
+				"The Sequence ancestor must attach the affected child at index 1.",
+			);
+			assert(
+				graph.parents.some(([child, owner]) =>
+					child.revision === Number(r8) &&
+					child.localId === 92 &&
+					owner.node?.revision === Number(r7) &&
+					owner.node.localId === 80 &&
+					owner.field === "right"),
+				"The materialized child must be owned by the rebased Sequence ancestor.",
+			);
+			assert.deepEqual(
+				rawOutput.coordination.handlerCalls.map(({ field }) => [
+					field.node?.localId,
+					field.field,
+				]),
+				[
+					[undefined, "outer"],
+					[80, "left"],
+					[81, ""],
+					[92, ""],
+					[90, "right"],
+				],
+				"The source must process the affected field before its Sequence ancestor.",
 			);
 		}
 		if (id === "ownership-roundtrip") {

@@ -124,6 +124,8 @@ export const arrayScenarioIds = {
     "cross-field-endpoints",
     "nested-cross-field-endpoints",
     "nested-aliased-chain",
+    "nested-outer-effects",
+    "sequence-ancestor-rebase",
     "node-table",
     "parent-table",
     "alias-table",

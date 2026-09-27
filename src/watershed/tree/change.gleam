@@ -162,10 +162,21 @@ type RebaseState {
     base: ChangeData,
     base_to_rebased: List(#(AtomId, AtomId)),
     pairs: List(#(AtomId, AtomId)),
+    pending_pairs: List(#(AtomId, AtomId, optional_field.AttachState)),
     algebra: sequence_field.AlgebraContext,
     move_context: moves.Context,
     work: List(RebaseWork),
+    field_work: List(RebaseFieldWork),
     field_results: List(#(moves.FieldId, FieldChange)),
+  )
+}
+
+type RebaseFieldWork {
+  RebaseFieldWork(
+    source_field: moves.FieldId,
+    result_field: moves.FieldId,
+    authored: FieldChange,
+    base: FieldChange,
   )
 }
 
@@ -1946,6 +1957,7 @@ pub fn rebase_with_trace(
       base,
       [],
       [],
+      [],
       algebra_context(identity_order, context.revisions),
       moves.with_owners(
         moves.new(),
@@ -1953,10 +1965,12 @@ pub fn rebase_with_trace(
       ),
       [],
       [],
+      [],
     )
   use #(fields, state) <- result.try(rebase_field_maps(
     authored.fields,
     base.fields,
+    None,
     None,
     state,
   ))
@@ -2018,7 +2032,8 @@ fn validate_rebase_inputs(
 fn rebase_field_maps(
   authored: List(#(String, FieldChange)),
   base: List(#(String, FieldChange)),
-  parent: Option(AtomId),
+  authored_parent: Option(AtomId),
+  base_parent: Option(AtomId),
   state: RebaseState,
 ) -> Result(#(List(#(String, FieldChange)), RebaseState), TreeError) {
   list.try_fold(authored, #([], state), fn(output, entry) {
@@ -2031,9 +2046,19 @@ fn rebase_field_maps(
         use #(field, state) <- result.try(rebase_field(
           entry.1,
           base_field,
-          moves.FieldId(parent, entry.0),
+          moves.FieldId(authored_parent, entry.0),
           output.1,
         ))
+        let source_field = moves.FieldId(base_parent, entry.0)
+        let result_field = moves.FieldId(authored_parent, entry.0)
+        let state =
+          RebaseState(
+            ..state,
+            field_work: put_rebase_field_work(
+              state.field_work,
+              RebaseFieldWork(source_field, result_field, entry.1, base_field),
+            ),
+          )
         Ok(#(list.append(output.0, [#(entry.0, field)]), state))
       }
     }
@@ -2226,12 +2251,17 @@ fn rebase_generic(
 fn rebase_child(
   authored: Option(AtomId),
   base: Option(AtomId),
-  _attach: optional_field.AttachState,
+  attach: optional_field.AttachState,
   state: RebaseState,
 ) -> Result(#(Option(AtomId), RebaseState), TreeError) {
   case authored, base {
     Some(authored), Some(base) -> {
-      use #(rebased, state) <- result.try(rebase_nodes(authored, base, state))
+      use #(rebased, state) <- result.try(queue_rebase_nodes(
+        authored,
+        base,
+        attach,
+        state,
+      ))
       Ok(#(Some(rebased), state))
     }
     Some(authored), None -> {
@@ -2243,6 +2273,31 @@ fn rebase_child(
       Ok(#(pair_value(state.base_to_rebased, base), state))
     }
     None, None -> Ok(#(None, state))
+  }
+}
+
+fn queue_rebase_nodes(
+  authored: AtomId,
+  base: AtomId,
+  attach: optional_field.AttachState,
+  state: RebaseState,
+) -> Result(#(AtomId, RebaseState), TreeError) {
+  use authored <- result.try(resolve_alias(authored, state.authored.aliases))
+  use base <- result.try(resolve_alias(base, state.base.aliases))
+  case pair_value(state.base_to_rebased, base) {
+    Some(existing) -> Ok(#(existing, state))
+    None -> {
+      let pending = #(authored, base, attach)
+      let pending_pairs = case
+        list.any(state.pending_pairs, fn(entry) {
+          entry.0 == authored && entry.1 == base
+        })
+      {
+        True -> state.pending_pairs
+        False -> list.append(state.pending_pairs, [pending])
+      }
+      Ok(#(authored, RebaseState(..state, pending_pairs:)))
+    }
   }
 }
 
@@ -2272,6 +2327,7 @@ fn rebase_nodes(
         authored_fields,
         base_fields,
         Some(authored),
+        Some(base),
         state,
       ))
       let nodes = put_pair(state.nodes, authored, NodeChange(fields))
@@ -2923,6 +2979,7 @@ fn prune_field(
           prune_node(child, state, aliases)
         }),
       )
+      use pruned <- result.try(prune_sequence_context(pruned))
       case sequence_field.to_marks(pruned) {
         [] -> Ok(#(None, state))
         _ -> Ok(#(Some(SequenceField(pruned)), state))
@@ -2930,6 +2987,27 @@ fn prune_field(
     }
     ValueField(change) -> prune_concrete(change, state, aliases, True)
     OptionalField(change) -> prune_concrete(change, state, aliases, False)
+  }
+}
+
+fn prune_sequence_context(
+  change: sequence_field.Changeset,
+) -> Result(sequence_field.Changeset, TreeError) {
+  change
+  |> sequence_field.to_marks
+  |> list.reverse
+  |> drop_trailing_sequence_context
+  |> list.reverse
+  |> sequence_field.from_marks
+}
+
+fn drop_trailing_sequence_context(
+  marks: List(sequence_field.Mark),
+) -> List(sequence_field.Mark) {
+  case marks {
+    [sequence_field.Mark(_, _, sequence_field.Noop, None), ..rest] ->
+      drop_trailing_sequence_context(rest)
+    _ -> marks
   }
 }
 
@@ -3519,6 +3597,29 @@ fn put_rebase_work(
   }
 }
 
+fn put_rebase_field_work(
+  work: List(RebaseFieldWork),
+  entry: RebaseFieldWork,
+) -> List(RebaseFieldWork) {
+  let RebaseFieldWork(source, _, _, _) = entry
+  case
+    list.any(work, fn(existing) {
+      let RebaseFieldWork(existing, _, _, _) = existing
+      existing == source
+    })
+  {
+    True ->
+      list.map(work, fn(existing) {
+        let RebaseFieldWork(found, _, _, _) = existing
+        case found == source {
+          True -> entry
+          False -> existing
+        }
+      })
+    False -> list.append(work, [entry])
+  }
+}
+
 fn put_invert_work(
   work: List(InvertWork),
   entry: InvertWork,
@@ -3683,9 +3784,8 @@ fn ensure_rebased_parent(
     None -> {
       use parent <- result.try(parent_for(base, state.base.parents))
       let ParentField(parent_id, field) = parent
-      case parent_id {
-        None ->
-          Error(CorruptData("rebase", "affected root node has not been rebased"))
+      use #(base_parent, rebased_parent, state) <- result.try(case parent_id {
+        None -> Ok(#(None, None, state))
         Some(parent_id) -> {
           use parent_id <- result.try(resolve_alias(
             parent_id,
@@ -3695,76 +3795,103 @@ fn ensure_rebased_parent(
             parent_id,
             state,
           ))
-          use index <- result.try(base_child_index(
-            parent_id,
-            field,
-            base,
-            state.base,
-          ))
-          use parent_node <- result.try(node_for(rebased_parent, state.nodes))
-          let NodeChange(fields) = parent_node
-          use fields <- result.try(attach_generic_child(
-            fields,
-            field,
-            index,
-            base,
-          ))
-          let nodes =
-            state.nodes
-            |> put_pair(rebased_parent, NodeChange(fields))
-            |> put_pair(base, NodeChange([]))
-          Ok(#(
-            base,
-            RebaseState(
-              ..state,
-              nodes:,
-              base_to_rebased: put_pair(state.base_to_rebased, base, base),
-            ),
-          ))
+          Ok(#(Some(parent_id), Some(rebased_parent), state))
         }
-      }
+      })
+      let state =
+        RebaseState(
+          ..state,
+          nodes: put_pair(state.nodes, base, NodeChange([])),
+          base_to_rebased: put_pair(state.base_to_rebased, base, base),
+        )
+      let source_field = moves.FieldId(base_parent, field)
+      let result_field = moves.FieldId(rebased_parent, field)
+      use #(authored, base_field, handler_field, result_field) <- result.try(
+        rebase_parent_field_work(state, source_field, result_field),
+      )
+      use #(rebased_field, state) <- result.try(rebase_field(
+        authored,
+        base_field,
+        handler_field,
+        state,
+      ))
+      let state =
+        RebaseState(
+          ..state,
+          field_work: put_rebase_field_work(
+            state.field_work,
+            RebaseFieldWork(source_field, result_field, authored, base_field),
+          ),
+          field_results: put_pair(
+            state.field_results,
+            result_field,
+            rebased_field,
+          ),
+        )
+      Ok(#(base, state))
     }
   }
 }
 
-fn base_child_index(
-  parent: AtomId,
-  field: String,
-  child: AtomId,
-  data: ChangeData,
-) -> Result(Int, TreeError) {
-  use node <- result.try(node_for(parent, data.nodes))
-  let NodeChange(fields) = node
-  case pair_value(fields, field) {
-    Some(GenericField(children)) ->
-      list.find(children, fn(entry) { entry.1 == child })
-      |> result.map(fn(entry) { entry.0 })
-      |> result.map_error(fn(_) {
-        CorruptData("rebase", "affected child is missing from its parent field")
-      })
-    _ ->
-      Error(CorruptData(
-        "rebase",
-        "affected child parent is not a generic field",
-      ))
+fn rebase_parent_field_work(
+  state: RebaseState,
+  source_field: moves.FieldId,
+  result_field: moves.FieldId,
+) -> Result(
+  #(FieldChange, FieldChange, moves.FieldId, moves.FieldId),
+  TreeError,
+) {
+  case
+    list.find(state.field_work, fn(work) {
+      let RebaseFieldWork(source, _, _, _) = work
+      source == source_field
+    })
+  {
+    Ok(RebaseFieldWork(_, result, authored, base)) ->
+      Ok(#(authored, base, result, result))
+    Error(_) -> {
+      use base <- result.try(field_change_for(state.base, source_field))
+      use base <- result.try(
+        base
+        |> option.to_result(CorruptData(
+          "rebase",
+          "affected child parent field is missing",
+        )),
+      )
+      use authored <- result.try(empty_field_change(base))
+      Ok(#(authored, base, source_field, result_field))
+    }
   }
 }
 
-fn attach_generic_child(
-  fields: List(#(String, FieldChange)),
-  field: String,
-  index: Int,
-  child: AtomId,
-) -> Result(List(#(String, FieldChange)), TreeError) {
-  case pair_value(fields, field) {
-    None -> Ok(list.append(fields, [#(field, GenericField([#(index, child)]))]))
-    Some(GenericField(children)) ->
-      Ok(put_pair(fields, field, GenericField(put_pair(children, index, child))))
-    Some(_) ->
-      Error(CorruptData(
-        "rebase",
-        "affected child collides with a non-generic parent field",
-      ))
+fn field_change_for(
+  data: ChangeData,
+  field: moves.FieldId,
+) -> Result(Option(FieldChange), TreeError) {
+  let fields = case field.parent {
+    None -> Ok(data.fields)
+    Some(parent) -> {
+      use parent <- result.try(resolve_alias(parent, data.aliases))
+      case pair_value(data.nodes, parent) {
+        None -> Ok([])
+        Some(NodeChange(fields)) -> Ok(fields)
+      }
+    }
+  }
+  use fields <- result.try(fields)
+  Ok(pair_value(fields, field.field))
+}
+
+fn empty_field_change(field: FieldChange) -> Result(FieldChange, TreeError) {
+  case field {
+    GenericField(_) -> Ok(GenericField([]))
+    SequenceField(_) -> {
+      use empty <- result.try(sequence_field.from_marks([]))
+      Ok(SequenceField(empty))
+    }
+    ValueField(_) -> Ok(ValueField(optional_field.FieldChange([], [], None)))
+    OptionalField(_) ->
+      Ok(OptionalField(optional_field.FieldChange([], [], None)))
   }
 }
 
@@ -3873,6 +4000,23 @@ fn rebase_invalidated(
   state: RebaseState,
   processed: List(#(moves.FieldId, FieldChange, moves.Context)),
 ) -> Result(RebaseState, TreeError) {
+  case state.pending_pairs {
+    [pair, ..rest] -> {
+      use #(_, state) <- result.try(rebase_nodes(
+        pair.0,
+        pair.1,
+        RebaseState(..state, pending_pairs: rest),
+      ))
+      rebase_invalidated(state, processed)
+    }
+    [] -> rebase_field_work(state, processed)
+  }
+}
+
+fn rebase_field_work(
+  state: RebaseState,
+  processed: List(#(moves.FieldId, FieldChange, moves.Context)),
+) -> Result(RebaseState, TreeError) {
   let #(affected, move_context) = moves.take_affected(state.move_context)
   let state = RebaseState(..state, move_context:)
   case affected, moves.invalidated(state.move_context) {
@@ -3895,12 +4039,13 @@ fn rebase_invalidated(
         ),
       )
       let result = SequenceField(change)
+      let next = RebaseState(..next, move_context:)
       use #(result_field, next) <- result.try(rebased_field_id(
         next,
         source_field,
       ))
       let move_context =
-        list.fold(rest, move_context, fn(context, affected) {
+        list.fold(rest, next.move_context, fn(context, affected) {
           moves.queue_affected(context, affected)
         })
       rebase_invalidated(
