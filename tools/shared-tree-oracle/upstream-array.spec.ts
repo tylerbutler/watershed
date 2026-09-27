@@ -91,7 +91,7 @@ const scenarioIds = {
 		"common-ancestors", "cross-field-endpoints", "nested-cross-field-endpoints",
 		"nested-aliased-chain", "nested-outer-effects", "nested-aliased-conversion-retry",
 		"multi-revision-inversion-retry", "three-pass-nested-moves",
-		"sequence-ancestor-rebase",
+		"sequence-ancestor-rebase", "sequence-ancestor-rebase-intersecting",
 		"node-table", "parent-table", "alias-table",
 		"ownership-roundtrip",
 	],
@@ -2413,6 +2413,33 @@ async function makeCases() {
 	const sequenceAncestorAuthored = emptyChange(r7, [["outer", sequence([
 		{ count: 1, changes: atom(r7, 80) },
 	])]], {
+		maxLocalId: 84,
+		nodes: [
+			[atom(r7, 80), { fields: [["left", sequence([
+				{ count: 1, changes: atom(r7, 81) },
+			])]] }],
+			[atom(r7, 81), { fields: [["", sequence([
+				{ count: 1, changes: atom(r7, 83) },
+			])]] }],
+			[atom(r7, 83), { fields: [["x", generic([[0, atom(r7, 84)]])]] }],
+			[atom(r7, 84), { fields: [["", sequence([{
+				type: "Insert",
+				count: 1,
+				id: 0,
+				cellId: atom(r7, 0),
+				revision: Number(r7),
+			}])]] }],
+		],
+		parents: [
+			[atom(r7, 80), parent("outer")],
+			[atom(r7, 81), parent("left", atom(r7, 80))],
+			[atom(r7, 83), parent("", atom(r7, 81))],
+			[atom(r7, 84), parent("x", atom(r7, 83))],
+		],
+	});
+	const sequenceAncestorIntersectingAuthored = emptyChange(r7, [["outer", sequence([
+		{ count: 1, changes: atom(r7, 80) },
+	])]], {
 		maxLocalId: 86,
 		nodes: [
 			[atom(r7, 80), { fields: [
@@ -2583,6 +2610,16 @@ async function makeCases() {
 		"sequence-ancestor-rebase": replayContext(
 			"rebase",
 			[tagged(r7, sequenceAncestorAuthored), tagged(r8, sequenceAncestorBase)],
+			{
+				revisionMetadata: [r7, r8].map((revision) => ({
+					revision: Number(revision),
+					rollbackOf: null,
+				})),
+			},
+		),
+		"sequence-ancestor-rebase-intersecting": replayContext(
+			"rebase",
+			[tagged(r7, sequenceAncestorIntersectingAuthored), tagged(r8, sequenceAncestorBase)],
 			{
 				revisionMetadata: [r7, r8].map((revision) => ({
 					revision: Number(revision),
@@ -2945,6 +2982,51 @@ async function makeCases() {
 			);
 		}
 		if (id === "sequence-ancestor-rebase") {
+			const graph = Reflect.get(outputRecord, "graph") as {
+				nodes: [ReturnType<typeof atom>, {
+					fields: [string, { kind: string; change: unknown[] }][];
+				}][];
+				parents: [ReturnType<typeof atom>, {
+					node: ReturnType<typeof atom> | null;
+					field: string;
+				}][];
+			};
+			const parentNode = graph.nodes.find(([id]) =>
+				id.revision === Number(r7) && id.localId === 80);
+			const right = parentNode?.[1].fields.find(([field]) => field === "right");
+			assert.deepEqual(
+				right,
+				["right", sequence([
+					{ count: 1 },
+					{ count: 1, changes: atom(r8, 92) },
+				])],
+				"The Sequence ancestor must attach the affected child at index 1.",
+			);
+			assert(
+				graph.parents.some(([child, owner]) =>
+					child.revision === Number(r8) &&
+					child.localId === 92 &&
+					owner.node?.revision === Number(r7) &&
+					owner.node.localId === 80 &&
+					owner.field === "right"),
+				"The materialized child must be owned by the rebased Sequence ancestor.",
+			);
+			assert.deepEqual(
+				rawOutput.coordination.handlerCalls.map(({ field }) => [
+					field.node?.localId,
+					field.field,
+				]),
+				[
+					[undefined, "outer"],
+					[80, "left"],
+					[81, ""],
+					[92, ""],
+					[90, "right"],
+				],
+				"The source must process the affected field before its Sequence ancestor.",
+			);
+		}
+		if (id === "sequence-ancestor-rebase-intersecting") {
 			const graph = Reflect.get(outputRecord, "graph") as {
 				nodes: [ReturnType<typeof atom>, {
 					fields: [string, { kind: string; change: unknown[] }][];

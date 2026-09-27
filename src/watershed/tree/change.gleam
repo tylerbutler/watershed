@@ -164,6 +164,7 @@ type RebaseState {
     base_to_rebased: List(#(AtomId, AtomId)),
     pairs: List(#(AtomId, AtomId)),
     pending_pairs: List(#(AtomId, AtomId, optional_field.AttachState)),
+    pending_fields: List(RebaseWork),
     algebra: sequence_field.AlgebraContext,
     move_context: moves.Context,
     work: List(RebaseWork),
@@ -1962,6 +1963,7 @@ pub fn rebase_with_trace(
       authored.aliases,
       authored,
       base,
+      [],
       [],
       [],
       [],
@@ -3864,27 +3866,42 @@ fn ensure_rebased_parent(
       use #(authored, base_field, result_field) <- result.try(
         rebase_parent_field_work(state, source_field, result_field),
       )
-      use #(rebased_field, state) <- result.try(rebase_field(
-        authored,
-        base_field,
-        result_field,
-        source_field,
-        state,
-      ))
-      let state =
-        RebaseState(
-          ..state,
-          field_work: put_rebase_field_work(
-            state.field_work,
-            RebaseFieldWork(source_field, result_field, authored, base_field),
-          ),
-          field_results: put_pair(
-            state.field_results,
-            result_field,
-            rebased_field,
-          ),
+      let field_work =
+        put_rebase_field_work(
+          state.field_work,
+          RebaseFieldWork(source_field, result_field, authored, base_field),
         )
-      Ok(#(base, state))
+      case authored, base_field {
+        SequenceField(authored), SequenceField(base_field) ->
+          Ok(#(
+            base,
+            RebaseState(..state, field_work:, pending_fields: [
+              RebaseWork(source_field, result_field, authored, base_field),
+              ..state.pending_fields
+            ]),
+          ))
+        _, _ -> {
+          use #(rebased_field, state) <- result.try(rebase_field(
+            authored,
+            base_field,
+            result_field,
+            source_field,
+            state,
+          ))
+          Ok(#(
+            base,
+            RebaseState(
+              ..state,
+              field_work:,
+              field_results: put_pair(
+                state.field_results,
+                result_field,
+                rebased_field,
+              ),
+            ),
+          ))
+        }
+      }
     }
   }
 }
@@ -4069,7 +4086,36 @@ fn rebase_invalidated(
       ))
       rebase_invalidated(state, processed)
     }
-    [] -> rebase_field_work(state, processed)
+    [] ->
+      case state.pending_fields {
+        [work, ..rest] -> {
+          let RebaseWork(source_field, result_field, authored, base) = work
+          let move_context =
+            moves.enter_field(state.move_context, "rebase", source_field)
+          use #(change, state, move_context) <- result.try(
+            sequence_rebase.rebase_with_context(
+              authored,
+              base,
+              RebaseState(..state, pending_fields: rest),
+              rebase_sequence_child,
+              state.algebra,
+              source_field,
+              move_context,
+            ),
+          )
+          let result = SequenceField(change)
+          rebase_invalidated(
+            RebaseState(
+              ..state,
+              move_context:,
+              work: put_rebase_work(state.work, work),
+              field_results: put_pair(state.field_results, result_field, result),
+            ),
+            processed,
+          )
+        }
+        [] -> rebase_field_work(state, processed)
+      }
   }
 }
 

@@ -134,6 +134,7 @@ export const arrayScenarioIds = {
     "multi-revision-inversion-retry",
     "three-pass-nested-moves",
     "sequence-ancestor-rebase",
+    "sequence-ancestor-rebase-intersecting",
     "node-table",
     "parent-table",
     "alias-table",
