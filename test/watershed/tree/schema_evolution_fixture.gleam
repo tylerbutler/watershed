@@ -641,6 +641,14 @@ pub fn history_projection(value: Json) -> Result(Json, String) {
   Ok(json_ot.to_json(normalize_history_json(value)))
 }
 
+pub fn history_gc_projection(value: Json) -> Result(Json, String) {
+  use value <- result.try(
+    json.parse(json.to_string(value), json_ot.decoder())
+    |> result.map_error(string.inspect),
+  )
+  Ok(json_ot.to_json(normalize_gc_json(value)))
+}
+
 pub fn canonical_history_change(value: Json) -> Json {
   case json.parse(json.to_string(value), json_ot.decoder()) {
     Ok(value) -> json_ot.to_json(history_semantic_change_projection(value))
@@ -650,53 +658,42 @@ pub fn canonical_history_change(value: Json) -> Json {
 
 fn normalize_history_json(value: JsonValue) -> JsonValue {
   case value {
-    VObject(fields) -> {
-      let edit_then_upgrade = is_edit_then_upgrade_observation(fields)
+    VObject(fields) ->
       VObject(
         fields
         |> list.map(fn(entry) {
-          #(entry.0, case edit_then_upgrade, entry.0 {
-            True, "detachedIdentities" -> VArray([])
-            True, "visibleRoot" -> clear_removed_roots(entry.1)
-            _, "summary" -> history_summary_projection(entry.1)
-            _, "historicalDecode" -> history_decode_projection(entry.1)
-            _, "bytes" -> normalize_encoded_wire(entry.1)
-            _, "_tailBytes" | _, "tailBytes" | _, "_replayBytes" ->
+          #(entry.0, case entry.0 {
+            "summary" -> history_summary_projection(entry.1)
+            "historicalDecode" -> history_decode_projection(entry.1)
+            "bytes" -> normalize_encoded_wire(entry.1)
+            "_tailBytes" | "tailBytes" | "_replayBytes" ->
               normalize_encoded_wire(entry.1)
-            _, _ -> normalize_history_json(entry.1)
+            _ -> normalize_history_json(entry.1)
           })
         })
         |> list.sort(fn(left, right) { string.compare(left.0, right.0) }),
       )
-    }
     VArray(values) -> VArray(list.map(values, normalize_history_json))
     VString(_) -> value
     _ -> value
   }
 }
 
-fn is_edit_then_upgrade_observation(
-  fields: List(#(String, JsonValue)),
-) -> Bool {
-  list.any(fields, fn(entry) {
-    entry == #("id", VString("edit-then-upgrade-causal"))
-  })
-}
-
-fn clear_removed_roots(value: JsonValue) -> JsonValue {
+fn normalize_gc_json(value: JsonValue) -> JsonValue {
   case value {
     VObject(fields) ->
       VObject(
         fields
         |> list.map(fn(entry) {
           #(entry.0, case entry.0 {
-            "removed" -> VArray([])
-            _ -> normalize_history_json(entry.1)
+            "detachedIdentities" | "removed" -> VArray([])
+            _ -> normalize_gc_json(entry.1)
           })
         })
         |> list.sort(fn(left, right) { string.compare(left.0, right.0) }),
       )
-    _ -> normalize_history_json(value)
+    VArray(values) -> VArray(list.map(values, normalize_gc_json))
+    _ -> value
   }
 }
 

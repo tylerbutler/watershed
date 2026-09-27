@@ -2073,6 +2073,21 @@ pub fn tree_compatibility(
 }
 
 @target(javascript)
+pub fn tree_history_evidence(
+  runtime: Runtime,
+  address: String,
+) -> Result(Json, String) {
+  read(
+    runtime.cell,
+    Error("tree history evidence requires a ready document connection"),
+    fn(core) {
+      runtime_core.tree_history_evidence(core, address)
+      |> result.map_error(string.inspect)
+    },
+  )
+}
+
+@target(javascript)
 /// Read a tree in the checked document core. This is not a typed tree facade.
 pub fn tree_read(
   runtime: Runtime,

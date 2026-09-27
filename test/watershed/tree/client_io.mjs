@@ -34,12 +34,27 @@ export function wait(milliseconds) {
 }
 
 export async function lines(handle, finish) {
+  const pending = new Set();
   try {
     for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
-      const reply = await handle(line);
-      process.stdout.write(`${reply}\n`);
+      let command;
+      try {
+        command = JSON.parse(line)?.command;
+      } catch {
+        command = undefined;
+      }
+      if (command === "summarize") {
+        const task = handle(line).then((reply) => {
+          process.stdout.write(`${reply}\n`);
+        }).finally(() => pending.delete(task));
+        pending.add(task);
+      } else {
+        const reply = await handle(line);
+        process.stdout.write(`${reply}\n`);
+      }
     }
   } finally {
+    await Promise.all(pending);
     finish();
   }
   await new Promise((resolve) => process.stdout.write("", resolve));

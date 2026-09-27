@@ -238,10 +238,20 @@ pub fn shared_tree_history_starts_empty_test() -> Nil {
 
 pub fn shared_tree_schema_evolution_history_test() -> Nil {
   let assert Ok(fixture) = fixtures.load("schema-evolution-history")
-  let actual = run_history(fixture.input)
-  let assert Ok(actual) = schema_evolution_fixture.history_projection(actual)
+  let raw_actual = run_history(fixture.input)
+  let assert Ok(actual) =
+    schema_evolution_fixture.history_projection(raw_actual)
   let assert Ok(expected) =
     schema_evolution_fixture.history_projection(fixture.expected)
+  observation_field(actual, "edit-then-upgrade-causal", "detachedIdentities")
+  |> expect.to_not_equal(observation_field(
+    expected,
+    "edit-then-upgrade-causal",
+    "detachedIdentities",
+  ))
+  let assert Ok(actual) = schema_evolution_fixture.history_gc_projection(actual)
+  let assert Ok(expected) =
+    schema_evolution_fixture.history_gc_projection(expected)
   case fixtures.first_difference(actual, expected) {
     Ok(Nil) -> Nil
     Error(path) -> panic as { "schema evolution history differs at " <> path }
@@ -252,6 +262,11 @@ pub fn shared_tree_history_scenario_ids_do_not_change_observations_test() -> Nil
   let assert Ok(fixture) = fixtures.load("schema-evolution-history")
   assert_history_scenario_rename(
     fixture.input,
+    "edit-then-upgrade-causal",
+    "renamed-edit-then-upgrade-causal",
+  )
+  assert_history_scenario_rename(
+    fixture.input,
     "pending-data-remote-upgrade",
     "renamed-pending-data-remote-upgrade",
   )
@@ -260,6 +275,53 @@ pub fn shared_tree_history_scenario_ids_do_not_change_observations_test() -> Nil
     "schema-schema-right-first",
     "renamed-schema-schema-right-first",
   )
+}
+
+pub fn shared_tree_history_projection_keeps_native_removed_identity_test() -> Nil {
+  let observation =
+    json.object([
+      #("id", json.string("edit-then-upgrade-causal")),
+      #(
+        "visibleRoot",
+        json.object([
+          #(
+            "removed",
+            json.array(
+              [
+                json.array(
+                  [
+                    json.string("revision"),
+                    json.int(1),
+                    json.string("removed-value"),
+                  ],
+                  fn(value) { value },
+                ),
+              ],
+              fn(value) { value },
+            ),
+          ),
+        ]),
+      ),
+      #(
+        "detachedIdentities",
+        json.array(
+          [
+            json.array(
+              [
+                json.string("revision"),
+                json.int(1),
+                json.string("removed-value"),
+              ],
+              fn(value) { value },
+            ),
+          ],
+          fn(value) { value },
+        ),
+      ),
+    ])
+  let assert Ok(projected) =
+    schema_evolution_fixture.history_projection(observation)
+  fixtures.first_difference(projected, observation) |> expect.to_equal(Ok(Nil))
 }
 
 pub fn shared_tree_history_summary_tail_mutation_changes_continuation_test() -> Nil {

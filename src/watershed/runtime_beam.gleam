@@ -438,6 +438,7 @@ pub type Msg {
     view: tree_schema.ViewSchema,
     reply: Subject(Result(tree_schema.Compatibility, String)),
   )
+  TreeHistoryEvidence(address: String, reply: Subject(Result(Json, String)))
   TreeRead(
     address: String,
     path: tree_types.FieldPath,
@@ -1003,6 +1004,18 @@ pub fn tree_compatibility(
     runtime,
     waiting: connect_timeout_milliseconds,
     sending: fn(reply) { TreeCompatibility(address, view, reply) },
+  )
+}
+
+@target(erlang)
+pub fn tree_history_evidence(
+  runtime: Subject(Msg),
+  address: String,
+) -> Result(Json, String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { TreeHistoryEvidence(address, reply) },
   )
 }
 
@@ -1834,6 +1847,20 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
           Error("tree compatibility requires a ready document connection"),
           fn(core) {
             runtime_core.tree_compatibility(core, address, view)
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
+    TreeHistoryEvidence(address, reply) -> {
+      process.send(
+        reply,
+        read(
+          state,
+          Error("tree history evidence requires a ready document connection"),
+          fn(core) {
+            runtime_core.tree_history_evidence(core, address)
             |> result.map_error(string.inspect)
           },
         ),

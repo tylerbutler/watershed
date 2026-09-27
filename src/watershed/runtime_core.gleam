@@ -59,6 +59,7 @@ import watershed/text_kernel
 import watershed/tree/history
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema as tree_schema
+import watershed/tree/shared_change
 import watershed/tree/types as tree_types
 import watershed/tree_kernel
 import watershed/two_p_set_kernel
@@ -3578,6 +3579,71 @@ pub fn tree_map_entries_view(
   use state <- result.try(checked_tree_channel(core, address, view))
   tree_kernel.map_entries(state, path)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+pub fn tree_history_evidence(
+  core: Core,
+  address: String,
+) -> Result(Json, CoreError) {
+  use state <- result.try(tree_channel(core, address))
+  let history.HistoryView(sequenced, pending, longest_branch_length) =
+    tree_kernel.history_view(state)
+  let history.HistorySnapshot(
+    base,
+    trunk,
+    peers,
+    sequence_number,
+    minimum_sequence_number,
+  ) = sequenced
+  Ok(
+    json.object([
+      #(
+        "storedSchema",
+        tree_schema.stored_to_json(tree_kernel.stored_schema(state)),
+      ),
+      #(
+        "visibleData",
+        json.string(string.inspect(tree_kernel.visible_data(state))),
+      ),
+      #("base", json.string(string.inspect(base))),
+      #("sequenceNumber", json.int(sequence_number)),
+      #("minimumSequenceNumber", json.int(minimum_sequence_number)),
+      #("longestBranchLength", json.int(longest_branch_length)),
+      #(
+        "pending",
+        json.array(pending, fn(commit) { history_commit_evidence(commit) }),
+      ),
+      #(
+        "trunk",
+        json.array(trunk, fn(entry) {
+          let history.SequencedCommit(commit, point) = entry
+          json.object([
+            #("commit", history_commit_evidence(commit)),
+            #("point", json.string(string.inspect(point))),
+          ])
+        }),
+      ),
+      #("peers", json.string(string.inspect(peers))),
+    ]),
+  )
+}
+
+fn history_commit_evidence(commit: history.Commit) -> Json {
+  let history.Commit(revision, originator, changeset) = commit
+  json.object([
+    #("revision", json.string(fluid_ids.stable_id_to_string(revision))),
+    #("originatorId", json.string(fluid_ids.session_id_to_string(originator))),
+    #(
+      "changeset",
+      json.object([
+        #(
+          "changeCount",
+          json.int(list.length(shared_change.to_changes(changeset))),
+        ),
+        #("raw", json.string(string.inspect(changeset))),
+      ]),
+    ),
+  ])
 }
 
 fn checked_tree_channel(

@@ -633,6 +633,12 @@ pub fn tree_compatibility(
 }
 
 @target(erlang)
+/// Return raw tree history evidence for interoperability diagnostics.
+pub fn tree_history_evidence(tree: SharedTree) -> Result(Json, String) {
+  runtime_beam.tree_history_evidence(tree.runtime, tree.address)
+}
+
+@target(erlang)
 pub fn tree_upgrade_schema(tree: SharedTree) -> Result(Nil, String) {
   runtime_beam.tree_upgrade_schema(tree.runtime, tree.address, tree.view)
 }

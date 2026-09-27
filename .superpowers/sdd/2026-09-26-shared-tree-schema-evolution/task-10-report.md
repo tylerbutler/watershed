@@ -68,3 +68,47 @@ that acknowledged storage detail while retaining native internal evidence.
 Floodgate logs expected warnings when Socket.IO transport-control packets pass
 through its wire-protocol decoder. They did not skip or weaken the real-service
 gate.
+
+## Fix round 1
+
+- Preserved native detached identities and removed values in raw observations.
+  Cross-engine garbage-collection comparison now uses a separate measured
+  projection and does not depend on a scenario ID.
+- Captured the race loser before acknowledgement removes its reconciled pending
+  commit. The evidence includes the empty outer changeset, its raw form,
+  rollback schema and data, client identities, and separate schema and data
+  notifications for both race families and release orders.
+- Captured pending-summary state from the writer that holds the upgrade. The
+  writer checkpoint includes stored schema, forest state, revisions, and
+  originators; accepted upgrades come from decoded service history.
+- Bound every reload cell to the selected version, root tree, schema blob, and
+  forest blobs. Fresh-reader evidence is captured before continuation, includes
+  explicit upgrade-tail replay, and retains the earlier peer commit and
+  historical stored schema.
+- Queued reconnect data behind each upgrade, retained original and resubmitted
+  revision evidence, and proved ordered, exactly-once acceptance on all clients
+  for both required disconnect cases.
+- Bound schema artifacts to their run, profile, section, subject, document, and
+  persisted result. Negative tests cover absent, mismatched, contradictory, and
+  structurally empty evidence.
+
+Verification:
+
+- Required Node gate: 113 passed.
+- `just shared-tree-interop`: passed.
+- JavaScript SharedTree corpus: 573 passed.
+- Erlang SharedTree corpus: 584 passed.
+- Schema races: 27.
+- Schema reconnect rows: 3, covering both cases for each implementation.
+- Schema reload matrix: all nine writer-reader cells.
+- Seeded schedules: 200 generated and executed with seed 42.
+- Successful run:
+  `d9fe95e2-d255-4d8b-ac8c-9301016ffe8a`.
+- Persisted report:
+  `tools/shared-tree-oracle/.output/interop/d9fe95e2-d255-4d8b-ac8c-9301016ffe8a/report.json`.
+
+The pinned Fluid wire format can encode a revision differently from the native
+runtime's stable revision. The evidence retains both representations and binds
+acceptance by decoded operation content and originator identity instead of
+inventing a shared revision value. Floodgate still logs its expected
+Socket.IO transport-control decoder warnings.
