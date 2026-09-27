@@ -131,6 +131,7 @@ export const arrayScenarioIds = {
     "nested-outer-effects",
     "nested-aliased-conversion-retry",
     "multi-revision-inversion-retry",
+    "three-pass-nested-moves",
     "sequence-ancestor-rebase",
     "node-table",
     "parent-table",

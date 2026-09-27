@@ -133,6 +133,7 @@ type ComposeState {
     move_context: moves.Context,
     work: List(ComposeWork),
     field_results: List(#(moves.FieldId, FieldChange)),
+    affected_seen: List(moves.Affected),
   )
 }
 
@@ -3349,6 +3350,7 @@ fn compose_pair(
       moves.with_owners(moves.new(), list.append(first_owners, second_owners)),
       [],
       [],
+      [],
     )
   use #(fields, state) <- result.try(compose_field_maps(
     first_data.fields,
@@ -3450,6 +3452,10 @@ fn compose_field(
       Ok(#(GenericField(children), state))
     }
     SequenceField(first), SequenceField(second) -> {
+      use first_source <- result.try(normalize_field_id(
+        field_id,
+        state.first.aliases,
+      ))
       use field_id <- result.try(normalize_field_id(field_id, state.aliases))
       let #(_, move_context) =
         moves.take_affected_for(state.move_context, field_id)
@@ -3475,6 +3481,10 @@ fn compose_field(
               ComposeWork(field_id, field_id, first, second),
             ),
             field_results: put_pair(output.1.field_results, field_id, field),
+            affected_seen: [
+              moves.Affected(moves.FirstOperand, first_source),
+              ..output.1.affected_seen
+            ],
           ),
         )
       })
@@ -3963,36 +3973,43 @@ fn compose_field_work(
   let state = ComposeState(..state, move_context:)
   case affected, moves.invalidated(state.move_context) {
     [affected, ..rest], _ -> {
-      use work <- result.try(compose_affected_work_for(state, affected))
-      let ComposeWork(field, result_field, first, second) = work
-      let #(_, move_context) =
-        moves.take_invalidated_for(state.move_context, field)
-      let move_context = moves.enter_field(move_context, "compose", field)
-      use #(change, next, move_context) <- result.try(
-        sequence_compose.compose_with_context(
-          first,
-          second,
-          state,
-          compose_sequence_child,
-          state.algebra,
-          field,
-          move_context,
-        ),
-      )
-      let result = SequenceField(change)
       let move_context =
         list.fold(rest, move_context, fn(context, affected) {
           moves.queue_affected(context, affected)
         })
-      compose_invalidated(
-        ComposeState(
-          ..next,
-          move_context:,
-          work: put_compose_work(next.work, work),
-          field_results: put_pair(next.field_results, result_field, result),
-        ),
-        processed,
-      )
+      case list.contains(state.affected_seen, affected) {
+        True ->
+          compose_invalidated(ComposeState(..state, move_context:), processed)
+        False -> {
+          use work <- result.try(compose_affected_work_for(state, affected))
+          let ComposeWork(field, result_field, first, second) = work
+          let #(_, move_context) =
+            moves.take_invalidated_for(move_context, field)
+          let move_context = moves.enter_field(move_context, "compose", field)
+          use #(change, next, move_context) <- result.try(
+            sequence_compose.compose_with_context(
+              first,
+              second,
+              state,
+              compose_sequence_child,
+              state.algebra,
+              field,
+              move_context,
+            ),
+          )
+          let result = SequenceField(change)
+          compose_invalidated(
+            ComposeState(
+              ..next,
+              move_context:,
+              work: put_compose_work(next.work, work),
+              field_results: put_pair(next.field_results, result_field, result),
+              affected_seen: [affected, ..next.affected_seen],
+            ),
+            processed,
+          )
+        }
+      }
     }
     [], [] -> Ok(state)
     [], [field, ..] -> {

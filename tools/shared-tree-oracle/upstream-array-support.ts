@@ -19,6 +19,7 @@ import {
 	revisionMetadataSourceFromInfo,
 	RevisionTagCodec,
 	tagChange,
+	makeAnonChange,
 	type ChangeAtomId,
 	type ChangesetLocalId,
 	type DeltaFieldMap,
@@ -30,6 +31,7 @@ import {
 import { FormatValidatorBasic } from "../external-utilities/index.js";
 import {
 	CrossFieldTarget,
+	DefaultEditBuilder,
 	chunkField,
 	combineChunks,
 	cursorForJsonableTreeField,
@@ -64,6 +66,7 @@ import type { GenericChangeset } from "../feature-libraries/modular-schema/gener
 import { sequenceFieldEditor } from "../feature-libraries/sequence-field/sequenceFieldEditor.js";
 import type { Changeset } from "../feature-libraries/sequence-field/types.js";
 import { brand } from "../util/index.js";
+import { moveWithin, testChangeReceiver } from "./utils.js";
 
 type PlainAtom = {
 	readonly revision: number | null;
@@ -802,6 +805,27 @@ function makeInstrumentedArrayModularFamily(
 	};
 }
 
+function makeArrayModularFamily(context: ReplayIdContext): {
+	readonly family: ModularChangeFamily;
+	readonly codecOptions: CodecWriteOptions;
+} {
+	const codecOptions: CodecWriteOptions = {
+		jsonValidator: FormatValidatorBasic,
+		minVersionForCollab: FluidClientVersion.v2_117,
+	};
+	const codecs = makeModularChangeCodecFamily(
+		fieldKindConfigurations,
+		context.revisionTagCodec,
+		fieldBatchCodecBuilder.build(codecOptions),
+		codecOptions,
+		TreeCompressionStrategy.Compressed,
+	);
+	return {
+		family: new ModularChangeFamily(fieldKinds, codecs, codecOptions),
+		codecOptions,
+	};
+}
+
 function replayArrayModular(
 	input: Record<string, unknown>,
 	rawCoordination: boolean,
@@ -1114,6 +1138,68 @@ export function crossFieldCoordinationInput(
 		sequencing: { minimumSequenceNumber: 0, sequenceNumber: 0 },
 		schedule: ["destination", "source", "source-update", "source-reprocess"],
 	} satisfies ReplayInput);
+}
+
+export function multiPassComposeInput(
+	revisions: readonly [RevisionTag, RevisionTag, RevisionTag, RevisionTag, RevisionTag],
+	compressor: IIdCompressor,
+): ReplayInput {
+	const context = {
+		idCompressor: compressor,
+		revisionTagCodec: new RevisionTagCodec(compressor),
+	};
+	const { family, codecOptions } = makeArrayModularFamily(context);
+	const pendingRevisions = [...revisions.slice(0, 4)];
+	const [changeReceiver, getChanges] = testChangeReceiver(family);
+	const editor = new DefaultEditBuilder(
+		family,
+		() => pendingRevisions.shift() ?? revisions[3],
+		changeReceiver,
+		codecOptions,
+	);
+	const fieldA = brand<FieldKey>("FieldA");
+	const fieldB = brand<FieldKey>("FieldB");
+	const fieldC = brand<FieldKey>("FieldC");
+	const nodeA = { parent: undefined, parentField: fieldA, parentIndex: 0 };
+	const fieldAPath = { parent: undefined, field: fieldA };
+	moveWithin(editor, fieldAPath, 0, 1, 1);
+	editor.move(fieldAPath, 1, 1, { parent: nodeA, field: fieldB }, 0);
+	const nodeB = { parent: nodeA, parentField: fieldB, parentIndex: 0 };
+	editor.move(fieldAPath, 1, 1, { parent: nodeB, field: fieldC }, 0);
+	const nodeC = { parent: nodeB, parentField: fieldC, parentIndex: 0 };
+	editor.sequenceField({ parent: nodeC, field: fieldC }).remove(0, 1);
+	const [moveA, moveB, moveC, removeD] = getChanges();
+	assert(moveA !== undefined && moveB !== undefined && moveC !== undefined);
+	assert(removeD !== undefined, "The multi-pass source edit must produce four changes.");
+	const moves = family.compose([
+		makeAnonChange(moveA),
+		makeAnonChange(moveB),
+		makeAnonChange(moveC),
+	]);
+	const compareRevision = revisions[4];
+	return {
+		operation: "compose",
+		initialState: ["A", "B", "C"],
+		operands: {
+			changes: [
+				{ revision: Number(compareRevision), change: encodeModularGraph(moves) },
+				{ revision: Number(compareRevision), change: encodeModularGraph(removeD) },
+			],
+		},
+		revisions: revisions.map((revision) => ({
+			encoded: Number(revision),
+			stable: compressor.decompress(revision as SessionSpaceCompressedId),
+		})),
+		allocator: {
+			maxLocalId: Math.max(moves.maxId ?? -1, removeD.maxId ?? -1),
+		},
+		compressor: {
+			sessionId: compressor.localSessionId,
+			serialized: serializeIdCompressor(compressor, true),
+		},
+		sequencing: { minimumSequenceNumber: 0, sequenceNumber: 0 },
+		schedule: ["move-a", "move-b", "move-c", "remove-d", "compose"],
+	};
 }
 
 export function captureCrossFieldCoordination(

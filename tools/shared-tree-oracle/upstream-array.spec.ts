@@ -57,6 +57,7 @@ import { configuredSharedTreeInternal } from "../treeFactory.js";
 import {
 	crossFieldCoordinationInput,
 	encodeModularGraph,
+	multiPassComposeInput,
 	replayArrayModularInput,
 	replayArrayModularInputRaw,
 } from "./watershedArraySupport.js";
@@ -88,7 +89,8 @@ const scenarioIds = {
 		"sequence-tombstone-rebase", "nested-ancestors",
 		"common-ancestors", "cross-field-endpoints", "nested-cross-field-endpoints",
 		"nested-aliased-chain", "nested-outer-effects", "nested-aliased-conversion-retry",
-		"multi-revision-inversion-retry", "sequence-ancestor-rebase",
+		"multi-revision-inversion-retry", "three-pass-nested-moves",
+		"sequence-ancestor-rebase",
 		"node-table", "parent-table", "alias-table",
 		"ownership-roundtrip",
 	],
@@ -2646,6 +2648,10 @@ async function makeCases() {
 				inverseRevision: Number(r5),
 			},
 		),
+		"three-pass-nested-moves": multiPassComposeInput(
+			[r0, r1, r2, r3, r4],
+			modularCompressor,
+		) as unknown as Record<string, unknown>,
 		"sequence-ancestor-rebase": replayContext(
 			"rebase",
 			[tagged(r7, sequenceAncestorAuthored), tagged(r8, sequenceAncestorBase)],
@@ -2674,6 +2680,7 @@ async function makeCases() {
 			coordination: {
 				handlerCalls: {
 					sequence: number;
+					invocation: number;
 					field: {
 						node?: { revision: number | null; localId: number } | null;
 						field: string;
@@ -2998,6 +3005,15 @@ async function makeCases() {
 				graph.maxLocalId,
 				61,
 				"Two original revisions with local ID 10 must reserve through 61.",
+			);
+		}
+		if (id === "three-pass-nested-moves") {
+			const invocations = rawOutput.coordination.handlerCalls.map(
+				({ field, invocation }) => [field.node?.localId, field.field, invocation],
+			);
+			assert(
+				rawOutput.coordination.handlerCalls.some(({ invocation }) => invocation >= 3),
+				`The source operation must include a third information pass: ${JSON.stringify(invocations)}`,
 			);
 		}
 		if (id === "sequence-ancestor-rebase") {

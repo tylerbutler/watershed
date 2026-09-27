@@ -961,8 +961,8 @@ pub fn shared_tree_array_retry_reserves_multi_revision_inverse_ids_test() {
   |> expect.to_equal([
     moves.FieldId(Some(types.AtomId(Some(revision()), 4)), ""),
     moves.FieldId(Some(types.AtomId(Some(revision()), 5)), ""),
-    moves.FieldId(Some(types.AtomId(Some(revision()), 4)), ""),
     moves.FieldId(Some(types.AtomId(Some(revision_b()), 5)), ""),
+    moves.FieldId(Some(types.AtomId(Some(revision()), 4)), ""),
   ])
   let assert Ok(composed_delta) =
     change.into_delta(change.TaggedChange(None, None, authored_composed))
