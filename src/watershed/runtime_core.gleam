@@ -801,6 +801,14 @@ pub fn bootstrap_document(
   connected: ConnectedMessage,
   summary: fluid_document.DocumentSummary,
 ) -> Result(Bootstrapped, CoreError) {
+  use seed <- result.try(document_seed(summary))
+  bootstrap_seeded_with_persistence(connected, seed, Some(summary))
+}
+
+/// Build the checked seed used by document-summary bootstrap.
+pub fn document_seed(
+  summary: fluid_document.DocumentSummary,
+) -> Result(BootstrapSeed, CoreError) {
   use datastores <- result.try(
     list.try_map(fluid_document.datastores(summary), fn(store) {
       Ok(DatastoreSeed(store.id, store.package_path))
@@ -832,7 +840,7 @@ pub fn bootstrap_document(
     |> result.replace_error(BadBootstrapSeed("bootstrap map is missing")),
   )
   let ChannelSeed(root_route, _, _) = root
-  use seed <- result.try(bootstrap_seed_with_view_id(
+  bootstrap_seed_with_view_id(
     BootstrapSeedInput(
       profile: RoutedSeed,
       sequence_number: fluid_document.sequence_number(summary),
@@ -846,8 +854,7 @@ pub fn bootstrap_document(
       tree_views: [],
     ),
     Some(fluid_document.view_id(summary)),
-  ))
-  bootstrap_seeded_with_persistence(connected, seed, Some(summary))
+  )
 }
 
 fn start_core(

@@ -5,6 +5,7 @@ import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
+import spillway/types as spillway_types
 import startest/expect
 @target(javascript)
 import watershed
@@ -22,6 +23,9 @@ import watershed/tree/runtime_fixture
 import watershed/tree/schema as tree_schema
 import watershed/tree/types
 import watershed/tree_kernel
+import watershed/wire
+import watershed/wire/fluid_container
+import watershed/wire/fluid_document
 @target(erlang)
 import watershed_beam
 
@@ -124,6 +128,133 @@ fn acknowledgement(payload: json.Json) -> json.Json {
       data: None,
     ),
   ])
+}
+
+fn combined_acknowledgement(
+  first_payload: json.Json,
+  second_payload: json.Json,
+) -> json.Json {
+  let assert Ok(first_dynamic) =
+    json.parse(json.to_string(first_payload), decode.dynamic)
+  let assert Ok(second_dynamic) =
+    json.parse(json.to_string(second_payload), decode.dynamic)
+  let assert Ok(frame.SubmitOperation(sender, [[first]])) =
+    frame.decode_submit_operation(first_dynamic)
+  let assert Ok(frame.SubmitOperation(_, [[second]])) =
+    frame.decode_submit_operation(second_dynamic)
+  let first_batch =
+    fluid_container.decode(first.contents, first.metadata) |> expect.to_be_ok()
+  let second_batch =
+    fluid_container.decode(second.contents, second.metadata)
+    |> expect.to_be_ok()
+  let contents =
+    list.append(first_batch.messages, second_batch.messages)
+    |> list.index_map(fn(message, index) {
+      fluid_container.ContainerMessage(message.kind, index, None)
+    })
+    |> fluid_container.DecodedBatch(True, None, _)
+    |> fluid_container.encode_batch
+    |> expect.to_be_ok()
+  frame.encode_operation_event([
+    frame.Sequenced(
+      client_id: Some(sender),
+      sequence_number: 1,
+      minimum_sequence_number: 0,
+      client_sequence_number: second.client_sequence_number,
+      reference_sequence_number: first.reference_sequence_number,
+      operation_type: second.operation_type,
+      contents: contents,
+      metadata: None,
+      timestamp: 0,
+      data: None,
+    ),
+  ])
+}
+
+fn sequenced(
+  core: runtime_core.Core,
+  outbound: wire.OutboundOperation,
+  sequence_number: Int,
+) -> spillway_types.SequencedDocumentMessage {
+  let contents =
+    json.parse(json.to_string(outbound.contents), decode.dynamic)
+    |> expect.to_be_ok()
+  let metadata = case outbound.metadata {
+    None -> None
+    Some(value) ->
+      json.parse(json.to_string(value), decode.dynamic)
+      |> expect.to_be_ok()
+      |> Some
+  }
+  spillway_types.SequencedDocumentMessage(
+    client_id: Some(core.client_id),
+    sequence_number: sequence_number,
+    minimum_sequence_number: core.minimum_sequence_number,
+    client_sequence_number: outbound.client_sequence_number,
+    reference_sequence_number: outbound.reference_sequence_number,
+    message_type: outbound.operation_type,
+    contents: contents,
+    metadata: metadata,
+    server_metadata: None,
+    origin: None,
+    traces: None,
+    timestamp: 0,
+    data: None,
+  )
+}
+
+fn upgraded_summary_seed(
+  input: runtime_core.BootstrapSeedInput,
+) -> runtime_core.BootstrapSeed {
+  let tree =
+    input.channels
+    |> list.find(fn(seed) {
+      case seed.snapshot {
+        channel.TreeSnapshot(_) -> True
+        _ -> False
+      }
+    })
+    |> expect.to_be_ok()
+  let assert channel.TreeSnapshot(snapshot) = tree.snapshot
+  let #(stored, _, _) = tree_kernel.snapshot_parts(snapshot)
+  let assert [tree_view] = input.tree_views
+  let assert Some(compressor) = input.compressor
+  let summary =
+    fluid_document.initial_tree(
+      stored,
+      Some(
+        types.ObjectValue("org.watershed.shared-tree.m2.Root", [
+          #("items", types.MapValue(map_type, [])),
+        ]),
+      ),
+      fluid_ids.local_session(compressor),
+      tree_view.view_id,
+    )
+    |> expect.to_be_ok()
+  let assert runtime_core.Complete(core) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected("writer", [], 0),
+      summary,
+    )
+    |> expect.to_be_ok()
+  let optional = optional_view(input)
+  let assert Ok(#(pending, _, [upgrade])) =
+    runtime_core.submit_tree_upgrade(core, "A/_C", optional)
+  let #(upgraded, _) =
+    runtime_core.handle_sequenced(pending, sequenced(pending, upgrade, 1))
+    |> expect.to_be_ok()
+  let assert Ok(#(pending, _, [edit])) =
+    runtime_core.submit_tree_edits(upgraded, "A/_C", [
+      types.SetField(["score"], types.NumberValue(7.0)),
+    ])
+  let #(settled, _) =
+    runtime_core.handle_sequenced(pending, sequenced(pending, edit, 2))
+    |> expect.to_be_ok()
+  settled
+  |> runtime_core.capture_summary
+  |> expect.to_be_ok()
+  |> runtime_core.document_seed
+  |> expect.to_be_ok()
 }
 
 fn assert_map_operations(
@@ -339,6 +470,125 @@ pub fn shared_tree_map_facade_js_view_lifecycle_test() {
   |> expect.to_equal(Ok(Some(types.NumberValue(1.0))))
   transport_js.get_cell(submissions) |> list.length |> expect.to_equal(2)
   watershed.unsubscribe(subscription)
+  watershed.close(document)
+}
+
+@target(javascript)
+pub fn shared_tree_map_facade_js_remote_schema_and_data_test() {
+  let input = input(False)
+  let #(document, callbacks, _) = js_document(input)
+  callbacks.on_event(
+    "connect_document_success",
+    json.to_string(connected("reader", 0)),
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let assert [initial] = input.tree_views
+  let optional = optional_view(input)
+  let old =
+    watershed.resolve_tree(document, marker, initial.view) |> expect.to_be_ok()
+  let compatible =
+    watershed.open_tree(document, marker, optional) |> expect.to_be_ok()
+  let observed = transport_js.new_cell([])
+  let subscription =
+    watershed.subscribe_tree(compatible, fn(event) {
+      transport_js.set_cell(observed, [
+        #(
+          event,
+          watershed.tree_compatibility(compatible),
+          watershed.tree_get(compatible, ["score"]),
+        ),
+        ..transport_js.get_cell(observed)
+      ])
+    })
+
+  let #(peer, peer_callbacks, peer_submissions) = js_document(peer_input(input))
+  peer_callbacks.on_event(
+    "connect_document_success",
+    json.to_string(connected("other", 0)),
+  )
+  let peer_root = watershed.resolve_root(peer) |> expect.to_be_ok()
+  let peer_marker = watershed.get(peer_root, "tree") |> expect.to_be_ok()
+  let next =
+    watershed.open_tree(peer, peer_marker, optional) |> expect.to_be_ok()
+  watershed.tree_upgrade_schema(next) |> expect.to_equal(Ok(Nil))
+  watershed.tree_set(next, ["score"], types.NumberValue(7.0))
+  |> expect.to_equal(Ok(Nil))
+  let assert [data, schema] = transport_js.get_cell(peer_submissions)
+  callbacks.on_event(
+    "op",
+    combined_acknowledgement(schema, data) |> json.to_string(),
+  )
+
+  transport_js.get_cell(observed)
+  |> list.reverse
+  |> expect.to_equal([
+    #(
+      tree_kernel.SchemaChanged(False),
+      Ok(tree_schema.Compatibility(True, True, True)),
+      Ok(Some(types.NumberValue(7.0))),
+    ),
+    #(
+      tree_kernel.TreeChanged(False),
+      Ok(tree_schema.Compatibility(True, True, True)),
+      Ok(Some(types.NumberValue(7.0))),
+    ),
+  ])
+  expect_compatibility_error(watershed.tree_get(old, ["items"]))
+  watershed.set(root, "alive", json.string("yes"))
+  watershed.get(root, "alive") |> expect.to_equal(Ok(json.string("yes")))
+  watershed.tree_set(compatible, ["score"], types.NumberValue(8.0))
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_get(compatible, ["score"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(8.0))))
+  watershed.unsubscribe(subscription)
+  watershed.close(peer)
+  watershed.close(document)
+}
+
+@target(javascript)
+pub fn shared_tree_map_facade_js_upgraded_summary_recovery_test() {
+  let input = input(False)
+  let seed = upgraded_summary_seed(input)
+  let callbacks = transport_js.new_cell(None)
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(_, _) { Nil },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    json.to_string(connected("reader", 2)),
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let assert [initial] = input.tree_views
+  let old =
+    watershed.open_tree(document, marker, initial.view) |> expect.to_be_ok()
+  let compatible =
+    watershed.resolve_tree(document, marker, optional_view(input))
+    |> expect.to_be_ok()
+  expect_compatibility_error(watershed.tree_get(old, ["items"]))
+  watershed.tree_get(compatible, ["score"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(7.0))))
+  watershed.tree_set(compatible, ["score"], types.NumberValue(8.0))
+  |> expect.to_equal(Ok(Nil))
+  watershed.set(root, "alive", json.string("yes"))
+  watershed.get(root, "alive") |> expect.to_equal(Ok(json.string("yes")))
   watershed.close(document)
 }
 
@@ -595,6 +845,106 @@ pub fn shared_tree_map_facade_beam_view_lifecycle_test() {
   |> expect.to_equal(Ok(Some(types.NumberValue(1.0))))
   process.receive(submissions, 1000) |> expect.to_be_ok()
   process.receive(submissions, 1000) |> expect.to_be_ok()
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_map_facade_beam_remote_schema_and_data_test() {
+  let input = input(False)
+  let #(document, connections, _) = beam_document(input)
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  let submissions = process.new_subject()
+  beam_transport(callbacks, submissions)
+  callbacks.on_event("connect_document_success", connected("reader", 0))
+  let root = watershed_beam.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
+  let assert [initial] = input.tree_views
+  let optional = optional_view(input)
+  let old =
+    watershed_beam.resolve_tree(document, marker, initial.view)
+    |> expect.to_be_ok()
+  let compatible =
+    watershed_beam.open_tree(document, marker, optional) |> expect.to_be_ok()
+  let events = watershed_beam.subscribe_tree(compatible)
+
+  let #(peer, peer_connections, peer_submissions) =
+    beam_document(peer_input(input))
+  let peer_callbacks =
+    process.receive(peer_connections, 1000) |> expect.to_be_ok()
+  beam_transport(peer_callbacks, peer_submissions)
+  peer_callbacks.on_event("connect_document_success", connected("other", 0))
+  let peer_root = watershed_beam.resolve_root(peer) |> expect.to_be_ok()
+  let peer_marker = watershed_beam.get(peer_root, "tree") |> expect.to_be_ok()
+  let next =
+    watershed_beam.open_tree(peer, peer_marker, optional) |> expect.to_be_ok()
+  watershed_beam.tree_upgrade_schema(next) |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_set(next, ["score"], types.NumberValue(7.0))
+  |> expect.to_equal(Ok(Nil))
+  let schema = process.receive(peer_submissions, 1000) |> expect.to_be_ok()
+  let data = process.receive(peer_submissions, 1000) |> expect.to_be_ok()
+  callbacks.on_event("op", combined_acknowledgement(schema, data))
+
+  process.receive(events, 1000)
+  |> expect.to_equal(Ok(tree_kernel.SchemaChanged(False)))
+  watershed_beam.tree_compatibility(compatible)
+  |> expect.to_equal(Ok(tree_schema.Compatibility(True, True, True)))
+  watershed_beam.tree_get(compatible, ["score"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(7.0))))
+  process.receive(events, 1000)
+  |> expect.to_equal(Ok(tree_kernel.TreeChanged(False)))
+  watershed_beam.tree_compatibility(compatible)
+  |> expect.to_equal(Ok(tree_schema.Compatibility(True, True, True)))
+  watershed_beam.tree_get(compatible, ["score"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(7.0))))
+  expect_compatibility_error(watershed_beam.tree_get(old, ["items"]))
+  watershed_beam.set(root, "alive", json.string("yes"))
+  watershed_beam.get(root, "alive")
+  |> expect.to_equal(Ok(json.string("yes")))
+  watershed_beam.tree_set(compatible, ["score"], types.NumberValue(8.0))
+  |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_get(compatible, ["score"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(8.0))))
+  process.send(watershed_beam.runtime_subject(peer), runtime_beam.Shutdown)
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_map_facade_beam_upgraded_summary_recovery_test() {
+  let input = input(False)
+  let seed = upgraded_summary_seed(input)
+  let connections = process.new_subject()
+  let document =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+    |> expect.to_be_ok()
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  let submissions = process.new_subject()
+  beam_transport(callbacks, submissions)
+  callbacks.on_event("connect_document_success", connected("reader", 2))
+  let root = watershed_beam.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
+  let assert [initial] = input.tree_views
+  let old =
+    watershed_beam.open_tree(document, marker, initial.view)
+    |> expect.to_be_ok()
+  let compatible =
+    watershed_beam.resolve_tree(document, marker, optional_view(input))
+    |> expect.to_be_ok()
+  expect_compatibility_error(watershed_beam.tree_get(old, ["items"]))
+  watershed_beam.tree_get(compatible, ["score"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(7.0))))
+  watershed_beam.tree_set(compatible, ["score"], types.NumberValue(8.0))
+  |> expect.to_equal(Ok(Nil))
+  watershed_beam.set(root, "alive", json.string("yes"))
+  watershed_beam.get(root, "alive")
+  |> expect.to_equal(Ok(json.string("yes")))
   process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
 }
 

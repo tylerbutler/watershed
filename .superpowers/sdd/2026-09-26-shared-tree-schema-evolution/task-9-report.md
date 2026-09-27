@@ -44,3 +44,26 @@ Complete.
 ## Concern
 
 Repository-wide `just format` and bare `gleam format --check` stalled in Trellis fan-out in this environment. Both processes were stopped. Direct formatting checks for every changed Gleam file passed, and the full SharedTree gate passed.
+
+## Fix round 1
+
+Added JavaScript and BEAM public-facade integration cases for a remote grouped
+schema-and-data transition. Both cases assert `SchemaChanged(False)` before
+`TreeChanged(False)`, observe final compatibility and data from the
+subscription path, reject the old handle, keep the document and `SharedMap`
+usable, and continue editing through the compatible handle.
+
+Added JavaScript and BEAM public-facade recovery cases for an upgraded document
+summary. The fixture now creates, bootstraps, upgrades, edits, captures, and
+reopens the summary through the shared document-seed path. Each target rejects
+the old handle, reads and writes through the compatible handle, and keeps the
+`SharedMap` usable.
+
+**RED:** Both target facade suites failed to compile because the recovery cases
+required the missing `runtime_core.document_seed` summary-bootstrap path.
+
+**GREEN:** Extracted `document_seed` from `bootstrap_document`, so production
+bootstrap and facade recovery use the same checked summary-to-seed conversion.
+The focused matrix passed with 148 BEAM tests and 137 JavaScript tests. The
+bootstrap smoke passed. The full SharedTree gate passed with 598 BEAM tests,
+587 JavaScript tests, and all three SharedTree smoke checks.
