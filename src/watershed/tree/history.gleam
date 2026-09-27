@@ -189,6 +189,11 @@ pub fn rebind_identity_order(
       ))
     }),
   )
+  use local_authored_context <- result.try(
+    list.try_map(state.local_authored_context, fn(commit) {
+      rebind_commit(commit, identity_order)
+    }),
+  )
   use rollbacks <- result.try(
     list.try_map(state.rollbacks, fn(entry) {
       use bound <- result.try(shared_change.rebind_identity_order(
@@ -209,7 +214,17 @@ pub fn rebind_identity_order(
       Ok(RetainedReceipt(..entry, commit:))
     }),
   )
-  Ok(History(..state, trunk:, peers:, pending:, rollbacks:, receipts:))
+  Ok(
+    History(
+      ..state,
+      trunk:,
+      peers:,
+      pending:,
+      local_authored_context:,
+      rollbacks:,
+      receipts:,
+    ),
+  )
 }
 
 pub fn identity_revisions(state: History) -> List(fluid_ids.StableId) {
@@ -286,7 +301,7 @@ pub fn append_local(
         _ -> state.local_base
       },
       local_authored_context: case state.pending {
-        [] -> list.map(state.trunk, fn(entry) { entry.commit })
+        [] -> []
         _ -> state.local_authored_context
       },
       next_node_id: state.next_node_id + 1,
@@ -1108,9 +1123,8 @@ pub fn authoring_commits(
     originator == state.local_session,
     pending_commits_before(state.pending, revision, [])
   {
-    True, Some(pending) -> {
+    True, Some(pending) ->
       Ok(list.append(state.local_authored_context, pending))
-    }
     _, _ ->
       remote_authoring_commits(state, originator, reference_sequence_number)
   }

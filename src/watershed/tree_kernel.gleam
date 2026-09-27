@@ -29,6 +29,7 @@ pub opaque type TreeState {
     sequenced: forest.Forest,
     history: history.History,
     local_session: fluid_ids.SessionId,
+    local_authoring_schema: Option(schema.SchemaState),
     next_local_id: Int,
     retained_wire: summary_codec.EditManagerSummary,
   )
@@ -96,6 +97,7 @@ pub fn restore(
     visible,
     history,
     local_session,
+    None,
     0,
     snapshot.retained_wire,
   ))
@@ -245,6 +247,37 @@ pub fn authoring_schema(
   reference_sequence_number: Int,
   revision: fluid_ids.StableId,
 ) -> Result(schema.SchemaState, TreeError) {
+  use commits <- result.try(history.authoring_commits(
+    state.history,
+    originator,
+    reference_sequence_number,
+    revision,
+  ))
+  let local_pending =
+    originator == state.local_session
+    && list.any(history.pending(state.history), fn(commit) {
+      commit.revision == revision
+    })
+  case local_pending {
+    True ->
+      case state.local_authoring_schema {
+        Some(initial) ->
+          list.try_fold(unique_commits(commits), initial, fn(stored, commit) {
+            advance_schema(stored, commit.change)
+          })
+        None ->
+          Error(types.InvalidHistory(
+            "local authoring schema is missing for a pending commit",
+          ))
+      }
+    False -> remote_authoring_schema(state, commits)
+  }
+}
+
+fn remote_authoring_schema(
+  state: TreeState,
+  commits: List(history.Commit),
+) -> Result(schema.SchemaState, TreeError) {
   let trunk =
     history.inspect(state.history).sequenced.trunk
     |> unique_sequenced_commits
@@ -255,12 +288,6 @@ pub fn authoring_schema(
       fn(stored, entry) { rewind_schema(stored, entry.commit.change) },
     ),
   )
-  use commits <- result.try(history.authoring_commits(
-    state.history,
-    originator,
-    reference_sequence_number,
-    revision,
-  ))
   list.try_fold(unique_commits(commits), initial, fn(stored, commit) {
     advance_schema(stored, commit.change)
   })
@@ -426,6 +453,10 @@ pub fn apply_local_change(
       ..state,
       visible:,
       history: update.history,
+      local_authoring_schema: case history.pending(state.history) {
+        [] -> Some(schema.FixedSchema(forest.stored_schema(state.visible)))
+        _ -> state.local_authoring_schema
+      },
       next_local_id: int_max(
         state.next_local_id,
         shared_change.max_local_id(outer) + 1,
@@ -465,7 +496,16 @@ pub fn receive(
     False,
   ))
   Ok(#(
-    TreeState(..state, visible:, sequenced:, history: update.history),
+    TreeState(
+      ..state,
+      visible:,
+      sequenced:,
+      history: update.history,
+      local_authoring_schema: case history.pending(update.history) {
+        [] -> None
+        _ -> state.local_authoring_schema
+      },
+    ),
     events,
     allocation,
   ))

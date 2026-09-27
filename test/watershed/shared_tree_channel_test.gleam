@@ -588,12 +588,76 @@ pub fn shared_tree_bridge_decodes_rebased_local_data_ack_with_authored_schema_te
   Nil
 }
 
+pub fn shared_tree_bridge_keeps_local_ack_context_after_trim_test() {
+  let #(rebased, upgrade_wire, _, compressor) =
+    concurrent_local_upgrade_and_data()
+  tree_runtime.decode_sequenced_message(
+    json.to_string(upgrade_wire),
+    rebased,
+    0,
+    compressor,
+  )
+  |> expect.to_be_ok()
+  let #(trimmed, compressor) =
+    tree_runtime.advance_document(rebased, 1, 1, compressor)
+    |> expect.to_be_ok()
+
+  tree_runtime.decode_sequenced_message(
+    json.to_string(upgrade_wire),
+    trimmed,
+    0,
+    compressor,
+  )
+  |> expect.to_be_ok()
+  Nil
+}
+
+pub fn shared_tree_bridge_keeps_local_ack_context_after_restore_and_trim_test() {
+  let initial = tree_state()
+  let snapshot = tree_kernel.snapshot(initial) |> expect.to_be_ok()
+  let local_session =
+    fluid_ids.session_id("00000000-0000-4000-8000-000000000001")
+    |> expect.to_be_ok()
+  let view = schema.view_from_string(schema_text) |> expect.to_be_ok()
+  let restored =
+    tree_kernel.restore(
+      snapshot,
+      fluid_ids.stable_id("00000000-0000-4000-8000-000000000002")
+        |> expect.to_be_ok(),
+      local_session,
+      view,
+    )
+    |> expect.to_be_ok()
+  let #(rebased, upgrade_wire, _, compressor) =
+    concurrent_local_upgrade_and_data_from(restored)
+  let #(trimmed, compressor) =
+    tree_runtime.advance_document(rebased, 1, 1, compressor)
+    |> expect.to_be_ok()
+
+  tree_runtime.decode_sequenced_message(
+    json.to_string(upgrade_wire),
+    trimmed,
+    0,
+    compressor,
+  )
+  |> expect.to_be_ok()
+  Nil
+}
+
 fn concurrent_local_upgrade_and_data() -> #(
   tree_kernel.TreeState,
   json.Json,
   json.Json,
   fluid_ids.Compressor,
 ) {
+  let #(state, upgrade_wire, data_wire, compressor) =
+    concurrent_local_upgrade_and_data_from(tree_state())
+  #(state, upgrade_wire, data_wire, compressor)
+}
+
+fn concurrent_local_upgrade_and_data_from(
+  initial: tree_kernel.TreeState,
+) -> #(tree_kernel.TreeState, json.Json, json.Json, fluid_ids.Compressor) {
   let local_session =
     fluid_ids.session_id("00000000-0000-4000-8000-000000000001")
     |> expect.to_be_ok()
@@ -620,7 +684,7 @@ fn concurrent_local_upgrade_and_data() -> #(
     change.identity_order([#(schema_revision, -1)]) |> expect.to_be_ok()
   let assert Ok(#(upgraded, upgrade, _)) =
     tree_kernel.apply_local_change(
-      tree_state(),
+      initial,
       schema_revision,
       order,
       schema_change,

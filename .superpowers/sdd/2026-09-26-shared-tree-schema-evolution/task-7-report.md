@@ -311,3 +311,76 @@ Canonical comparison intentionally normalizes FieldBatch shape-table encoding
 to nested tree values. It preserves semantic values, types, identities,
 positions, builds, destroys, and structure, but does not require byte-identical
 shape-table layouts between native and upstream implementations.
+
+## Fix round 4
+
+### Result
+
+Canonical history projection now treats JSON strings as leaf values. It parses
+only known encoded message containers, then normalizes actual FieldBatch v2
+objects identified by their `version`, `identifiers`, `shapes`, and `data`
+members. The projection still canonicalizes shape-table layouts, object member
+order, identities, positions, fields, builds, destroys, metadata, and outer
+change order, but strings such as `{"a":1,"b":2}` and
+`{ "b":2, "a":1 }` remain distinct.
+
+Pending local runs now retain the exact schema that was visible before their
+first authored commit. Acknowledged commits from the same run remain as the
+ordered authored prefix, while the rebased pending branch and `local_base`
+continue to track reconciliation separately. Own-ack decoding starts from the
+immutable schema plus that authored prefix, so minimum-sequence trimming cannot
+change its context. Restored snapshots start without pending state and capture
+a new immutable context when the next local run begins, so the summary format
+does not change.
+
+### RED
+
+- `gleam test --target erlang -- shared_tree_history shared_tree_channel`
+  ran 66 tests and failed the three new regressions.
+- Both trim regressions failed with
+  `schema change does not match its authoring context`.
+- The projection regression showed that the two differently formatted,
+  differently ordered JSON-looking string leaves compared equal.
+
+### GREEN
+
+- Erlang focused history, channel/runtime, codec, and summary tests: 214 passed.
+- JavaScript focused history, channel/runtime, codec, and summary tests:
+  203 passed.
+- Focused codec and summary interop tests: 23 passed.
+- Native summary artifact interop: four scenarios per target loaded; six
+  retained-history continuation checks passed.
+- `just shared-tree-codec-interop`: two targets, 20 items each passed pinned
+  upstream consumption.
+- `gleam format --check` for all changed Gleam files and `git diff --check`
+  passed.
+
+### Files
+
+- `src/watershed/tree/history.gleam`
+- `src/watershed/tree_kernel.gleam`
+- `test/watershed/shared_tree_channel_test.gleam`
+- `test/watershed/shared_tree_history_test.gleam`
+- `test/watershed/tree/schema_evolution_fixture.gleam`
+
+### Self-review
+
+Wire normalization no longer has a generic string-to-JSON path. Encoded
+message strings are parsed only at named observation fields, and FieldBatch
+normalization requires the complete v2 container shape before decoding it.
+This prevents ordinary leaf names or values from entering the structural
+normalizer.
+
+The immutable local schema is set only when the first pending commit is
+authored, survives remote rebases and history trimming, and clears when the
+pending run ends. Historical local revisions that are no longer pending still
+use retained-history reconstruction. Rebinding now also covers the retained
+authored prefix.
+
+### Concerns
+
+Pending commits are intentionally excluded from snapshots, so their immutable
+authoring schema is not serialized. A restored tree has no pending run and
+captures a fresh context on its next local edit. If pending operations are ever
+added to the summary contract, that contract must serialize the matching
+authoring schema at the same time.

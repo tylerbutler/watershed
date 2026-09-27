@@ -657,26 +657,59 @@ fn normalize_history_json(value: JsonValue) -> JsonValue {
           #(entry.0, case entry.0 {
             "summary" -> history_summary_projection(entry.1)
             "historicalDecode" -> history_decode_projection(entry.1)
-            "trees" -> history_tree_projection(entry.1)
+            "bytes" -> normalize_encoded_wire(entry.1)
+            "_tailBytes" | "tailBytes" | "_replayBytes" ->
+              normalize_encoded_wire(entry.1)
             _ -> normalize_history_json(entry.1)
           })
         })
         |> list.sort(fn(left, right) { string.compare(left.0, right.0) }),
       )
     VArray(values) -> VArray(list.map(values, normalize_history_json))
+    VString(_) -> value
+    _ -> value
+  }
+}
+
+fn normalize_encoded_wire(value: JsonValue) -> JsonValue {
+  case value {
     VString(raw) ->
       case json.parse(raw, json_ot.decoder()) {
         Ok(value) ->
           VString(
             value
-            |> normalize_history_json
+            |> normalize_wire_json
             |> json_ot.to_json
             |> json.to_string,
           )
         Error(_) -> value
       }
+    VArray(values) -> VArray(list.map(values, normalize_encoded_wire))
+    _ -> normalize_history_json(value)
+  }
+}
+
+fn normalize_wire_json(value: JsonValue) -> JsonValue {
+  case value {
+    VObject(fields) ->
+      case is_field_batch(fields) {
+        True -> history_field_batch_projection(value)
+        False ->
+          VObject(
+            fields
+            |> list.map(fn(field) { #(field.0, normalize_wire_json(field.1)) })
+            |> list.sort(fn(left, right) { string.compare(left.0, right.0) }),
+          )
+      }
+    VArray(values) -> VArray(list.map(values, normalize_wire_json))
     _ -> value
   }
+}
+
+fn is_field_batch(fields: List(#(String, JsonValue))) -> Bool {
+  list.all(["version", "identifiers", "shapes", "data"], fn(key) {
+    list.key_find(fields, key) |> result.is_ok
+  })
 }
 
 fn history_decode_projection(value: JsonValue) -> JsonValue {
@@ -689,6 +722,7 @@ fn history_decode_projection(value: JsonValue) -> JsonValue {
         |> list.map(fn(entry) {
           #(entry.0, case entry.0, entry.1 {
             "decoded", _ -> wire_change
+            "bytes", value -> normalize_encoded_wire(value)
             "envelope", VObject(envelope) ->
               VObject(
                 envelope
@@ -699,21 +733,21 @@ fn history_decode_projection(value: JsonValue) -> JsonValue {
                         list.map(commit, fn(field) {
                           #(field.0, case field.0 {
                             "change" -> wire_change
-                            _ -> normalize_history_json(field.1)
+                            _ -> normalize_wire_json(field.1)
                           })
                         }),
                       )
-                    _, value -> normalize_history_json(value)
+                    _, value -> normalize_wire_json(value)
                   })
                 }),
               )
-            _, value -> normalize_history_json(value)
+            _, value -> normalize_wire_json(value)
           })
         })
         |> list.sort(fn(left, right) { string.compare(left.0, right.0) }),
       )
     }
-    _ -> normalize_history_json(value)
+    _ -> normalize_wire_json(value)
   }
 }
 
@@ -763,36 +797,25 @@ fn history_semantic_change_projection(value: JsonValue) -> JsonValue {
                         Ok(VString("data")), Ok(inner) ->
                           VObject([
                             #("type", VString("data")),
-                            #("change", normalize_history_json(inner)),
+                            #("change", normalize_wire_json(inner)),
                           ])
                         Ok(VString("schema")), Ok(inner) ->
                           VObject([
                             #("type", VString("schema")),
-                            #("schema", normalize_history_json(inner)),
+                            #("schema", normalize_wire_json(inner)),
                           ])
-                        _, _ -> normalize_history_json(change)
+                        _, _ -> normalize_wire_json(change)
                       }
                     }
-                    _ -> normalize_history_json(change)
+                    _ -> normalize_wire_json(change)
                   }
                 }),
               ),
             ),
           ])
-        _ -> normalize_history_json(value)
+        _ -> normalize_wire_json(value)
       }
-    _ -> normalize_history_json(value)
-  }
-}
-
-fn history_tree_projection(value: JsonValue) -> JsonValue {
-  case value {
-    VObject(fields) ->
-      case list.key_find(fields, "version") {
-        Ok(_) -> history_field_batch_projection(value)
-        Error(Nil) -> normalize_history_json(value)
-      }
-    _ -> normalize_history_json(value)
+    _ -> normalize_wire_json(value)
   }
 }
 
@@ -836,7 +859,7 @@ fn summary_blob_at(value: JsonValue, path: List(String)) -> Option(String) {
 
 fn parsed_projection(raw: String) -> JsonValue {
   case json.parse(raw, json_ot.decoder()) {
-    Ok(value) -> normalize_history_json(value)
+    Ok(value) -> normalize_wire_json(value)
     Error(_) -> VString(raw)
   }
 }
@@ -865,14 +888,14 @@ fn wire_change_projection(value: JsonValue) -> JsonValue {
     VObject([#("data", data)]) ->
       VObject([
         #("type", VString("data")),
-        #("change", normalize_history_json(data)),
+        #("change", normalize_wire_json(data)),
       ])
     VObject([#("schema", schema)]) ->
       VObject([
         #("type", VString("schema")),
-        #("schema", normalize_history_json(schema)),
+        #("schema", normalize_wire_json(schema)),
       ])
-    _ -> normalize_history_json(value)
+    _ -> normalize_wire_json(value)
   }
 }
 

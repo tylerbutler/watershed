@@ -404,6 +404,37 @@ pub fn shared_tree_history_semantic_projection_keeps_values_and_ids_test() -> Ni
   changed_identity |> expect.to_not_equal(canonical)
 }
 
+pub fn shared_tree_history_semantic_projection_keeps_json_looking_strings_test() -> Nil {
+  let compact =
+    json.object([
+      #(
+        "changes",
+        json.array(
+          [
+            json.object([
+              #("type", json.string("data")),
+              #(
+                "innerChange",
+                json.object([#("value", json.string("{\"a\":1,\"b\":2}"))]),
+              ),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
+    ])
+  let spaced =
+    compact
+    |> json.to_string
+    |> string.replace(
+      "\"{\\\"a\\\":1,\\\"b\\\":2}\"",
+      "\"{ \\\"b\\\":2, \\\"a\\\":1 }\"",
+    )
+
+  canonical_history_change(json.to_string(compact))
+  |> expect.to_not_equal(canonical_history_change(spaced))
+}
+
 fn observation_field(
   output: json.Json,
   id: String,
