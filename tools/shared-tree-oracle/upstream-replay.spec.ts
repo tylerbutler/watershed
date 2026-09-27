@@ -17,6 +17,7 @@ import { replayArrayModularInput } from "./watershedArraySupport.js";
 import {
 	replayForestInput,
 	replayForestInputRawDetached,
+	replayForestInputRawFields,
 	replaySequenceAlgebraInput,
 	replaySequenceEditorInput,
 	replaySequenceRebaseInput,
@@ -144,6 +145,68 @@ if (process.env.WATERSHED_ORACLE_CORPUS === "replay") {
 				{ major: -3, minor: 0 },
 				{ major: -2, minor: 10 },
 				{ major: -2, minor: 11 },
+			]);
+		});
+
+		it("normalizes named field keys without sorting their children", () => {
+			const output = process.env.WATERSHED_ORACLE_OUTPUT;
+			assert(output !== undefined && isAbsolute(output),
+				"WATERSHED_ORACLE_OUTPUT must be absolute.");
+			const input = cases(join(output, "sequence-cases.json"))
+				.find(({ id }) => id === "array-forest-delta")?.input.scenarios
+				.find(({ id }) => id === "counted-build");
+			assert(input !== undefined, "Counted-build forest input must exist.");
+			const mutated = copy(input);
+			mutated.initialState = {
+				field: [{
+					type: "org.watershed.shared-tree.m3.ForestNode",
+					fields: [
+						["label", [
+							{
+								type: "com.fluidframework.leaf.string",
+								value: "L2",
+								fields: [],
+							},
+							{
+								type: "com.fluidframework.leaf.string",
+								value: "L1",
+								fields: [],
+							},
+						]],
+						["child", [
+							{
+								type: "com.fluidframework.leaf.string",
+								value: "C2",
+								fields: [],
+							},
+							{
+								type: "com.fluidframework.leaf.string",
+								value: "C1",
+								fields: [],
+							},
+						]],
+					],
+				}],
+			};
+			assert(mutated.operands !== null && typeof mutated.operands === "object",
+				"Forest operands must exist.");
+			Reflect.set(mutated.operands, "deltas", [{}]);
+			Reflect.set(mutated.operands, "retainIndex", null);
+			const raw = replayForestInputRawFields(copy(mutated)) as {
+				readonly before: {
+					readonly root: readonly {
+						readonly fields: readonly [string, readonly string[]][];
+					}[];
+				};
+			}[];
+			const normalized = replayForestInput(copy(mutated)) as typeof raw;
+			assert.deepEqual(raw[0].before.root[0].fields, [
+				["label", ["L2", "L1"]],
+				["child", ["C2", "C1"]],
+			]);
+			assert.deepEqual(normalized[0].before.root[0].fields, [
+				["child", ["C2", "C1"]],
+				["label", ["L2", "L1"]],
 			]);
 		});
 

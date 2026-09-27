@@ -5,6 +5,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/result
 import gleam/string
+import watershed/canonical_json
 import watershed/fluid_ids.{type StableId}
 import watershed/json_ot.{type JsonValue, VArray, VNull, VObject, VString}
 import watershed/tree/change_fixture_codec as codec
@@ -354,6 +355,10 @@ fn run_cycle(scenario: JsonValue, scope: Int) -> Result(Json, String) {
       )
     {
       Error(error) -> Ok(#(move_failure(error), state))
+      Ok(Nil) if source_start == source_end -> {
+        use value <- result.try(cycle_values(state))
+        Ok(#(success_value(value), state))
+      }
       Ok(Nil) -> {
         use field_delta <- result.try(move_delta(
           source_path,
@@ -458,95 +463,141 @@ fn move_delta(
   moved: types.AtomId,
 ) -> Result(forest.FieldDelta, String) {
   let count = source_end - source_start
-  case source_path == destination_path {
-    True ->
-      Ok(change_at_path(
-        source_path,
-        same_field_move(source_start, source_end, destination_gap, moved),
+  case source_path, destination_path {
+    [], [] ->
+      Ok(same_field_move(source_start, source_end, destination_gap, moved))
+    [], [target, ..rest] ->
+      Ok(detach_with_child_change(
+        source_start,
+        source_end,
+        moved,
+        target,
+        change_at_path(rest, attach_delta(destination_gap, count, moved)),
       ))
-    False ->
-      case relative_path(source_path, destination_path) {
-        Ok([target, ..rest]) if target >= source_start && target < source_end -> {
-          let before_target = target - source_start
-          let after_target = count - before_target - 1
-          let destination =
-            change_at_path(
-              rest,
-              forest.FieldDelta(
-                list.append(unchanged(destination_gap), [
-                  forest.Mark(count, Some(moved), None, []),
-                ]),
-              ),
-            )
-          let marks =
-            list.flatten([
-              unchanged(source_start),
-              detach(before_target, moved, []),
-              [
-                forest.Mark(1, None, Some(offset_atom(moved, before_target)), [
-                  #("", destination),
-                ]),
-              ],
-              detach(after_target, offset_atom(moved, before_target + 1), []),
-            ])
-          Ok(change_at_path(source_path, forest.FieldDelta(marks)))
-        }
-        _ -> {
-          let source =
-            forest.FieldDelta(
-              list.append(unchanged(source_start), [
-                forest.Mark(count, None, Some(moved), []),
-              ]),
-            )
-          let destination =
-            forest.FieldDelta(
-              list.append(unchanged(destination_gap), [
-                forest.Mark(count, Some(moved), None, []),
-              ]),
-            )
-          combine_path_changes(
-            source_path,
-            source,
-            destination_path,
-            destination,
-          )
-        }
-      }
-  }
-}
-
-fn combine_path_changes(
-  left_path: List(Int),
-  left_change: forest.FieldDelta,
-  right_path: List(Int),
-  right_change: forest.FieldDelta,
-) -> Result(forest.FieldDelta, String) {
-  case left_path, right_path {
+    [target, ..rest], [] ->
+      Ok(attach_with_child_change(
+        destination_gap,
+        count,
+        moved,
+        target,
+        change_at_path(rest, detach_delta(source_start, source_end, moved)),
+      ))
     [left, ..left_rest], [right, ..right_rest] if left == right -> {
-      use nested <- result.try(combine_path_changes(
+      use nested <- result.try(move_delta(
         left_rest,
-        left_change,
+        source_start,
+        source_end,
         right_rest,
-        right_change,
+        destination_gap,
+        moved,
       ))
       Ok(select_child(left, nested))
     }
     [left, ..left_rest], [right, ..right_rest] if left < right ->
       Ok(select_two_children(
         left,
-        change_at_path(left_rest, left_change),
+        change_at_path(left_rest, detach_delta(source_start, source_end, moved)),
         right,
-        change_at_path(right_rest, right_change),
+        change_at_path(right_rest, attach_delta(destination_gap, count, moved)),
       ))
     [left, ..left_rest], [right, ..right_rest] ->
       Ok(select_two_children(
         right,
-        change_at_path(right_rest, right_change),
+        change_at_path(right_rest, attach_delta(destination_gap, count, moved)),
         left,
-        change_at_path(left_rest, left_change),
+        change_at_path(left_rest, detach_delta(source_start, source_end, moved)),
       ))
-    _, _ -> Error("move paths overlap without identifying the same array")
   }
+}
+
+fn detach_delta(
+  source_start: Int,
+  source_end: Int,
+  moved: types.AtomId,
+) -> forest.FieldDelta {
+  forest.FieldDelta(
+    list.append(unchanged(source_start), [
+      forest.Mark(source_end - source_start, None, Some(moved), []),
+    ]),
+  )
+}
+
+fn attach_delta(
+  destination_gap: Int,
+  count: Int,
+  moved: types.AtomId,
+) -> forest.FieldDelta {
+  forest.FieldDelta(
+    list.append(unchanged(destination_gap), [
+      forest.Mark(count, Some(moved), None, []),
+    ]),
+  )
+}
+
+fn detach_with_child_change(
+  source_start: Int,
+  source_end: Int,
+  moved: types.AtomId,
+  child: Int,
+  change: forest.FieldDelta,
+) -> forest.FieldDelta {
+  let count = source_end - source_start
+  let marks = case child < source_start, child >= source_end {
+    True, _ ->
+      list.flatten([
+        unchanged(child),
+        [forest.Mark(1, None, None, [#("", change)])],
+        unchanged(source_start - child - 1),
+        detach(count, moved, []),
+      ])
+    _, True ->
+      list.flatten([
+        unchanged(source_start),
+        detach(count, moved, []),
+        unchanged(child - source_end),
+        [forest.Mark(1, None, None, [#("", change)])],
+      ])
+    False, False -> {
+      let before = child - source_start
+      list.flatten([
+        unchanged(source_start),
+        detach(before, moved, []),
+        [
+          forest.Mark(1, None, Some(offset_atom(moved, before)), [
+            #("", change),
+          ]),
+        ],
+        detach(count - before - 1, offset_atom(moved, before + 1), []),
+      ])
+    }
+  }
+  forest.FieldDelta(marks)
+}
+
+fn attach_with_child_change(
+  destination_gap: Int,
+  count: Int,
+  moved: types.AtomId,
+  child: Int,
+  change: forest.FieldDelta,
+) -> forest.FieldDelta {
+  let marks = case child < destination_gap {
+    True ->
+      list.flatten([
+        unchanged(child),
+        [forest.Mark(1, None, None, [#("", change)])],
+        unchanged(destination_gap - child - 1),
+        [forest.Mark(count, Some(moved), None, [])],
+      ])
+    False ->
+      list.flatten([
+        unchanged(destination_gap),
+        [forest.Mark(count, Some(moved), None, [])],
+        unchanged(child - destination_gap),
+        [forest.Mark(1, None, None, [#("", change)])],
+      ])
+  }
+  forest.FieldDelta(marks)
 }
 
 fn select_child(index: Int, change: forest.FieldDelta) -> forest.FieldDelta {
@@ -601,18 +652,6 @@ fn same_field_move(
       }
   }
   forest.FieldDelta(marks)
-}
-
-fn relative_path(
-  parent: List(Int),
-  child: List(Int),
-) -> Result(List(Int), String) {
-  case parent, child {
-    [], child -> Ok(child)
-    [expected, ..parent], [actual, ..child] if expected == actual ->
-      relative_path(parent, child)
-    _, _ -> Error("move destination is not below the source array")
-  }
 }
 
 fn change_at_path(
@@ -905,7 +944,11 @@ fn tree_json(value: types.TreeValue) -> Json {
         #(
           "fields",
           array(
-            list.filter_map(fields, fn(field) {
+            fields
+            |> list.sort(fn(left, right) {
+              canonical_json.compare(left.0, right.0)
+            })
+            |> list.filter_map(fn(field) {
               case field_json(field.1) {
                 None -> Error(Nil)
                 Some(value) -> Ok(array([json.string(field.0), value]))

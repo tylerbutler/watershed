@@ -402,6 +402,106 @@ pub fn shared_tree_array_forest_runner_moves_between_independent_paths_test() {
   expect_run(scenario, expected("move", value))
 }
 
+pub fn shared_tree_array_forest_runner_moves_from_child_to_ancestor_test() {
+  let before =
+    array([
+      array([json.string("A")]),
+      json.string("B"),
+    ])
+  let scenario = move_scenario(before, [0], 0, 1, [], 2)
+  let moved =
+    array([
+      array([]),
+      json.string("B"),
+      json.string("A"),
+    ])
+  let value =
+    json.object([
+      #("before", before),
+      #("result", result_object(True, moved)),
+      #("after", moved),
+    ])
+  expect_run(scenario, expected("move", value))
+}
+
+pub fn shared_tree_array_forest_runner_moves_from_ancestor_to_child_test() {
+  let before =
+    array([
+      array([json.string("A")]),
+      json.string("B"),
+    ])
+  let scenario = move_scenario(before, [], 1, 2, [0], 1)
+  let moved =
+    array([
+      array([json.string("A"), json.string("B")]),
+    ])
+  let value =
+    json.object([
+      #("before", before),
+      #("result", result_object(True, moved)),
+      #("after", moved),
+    ])
+  expect_run(scenario, expected("move", value))
+}
+
+pub fn shared_tree_array_forest_runner_accepts_empty_cross_field_move_test() {
+  let before =
+    array([
+      array([json.string("A")]),
+      array([json.string("B")]),
+    ])
+  let scenario = move_scenario(before, [0], 0, 0, [1], 1)
+  let value =
+    json.object([
+      #("before", before),
+      #("result", result_object(True, before)),
+      #("after", before),
+    ])
+  expect_run(scenario, expected("move", value))
+}
+
+pub fn shared_tree_array_forest_runner_validates_empty_move_source_path_test() {
+  let before =
+    array([
+      array([json.string("A")]),
+      array([json.string("B")]),
+    ])
+  let scenario = move_scenario(before, [2], 0, 0, [1], 1)
+  let assert Ok(output) = array_forest_fixture.run(runner_input(scenario))
+  let raw = json.to_string(output)
+  string.contains(raw, "\"accepted\":false") |> expect.to_be_true
+  string.contains(raw, "\"after\":[[\"A\"],[\"B\"]]")
+  |> expect.to_be_true
+}
+
+pub fn shared_tree_array_forest_runner_validates_empty_move_destination_path_test() {
+  let before =
+    array([
+      array([json.string("A")]),
+      array([json.string("B")]),
+    ])
+  let scenario = move_scenario(before, [0], 0, 0, [2], 0)
+  let assert Ok(output) = array_forest_fixture.run(runner_input(scenario))
+  let raw = json.to_string(output)
+  string.contains(raw, "\"accepted\":false") |> expect.to_be_true
+  string.contains(raw, "\"after\":[[\"A\"],[\"B\"]]")
+  |> expect.to_be_true
+}
+
+pub fn shared_tree_array_forest_runner_keeps_production_cycle_rejection_test() {
+  let before =
+    array([
+      array([json.string("A")]),
+      json.string("B"),
+    ])
+  let scenario = move_scenario(before, [], 0, 1, [0], 1)
+  let assert Ok(output) = array_forest_fixture.run(runner_input(scenario))
+  let raw = json.to_string(output)
+  string.contains(raw, "\"accepted\":false") |> expect.to_be_true
+  string.contains(raw, "\"after\":[[\"A\"],\"B\"]")
+  |> expect.to_be_true
+}
+
 pub fn shared_tree_array_forest_runner_rejects_invalid_interior_move_range_test() {
   let scenario = move_scenario(array([json.string("A")]), [], 0, 3, [], 1)
   let assert Ok(output) = array_forest_fixture.run(runner_input(scenario))
@@ -448,13 +548,13 @@ pub fn shared_tree_array_forest_runner_preserves_nested_sequence_fields_test() {
   let second_node = visible_node([#("label", [json.string("B")])])
   let before_third =
     visible_node([
-      #("label", [json.string("C")]),
       #("child", [json.string("old"), json.string("old2")]),
+      #("label", [json.string("C")]),
     ])
   let after_third =
     visible_node([
-      #("label", [json.string("C")]),
       #("child", [json.string("new"), json.string("new2")]),
+      #("label", [json.string("C")]),
     ])
   let before = state([first_node, second_node, before_third], [])
   let after =
@@ -512,8 +612,8 @@ pub fn shared_tree_array_forest_runner_inserts_first_nested_child_test() {
     state_after(
       [
         visible_node([
-          #("label", [json.string("A")]),
           #("child", [json.string("new")]),
+          #("label", [json.string("A")]),
         ]),
       ],
       [],
@@ -552,8 +652,8 @@ pub fn shared_tree_array_forest_runner_omits_removed_final_child_test() {
     state(
       [
         visible_node([
-          #("label", [json.string("A")]),
           #("child", [json.string("old")]),
+          #("label", [json.string("A")]),
         ]),
       ],
       [],
@@ -568,6 +668,68 @@ pub fn shared_tree_array_forest_runner_omits_removed_final_child_test() {
     scenario,
     expected("remove-final-child", array([checkpoint(before, delta, after)])),
   )
+}
+
+pub fn shared_tree_array_forest_runner_canonicalizes_named_field_keys_test() {
+  let child_id = source_atom(Some(-4), 10)
+  let label_id = source_atom(Some(-4), 20)
+  let child_delta =
+    source_delta(
+      [
+        source_field("rootFieldKey", [
+          source_mark(1, None, None, [
+            source_field("child", [
+              source_mark(1, Some(child_id), None, []),
+            ]),
+          ]),
+        ]),
+      ],
+      [source_build(child_id, [source_string("C")])],
+      [],
+    )
+  let label_delta =
+    source_delta(
+      [
+        source_field("rootFieldKey", [
+          source_mark(1, None, None, [
+            source_field("label", [
+              source_mark(1, Some(label_id), None, []),
+            ]),
+          ]),
+        ]),
+      ],
+      [source_build(label_id, [source_string("L")])],
+      [],
+    )
+  let initial = source_node([])
+  let scenario =
+    apply_scenario(
+      "named-field-keys",
+      [initial],
+      [child_delta, label_delta],
+      None,
+      [-4],
+    )
+  let empty = visible_node([])
+  let child = visible_node([#("child", [json.string("C")])])
+  let complete =
+    visible_node([
+      #("child", [json.string("C")]),
+      #("label", [json.string("L")]),
+    ])
+  let first =
+    checkpoint(
+      state([empty], []),
+      child_delta,
+      state_after([child], [], json.null()),
+    )
+  let second =
+    checkpoint(
+      state([child], []),
+      label_delta,
+      state_after([complete], [], json.null()),
+    )
+  expect_run(scenario, expected("named-field-keys", array([first, second])))
 }
 
 pub fn shared_tree_array_forest_runner_observes_destroyed_reference_as_absent_test() {

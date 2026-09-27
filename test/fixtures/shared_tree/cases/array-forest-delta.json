@@ -2224,15 +2224,15 @@
                   "type": "org.watershed.shared-tree.m3.ForestNode",
                   "fields": [
                     [
-                      "label",
-                      [
-                        "C"
-                      ]
-                    ],
-                    [
                       "child",
                       [
                         "old"
+                      ]
+                    ],
+                    [
+                      "label",
+                      [
+                        "C"
                       ]
                     ]
                   ]
@@ -2324,15 +2324,15 @@
                   "type": "org.watershed.shared-tree.m3.ForestNode",
                   "fields": [
                     [
-                      "label",
-                      [
-                        "C"
-                      ]
-                    ],
-                    [
                       "child",
                       [
                         "new"
+                      ]
+                    ],
+                    [
+                      "label",
+                      [
+                        "C"
                       ]
                     ]
                   ]
@@ -2383,15 +2383,15 @@
                   "type": "org.watershed.shared-tree.m3.ForestNode",
                   "fields": [
                     [
-                      "label",
-                      [
-                        "C"
-                      ]
-                    ],
-                    [
                       "child",
                       [
                         "old"
+                      ]
+                    ],
+                    [
+                      "label",
+                      [
+                        "C"
                       ]
                     ]
                   ]
@@ -2483,15 +2483,15 @@
                   "type": "org.watershed.shared-tree.m3.ForestNode",
                   "fields": [
                     [
-                      "label",
-                      [
-                        "C"
-                      ]
-                    ],
-                    [
                       "child",
                       [
                         "new"
+                      ]
+                    ],
+                    [
+                      "label",
+                      [
+                        "C"
                       ]
                     ]
                   ]
@@ -4296,15 +4296,15 @@
                   "type": "org.watershed.shared-tree.m3.ForestNode",
                   "fields": [
                     [
-                      "label",
-                      [
-                        "C"
-                      ]
-                    ],
-                    [
                       "child",
                       [
                         "old"
+                      ]
+                    ],
+                    [
+                      "label",
+                      [
+                        "C"
                       ]
                     ]
                   ]
@@ -4396,15 +4396,15 @@
                   "type": "org.watershed.shared-tree.m3.ForestNode",
                   "fields": [
                     [
-                      "label",
-                      [
-                        "C"
-                      ]
-                    ],
-                    [
                       "child",
                       [
                         "new"
+                      ]
+                    ],
+                    [
+                      "label",
+                      [
+                        "C"
                       ]
                     ]
                   ]

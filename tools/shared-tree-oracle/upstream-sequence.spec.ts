@@ -1105,31 +1105,51 @@ function decodeDelta(delta: PlainDelta, context: ReplayIdContext): DeltaRoot {
 	};
 }
 
-function treeValue(tree: MapTree): unknown {
+const utf8 = new TextEncoder();
+
+function compareUtf8(left: string, right: string): number {
+	const leftBytes = utf8.encode(left);
+	const rightBytes = utf8.encode(right);
+	const length = Math.min(leftBytes.length, rightBytes.length);
+	for (let index = 0; index < length; index += 1) {
+		const difference = leftBytes[index] - rightBytes[index];
+		if (difference !== 0) return difference;
+	}
+	return leftBytes.length - rightBytes.length;
+}
+
+function treeValue(tree: MapTree, normalizeFields: boolean): unknown {
 	if (tree.type === brand<TreeNodeSchemaIdentifier>(stringType)) {
 		assert(typeof tree.value === "string", "The array forest probe expects string values.");
 		return tree.value;
 	}
+	const fields = [...tree.fields].map(([key, children]) => [
+		String(key),
+		children.map((child) => treeValue(child, normalizeFields)),
+	] as const);
+	if (normalizeFields) fields.sort(([left], [right]) => compareUtf8(left, right));
 	return {
 		type: String(tree.type),
-		fields: [...tree.fields].map(([key, children]) => [
-			String(key),
-			children.map(treeValue),
-		]),
+		fields,
 	};
 }
 
 export function replayForestInput(input: Record<string, unknown>): unknown {
-	return replayForestInputWithDetachedOrder(input, true);
+	return replayForestInputWithCollectionOrder(input, true, true);
 }
 
 export function replayForestInputRawDetached(input: Record<string, unknown>): unknown {
-	return replayForestInputWithDetachedOrder(input, false);
+	return replayForestInputWithCollectionOrder(input, false, true);
 }
 
-function replayForestInputWithDetachedOrder(
+export function replayForestInputRawFields(input: Record<string, unknown>): unknown {
+	return replayForestInputWithCollectionOrder(input, true, false);
+}
+
+function replayForestInputWithCollectionOrder(
 	input: Record<string, unknown>,
 	normalizeDetached: boolean,
+	normalizeFields: boolean,
 ): unknown {
 	const context = replayIdContext(input);
 	object(input.operands, "The forest input must contain operands.");
@@ -1218,7 +1238,8 @@ function replayForestInputWithDetachedOrder(
 		}
 	})();
 	const values = (key: FieldKey): unknown[] =>
-		(forest.roots.fields.get(key) ?? []).map(treeValue);
+		(forest.roots.fields.get(key) ?? [])
+			.map((tree) => treeValue(tree, normalizeFields));
 	const detached = () => {
 		const entries = [...index.entries()].map((entry) => ({
 			id: { major: entry.id.major ?? null, minor: entry.id.minor },
