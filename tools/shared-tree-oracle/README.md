@@ -651,8 +651,10 @@ native-authored message sequence performs a counted move and a nested edit.
 The source consumer applies both native sequences, returns the actual Message
 V7 bytes and compressor state for its own counted cross-array move and nested
 edit, and the native runner decodes and applies that continuation. The
-coordinator requires all 21 scenario IDs, compares both targets, rejects empty
-or stale artifacts, and removes its owned temporary output.
+summary path also loads a native summary with a nonempty peer branch and checks
+the peer commit's full change graph. The coordinator requires all 22 scenario
+IDs, compares both targets, rejects empty or stale artifacts, and removes its
+owned temporary output.
 
 The FieldBatch writer uses four fixed V2 shapes: a generic node, a field array,
 a polymorphic selector, and a constant-null node. Null is stored in the shape,

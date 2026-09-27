@@ -275,3 +275,117 @@ test("codec interop rejects summaries without detached and history evidence", as
     /removed content/,
   );
 });
+
+test("array evidence rejects lost continuation, detached, peer, and refresher data", async () => {
+  const { validateConsumerOutput } = await import("./codec-interop.mjs");
+  const messageArtifact = {
+    target: "erlang",
+    items: [{
+      id: "message-array-sequence",
+      kind: "message",
+      encoded: [{ version: 7 }],
+    }],
+  };
+  const messageOutput = {
+    formatVersion: 1,
+    reference,
+    target: "erlang",
+    observations: [{
+      id: "message-array-sequence",
+      kind: "message",
+      decoded: true,
+      graphs: [[]],
+      beforeApply: {},
+      afterApply: {},
+      continued: {
+        rangeMoveIdentity: true,
+        nestedEdit: "upstream-nested",
+        visible: {},
+      },
+      continuation: {
+        messages: [{ encoded: { version: 7 }, graphs: [{}] }, {
+          encoded: { version: 7 },
+          graphs: [{}],
+        }],
+        compressor: "serialized",
+        session: "11111111-1111-4111-8111-111111111111",
+      },
+    }],
+  };
+  assert.doesNotThrow(() =>
+    validateConsumerOutput(messageOutput, messageArtifact, ["message-array-sequence"]));
+  const lostContinuation = structuredClone(messageOutput);
+  lostContinuation.observations[0].continuation.messages = [];
+  assert.throws(
+    () => validateConsumerOutput(
+      lostContinuation,
+      messageArtifact,
+      ["message-array-sequence"],
+    ),
+    /continuation wire evidence/,
+  );
+
+  const summaryArtifact = {
+    target: "erlang",
+    items: [{ id: "summary-array-peer-history", kind: "summary" }],
+  };
+  const dataChange = {
+    type: "data",
+    data: { fields: [], builds: [], refreshers: [{}] },
+  };
+  const summaryOutput = {
+    formatVersion: 1,
+    reference,
+    target: "erlang",
+    observations: [{
+      id: "summary-array-peer-history",
+      kind: "summary",
+      visible: {},
+      removed: [],
+      history: {
+        trunk: [{ changes: [dataChange] }],
+        peers: [{ commits: [{ changes: [dataChange] }] }],
+      },
+      continued: {
+        rangeMoveIdentity: true,
+        nestedEdit: "upstream-nested",
+      },
+    }],
+  };
+  assert.doesNotThrow(() =>
+    validateConsumerOutput(
+      summaryOutput,
+      summaryArtifact,
+      ["summary-array-peer-history"],
+    ));
+  for (const mutate of [
+    (value) => { value.observations[0].history.peers[0].commits = []; },
+    (value) => {
+      value.observations[0].history.peers[0].commits[0].changes[0].data.refreshers = [];
+    },
+  ]) {
+    const changed = structuredClone(summaryOutput);
+    mutate(changed);
+    assert.throws(
+      () => validateConsumerOutput(
+        changed,
+        summaryArtifact,
+        ["summary-array-peer-history"],
+      ),
+      /nonempty peer changes/,
+    );
+  }
+
+  const detached = structuredClone(summaryOutput);
+  detached.observations[0].id = "summary-array-retained-history";
+  detached.observations[0].removed = [];
+  summaryArtifact.items[0].id = "summary-array-retained-history";
+  assert.throws(
+    () => validateConsumerOutput(
+      detached,
+      summaryArtifact,
+      ["summary-array-retained-history"],
+    ),
+    /detached content/,
+  );
+});

@@ -22,7 +22,7 @@ import watershed/tree/codec/summary
 import watershed/tree/forest
 import watershed/tree/summary as tree_summary
 import watershed/tree/types.{
-  ArrayMove, AtomId, ClearField, MapSet, SetField, StringValue,
+  ArrayMove, ArrayRemove, AtomId, ClearField, MapSet, SetField, StringValue,
 }
 import watershed/wire/fluid_summary
 
@@ -570,7 +570,12 @@ fn array_codec_items(input: ArrayInput) -> Result(List(Json), String) {
     message_compressor,
   ))
   use summary_items <- result.try(list.try_map(summaries, array_summary_item))
-  Ok([message_item, native_message_item, ..summary_items])
+  use full_summary <- result.try(
+    list.find(summaries, fn(source) { source.0 == "full-summary" })
+    |> result.map_error(fn(_) { "missing full array summary" }),
+  )
+  use peer_summary <- result.try(array_peer_summary_item(full_summary))
+  Ok([message_item, native_message_item, peer_summary, ..summary_items])
 }
 
 fn native_array_message_item(
@@ -786,6 +791,118 @@ fn array_summary_item(
     item("summary-array-" <> id, "summary", summary_json(encoded), [
       #("schemaProfile", json.string("array")),
       #("compressor", json.string(compressor_raw)),
+      #("compressorMode", json.string("summary")),
+      #(
+        "session",
+        json.string(fluid_ids.session_id_to_string(consumer_session)),
+      ),
+    ]),
+  )
+}
+
+fn array_peer_summary_item(
+  source: #(String, JsonValue, fluid_ids.SessionId, fluid_ids.Compressor),
+) -> Result(Json, String) {
+  let #(_, encoded, session, compressor) = source
+  use decoded <- result.try(
+    summary.decode(
+      summary_entry(encoded),
+      None,
+      session,
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+    |> native,
+  )
+  use data <- result.try(summary_forest_data(decoded))
+  use view_id <- result.try(
+    fluid_ids.stable_id("72000000-0000-4000-8000-000000000007")
+    |> result.map_error(string.inspect),
+  )
+  use state <- result.try(
+    forest.import_data(view_id, decoded.schema, data) |> native,
+  )
+  use #(compressor, local) <- result.try(
+    fluid_ids.generate(compressor) |> result.map_error(string.inspect),
+  )
+  let #(compressor, range) = fluid_ids.take_creation_range(compressor)
+  use range <- result.try(case range {
+    Some(value) -> Ok(value)
+    None -> Error("native peer summary generated no allocation range")
+  })
+  use compressor <- result.try(
+    fluid_ids.finalize(compressor, range) |> result.map_error(string.inspect),
+  )
+  use revision <- result.try(
+    fluid_ids.decompress(compressor, local) |> result.map_error(string.inspect),
+  )
+  use order <- result.try(
+    codec.identity_order([revision], compressor, "summary-array-peer-history")
+    |> native,
+  )
+  use authored <- result.try(
+    change.edit(
+      decoded.schema,
+      state,
+      revision,
+      ArrayRemove(["narrow"], 0, 1),
+      order,
+    )
+    |> native,
+  )
+  use roots <- result.try(change.relevant_removed_roots(authored) |> native)
+  use removed <- result.try(forest.read(state, ["narrow", "0"]) |> native)
+  use removed <- result.try(case removed {
+    Some(value) -> Ok(value)
+    None -> Error("peer summary removal has no source node")
+  })
+  use authored <- result.try(
+    change.update_refreshers(
+      authored,
+      roots,
+      list.map(roots, fn(root) { forest.Build(root, [removed]) }),
+    )
+    |> native,
+  )
+  let summary.EditManagerSummary(trunk, branches) = decoded.history
+  use base <- result.try(
+    list.last(trunk)
+    |> result.map(fn(entry) {
+      let summary.SummaryCommit(codec.WireCommit(revision, ..), _, _) = entry
+      summary.StableRevision(revision)
+    })
+    |> result.map_error(fn(_) { "full array summary has no trunk base" }),
+  )
+  let peer_commit =
+    summary.SummaryCommit(
+      codec.WireCommit(revision, session, [codec.DataChange(authored)], None),
+      None,
+      None,
+    )
+  let with_peer =
+    summary.TreeSummaryData(
+      ..decoded,
+      history: summary.EditManagerSummary(trunk, [
+        summary.PeerBranch(session, base, [peer_commit]),
+        ..branches
+      ]),
+    )
+  use encoded <- result.try(
+    summary.encode(
+      with_peer,
+      session,
+      codec.EncodeContext(codec.Fluid310, compressor, Some(decoded.schema)),
+    )
+    |> native,
+  )
+  use serialized <- result.try(serialize_compressor(compressor, False))
+  use consumer_session <- result.try(
+    fluid_ids.session_id(native_summary_consumer_session)
+    |> result.map_error(string.inspect),
+  )
+  Ok(
+    item("summary-array-peer-history", "summary", summary_json(encoded), [
+      #("schemaProfile", json.string("array")),
+      #("compressor", json.string(serialized)),
       #("compressorMode", json.string("summary")),
       #(
         "session",

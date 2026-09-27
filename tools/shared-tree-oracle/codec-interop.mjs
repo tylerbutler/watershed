@@ -36,6 +36,7 @@ const requiredItemIds = [
   "message-array-native-authored",
   "summary-array-retained-history",
   "summary-array-full-summary",
+  "summary-array-peer-history",
 ];
 const point = (x, y) => ({
   type: "org.watershed.shared-tree.m1.Point",
@@ -369,7 +370,7 @@ export function validateNativeArtifact(artifact) {
   return artifact;
 }
 
-function validateConsumerOutput(output, artifact, expectedIds) {
+export function validateConsumerOutput(output, artifact, expectedIds) {
   requireValue(object(output) && output.formatVersion === 1, "consumer formatVersion");
   requireValue(JSON.stringify(output.reference) === JSON.stringify(reference),
     "consumer reference");
@@ -441,7 +442,8 @@ function validateConsumerOutput(output, artifact, expectedIds) {
       `${observation.id} continuation wire evidence`);
     }
     if (observation.id === "summary-array-retained-history"
-      || observation.id === "summary-array-full-summary") {
+      || observation.id === "summary-array-full-summary"
+      || observation.id === "summary-array-peer-history") {
       requireValue(object(observation.visible), `${observation.id} visible`);
       requireValue(object(observation.continued)
         && observation.continued.rangeMoveIdentity === true
@@ -455,6 +457,21 @@ function validateConsumerOutput(output, artifact, expectedIds) {
       requireValue(observation.history.peers.every(({ commits }) =>
         Array.isArray(commits)),
       `${observation.id} retained peer changes`);
+      if (observation.id === "summary-array-retained-history") {
+        requireValue(observation.removed.length > 0,
+          `${observation.id} detached content`);
+      }
+      if (observation.id === "summary-array-peer-history") {
+        requireValue(observation.history.peers.some(({ commits }) =>
+          commits.length > 0
+          && commits.every(({ changes }) =>
+            Array.isArray(changes) && changes.length > 0)
+          && commits.some(({ changes }) =>
+            changes.some(({ type, data }) =>
+              type === "data" && object(data)
+              && Array.isArray(data.refreshers) && data.refreshers.length > 0))),
+        `${observation.id} nonempty peer changes`);
+      }
     }
   }
   requireValue(expectedIds.length === ids.size
