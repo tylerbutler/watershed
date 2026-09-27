@@ -226,7 +226,8 @@
       "map-history-codecs",
       "array-schema-content",
       "array-forest-delta",
-      "sequence-field-editor"
+      "sequence-field-editor",
+      "sequence-compose-invert"
     ],
     "erlang": [
       "id-ranges",
@@ -246,7 +247,8 @@
       "map-history-codecs",
       "array-schema-content",
       "array-forest-delta",
-      "sequence-field-editor"
+      "sequence-field-editor",
+      "sequence-compose-invert"
     ]
   },
   "cases": [

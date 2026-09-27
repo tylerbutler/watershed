@@ -6,7 +6,9 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import watershed/fluid_ids.{type StableId}
 import watershed/tree/sequence_field
-import watershed/tree/types.{type AtomId, type TreeError, AtomId, CorruptData}
+import watershed/tree/types.{
+  type AtomId, type TreeError, AtomId, CorruptData, UnsupportedFeature,
+}
 
 const max_safe_integer = 9_007_199_254_740_991
 
@@ -144,6 +146,15 @@ pub fn move_key(
     invalidated,
     put_unique(notifications, notification),
   ))
+}
+
+pub fn compose_move_key(
+  _context: Context,
+  _key: Key,
+  _count: Int,
+  _field: FieldId,
+) -> Result(Context, TreeError) {
+  Error(UnsupportedFeature("sequence_field.compose", "key relocation"))
 }
 
 pub fn notifications(context: Context) -> List(Notification) {

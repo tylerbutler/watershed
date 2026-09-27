@@ -1,8 +1,11 @@
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 import startest/expect
 import watershed/fluid_ids
+import watershed/json_ot
 import watershed/tree/array_fixture
 import watershed/tree/fixtures
 import watershed/tree/forest
@@ -43,6 +46,20 @@ pub fn shared_tree_sequence_compose_invert_matches_upstream_test() {
   )
 }
 
+pub fn shared_tree_sequence_compose_invert_uses_only_fixture_input_test() {
+  let assert Ok(fixture) = fixtures.load("sequence-compose-invert")
+  let assert Ok(original) =
+    sequence_field_fixture.run_compose_invert(fixture.input)
+  let raw = json.to_string(fixture.input)
+  let changed = string.replace(raw, "\"id\":20", "\"id\":120")
+  let assert False = changed == raw
+  let assert Ok(changed) = json_ot.parse_json(changed)
+  let assert Ok(mutated) =
+    sequence_field_fixture.run_compose_invert(json_ot.to_json(changed))
+  fixtures.first_difference(original, mutated) |> expect.to_be_error
+  Nil
+}
+
 pub fn shared_tree_sequence_move_effect_ranges_invalidate_dependents_test() {
   let source = moves.Key(moves.Source, Some(revision("01")), 10)
   let field = moves.FieldId(None, "items")
@@ -78,6 +95,164 @@ pub fn shared_tree_sequence_move_effect_ranges_invalidate_dependents_test() {
   ))
   let assert Ok(context) = moves.set(context, source, 2, effect)
   moves.take_invalidated(context).0 |> expect.to_equal([])
+}
+
+pub fn shared_tree_sequence_move_effect_ranges_split_and_validate_test() {
+  let revision = revision("03")
+  let key = moves.Key(moves.Source, Some(revision), 10)
+  let first =
+    moves.MoveEffect(
+      modify_after: None,
+      moved_effect: None,
+      rebased_child: None,
+      endpoint: Some(atom(Some(revision), 20)),
+      truncated_endpoint: None,
+      truncated_endpoint_for_inner: None,
+    )
+  let middle =
+    moves.MoveEffect(
+      modify_after: Some(atom(None, 50)),
+      moved_effect: None,
+      rebased_child: None,
+      endpoint: Some(atom(Some(revision), 30)),
+      truncated_endpoint: None,
+      truncated_endpoint_for_inner: None,
+    )
+  let assert Ok(context) = moves.set(moves.new(), key, 3, first)
+  let assert Ok(context) =
+    moves.set(context, moves.Key(moves.Source, Some(revision), 11), 1, middle)
+  let assert Ok(#(moves.Query(1, Some(left)), context)) =
+    moves.get(context, key, 3, None)
+  left |> expect.to_equal(first)
+  let assert Ok(#(moves.Query(1, Some(center)), context)) =
+    moves.get(context, moves.Key(moves.Source, Some(revision), 11), 2, None)
+  center |> expect.to_equal(middle)
+  let assert Ok(#(moves.Query(1, Some(right)), _)) =
+    moves.get(context, moves.Key(moves.Source, Some(revision), 12), 1, None)
+  right
+  |> expect.to_equal(
+    moves.MoveEffect(..first, endpoint: Some(atom(Some(revision), 22))),
+  )
+  moves.get(context, key, 0, None) |> expect.to_be_error
+  let _ =
+    moves.set(
+      context,
+      moves.Key(moves.Source, None, max_safe_integer),
+      2,
+      first,
+    )
+    |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_sequence_move_notifications_are_typed_and_deduplicated_test() {
+  let field = moves.FieldId(Some(atom(None, 1)), "items")
+  let node = atom(None, 2)
+  let key = moves.Key(moves.Destination, None, 3)
+  let assert Ok(context) = moves.on_move_in(moves.new(), node, field)
+  let assert Ok(context) = moves.on_move_in(context, node, field)
+  let assert Ok(context) = moves.move_key(context, key, 2, field)
+  let assert Ok(context) = moves.move_key(context, key, 2, field)
+  moves.notifications(context)
+  |> expect.to_equal([
+    moves.NodeMoved(node, field),
+    moves.KeyMoved(key, 2, field),
+  ])
+  let _ = moves.compose_move_key(context, key, 2, field) |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_sequence_aliases_reserve_revisions_once_test() {
+  let a = revision("04")
+  let b = revision("05")
+  let assert Ok(aliases) =
+    sequence_field.new_alias_context([
+      #(Some(a), 5),
+      #(Some(b), 5),
+      #(Some(a), 5),
+    ])
+  let assert Ok(#(first, aliases)) =
+    sequence_field.alias(atom(Some(a), 2), aliases)
+  let assert Ok(#(second, aliases)) =
+    sequence_field.alias(atom(Some(b), 2), aliases)
+  let assert Ok(#(again, aliases)) =
+    sequence_field.alias(atom(Some(a), 2), aliases)
+  #(first, second, again, sequence_field.alias_max_id(aliases))
+  |> expect.to_equal(#(2, 8, 2, 11))
+  let _ =
+    sequence_field.new_alias_context([
+      #(Some(a), max_safe_integer),
+      #(Some(b), 0),
+    ])
+    |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_sequence_helpers_visit_ranges_and_nested_ids_test() {
+  let old = revision("06")
+  let replacement = revision("07")
+  let child = atom(Some(old), 40)
+  let assert Ok(change) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        2,
+        Some(atom(Some(old), 10)),
+        sequence_field.AttachAndDetach(
+          sequence_field.MoveIn(atom(Some(old), 20), Some(atom(Some(old), 30))),
+          sequence_field.MoveOut(
+            atom(Some(old), 50),
+            Some(atom(Some(old), 60)),
+            Some(atom(Some(old), 70)),
+          ),
+        ),
+        None,
+      ),
+      sequence_field.Mark(
+        1,
+        Some(atom(Some(old), 80)),
+        sequence_field.Noop,
+        Some(child),
+      ),
+    ])
+  let assert Ok(replaced) =
+    sequence_field.replace_revisions(change, fn(id, _) {
+      Ok(types.AtomId(Some(replacement), id.local_id))
+    })
+  sequence_field.to_marks(replaced)
+  |> list.each(fn(mark) {
+    [mark.cell_id, mark.child]
+    |> list.each(fn(id) {
+      case id {
+        Some(id) -> id.revision |> expect.to_equal(Some(replacement))
+        None -> Nil
+      }
+    })
+  })
+  let assert Ok(pruned) = sequence_field.prune(change, fn(_) { Ok(None) })
+  let marks = sequence_field.to_marks(pruned)
+  let assert Ok(last) = list.last(marks)
+  last.child |> expect.to_equal(None)
+
+  let assert Ok(removed) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        2,
+        Some(atom(Some(old), 90)),
+        sequence_field.Attach(sequence_field.Insert(atom(Some(old), 90))),
+        None,
+      ),
+      sequence_field.Mark(1, None, sequence_field.Noop, Some(child)),
+    ])
+  sequence_field.relevant_removed_roots(removed, fn(_) {
+    Ok([atom(Some(old), 100)])
+  })
+  |> expect.to_equal(
+    Ok([
+      atom(Some(old), 90),
+      atom(Some(old), 91),
+      atom(Some(old), 100),
+    ]),
+  )
 }
 
 pub fn shared_tree_sequence_rejects_zero_count_marks_test() {
