@@ -4,9 +4,11 @@ import gleam/erlang/process
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 import startest/expect
 @target(javascript)
 import watershed
+import watershed/channel
 import watershed/fluid_ids
 @target(javascript)
 import watershed/runtime
@@ -17,6 +19,7 @@ import watershed/sluice/frame
 @target(javascript)
 import watershed/transport_js
 import watershed/tree/runtime_fixture
+import watershed/tree/schema as tree_schema
 import watershed/tree/types
 import watershed/tree_kernel
 @target(erlang)
@@ -69,6 +72,38 @@ fn peer_input(
   let compressor =
     fluid_ids.deserialize(serialized, session) |> expect.to_be_ok()
   runtime_core.BootstrapSeedInput(..input, compressor: Some(compressor))
+}
+
+fn optional_view(
+  input: runtime_core.BootstrapSeedInput,
+) -> tree_schema.ViewSchema {
+  let tree =
+    input.channels
+    |> list.find(fn(seed) {
+      case seed.snapshot {
+        channel.TreeSnapshot(_) -> True
+        _ -> False
+      }
+    })
+    |> expect.to_be_ok()
+  let assert channel.TreeSnapshot(snapshot) = tree.snapshot
+  let #(stored, _, _) = tree_kernel.snapshot_parts(snapshot)
+  stored
+  |> tree_schema.stored_to_json
+  |> json.to_string
+  |> string.replace(
+    "\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m2.DynamicMap\"]}",
+    "\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]},\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m2.DynamicMap\"]}",
+  )
+  |> tree_schema.view_from_string
+  |> expect.to_be_ok
+}
+
+fn expect_compatibility_error(result: Result(a, String)) -> Nil {
+  result
+  |> expect.to_be_error
+  |> string.contains("InvalidSchema")
+  |> expect.to_equal(True)
 }
 
 fn acknowledgement(payload: json.Json) -> json.Json {
@@ -224,6 +259,86 @@ pub fn shared_tree_map_facade_js_operations_test() {
     fn(path) { watershed.tree_map_entries(tree, path) },
     fn(path, value) { watershed.tree_set(tree, path, value) },
   )
+  watershed.close(document)
+}
+
+@target(javascript)
+pub fn shared_tree_map_facade_js_view_lifecycle_test() {
+  let input = input(False)
+  let #(document, callbacks, submissions) = js_document(input)
+  callbacks.on_event(
+    "connect_document_success",
+    json.to_string(connected("reader", 0)),
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let assert [initial] = input.tree_views
+  let optional = optional_view(input)
+  let v1 =
+    watershed.resolve_tree(document, marker, initial.view) |> expect.to_be_ok()
+  let next =
+    watershed.open_tree(document, marker, optional) |> expect.to_be_ok()
+  watershed.tree_get(v1, ["items"]) |> expect.to_be_ok()
+  watershed.tree_compatibility(next)
+  |> expect.to_equal(Ok(tree_schema.Compatibility(False, True, False)))
+  expect_compatibility_error(watershed.tree_get(next, ["items"]))
+
+  let observed = transport_js.new_cell([])
+  let subscription =
+    watershed.subscribe_tree(next, fn(event) {
+      transport_js.set_cell(observed, [
+        #(
+          event,
+          watershed.tree_compatibility(next),
+          case watershed.tree_get(next, ["items"]) {
+            Ok(_) -> True
+            Error(_) -> False
+          },
+        ),
+        ..transport_js.get_cell(observed)
+      ])
+    })
+  watershed.tree_upgrade_schema(next) |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(observed)
+  |> expect.to_equal([
+    #(
+      tree_kernel.SchemaChanged(True),
+      Ok(tree_schema.Compatibility(True, True, True)),
+      True,
+    ),
+  ])
+  watershed.tree_upgrade_schema(next) |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(observed) |> list.length |> expect.to_equal(1)
+
+  watershed.tree_compatibility(v1)
+  |> expect.to_equal(Ok(tree_schema.Compatibility(False, False, False)))
+  expect_compatibility_error(watershed.tree_get(v1, ["items"]))
+  expect_compatibility_error(watershed.tree_set(
+    v1,
+    ["score"],
+    types.NumberValue(1.0),
+  ))
+  expect_compatibility_error(watershed.tree_clear(v1, ["score"]))
+  expect_compatibility_error(watershed.tree_map_get(v1, ["items"], "key"))
+  expect_compatibility_error(watershed.tree_map_set(
+    v1,
+    ["items"],
+    "key",
+    types.StringValue("stale"),
+  ))
+  expect_compatibility_error(watershed.tree_map_delete(v1, ["items"], "key"))
+  expect_compatibility_error(watershed.tree_map_entries(v1, ["items"]))
+  expect_compatibility_error(watershed.tree_map_keys(v1, ["items"]))
+  watershed.get(root, "tree") |> expect.to_equal(Ok(marker))
+
+  let recovered =
+    watershed.resolve_tree(document, marker, optional) |> expect.to_be_ok()
+  watershed.tree_set(recovered, ["score"], types.NumberValue(1.0))
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_get(recovered, ["score"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(1.0))))
+  transport_js.get_cell(submissions) |> list.length |> expect.to_equal(2)
+  watershed.unsubscribe(subscription)
   watershed.close(document)
 }
 
@@ -413,6 +528,73 @@ pub fn shared_tree_map_facade_beam_operations_test() {
     fn(path) { watershed_beam.tree_map_entries(tree, path) },
     fn(path, value) { watershed_beam.tree_set(tree, path, value) },
   )
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_map_facade_beam_view_lifecycle_test() {
+  let input = input(False)
+  let #(document, connections, submissions) = beam_document(input)
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  beam_transport(callbacks, submissions)
+  callbacks.on_event("connect_document_success", connected("reader", 0))
+  let root = watershed_beam.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
+  let assert [initial] = input.tree_views
+  let optional = optional_view(input)
+  let v1 =
+    watershed_beam.resolve_tree(document, marker, initial.view)
+    |> expect.to_be_ok()
+  let next =
+    watershed_beam.open_tree(document, marker, optional) |> expect.to_be_ok()
+  watershed_beam.tree_get(v1, ["items"]) |> expect.to_be_ok()
+  watershed_beam.tree_compatibility(next)
+  |> expect.to_equal(Ok(tree_schema.Compatibility(False, True, False)))
+  expect_compatibility_error(watershed_beam.tree_get(next, ["items"]))
+
+  let events = watershed_beam.subscribe_tree(next)
+  watershed_beam.tree_upgrade_schema(next) |> expect.to_equal(Ok(Nil))
+  process.receive(events, 1000)
+  |> expect.to_equal(Ok(tree_kernel.SchemaChanged(True)))
+  watershed_beam.tree_compatibility(next)
+  |> expect.to_equal(Ok(tree_schema.Compatibility(True, True, True)))
+  watershed_beam.tree_get(next, ["items"]) |> expect.to_be_ok()
+  watershed_beam.tree_upgrade_schema(next) |> expect.to_equal(Ok(Nil))
+  process.receive(events, 0) |> expect.to_equal(Error(Nil))
+
+  watershed_beam.tree_compatibility(v1)
+  |> expect.to_equal(Ok(tree_schema.Compatibility(False, False, False)))
+  expect_compatibility_error(watershed_beam.tree_get(v1, ["items"]))
+  expect_compatibility_error(watershed_beam.tree_set(
+    v1,
+    ["score"],
+    types.NumberValue(1.0),
+  ))
+  expect_compatibility_error(watershed_beam.tree_clear(v1, ["score"]))
+  expect_compatibility_error(watershed_beam.tree_map_get(v1, ["items"], "key"))
+  expect_compatibility_error(watershed_beam.tree_map_set(
+    v1,
+    ["items"],
+    "key",
+    types.StringValue("stale"),
+  ))
+  expect_compatibility_error(watershed_beam.tree_map_delete(
+    v1,
+    ["items"],
+    "key",
+  ))
+  expect_compatibility_error(watershed_beam.tree_map_entries(v1, ["items"]))
+  expect_compatibility_error(watershed_beam.tree_map_keys(v1, ["items"]))
+  watershed_beam.get(root, "tree") |> expect.to_equal(Ok(marker))
+
+  let recovered =
+    watershed_beam.resolve_tree(document, marker, optional) |> expect.to_be_ok()
+  watershed_beam.tree_set(recovered, ["score"], types.NumberValue(1.0))
+  |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_get(recovered, ["score"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(1.0))))
+  process.receive(submissions, 1000) |> expect.to_be_ok()
+  process.receive(submissions, 1000) |> expect.to_be_ok()
   process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
 }
 

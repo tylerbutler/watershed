@@ -4,6 +4,7 @@ import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
+import spillway/types as spillway_types
 import startest/expect
 import watershed/channel
 import watershed/fluid_ids
@@ -11,6 +12,7 @@ import watershed/runtime_core
 import watershed/tree/document_summary_fixture
 import watershed/tree/fixtures
 import watershed/tree/runtime_fixture
+import watershed/tree/schema as tree_schema
 import watershed/tree/summary_export
 import watershed/tree_kernel
 import watershed/wire
@@ -115,6 +117,100 @@ pub fn shared_tree_document_summary_seeds_routed_core_test() {
     runtime_core.bootstrap_document(connected, summary)
   runtime_core.root_channel_address(core)
   |> expect.to_equal(Ok("A/root"))
+}
+
+pub fn shared_tree_document_summary_loads_upgraded_tree_without_application_view_test() {
+  let assert Ok(fixture) = fixtures.load("summary-writer-matrix")
+  let assert Ok(states) =
+    json.parse(
+      json.to_string(fixture.input),
+      decode.at(["persistenceStates"], decode.list(wire.json_value_decoder())),
+    )
+  let assert Ok(first) = list.first(states)
+  let assert Ok(snapshot) =
+    json.parse(
+      json.to_string(first),
+      decode.at(["snapshot"], wire.json_value_decoder()),
+    )
+  let assert Ok(document) = runtime_fixture.read_snapshot(snapshot)
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(view_id) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  let assert Ok(summary) =
+    fluid_document.decode(document, None, session, view_id)
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected(
+        "writer",
+        [],
+        fluid_document.sequence_number(summary),
+      ),
+      summary,
+    )
+  let assert Ok(channel.TreeState(state)) = dict.get(core.channels, "A/_C")
+  let initial =
+    tree_kernel.stored_schema(state)
+    |> tree_schema.stored_to_json
+    |> tree_schema.view_from_json
+    |> expect.to_be_ok()
+  let upgraded_view =
+    tree_kernel.stored_schema(state)
+    |> tree_schema.stored_to_json
+    |> json.to_string
+    |> string.replace(
+      "\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}",
+      "\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}",
+    )
+    |> tree_schema.view_from_string
+    |> expect.to_be_ok()
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.submit_tree_upgrade(core, "A/_C", upgraded_view)
+  let contents =
+    json.parse(json.to_string(outbound.contents), decode.dynamic)
+    |> expect.to_be_ok()
+  let metadata = case outbound.metadata {
+    None -> None
+    Some(value) ->
+      json.parse(json.to_string(value), decode.dynamic)
+      |> expect.to_be_ok()
+      |> Some
+  }
+  let message =
+    spillway_types.SequencedDocumentMessage(
+      client_id: Some(pending.client_id),
+      sequence_number: pending.last_seen_sequence_number + 1,
+      minimum_sequence_number: pending.minimum_sequence_number,
+      client_sequence_number: outbound.client_sequence_number,
+      reference_sequence_number: outbound.reference_sequence_number,
+      message_type: outbound.operation_type,
+      contents: contents,
+      metadata: metadata,
+      server_metadata: None,
+      origin: None,
+      traces: None,
+      timestamp: 0,
+      data: None,
+    )
+  let #(settled, _) =
+    runtime_core.handle_sequenced(pending, message)
+    |> expect.to_be_ok()
+  let summary = runtime_core.capture_summary(settled) |> expect.to_be_ok()
+  let assert Ok(runtime_core.Complete(restored)) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected(
+        "reader-2",
+        [],
+        fluid_document.sequence_number(summary),
+      ),
+      summary,
+    )
+  runtime_core.tree_compatibility(restored, "A/_C", upgraded_view)
+  |> expect.to_equal(Ok(tree_schema.Compatibility(True, True, True)))
+  runtime_core.tree_compatibility(restored, "A/_C", initial)
+  |> expect.to_equal(Ok(tree_schema.Compatibility(False, False, False)))
+  runtime_core.get(restored, "A/root", "tree") |> expect.to_be_ok()
+  Nil
 }
 
 pub fn shared_tree_document_summary_replays_publication_tail_test() {

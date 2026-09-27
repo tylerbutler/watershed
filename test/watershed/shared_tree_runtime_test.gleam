@@ -360,6 +360,39 @@ pub fn shared_tree_resolve_checks_handle_kind_and_view_test() -> Nil {
   Nil
 }
 
+pub fn shared_tree_core_guards_each_view_access_atomically_test() -> Nil {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert [initial] = input.tree_views
+  let address = "A/_C"
+  let optional = upgraded_view(core, address, "Optional")
+  runtime_core.tree_compatibility(core, address, optional)
+  |> expect.to_equal(Ok(tree_schema.Compatibility(False, True, False)))
+  runtime_core.tree_read_view(core, address, optional, ["title"])
+  |> expect.to_be_error()
+  let assert Ok(#(upgraded, _, _)) =
+    runtime_core.submit_tree_upgrade(core, address, optional)
+  runtime_core.tree_read_view(upgraded, address, optional, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue(""))))
+  runtime_core.tree_read_view(upgraded, address, initial.view, ["title"])
+  |> expect.to_be_error()
+  runtime_core.tree_map_get_view(
+    upgraded,
+    address,
+    initial.view,
+    ["items"],
+    "key",
+  )
+  |> expect.to_be_error()
+  runtime_core.tree_map_entries_view(upgraded, address, initial.view, ["items"])
+  |> expect.to_be_error()
+  runtime_core.submit_tree_edits_view(upgraded, address, initial.view, [
+    tree_types.SetField(["title"], tree_types.StringValue("stale")),
+  ])
+  |> expect.to_be_error()
+  Nil
+}
+
 pub fn shared_tree_equivalent_upgrade_does_not_allocate_or_submit_test() -> Nil {
   let assert Ok(before) = runtime_fixture.routed_core()
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
@@ -1809,7 +1842,7 @@ pub fn shared_tree_runtime_seed_requires_tree_context_and_unique_view_test() {
   )
 }
 
-pub fn shared_tree_runtime_seed_rejects_schema_and_sequence_mismatch_test() {
+pub fn shared_tree_runtime_seed_accepts_view_mismatch_and_rejects_sequence_mismatch_test() {
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
   let assert [view] = input.tree_views
   let assert Ok(incompatible) =
@@ -1818,12 +1851,10 @@ pub fn shared_tree_runtime_seed_rejects_schema_and_sequence_mismatch_test() {
     )
   let mismatch =
     runtime_core.TreeViewSeed(view.route, view.view_id, incompatible)
-  let error =
-    runtime_core.bootstrap_seed(
-      runtime_core.BootstrapSeedInput(..input, tree_views: [mismatch]),
-    )
-    |> expect.to_be_error()
-  string.inspect(error) |> string.contains("Schema") |> expect.to_equal(True)
+  runtime_core.bootstrap_seed(
+    runtime_core.BootstrapSeedInput(..input, tree_views: [mismatch]),
+  )
+  |> expect.to_be_ok()
   runtime_core.bootstrap_seed(
     runtime_core.BootstrapSeedInput(..input, sequence_number: 1),
   )
@@ -1832,6 +1863,30 @@ pub fn shared_tree_runtime_seed_rejects_schema_and_sequence_mismatch_test() {
       "tree history does not match the document sequence point",
     )),
   )
+}
+
+pub fn shared_tree_runtime_remote_upgrade_emits_only_schema_event_test() -> Nil {
+  let assert Ok(reader) = runtime_fixture.routed_core()
+  let writer = remote_writer_core()
+  let address = "A/_C"
+  let view = upgraded_view(writer, address, "Optional")
+  let assert Ok(#(_, _, [outbound])) =
+    runtime_core.submit_tree_upgrade(writer, address, view)
+  let #(updated, ingested) =
+    runtime_core.handle_sequenced(reader, from_outbound(outbound))
+    |> expect.to_be_ok()
+  ingested.events
+  |> expect.to_equal([
+    #(address, channel.TreeEvent(tree_kernel.SchemaChanged(False))),
+  ])
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert [initial] = input.tree_views
+  runtime_core.tree_compatibility(updated, address, initial.view)
+  |> expect.to_equal(Ok(tree_schema.Compatibility(False, False, False)))
+  runtime_core.tree_read_view(updated, address, initial.view, ["title"])
+  |> expect.to_be_error()
+  runtime_core.get(updated, "A/root", "tree") |> expect.to_be_ok()
+  Nil
 }
 
 pub fn shared_tree_runtime_socket_normalizes_string_contents_test() -> Nil {

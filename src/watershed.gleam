@@ -184,7 +184,11 @@ pub opaque type SharedMap {
 
 @target(javascript)
 pub opaque type SharedTree {
-  SharedTree(runtime: runtime.Runtime, address: String)
+  SharedTree(
+    runtime: runtime.Runtime,
+    address: String,
+    view: tree_schema.ViewSchema,
+  )
 }
 
 @target(javascript)
@@ -490,8 +494,34 @@ pub fn resolve_tree(
 ) -> Result(SharedTree, String) {
   runtime.resolve_tree(document.runtime, value, view)
   |> result.map(fn(address) {
-    SharedTree(runtime: document.runtime, address: address)
+    SharedTree(runtime: document.runtime, address: address, view: view)
   })
+}
+
+@target(javascript)
+/// Open an existing tree for compatibility inspection or schema upgrade.
+/// The returned handle cannot read or write until its view is compatible.
+pub fn open_tree(
+  document: Document(root),
+  value: Json,
+  view: tree_schema.ViewSchema,
+) -> Result(SharedTree, String) {
+  runtime.open_tree(document.runtime, value)
+  |> result.map(fn(address) {
+    SharedTree(runtime: document.runtime, address: address, view: view)
+  })
+}
+
+@target(javascript)
+pub fn tree_compatibility(
+  tree: SharedTree,
+) -> Result(tree_schema.Compatibility, String) {
+  runtime.tree_compatibility(tree.runtime, tree.address, tree.view)
+}
+
+@target(javascript)
+pub fn tree_upgrade_schema(tree: SharedTree) -> Result(Nil, String) {
+  runtime.tree_upgrade_schema(tree.runtime, tree.address, tree.view)
 }
 
 @target(javascript)
@@ -506,7 +536,7 @@ pub fn tree_get(
   tree: SharedTree,
   path: tree_types.FieldPath,
 ) -> Result(Option(tree_types.TreeValue), String) {
-  runtime.tree_read(tree.runtime, tree.address, path)
+  runtime.tree_read_view(tree.runtime, tree.address, tree.view, path)
 }
 
 @target(javascript)
@@ -525,9 +555,10 @@ pub fn tree_set(
   path: tree_types.FieldPath,
   value: tree_types.TreeValue,
 ) -> Result(Nil, String) {
-  runtime.tree_edit(
+  runtime.tree_edit_view(
     tree.runtime,
     tree.address,
+    tree.view,
     tree_types.SetField(path, value),
   )
 }
@@ -539,7 +570,12 @@ pub fn tree_clear(
   tree: SharedTree,
   path: tree_types.FieldPath,
 ) -> Result(Nil, String) {
-  runtime.tree_edit(tree.runtime, tree.address, tree_types.ClearField(path))
+  runtime.tree_edit_view(
+    tree.runtime,
+    tree.address,
+    tree.view,
+    tree_types.ClearField(path),
+  )
 }
 
 @target(javascript)
@@ -551,7 +587,7 @@ pub fn tree_map_get(
   path: tree_types.FieldPath,
   key: String,
 ) -> Result(Option(tree_types.TreeValue), String) {
-  runtime.tree_map_get(tree.runtime, tree.address, path, key)
+  runtime.tree_map_get_view(tree.runtime, tree.address, tree.view, path, key)
 }
 
 @target(javascript)
@@ -563,9 +599,10 @@ pub fn tree_map_set(
   key: String,
   value: tree_types.TreeValue,
 ) -> Result(Nil, String) {
-  runtime.tree_edit(
+  runtime.tree_edit_view(
     tree.runtime,
     tree.address,
+    tree.view,
     tree_types.MapSet(path, key, value),
   )
 }
@@ -578,7 +615,12 @@ pub fn tree_map_delete(
   path: tree_types.FieldPath,
   key: String,
 ) -> Result(Nil, String) {
-  runtime.tree_edit(tree.runtime, tree.address, tree_types.MapDelete(path, key))
+  runtime.tree_edit_view(
+    tree.runtime,
+    tree.address,
+    tree.view,
+    tree_types.MapDelete(path, key),
+  )
 }
 
 @target(javascript)
@@ -597,7 +639,7 @@ pub fn tree_map_entries(
   tree: SharedTree,
   path: tree_types.FieldPath,
 ) -> Result(List(#(String, tree_types.TreeValue)), String) {
-  runtime.tree_map_entries(tree.runtime, tree.address, path)
+  runtime.tree_map_entries_view(tree.runtime, tree.address, tree.view, path)
 }
 
 @target(javascript)

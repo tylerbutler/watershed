@@ -88,6 +88,14 @@ pub fn restore(
   view: schema.ViewSchema,
 ) -> Result(TreeState, TreeError) {
   use _ <- result.try(schema.can_view(snapshot.stored, view))
+  restore_unviewed(snapshot, view_id, local_session)
+}
+
+pub fn restore_unviewed(
+  snapshot: TreeSnapshot,
+  view_id: fluid_ids.StableId,
+  local_session: fluid_ids.SessionId,
+) -> Result(TreeState, TreeError) {
   use visible <- result.try(forest.import_data(
     view_id,
     snapshot.stored,
@@ -106,6 +114,13 @@ pub fn restore(
     0,
     snapshot.retained_wire,
   ))
+}
+
+pub fn compatibility(
+  state: TreeState,
+  view: schema.ViewSchema,
+) -> Result(schema.Compatibility, TreeError) {
+  schema.compatibility(stored_schema(state), view)
 }
 
 pub fn read(

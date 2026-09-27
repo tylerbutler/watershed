@@ -30,6 +30,19 @@ pub fn restore(
   rebind_state(state, compressor)
 }
 
+pub fn restore_unviewed(
+  snapshot: tree_kernel.TreeSnapshot,
+  view_id: fluid_ids.StableId,
+  compressor: fluid_ids.Compressor,
+) -> Result(tree_kernel.TreeState, TreeError) {
+  use state <- result.try(tree_kernel.restore_unviewed(
+    snapshot,
+    view_id,
+    fluid_ids.local_session(compressor),
+  ))
+  rebind_state(state, compressor)
+}
+
 fn rebind_state(
   state: tree_kernel.TreeState,
   compressor: fluid_ids.Compressor,

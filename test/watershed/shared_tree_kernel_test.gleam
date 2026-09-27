@@ -150,6 +150,22 @@ pub fn shared_tree_kernel_rejects_incompatible_view_test() {
   Nil
 }
 
+pub fn shared_tree_kernel_restores_supported_snapshot_without_view_test() {
+  let assert Ok(stored) = schema.stored_from_string(tree_schema)
+  let initial = history.inspect(history.new(session())).sequenced
+  let assert Ok(snapshot) =
+    tree_kernel.snapshot_from_parts(
+      view_id(),
+      stored,
+      forest.ForestData(Some(root()), [], 0),
+      initial,
+    )
+  let assert Ok(state) =
+    tree_kernel.restore_unviewed(snapshot, view_id(), session())
+  tree_kernel.read(state, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+}
+
 pub fn shared_tree_kernel_rejects_corrupt_forest_test() {
   let assert Ok(stored) = schema.stored_from_string(tree_schema)
   let initial = history.inspect(history.new(session())).sequenced

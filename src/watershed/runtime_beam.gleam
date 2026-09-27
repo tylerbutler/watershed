@@ -432,6 +432,12 @@ pub type Msg {
     view: tree_schema.ViewSchema,
     reply: Subject(Result(String, String)),
   )
+  OpenTree(value: Json, reply: Subject(Result(String, String)))
+  TreeCompatibility(
+    address: String,
+    view: tree_schema.ViewSchema,
+    reply: Subject(Result(tree_schema.Compatibility, String)),
+  )
   TreeRead(
     address: String,
     path: tree_types.FieldPath,
@@ -466,6 +472,36 @@ pub type Msg {
   TreeEdit(
     address: String,
     edit: tree_types.Edit,
+    reply: Subject(Result(Nil, String)),
+  )
+  TreeReadView(
+    address: String,
+    view: tree_schema.ViewSchema,
+    path: tree_types.FieldPath,
+    reply: Subject(Result(Option(tree_types.TreeValue), String)),
+  )
+  TreeMapGetView(
+    address: String,
+    view: tree_schema.ViewSchema,
+    path: tree_types.FieldPath,
+    key: String,
+    reply: Subject(Result(Option(tree_types.TreeValue), String)),
+  )
+  TreeMapEntriesView(
+    address: String,
+    view: tree_schema.ViewSchema,
+    path: tree_types.FieldPath,
+    reply: Subject(Result(List(#(String, tree_types.TreeValue)), String)),
+  )
+  TreeEditView(
+    address: String,
+    view: tree_schema.ViewSchema,
+    edit: tree_types.Edit,
+    reply: Subject(Result(Nil, String)),
+  )
+  TreeUpgradeSchema(
+    address: String,
+    view: tree_schema.ViewSchema,
     reply: Subject(Result(Nil, String)),
   )
   /// Summarize the current confirmed state to the storage of floodgate. On a
@@ -949,6 +985,28 @@ pub fn resolve_tree(
 }
 
 @target(erlang)
+pub fn open_tree(runtime: Subject(Msg), value: Json) -> Result(String, String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { OpenTree(value, reply) },
+  )
+}
+
+@target(erlang)
+pub fn tree_compatibility(
+  runtime: Subject(Msg),
+  address: String,
+  view: tree_schema.ViewSchema,
+) -> Result(tree_schema.Compatibility, String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { TreeCompatibility(address, view, reply) },
+  )
+}
+
+@target(erlang)
 /// Read a tree in the checked document core. This is not a typed tree facade.
 pub fn tree_read(
   runtime: Subject(Msg),
@@ -975,6 +1033,20 @@ pub fn tree_retained_snapshot(
 }
 
 @target(erlang)
+pub fn tree_read_view(
+  runtime: Subject(Msg),
+  address: String,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(Option(tree_types.TreeValue), String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { TreeReadView(address, view, path, reply) },
+  )
+}
+
+@target(erlang)
 pub fn tree_map_get(
   runtime: Subject(Msg),
   address: String,
@@ -985,6 +1057,21 @@ pub fn tree_map_get(
     runtime,
     waiting: connect_timeout_milliseconds,
     sending: fn(reply) { TreeMapGet(address, path, key, reply) },
+  )
+}
+
+@target(erlang)
+pub fn tree_map_get_view(
+  runtime: Subject(Msg),
+  address: String,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+  key: String,
+) -> Result(Option(tree_types.TreeValue), String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { TreeMapGetView(address, view, path, key, reply) },
   )
 }
 
@@ -1029,6 +1116,20 @@ pub fn tree_array_values(
 }
 
 @target(erlang)
+pub fn tree_map_entries_view(
+  runtime: Subject(Msg),
+  address: String,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(List(#(String, tree_types.TreeValue)), String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { TreeMapEntriesView(address, view, path, reply) },
+  )
+}
+
+@target(erlang)
 /// Submit one tree edit through the document transport.
 pub fn tree_edit(
   runtime: Subject(Msg),
@@ -1039,6 +1140,33 @@ pub fn tree_edit(
     runtime,
     waiting: connect_timeout_milliseconds,
     sending: fn(reply) { TreeEdit(address, edit, reply) },
+  )
+}
+
+@target(erlang)
+pub fn tree_edit_view(
+  runtime: Subject(Msg),
+  address: String,
+  view: tree_schema.ViewSchema,
+  edit: tree_types.Edit,
+) -> Result(Nil, String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { TreeEditView(address, view, edit, reply) },
+  )
+}
+
+@target(erlang)
+pub fn tree_upgrade_schema(
+  runtime: Subject(Msg),
+  address: String,
+  view: tree_schema.ViewSchema,
+) -> Result(Nil, String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { TreeUpgradeSchema(address, view, reply) },
   )
 }
 
@@ -1684,6 +1812,34 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       )
       actor.continue(state)
     }
+    OpenTree(value, reply) -> {
+      process.send(
+        reply,
+        read(
+          state,
+          Error("open_tree requires a ready document connection"),
+          fn(core) {
+            runtime_core.open_tree(core, value)
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
+    TreeCompatibility(address, view, reply) -> {
+      process.send(
+        reply,
+        read(
+          state,
+          Error("tree compatibility requires a ready document connection"),
+          fn(core) {
+            runtime_core.tree_compatibility(core, address, view)
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
     TreeRead(address, path, reply) -> {
       process.send(
         reply,
@@ -1754,6 +1910,20 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       )
       actor.continue(state)
     }
+    TreeReadView(address, view, path, reply) -> {
+      process.send(
+        reply,
+        read(
+          state,
+          Error("tree read requires a ready document connection"),
+          fn(core) {
+            runtime_core.tree_read_view(core, address, view, path)
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
     TreeArrayValues(address, path, reply) -> {
       process.send(
         reply,
@@ -1762,6 +1932,34 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
           Error("tree array read requires a ready document connection"),
           fn(core) {
             runtime_core.tree_array_values(core, address, path)
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
+    TreeMapGetView(address, view, path, key, reply) -> {
+      process.send(
+        reply,
+        read(
+          state,
+          Error("tree map read requires a ready document connection"),
+          fn(core) {
+            runtime_core.tree_map_get_view(core, address, view, path, key)
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
+    TreeMapEntriesView(address, view, path, reply) -> {
+      process.send(
+        reply,
+        read(
+          state,
+          Error("tree map read requires a ready document connection"),
+          fn(core) {
+            runtime_core.tree_map_entries_view(core, address, view, path)
             |> result.map_error(string.inspect)
           },
         ),
@@ -1810,7 +2008,92 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
           actor.continue(state)
         }
       }
-
+    TreeEditView(address, view, operation, reply) ->
+      case state.phase {
+        Ready(core, None) ->
+          case
+            runtime_core.submit_tree_edits_view(core, address, view, [operation])
+          {
+            Error(error) -> {
+              process.send(reply, Error(string.inspect(error)))
+              actor.continue(state)
+            }
+            Ok(#(core, events, outbound)) -> {
+              let #(next, outcome) =
+                send_or_suspend(
+                  State(..state, phase: Ready(core, None)),
+                  core,
+                  send_outbound_checked(state.channel, core.client_id, outbound),
+                )
+              process.send(reply, case next.phase {
+                Reconnecting(_) -> Ok(Nil)
+                _ -> outcome
+              })
+              fan_out(state.subscribers, events)
+              actor.continue(next)
+            }
+          }
+        Ready(_, Some(_)) | Reconnecting(_) -> {
+          process.send(
+            reply,
+            Error("tree edit requires a ready document connection"),
+          )
+          actor.continue(state)
+        }
+        SuspendedPendingTree(_, reason) -> {
+          process.send(reply, Error(reason))
+          actor.continue(state)
+        }
+        Connecting(_) | Failed(_) -> {
+          process.send(
+            reply,
+            Error("tree edit requires a ready document connection"),
+          )
+          actor.continue(state)
+        }
+      }
+    TreeUpgradeSchema(address, view, reply) ->
+      case state.phase {
+        Ready(core, None) ->
+          case runtime_core.submit_tree_upgrade(core, address, view) {
+            Error(error) -> {
+              process.send(reply, Error(string.inspect(error)))
+              actor.continue(state)
+            }
+            Ok(#(core, events, outbound)) -> {
+              let #(next, outcome) =
+                send_or_suspend(
+                  State(..state, phase: Ready(core, None)),
+                  core,
+                  send_outbound_checked(state.channel, core.client_id, outbound),
+                )
+              process.send(reply, case next.phase {
+                Reconnecting(_) -> Ok(Nil)
+                _ -> outcome
+              })
+              fan_out(state.subscribers, events)
+              actor.continue(next)
+            }
+          }
+        Ready(_, Some(_)) | Reconnecting(_) -> {
+          process.send(
+            reply,
+            Error("tree upgrade requires a ready document connection"),
+          )
+          actor.continue(state)
+        }
+        SuspendedPendingTree(_, reason) -> {
+          process.send(reply, Error(reason))
+          actor.continue(state)
+        }
+        Connecting(_) | Failed(_) -> {
+          process.send(
+            reply,
+            Error("tree upgrade requires a ready document connection"),
+          )
+          actor.continue(state)
+        }
+      }
     Put(address, key, value) ->
       edit(state, fn(core) { runtime_core.set(core, address, key, value) })
     Remove(address, key) ->

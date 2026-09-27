@@ -368,11 +368,14 @@ pub type BootstrapSeedInput {
 }
 
 pub opaque type BootstrapSeed {
-  BootstrapSeed(input: BootstrapSeedInput)
+  BootstrapSeed(
+    input: BootstrapSeedInput,
+    summary_view_id: Option(fluid_ids.StableId),
+  )
 }
 
 pub fn seed_has_tree(seed: BootstrapSeed) -> Bool {
-  let BootstrapSeed(input) = seed
+  let BootstrapSeed(input, _) = seed
   list.any(input.channels, fn(entry) {
     channel.snapshot_type(entry.snapshot) == channel.TreeChannel
   })
@@ -384,7 +387,7 @@ pub fn prepare_seed(
   seed: BootstrapSeed,
   new_session: fn() -> String,
 ) -> Result(BootstrapSeed, CoreError) {
-  let BootstrapSeed(input) = seed
+  let BootstrapSeed(input, summary_view_id) = seed
   case input.compressor {
     Some(compressor) ->
       case fluid_ids.has_local_state(compressor) {
@@ -408,8 +411,9 @@ pub fn prepare_seed(
               BadBootstrapSeed(string.inspect(error))
             }),
           )
-          bootstrap_seed(
+          bootstrap_seed_with_view_id(
             BootstrapSeedInput(..input, compressor: Some(compressor)),
+            summary_view_id,
           )
         }
       }
@@ -429,6 +433,13 @@ pub type Routing {
 
 pub fn bootstrap_seed(
   input: BootstrapSeedInput,
+) -> Result(BootstrapSeed, CoreError) {
+  bootstrap_seed_with_view_id(input, None)
+}
+
+fn bootstrap_seed_with_view_id(
+  input: BootstrapSeedInput,
+  summary_view_id: Option(fluid_ids.StableId),
 ) -> Result(BootstrapSeed, CoreError) {
   use _ <- result.try(seed_requirement(
     input.minimum_sequence_number >= 0
@@ -568,9 +579,10 @@ pub fn bootstrap_seed(
             None ->
               Error(BadBootstrapSeed("tree seed requires a document compressor"))
           })
-          use view_seed <- result.try(matching_tree_view(
+          use view_id <- result.try(matching_tree_view_id(
             input.tree_views,
             entry.route,
+            summary_view_id,
           ))
           let #(_, _, snapshot_history) = tree_kernel.snapshot_parts(snapshot)
           use _ <- result.try(seed_requirement(
@@ -579,12 +591,7 @@ pub fn bootstrap_seed(
               == input.minimum_sequence_number,
             "tree history does not match the document sequence point",
           ))
-          tree_runtime.restore(
-            snapshot,
-            view_seed.view_id,
-            view_seed.view,
-            compressor,
-          )
+          tree_runtime.restore_unviewed(snapshot, view_id, compressor)
           |> result.map_error(fn(error) {
             BadSummaryChannel(key, string.inspect(error))
           })
@@ -628,17 +635,22 @@ pub fn bootstrap_seed(
     channel.snapshot_type(root.snapshot) == channel.MapChannel,
     "bootstrap route is not a map",
   ))
-  Ok(BootstrapSeed(BootstrapSeedInput(..input, channels: channels)))
+  Ok(BootstrapSeed(
+    BootstrapSeedInput(..input, channels: channels),
+    summary_view_id,
+  ))
 }
 
-fn matching_tree_view(
+fn matching_tree_view_id(
   views: List(TreeViewSeed),
   route: fluid_container.Route,
-) -> Result(TreeViewSeed, CoreError) {
-  case list.filter(views, fn(view) { view.route == route }) {
-    [view] -> Ok(view)
-    [] -> Error(BadBootstrapSeed("tree channel has no matching view"))
-    _ -> Error(BadBootstrapSeed("tree channel has duplicate views"))
+  fallback: Option(fluid_ids.StableId),
+) -> Result(fluid_ids.StableId, CoreError) {
+  case list.filter(views, fn(view) { view.route == route }), fallback {
+    [view], _ -> Ok(view.view_id)
+    [], Some(view_id) -> Ok(view_id)
+    [], None -> Error(BadBootstrapSeed("tree channel has no matching view"))
+    [_, _, ..], _ -> Error(BadBootstrapSeed("tree channel has duplicate views"))
   }
 }
 
@@ -743,7 +755,7 @@ fn bootstrap_seeded_with_persistence(
   seed: BootstrapSeed,
   persistence: Option(fluid_document.DocumentSummary),
 ) -> Result(Bootstrapped, CoreError) {
-  let BootstrapSeed(input) = seed
+  let BootstrapSeed(input, summary_view_id) = seed
   use entries <- result.try(
     list.try_map(input.channels, fn(entry) {
       use key <- result.try(
@@ -760,6 +772,7 @@ fn bootstrap_seeded_with_persistence(
     connected.client_id,
     input.compressor,
     input.tree_views,
+    summary_view_id,
   ))
   start_core(
     connected,
@@ -803,29 +816,6 @@ pub fn bootstrap_document(
         )
       })
     })
-  let tree_views =
-    list.flat_map(fluid_document.datastores(summary), fn(store) {
-      list.flat_map(store.channels, fn(item) {
-        case item.snapshot {
-          channel.TreeSnapshot(snapshot) -> {
-            let #(stored, _, _) = tree_kernel.snapshot_parts(snapshot)
-            [#(fluid_container.Route(store.id, item.id), stored)]
-          }
-          _ -> []
-        }
-      })
-    })
-  use tree_views <- result.try(
-    list.try_map(tree_views, fn(entry) {
-      use view <- result.try(
-        tree_schema.view_from_json(tree_schema.stored_to_json(entry.1))
-        |> result.map_error(fn(error) {
-          BadBootstrapSeed(string.inspect(error))
-        }),
-      )
-      Ok(TreeViewSeed(entry.0, fluid_document.view_id(summary), view))
-    }),
-  )
   use root_store <- result.try(
     list.key_find(fluid_document.aliases(summary), "root")
     |> result.replace_error(BadBootstrapSeed("root alias is missing")),
@@ -842,8 +832,8 @@ pub fn bootstrap_document(
     |> result.replace_error(BadBootstrapSeed("bootstrap map is missing")),
   )
   let ChannelSeed(root_route, _, _) = root
-  use seed <- result.try(
-    bootstrap_seed(BootstrapSeedInput(
+  use seed <- result.try(bootstrap_seed_with_view_id(
+    BootstrapSeedInput(
       profile: RoutedSeed,
       sequence_number: fluid_document.sequence_number(summary),
       minimum_sequence_number: fluid_document.minimum_sequence_number(summary),
@@ -853,9 +843,10 @@ pub fn bootstrap_document(
       channels: channels,
       bootstrap_map: root_route,
       compressor: fluid_document.compressor(summary),
-      tree_views: tree_views,
-    )),
-  )
+      tree_views: [],
+    ),
+    Some(fluid_document.view_id(summary)),
+  ))
   bootstrap_seeded_with_persistence(connected, seed, Some(summary))
 }
 
@@ -944,6 +935,13 @@ pub fn resolve_tree(
     tree_schema.can_view(tree_kernel.stored_schema(state), view)
     |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
   )
+  Ok(address)
+}
+
+/// Open an attached tree without requiring the view to read its current schema.
+pub fn open_tree(core: Core, value: Json) -> Result(String, CoreError) {
+  use address <- result.try(resolve_handle_address(core, value))
+  use _ <- result.try(tree_channel(core, address))
   Ok(address)
 }
 
@@ -1254,6 +1252,7 @@ fn load_channels(
   replica: String,
   compressor: Option(fluid_ids.Compressor),
   views: List(TreeViewSeed),
+  summary_view_id: Option(fluid_ids.StableId),
 ) -> Result(#(Dict(String, ChannelState), List(String)), CoreError) {
   list.try_fold(seeded, #(dict.new(), []), fn(acc, entry) {
     let #(channels, channel_order) = acc
@@ -1265,8 +1264,12 @@ fn load_channels(
           None ->
             Error(BadBootstrapSeed("tree seed requires a document compressor"))
         })
-        use view <- result.try(matching_tree_view(views, seed.route))
-        tree_runtime.restore(snapshot, view.view_id, view.view, compressor)
+        use view_id <- result.try(matching_tree_view_id(
+          views,
+          seed.route,
+          summary_view_id,
+        ))
+        tree_runtime.restore_unviewed(snapshot, view_id, compressor)
         |> result.map(channel.TreeState)
         |> result.map_error(fn(error) {
           BadSummaryChannel(address, string.inspect(error))
@@ -2239,6 +2242,15 @@ fn tree_change_events(
   list.try_fold(after.channel_order, [], fn(events, address) {
     case dict.get(before.channels, address), dict.get(after.channels, address) {
       Ok(channel.TreeState(previous)), Ok(channel.TreeState(current)) -> {
+        let schema_events = case
+          tree_kernel.stored_schema(previous)
+          == tree_kernel.stored_schema(current)
+        {
+          True -> []
+          False -> [
+            #(address, channel.TreeEvent(tree_kernel.SchemaChanged(False))),
+          ]
+        }
         use old <- result.try(
           tree_kernel.read(previous, [])
           |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
@@ -2247,13 +2259,17 @@ fn tree_change_events(
           tree_kernel.read(current, [])
           |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
         )
-        Ok(case old == new {
-          True -> events
-          False ->
-            list.append(events, [
-              #(address, channel.TreeEvent(tree_kernel.TreeChanged(False))),
-            ])
-        })
+        let tree_events = case old == new {
+          True -> []
+          False -> [
+            #(address, channel.TreeEvent(tree_kernel.TreeChanged(False))),
+          ]
+        }
+        Ok(
+          events
+          |> list.append(schema_events)
+          |> list.append(tree_events),
+        )
       }
       _, _ -> Ok(events)
     }
@@ -3471,6 +3487,27 @@ pub fn tree_retained_snapshot(
   Ok(TreeRetainedSnapshot(snapshot, core.compressor))
 }
 
+pub fn tree_compatibility(
+  core: Core,
+  address: String,
+  view: tree_schema.ViewSchema,
+) -> Result(tree_schema.Compatibility, CoreError) {
+  use state <- result.try(tree_channel(core, address))
+  tree_kernel.compatibility(state, view)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+pub fn tree_read_view(
+  core: Core,
+  address: String,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(Option(tree_types.TreeValue), CoreError) {
+  use state <- result.try(checked_tree_channel(core, address, view))
+  tree_kernel.read(state, path)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
 pub fn tree_map_get(
   core: Core,
   address: String,
@@ -3478,6 +3515,18 @@ pub fn tree_map_get(
   key: String,
 ) -> Result(Option(tree_types.TreeValue), CoreError) {
   use state <- result.try(tree_channel(core, address))
+  tree_kernel.map_get(state, path, key)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+pub fn tree_map_get_view(
+  core: Core,
+  address: String,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+  key: String,
+) -> Result(Option(tree_types.TreeValue), CoreError) {
+  use state <- result.try(checked_tree_channel(core, address, view))
   tree_kernel.map_get(state, path, key)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3511,6 +3560,30 @@ pub fn tree_array_values(
   use state <- result.try(tree_channel(core, address))
   tree_kernel.array_values(state, path)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+pub fn tree_map_entries_view(
+  core: Core,
+  address: String,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(List(#(String, tree_types.TreeValue)), CoreError) {
+  use state <- result.try(checked_tree_channel(core, address, view))
+  tree_kernel.map_entries(state, path)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+fn checked_tree_channel(
+  core: Core,
+  address: String,
+  view: tree_schema.ViewSchema,
+) -> Result(tree_kernel.TreeState, CoreError) {
+  use state <- result.try(tree_channel(core, address))
+  use _ <- result.try(
+    tree_schema.can_view(tree_kernel.stored_schema(state), view)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  Ok(state)
 }
 
 fn tree_channel(
@@ -3582,6 +3655,19 @@ pub fn submit_tree_edits(
     False -> [#(address, channel.TreeEvent(tree_kernel.TreeChanged(True)))]
   }
   submit_tree_commits(core, address, route, state, compressor, commits, events)
+}
+
+pub fn submit_tree_edits_view(
+  core: Core,
+  address: String,
+  view: tree_schema.ViewSchema,
+  edits: List(tree_types.Edit),
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use _ <- result.try(checked_tree_channel(core, address, view))
+  submit_tree_edits(core, address, edits)
 }
 
 pub fn submit_tree_upgrade(
