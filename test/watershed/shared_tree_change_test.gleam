@@ -1179,6 +1179,60 @@ pub fn shared_tree_change_prune_keeps_unused_aliases_test() {
   pruned.aliases |> expect.to_equal([#(alias, root_id)])
 }
 
+pub fn shared_tree_change_rebase_preserves_trailing_sequence_tombstone_test() {
+  let assert Ok(authored_sequence) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        Some(atom(0)),
+        sequence_field.Attach(sequence_field.Insert(atom(0))),
+        None,
+      ),
+      sequence_field.Mark(1, Some(atom(10)), sequence_field.Noop, None),
+    ])
+  let assert Ok(empty_sequence) = sequence_field.from_marks([])
+  let assert Ok(authored) =
+    checked(
+      change.ChangeData(
+        ..empty_data(),
+        max_local_id: 10,
+        revisions: [change.RevisionInfo(revision_a(), None)],
+        fields: [#("root", change.SequenceField(authored_sequence))],
+      ),
+    )
+  let assert Ok(base) =
+    checked(
+      change.ChangeData(
+        ..empty_data(),
+        revisions: [change.RevisionInfo(revision_b(), None)],
+        fields: [#("root", change.SequenceField(empty_sequence))],
+      ),
+    )
+  let assert Ok(context) =
+    change.rebase_context([
+      change.RevisionInfo(revision_a(), None),
+      change.RevisionInfo(revision_b(), None),
+    ])
+  let assert Ok(rebased) =
+    change.rebase(
+      change.TaggedChange(Some(revision_a()), None, authored),
+      change.TaggedChange(Some(revision_b()), None, base),
+      context,
+    )
+  let assert [#("root", change.SequenceField(rebased_sequence))] =
+    change.to_data(rebased).fields
+  sequence_field.to_marks(rebased_sequence)
+  |> expect.to_equal([
+    sequence_field.Mark(
+      1,
+      Some(atom(0)),
+      sequence_field.Attach(sequence_field.Insert(atom(0))),
+      None,
+    ),
+    sequence_field.Mark(1, Some(atom(10)), sequence_field.Noop, None),
+  ])
+}
+
 pub fn shared_tree_change_removed_roots_and_refreshers_follow_ranges_test() {
   let child = atom(5)
   let field =

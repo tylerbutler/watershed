@@ -3005,7 +3005,7 @@ fn drop_trailing_sequence_context(
   marks: List(sequence_field.Mark),
 ) -> List(sequence_field.Mark) {
   case marks {
-    [sequence_field.Mark(_, _, sequence_field.Noop, None), ..rest] ->
+    [sequence_field.Mark(_, None, sequence_field.Noop, None), ..rest] ->
       drop_trailing_sequence_context(rest)
     _ -> marks
   }
