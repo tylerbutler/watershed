@@ -1038,77 +1038,13 @@ fn transfer_roots(
     _ -> {
       use #(work, delayed, progressed) <- result.try(
         list.try_fold(transfers, #(work, [], False), fn(acc, transfer) {
-          let TransferRange(source, destination, count) = transfer
-          let from_end =
-            source.revision == destination.revision
-            && source.local_id < destination.local_id
-          let range_offset = case from_end {
-            True -> count - 1
-            False -> 0
-          }
-          let current_source = offset(source, range_offset)
-          let current_destination = offset(destination, range_offset)
-          let work = acc.0
-          use work <- result.try(
-            case
-              dict.has_key(work.state.detached.entries, current_source)
-              || dict.has_key(work.refreshers, current_source)
-            {
-              True -> ensure_detached(work, current_source)
-              False -> Ok(work)
-            },
-          )
-          case
-            dict.get(work.state.detached.entries, current_source),
-            dict.has_key(work.state.detached.entries, current_destination)
-          {
-            Ok(entry), False -> {
-              use state <- result.try(register(
-                work.state,
-                current_destination,
-                entry.node_id,
-                work.revision,
-              ))
-              let pending = case list.key_find(work.pending, entry.node_id) {
-                Error(Nil) -> work.pending
-                Ok(fields) ->
-                  list.append(
-                    list.filter(work.pending, fn(pair) {
-                      pair.0 != entry.node_id
-                    }),
-                    [#(entry.node_id, fields)],
-                  )
-              }
-              let remaining = case count {
-                1 -> acc.1
-                _ ->
-                  case from_end {
-                    True -> [
-                      TransferRange(source, destination, count - 1),
-                      ..acc.1
-                    ]
-                    False -> [
-                      TransferRange(
-                        offset(source, 1),
-                        offset(destination, 1),
-                        count - 1,
-                      ),
-                      ..acc.1
-                    ]
-                  }
-              }
-              Ok(#(
-                Work(
-                  ..work,
-                  state: remove_entry(state, current_source),
-                  pending:,
-                ),
-                remaining,
-                True,
-              ))
-            }
-            _, _ -> Ok(#(work, [transfer, ..acc.1], acc.2))
-          }
+          use #(work, delayed, progressed) <- result.try(transfer_range_pass(
+            acc.0,
+            transfer,
+            [],
+            False,
+          ))
+          Ok(#(work, list.append(delayed, acc.1), acc.2 || progressed))
         }),
       )
       use _ <- result.try(check(
@@ -1119,6 +1055,98 @@ fn transfer_roots(
       transfer_roots(work, list.reverse(delayed))
     }
   }
+}
+
+fn transfer_range_pass(
+  work: Work,
+  transfer: TransferRange,
+  delayed: List(TransferRange),
+  progressed: Bool,
+) -> Result(#(Work, List(TransferRange), Bool), TreeError) {
+  let TransferRange(source, destination, count) = transfer
+  case next_transfer_offset(work, source, count) {
+    None -> Ok(#(work, [transfer, ..delayed], progressed))
+    Some(range_offset) -> {
+      let delayed = case range_offset {
+        0 -> delayed
+        _ -> [TransferRange(source, destination, range_offset), ..delayed]
+      }
+      let current_source = offset(source, range_offset)
+      let current_destination = offset(destination, range_offset)
+      use work <- result.try(ensure_detached(work, current_source))
+      use #(work, delayed, progressed) <- result.try(
+        case
+          dict.get(work.state.detached.entries, current_source),
+          dict.has_key(work.state.detached.entries, current_destination)
+        {
+          Ok(entry), False -> {
+            use state <- result.try(register(
+              work.state,
+              current_destination,
+              entry.node_id,
+              work.revision,
+            ))
+            let pending = case list.key_find(work.pending, entry.node_id) {
+              Error(Nil) -> work.pending
+              Ok(fields) ->
+                list.append(
+                  list.filter(work.pending, fn(pair) { pair.0 != entry.node_id }),
+                  [#(entry.node_id, fields)],
+                )
+            }
+            Ok(#(
+              Work(..work, state: remove_entry(state, current_source), pending:),
+              delayed,
+              True,
+            ))
+          }
+          _, _ ->
+            Ok(#(
+              work,
+              [TransferRange(current_source, current_destination, 1), ..delayed],
+              progressed,
+            ))
+        },
+      )
+      let remaining = count - range_offset - 1
+      case remaining {
+        0 -> Ok(#(work, delayed, progressed))
+        _ ->
+          transfer_range_pass(
+            work,
+            TransferRange(
+              offset(current_source, 1),
+              offset(current_destination, 1),
+              remaining,
+            ),
+            delayed,
+            progressed,
+          )
+      }
+    }
+  }
+}
+
+fn next_transfer_offset(work: Work, source: AtomId, count: Int) -> Option(Int) {
+  let ids =
+    list.append(
+      dict.keys(work.state.detached.entries),
+      dict.keys(work.refreshers),
+    )
+  list.fold(ids, None, fn(nearest, id) {
+    case id.revision == source.revision {
+      False -> nearest
+      True -> {
+        let range_offset = id.local_id - source.local_id
+        case range_offset >= 0 && range_offset < count, nearest {
+          False, _ -> nearest
+          True, None -> Some(range_offset)
+          True, Some(previous) if range_offset < previous -> Some(range_offset)
+          True, Some(_) -> nearest
+        }
+      }
+    }
+  })
 }
 
 fn destroy_roots(
