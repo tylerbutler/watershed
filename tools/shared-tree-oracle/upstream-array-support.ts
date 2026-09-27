@@ -1320,7 +1320,7 @@ export function forestCheckpointInput(
 	revisions: readonly RevisionTag[],
 	compressor: IIdCompressor,
 ): Record<string, unknown> {
-	assert(revisions.length >= 12, "Forest checkpoints need twelve revisions.");
+	assert(revisions.length >= 15, "Forest checkpoints need fifteen revisions.");
 	const context = {
 		idCompressor: compressor,
 		revisionTagCodec: new RevisionTagCodec(compressor),
@@ -1480,6 +1480,136 @@ export function forestCheckpointInput(
 		[0, "left1", 0],
 		[0, "right1", 0],
 	];
+	const atom = (revision: RevisionTag, localId: number): PlainAtom => ({
+		revision: Number(revision),
+		localId,
+	});
+	const parent = (field: string): PlainFieldId => ({ node: null, field });
+	const sequence = (change: unknown[]): PlainFieldChange => ({ kind: "Sequence", change });
+	const plainChange = (
+		revision: RevisionTag,
+		fields: PlainModularChange["fields"],
+		nodes: PlainModularChange["nodes"] = [],
+		parents: PlainModularChange["parents"] = [],
+		maxLocalId = 0,
+	): PlainModularChange => ({
+		maxLocalId,
+		revisions: [{ revision: Number(revision), rollbackOf: null }],
+		fields,
+		nodes,
+		parents,
+		aliases: [],
+		crossFieldKeys: [],
+		builds: [],
+		refreshers: [],
+		destroys: [],
+	});
+	const wrapper = "wrapper";
+	const detachedWrapper = atom(revisions[12], 0);
+	const renamedWrapper = atom(revisions[13], 20);
+	const seedDetached = plainChange(revisions[12], [[wrapper, sequence([{
+		count: 1,
+	}, {
+		type: "Remove",
+		id: 0,
+		count: 1,
+		revision: Number(revisions[12]),
+	}])]]);
+	const occupiedChild = atom(revisions[13], 30);
+	const emptyChild = atom(revisions[13], 31);
+	const globalRename = plainChange(revisions[13], [[wrapper, sequence([
+		{ count: 1, changes: occupiedChild },
+		{
+			type: "Remove",
+			id: renamedWrapper.localId,
+			count: 1,
+			cellId: detachedWrapper,
+			revision: renamedWrapper.revision,
+			changes: emptyChild,
+		},
+	])]], [
+		[occupiedChild, { fields: [["child", sequence([{
+			type: "Remove",
+			id: 21,
+			count: 1,
+			revision: Number(revisions[13]),
+		}])]] }],
+		[emptyChild, { fields: [["child", sequence([{
+			type: "Remove",
+			id: 22,
+			count: 1,
+			revision: Number(revisions[13]),
+		}])]] }],
+	], [
+		[occupiedChild, parent(wrapper)],
+		[emptyChild, parent(wrapper)],
+	], 31);
+	const followChild = atom(revisions[14], 32);
+	const renamedFollowUp = plainChange(revisions[14], [[wrapper, sequence([
+		{ count: 1 },
+		{
+			count: 1,
+			cellId: renamedWrapper,
+			changes: followChild,
+		},
+	])]], [
+		[followChild, { fields: [["label", sequence([{
+			type: "Remove",
+			id: 23,
+			count: 1,
+			revision: Number(revisions[14]),
+		}])]] }],
+	], [
+		[followChild, parent(wrapper)],
+	], 32);
+	const plainStep = (
+		id: string,
+		revision: RevisionTag,
+		change: PlainModularChange,
+	) => ({
+		id,
+		...replay("compose", [{
+			revision: Number(revision),
+			change,
+		}]),
+	});
+	const globalRenameInitialState = {
+		field: [{
+			type: "org.watershed.shared-tree.m3.ForestNode",
+			fields: [[wrapper, [
+				{
+					type: "org.watershed.shared-tree.m3.ForestNode",
+					fields: [
+						["label", [{
+							type: "com.fluidframework.leaf.string",
+							value: "occupied",
+							fields: [],
+						}]],
+						["child", [{
+							type: "com.fluidframework.leaf.string",
+							value: "live-child",
+							fields: [],
+						}]],
+					],
+				},
+				{
+					type: "org.watershed.shared-tree.m3.ForestNode",
+					fields: [
+						["label", [{
+							type: "com.fluidframework.leaf.string",
+							value: "detached",
+							fields: [],
+						}]],
+						["child", [{
+							type: "com.fluidframework.leaf.string",
+							value: "detached-child",
+							fields: [],
+						}]],
+					],
+				},
+			]]],
+		}],
+	};
 	return {
 		operation: "apply-modular",
 		initialState: {
@@ -1558,6 +1688,19 @@ export function forestCheckpointInput(
 					identityCandidates: inversionCandidates,
 					wrapFieldsAtIndex: 0,
 					steps: [inversionForwardStep, inversionRetryStep],
+				},
+				{
+					id: "global-rename-continuation",
+					initialState: globalRenameInitialState,
+					retainIndex: null,
+					retainPath: [0, wrapper, 1],
+					identityCandidates: [[0, wrapper, 0], [0, wrapper, 1]],
+					wrapFieldsAtIndex: 0,
+					steps: [
+						plainStep("detach-empty-wrapper", revisions[12], seedDetached),
+						plainStep("global-edit-and-rename", revisions[13], globalRename),
+						plainStep("edit-renamed-detached", revisions[14], renamedFollowUp),
+					],
 				},
 			],
 		},

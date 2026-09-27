@@ -24,7 +24,7 @@ const field_array_type = "org.watershed.shared-tree.m3.ForestField"
 
 const string_type = "com.fluidframework.leaf.string"
 
-const forest_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ForestField\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ForestNode\"]}}}},\"org.watershed.shared-tree.m3.ForestNode\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"child\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"left0\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"right0\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"left1\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"right1\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]}}}},\"org.watershed.shared-tree.m3.ForestRoots\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ForestNode\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ForestRoots\"]}}"
+const forest_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m3.ForestField\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ForestNode\"]}}}},\"org.watershed.shared-tree.m3.ForestNode\":{\"kind\":{\"object\":{\"label\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"child\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"left0\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"right0\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"left1\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"right1\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]},\"wrapper\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m3.ForestField\"]}}}},\"org.watershed.shared-tree.m3.ForestRoots\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m3.ForestNode\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m3.ForestRoots\"]}}"
 
 const cycle_array_type = "org.watershed.shared-tree.m3.cycle.Items"
 
@@ -1170,7 +1170,7 @@ fn complete_node_fields(
   fields: List(#(String, types.TreeValue)),
 ) -> List(#(String, types.TreeValue)) {
   list.fold(
-    ["label", "child", "left0", "right0", "left1", "right1"],
+    ["label", "child", "left0", "right0", "left1", "right1", "wrapper"],
     fields,
     fn(fields, key) {
       case list.key_find(fields, key) {

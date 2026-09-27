@@ -1760,6 +1760,33 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
       index: 0,
       parent: { field: "rootFieldKey", index: 0, parent: null },
     }, `${label}: second restored identity`);
+    const globalRename = modularRun("global-rename-continuation");
+    check(globalRename.checkpoints.length === 3
+      && globalRename.checkpoints.every((checkpoint) =>
+        checkpoint.result.accepted === true),
+    "modular-checkpoints global rename execution");
+    const globalRenameDelta = globalRename.checkpoints[1].delta;
+    check(nonemptyArray(globalRenameDelta.fields)
+      && nonemptyArray(globalRenameDelta.global)
+      && globalRenameDelta.rename.length === 1,
+    "modular-checkpoints occupied and empty wrapper edits");
+    assert.deepEqual(globalRenameDelta.rename, [{
+      oldId: { revision: -13, localId: 0 },
+      newId: { revision: -14, localId: 20 },
+      count: 1,
+    }], `${label}: detached wrapper rename`);
+    assert.deepEqual(globalRename.checkpoints[2].delta.global.map(({ id }) => id),
+      [{ revision: -14, localId: 20 }],
+      `${label}: renamed detached continuation target`);
+    const renamed = globalRename.checkpoints[2].after.detached.find(({ id }) =>
+      id.major === -14 && id.minor === 20);
+    assert.deepEqual(renamed?.values, [{
+      type: "org.watershed.shared-tree.m3.ForestNode",
+      fields: [],
+    }], `${label}: renamed detached continuation result`);
+    check(globalRename.checkpoints[2].after.identity?.field
+      === globalRename.checkpoints[1].after.identity?.field,
+    "modular-checkpoints renamed identity retention");
     check(output.get("invalid-overlap").at(-1)?.result?.accepted === false,
       "invalid overlap rejection");
     check(output.get("invalid-cycle")?.result?.accepted === false,

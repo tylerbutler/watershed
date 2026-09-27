@@ -1655,6 +1655,7 @@ function modularDeltaForForest(value: unknown): unknown {
 function wrapModularFieldsAtIndex(delta: unknown, index: number | null): unknown {
 	if (index === null) return delta;
 	object(delta, "The modular forest delta must be an object.");
+	if (delta.fields === undefined) return delta;
 	assert(Array.isArray(delta.fields), "The modular forest delta fields must be an array.");
 	const marks = [
 		...(index === 0 ? [] : [{ count: index }]),
