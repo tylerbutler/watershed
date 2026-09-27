@@ -688,6 +688,13 @@ test("sequence empty insert normalization requires checked operands", () => {
     (operands) => { operands.firstId.localId = -1; },
     (operands) => { operands.firstId.localId = Number.MAX_SAFE_INTEGER + 1; },
     (operands) => { operands.revision = {}; },
+    (operands) => { operands.revision = "revision-a"; },
+    (operands) => { operands.firstId.revision = "revision-a"; },
+    (operands) => { operands.firstId.revision = null; },
+    (operands) => {
+      operands.firstId.minor = operands.firstId.localId;
+      delete operands.firstId.localId;
+    },
   ]) {
     const value = structuredClone(fixture);
     const input = value.input.scenarios.find(({ id }) => id === "empty-insert");

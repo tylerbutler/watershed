@@ -156,6 +156,14 @@ identity. Public empty insert, empty remove, and empty same-array move emit no
 commit, events, pending edit, revision, or message, although the low-level
 editor retains a zero-count Insert mark.
 
+The checked native editor rejects serialized zero-count marks and represents
+validated empty insertion as an empty changeset. For that operation only,
+`sequence-field-editor` compares `raw.scenarios[].normalizedOutput` while
+retaining the actual unchecked source mark in `raw.scenarios[].output`.
+Both replay and fixture validation require safe nonnegative indices and local
+IDs, with the numeric revision forms used by the source editor. Invalid
+operands cannot become an empty success through this normalization.
+
 `array-forest-delta` treats the detached index as an unordered keyed
 collection. Source and native observations sort detached entries by source
 atom (`major`, with `null` first, then `minor`) before comparison. The

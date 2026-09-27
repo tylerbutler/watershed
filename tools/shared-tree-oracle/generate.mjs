@@ -1259,14 +1259,14 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
   const checkedRange = (index, count) => Number.isSafeInteger(index) && index >= 0
     && Number.isSafeInteger(count) && count >= 0
     && count <= Number.MAX_SAFE_INTEGER - index;
-  const checkedAtomRange = (value, count) => atomId(value)
-    && (value.localId ?? value.minor) >= 0
-    && count - 1 <= Number.MAX_SAFE_INTEGER - (value.localId ?? value.minor);
   const checkedSequenceInsertOperands = (operands) =>
     checkedRange(operands.index, operands.count)
-    && checkedAtomRange(operands.firstId, Math.max(1, operands.count))
-    && (typeof operands.revision === "string"
-      || Number.isSafeInteger(operands.revision));
+    && object(operands.firstId)
+    && Number.isSafeInteger(operands.firstId.revision)
+    && Number.isSafeInteger(operands.firstId.localId)
+    && operands.firstId.localId >= 0
+    && Math.max(1, operands.count) - 1 <= Number.MAX_SAFE_INTEGER - operands.firstId.localId
+    && Number.isSafeInteger(operands.revision);
   const plainDelta = (value, detail) => {
     check(object(value), `${detail} delta`);
     if (value.fields !== undefined) {
