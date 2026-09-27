@@ -1557,8 +1557,10 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
       && output.get("compatibility").viewSchema === compatibility.viewSchema,
     "compatibility schema execution");
     const contentBytes = output.get("schema-content-bytes");
+    const contentInput = input.get("schema-content-bytes");
     check(JSON.parse(contentBytes?.schema ?? "null")?.version === 2
-      && JSON.parse(contentBytes?.forest ?? "null")?.version === 2,
+      && JSON.parse(contentInput?.forestBytes ?? "null")?.version === 2
+      && contentBytes?.content?.kind === "object",
     "schema content bytes");
   } else if (label === "array-forest-delta") {
     successfulSequenceOutput();

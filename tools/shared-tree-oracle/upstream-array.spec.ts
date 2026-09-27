@@ -33,6 +33,7 @@ import { FluidClientVersion, FormatValidatorNoOp } from "../codec/index.js";
 import {
 	tagChange,
 	type GraphCommit,
+	type JsonableTree,
 	type RevisionTag,
 	type TaggedChange,
 } from "../core/index.js";
@@ -44,8 +45,11 @@ import {
 	type TreeView,
 } from "../simple-tree/index.js";
 import {
+	fieldBatchCodecBuilder,
 	intoDelta,
+	jsonableTreeFromFieldCursor,
 	schemaCodecBuilder,
+	TreeCompressionStrategy,
 	type ModularChangeset,
 } from "../feature-libraries/index.js";
 import { Tree, type SharedTreeChange } from "../shared-tree/index.js";
@@ -61,6 +65,7 @@ import {
 } from "./mocksForOpBunching.js";
 import {
 	assertIsSessionId,
+	makeTestFieldBatchContexts,
 	TestTreeProviderLite,
 } from "./utils.js";
 
@@ -463,6 +468,73 @@ function readPath(root: unknown, path: readonly string[]): unknown {
 	return value;
 }
 
+function decodedTreeValue(tree: JsonableTree): unknown {
+	const type = String(tree.type);
+	if (type === "com.fluidframework.leaf.string") {
+		assert(typeof tree.value === "string", "Decoded string leaf must contain a string.");
+		return { kind: "string", value: tree.value };
+	}
+	if (type === "com.fluidframework.leaf.number") {
+		assert(typeof tree.value === "number", "Decoded number leaf must contain a number.");
+		return { kind: "number", value: tree.value };
+	}
+	if (type === "com.fluidframework.leaf.boolean") {
+		assert(typeof tree.value === "boolean", "Decoded boolean leaf must contain a boolean.");
+		return { kind: "boolean", value: tree.value };
+	}
+	if (type === "com.fluidframework.leaf.null") {
+		assert(tree.value === null, "Decoded null leaf must contain null.");
+		return { kind: "null" };
+	}
+	const fields = tree.fields ?? {};
+	if (type === String(Items.identifier) || type === String(Points.identifier)) {
+		return {
+			kind: "array",
+			schemaId: type,
+			elements: (fields[""] ?? []).map(decodedTreeValue),
+		};
+	}
+	if (type === String(ArrayMap.identifier)) {
+		return {
+			kind: "map",
+			schemaId: type,
+			entries: Object.entries(fields)
+				.sort(([left], [right]) => left.localeCompare(right))
+				.map(([key, children]) => {
+					assert(children.length === 1, `Decoded map field ${key} must be optional.`);
+					return [key, decodedTreeValue(children[0])];
+				}),
+		};
+	}
+	return {
+		kind: "object",
+		type,
+		fields: Object.entries(fields)
+			.sort(([left], [right]) => left.localeCompare(right))
+			.map(([key, children]) => {
+				assert(children.length === 1, `Decoded object field ${key} must contain one tree.`);
+				return [key, decodedTreeValue(children[0])];
+			}),
+	};
+}
+
+function decodeSummaryContent(encoded: string): unknown {
+	const forest = JSON.parse(encoded) as Record<string, unknown>;
+	assert.deepEqual(forest.keys, ["rootFieldKey"], "Summary must contain the root field.");
+	const codec = fieldBatchCodecBuilder.build({
+		jsonValidator: FormatValidatorNoOp,
+		minVersionForCollab: FluidClientVersion.v2_117,
+	});
+	const context = makeTestFieldBatchContexts({
+		encodeType: TreeCompressionStrategy.Uncompressed,
+	});
+	const decoded = codec.decode(forest.fields as never, context.decode)
+		.map(jsonableTreeFromFieldCursor);
+	assert.equal(decoded.length, 1, "Summary must contain one detached field.");
+	assert.equal(decoded[0].length, 1, "Summary root field must contain one tree.");
+	return decodedTreeValue(decoded[0][0]);
+}
+
 export async function replayArraySchemaInput(input: Record<string, unknown>): Promise<unknown> {
 	assert(typeof input.operation === "string", "Schema replay needs an operation.");
 	assert(typeof input.schema === "string", "Schema replay needs a schema selector.");
@@ -530,9 +602,14 @@ export async function replayArraySchemaInput(input: Record<string, unknown>): Pr
 		}
 		case "summarize": {
 			const summary = (await provider.trees[0].summarize(true)).summary;
+			assert(typeof input.forestBytes === "string",
+				"Summary replay needs source forest bytes.");
+			const forest = summaryBlob(summary, "indexes", "Forest", "contents");
+			assert.equal(forest, input.forestBytes,
+				"Summary replay bytes must match the source summary.");
 			return {
 				schema: summaryBlob(summary, "indexes", "Schema", "SchemaString"),
-				forest: summaryBlob(summary, "indexes", "Forest", "contents"),
+				content: decodeSummaryContent(input.forestBytes),
 			};
 		}
 		default:
@@ -1906,6 +1983,7 @@ async function makeCases() {
 			schema: "objectArrays",
 			schemaBytes: schemas.objectArrays,
 			initialState: plainInitialRoot(),
+			forestBytes: summaryBlob(publicEvidence.initialSummary, "indexes", "Forest", "contents"),
 		},
 	};
 	const schemaScenarios: Scenario[] = [];

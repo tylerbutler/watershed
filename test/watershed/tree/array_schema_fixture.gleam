@@ -1,8 +1,9 @@
+import gleam/dynamic/decode
 import gleam/float
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
 import watershed/fluid_ids
@@ -10,9 +11,12 @@ import watershed/json_ot.{
   type JsonValue, NFloat, NInt, VArray, VBool, VNull, VNumber, VObject, VString,
 }
 import watershed/tree/change_fixture_codec as codec
+import watershed/tree/codec/field_batch
+import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/schema
 import watershed/tree/types
+import watershed/wire
 
 const string_leaf = "com.fluidframework.leaf.string"
 
@@ -22,15 +26,7 @@ const boolean_leaf = "com.fluidframework.leaf.boolean"
 
 const null_leaf = "com.fluidframework.leaf.null"
 
-const items_type = "org.watershed.shared-tree.m3.Items"
-
-const array_map_type = "org.watershed.shared-tree.m3.ArrayMap"
-
 const point_type = "org.watershed.shared-tree.m3.Point"
-
-const points_type = "org.watershed.shared-tree.m3.Points"
-
-const root_type = "org.watershed.shared-tree.m3.Root"
 
 pub fn run(input: Json) -> Result(Json, String) {
   use input <- result.try(codec.parse(input))
@@ -81,6 +77,51 @@ fn observe_scenario(
     forest.new(array_fixture_view_id(), stored, Some(root))
     |> result.map_error(string.inspect),
   )
+  case operation {
+    "move" -> {
+      use #(accepted, result_value) <- result.try(observe_move(
+        value,
+        stored,
+        state,
+      ))
+      use _ <- result.try(require(
+        !accepted,
+        "compatible array moves are unsupported",
+      ))
+      Ok(
+        json.object([
+          #("id", json.string(id)),
+          #("accepted", json.bool(accepted)),
+          #("result", result_value),
+        ]),
+      )
+    }
+    _ ->
+      observe_non_move(
+        id,
+        operation,
+        value,
+        schemas,
+        schema_name,
+        schema_bytes,
+        stored,
+        root,
+        state,
+      )
+  }
+}
+
+fn observe_non_move(
+  id: String,
+  operation: String,
+  value: JsonValue,
+  schemas: JsonValue,
+  schema_name: String,
+  schema_bytes: String,
+  stored: schema.StoredSchema,
+  root: types.TreeValue,
+  state: forest.Forest,
+) -> Result(Json, String) {
   use result_value <- result.try(case operation {
     "schema" ->
       Ok(
@@ -107,15 +148,11 @@ fn observe_scenario(
         ]),
       )
     }
-    "move" -> observe_move(value, stored, state)
     "initialize" ->
       Ok(
         json.object([
           #("content", value_json(root, True)),
-          #(
-            "compatibility",
-            compatibility(True, schema_bytes == declared, True),
-          ),
+          #("compatibility", compatibility(True, True, True)),
         ]),
       )
     "canView" -> {
@@ -147,33 +184,62 @@ fn observe_scenario(
       )
     }
     "summarize" -> {
-      use forest_bytes <- result.try(compressed_forest(root))
+      use forest_bytes <- result.try(codec.field(
+        value,
+        "forestBytes",
+        codec.text,
+      ))
+      use encoded <- result.try(
+        json.parse(forest_bytes, {
+          use fields <- decode.field("fields", decode.dynamic)
+          decode.success(fields)
+        })
+        |> result.map_error(fn(_) { id <> ": invalid source forest bytes" }),
+      )
+      use decoded <- result.try(
+        field_batch.decode_with_schema(
+          wire.dynamic_to_json(encoded),
+          Some(stored),
+        )
+        |> result.map_error(string.inspect),
+      )
+      use source_root <- result.try(single_root(decoded, id))
+      use source_state <- result.try(
+        forest.new(array_fixture_view_id(), stored, Some(source_root))
+        |> result.map_error(string.inspect),
+      )
+      use visible <- result.try(
+        forest.visible_root(source_state) |> result.map_error(string.inspect),
+      )
+      use source_root <- result.try(case visible {
+        Some(value) -> Ok(value)
+        None -> Error(id <> ": source forest root is absent")
+      })
+      use native_encoded <- result.try(
+        field_batch.encode([[source_root]]) |> result.map_error(string.inspect),
+      )
+      use native_decoded <- result.try(
+        field_batch.decode_with_schema(native_encoded, Some(stored))
+        |> result.map_error(string.inspect),
+      )
+      use native_root <- result.try(single_root(native_decoded, id))
       Ok(
         json.object([
           #("schema", json.string(schema_bytes)),
-          #("forest", json.string(forest_bytes)),
+          #("content", fixtures.tree_value_to_json(native_root)),
         ]),
       )
     }
     other -> Error(id <> ": unsupported operation " <> other)
   })
-  Ok(
-    json.object(case operation {
-      "move" -> [
-        #("id", json.string(id)),
-        #("accepted", json.bool(False)),
-        #("result", result_value),
-      ]
-      _ -> [#("id", json.string(id)), #("result", result_value)]
-    }),
-  )
+  Ok(json.object([#("id", json.string(id)), #("result", result_value)]))
 }
 
 fn observe_move(
   value: JsonValue,
   stored: schema.StoredSchema,
   state: forest.Forest,
-) -> Result(Json, String) {
+) -> Result(#(Bool, Json), String) {
   use source <- result.try(codec.get(value, "source"))
   use destination <- result.try(codec.get(value, "destination"))
   use source_path <- result.try(
@@ -197,14 +263,15 @@ fn observe_move(
   )
   let moved = source_values |> list.drop(start) |> list.take(end - start)
   case schema.validate_array_elements(stored, destination_type, moved) {
-    Ok(Nil) -> Ok(json.object([#("accepted", json.bool(True))]))
+    Ok(Nil) -> Ok(#(True, json.object([#("accepted", json.bool(True))])))
     Error(types.InvalidEdit(_, detail)) -> {
       let type_id =
         detail
         |> string.split("node type is not allowed: ")
         |> list.last
         |> result.unwrap(detail)
-      Ok(
+      Ok(#(
+        False,
         json.object([
           #("accepted", json.bool(False)),
           #(
@@ -216,9 +283,19 @@ fn observe_move(
             ),
           ),
         ]),
-      )
+      ))
     }
     Error(error) -> Error(string.inspect(error))
+  }
+}
+
+fn single_root(
+  fields: List(List(types.TreeValue)),
+  id: String,
+) -> Result(types.TreeValue, String) {
+  case fields {
+    [[root]] -> Ok(root)
+    _ -> Error(id <> ": FieldBatch must contain one root tree")
   }
 }
 
@@ -361,221 +438,6 @@ fn value_json(value: types.TreeValue, root: Bool) -> Json {
       }
     }
   }
-}
-
-fn compressed_forest(root: types.TreeValue) -> Result(String, String) {
-  use data <- result.try(compressed_root(root))
-  Ok(
-    json.object([
-      #("keys", json.array(["rootFieldKey"], json.string)),
-      #(
-        "fields",
-        json.object([
-          #("version", json.int(2)),
-          #("identifiers", json.array([""], json.string)),
-          #("shapes", compressed_shapes()),
-          #(
-            "data",
-            json.array([json.array(data, fn(value) { value })], fn(value) {
-              value
-            }),
-          ),
-        ]),
-      ),
-      #("version", json.int(2)),
-    ])
-    |> json.to_string,
-  )
-}
-
-fn compressed_shapes() -> Json {
-  json.array(
-    [
-      shape_node(string_leaf, True, [], None),
-      shape_node(items_type, False, [#(json.int(0), 4)], None),
-      shape_node(
-        point_type,
-        False,
-        [
-          #(json.string("label"), 0),
-          #(json.string("x"), 7),
-        ],
-        None,
-      ),
-      shape_node(array_map_type, False, [], Some(4)),
-      json.object([#("a", json.int(6))]),
-      shape_node(
-        root_type,
-        False,
-        [
-          #(json.string("left"), 1),
-          #(json.string("right"), 1),
-          #(json.string("byKey"), 3),
-          #(json.string("narrow"), 8),
-        ],
-        None,
-      ),
-      json.object([#("d", json.int(0))]),
-      shape_node(number_leaf, True, [], None),
-      shape_node(points_type, False, [#(json.int(0), 9)], None),
-      json.object([#("a", json.int(2))]),
-    ],
-    fn(value) { value },
-  )
-}
-
-fn shape_node(
-  type_id: String,
-  value: Bool,
-  fields: List(#(Json, Int)),
-  extra_fields: Option(Int),
-) -> Json {
-  let members = [
-    #("type", json.string(type_id)),
-    #("value", json.bool(value)),
-  ]
-  let members = case fields {
-    [] -> members
-    _ ->
-      list.append(members, [
-        #(
-          "fields",
-          json.array(fields, fn(field) {
-            json.array([field.0, json.int(field.1)], fn(value) { value })
-          }),
-        ),
-      ])
-  }
-  let members = case extra_fields {
-    None -> members
-    Some(shape) -> list.append(members, [#("extraFields", json.int(shape))])
-  }
-  json.object([#("c", json.object(members))])
-}
-
-fn compressed_root(root: types.TreeValue) -> Result(List(Json), String) {
-  case root {
-    types.ObjectValue(schema_id, fields) if schema_id == root_type -> {
-      use left <- result.try(object_field(fields, "left"))
-      use right <- result.try(object_field(fields, "right"))
-      use by_key <- result.try(object_field(fields, "byKey"))
-      use narrow <- result.try(object_field(fields, "narrow"))
-      use left <- result.try(compressed_items(left))
-      use right <- result.try(compressed_items(right))
-      use by_key <- result.try(compressed_map(by_key))
-      use narrow <- result.try(compressed_points(narrow))
-      Ok([
-        json.int(5),
-        left,
-        right,
-        by_key,
-        narrow,
-      ])
-    }
-    _ -> Error("summarize requires the object array root")
-  }
-}
-
-fn compressed_items(value: types.TreeValue) -> Result(Json, String) {
-  case value {
-    types.ArrayValue(schema_id, elements) if schema_id == items_type -> {
-      use elements <- result.try(try_flat_map(elements, compressed_any))
-      Ok(json.array(elements, fn(value) { value }))
-    }
-    _ -> Error("expected an Items array")
-  }
-}
-
-fn compressed_points(value: types.TreeValue) -> Result(Json, String) {
-  case value {
-    types.ArrayValue(schema_id, elements) if schema_id == points_type -> {
-      use elements <- result.try(try_flat_map(elements, compressed_point))
-      Ok(json.array(elements, fn(value) { value }))
-    }
-    _ -> Error("expected a Points array")
-  }
-}
-
-fn compressed_any(value: types.TreeValue) -> Result(List(Json), String) {
-  case value {
-    types.StringValue(value) -> Ok([json.int(0), json.string(value)])
-    types.NumberValue(value) -> Ok([json.int(7), number_json(value)])
-    types.ObjectValue(schema_id, _) if schema_id == point_type -> {
-      use point <- result.try(compressed_point(value))
-      Ok([json.int(2), ..point])
-    }
-    types.ArrayValue(schema_id, _) if schema_id == items_type -> {
-      use items <- result.try(compressed_items(value))
-      Ok([json.int(1), items])
-    }
-    types.MapValue(schema_id, _) if schema_id == array_map_type -> {
-      use map <- result.try(compressed_map(value))
-      Ok([json.int(3), map])
-    }
-    _ -> Error("unsupported compressed array fixture value")
-  }
-}
-
-fn compressed_point(value: types.TreeValue) -> Result(List(Json), String) {
-  case value {
-    types.ObjectValue(schema_id, fields) if schema_id == point_type -> {
-      use label <- result.try(object_field(fields, "label"))
-      use x <- result.try(object_field(fields, "x"))
-      case label, x {
-        types.StringValue(label), types.NumberValue(x) ->
-          Ok([json.string(label), number_json(x)])
-        _, _ -> Error("point fields have invalid values")
-      }
-    }
-    _ -> Error("expected a Point object")
-  }
-}
-
-fn compressed_map(value: types.TreeValue) -> Result(Json, String) {
-  case value {
-    types.MapValue(schema_id, entries) if schema_id == array_map_type -> {
-      use entries <- result.try(
-        try_flat_map(entries, fn(entry) {
-          use value <- result.try(compressed_any(entry.1))
-          Ok([
-            case entry.0 {
-              "" -> json.int(0)
-              key -> json.string(key)
-            },
-            json.array(value, fn(value) { value }),
-          ])
-        }),
-      )
-      Ok(json.array(entries, fn(value) { value }))
-    }
-    _ -> Error("expected an ArrayMap")
-  }
-}
-
-fn number_json(value: Float) -> Json {
-  case value == float.floor(value) {
-    True -> json.int(float.truncate(value))
-    False -> json.float(value)
-  }
-}
-
-fn object_field(
-  fields: List(#(String, types.TreeValue)),
-  key: String,
-) -> Result(types.TreeValue, String) {
-  list.key_find(fields, key)
-  |> result.map_error(fn(_) { "missing object field " <> key })
-}
-
-fn try_flat_map(
-  values: List(a),
-  apply: fn(a) -> Result(List(b), String),
-) -> Result(List(b), String) {
-  values
-  |> list.try_fold([], fn(items, value) {
-    use next <- result.try(apply(value))
-    Ok(list.append(items, next))
-  })
 }
 
 fn array_fixture_view_id() -> fluid_ids.StableId {

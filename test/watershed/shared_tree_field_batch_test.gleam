@@ -325,12 +325,12 @@ pub fn shared_tree_codec_field_batch_round_trips_array_values_with_schema_test()
 
 pub fn shared_tree_codec_field_batch_decodes_source_array_content_test() {
   let assert Ok(fixture) = fixtures.load("array-schema-content")
-  let assert Ok(expected) = fixture_codec.parse(fixture.expected)
-  let assert Ok(observations) =
-    fixture_codec.field(expected, "observations", fixture_codec.items)
-  let assert Ok(observation) = observations |> list.drop(9) |> list.first
-  let assert Ok(result) = fixture_codec.get(observation, "result")
-  let assert Ok(raw) = fixture_codec.field(result, "forest", fixture_codec.text)
+  let assert Ok(input) = fixture_codec.parse(fixture.input)
+  let assert Ok(scenarios) =
+    fixture_codec.field(input, "scenarios", fixture_codec.items)
+  let assert Ok(summary) = scenarios |> list.drop(9) |> list.first
+  let assert Ok(raw) =
+    fixture_codec.field(summary, "forestBytes", fixture_codec.text)
   let assert Ok(encoded) =
     json.parse(raw, {
       use fields <- decode.field("fields", decode.dynamic)
