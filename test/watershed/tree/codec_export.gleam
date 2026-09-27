@@ -20,6 +20,7 @@ import watershed/tree/codec
 import watershed/tree/codec/field_batch
 import watershed/tree/codec/summary
 import watershed/tree/forest
+import watershed/tree/sequence_field
 import watershed/tree/summary as tree_summary
 import watershed/tree/types.{
   ArrayMove, ArrayRemove, AtomId, ClearField, MapSet, SetField, StringValue,
@@ -849,20 +850,29 @@ fn array_peer_summary_item(
     )
     |> native,
   )
-  use roots <- result.try(change.relevant_removed_roots(authored) |> native)
   use removed <- result.try(forest.read(state, ["narrow", "0"]) |> native)
   use removed <- result.try(case removed {
     Some(value) -> Ok(value)
     None -> Error("peer summary removal has no source node")
   })
+  let authored_data = change.to_data(authored)
+  use detached <- result.try(
+    first_detach(authored_data)
+    |> result.map_error(fn(_) { "native peer summary has no detach" }),
+  )
   use authored <- result.try(
-    change.update_refreshers(
-      authored,
-      roots,
-      list.map(roots, fn(root) { forest.Build(root, [removed]) }),
+    change.from_data(
+      change.ChangeData(..authored_data, refreshers: [
+        forest.Build(detached, [removed]),
+      ]),
+      order,
     )
     |> native,
   )
+  use _ <- result.try(case change.to_data(authored).refreshers {
+    [] -> Error("native peer summary did not retain its refresher")
+    _ -> Ok(Nil)
+  })
   let summary.EditManagerSummary(trunk, branches) = decoded.history
   use base <- result.try(
     list.last(trunk)
@@ -1471,6 +1481,17 @@ fn optional_detach(field: change.FieldChange) -> Result(types.AtomId, Nil) {
         Some(replacement) -> Ok(replacement.detach_id)
         None -> Error(Nil)
       }
+    change.SequenceField(value) ->
+      value
+      |> sequence_field.to_marks
+      |> list.filter_map(fn(mark) {
+        case mark.effect {
+          sequence_field.Detach(sequence_field.Remove(id, _))
+          | sequence_field.Detach(sequence_field.MoveOut(id, _, _)) -> Ok(id)
+          _ -> Error(Nil)
+        }
+      })
+      |> list.first
     _ -> Error(Nil)
   }
 }
