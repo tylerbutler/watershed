@@ -400,6 +400,26 @@ pub fn shared_tree_codec_field_batch_decodes_source_array_content_test() {
   |> expect.to_equal(Ok([[root]]))
 }
 
+pub fn shared_tree_codec_field_batch_decodes_omitted_empty_array_field_test() {
+  let encoded =
+    encoded_batch(
+      [
+        json.object([
+          #(
+            "c",
+            json.object([
+              #("type", json.string(array_type)),
+              #("value", json.bool(False)),
+            ]),
+          ),
+        ]),
+      ],
+      [stream([json.int(0)])],
+    )
+  field_batch.decode_with_schema(encoded, Some(array_schema()))
+  |> expect.to_equal(Ok([[ArrayValue(array_type, [])]]))
+}
+
 pub fn shared_tree_codec_field_batch_accepts_finite_recursive_shape_test() {
   let encoded =
     encoded_batch(

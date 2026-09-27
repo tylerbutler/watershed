@@ -1338,6 +1338,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
       "history-reconciliation", "tree-codecs", "tree-kernel",
       "bootstrap-map-handles", "batched-commits",
       "map-schema-content", "map-field-algebra", "map-history-codecs",
+      "array-schema-content",
     ]);
   }
 });

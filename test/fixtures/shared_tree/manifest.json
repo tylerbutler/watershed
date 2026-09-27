@@ -223,7 +223,8 @@
       "batched-commits",
       "map-schema-content",
       "map-field-algebra",
-      "map-history-codecs"
+      "map-history-codecs",
+      "array-schema-content"
     ],
     "erlang": [
       "id-ranges",
@@ -240,7 +241,8 @@
       "batched-commits",
       "map-schema-content",
       "map-field-algebra",
-      "map-history-codecs"
+      "map-history-codecs",
+      "array-schema-content"
     ]
   },
   "cases": [

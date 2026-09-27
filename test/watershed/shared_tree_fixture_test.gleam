@@ -313,6 +313,7 @@ pub fn shared_tree_fixture_loads_all_required_corpus_ids_test() -> Nil {
     #("container-foundations", "container"),
     #("summary-foundations", "summary"),
     #("map-schema-content", "schema"),
+    #("array-schema-content", "schema"),
   ]
   |> list.each(fn(required) {
     let #(id, domain) = required

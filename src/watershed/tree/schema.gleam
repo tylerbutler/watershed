@@ -1,4 +1,4 @@
-//// Fixed object schemas for the Fluid 3.1.0 schema-v2 profile.
+//// Fixed schemas for the Fluid 3.1.0 schema-v2 profile.
 ////
 //// Stored and view schemas use the persisted schema format. These functions
 //// do not accept JavaScript view configuration objects or apply schema upgrades.

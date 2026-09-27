@@ -1,4 +1,4 @@
-//// Persistent content for the fixed SharedTree object profile.
+//// Persistent content for the fixed SharedTree profile.
 ////
 //// Supply a fresh view ID for each independent view or import. References
 //// belong to one accepted state sequence. Use a new view ID for a fork.
@@ -1125,12 +1125,15 @@ pub fn node_path(
   state: Forest,
   path: FieldPath,
 ) -> Result(List(FieldStep), TreeError) {
-  use #(_, steps) <- result.try(
+  use #(node, steps) <- result.try(
     resolve(state, state.root, path, path, [
       FieldStep("rootFieldKey", 0),
     ]),
   )
-  Ok(steps)
+  case node {
+    Some(_) -> Ok(steps)
+    None -> Error(InvalidEdit(path, "field is absent"))
+  }
 }
 
 /// Return the schema identifier for a map node.

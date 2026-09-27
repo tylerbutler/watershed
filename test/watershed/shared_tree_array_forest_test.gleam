@@ -83,3 +83,49 @@ pub fn shared_tree_array_forest_rejects_invalid_indices_test() -> Nil {
   let _ = forest.read(state, ["1", "child"]) |> expect.to_be_error
   Nil
 }
+
+pub fn shared_tree_array_forest_reports_types_values_and_nested_steps_test() -> Nil {
+  let root =
+    types.ObjectValue("org.watershed.shared-tree.m3.Root", [
+      #(
+        "left",
+        types.ArrayValue(items_type, [
+          types.ObjectValue("org.watershed.shared-tree.m3.Point", [
+            #("label", types.StringValue("point")),
+            #("x", types.NumberValue(2.0)),
+          ]),
+        ]),
+      ),
+      #("right", types.ArrayValue(items_type, [])),
+      #("byKey", types.MapValue("org.watershed.shared-tree.m3.ArrayMap", [])),
+      #("narrow", types.ArrayValue("org.watershed.shared-tree.m3.Points", [])),
+    ])
+  let assert Ok(state) =
+    forest.new(
+      array_fixture.view_id(),
+      array_fixture.stored("objectArrays"),
+      Some(root),
+    )
+  forest.array_type(state, ["left"]) |> expect.to_equal(Ok(items_type))
+  forest.array_values(state, ["left"])
+  |> expect.to_equal(
+    Ok([
+      types.ObjectValue("org.watershed.shared-tree.m3.Point", [
+        #("label", types.StringValue("point")),
+        #("x", types.NumberValue(2.0)),
+      ]),
+    ]),
+  )
+  forest.node_path(state, ["left", "0", "label"])
+  |> expect.to_equal(
+    Ok([
+      forest.FieldStep("rootFieldKey", 0),
+      forest.FieldStep("left", 0),
+      forest.FieldStep("", 0),
+      forest.FieldStep("label", 0),
+    ]),
+  )
+  forest.node_path(state, ["right", "0"]) |> expect.to_be_error
+  let _ = forest.array_values(state, []) |> expect.to_be_error
+  Nil
+}
