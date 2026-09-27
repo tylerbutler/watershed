@@ -382,12 +382,11 @@ fn apply_moved_children(
   case length < mark.count {
     True -> {
       use #(first, second) <- result.try(sequence_field.split_mark(mark, length))
-      use #(first, context) <- result.try(apply_inverted_child(
-        first,
-        effect,
-        field,
-        context,
-      ))
+      let first = case effect {
+        Some(moves.InvertedChild(child)) ->
+          sequence_field.Mark(..first, child: Some(child))
+        _ -> first
+      }
       use #(rest, context) <- result.try(apply_moved_children(
         second,
         sequence_field.offset_atom(original_id, length),

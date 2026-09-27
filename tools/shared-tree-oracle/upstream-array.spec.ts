@@ -90,7 +90,8 @@ const scenarioIds = {
 		"sequence-tombstone-rebase", "nested-ancestors",
 		"common-ancestors", "cross-field-endpoints", "nested-cross-field-endpoints",
 		"nested-aliased-chain", "nested-outer-effects", "nested-aliased-conversion-retry",
-		"multi-revision-inversion-retry", "three-pass-nested-moves",
+		"multi-revision-inversion-retry", "multi-revision-inversion-retry-split",
+		"three-pass-nested-moves",
 		"sequence-ancestor-rebase", "sequence-ancestor-rebase-intersecting",
 		"node-table", "parent-table", "alias-table",
 		"ownership-roundtrip",
@@ -2410,6 +2411,15 @@ async function makeCases() {
 		),
 		initialState: visible(initialRoot()),
 	};
+	const multiRevisionSplitInverse = {
+		...multiRevisionInversionInput(
+			[r0, r1, r5],
+			modularCompressor,
+			modularRevisions,
+			true,
+		),
+		initialState: visible(initialRoot()),
+	};
 	const sequenceAncestorAuthored = emptyChange(r7, [["outer", sequence([
 		{ count: 1, changes: atom(r7, 80) },
 	])]], {
@@ -2603,6 +2613,7 @@ async function makeCases() {
 		"nested-aliased-conversion-retry":
 			nestedAliasedConversionRetry as unknown as Record<string, unknown>,
 		"multi-revision-inversion-retry": multiRevisionInverse,
+		"multi-revision-inversion-retry-split": multiRevisionSplitInverse,
 		"three-pass-nested-moves": multiPassComposeInput(
 			[r0, r1, r2, r3, r4],
 			modularCompressor,
@@ -2662,6 +2673,7 @@ async function makeCases() {
 					invalidateDependents?: boolean;
 					target?: string;
 					localId?: number;
+					id?: { revision: number | null; localId: number };
 					found?: boolean;
 					count?: number;
 					returnedLength?: number;
@@ -2970,6 +2982,21 @@ async function makeCases() {
 				graph.maxLocalId,
 				61,
 				"Two original revisions with local ID 10 must reserve through 61.",
+			);
+		}
+		if (id === "multi-revision-inversion-retry-split") {
+			assert.deepEqual(
+				rawOutput.coordination.managerCalls
+					.filter(({ method }) => method === "onMoveIn")
+					.map(({ field, id: child }) => [
+						field.field,
+						child?.revision,
+						child?.localId,
+					]),
+				[
+					["left1", Number(r1), 30],
+				],
+				"The split prefix must apply its child without an onMoveIn callback.",
 			);
 		}
 		if (id === "three-pass-nested-moves") {

@@ -1207,6 +1207,7 @@ export function multiRevisionInversionInput(
 	revisions: readonly [RevisionTag, RevisionTag, RevisionTag],
 	compressor: IIdCompressor,
 	contextRevisions: readonly RevisionTag[] = revisions,
+	splitFirstMove = false,
 ): ReplayInput {
 	const [firstRevision, secondRevision, inverseRevision] = revisions;
 	const atom = (revision: RevisionTag, localId: number): PlainAtom => ({
@@ -1225,17 +1226,25 @@ export function multiRevisionInversionInput(
 			["left0", sequence([{
 				type: "MoveIn",
 				id: 10,
-				count: 1,
+				count: splitFirstMove ? 2 : 1,
 				cellId: atom(firstRevision, 12),
 				revision: Number(firstRevision),
 			}])],
-			["right0", sequence([{
-				type: "MoveOut",
-				id: 10,
-				count: 1,
-				revision: Number(firstRevision),
-				changes: atom(firstRevision, 30),
-			}])],
+			["right0", sequence([
+				{
+					type: "MoveOut",
+					id: 10,
+					count: 1,
+					revision: Number(firstRevision),
+					changes: atom(firstRevision, 30),
+				},
+				...(splitFirstMove ? [{
+					type: "MoveOut",
+					id: 11,
+					count: 1,
+					revision: Number(firstRevision),
+				}] : []),
+			])],
 			["left1", sequence([{
 				type: "MoveIn",
 				id: 10,
@@ -1272,7 +1281,7 @@ export function multiRevisionInversionInput(
 				target: "source",
 				revision: Number(firstRevision),
 				localId: 10,
-				count: 1,
+				count: splitFirstMove ? 2 : 1,
 				field: parent("right0"),
 			},
 			{
@@ -1286,7 +1295,7 @@ export function multiRevisionInversionInput(
 				target: "destination",
 				revision: Number(firstRevision),
 				localId: 10,
-				count: 1,
+				count: splitFirstMove ? 2 : 1,
 				field: parent("left0"),
 			},
 		],

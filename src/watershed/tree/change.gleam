@@ -493,6 +493,14 @@ fn derived_cross_field_keys(
   data: ChangeData,
   identity_order: IdentityOrder,
 ) -> Result(List(CrossFieldKey), TreeError) {
+  use keys <- result.try(sorted_derived_cross_field_keys(data, identity_order))
+  Ok(coalesce_cross_field_keys(keys))
+}
+
+fn sorted_derived_cross_field_keys(
+  data: ChangeData,
+  identity_order: IdentityOrder,
+) -> Result(List(CrossFieldKey), TreeError) {
   use root <- result.try(cross_field_keys_from_fields(data.fields, None))
   use nested <- result.try(
     list.try_fold(data.nodes, [], fn(keys, entry) {
@@ -504,11 +512,7 @@ fn derived_cross_field_keys(
       Ok(list.append(keys, found))
     }),
   )
-  use keys <- result.try(sort_cross_field_keys(
-    list.append(root, nested),
-    identity_order,
-  ))
-  Ok(coalesce_cross_field_keys(keys))
+  sort_cross_field_keys(list.append(root, nested), identity_order)
 }
 
 fn coalesce_cross_field_keys(keys: List(CrossFieldKey)) -> List(CrossFieldKey) {
@@ -1905,7 +1909,7 @@ pub fn invert_with_trace(
       })
     False -> []
   }
-  let inverted =
+  let inverted_data =
     ChangeData(
       max_local_id: int_max(
         state.watermark,
@@ -1926,8 +1930,18 @@ pub fn invert_with_trace(
       refreshers: [],
       cross_field_keys: [],
     )
-  use inverted <- result.try(from_data(inverted, change.change.identity_order))
-  Ok(#(inverted, moves.trace(state.move_context)))
+  use cross_field_keys <- result.try(sorted_derived_cross_field_keys(
+    inverted_data,
+    change.change.identity_order,
+  ))
+  use inverted <- result.try(from_data(
+    ChangeData(..inverted_data, cross_field_keys:),
+    change.change.identity_order,
+  ))
+  Ok(#(
+    Changeset(..inverted, cross_field_keys:),
+    moves.trace(state.move_context),
+  ))
 }
 
 pub fn rebase(
