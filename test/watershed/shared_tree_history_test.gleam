@@ -1,7 +1,10 @@
+import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/string
 import startest/expect
 import watershed/fluid_ids
+import watershed/json_ot
 import watershed/tree/change
 import watershed/tree/fixtures
 import watershed/tree/forest
@@ -208,13 +211,57 @@ pub fn shared_tree_history_starts_empty_test() -> Nil {
 
 pub fn shared_tree_schema_evolution_history_test() -> Nil {
   let assert Ok(fixture) = fixtures.load("schema-evolution-history")
-  let assert Ok(actual) = schema_evolution_fixture.run_history(fixture.input)
+  let actual = run_history(fixture.input)
   let assert Ok(actual) = schema_evolution_fixture.history_projection(actual)
   let assert Ok(expected) =
     schema_evolution_fixture.history_projection(fixture.expected)
   case fixtures.first_difference(actual, expected) {
     Ok(Nil) -> Nil
     Error(path) -> panic as { "schema evolution history differs at " <> path }
+  }
+}
+
+pub fn shared_tree_history_scenario_ids_do_not_change_observations_test() -> Nil {
+  let assert Ok(fixture) = fixtures.load("schema-evolution-history")
+  assert_history_scenario_rename(
+    fixture.input,
+    "pending-data-remote-upgrade",
+    "renamed-pending-data-remote-upgrade",
+  )
+  assert_history_scenario_rename(
+    fixture.input,
+    "schema-schema-right-first",
+    "renamed-schema-schema-right-first",
+  )
+}
+
+fn assert_history_scenario_rename(
+  input: json.Json,
+  before: String,
+  after: String,
+) -> Nil {
+  let renamed_text =
+    input
+    |> json.to_string
+    |> string.replace("\"" <> before <> "\"", "\"" <> after <> "\"")
+  let assert Ok(renamed_value) = json.parse(renamed_text, json_ot.decoder())
+  let renamed_input = json_ot.to_json(renamed_value)
+  let original = run_history(input)
+  let renamed = run_history(renamed_input)
+
+  renamed
+  |> json.to_string
+  |> expect.to_equal(
+    original
+    |> json.to_string
+    |> string.replace("\"" <> before <> "\"", "\"" <> after <> "\""),
+  )
+}
+
+fn run_history(input: json.Json) -> json.Json {
+  case schema_evolution_fixture.run_history(input) {
+    Ok(output) -> output
+    Error(detail) -> panic as { detail }
   }
 }
 
@@ -498,6 +545,37 @@ pub fn shared_tree_history_rebased_ack_replay_does_not_ack_next_test() -> Nil {
   duplicate.effects |> expect.to_equal([])
 }
 
+pub fn shared_tree_history_later_replay_snapshot_restores_test() -> Nil {
+  let first = empty_commit(revision_a(), local_session())
+  let assert Ok(local) =
+    history.append_local(history.new(local_session()), first)
+  let assert Ok(#(acked, Nil)) =
+    history.receive(
+      local.history,
+      first,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(#(replayed, Nil)) =
+    history.receive(
+      acked.history,
+      first,
+      types.SequencePoint(2, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(snapshot) = history.snapshot(replayed.history)
+
+  snapshot.trunk |> list.length |> expect.to_equal(2)
+  history.restore(snapshot, local_session()) |> expect.to_be_ok
+  Nil
+}
+
 pub fn shared_tree_history_rebases_pending_over_remote_test() -> Nil {
   let #(local, remote, initial_forest, allocation) = conflicting_commits()
   let assert Ok(local_update) =
@@ -617,14 +695,15 @@ pub fn shared_tree_history_restore_allows_divergent_revision_copy_test() -> Nil 
   Nil
 }
 
-pub fn shared_tree_history_restore_rejects_duplicate_trunk_revision_test() -> Nil {
+pub fn shared_tree_history_restore_rejects_conflicting_trunk_revision_test() -> Nil {
   let commit = peer_edit(7.0)
+  let conflicting = peer_edit(8.0)
   let snapshot =
     history.HistorySnapshot(
       history.InitialBase,
       [
         history.SequencedCommit(commit, types.SequencePoint(1, 0)),
-        history.SequencedCommit(commit, types.SequencePoint(2, 0)),
+        history.SequencedCommit(conflicting, types.SequencePoint(2, 0)),
       ],
       [],
       2,

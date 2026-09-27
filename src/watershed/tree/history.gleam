@@ -297,7 +297,6 @@ pub fn receive(
   allocation: allocation,
   mint: MintRevision(allocation),
 ) -> Result(#(HistoryUpdate, allocation), TreeError) {
-  let _ = mint
   use _ <- result.try(validate_receive_fields(
     state,
     point,
@@ -315,6 +314,7 @@ pub fn receive(
           reference_sequence_number,
           minimum_sequence_number,
           allocation,
+          mint,
         )
       None -> {
         use _ <- result.try(check(
@@ -370,6 +370,7 @@ fn receive_duplicate(
   reference_sequence_number: Int,
   minimum_sequence_number: Int,
   allocation: allocation,
+  mint: MintRevision(allocation),
 ) -> Result(#(HistoryUpdate, allocation), TreeError) {
   use receipt <- result.try(
     case
@@ -402,6 +403,7 @@ fn receive_duplicate(
         reference_sequence_number,
         minimum_sequence_number,
         allocation,
+        mint,
       )
     True -> {
       use expected_reference <- result.try(
@@ -433,13 +435,26 @@ fn receive_replayed_duplicate(
   reference_sequence_number: Int,
   supplied_minimum: Int,
   allocation: allocation,
+  mint: MintRevision(allocation),
 ) -> Result(#(HistoryUpdate, allocation), TreeError) {
   use _ <- result.try(check(
     supplied_minimum >= state.minimum_sequence_number,
     "minimum sequence number regresses",
   ))
   use _ <- result.try(validate_new_receive_order(state, point))
-  let sequenced = SequencedCommit(commit, point)
+  let next_trunk = list.append(state.trunk, [SequencedCommit(commit, point)])
+  let known_revisions = [commit.revision, ..history_revisions(state)]
+  use #(pending, local_base, effects, allocation, rollbacks, next_node_id) <- result.try(
+    rebase_pending(
+      state,
+      next_trunk,
+      state.rollbacks,
+      known_revisions,
+      state.next_node_id,
+      allocation,
+      mint,
+    ),
+  )
   let receipt =
     RetainedReceipt(
       commit.revision,
@@ -448,16 +463,19 @@ fn receive_replayed_duplicate(
       Some(reference_sequence_number),
       Some(supplied_minimum),
     )
-  use effects <- result.try(shared_change.effects(tagged_commit(commit)))
   let next =
     History(
       ..state,
-      trunk: list.append(state.trunk, [sequenced]),
+      trunk: next_trunk,
+      pending: pending,
+      local_base: local_base,
+      rollbacks: rollbacks,
       receipts: replace_receipt(state.receipts, receipt),
+      next_node_id: next_node_id,
       sequence_number: int_max(state.sequence_number, point.sequence_number),
       minimum_sequence_number: supplied_minimum,
     )
-  Ok(#(HistoryUpdate(next, effects, effects, []), allocation))
+  Ok(#(HistoryUpdate(next, effects, [], []), allocation))
 }
 
 fn receive_local(
@@ -922,7 +940,11 @@ fn commits_after_revision(
     [] -> Error(InvalidHistory("branch base is not retained on the trunk"))
     [first, ..rest] ->
       case first.commit.revision == revision {
-        True -> Ok(rest)
+        True ->
+          case commits_after_revision(rest, revision) {
+            Ok(after) -> Ok(after)
+            Error(_) -> Ok(rest)
+          }
         False -> commits_after_revision(rest, revision)
       }
   }
@@ -964,13 +986,31 @@ fn sequenced_revision_index(
   revision: fluid_ids.StableId,
   index: Int,
 ) -> Result(Int, TreeError) {
+  latest_sequenced_revision_index(commits, revision, index, None)
+}
+
+fn latest_sequenced_revision_index(
+  commits: List(SequencedCommit),
+  revision: fluid_ids.StableId,
+  index: Int,
+  found: Option(Int),
+) -> Result(Int, TreeError) {
   case commits {
-    [] -> Error(InvalidHistory("target branch base is not on the trunk"))
-    [first, ..rest] ->
-      case first.commit.revision == revision {
-        True -> Ok(index)
-        False -> sequenced_revision_index(rest, revision, index + 1)
+    [] ->
+      case found {
+        Some(index) -> Ok(index)
+        None -> Error(InvalidHistory("target branch base is not on the trunk"))
       }
+    [first, ..rest] ->
+      latest_sequenced_revision_index(
+        rest,
+        revision,
+        index + 1,
+        case first.commit.revision == revision {
+          True -> Some(index)
+          False -> found
+        },
+      )
   }
 }
 
@@ -1607,7 +1647,7 @@ fn validate_snapshot(snapshot: HistorySnapshot) -> Result(Nil, TreeError) {
     "snapshot contains duplicate peer branches",
   ))
   use _ <- result.try(
-    validate_unique_revisions(
+    validate_consistent_revisions(
       list.map(snapshot.trunk, fn(entry) { entry.commit }),
     ),
   )
@@ -1625,7 +1665,7 @@ fn validate_snapshot(snapshot: HistorySnapshot) -> Result(Nil, TreeError) {
           )
         }),
       )
-      validate_unique_revisions(list.append(ancestry, peer.commits))
+      validate_consistent_revisions(list.append(ancestry, peer.commits))
     }),
   )
   let commits =
@@ -1654,26 +1694,32 @@ fn commits_through_revision(
   trunk: List(SequencedCommit),
   revision: fluid_ids.StableId,
 ) -> Result(List(Commit), TreeError) {
-  case trunk {
-    [] ->
-      Error(InvalidHistory("snapshot peer base is not on the retained trunk"))
-    [first, ..rest] ->
-      case first.commit.revision == revision {
-        True -> Ok([first.commit])
-        False -> {
-          use commits <- result.try(commits_through_revision(rest, revision))
-          Ok([first.commit, ..commits])
-        }
-      }
-  }
+  use index <- result.try(sequenced_revision_index(trunk, revision, 0))
+  Ok(
+    trunk
+    |> list.take(index + 1)
+    |> list.map(fn(entry) { entry.commit }),
+  )
 }
 
-fn validate_unique_revisions(commits: List(Commit)) -> Result(Nil, TreeError) {
-  check(
-    list.length(list.unique(list.map(commits, fn(commit) { commit.revision })))
-      == list.length(commits),
-    "snapshot ancestry path contains a duplicate revision",
+fn validate_consistent_revisions(
+  commits: List(Commit),
+) -> Result(Nil, TreeError) {
+  use _ <- result.try(
+    list.try_fold(commits, [], fn(seen, commit) {
+      case list.key_find(seen, commit.revision) {
+        Error(Nil) -> Ok([#(commit.revision, commit), ..seen])
+        Ok(existing) -> {
+          use _ <- result.try(check(
+            existing == commit,
+            "snapshot ancestry path has conflicting revision contents",
+          ))
+          Ok(seen)
+        }
+      }
+    }),
   )
+  Ok(Nil)
 }
 
 fn validate_point(point: SequencePoint) -> Result(Nil, TreeError) {
@@ -1752,7 +1798,9 @@ fn trunk_commit(
   trunk: List(SequencedCommit),
   revision: fluid_ids.StableId,
 ) -> Option(SequencedCommit) {
-  list.find(trunk, fn(entry) { entry.commit.revision == revision })
+  trunk
+  |> list.reverse
+  |> list.find(fn(entry) { entry.commit.revision == revision })
   |> result.map(Some)
   |> result.unwrap(None)
 }

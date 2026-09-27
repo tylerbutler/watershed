@@ -315,15 +315,10 @@ pub fn apply_local_change(
   ))
   let commit = history.Commit(revision, state.local_session, outer)
   use update <- result.try(history.append_local(state.history, commit))
-  use #(visible, array_changed) <- result.try(apply_effects_with_array_changes(
+  use #(visible, events) <- result.try(apply_effects_with_events(
     state.visible,
     update.effects,
-  ))
-  use events <- result.try(changed_events(
-    state.visible,
-    visible,
     True,
-    array_changed,
   ))
   Ok(#(
     TreeState(
@@ -363,15 +358,10 @@ pub fn receive(
     state.sequenced,
     update.sequenced_effects,
   ))
-  use #(visible, array_changed) <- result.try(apply_effects_with_array_changes(
+  use #(visible, events) <- result.try(apply_effects_with_events(
     state.visible,
     update.effects,
-  ))
-  use events <- result.try(changed_events(
-    state.visible,
-    visible,
     False,
-    array_changed,
   ))
   Ok(#(
     TreeState(..state, visible:, sequenced:, history: update.history),
@@ -434,21 +424,37 @@ fn apply_effects(
   })
 }
 
-fn apply_effects_with_array_changes(
+fn apply_effects_with_events(
   state: forest.Forest,
   effects: List(shared_change.Effect),
-) -> Result(#(forest.Forest, Bool), TreeError) {
-  list.try_fold(effects, #(state, False), fn(acc, effect) {
+  local: Bool,
+) -> Result(#(forest.Forest, ChangeEvents), TreeError) {
+  list.try_fold(effects, #(state, ChangeEvents([], False)), fn(acc, effect) {
+    let ChangeEvents(previous_events, previous_array_changed) = acc.1
     case effect {
       shared_change.DataDelta(delta) -> {
         use #(state, changed) <- result.try(
           forest.apply_delta_with_array_changes(acc.0, delta),
         )
-        Ok(#(state, acc.1 || changed))
+        use next <- result.try(changed_events(acc.0, state, local, changed))
+        Ok(#(
+          state,
+          ChangeEvents(
+            list.append(previous_events, next.events),
+            previous_array_changed || next.array_changed,
+          ),
+        ))
       }
       shared_change.SchemaDelta(_, _, _) -> {
         use state <- result.try(apply_effects(acc.0, [effect]))
-        Ok(#(state, acc.1))
+        use next <- result.try(changed_events(acc.0, state, local, False))
+        Ok(#(
+          state,
+          ChangeEvents(
+            list.append(previous_events, next.events),
+            previous_array_changed,
+          ),
+        ))
       }
     }
   })

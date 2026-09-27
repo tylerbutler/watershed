@@ -20,6 +20,8 @@ const optional_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.num
 
 const score_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
+const optional_score_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+
 fn session() -> fluid_ids.SessionId {
   let assert Ok(id) =
     fluid_ids.session_id("00000000-0000-4000-8000-000000000001")
@@ -602,6 +604,70 @@ pub fn shared_tree_kernel_pending_schema_is_not_snapshotted_test() {
   let #(snapshotted, _, _) = tree_kernel.snapshot_parts(snapshot)
   schema.stored_to_json(snapshotted)
   |> expect.to_equal(schema.stored_to_json(before))
+}
+
+pub fn shared_tree_kernel_replayed_schema_keeps_pending_schema_test() {
+  let state = initial_state()
+  let assert Ok(base) = schema.stored_from_string(tree_schema)
+  let assert Ok(optional) = schema.stored_from_string(optional_schema)
+  let assert Ok(optional_score) =
+    schema.stored_from_string(optional_score_schema)
+  let assert Ok(first_change) =
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(base),
+        schema.FixedSchema(optional),
+        False,
+      ),
+    ])
+  let assert Ok(first_order) = change.identity_order([#(revision(), -1)])
+  let assert Ok(#(pending, first, _)) =
+    tree_kernel.apply_local_change(state, revision(), first_order, first_change)
+  let assert Ok(#(acked, _, Nil)) =
+    tree_kernel.receive(
+      pending,
+      first,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(second_change) =
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(optional),
+        schema.FixedSchema(optional_score),
+        False,
+      ),
+    ])
+  let assert Ok(second_order) =
+    change.identity_order([
+      #(revision(), -2),
+      #(other_revision(), -1),
+    ])
+  let assert Ok(#(pending, second, _)) =
+    tree_kernel.apply_local_change(
+      acked,
+      other_revision(),
+      second_order,
+      second_change,
+    )
+
+  let assert Ok(#(replayed, events, Nil)) =
+    tree_kernel.receive(
+      pending,
+      first,
+      types.SequencePoint(2, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+
+  events.events |> expect.to_equal([])
+  tree_kernel.stored_schema(replayed) |> expect.to_equal(optional_score)
+  tree_kernel.history_view(replayed).pending |> expect.to_equal([second])
 }
 
 pub fn shared_tree_kernel_rejects_invalid_schema_change_atomically_test() {
