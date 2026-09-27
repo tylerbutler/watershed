@@ -265,6 +265,15 @@ pub fn tree_value_decoder() -> Decoder(types.TreeValue) {
           Error(Nil) -> decode.failure(types.NullValue, "unique map keys")
         }
       })
+    "array" ->
+      exact_decoder(fields, ["kind", "schemaId", "elements"], types.NullValue, {
+        use identifier <- decode.field("schemaId", decode.string)
+        use elements <- decode.field(
+          "elements",
+          decode.list(decode.recursive(tree_value_decoder)),
+        )
+        decode.success(types.ArrayValue(identifier, elements))
+      })
     _ -> decode.failure(types.NullValue, "known tree value kind")
   }
 }
@@ -322,6 +331,12 @@ pub fn tree_value_to_json(value: types.TreeValue) -> Json {
               )
             }),
         ),
+      ])
+    types.ArrayValue(identifier, elements) ->
+      json.object([
+        #("kind", json.string("array")),
+        #("schemaId", json.string(identifier)),
+        #("elements", json.array(elements, tree_value_to_json)),
       ])
   }
 }

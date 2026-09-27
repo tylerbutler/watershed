@@ -2374,6 +2374,8 @@ fn authored_field(
       Ok(#(OptionalField(optional_field.clear(was_empty, detach)), [], next_id))
     }
     Required, None -> Error(InvalidEdit([], "required field is absent"))
+    schema.Sequence, _ ->
+      Error(types.UnsupportedFeature("field edit", "sequence fields"))
   }
 }
 

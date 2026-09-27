@@ -15,8 +15,8 @@ import watershed/canonical_json
 import watershed/fluid_ids.{type StableId}
 import watershed/tree/schema.{type StoredSchema}
 import watershed/tree/types.{
-  type AtomId, type FieldPath, type TreeError, type TreeValue, AtomId,
-  CorruptData, InvalidEdit, MapValue, ObjectValue,
+  type AtomId, type FieldPath, type TreeError, type TreeValue, ArrayValue,
+  AtomId, CorruptData, InvalidEdit, MapValue, ObjectValue,
 }
 
 const max_safe_integer = 9_007_199_254_740_991
@@ -25,6 +25,11 @@ type Node {
   Leaf(value: TreeValue)
   Object(schema_id: String, fields: List(#(String, List(Int))))
   Map(schema_id: String, entries: List(#(String, List(Int))))
+  Array(schema_id: String, elements: List(Int))
+}
+
+pub type FieldStep {
+  FieldStep(field: String, index: Int)
 }
 
 pub opaque type NodeRef {
@@ -702,6 +707,11 @@ fn children(
             Error(Nil) -> Ok([])
           }
         }
+        Array(_, elements) ->
+          case key {
+            "" -> Ok(elements)
+            _ -> Error(CorruptData(key, "unknown array field"))
+          }
       }
     }
   }
@@ -774,6 +784,21 @@ fn set_children(
             ),
           )
         }
+        Array(schema_id, _) ->
+          case key {
+            "" ->
+              Ok(
+                Forest(
+                  ..state,
+                  nodes: dict.insert(
+                    state.nodes,
+                    id,
+                    Array(schema_id, children),
+                  ),
+                ),
+              )
+            _ -> Error(CorruptData(key, "unknown array field"))
+          }
       }
     }
   }
@@ -1058,6 +1083,56 @@ pub fn read(
   }
 }
 
+/// Return the schema identifier for an array node.
+pub fn array_type(state: Forest, path: FieldPath) -> Result(String, TreeError) {
+  use #(schema_id, _) <- result.try(array_node(state, path))
+  Ok(schema_id)
+}
+
+/// Read one array element.
+pub fn array_get(
+  state: Forest,
+  path: FieldPath,
+  index: Int,
+) -> Result(Option(TreeValue), TreeError) {
+  use _ <- result.try(valid_index(index, path))
+  use #(_, elements) <- result.try(array_node(state, path))
+  case list.drop(elements, index) |> list.first {
+    Error(Nil) -> Ok(None)
+    Ok(id) ->
+      materialize(state, id, set.new())
+      |> result.map(fn(pair) { Some(pair.0) })
+  }
+}
+
+/// Read all array elements in order.
+pub fn array_values(
+  state: Forest,
+  path: FieldPath,
+) -> Result(List(TreeValue), TreeError) {
+  use #(_, elements) <- result.try(array_node(state, path))
+  use #(values, _) <- result.try(
+    list.try_fold(elements, #([], set.new()), fn(acc, id) {
+      use #(value, visited) <- result.try(materialize(state, id, acc.1))
+      Ok(#([value, ..acc.0], visited))
+    }),
+  )
+  Ok(list.reverse(values))
+}
+
+/// Resolve an attached node path to field and index steps.
+pub fn node_path(
+  state: Forest,
+  path: FieldPath,
+) -> Result(List(FieldStep), TreeError) {
+  use #(_, steps) <- result.try(
+    resolve(state, state.root, path, path, [
+      FieldStep("rootFieldKey", 0),
+    ]),
+  )
+  Ok(steps)
+}
+
 /// Return the schema identifier for a map node.
 pub fn map_type(state: Forest, path: FieldPath) -> Result(String, TreeError) {
   use #(schema_id, _) <- result.try(map_node(state, path))
@@ -1142,7 +1217,26 @@ fn map_node(
       use node <- result.try(get_node(state, id))
       case node {
         Map(schema_id, entries) -> Ok(#(schema_id, entries))
-        Leaf(_) | Object(_, _) -> Error(InvalidEdit(path, "node is not a map"))
+        Leaf(_) | Object(_, _) | Array(_, _) ->
+          Error(InvalidEdit(path, "node is not a map"))
+      }
+    }
+  }
+}
+
+fn array_node(
+  state: Forest,
+  path: FieldPath,
+) -> Result(#(String, List(Int)), TreeError) {
+  use node <- result.try(walk(state, state.root, path, path))
+  case node {
+    None -> Error(InvalidEdit(path, "field is absent"))
+    Some(id) -> {
+      use node <- result.try(get_node(state, id))
+      case node {
+        Array(schema_id, elements) -> Ok(#(schema_id, elements))
+        Leaf(_) | Object(_, _) | Map(_, _) ->
+          Error(InvalidEdit(path, "node is not an array"))
       }
     }
   }
@@ -1154,17 +1248,35 @@ fn walk(
   path: FieldPath,
   full_path: FieldPath,
 ) -> Result(Option(Int), TreeError) {
+  resolve(state, children, path, full_path, [])
+  |> result.map(fn(resolved) { resolved.0 })
+}
+
+fn resolve(
+  state: Forest,
+  children: List(Int),
+  path: FieldPath,
+  full_path: FieldPath,
+  steps: List(FieldStep),
+) -> Result(#(Option(Int), List(FieldStep)), TreeError) {
   case children, path {
-    [], [] -> Ok(None)
+    [], [] -> Ok(#(None, steps))
     [], _ -> Error(InvalidEdit(full_path, "parent field is absent"))
-    [id], [] -> Ok(Some(id))
+    [id], [] -> Ok(#(Some(id), steps))
     [id], [field, ..rest] -> {
       use node <- result.try(get_node(state, id))
       case node {
         Leaf(_) -> Error(InvalidEdit(full_path, "cannot traverse a leaf"))
         Object(schema_id, fields) ->
           case list.key_find(fields, field) {
-            Ok(children) -> walk(state, children, rest, full_path)
+            Ok(children) ->
+              resolve(
+                state,
+                children,
+                rest,
+                full_path,
+                list.append(steps, [FieldStep(field, 0)]),
+              )
             Error(Nil) -> {
               use _ <- result.try(
                 schema.validate_field(state.schema, schema_id, field, None)
@@ -1172,17 +1284,62 @@ fn walk(
                   InvalidEdit(full_path, "field is not an optional field")
                 }),
               )
-              walk(state, [], rest, full_path)
+              resolve(state, [], rest, full_path, steps)
             }
           }
         Map(_, entries) ->
           case list.key_find(entries, field) {
-            Ok(children) -> walk(state, children, rest, full_path)
-            Error(Nil) -> walk(state, [], rest, full_path)
+            Ok(children) ->
+              resolve(
+                state,
+                children,
+                rest,
+                full_path,
+                list.append(steps, [FieldStep(field, 0)]),
+              )
+            Error(Nil) -> resolve(state, [], rest, full_path, steps)
           }
+        Array(_, elements) -> {
+          use index <- result.try(parse_index(field, full_path))
+          case list.drop(elements, index) |> list.first {
+            Ok(child) ->
+              resolve(
+                state,
+                [child],
+                rest,
+                full_path,
+                list.append(steps, [FieldStep("", index)]),
+              )
+            Error(Nil) ->
+              case rest {
+                [] -> Ok(#(None, steps))
+                _ ->
+                  Error(InvalidEdit(full_path, "parent array element is absent"))
+              }
+          }
+        }
       }
     }
     _, _ -> Error(CorruptData("forest", "field contains more than one node"))
+  }
+}
+
+fn valid_index(index: Int, path: FieldPath) -> Result(Nil, TreeError) {
+  case index >= 0 && index <= max_safe_integer {
+    True -> Ok(Nil)
+    False -> Error(InvalidEdit(path, "array index is outside the safe range"))
+  }
+}
+
+fn parse_index(segment: String, path: FieldPath) -> Result(Int, TreeError) {
+  use index <- result.try(
+    int.parse(segment)
+    |> result.map_error(fn(_) { InvalidEdit(path, "invalid array index") }),
+  )
+  use _ <- result.try(valid_index(index, path))
+  case int.to_string(index) == segment {
+    True -> Ok(index)
+    False -> Error(InvalidEdit(path, "invalid array index"))
   }
 }
 
@@ -1220,6 +1377,15 @@ fn allocate(
             }),
           )
           Ok(#(state, Map(schema_id, list.reverse(entries))))
+        }
+        ArrayValue(schema_id, elements) -> {
+          use #(state, elements) <- result.try(
+            list.try_fold(elements, #(state, []), fn(acc, element) {
+              use #(state, child) <- result.try(allocate(acc.0, element))
+              Ok(#(state, [child, ..acc.1]))
+            }),
+          )
+          Ok(#(state, Array(schema_id, list.reverse(elements))))
         }
         _ -> Ok(#(state, Leaf(value)))
       })
@@ -1283,6 +1449,15 @@ fn materialize(
         values
         |> list.sort(fn(left, right) { canonical_json.compare(left.0, right.0) })
       Ok(#(MapValue(schema_id, values), visited))
+    }
+    Array(schema_id, elements) -> {
+      use #(values, visited) <- result.try(
+        list.try_fold(elements, #([], visited), fn(acc, child) {
+          use #(value, visited) <- result.try(materialize(state, child, acc.1))
+          Ok(#([value, ..acc.0], visited))
+        }),
+      )
+      Ok(#(ArrayValue(schema_id, list.reverse(values)), visited))
     }
   }
 }

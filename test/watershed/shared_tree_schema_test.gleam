@@ -111,8 +111,8 @@ pub fn shared_tree_schema_refuses_unsupported_semantics_test() -> Nil {
     string.replace(string_schema, "\"leaf\":1", "\"future\":{}"),
     string.replace(
       object_schema,
-      "\"x\":{\"kind\":\"Value\"",
-      "\"\":{\"kind\":\"Sequence\"",
+      "\"point\":{\"kind\":\"Value\"",
+      "\"point\":{\"kind\":\"Sequence\"",
     ),
   ]
   |> list.each(fn(raw) {

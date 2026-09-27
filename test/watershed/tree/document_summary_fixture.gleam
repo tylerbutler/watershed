@@ -194,6 +194,7 @@ fn value_json(value: TreeValue) -> Json {
       )
     types.MapValue(_, _) ->
       panic as { "map values are not supported by summary fixtures" }
+    types.ArrayValue(_, elements) -> json.array(elements, value_json)
   }
 }
 

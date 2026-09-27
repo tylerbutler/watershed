@@ -12,8 +12,9 @@ import watershed/json_ot.{
 }
 import watershed/tree/schema
 import watershed/tree/types.{
-  type TreeError, type TreeValue, BooleanValue, CorruptData, MapValue, NullValue,
-  NumberValue, ObjectValue, StringValue, UnsupportedFeature, UnsupportedFormat,
+  type TreeError, type TreeValue, ArrayValue, BooleanValue, CorruptData,
+  MapValue, NullValue, NumberValue, ObjectValue, StringValue, UnsupportedFeature,
+  UnsupportedFormat,
 }
 
 const max_safe_integer = 9_007_199_254_740_991
@@ -860,6 +861,8 @@ fn encode_node(
       encode_structural_node(type_id, fields, location)
     MapValue(type_id, entries) ->
       encode_structural_node(type_id, entries, location)
+    ArrayValue(type_id, elements) ->
+      encode_array_node(type_id, elements, location)
   }
 }
 
@@ -879,12 +882,41 @@ fn classify_value(
       case node {
         schema.Object(_) -> Ok(ObjectValue(type_id, fields))
         schema.Map(_) -> Ok(MapValue(type_id, fields))
+        schema.Array(_) ->
+          case fields {
+            [] -> Ok(ArrayValue(type_id, []))
+            [#("", value)] -> Ok(ArrayValue(type_id, [value]))
+            _ ->
+              Error(CorruptData(
+                "fieldBatch",
+                "array node has an invalid primary field",
+              ))
+          }
         schema.Leaf(_) ->
           Error(CorruptData("fieldBatch", "leaf node uses a structural shape"))
       }
     }
     other -> Ok(other)
   }
+}
+
+fn encode_array_node(
+  type_id: String,
+  elements: List(TreeValue),
+  location: String,
+) -> Result(List(JsonValue), TreeError) {
+  use encoded <- result.try(
+    list.try_map(elements, fn(element) { encode_node(element, location <> ".") }),
+  )
+  Ok([
+    VNumber(NInt(0)),
+    VString(type_id),
+    VBool(False),
+    VArray([
+      VString(""),
+      VArray(list.flatten(encoded)),
+    ]),
+  ])
 }
 
 fn encode_structural_node(

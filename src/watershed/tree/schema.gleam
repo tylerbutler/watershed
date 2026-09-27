@@ -17,14 +17,15 @@ import watershed/json_ot.{
   type JsonValue, NFloat, NInt, VArray, VNumber, VObject, VString,
 }
 import watershed/tree/types.{
-  type FieldPath, type TreeError, type TreeValue, BooleanValue, CorruptData,
-  InvalidEdit, InvalidSchema, MapValue, NullValue, NumberValue, ObjectValue,
-  StringValue, UnsupportedFormat,
+  type FieldPath, type TreeError, type TreeValue, ArrayValue, BooleanValue,
+  CorruptData, InvalidEdit, InvalidSchema, MapValue, NullValue, NumberValue,
+  ObjectValue, StringValue, UnsupportedFormat,
 }
 
 pub type Cardinality {
   Required
   Optional
+  Sequence
 }
 
 pub type FieldSchema {
@@ -42,6 +43,7 @@ pub type NodeSchema {
   Leaf(kind: LeafKind)
   Object(fields: List(#(String, FieldSchema)))
   Map(entries: FieldSchema)
+  Array(elements: FieldSchema)
 }
 
 type Repository {
@@ -139,6 +141,7 @@ fn value_identifier(value: TreeValue) -> String {
     NullValue -> leaf_identifier(NullLeaf)
     ObjectValue(identifier, _) -> identifier
     MapValue(identifier, _) -> identifier
+    ArrayValue(identifier, _) -> identifier
   }
 }
 
@@ -172,6 +175,8 @@ pub fn field_schema(
       Error(InvalidEdit(path, "parent schema is a leaf: " <> parent_type))
     Ok(Map(_)) ->
       Error(InvalidEdit(path, "parent schema is a map: " <> parent_type))
+    Ok(Array(_)) ->
+      Error(InvalidEdit(path, "parent schema is an array: " <> parent_type))
     Error(Nil) ->
       Error(InvalidEdit(path, "unknown parent schema: " <> parent_type))
   }
@@ -187,6 +192,35 @@ pub fn map_entry_schema(
     Ok(_) -> Error(InvalidEdit([], "node schema is not a map: " <> map_type))
     Error(Nil) -> Error(InvalidEdit([], "unknown map schema: " <> map_type))
   }
+}
+
+/// Read the element field for an array schema.
+pub fn array_element_schema(
+  schema: StoredSchema,
+  array_type: String,
+) -> Result(FieldSchema, TreeError) {
+  case dict.get(schema.repository.nodes, array_type) {
+    Ok(Array(elements)) -> Ok(elements)
+    Ok(_) ->
+      Error(InvalidEdit([], "node schema is not an array: " <> array_type))
+    Error(Nil) -> Error(InvalidEdit([], "unknown array schema: " <> array_type))
+  }
+}
+
+/// Validate all values in one array.
+pub fn validate_array_elements(
+  schema: StoredSchema,
+  array_type: String,
+  elements: List(TreeValue),
+) -> Result(Nil, TreeError) {
+  use definition <- result.try(array_element_schema(schema, array_type))
+  elements
+  |> list.index_map(fn(value, index) { #(index, value) })
+  |> list.try_each(fn(entry) {
+    validate_content(schema.repository, definition, Some(entry.1), [
+      int.to_string(entry.0),
+    ])
+  })
 }
 
 /// Validate one map entry assignment or deletion.
@@ -209,6 +243,7 @@ fn validate_content(
   case value, field.cardinality {
     None, Optional -> Ok(Nil)
     None, Required -> Error(InvalidEdit(path, "required field is absent"))
+    None, Sequence -> Ok(Nil)
     Some(value), _ -> {
       let identifier = value_identifier(value)
       case list.contains(field.allowed_types, identifier) {
@@ -300,6 +335,17 @@ fn validate_node(
         )
       })
     }
+    Array(definition), ArrayValue(_, elements) ->
+      elements
+      |> list.index_map(fn(value, index) { #(index, value) })
+      |> list.try_each(fn(entry) {
+        validate_content(
+          repository,
+          definition,
+          Some(entry.1),
+          list.append(path, [int.to_string(entry.0)]),
+        )
+      })
     _, _ -> Error(InvalidEdit(path, "value does not match its node schema"))
   }
 }
@@ -363,6 +409,7 @@ fn compare_node(
       })
     }
     Map(a), Map(b) -> compare_field(a, b, identifier)
+    Array(a), Array(b) -> compare_field(a, b, identifier)
     _, _ -> Error(InvalidSchema(identifier <> ": incompatible node kind"))
   }
 }
@@ -395,6 +442,7 @@ fn decode_repository(raw: String) -> Result(Repository, TreeError) {
   )
   use root <- result.try(member(members, "root", "$"))
   use root <- result.try(decode_field(root, "$.root"))
+  use _ <- result.try(reject_sequence(root, "$.root"))
   let repository = Repository(root, dict.from_list(nodes), data)
   use _ <- result.try(check_references(repository, root, "$.root"))
   use _ <- result.try(
@@ -406,6 +454,7 @@ fn decode_repository(raw: String) -> Result(Repository, TreeError) {
             check_references(repository, field.1, key_path(entry.0, field.0))
           })
         Map(entries) -> check_references(repository, entries, entry.0)
+        Array(elements) -> check_references(repository, elements, entry.0)
       }
     }),
   )
@@ -450,11 +499,23 @@ fn decode_node(
           Ok(#(field.0, definition))
         }),
       )
-      Ok(Object(fields))
+      case fields {
+        [#("", FieldSchema(Sequence, _) as elements)] -> Ok(Array(elements))
+        _ -> {
+          use _ <- result.try(
+            list.try_each(fields, fn(field) {
+              reject_sequence(field.1, key_path(path, field.0))
+            }),
+          )
+          Ok(Object(fields))
+        }
+      }
     }
-    [#("map", entries)] ->
-      decode_field(entries, path <> ".kind.map")
-      |> result.map(Map)
+    [#("map", entries)] -> {
+      use entries <- result.try(decode_field(entries, path <> ".kind.map"))
+      use _ <- result.try(reject_sequence(entries, path <> ".kind.map"))
+      Ok(Map(entries))
+    }
     [#(kind, _)] ->
       Error(InvalidSchema(path <> ": unsupported node kind " <> kind))
     _ -> Error(CorruptData(path <> ".kind", "expected exactly one node kind"))
@@ -471,6 +532,7 @@ fn decode_field(
   use cardinality <- result.try(case kind {
     VString("Value") -> Ok(Required)
     VString("Optional") -> Ok(Optional)
+    VString("Sequence") -> Ok(Sequence)
     VString(kind) ->
       Error(InvalidSchema(path <> ": unsupported field kind " <> kind))
     _ -> Error(CorruptData(path <> ".kind", "expected a field kind string"))
@@ -491,6 +553,16 @@ fn decode_field(
     cardinality,
     types |> list.unique |> list.sort(canonical_json.compare),
   ))
+}
+
+fn reject_sequence(field: FieldSchema, path: String) -> Result(Nil, TreeError) {
+  case field.cardinality {
+    Sequence ->
+      Error(InvalidSchema(
+        path <> ": sequence field is only valid as an array primary field",
+      ))
+    Required | Optional -> Ok(Nil)
+  }
 }
 
 fn check_metadata(

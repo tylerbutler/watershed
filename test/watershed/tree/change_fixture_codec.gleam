@@ -907,5 +907,7 @@ fn wire_tree(value: types.TreeValue) -> Result(Json, String) {
     }
     types.MapValue(_, _) ->
       Error("the encoded fixture profile excludes map builds")
+    types.ArrayValue(_, _) ->
+      Error("the encoded fixture profile excludes array builds")
   }
 }

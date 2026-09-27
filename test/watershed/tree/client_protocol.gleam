@@ -10,8 +10,8 @@ import watershed/canonical_json
 import watershed/runtime_core
 import watershed/tree/schema
 import watershed/tree/types.{
-  type FieldPath, type TreeValue, BooleanValue, MapValue, NullValue, NumberValue,
-  ObjectValue, StringValue,
+  type FieldPath, type TreeValue, ArrayValue, BooleanValue, MapValue, NullValue,
+  NumberValue, ObjectValue, StringValue,
 }
 
 const max_safe_integer = 9_007_199_254_740_991
@@ -303,6 +303,20 @@ fn decode_value(value: Dynamic) -> Result(TreeValue, ProtocolError) {
       )
       Ok(MapValue(schema_id, entries))
     }
+    "array" -> {
+      use schema_id <- result.try(required(value, "schemaId", decode.string))
+      use _ <- result.try(case string.is_empty(schema_id) {
+        True -> Error(invalid("schemaId", "schema ID is empty"))
+        False -> Ok(Nil)
+      })
+      use elements <- result.try(required(
+        value,
+        "elements",
+        decode.list(decode.dynamic),
+      ))
+      use elements <- result.try(list.try_map(elements, decode_value))
+      Ok(ArrayValue(schema_id, elements))
+    }
     _ -> Error(invalid("kind", "unknown tree value kind"))
   }
 }
@@ -363,6 +377,15 @@ pub fn encode_value(value: TreeValue) -> Json {
               ])
             })
             |> json.preprocessed_array,
+        ),
+      ])
+    ArrayValue(schema_id, elements) ->
+      json.object([
+        #("kind", json.string("array")),
+        #("schemaId", json.string(schema_id)),
+        #(
+          "elements",
+          elements |> list.map(encode_value) |> json.preprocessed_array,
         ),
       ])
   }

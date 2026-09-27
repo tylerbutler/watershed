@@ -186,6 +186,12 @@ fn schema_value_to_json(value: types.TreeValue) -> Json {
             }),
         ),
       ])
+    types.ArrayValue(schema_id, elements) ->
+      json.object([
+        #("kind", json.string("array")),
+        #("type", json.string(schema_id)),
+        #("elements", json.array(elements, schema_value_to_json)),
+      ])
   }
 }
 

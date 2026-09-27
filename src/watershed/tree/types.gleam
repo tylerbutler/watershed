@@ -17,6 +17,7 @@ pub type TreeValue {
   NullValue
   ObjectValue(schema_id: String, fields: List(#(String, TreeValue)))
   MapValue(schema_id: String, entries: List(#(String, TreeValue)))
+  ArrayValue(schema_id: String, elements: List(TreeValue))
 }
 
 pub type Edit {
