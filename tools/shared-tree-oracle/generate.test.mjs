@@ -94,6 +94,7 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
   const schemaIds = [
     "v1", "optional", "object-union", "map-union", "optional-title",
     "root-union", "optional-root", "combined", "narrow", "new-required",
+    ...(id === "schema-evolution-history" ? ["new-node"] : []),
     ...(id === "schema-evolution-compatibility"
       ? ["optional-to-required", "node-kind-replacement", "sequence", "handle"]
       : []),
@@ -116,6 +117,12 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
         { op: "upgrade", tree: 0, schema: "optional" },
         { op: "set", tree: 0, path: ["score"], value: 7 },
         { op: "sequence-through", change: "schema" },
+      ],
+      "rollback-retains-new-type-content": [
+        { op: "upgrade", tree: 1, schema: "new-node" },
+        { op: "set", tree: 1, path: ["extra", "value"], value: "retained" },
+        { op: "set", tree: 0, path: ["title"], value: "wins" },
+        { op: "sequence", order: "tree-0-first" },
       ],
       "new-view-reopens": [
         { op: "upgrade", tree: 0, schema: "optional" },
@@ -283,6 +290,13 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
     raw.inverted = { changes: [{ type: "schema", revision: 4 }] };
     raw.revisionResults = { composed: 3, inverted: 4 };
   } else if (id === "schema-evolution-history") {
+    input.rollbackReplay = {
+      scenario: "rollback-retains-new-type-content",
+      detachedId: {
+        revision: "00000000-0000-4000-8000-0000000000f0",
+        localId: 0,
+      },
+    };
     Object.assign(observations.find(({ id: scenarioId }) =>
       scenarioId === "ack-common-prefix-keeps-upgrade"), {
       acknowledgedSchema: true,

@@ -146,6 +146,7 @@ type Work {
     refreshers: Dict(AtomId, TreeValue),
     pending: List(#(Int, List(#(String, FieldDelta)))),
     changed_arrays: Set(Int),
+    applied: Set(Int),
   )
 }
 
@@ -292,7 +293,8 @@ pub fn apply_delta_with_array_changes(
         dict.insert(acc, offset(build.id, index), tree)
       })
     })
-  let work = Work(state, data.latest_revision, refreshers, [], set.new())
+  let work =
+    Work(state, data.latest_revision, refreshers, [], set.new(), set.new())
   use work <- result.try(
     list.try_fold(data.build, work, fn(work, build) {
       build_trees(work, build.id, build.trees)
@@ -332,6 +334,7 @@ pub fn apply_delta_with_array_changes(
   use work <- result.try(transfer_roots(work, transfers))
   use work <- result.try(visit_fields(work, Root, data.fields, Attach))
   use work <- result.try(finish_pending(work))
+  use _ <- result.try(validate_applied(work))
   use state <- result.try(
     list.try_fold(data.destroy, work.state, fn(state, op) {
       destroy_roots(state, op.id, op.count)
@@ -652,6 +655,16 @@ fn validate_applicable_fields(
   })
 }
 
+fn validate_applied(work: Work) -> Result(Nil, TreeError) {
+  work.applied
+  |> set.to_list
+  |> list.try_each(fn(id) {
+    use #(value, _) <- result.try(materialize(work.state, id, set.new()))
+    schema.validate_subtree(work.state.schema, value)
+    |> result.map_error(fn(error) { contextual("applied field", error) })
+  })
+}
+
 fn detached_entry(
   state: Forest,
   id: AtomId,
@@ -913,33 +926,39 @@ fn visit_fields(
   fields: List(#(String, FieldDelta)),
   pass: Pass,
 ) -> Result(Work, TreeError) {
-  list.try_fold(fields, work, fn(work, pair) {
-    use _ <- result.try(children(work.state, parent, pair.0))
-    use work <- result.try(case parent {
-      Root -> Ok(work)
-      Child(id) -> {
-        use node <- result.try(get_node(work.state, id))
-        case node {
-          Array(_, _) -> {
-            let mutates =
-              list.any(pair.1.marks, fn(mark) {
-                mark.attach != None || mark.detach != None
+  use work <- result.try(
+    list.try_fold(fields, work, fn(work, pair) {
+      use _ <- result.try(children(work.state, parent, pair.0))
+      use work <- result.try(case parent {
+        Root -> Ok(work)
+        Child(id) -> {
+          use node <- result.try(get_node(work.state, id))
+          case node {
+            Array(_, _) -> {
+              let mutates =
+                list.any(pair.1.marks, fn(mark) {
+                  mark.attach != None || mark.detach != None
+                })
+              Ok(case mutates {
+                True ->
+                  Work(
+                    ..work,
+                    changed_arrays: set.insert(work.changed_arrays, id),
+                  )
+                False -> work
               })
-            Ok(case mutates {
-              True ->
-                Work(
-                  ..work,
-                  changed_arrays: set.insert(work.changed_arrays, id),
-                )
-              False -> work
-            })
+            }
+            _ -> Ok(work)
           }
-          _ -> Ok(work)
         }
-      }
-    })
-    visit_marks(work, parent, pair.0, pair.1.marks, 0, pass)
-  })
+      })
+      visit_marks(work, parent, pair.0, pair.1.marks, 0, pass)
+    }),
+  )
+  case pass, parent {
+    Attach, Child(id) -> Ok(Work(..work, applied: set.insert(work.applied, id)))
+    _, _ -> Ok(work)
+  }
 }
 
 fn visit_marks(

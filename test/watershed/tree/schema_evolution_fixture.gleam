@@ -3,7 +3,7 @@ import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/set
 import gleam/string
@@ -221,68 +221,169 @@ pub fn forest_transition(
 
 pub fn forest_rollback(
   input: Json,
-  raw: Json,
 ) -> Result(
-  #(schema.StoredSchema, schema.StoredSchema, types.TreeValue),
+  #(schema.StoredSchema, schema.StoredSchema, types.TreeValue, types.AtomId),
   String,
 ) {
   use #(restored, _, root) <- result.try(forest_transition(input, "v1", "v1"))
-  use raw <- result.try(fixture_codec.parse(raw))
-  use messages <- result.try(
-    fixture_codec.field(raw, "rollback", fn(rollback) {
-      fixture_codec.field(rollback, "messages", fixture_codec.items)
-    }),
+  use input <- result.try(fixture_codec.parse(input))
+  use catalog <- result.try(algebra_schema_catalog(input))
+  use replay <- result.try(fixture_codec.get(input, "rollbackReplay"))
+  use _ <- result.try(fixture_codec.exact(replay, ["scenario", "detachedId"]))
+  use scenario_id <- result.try(fixture_codec.field(
+    replay,
+    "scenario",
+    fixture_codec.text,
+  ))
+  use detached <- result.try(fixture_codec.get(replay, "detachedId"))
+  use _ <- result.try(fixture_codec.exact(detached, ["revision", "localId"]))
+  use detached_revision <- result.try(fixture_codec.field(
+    detached,
+    "revision",
+    fixture_codec.text,
+  ))
+  use detached_local_id <- result.try(fixture_codec.field(
+    detached,
+    "localId",
+    fixture_codec.integer,
+  ))
+  use scenarios <- result.try(fixture_codec.field(
+    input,
+    "scenarios",
+    fixture_codec.items,
+  ))
+  use scenario <- result.try(
+    list.find(scenarios, fn(value) {
+      fixture_codec.field(value, "id", fixture_codec.text) == Ok(scenario_id)
+    })
+    |> result.map_error(fn(_) { "rollback replay scenario is missing" }),
   )
-  use authored <- result.try(find_historical_schema(messages))
-  use retained <- result.try(
-    fixture_codec.field(raw, "rollback", fn(rollback) {
-      fixture_codec.field(rollback, "retainedExtra", fn(extra) {
-        use identifier <- result.try(fixture_codec.field(
-          extra,
-          "type",
-          fixture_codec.text,
-        ))
-        use value <- result.try(fixture_codec.field(
-          extra,
-          "value",
-          fixture_codec.text,
-        ))
-        Ok(types.ObjectValue(identifier, [#("value", StringValue(value))]))
-      })
-    }),
+  use actions <- result.try(fixture_codec.field(
+    scenario,
+    "actions",
+    fixture_codec.items,
+  ))
+  use #(upgrade, authored_edit, competing_edit, sequence) <- result.try(
+    case actions {
+      [upgrade, authored_edit, competing_edit, sequence] ->
+        Ok(#(upgrade, authored_edit, competing_edit, sequence))
+      _ -> Error("rollback replay must contain four actions")
+    },
   )
-  let assert types.ObjectValue(identifier, fields) = root
+  use detached_revision <- result.try(
+    fluid_ids.stable_id(detached_revision) |> result.map_error(string.inspect),
+  )
+  let detached_id = AtomId(Some(detached_revision), detached_local_id)
+  use _ <- result.try(expect_action(upgrade, "upgrade", Some(1)))
+  use schema_id <- result.try(fixture_codec.field(
+    upgrade,
+    "schema",
+    fixture_codec.text,
+  ))
+  use authored <- result.try(
+    dict.get(catalog, schema_id)
+    |> result.map_error(fn(_) { "unknown rollback authoring schema" }),
+  )
+  use _ <- result.try(expect_action(authored_edit, "set", Some(1)))
+  use authored_path <- result.try(action_path(authored_edit))
+  use _ <- result.try(expect(
+    authored_path == ["extra", "value"],
+    "unexpected rollback authored path",
+  ))
+  use retained_value <- result.try(fixture_codec.field(
+    authored_edit,
+    "value",
+    fixture_codec.text,
+  ))
+  use _ <- result.try(expect_action(competing_edit, "set", Some(0)))
+  use competing_path <- result.try(action_path(competing_edit))
+  use _ <- result.try(expect(
+    competing_path == ["title"],
+    "unexpected rollback competing path",
+  ))
+  use _ <- result.try(expect_action(sequence, "sequence", None))
+  use order <- result.try(fixture_codec.field(
+    sequence,
+    "order",
+    fixture_codec.text,
+  ))
+  use _ <- result.try(expect(
+    order == "tree-0-first",
+    "unexpected rollback sequence order",
+  ))
+  use #(identifier, fields) <- result.try(case root {
+    types.ObjectValue(identifier, fields) -> Ok(#(identifier, fields))
+    _ -> Error("rollback root must be an object")
+  })
+  use extra_field <- result.try(
+    schema.field_schema(authored, identifier, "extra")
+    |> result.map_error(string.inspect),
+  )
+  use extra_type <- result.try(case extra_field {
+    schema.FieldSchema(_, [extra_type]) -> Ok(extra_type)
+    _ -> Error("rollback extra field must allow one node type")
+  })
+  let retained =
+    types.ObjectValue(extra_type, [#("value", StringValue(retained_value))])
   Ok(#(
     restored,
     authored,
     types.ObjectValue(identifier, list.append(fields, [#("extra", retained)])),
+    detached_id,
   ))
 }
 
-fn find_historical_schema(
-  messages: List(JsonValue),
-) -> Result(schema.StoredSchema, String) {
-  case messages {
-    [] -> Error("historical schema message is missing")
-    [message, ..rest] -> {
-      let changes = case fixture_codec.get(message, "contents") {
-        Error(_) -> Error("message contents are missing")
-        Ok(contents) ->
-          fixture_codec.field(contents, "changeset", fixture_codec.items)
-      }
-      case changes {
-        Error(_) | Ok([]) -> find_historical_schema(rest)
-        Ok([change, ..]) ->
-          case fixture_codec.get(change, "schema") {
-            Error(_) -> find_historical_schema(rest)
-            Ok(transition) -> {
-              use stored <- result.try(fixture_codec.get(transition, "new"))
-              schema.stored_from_json(json_ot.to_json(stored))
-              |> result.map_error(string.inspect)
-            }
-          }
-      }
+pub fn forest_rollback_observation(
+  raw: Json,
+) -> Result(types.TreeValue, String) {
+  use raw <- result.try(fixture_codec.parse(raw))
+  fixture_codec.field(raw, "rollback", fn(rollback) {
+    fixture_codec.field(rollback, "retainedExtra", fn(extra) {
+      use identifier <- result.try(fixture_codec.field(
+        extra,
+        "type",
+        fixture_codec.text,
+      ))
+      use value <- result.try(fixture_codec.field(
+        extra,
+        "value",
+        fixture_codec.text,
+      ))
+      Ok(types.ObjectValue(identifier, [#("value", StringValue(value))]))
+    })
+  })
+}
+
+fn expect_action(
+  action: JsonValue,
+  operation: String,
+  tree: Option(Int),
+) -> Result(Nil, String) {
+  use actual <- result.try(fixture_codec.field(action, "op", fixture_codec.text))
+  use _ <- result.try(expect(actual == operation, "unexpected rollback action"))
+  case tree {
+    None -> Ok(Nil)
+    Some(tree) -> {
+      use actual <- result.try(fixture_codec.field(
+        action,
+        "tree",
+        fixture_codec.integer,
+      ))
+      expect(actual == tree, "unexpected rollback action tree")
     }
+  }
+}
+
+fn action_path(action: JsonValue) -> Result(List(String), String) {
+  fixture_codec.field(action, "path", fn(value) {
+    fixture_codec.many(value, fixture_codec.text)
+  })
+}
+
+fn expect(valid: Bool, message: String) -> Result(Nil, String) {
+  case valid {
+    True -> Ok(Nil)
+    False -> Error(message)
   }
 }
 

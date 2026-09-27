@@ -12,6 +12,7 @@ import {
 	deserializeIdCompressor,
 	serializeIdCompressor,
 } from "@fluidframework/id-compressor/internal";
+import type { SessionSpaceCompressedId } from "@fluidframework/id-compressor";
 import {
 	MockDeltaConnection,
 	MockFluidDataStoreRuntime,
@@ -1128,6 +1129,15 @@ async function captureHistoryRuntime(
 
 	return {
 		observations,
+		rollbackReplay: {
+			scenario: "rollback-retains-new-type-content",
+			detachedId: {
+				revision: rollbackProvider.getCompressor(
+					rollbackProvider.trees[1],
+				).decompress(-2 as SessionSpaceCompressedId),
+				localId: 0,
+			},
+		},
 		rollback: {
 			...observations.get("rollback-retains-new-type-content"),
 			messages: rollbackMessages,
@@ -1418,7 +1428,13 @@ describe("Watershed schema evolution oracle", () => {
 				"schema-evolution-history",
 				"history",
 				{
-					schemas: compatibility.catalog,
+					schemas: [
+						...compatibility.catalog,
+						{
+							id: "new-node",
+							raw: JSON.stringify(persisted(newNodeSchema().config.schema)),
+						},
+					],
 					scenarios: historyScenarios,
 					initialRoot: {
 						kind: "object",
@@ -1444,6 +1460,7 @@ describe("Watershed schema evolution oracle", () => {
 						schema: "EmptySchema",
 						messages: upgrade.initializationMessages,
 					},
+					rollbackReplay: historyRuntime.rollbackReplay,
 				},
 				historyObservations,
 				{

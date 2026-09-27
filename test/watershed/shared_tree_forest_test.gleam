@@ -84,8 +84,10 @@ pub fn shared_tree_forest_failed_schema_replacement_is_atomic_test() -> Nil {
 
 pub fn shared_tree_forest_schema_rollback_retains_new_type_content_test() -> Nil {
   let assert Ok(fixture) = fixtures.load("schema-evolution-history")
-  let assert Ok(#(restored, authored, root)) =
-    schema_evolution_fixture.forest_rollback(fixture.input, fixture.raw)
+  let assert Ok(#(restored, authored, root, detached_id)) =
+    schema_evolution_fixture.forest_rollback(fixture.input)
+  let assert Ok(observed) =
+    schema_evolution_fixture.forest_rollback_observation(fixture.raw)
   let assert Ok(before) = forest.new(view_a(), authored, Some(root))
   let assert Ok(reference) = forest.locate(before, ["extra"])
   let detached =
@@ -99,7 +101,7 @@ pub fn shared_tree_forest_schema_rollback_retains_new_type_content_test() -> Nil
               #(
                 "extra",
                 forest.FieldDelta([
-                  forest.Mark(1, None, Some(atom(20)), []),
+                  forest.Mark(1, None, Some(detached_id), []),
                 ]),
               ),
             ]),
@@ -114,9 +116,10 @@ pub fn shared_tree_forest_schema_rollback_retains_new_type_content_test() -> Nil
   forest.is_attached(after, reference) |> expect.to_equal(Ok(False))
   forest.export_data(after) |> expect.to_equal(Ok(data))
   let assert Ok(loaded) = forest.import_data(view_b(), restored, data)
-  let assert Ok(retained) = forest.locate_detached(loaded, atom(20))
+  let assert Ok(retained) = forest.locate_detached(loaded, detached_id)
   forest.read_node(loaded, retained)
   |> expect.to_equal(forest.read_node(detached, reference))
+  forest.read_node(loaded, retained) |> expect.to_equal(Ok(observed))
 }
 
 pub fn shared_tree_forest_rejects_foreign_reference_test() -> Nil {
@@ -617,6 +620,27 @@ pub fn shared_tree_forest_detached_child_delta_preserves_replacement_test() -> N
   |> expect.to_equal(Ok(point(42.0, 0.0)))
   forest.is_attached(changed, old_point) |> expect.to_equal(Ok(False))
   forest.read_node(original, old_point)
+  |> expect.to_equal(Ok(point(0.0, 0.0)))
+}
+
+pub fn shared_tree_forest_rejects_invalid_detached_child_edit_test() -> Nil {
+  let assert Ok(initial) = forest.new(view_a(), stored_schema(), Some(root()))
+  let assert Ok(detached) = replace_point(initial)
+  let assert Ok(before) = forest.export_data(detached)
+  let assert Ok(reference) = forest.locate_detached(detached, atom(2))
+  let assert Ok(delta) =
+    forest.delta(
+      forest.DeltaData(
+        ..empty_delta(),
+        build: [forest.Build(atom(3), [types.StringValue("invalid")])],
+        global: [
+          forest.DetachedChange(atom(2), [replace_field("x", atom(3), atom(4))]),
+        ],
+      ),
+    )
+  forest.apply_delta(detached, delta) |> expect.to_be_error
+  forest.export_data(detached) |> expect.to_equal(Ok(before))
+  forest.read_node(detached, reference)
   |> expect.to_equal(Ok(point(0.0, 0.0)))
 }
 

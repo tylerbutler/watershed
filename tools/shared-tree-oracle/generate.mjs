@@ -749,7 +749,9 @@ function validateSchemaEvolutionCase(value) {
   const requiredScenarios = schemaEvolutionScenarioIds[label];
   const requiredSchemas = label === "schema-evolution-compatibility"
     ? schemaEvolutionCompatibilitySchemaIds
-    : schemaEvolutionSchemaIds;
+    : label === "schema-evolution-history"
+      ? [...schemaEvolutionSchemaIds, "new-node"]
+      : schemaEvolutionSchemaIds;
   check(Array.isArray(requiredScenarios), "unknown schema evolution case");
   check(object(value.input), "missing input");
   check(Array.isArray(value.input.schemas), "missing schema catalog");
@@ -925,6 +927,13 @@ function validateSchemaEvolutionCase(value) {
           && typeof point.clientId === "string"),
       `missing actual sequence metadata ${scenario.id}`);
     }
+    const rollbackReplay = value.input.rollbackReplay;
+    check(object(rollbackReplay)
+      && rollbackReplay.scenario === "rollback-retains-new-type-content"
+      && object(rollbackReplay.detachedId)
+      && typeof rollbackReplay.detachedId.revision === "string"
+      && Number.isSafeInteger(rollbackReplay.detachedId.localId),
+    `${label}: replayable rollback identity`);
     const actions = (id) => value.input.scenarios.find((item) => item.id === id)?.actions;
     assert.deepEqual(actions("upgrade-then-edit-causal"), [
       { op: "upgrade", schema: "optional" },
@@ -941,6 +950,12 @@ function validateSchemaEvolutionCase(value) {
       { op: "set", tree: 0, path: ["score"], value: 7 },
       { op: "sequence-through", change: "schema" },
     ], `${label}: replayable acknowledgement actions`);
+    assert.deepEqual(actions("rollback-retains-new-type-content"), [
+      { op: "upgrade", tree: 1, schema: "new-node" },
+      { op: "set", tree: 1, path: ["extra", "value"], value: "retained" },
+      { op: "set", tree: 0, path: ["title"], value: "wins" },
+      { op: "sequence", order: "tree-0-first" },
+    ], `${label}: replayable rollback actions`);
     assert.deepEqual(actions("new-view-reopens"), [
       { op: "upgrade", tree: 0, schema: "optional" },
       { op: "sequence", count: "all" },
