@@ -66,8 +66,33 @@ type Batch {
   )
 }
 
+type RawNode {
+  RawNode(
+    schema_id: String,
+    value: Option(JsonValue),
+    fields: List(#(String, List(RawNode))),
+  )
+}
+
 /// Decode one self-describing FieldBatch V2 value.
 pub fn decode(encoded: Json) -> Result(List(List(TreeValue)), TreeError) {
+  use fields <- result.try(decode_raw(encoded))
+  index_try_map(fields, fn(field, field_index) {
+    index_try_map(field, fn(value, value_index) {
+      raw_value(
+        value,
+        None,
+        "fieldBatch.data["
+          <> int.to_string(field_index)
+          <> "]["
+          <> int.to_string(value_index)
+          <> "]",
+      )
+    })
+  })
+}
+
+fn decode_raw(encoded: Json) -> Result(List(List(RawNode)), TreeError) {
   use value <- result.try(
     json_ot.parse_json(json.to_string(encoded))
     |> result.map_error(fn(_) {
@@ -103,14 +128,20 @@ pub fn decode_with_schema(
   encoded: Json,
   stored: Option(schema.StoredSchema),
 ) -> Result(List(List(TreeValue)), TreeError) {
-  use fields <- result.try(decode(encoded))
-  case stored {
-    None -> Ok(fields)
-    Some(stored) ->
-      list.try_map(fields, fn(field) {
-        list.try_map(field, classify_value(_, stored))
-      })
-  }
+  use fields <- result.try(decode_raw(encoded))
+  index_try_map(fields, fn(field, field_index) {
+    index_try_map(field, fn(value, value_index) {
+      raw_value(
+        value,
+        stored,
+        "fieldBatch.data["
+          <> int.to_string(field_index)
+          <> "]["
+          <> int.to_string(value_index)
+          <> "]",
+      )
+    })
+  })
 }
 
 /// Encode fields with the upstream uncompressed FieldBatch V2 shapes.
@@ -318,7 +349,7 @@ fn decode_shape(
   stream: List(JsonValue),
   active: List(Int),
   location: String,
-) -> Result(#(List(TreeValue), List(JsonValue)), TreeError) {
+) -> Result(#(List(RawNode), List(JsonValue)), TreeError) {
   use _ <- result.try(case list.contains(active, index) {
     True ->
       Error(CorruptData(location, "shape recursion does not consume input"))
@@ -373,7 +404,7 @@ fn decode_nested(
   identifiers: List(String),
   stream: List(JsonValue),
   location: String,
-) -> Result(#(List(TreeValue), List(JsonValue)), TreeError) {
+) -> Result(#(List(RawNode), List(JsonValue)), TreeError) {
   use #(encoded, rest) <- result.try(read(stream, location))
   case encoded {
     VArray(inner) -> {
@@ -407,9 +438,9 @@ fn decode_until_empty(
   shapes: List(Shape),
   identifiers: List(String),
   stream: List(JsonValue),
-  values: List(TreeValue),
+  values: List(RawNode),
   location: String,
-) -> Result(List(TreeValue), TreeError) {
+) -> Result(List(RawNode), TreeError) {
   case stream {
     [] -> Ok(list.reverse(values))
     _ -> {
@@ -444,9 +475,9 @@ fn decode_count(
   count: Int,
   shapes: List(Shape),
   identifiers: List(String),
-  values: List(TreeValue),
+  values: List(RawNode),
   location: String,
-) -> Result(List(TreeValue), TreeError) {
+) -> Result(List(RawNode), TreeError) {
   case count {
     0 -> Ok(list.reverse(values))
     _ -> {
@@ -482,7 +513,7 @@ fn decode_inline(
   stream: List(JsonValue),
   active: List(Int),
   location: String,
-) -> Result(#(List(TreeValue), List(JsonValue)), TreeError) {
+) -> Result(#(List(RawNode), List(JsonValue)), TreeError) {
   case count {
     0 -> Ok(#([], stream))
     _ -> {
@@ -522,7 +553,7 @@ fn decode_node(
   stream: List(JsonValue),
   active: List(Int),
   location: String,
-) -> Result(#(List(TreeValue), List(JsonValue)), TreeError) {
+) -> Result(#(List(RawNode), List(JsonValue)), TreeError) {
   let initial_length = list.length(stream)
   use #(type_id, stream) <- result.try(case type_id {
     Some(type_id) ->
@@ -577,7 +608,7 @@ fn decode_node(
       Ok(#(fields, rest))
     }
   })
-  use value <- result.try(typed_value(
+  use value <- result.try(raw_node(
     type_id,
     value,
     list.reverse(fields),
@@ -592,11 +623,11 @@ fn decode_fixed_field_values(
   identifiers: List(String),
   stream: List(JsonValue),
   active: List(Int),
-  decoded: List(#(String, TreeValue)),
+  decoded: List(#(String, List(RawNode))),
   seen: List(String),
   location: String,
 ) -> Result(
-  #(List(#(String, TreeValue)), List(String), List(JsonValue)),
+  #(List(#(String, List(RawNode))), List(String), List(JsonValue)),
   TreeError,
 ) {
   case fields {
@@ -645,10 +676,10 @@ fn decode_extra_fields(
   shapes: List(Shape),
   identifiers: List(String),
   stream: List(JsonValue),
-  fields: List(#(String, TreeValue)),
+  fields: List(#(String, List(RawNode))),
   seen: List(String),
   location: String,
-) -> Result(#(List(#(String, TreeValue)), List(String)), TreeError) {
+) -> Result(#(List(#(String, List(RawNode))), List(String)), TreeError) {
   case stream {
     [] -> Ok(#(fields, seen))
     [encoded_key, ..rest] -> {
@@ -690,25 +721,17 @@ fn decode_extra_fields(
 }
 
 fn add_field(
-  fields: List(#(String, TreeValue)),
+  fields: List(#(String, List(RawNode))),
   seen: List(String),
   key: String,
-  values: List(TreeValue),
+  values: List(RawNode),
   location: String,
-) -> Result(#(List(#(String, TreeValue)), List(String)), TreeError) {
+) -> Result(#(List(#(String, List(RawNode))), List(String)), TreeError) {
   use _ <- result.try(case list.contains(seen, key) {
     True -> Error(CorruptData(location, "node has duplicate field " <> key))
     False -> Ok(Nil)
   })
-  case values {
-    [] -> Ok(#(fields, [key, ..seen]))
-    [value] -> Ok(#([#(key, value), ..fields], [key, ..seen]))
-    _ ->
-      Error(UnsupportedFeature(
-        location <> "." <> key,
-        "fields containing multiple trees",
-      ))
-  }
+  Ok(#([#(key, values), ..fields], [key, ..seen]))
 }
 
 fn decode_value(
@@ -738,12 +761,30 @@ fn decode_value(
   }
 }
 
-fn typed_value(
+fn raw_node(
   type_id: String,
   value: Option(JsonValue),
-  fields: List(#(String, TreeValue)),
+  fields: List(#(String, List(RawNode))),
+  location: String,
+) -> Result(RawNode, TreeError) {
+  case type_id == handle_leaf || type_id == identifier_node {
+    True ->
+      Error(
+        UnsupportedFeature(location, case type_id == handle_leaf {
+          True -> "handle leaves"
+          False -> "identifier nodes"
+        }),
+      )
+    False -> Ok(RawNode(type_id, value, fields))
+  }
+}
+
+fn raw_value(
+  node: RawNode,
+  stored: Option(schema.StoredSchema),
   location: String,
 ) -> Result(TreeValue, TreeError) {
+  let RawNode(type_id, value, fields) = node
   case type_id {
     type_id if type_id == string_leaf -> {
       use _ <- result.try(no_fields(fields, location))
@@ -796,23 +837,95 @@ fn typed_value(
     _ ->
       case string.starts_with(type_id, "com.fluidframework.leaf.") {
         True -> Error(UnsupportedFeature(location, "leaf type " <> type_id))
-        False ->
-          case value {
-            None -> Ok(ObjectValue(type_id, fields))
-            Some(_) ->
-              Error(UnsupportedFeature(location, "object nodes with values"))
-          }
+        False -> structural_value(type_id, value, fields, stored, location)
       }
   }
 }
 
 fn no_fields(
-  fields: List(#(String, TreeValue)),
+  fields: List(#(String, List(RawNode))),
   location: String,
 ) -> Result(Nil, TreeError) {
   case fields {
     [] -> Ok(Nil)
     _ -> Error(CorruptData(location, "leaf node has fields"))
+  }
+}
+
+fn structural_value(
+  type_id: String,
+  value: Option(JsonValue),
+  fields: List(#(String, List(RawNode))),
+  stored: Option(schema.StoredSchema),
+  location: String,
+) -> Result(TreeValue, TreeError) {
+  use _ <- result.try(case value {
+    None -> Ok(Nil)
+    Some(_) -> Error(UnsupportedFeature(location, "object nodes with values"))
+  })
+  case stored {
+    None ->
+      singleton_fields(fields, None, location)
+      |> result.map(ObjectValue(type_id, _))
+    Some(stored) -> {
+      use node <- result.try(schema.node_schema(stored, type_id))
+      case node {
+        schema.Object(_) ->
+          singleton_fields(fields, Some(stored), location)
+          |> result.map(ObjectValue(type_id, _))
+        schema.Map(_) ->
+          singleton_fields(fields, Some(stored), location)
+          |> result.map(MapValue(type_id, _))
+        schema.Array(_) -> {
+          use elements <- result.try(array_field(fields, location))
+          use elements <- result.try(
+            list.try_map(elements, fn(element) {
+              raw_value(element, Some(stored), location <> ".")
+            }),
+          )
+          Ok(ArrayValue(type_id, elements))
+        }
+        schema.Leaf(_) ->
+          Error(CorruptData(location, "leaf node uses a structural shape"))
+      }
+    }
+  }
+}
+
+fn singleton_fields(
+  fields: List(#(String, List(RawNode))),
+  stored: Option(schema.StoredSchema),
+  location: String,
+) -> Result(List(#(String, TreeValue)), TreeError) {
+  list.try_fold(fields, [], fn(decoded, field) {
+    case field.1 {
+      [] -> Ok(decoded)
+      [value] -> {
+        use value <- result.try(raw_value(
+          value,
+          stored,
+          location <> "." <> field.0,
+        ))
+        Ok([#(field.0, value), ..decoded])
+      }
+      _ ->
+        Error(UnsupportedFeature(
+          location <> "." <> field.0,
+          "fields containing multiple trees",
+        ))
+    }
+  })
+  |> result.map(list.reverse)
+}
+
+fn array_field(
+  fields: List(#(String, List(RawNode))),
+  location: String,
+) -> Result(List(RawNode), TreeError) {
+  case fields {
+    [] -> Ok([])
+    [#("", elements)] -> Ok(elements)
+    _ -> Error(CorruptData(location, "array node has an invalid primary field"))
   }
 }
 
@@ -863,40 +976,6 @@ fn encode_node(
       encode_structural_node(type_id, entries, location)
     ArrayValue(type_id, elements) ->
       encode_array_node(type_id, elements, location)
-  }
-}
-
-fn classify_value(
-  value: TreeValue,
-  stored: schema.StoredSchema,
-) -> Result(TreeValue, TreeError) {
-  case value {
-    ObjectValue(type_id, fields) -> {
-      use fields <- result.try(
-        list.try_map(fields, fn(field) {
-          classify_value(field.1, stored)
-          |> result.map(fn(value) { #(field.0, value) })
-        }),
-      )
-      use node <- result.try(schema.node_schema(stored, type_id))
-      case node {
-        schema.Object(_) -> Ok(ObjectValue(type_id, fields))
-        schema.Map(_) -> Ok(MapValue(type_id, fields))
-        schema.Array(_) ->
-          case fields {
-            [] -> Ok(ArrayValue(type_id, []))
-            [#("", value)] -> Ok(ArrayValue(type_id, [value]))
-            _ ->
-              Error(CorruptData(
-                "fieldBatch",
-                "array node has an invalid primary field",
-              ))
-          }
-        schema.Leaf(_) ->
-          Error(CorruptData("fieldBatch", "leaf node uses a structural shape"))
-      }
-    }
-    other -> Ok(other)
   }
 }
 

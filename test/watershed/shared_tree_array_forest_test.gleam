@@ -1,3 +1,5 @@
+import gleam/int
+import gleam/list
 import gleam/option.{None, Some}
 import startest/expect
 import watershed/tree/array_fixture
@@ -33,4 +35,51 @@ pub fn shared_tree_array_forest_reads_ordered_elements_test() -> Nil {
       forest.FieldStep("", 1),
     ]),
   )
+}
+
+pub fn shared_tree_array_forest_preserves_literal_map_keys_test() -> Nil {
+  let root =
+    types.MapValue("org.watershed.shared-tree.m3.ArrayMap", [
+      #(
+        "0",
+        types.ArrayValue(items_type, [
+          types.StringValue("zero"),
+          types.ArrayValue(items_type, [types.StringValue("deep")]),
+        ]),
+      ),
+      #("01", types.StringValue("leading-zero")),
+      #("", types.ArrayValue(items_type, [types.StringValue("empty")])),
+    ])
+  let assert Ok(state) =
+    forest.new(
+      array_fixture.view_id(),
+      array_fixture.stored("mapArrays"),
+      Some(root),
+    )
+  forest.read(state, ["0", "1", "0"])
+  |> expect.to_equal(Ok(Some(types.StringValue("deep"))))
+  forest.read(state, ["01"])
+  |> expect.to_equal(Ok(Some(types.StringValue("leading-zero"))))
+  forest.read(state, ["", "0"])
+  |> expect.to_equal(Ok(Some(types.StringValue("empty"))))
+}
+
+pub fn shared_tree_array_forest_rejects_invalid_indices_test() -> Nil {
+  let root = types.ArrayValue(items_type, [types.StringValue("value")])
+  let assert Ok(state) =
+    forest.new(
+      array_fixture.view_id(),
+      array_fixture.stored("rootArray"),
+      Some(root),
+    )
+  ["", "-1", "+1", "01", "1.0", " 0", "9007199254740992"]
+  |> list.each(fn(segment) {
+    forest.read(state, [segment]) |> expect.to_be_error
+  })
+  forest.array_get(state, [], -1) |> expect.to_be_error
+  let assert Ok(unsafe) = int.parse("9007199254740992")
+  forest.array_get(state, [], unsafe) |> expect.to_be_error
+  forest.read(state, ["1"]) |> expect.to_equal(Ok(None))
+  let _ = forest.read(state, ["1", "child"]) |> expect.to_be_error
+  Nil
 }
