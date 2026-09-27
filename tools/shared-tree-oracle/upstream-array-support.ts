@@ -5,10 +5,7 @@
 
 import { strict as assert } from "node:assert";
 
-import type {
-	IIdCompressor,
-	SessionSpaceCompressedId,
-} from "@fluidframework/id-compressor";
+import type { IIdCompressor, SessionSpaceCompressedId } from "@fluidframework/id-compressor";
 import {
 	deserializeIdCompressor,
 	serializeIdCompressor,
@@ -68,7 +65,7 @@ import { newCrossFieldKeyTable } from "../feature-libraries/modular-schema/modul
 import type { GenericChangeset } from "../feature-libraries/modular-schema/genericFieldKindTypes.js";
 import { sequenceFieldEditor } from "../feature-libraries/sequence-field/sequenceFieldEditor.js";
 import type { Changeset } from "../feature-libraries/sequence-field/types.js";
-import { brand } from "../util/index.js";
+import { brand, type JsonCompatibleReadOnly } from "../util/index.js";
 import { moveWithin, testChangeReceiver } from "./utils.js";
 
 type PlainAtom = {
@@ -190,10 +187,14 @@ type ReplayIdContext = {
 
 function replayIdContext(input: Record<string, unknown>): ReplayIdContext {
 	object(input.compressor, "The modular replay must contain compressor state.");
-	assert(typeof input.compressor.sessionId === "string",
-		"The modular compressor session must be a string.");
-	assert(typeof input.compressor.serialized === "string",
-		"The modular compressor state must be serialized.");
+	assert(
+		typeof input.compressor.sessionId === "string",
+		"The modular compressor session must be a string.",
+	);
+	assert(
+		typeof input.compressor.serialized === "string",
+		"The modular compressor state must be serialized.",
+	);
 	const idCompressor = deserializeIdCompressor(
 		input.compressor.serialized as SerializedIdCompressorWithOngoingSession,
 	);
@@ -336,9 +337,10 @@ function decodeFieldChanges(
 			});
 		} else if (entry[1].kind === "Value" || entry[1].kind === "Optional") {
 			object(entry[1].change, "The register change must be an object.");
-			assert(Array.isArray(entry[1].change.moves)
-				&& Array.isArray(entry[1].change.childChanges),
-				"The register change must contain moves and child changes.");
+			assert(
+				Array.isArray(entry[1].change.moves) && Array.isArray(entry[1].change.childChanges),
+				"The register change must contain moves and child changes.",
+			);
 			fields.set(field, {
 				fieldKind: brand(entry[1].kind),
 				change: brand(copy(entry[1].change)),
@@ -396,16 +398,8 @@ function decodeModularChange(
 	}
 	const nodeAliases = newChangeAtomIdBTree<ChangeAtomId>();
 	for (const [sourceValue, targetValue] of value.aliases) {
-		const source = decodeAtom(
-			sourceValue,
-			"The modular alias source must be valid.",
-			context,
-		);
-		const target = decodeAtom(
-			targetValue,
-			"The modular alias target must be valid.",
-			context,
-		);
+		const source = decodeAtom(sourceValue, "The modular alias source must be valid.", context);
+		const target = decodeAtom(targetValue, "The modular alias target must be valid.", context);
 		nodeAliases.set([source.revision, source.localId], target);
 	}
 	const crossFieldKeys = newCrossFieldKeyTable();
@@ -435,10 +429,12 @@ function decodeModularChange(
 			const id = decodeAtom(idValue, message, context);
 			table.set(
 				[id.revision, id.localId],
-				combineChunks(chunkField(cursorForJsonableTreeField([...trees]), {
-					policy: defaultChunkPolicy,
-					idCompressor: context.idCompressor,
-				})),
+				combineChunks(
+					chunkField(cursorForJsonableTreeField([...trees]), {
+						policy: defaultChunkPolicy,
+						idCompressor: context.idCompressor,
+					}),
+				),
 			);
 		}
 		return table;
@@ -547,10 +543,12 @@ export function encodeModularGraph(change: ModularChangeset): PlainModularChange
 			plainAtom({ revision, localId }),
 			jsonableTreeFromFieldCursor(chunk.cursor()),
 		]),
-		refreshers: [...(change.refreshers?.entries() ?? [])].map(([[revision, localId], chunk]) => [
-			plainAtom({ revision, localId }),
-			jsonableTreeFromFieldCursor(chunk.cursor()),
-		]),
+		refreshers: [...(change.refreshers?.entries() ?? [])].map(
+			([[revision, localId], chunk]) => [
+				plainAtom({ revision, localId }),
+				jsonableTreeFromFieldCursor(chunk.cursor()),
+			],
+		),
 		destroys: [...(change.destroys?.entries() ?? [])].map(([[revision, localId], count]) => [
 			plainAtom({ revision, localId }),
 			count,
@@ -588,6 +586,31 @@ export function encodeModularV5(
 		encoded,
 		graph: encodeModularGraph(codec.decode(encoded, encodingContext)),
 	};
+}
+
+export function decodeModularV5(
+	value: unknown,
+	idCompressor: IIdCompressor,
+	revision?: number,
+): PlainModularChange {
+	const context = {
+		idCompressor,
+		revisionTagCodec: new RevisionTagCodec(idCompressor),
+	};
+	const { family } = makeArrayModularFamily(context);
+	const decodedRevision: RevisionTag | undefined =
+		revision === undefined ? undefined : (revision as SessionSpaceCompressedId);
+	const codecContext: ChangeEncodingContext = {
+		originatorId: idCompressor.localSessionId,
+		idCompressor,
+		revision: decodedRevision,
+		isSummary: false,
+	};
+	return encodeModularGraph(
+		family.codecs
+			.resolve(ModularChangeFormatVersion.v5)
+			.decode(value as JsonCompatibleReadOnly, codecContext),
+	);
 }
 
 function deltaFields(value: DeltaFieldMap | undefined): unknown[] {
@@ -1031,9 +1054,7 @@ function replayArrayModular(
 		coordination: rawCoordination
 			? coordination
 			: {
-					handlerCalls: coordination.handlerCalls.map(
-						({ sequence: _, ...call }) => call,
-					),
+					handlerCalls: coordination.handlerCalls.map(({ sequence: _, ...call }) => call),
 					managerCalls: coordination.managerCalls
 						.filter((call) => call.method !== "get")
 						.map(({ sequence: _, ...call }) => call),
@@ -1135,7 +1156,14 @@ export function crossFieldCoordinationInput(
 		genericOrigins: new WeakMap(),
 		nextSequence: 0,
 	};
-	const decodedFields = decodeFieldChanges(fields, instrumentation, null, 1, undefined, context);
+	const decodedFields = decodeFieldChanges(
+		fields,
+		instrumentation,
+		null,
+		1,
+		undefined,
+		context,
+	);
 	const inversions = makeChangesetInversions(
 		decodedFields,
 		newChangeAtomIdBTree(),
@@ -1257,42 +1285,64 @@ export function multiRevisionInversionInput(
 			rollbackOf: null,
 		})),
 		fields: [
-			["left0", sequence([{
-				type: "MoveIn",
-				id: 10,
-				count: splitFirstMove ? 2 : 1,
-				cellId: atom(firstRevision, 12),
-				revision: Number(firstRevision),
-			}])],
-			["right0", sequence([
-				{
-					type: "MoveOut",
-					id: 10,
-					count: 1,
-					revision: Number(firstRevision),
-					changes: atom(firstRevision, 30),
-				},
-				...(splitFirstMove ? [{
-					type: "MoveOut",
-					id: 11,
-					count: 1,
-					revision: Number(firstRevision),
-				}] : []),
-			])],
-			["left1", sequence([{
-				type: "MoveIn",
-				id: 10,
-				count: 1,
-				cellId: atom(secondRevision, 12),
-				revision: Number(secondRevision),
-			}])],
-			["right1", sequence([{
-				type: "MoveOut",
-				id: 10,
-				count: 1,
-				revision: Number(secondRevision),
-				changes: atom(secondRevision, 30),
-			}])],
+			[
+				"left0",
+				sequence([
+					{
+						type: "MoveIn",
+						id: 10,
+						count: splitFirstMove ? 2 : 1,
+						cellId: atom(firstRevision, 12),
+						revision: Number(firstRevision),
+					},
+				]),
+			],
+			[
+				"right0",
+				sequence([
+					{
+						type: "MoveOut",
+						id: 10,
+						count: 1,
+						revision: Number(firstRevision),
+						changes: atom(firstRevision, 30),
+					},
+					...(splitFirstMove
+						? [
+								{
+									type: "MoveOut",
+									id: 11,
+									count: 1,
+									revision: Number(firstRevision),
+								},
+							]
+						: []),
+				]),
+			],
+			[
+				"left1",
+				sequence([
+					{
+						type: "MoveIn",
+						id: 10,
+						count: 1,
+						cellId: atom(secondRevision, 12),
+						revision: Number(secondRevision),
+					},
+				]),
+			],
+			[
+				"right1",
+				sequence([
+					{
+						type: "MoveOut",
+						id: 10,
+						count: 1,
+						revision: Number(secondRevision),
+						changes: atom(secondRevision, 30),
+					},
+				]),
+			],
 		],
 		nodes: [
 			[atom(firstRevision, 30), { fields: [] }],
@@ -1381,16 +1431,20 @@ export function forestCheckpointInput(
 	};
 	const move = author(revisions[0], (editor) => moveWithin(editor, root, 0, 1, 2));
 	const editAfterMove = author(revisions[1], (editor) => {
-		editor.sequenceField({
-			parent: { parent: undefined, parentField: rootFieldKey, parentIndex: 1 },
-			field: child,
-		}).remove(0, 1);
+		editor
+			.sequenceField({
+				parent: { parent: undefined, parentField: rootFieldKey, parentIndex: 1 },
+				field: child,
+			})
+			.remove(0, 1);
 	});
 	const editBeforeMove = author(revisions[2], (editor) => {
-		editor.sequenceField({
-			parent: { parent: undefined, parentField: rootFieldKey, parentIndex: 0 },
-			field: child,
-		}).remove(0, 1);
+		editor
+			.sequenceField({
+				parent: { parent: undefined, parentField: rootFieldKey, parentIndex: 0 },
+				field: child,
+			})
+			.remove(0, 1);
 	});
 	const composed = family.compose([
 		tagChange(move, revisions[0]),
@@ -1434,36 +1488,37 @@ export function forestCheckpointInput(
 	const composedStep = {
 		id: "compose-move-edit",
 		...replay("compose", [
-		taggedPlain(revisions[0], move),
-		taggedPlain(revisions[1], editAfterMove),
+			taggedPlain(revisions[0], move),
+			taggedPlain(revisions[1], editAfterMove),
 		]),
 	};
 	const rebasedStep = {
 		id: "rebase-edit-over-move",
-		...replay("rebase", [
-			taggedPlain(revisions[2], editBeforeMove),
-			taggedPlain(revisions[0], move),
-		], {
-			revisionMetadata: [revisions[0], revisions[2]].map((revision) => ({
-				revision: Number(revision),
-				rollbackOf: null,
-			})),
-		}),
+		...replay(
+			"rebase",
+			[taggedPlain(revisions[2], editBeforeMove), taggedPlain(revisions[0], move)],
+			{
+				revisionMetadata: [revisions[0], revisions[2]].map((revision) => ({
+					revision: Number(revision),
+					rollbackOf: null,
+				})),
+			},
+		),
 	};
 	const inverseStep = {
 		id: "invert-composed",
-		...replay("invert", [
-			taggedPlain(revisions[3], composed),
-		], {
+		...replay("invert", [taggedPlain(revisions[3], composed)], {
 			isRollback: false,
 			inverseRevision: Number(revisions[4]),
 		}),
 	};
 	const raceChild = author(revisions[5], (editor) => {
-		editor.sequenceField({
-			parent: { parent: undefined, parentField: rootFieldKey, parentIndex: 0 },
-			field: child,
-		}).remove(0, 1);
+		editor
+			.sequenceField({
+				parent: { parent: undefined, parentField: rootFieldKey, parentIndex: 0 },
+				field: child,
+			})
+			.remove(0, 1);
 	});
 	const removeAncestor = author(revisions[6], (editor) => {
 		editor.sequenceField(root).remove(0, 1);
@@ -1482,14 +1537,18 @@ export function forestCheckpointInput(
 		changes: readonly TaggedPlainModularChange[],
 	) => ({
 		id,
-		...replay(operation, changes, operation === "rebase"
-			? {
-					revisionMetadata: revisions.slice(5, 9).map((revision) => ({
-						revision: Number(revision),
-						rollbackOf: null,
-					})),
-				}
-			: {}),
+		...replay(
+			operation,
+			changes,
+			operation === "rebase"
+				? {
+						revisionMetadata: revisions.slice(5, 9).map((revision) => ({
+							revision: Number(revision),
+							rollbackOf: null,
+						})),
+					}
+				: {},
+		),
 	});
 	const raceChildTagged = taggedPlain(revisions[5], raceChild);
 	const removeAncestorTagged = taggedPlain(revisions[6], removeAncestor);
@@ -1509,13 +1568,15 @@ export function forestCheckpointInput(
 		...inversionRetry,
 	};
 	const inversionInitialState = {
-		field: [{
-			type: "org.watershed.shared-tree.m3.ForestNode",
-			fields: [
-				["right0", [{ type: "com.fluidframework.leaf.string", value: "A", fields: [] }]],
-				["right1", [{ type: "com.fluidframework.leaf.string", value: "B", fields: [] }]],
-			],
-		}],
+		field: [
+			{
+				type: "org.watershed.shared-tree.m3.ForestNode",
+				fields: [
+					["right0", [{ type: "com.fluidframework.leaf.string", value: "A", fields: [] }]],
+					["right1", [{ type: "com.fluidframework.leaf.string", value: "B", fields: [] }]],
+				],
+			},
+		],
 	};
 	const inversionCandidates = [
 		[0, "left0", 0],
@@ -1550,119 +1611,211 @@ export function forestCheckpointInput(
 	const wrapper = "wrapper";
 	const detachedWrapper = atom(revisions[12], 0);
 	const renamedWrapper = atom(revisions[13], 20);
-	const seedDetached = plainChange(revisions[12], [[wrapper, sequence([{
-		count: 1,
-	}, {
-		type: "Remove",
-		id: 0,
-		count: 1,
-		revision: Number(revisions[12]),
-	}])]]);
+	const seedDetached = plainChange(revisions[12], [
+		[
+			wrapper,
+			sequence([
+				{
+					count: 1,
+				},
+				{
+					type: "Remove",
+					id: 0,
+					count: 1,
+					revision: Number(revisions[12]),
+				},
+			]),
+		],
+	]);
 	const occupiedChild = atom(revisions[13], 30);
 	const emptyChild = atom(revisions[13], 31);
-	const globalRename = plainChange(revisions[13], [[wrapper, sequence([
-		{ count: 1, changes: occupiedChild },
-		{
-			type: "Remove",
-			id: renamedWrapper.localId,
-			count: 1,
-			cellId: detachedWrapper,
-			revision: renamedWrapper.revision,
-			changes: emptyChild,
-		},
-	])]], [
-		[occupiedChild, { fields: [["child", sequence([{
-			type: "Remove",
-			id: 21,
-			count: 1,
-			revision: Number(revisions[13]),
-		}])]] }],
-		[emptyChild, { fields: [["child", sequence([{
-			type: "Remove",
-			id: 22,
-			count: 1,
-			revision: Number(revisions[13]),
-		}])]] }],
-	], [
-		[occupiedChild, parent(wrapper)],
-		[emptyChild, parent(wrapper)],
-	], 31);
+	const globalRename = plainChange(
+		revisions[13],
+		[
+			[
+				wrapper,
+				sequence([
+					{ count: 1, changes: occupiedChild },
+					{
+						type: "Remove",
+						id: renamedWrapper.localId,
+						count: 1,
+						cellId: detachedWrapper,
+						revision: renamedWrapper.revision,
+						changes: emptyChild,
+					},
+				]),
+			],
+		],
+		[
+			[
+				occupiedChild,
+				{
+					fields: [
+						[
+							"child",
+							sequence([
+								{
+									type: "Remove",
+									id: 21,
+									count: 1,
+									revision: Number(revisions[13]),
+								},
+							]),
+						],
+					],
+				},
+			],
+			[
+				emptyChild,
+				{
+					fields: [
+						[
+							"child",
+							sequence([
+								{
+									type: "Remove",
+									id: 22,
+									count: 1,
+									revision: Number(revisions[13]),
+								},
+							]),
+						],
+					],
+				},
+			],
+		],
+		[
+			[occupiedChild, parent(wrapper)],
+			[emptyChild, parent(wrapper)],
+		],
+		31,
+	);
 	const followChild = atom(revisions[14], 32);
-	const renamedFollowUp = plainChange(revisions[14], [[wrapper, sequence([
-		{ count: 1 },
-		{
-			count: 1,
-			cellId: renamedWrapper,
-			changes: followChild,
-		},
-	])]], [
-		[followChild, { fields: [["label", sequence([{
-			type: "Remove",
-			id: 23,
-			count: 1,
-			revision: Number(revisions[14]),
-		}])]] }],
-	], [
-		[followChild, parent(wrapper)],
-	], 32);
-	const plainStep = (
-		id: string,
-		revision: RevisionTag,
-		change: PlainModularChange,
-	) => ({
+	const renamedFollowUp = plainChange(
+		revisions[14],
+		[
+			[
+				wrapper,
+				sequence([
+					{ count: 1 },
+					{
+						count: 1,
+						cellId: renamedWrapper,
+						changes: followChild,
+					},
+				]),
+			],
+		],
+		[
+			[
+				followChild,
+				{
+					fields: [
+						[
+							"label",
+							sequence([
+								{
+									type: "Remove",
+									id: 23,
+									count: 1,
+									revision: Number(revisions[14]),
+								},
+							]),
+						],
+					],
+				},
+			],
+		],
+		[[followChild, parent(wrapper)]],
+		32,
+	);
+	const plainStep = (id: string, revision: RevisionTag, change: PlainModularChange) => ({
 		id,
-		...replay("compose", [{
-			revision: Number(revision),
-			change,
-		}]),
+		...replay("compose", [
+			{
+				revision: Number(revision),
+				change,
+			},
+		]),
 	});
 	const globalRenameInitialState = {
-		field: [{
-			type: "org.watershed.shared-tree.m3.ForestNode",
-			fields: [[wrapper, [
-				{
-					type: "org.watershed.shared-tree.m3.ForestNode",
-					fields: [
-						["label", [{
-							type: "com.fluidframework.leaf.string",
-							value: "occupied",
-							fields: [],
-						}]],
-						["child", [{
-							type: "com.fluidframework.leaf.string",
-							value: "live-child",
-							fields: [],
-						}]],
+		field: [
+			{
+				type: "org.watershed.shared-tree.m3.ForestNode",
+				fields: [
+					[
+						wrapper,
+						[
+							{
+								type: "org.watershed.shared-tree.m3.ForestNode",
+								fields: [
+									[
+										"label",
+										[
+											{
+												type: "com.fluidframework.leaf.string",
+												value: "occupied",
+												fields: [],
+											},
+										],
+									],
+									[
+										"child",
+										[
+											{
+												type: "com.fluidframework.leaf.string",
+												value: "live-child",
+												fields: [],
+											},
+										],
+									],
+								],
+							},
+							{
+								type: "org.watershed.shared-tree.m3.ForestNode",
+								fields: [
+									[
+										"label",
+										[
+											{
+												type: "com.fluidframework.leaf.string",
+												value: "detached",
+												fields: [],
+											},
+										],
+									],
+									[
+										"child",
+										[
+											{
+												type: "com.fluidframework.leaf.string",
+												value: "detached-child",
+												fields: [],
+											},
+										],
+									],
+								],
+							},
+						],
 					],
-				},
-				{
-					type: "org.watershed.shared-tree.m3.ForestNode",
-					fields: [
-						["label", [{
-							type: "com.fluidframework.leaf.string",
-							value: "detached",
-							fields: [],
-						}]],
-						["child", [{
-							type: "com.fluidframework.leaf.string",
-							value: "detached-child",
-							fields: [],
-						}]],
-					],
-				},
-			]]],
-		}],
+				],
+			},
+		],
 	};
 	return {
 		operation: "apply-modular",
 		initialState: {
-			field: [{
-				type: "org.watershed.shared-tree.m3.ForestNode",
-				fields: [
-					["label", [{ type: "com.fluidframework.leaf.string", value: "A", fields: [] }]],
-					["child", [{ type: "com.fluidframework.leaf.string", value: "old", fields: [] }]],
-				],
-			}, { type: "com.fluidframework.leaf.string", value: "B", fields: [] }],
+			field: [
+				{
+					type: "org.watershed.shared-tree.m3.ForestNode",
+					fields: [
+						["label", [{ type: "com.fluidframework.leaf.string", value: "A", fields: [] }]],
+						["child", [{ type: "com.fluidframework.leaf.string", value: "old", fields: [] }]],
+					],
+				},
+				{ type: "com.fluidframework.leaf.string", value: "B", fields: [] },
+			],
 		},
 		operands: {
 			runs: [
@@ -1675,10 +1828,7 @@ export function forestCheckpointInput(
 					retainIndex: 0,
 					steps: [
 						raceStep("remove-ancestor", "compose", [removeAncestorTagged]),
-						raceStep("child-over-remove", "rebase", [
-							raceChildTagged,
-							removeAncestorTagged,
-						]),
+						raceStep("child-over-remove", "rebase", [raceChildTagged, removeAncestorTagged]),
 					],
 				},
 				{
@@ -1686,10 +1836,7 @@ export function forestCheckpointInput(
 					retainIndex: 0,
 					steps: [
 						raceStep("child", "compose", [raceChildTagged]),
-						raceStep("remove-over-child", "rebase", [
-							removeAncestorTagged,
-							raceChildTagged,
-						]),
+						raceStep("remove-over-child", "rebase", [removeAncestorTagged, raceChildTagged]),
 					],
 				},
 				{
@@ -1737,7 +1884,10 @@ export function forestCheckpointInput(
 					initialState: globalRenameInitialState,
 					retainIndex: null,
 					retainPath: [0, wrapper, 1],
-					identityCandidates: [[0, wrapper, 0], [0, wrapper, 1]],
+					identityCandidates: [
+						[0, wrapper, 0],
+						[0, wrapper, 1],
+					],
 					wrapFieldsAtIndex: 0,
 					steps: [
 						plainStep("detach-empty-wrapper", revisions[12], seedDetached),

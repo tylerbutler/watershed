@@ -627,11 +627,21 @@
                         {
                           "count": 1,
                           "effect": {
-                            "rename": {
-                              "idOverride": [
-                                44,
-                                513
-                              ]
+                            "attachAndDetach": {
+                              "attach": {
+                                "moveIn": {
+                                  "id": -1
+                                }
+                              },
+                              "detach": {
+                                "moveOut": {
+                                  "id": -1,
+                                  "idOverride": [
+                                    44,
+                                    513
+                                  ]
+                                }
+                              }
                             }
                           },
                           "cellId": [
@@ -745,7 +755,8 @@
                                   ],
                                   "id": 57
                                 }
-                              }
+                              },
+                              "extra": true
                             }
                           },
                           "cellId": [
@@ -8166,11 +8177,21 @@
                           {
                             "count": 1,
                             "effect": {
-                              "rename": {
-                                "idOverride": [
-                                  44,
-                                  513
-                                ]
+                              "attachAndDetach": {
+                                "attach": {
+                                  "moveIn": {
+                                    "id": -1
+                                  }
+                                },
+                                "detach": {
+                                  "moveOut": {
+                                    "id": -1,
+                                    "idOverride": [
+                                      44,
+                                      513
+                                    ]
+                                  }
+                                }
                               }
                             },
                             "cellId": [
@@ -8284,7 +8305,8 @@
                                     ],
                                     "id": 57
                                   }
-                                }
+                                },
+                                "extra": true
                               }
                             },
                             "cellId": [

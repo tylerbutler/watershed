@@ -56,6 +56,7 @@ import { Tree, type SharedTreeChange } from "../shared-tree/index.js";
 import { configuredSharedTreeInternal } from "../treeFactory.js";
 import {
 	crossFieldCoordinationInput,
+	decodeModularV5,
 	encodeModularV5,
 	encodeModularGraph,
 	multiPassComposeInput,
@@ -81,33 +82,68 @@ const reference = {
 };
 const scenarioIds = {
 	"array-schema-content": [
-		"root-array", "object-arrays", "map-arrays", "nested-arrays", "recursive-arrays",
-		"incompatible-arrays", "empty-content", "allowed-leaves", "compatibility",
+		"root-array",
+		"object-arrays",
+		"map-arrays",
+		"nested-arrays",
+		"recursive-arrays",
+		"incompatible-arrays",
+		"empty-content",
+		"allowed-leaves",
+		"compatibility",
 		"schema-content-bytes",
 	],
 	"array-modular-algebra": [
-		"generic-to-sequence", "sequence-to-generic", "generic-signature-collision",
-		"nested-conversions", "nested-conversions-reversed", "nested-rebase-conversion",
-		"sequence-tombstone-rebase", "nested-ancestors",
-		"common-ancestors", "cross-field-endpoints", "nested-cross-field-endpoints",
-		"nested-aliased-chain", "nested-outer-effects", "nested-aliased-conversion-retry",
-		"multi-revision-inversion-retry", "multi-revision-inversion-retry-split",
+		"generic-to-sequence",
+		"sequence-to-generic",
+		"generic-signature-collision",
+		"nested-conversions",
+		"nested-conversions-reversed",
+		"nested-rebase-conversion",
+		"sequence-tombstone-rebase",
+		"nested-ancestors",
+		"common-ancestors",
+		"cross-field-endpoints",
+		"nested-cross-field-endpoints",
+		"nested-aliased-chain",
+		"nested-outer-effects",
+		"nested-aliased-conversion-retry",
+		"multi-revision-inversion-retry",
+		"multi-revision-inversion-retry-split",
 		"three-pass-nested-moves",
-		"sequence-ancestor-rebase", "sequence-ancestor-rebase-intersecting",
-		"node-table", "parent-table", "alias-table",
+		"sequence-ancestor-rebase",
+		"sequence-ancestor-rebase-intersecting",
+		"node-table",
+		"parent-table",
+		"alias-table",
 		"ownership-roundtrip",
 	],
 	"array-codecs": [
-		"sequence-v3", "message-v7", "builds", "empty-arrays", "retained-history",
-		"detached-index", "full-summary",
+		"sequence-v3",
+		"message-v7",
+		"builds",
+		"empty-arrays",
+		"retained-history",
+		"detached-index",
+		"full-summary",
 	],
 	"array-history": [
-		"pending-chains", "batching", "acknowledgements", "reconnect", "window-advance",
-		"summary-tail", "public-noops",
+		"pending-chains",
+		"batching",
+		"acknowledgements",
+		"reconnect",
+		"window-advance",
+		"summary-tail",
+		"public-noops",
 	],
 	"array-invalid": [
-		"corrupt-schema", "corrupt-mark", "corrupt-range", "corrupt-revision",
-		"corrupt-ownership", "corrupt-summary", "native-remove-beyond-length",
+		"corrupt-schema",
+		"corrupt-mark",
+		"corrupt-range",
+		"corrupt-revision",
+		"corrupt-ownership",
+		"corrupt-summary",
+		"native-remove-beyond-length",
 	],
 } as const;
 
@@ -149,10 +185,12 @@ function copy<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value));
 }
 
-function executed(run: () => unknown): { accepted: true; value: unknown } | {
-	accepted: false;
-	error: string;
-} {
+function executed(run: () => unknown):
+	| { accepted: true; value: unknown }
+	| {
+			accepted: false;
+			error: string;
+	  } {
 	try {
 		return { accepted: true, value: copy(run()) };
 	} catch (error) {
@@ -163,9 +201,9 @@ function executed(run: () => unknown): { accepted: true; value: unknown } | {
 	}
 }
 
-async function executedAsync(run: () => Promise<unknown>): Promise<
-	{ accepted: true; value: unknown } | { accepted: false; error: string }
-> {
+async function executedAsync(
+	run: () => Promise<unknown>,
+): Promise<{ accepted: true; value: unknown } | { accepted: false; error: string }> {
 	try {
 		return { accepted: true, value: copy(await run()) };
 	} catch (error) {
@@ -177,11 +215,9 @@ async function executedAsync(run: () => Promise<unknown>): Promise<
 }
 
 function schemaString(schema: ImplicitFieldSchema): string {
-	return JSON.stringify(extractPersistedSchema(
-		schema,
-		FluidClientVersion.v2_117,
-		() => false,
-	));
+	return JSON.stringify(
+		extractPersistedSchema(schema, FluidClientVersion.v2_117, () => false),
+	);
 }
 
 function summaryBlob(summary: { tree: Record<string, unknown> }, ...path: string[]): string {
@@ -206,8 +242,11 @@ function messagesIn(value: unknown): Record<string, unknown>[] {
 			item.forEach(visit);
 		} else if (item !== null && typeof item === "object") {
 			const object = item as Record<string, unknown>;
-			if (object.version === 7 && typeof object.originatorId === "string"
-				&& Array.isArray(object.changeset)) {
+			if (
+				object.version === 7 &&
+				typeof object.originatorId === "string" &&
+				Array.isArray(object.changeset)
+			) {
 				messages.push(object);
 			}
 			Object.values(object).forEach(visit);
@@ -296,7 +335,13 @@ function initialRoot() {
 			"A",
 			new Point({ label: "same", x: 1 }),
 			new Point({ label: "same", x: 1 }),
-			new Items(["nested", new ArrayMap([["", "empty-key"], ["0", "numeric-key"]])]),
+			new Items([
+				"nested",
+				new ArrayMap([
+					["", "empty-key"],
+					["0", "numeric-key"],
+				]),
+			]),
 		]),
 		right: new Items(["R"]),
 		byKey: new ArrayMap([
@@ -365,8 +410,12 @@ function plainInitialRoot(): PlainRoot {
 }
 
 function hydrate(value: unknown): unknown {
-	if (value === null || typeof value === "string" || typeof value === "number"
-		|| typeof value === "boolean") {
+	if (
+		value === null ||
+		typeof value === "string" ||
+		typeof value === "number" ||
+		typeof value === "boolean"
+	) {
 		return value;
 	}
 	if (Array.isArray(value)) return new Items(value.map(hydrate) as never);
@@ -384,28 +433,39 @@ function hydrate(value: unknown): unknown {
 	if ("map" in value) {
 		const entries = Reflect.get(value, "map");
 		assert(Array.isArray(entries), "Map content must contain entries.");
-		return new ArrayMap(entries.map((entry) => {
-			assert(Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string",
-				"Map content entry must contain a string key and value.");
-			return [entry[0], hydrate(entry[1])];
-		}) as never);
+		return new ArrayMap(
+			entries.map((entry) => {
+				assert(
+					Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string",
+					"Map content entry must contain a string key and value.",
+				);
+				return [entry[0], hydrate(entry[1])];
+			}) as never,
+		);
 	}
 	if ("left" in value && "right" in value && "byKey" in value && "narrow" in value) {
 		const left = hydrate(Reflect.get(value, "left"));
 		const right = hydrate(Reflect.get(value, "right"));
 		const byKey = hydrate(Reflect.get(value, "byKey"));
 		const narrow = Reflect.get(value, "narrow");
-		assert(left instanceof Items && right instanceof Items && byKey instanceof ArrayMap
-			&& Array.isArray(narrow), "Root content has the wrong shape.");
+		assert(
+			left instanceof Items &&
+				right instanceof Items &&
+				byKey instanceof ArrayMap &&
+				Array.isArray(narrow),
+			"Root content has the wrong shape.",
+		);
 		return new Root({
 			left,
 			right,
 			byKey,
-			narrow: new Points(narrow.map((item) => {
-				const point = hydrate(item);
-				assert(point instanceof Point, "Points content must contain points.");
-				return point;
-			})),
+			narrow: new Points(
+				narrow.map((item) => {
+					const point = hydrate(item);
+					assert(point instanceof Point, "Points content must contain points.");
+					return point;
+				}),
+			),
 		});
 	}
 	assert.fail("Unsupported tree content.");
@@ -446,11 +506,13 @@ function schemaFor(selector: unknown): ImplicitFieldSchema {
 function contentFor(selector: unknown, value: unknown): Root | Items | Points | ArrayMap {
 	if (selector === "incompatibleArrays") {
 		assert(Array.isArray(value), "Points content must be an array.");
-		return new Points(value.map((item) => {
-			const point = hydrate(item);
-			assert(point instanceof Point, "Points content must contain points.");
-			return point;
-		}));
+		return new Points(
+			value.map((item) => {
+				const point = hydrate(item);
+				assert(point instanceof Point, "Points content must contain points.");
+				return point;
+			}),
+		);
 	}
 	const content = hydrate(value);
 	if (selector === "objectArrays") {
@@ -540,14 +602,17 @@ function decodeSummaryContent(encoded: string): unknown {
 	const context = makeTestFieldBatchContexts({
 		encodeType: TreeCompressionStrategy.Uncompressed,
 	});
-	const decoded = codec.decode(forest.fields as never, context.decode)
+	const decoded = codec
+		.decode(forest.fields as never, context.decode)
 		.map(jsonableTreeFromFieldCursor);
 	assert.equal(decoded.length, 1, "Summary must contain one detached field.");
 	assert.equal(decoded[0].length, 1, "Summary root field must contain one tree.");
 	return decodedTreeValue(decoded[0][0]);
 }
 
-export async function replayArraySchemaInput(input: Record<string, unknown>): Promise<unknown> {
+export async function replayArraySchemaInput(
+	input: Record<string, unknown>,
+): Promise<unknown> {
 	assert(typeof input.operation === "string", "Schema replay needs an operation.");
 	assert(typeof input.schema === "string", "Schema replay needs a schema selector.");
 	assert(typeof input.schemaBytes === "string", "Schema replay needs raw schema bytes.");
@@ -560,7 +625,10 @@ export async function replayArraySchemaInput(input: Record<string, unknown>): Pr
 	const view = provider.trees[0].viewWith(configurationFor(input.schema));
 	if (input.operation === "canView") {
 		assert(typeof input.viewSchema === "string", "Compatibility replay needs a view schema.");
-		assert(typeof input.viewSchemaBytes === "string", "Compatibility replay needs view bytes.");
+		assert(
+			typeof input.viewSchemaBytes === "string",
+			"Compatibility replay needs view bytes.",
+		);
 		assert.equal(
 			schemaString(schemaFor(input.viewSchema)),
 			input.viewSchemaBytes,
@@ -590,18 +658,26 @@ export async function replayArraySchemaInput(input: Record<string, unknown>): Pr
 			return { value: visible(value), container: visible(view.root) };
 		}
 		case "move": {
-			assert(input.source !== null && typeof input.source === "object",
-				"Move replay needs a source.");
-			assert(input.destination !== null && typeof input.destination === "object",
-				"Move replay needs a destination.");
+			assert(
+				input.source !== null && typeof input.source === "object",
+				"Move replay needs a source.",
+			);
+			assert(
+				input.destination !== null && typeof input.destination === "object",
+				"Move replay needs a destination.",
+			);
 			const source = input.source as { path: string[]; start: number; end: number };
 			const destination = input.destination as { path: string[]; gap: number };
 			const sourceArray = readPath(view.root, source.path);
 			const destinationArray = readPath(view.root, destination.path);
-			assert(sourceArray instanceof Items || sourceArray instanceof Points,
-				"Move source must be an array.");
-			assert(destinationArray instanceof Items || destinationArray instanceof Points,
-				"Move destination must be an array.");
+			assert(
+				sourceArray instanceof Items || sourceArray instanceof Points,
+				"Move source must be an array.",
+			);
+			assert(
+				destinationArray instanceof Items || destinationArray instanceof Points,
+				"Move destination must be an array.",
+			);
 			return executed(() => {
 				destinationArray.moveRangeToIndex(
 					destination.gap,
@@ -614,11 +690,16 @@ export async function replayArraySchemaInput(input: Record<string, unknown>): Pr
 		}
 		case "summarize": {
 			const summary = (await provider.trees[0].summarize(true)).summary;
-			assert(typeof input.forestBytes === "string",
-				"Summary replay needs source forest bytes.");
+			assert(
+				typeof input.forestBytes === "string",
+				"Summary replay needs source forest bytes.",
+			);
 			const forest = summaryBlob(summary, "indexes", "Forest", "contents");
-			assert.equal(forest, input.forestBytes,
-				"Summary replay bytes must match the source summary.");
+			assert.equal(
+				forest,
+				input.forestBytes,
+				"Summary replay bytes must match the source summary.",
+			);
 			return {
 				schema: summaryBlob(summary, "indexes", "Schema", "SchemaString"),
 				content: decodeSummaryContent(input.forestBytes),
@@ -686,7 +767,8 @@ function createReplayProvider(input: {
 	first.initialize(contentFor("objectArrays", input.initialState) as Root);
 	for (const tree of trees) {
 		runtimeFactory.processAllMessages();
-		if (tree !== trees[0]) views.push(tree.viewWith(new TreeViewConfiguration({ schema: Root })));
+		if (tree !== trees[0])
+			views.push(tree.viewWith(new TreeViewConfiguration({ schema: Root })));
 	}
 	views.unshift(first);
 	for (const items of processed) items.length = 0;
@@ -708,7 +790,10 @@ function createReplayProvider(input: {
 
 function arrayAt(root: Root, path: readonly string[]): Items | Points {
 	const value = readPath(root, path);
-	assert(value instanceof Items || value instanceof Points, "The action path must select an array.");
+	assert(
+		value instanceof Items || value instanceof Points,
+		"The action path must select an array.",
+	);
 	return value;
 }
 
@@ -719,7 +804,11 @@ function compressorState(compressor: IIdCompressor) {
 	};
 }
 
-function replayCheckpoint(provider: ReplayProvider, id: string, messageStarts: readonly number[]) {
+function replayCheckpoint(
+	provider: ReplayProvider,
+	id: string,
+	messageStarts: readonly number[],
+) {
 	const normalizeTransportIds = (value: unknown): unknown => {
 		if (typeof value === "string") return provider.transportIds.get(value) ?? value;
 		if (Array.isArray(value)) return value.map(normalizeTransportIds);
@@ -734,12 +823,14 @@ function replayCheckpoint(provider: ReplayProvider, id: string, messageStarts: r
 		id,
 		visible: provider.views.map((view) => visible(view.root)),
 		history: provider.trees.map((tree) =>
-			managerState(tree as TestTreeProviderLite["trees"][number])),
+			managerState(tree as TestTreeProviderLite["trees"][number]),
+		),
 		sequenceNumber: provider.sequenceNumber(),
 		minimumSequenceNumber: provider.minimumSequenceNumber(),
 		compressors: provider.compressors.map(compressorState),
 		messages: provider.processed.map((items, index) =>
-			normalizeTransportIds(copy(items.slice(messageStarts[index])))),
+			normalizeTransportIds(copy(items.slice(messageStarts[index]))),
+		),
 	};
 }
 
@@ -748,23 +839,34 @@ function runEdit(view: ReplayProvider["views"][number], action: ReplayAction): v
 	const target = arrayAt(view.root, action.path);
 	switch (action.op) {
 		case "insert": {
-			assert(typeof action.index === "number" && Number.isSafeInteger(action.index),
-				`${action.id}: insert index`);
+			assert(
+				typeof action.index === "number" && Number.isSafeInteger(action.index),
+				`${action.id}: insert index`,
+			);
 			assert(Array.isArray(action.values), `${action.id}: insert values`);
-			target.insertAt(action.index, ...action.values.map(hydrate) as never[]);
+			target.insertAt(action.index, ...(action.values.map(hydrate) as never[]));
 			return;
 		}
 		case "remove":
-			assert(typeof action.start === "number" && Number.isSafeInteger(action.start)
-				&& typeof action.end === "number" && Number.isSafeInteger(action.end),
-				`${action.id}: remove range`);
+			assert(
+				typeof action.start === "number" &&
+					Number.isSafeInteger(action.start) &&
+					typeof action.end === "number" &&
+					Number.isSafeInteger(action.end),
+				`${action.id}: remove range`,
+			);
 			target.removeRange(action.start, action.end);
 			return;
 		case "move": {
-			assert(typeof action.start === "number" && Number.isSafeInteger(action.start)
-				&& typeof action.end === "number" && Number.isSafeInteger(action.end)
-				&& typeof action.gap === "number" && Number.isSafeInteger(action.gap),
-			`${action.id}: move range`);
+			assert(
+				typeof action.start === "number" &&
+					Number.isSafeInteger(action.start) &&
+					typeof action.end === "number" &&
+					Number.isSafeInteger(action.end) &&
+					typeof action.gap === "number" &&
+					Number.isSafeInteger(action.gap),
+				`${action.id}: move range`,
+			);
 			const sourcePath = Reflect.get(action, "sourcePath");
 			assert(Array.isArray(sourcePath), `${action.id}: move source path`);
 			const source = arrayAt(view.root, sourcePath);
@@ -787,22 +889,32 @@ function actionWithEvents(
 	let commits = 0;
 	let changed = 0;
 	let nodeEvents = 0;
-	const offCommit = view.events.on("commitApplied", () => { commits += 1; });
+	const offCommit = view.events.on("commitApplied", () => {
+		commits += 1;
+	});
 	const checkout = Reflect.get(view, "checkout") as {
 		events: { on(name: "changed", listener: () => void): () => void };
 	};
-	const offChanged = checkout.events.on("changed", () => { changed += 1; });
+	const offChanged = checkout.events.on("changed", () => {
+		changed += 1;
+	});
 	const eventNode = Array.isArray(action.path) ? arrayAt(view.root, action.path) : view.root;
-	const identities = eventNode instanceof Items || eventNode instanceof Points
-		? Array.from({ length: eventNode.length }, (_, index) => eventNode[index])
-		: [];
-	const offNode = Tree.on(eventNode, "nodeChanged", () => { nodeEvents += 1; });
+	const identities =
+		eventNode instanceof Items || eventNode instanceof Points
+			? Array.from({ length: eventNode.length }, (_, index) => eventNode[index])
+			: [];
+	const offNode = Tree.on(eventNode, "nodeChanged", () => {
+		nodeEvents += 1;
+	});
 	const before = visible(view.root);
 	run();
 	const after = visible(view.root);
-	const identityOrder = eventNode instanceof Items || eventNode instanceof Points
-		? Array.from({ length: eventNode.length }, (_, index) => identities.indexOf(eventNode[index]))
-		: [];
+	const identityOrder =
+		eventNode instanceof Items || eventNode instanceof Points
+			? Array.from({ length: eventNode.length }, (_, index) =>
+					identities.indexOf(eventNode[index]),
+				)
+			: [];
 	offCommit();
 	offChanged();
 	offNode();
@@ -821,8 +933,10 @@ async function replayScheduledHistory(input: Record<string, unknown>) {
 	for (const value of input.schedule) {
 		assert(value !== null && typeof value === "object", "History actions must be objects.");
 		const action = value as ReplayAction;
-		assert(typeof action.id === "string" && typeof action.op === "string",
-			"History actions need IDs and operations.");
+		assert(
+			typeof action.id === "string" && typeof action.op === "string",
+			"History actions need IDs and operations.",
+		);
 		const messageStarts = provider.processed.map((items) => items.length);
 		let events: Record<string, unknown> | undefined;
 		let summary: unknown;
@@ -831,7 +945,8 @@ async function replayScheduledHistory(input: Record<string, unknown>) {
 			case "remove":
 			case "move":
 				events = actionWithEvents(provider, action, () =>
-					runEdit(provider.views[action.client ?? 0], action));
+					runEdit(provider.views[action.client ?? 0], action),
+				);
 				break;
 			case "transaction": {
 				assert(Array.isArray(action.edits), `${action.id}: transaction edits`);
@@ -925,30 +1040,35 @@ type IdCreationRange = ReturnType<
 	ReturnType<typeof toIdCompressorWithCore>["takeNextCreationRange"]
 >;
 
-function deliverEnvelope(
-	tree: unknown,
-	envelope: DeliveryEnvelope,
-): void {
+function deliverEnvelope(tree: unknown, envelope: DeliveryEnvelope): void {
 	const kernel = Reflect.get(tree as object, "kernel") as {
 		processMessagesCore(batch: unknown, local: boolean): void;
 	};
-	kernel.processMessagesCore({
-		envelope: {
-			...copy(envelope),
-			timestamp: 0,
-			type: "op",
+	kernel.processMessagesCore(
+		{
+			envelope: {
+				...copy(envelope),
+				timestamp: 0,
+				type: "op",
+			},
+			messagesContent: [
+				{
+					contents: copy(envelope.contents),
+					localOpMetadata: undefined,
+					clientSequenceNumber: envelope.clientSequenceNumber,
+				},
+			],
 		},
-		messagesContent: [{
-			contents: copy(envelope.contents),
-			localOpMetadata: undefined,
-			clientSequenceNumber: envelope.clientSequenceNumber,
-		}],
-	}, false);
+		false,
+	);
 }
 
 async function replaySummaryTail(input: Record<string, unknown>) {
 	const context = input.replayContext;
-	assert(context !== null && typeof context === "object", "Summary-tail replay context is required.");
+	assert(
+		context !== null && typeof context === "object",
+		"Summary-tail replay context is required.",
+	);
 	const replayContext = context as {
 		initialSummary: Parameters<typeof MockSharedObjectServices.createFromSummary>[0];
 		startingCompressors: {
@@ -986,7 +1106,10 @@ async function replaySummaryTail(input: Record<string, unknown>) {
 	let creationRange: IdCreationRange | undefined;
 	const submitted: unknown[] = [];
 	for (const value of input.schedule) {
-		assert(value !== null && typeof value === "object", "Summary-tail actions must be objects.");
+		assert(
+			value !== null && typeof value === "object",
+			"Summary-tail actions must be objects.",
+		);
 		const action = value as ReplayAction;
 		switch (action.op) {
 			case "load-summary":
@@ -1009,21 +1132,31 @@ async function replaySummaryTail(input: Record<string, unknown>) {
 				break;
 			case "continue":
 				assert(reader !== undefined, "Summary-tail reader must load before continuation.");
-				assert(Array.isArray(action.path) && Number.isSafeInteger(action.index)
-					&& Array.isArray(action.values), "Summary-tail continuation edit is incomplete.");
+				assert(
+					Array.isArray(action.path) &&
+						Number.isSafeInteger(action.index) &&
+						Array.isArray(action.values),
+					"Summary-tail continuation edit is incomplete.",
+				);
 				runEdit(reader.view, { ...action, op: "insert" });
 				const continuation = messagesIn(submitted);
-				assert.equal(continuation.length, 1,
-					"The reader must submit one continuation message.");
+				assert.equal(
+					continuation.length,
+					1,
+					"The reader must submit one continuation message.",
+				);
 				assert.deepEqual(
 					continuation[0],
 					replayContext.continuationEnvelope.contents,
 					"The continuation bytes must match the replay input.",
 				);
-				assert(reader.runtime.idCompressor !== undefined,
-					"The reader needs an ID compressor.");
-				creationRange =
-					toIdCompressorWithCore(reader.runtime.idCompressor).takeNextCreationRange();
+				assert(
+					reader.runtime.idCompressor !== undefined,
+					"The reader needs an ID compressor.",
+				);
+				creationRange = toIdCompressorWithCore(
+					reader.runtime.idCompressor,
+				).takeNextCreationRange();
 				assert.deepEqual(
 					copy(creationRange),
 					replayContext.continuationCreationRange,
@@ -1042,12 +1175,15 @@ async function replaySummaryTail(input: Record<string, unknown>) {
 				);
 				break;
 			case "deliver-continuation":
-				assert(peer !== undefined && peer.runtime.idCompressor !== undefined,
-					"Summary-tail peer must load before continuation delivery.");
-				assert(creationRange !== undefined,
-					"Summary-tail continuation must allocate before peer delivery.");
-				toIdCompressorWithCore(peer.runtime.idCompressor)
-					.finalizeCreationRange(creationRange);
+				assert(
+					peer !== undefined && peer.runtime.idCompressor !== undefined,
+					"Summary-tail peer must load before continuation delivery.",
+				);
+				assert(
+					creationRange !== undefined,
+					"Summary-tail continuation must allocate before peer delivery.",
+				);
+				toIdCompressorWithCore(peer.runtime.idCompressor).finalizeCreationRange(creationRange);
 				deliverEnvelope(peer.tree, replayContext.tailEnvelope);
 				deliverEnvelope(peer.tree, replayContext.continuationEnvelope);
 				break;
@@ -1055,10 +1191,14 @@ async function replaySummaryTail(input: Record<string, unknown>) {
 				assert.fail(`Unknown summary-tail action: ${action.op}`);
 		}
 	}
-	assert(reader !== undefined && peer !== undefined,
-		"Summary-tail replay must load the reader and peer.");
-	assert(reader.runtime.idCompressor !== undefined && peer.runtime.idCompressor !== undefined,
-		"Summary-tail replay must retain both ID compressors.");
+	assert(
+		reader !== undefined && peer !== undefined,
+		"Summary-tail replay must load the reader and peer.",
+	);
+	assert(
+		reader.runtime.idCompressor !== undefined && peer.runtime.idCompressor !== undefined,
+		"Summary-tail replay must retain both ID compressors.",
+	);
 	return {
 		readerAfterTail,
 		readerAfterContinuation,
@@ -1072,7 +1212,9 @@ async function replaySummaryTail(input: Record<string, unknown>) {
 	};
 }
 
-export async function replayArrayHistoryInput(input: Record<string, unknown>): Promise<unknown> {
+export async function replayArrayHistoryInput(
+	input: Record<string, unknown>,
+): Promise<unknown> {
 	assert(typeof input.operation === "string", "History replay needs an operation.");
 	if (input.operation === "summary-tail") return replaySummaryTail(input);
 	return replayScheduledHistory(input);
@@ -1098,13 +1240,17 @@ function replayCodecAuthoring(input: Record<string, unknown>): ReplayProvider {
 }
 
 async function loadSummaryInput(input: Record<string, unknown>) {
-	assert(input.decodeContext !== null && typeof input.decodeContext === "object",
-		"Summary decode context is required.");
+	assert(
+		input.decodeContext !== null && typeof input.decodeContext === "object",
+		"Summary decode context is required.",
+	);
 	const context = input.decodeContext as { compressor: string; sessionId: string };
 	assert(typeof context.compressor === "string", "Summary decode compressor is required.");
 	assert(typeof context.sessionId === "string", "Summary decode session is required.");
-	assert(input.encodedSummary !== null && typeof input.encodedSummary === "object",
-		"Encoded summary is required.");
+	assert(
+		input.encodedSummary !== null && typeof input.encodedSummary === "object",
+		"Encoded summary is required.",
+	);
 	const runtime = new MockFluidDataStoreRuntime({
 		idCompressor: deserializeIdCompressor(
 			context.compressor as SerializedIdCompressorWithNoSession,
@@ -1141,27 +1287,37 @@ function normalizedDecodedMessage(value: unknown) {
 		sessionId: Reflect.get(value, "sessionId"),
 		changes: changes.map((change) => ({
 			type: change.type,
-			data: change.type === "data"
-				? encodeModularGraph(change.innerChange as ModularChangeset)
-				: copy(change.innerChange),
+			data:
+				change.type === "data"
+					? encodeModularGraph(change.innerChange as ModularChangeset)
+					: copy(change.innerChange),
 		})),
 	};
 }
 
 export async function replayArrayCodecInput(input: Record<string, unknown>): Promise<unknown> {
 	assert(typeof input.operation === "string", "Codec replay needs an operation.");
-	if (input.operation === "sequence-v3" || input.operation === "message-v7"
-		|| input.operation === "builds") {
-		assert(Array.isArray(input.encodedMessages) && input.encodedMessages.length > 0,
-			`${input.operation}: encoded input messages`);
-		assert(input.decodeContext !== null && typeof input.decodeContext === "object",
-			`${input.operation}: decode context`);
+	if (
+		input.operation === "sequence-v3" ||
+		input.operation === "message-v7" ||
+		input.operation === "builds"
+	) {
+		assert(
+			Array.isArray(input.encodedMessages) && input.encodedMessages.length > 0,
+			`${input.operation}: encoded input messages`,
+		);
+		assert(
+			input.decodeContext !== null && typeof input.decodeContext === "object",
+			`${input.operation}: decode context`,
+		);
 		const context = input.decodeContext as {
 			nativeInput: Record<string, unknown>;
 			decoder: { compressor: string; sessionId: string };
 		};
-		assert(context.nativeInput !== null && typeof context.nativeInput === "object",
-			`${input.operation}: native typed input`);
+		assert(
+			context.nativeInput !== null && typeof context.nativeInput === "object",
+			`${input.operation}: native typed input`,
+		);
 		const authoring = replayCodecAuthoring(context.nativeInput);
 		const authoredMessages = messagesIn(authoring.processed[0]);
 		assert.deepEqual(
@@ -1170,26 +1326,31 @@ export async function replayArrayCodecInput(input: Record<string, unknown>): Pro
 			`${input.operation}: encoded input must match the typed authoring input.`,
 		);
 		const kernel = Reflect.get(authoring.trees[0], "kernel") as {
-			messageCodec: { decode(value: unknown, context: { idCompressor: IIdCompressor }): unknown };
+			messageCodec: {
+				decode(value: unknown, context: { idCompressor: IIdCompressor }): unknown;
+			};
 		};
 		const decoded = input.encodedMessages.map((message) =>
-			kernel.messageCodec.decode(message, { idCompressor: authoring.compressors[0] }));
+			kernel.messageCodec.decode(message, { idCompressor: authoring.compressors[0] }),
+		);
 		const normalized = decoded.map(normalizedDecodedMessage);
 		const advancedMessages = Array.isArray(input.advancedMessages)
 			? input.advancedMessages
 			: [];
-		const advanced = Array.isArray(input.advancedExpected)
-			? copy(input.advancedExpected)
-			: [];
-		assert.equal(advanced.length, advancedMessages.length,
-			`${input.operation}: advanced expected graphs`);
+		const advanced = Array.isArray(input.advancedExpected) ? copy(input.advancedExpected) : [];
+		assert.equal(
+			advanced.length,
+			advancedMessages.length,
+			`${input.operation}: advanced expected graphs`,
+		);
 		return input.operation === "sequence-v3"
 			? {
 					encoded: copy(input.encodedMessages),
 					sequenceChanges: normalized.flatMap(({ changes }) =>
-						changes.filter(({ type }) => type === "data")
-							.flatMap(({ data }) =>
-								(data as ReturnType<typeof modularStructure>).fields)),
+						changes
+							.filter(({ type }) => type === "data")
+							.flatMap(({ data }) => (data as ReturnType<typeof modularStructure>).fields),
+					),
 					decoded: normalized,
 					...(advancedMessages.length > 0 ? { advanced } : {}),
 				}
@@ -1206,42 +1367,64 @@ export async function replayArrayCodecInput(input: Record<string, unknown>): Pro
 		visible: visible(loaded.view.root),
 		schema: summaryBlob(summary, "indexes", "Schema", "SchemaString"),
 		forest: summaryBlob(summary, "indexes", "Forest", "contents"),
-		restoredDetached: copy((Reflect.get(loaded.tree, "contentSnapshot") as () => {
-			removed: unknown[];
-		}).call(loaded.tree).removed),
+		restoredDetached: copy(
+			(
+				Reflect.get(loaded.tree, "contentSnapshot") as () => {
+					removed: unknown[];
+				}
+			).call(loaded.tree).removed,
+		),
 		restoredHistory: managerState(loaded.tree as TestTreeProviderLite["trees"][number]),
 		compressor: compressorState(loaded.runtime.idCompressor),
 	};
-	if (input.operation === "empty-arrays" || input.operation === "retained-history"
-		|| input.operation === "detached-index" || input.operation === "full-summary") {
+	if (
+		input.operation === "empty-arrays" ||
+		input.operation === "retained-history" ||
+		input.operation === "detached-index" ||
+		input.operation === "full-summary"
+	) {
 		return result;
 	}
 	assert.fail(`Unknown codec replay operation: ${input.operation}`);
 }
 
-export async function replayArrayInvalidInput(input: Record<string, unknown>): Promise<unknown> {
+export async function replayArrayInvalidInput(
+	input: Record<string, unknown>,
+): Promise<unknown> {
 	assert(typeof input.operation === "string", "Invalid replay needs an operation.");
 	switch (input.operation) {
 		case "corrupt-schema":
-			return executed(() => schemaCodecBuilder
-				.buildDecoder({ jsonValidator: FormatValidatorNoOp })
-				.decode(input.malformed as never));
+			return executed(() =>
+				schemaCodecBuilder
+					.buildDecoder({ jsonValidator: FormatValidatorNoOp })
+					.decode(input.malformed as never),
+			);
 		case "corrupt-mark":
 		case "corrupt-revision": {
-			assert(input.malformed !== null && typeof input.malformed === "object",
-				`${input.operation}: malformed input`);
-			assert(input.valid !== null && typeof input.valid === "object",
-				`${input.operation}: valid control`);
-			assert(input.decodeContext !== null && typeof input.decodeContext === "object",
-				`${input.operation}: decode context`);
+			assert(
+				input.malformed !== null && typeof input.malformed === "object",
+				`${input.operation}: malformed input`,
+			);
+			assert(
+				input.valid !== null && typeof input.valid === "object",
+				`${input.operation}: valid control`,
+			);
+			assert(
+				input.decodeContext !== null && typeof input.decodeContext === "object",
+				`${input.operation}: decode context`,
+			);
 			const decodeContext = input.decodeContext as {
 				decoder: { compressor: string; sessionId: string };
 			};
 			const decode = (message: unknown) => {
-				assert(typeof decodeContext.decoder.compressor === "string",
-					`${input.operation}: decoder compressor`);
-				assert(typeof decodeContext.decoder.sessionId === "string",
-					`${input.operation}: decoder session`);
+				assert(
+					typeof decodeContext.decoder.compressor === "string",
+					`${input.operation}: decoder compressor`,
+				);
+				assert(
+					typeof decodeContext.decoder.sessionId === "string",
+					`${input.operation}: decoder session`,
+				);
 				const idCompressor = deserializeIdCompressor(
 					decodeContext.decoder.compressor as SerializedIdCompressorWithNoSession,
 					assertIsSessionId(decodeContext.decoder.sessionId),
@@ -1253,9 +1436,7 @@ export async function replayArrayInvalidInput(input: Record<string, unknown>): P
 						decode(value: unknown, context: { idCompressor: IIdCompressor }): unknown;
 					};
 				};
-				return normalizedDecodedMessage(
-					kernel.messageCodec.decode(message, { idCompressor }),
-				);
+				return normalizedDecodedMessage(kernel.messageCodec.decode(message, { idCompressor }));
 			};
 			return {
 				control: executed(() => decode(input.valid)),
@@ -1263,8 +1444,10 @@ export async function replayArrayInvalidInput(input: Record<string, unknown>): P
 			};
 		}
 		case "corrupt-range": {
-			assert(input.malformed !== null && typeof input.malformed === "object",
-				"corrupt-range: malformed input");
+			assert(
+				input.malformed !== null && typeof input.malformed === "object",
+				"corrupt-range: malformed input",
+			);
 			const range = input.malformed as { start: number; end: number };
 			const provider = new TestTreeProviderLite(1, treeFactory());
 			const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Items }));
@@ -1275,27 +1458,32 @@ export async function replayArrayInvalidInput(input: Record<string, unknown>): P
 			});
 		}
 		case "corrupt-ownership": {
-			assert(Array.isArray(input.initialStates) && input.initialStates.length === 2,
-				"corrupt-ownership: initial states");
+			assert(
+				Array.isArray(input.initialStates) && input.initialStates.length === 2,
+				"corrupt-ownership: initial states",
+			);
 			const initialStates = input.initialStates;
-			const makeProviders = () => initialStates.map((state: unknown) => {
-				const provider = new TestTreeProviderLite(1, treeFactory());
-				const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
-				view.initialize(contentFor("objectArrays", state) as Root);
-				return { provider, view };
-			});
+			const makeProviders = () =>
+				initialStates.map((state: unknown) => {
+					const provider = new TestTreeProviderLite(1, treeFactory());
+					const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
+					view.initialize(contentFor("objectArrays", state) as Root);
+					return { provider, view };
+				});
 			const apply = (specification: unknown) => {
-				assert(specification !== null && typeof specification === "object",
-					"corrupt-ownership: operation specification");
+				assert(
+					specification !== null && typeof specification === "object",
+					"corrupt-ownership: operation specification",
+				);
 				const source = Reflect.get(specification, "source");
 				const destination = Reflect.get(specification, "destination");
 				const kind = Reflect.get(specification, "kind");
-				assert(kind === "insert" || kind === "move",
-					"corrupt-ownership: operation kind");
-				assert(source !== null && typeof source === "object",
-					"corrupt-ownership: source");
-				assert(destination !== null && typeof destination === "object",
-					"corrupt-ownership: destination");
+				assert(kind === "insert" || kind === "move", "corrupt-ownership: operation kind");
+				assert(source !== null && typeof source === "object", "corrupt-ownership: source");
+				assert(
+					destination !== null && typeof destination === "object",
+					"corrupt-ownership: destination",
+				);
 				const sourceClient = Reflect.get(source, "client");
 				const destinationClient = Reflect.get(destination, "client");
 				const sourcePath = Reflect.get(source, "path");
@@ -1303,13 +1491,19 @@ export async function replayArrayInvalidInput(input: Record<string, unknown>): P
 				const sourceIndex = Reflect.get(source, "index");
 				const gap = Reflect.get(destination, "gap");
 				assert(Number.isSafeInteger(sourceClient), "corrupt-ownership: source client");
-				assert(Number.isSafeInteger(destinationClient),
-					"corrupt-ownership: destination client");
-				assert(Array.isArray(sourcePath) && sourcePath.every((item) => typeof item === "string"),
-					"corrupt-ownership: source path");
-				assert(Array.isArray(destinationPath)
-					&& destinationPath.every((item) => typeof item === "string"),
-				"corrupt-ownership: destination path");
+				assert(
+					Number.isSafeInteger(destinationClient),
+					"corrupt-ownership: destination client",
+				);
+				assert(
+					Array.isArray(sourcePath) && sourcePath.every((item) => typeof item === "string"),
+					"corrupt-ownership: source path",
+				);
+				assert(
+					Array.isArray(destinationPath) &&
+						destinationPath.every((item) => typeof item === "string"),
+					"corrupt-ownership: destination path",
+				);
 				assert(Number.isSafeInteger(sourceIndex), "corrupt-ownership: source index");
 				assert(Number.isSafeInteger(gap), "corrupt-ownership: destination index");
 				const providers = makeProviders();
@@ -1350,8 +1544,10 @@ export async function replayArrayInvalidInput(input: Record<string, unknown>): P
 				return true;
 			});
 		case "native-remove-beyond-length": {
-			assert(input.malformed !== null && typeof input.malformed === "object",
-				"native-remove-beyond-length: malformed input");
+			assert(
+				input.malformed !== null && typeof input.malformed === "object",
+				"native-remove-beyond-length: malformed input",
+			);
 			const range = input.malformed as { start: number; end: number };
 			const provider = new TestTreeProviderLite(1, treeFactory());
 			const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Items }));
@@ -1509,24 +1705,28 @@ async function capturePublicEvidence() {
 	const identityBefore = view.root.left[pointIndex];
 	assert(identityBefore instanceof Point, "Expected a point at the selected move index.");
 	view.root.right.moveRangeToEnd(pointIndex, pointIndex + 1, view.root.left);
-	const operationCommits = (Reflect.get(provider.trees[0].kernel, "editManager") as {
-		getLocalCommits(branch: string): {
-			revision: RevisionTag;
-			change: {
-				changes: readonly {
-					type: "data" | "schema";
-					innerChange: unknown;
-				}[];
+	const operationCommits = (
+		Reflect.get(provider.trees[0].kernel, "editManager") as {
+			getLocalCommits(branch: string): {
+				revision: RevisionTag;
+				change: {
+					changes: readonly {
+						type: "data" | "schema";
+						innerChange: unknown;
+					}[];
+				};
+			}[];
+		}
+	)
+		.getLocalCommits("main")
+		.map((commit) => {
+			const data = commit.change.changes.filter(({ type }) => type === "data");
+			assert.equal(data.length, 1, "Each array edit must contain one modular data change.");
+			return {
+				revision: commit.revision,
+				change: data[0].innerChange as ModularChangeset,
 			};
-		}[];
-	}).getLocalCommits("main").map((commit) => {
-		const data = commit.change.changes.filter(({ type }) => type === "data");
-		assert.equal(data.length, 1, "Each array edit must contain one modular data change.");
-		return {
-			revision: commit.revision,
-			change: data[0].innerChange as ModularChangeset,
-		};
-	});
+		});
 	provider.synchronizeMessages();
 	const operationEnvelopes = copy(processed.slice(operationStart));
 	const operationMessages = messagesIn(operationEnvelopes);
@@ -1547,12 +1747,18 @@ async function capturePublicEvidence() {
 		let commits = 0;
 		let changed = 0;
 		let nodeEvents = 0;
-		const offCommit = view.events.on("commitApplied", () => { commits += 1; });
+		const offCommit = view.events.on("commitApplied", () => {
+			commits += 1;
+		});
 		const checkout = Reflect.get(view, "checkout") as {
 			events: { on(name: "changed", listener: () => void): () => void };
 		};
-		const offChanged = checkout.events.on("changed", () => { changed += 1; });
-		const offNode = Tree.on(view.root.left, "nodeChanged", () => { nodeEvents += 1; });
+		const offChanged = checkout.events.on("changed", () => {
+			changed += 1;
+		});
+		const offNode = Tree.on(view.root.left, "nodeChanged", () => {
+			nodeEvents += 1;
+		});
 		const before = processed.length;
 		const prior = visible(view.root);
 		edit();
@@ -1629,41 +1835,54 @@ async function capturePublicEvidence() {
 		const editView = editProvider.trees[0].viewWith(
 			new TreeViewConfiguration({ schema: Items }),
 		);
-		editView.initialize(new Items([
-			new Point({ label: "equal", x: 1 }),
-			new Point({ label: "equal", x: 1 }),
-			new Point({ label: "equal", x: 1 }),
-		]));
+		editView.initialize(
+			new Items([
+				new Point({ label: "equal", x: 1 }),
+				new Point({ label: "equal", x: 1 }),
+				new Point({ label: "equal", x: 1 }),
+			]),
+		);
 		editProvider.synchronizeMessages();
 		const editProcessed: unknown[] = [];
 		for (const [index, tree] of editProvider.trees.entries()) {
 			const editRuntime = tree.containerRuntime;
-			assert(editRuntime instanceof MockContainerRuntimeWithOpBunching,
-				"Expected the bunching test runtime.");
+			assert(
+				editRuntime instanceof MockContainerRuntimeWithOpBunching,
+				"Expected the bunching test runtime.",
+			);
 			const process = editRuntime.process.bind(editRuntime);
 			editRuntime.process = (item) => {
 				if (index === 0) editProcessed.push(copy(item));
 				process(item);
 			};
 		}
-		const identities = Array.from({ length: editView.root.length }, (_, index) =>
-			editView.root[index]);
+		const identities = Array.from(
+			{ length: editView.root.length },
+			(_, index) => editView.root[index],
+		);
 		const before = visible(editView.root);
 		let commits = 0;
 		let changed = 0;
 		let nodeEvents = 0;
-		const offCommit = editView.events.on("commitApplied", () => { commits += 1; });
+		const offCommit = editView.events.on("commitApplied", () => {
+			commits += 1;
+		});
 		const checkout = Reflect.get(editView, "checkout") as {
 			events: { on(name: "changed", listener: () => void): () => void };
 		};
-		const offChanged = checkout.events.on("changed", () => { changed += 1; });
-		const offNode = Tree.on(editView.root, "nodeChanged", () => { nodeEvents += 1; });
+		const offChanged = checkout.events.on("changed", () => {
+			changed += 1;
+		});
+		const offNode = Tree.on(editView.root, "nodeChanged", () => {
+			nodeEvents += 1;
+		});
 		edit(editView.root);
 		const pendingState = managerState(editProvider.trees[0]);
 		editProvider.synchronizeMessages();
 		const after = visible(editView.root);
 		const identityOrder = Array.from({ length: editView.root.length }, (_, index) =>
-			identities.indexOf(editView.root[index]));
+			identities.indexOf(editView.root[index]),
+		);
 		offCommit();
 		offChanged();
 		offNode();
@@ -1682,10 +1901,10 @@ async function capturePublicEvidence() {
 		};
 	}
 	const identityEdits = [
-		await captureIdentityEdit("equal-value-swap", (items) =>
-			items.moveRangeToIndex(3, 1, 2)),
+		await captureIdentityEdit("equal-value-swap", (items) => items.moveRangeToIndex(3, 1, 2)),
 		await captureIdentityEdit("public-interior-move", (items) =>
-			items.moveRangeToIndex(1, 0, 3)),
+			items.moveRangeToIndex(1, 0, 3),
+		),
 	];
 
 	const batchProvider = new TestTreeProviderLite(2, factory);
@@ -1694,8 +1913,10 @@ async function capturePublicEvidence() {
 	batchProvider.synchronizeMessages();
 	const batchProcessed: unknown[] = [];
 	const batchRuntime = batchProvider.trees[0].containerRuntime;
-	assert(batchRuntime instanceof MockContainerRuntimeWithOpBunching,
-		"Expected the bunching test runtime.");
+	assert(
+		batchRuntime instanceof MockContainerRuntimeWithOpBunching,
+		"Expected the bunching test runtime.",
+	);
 	const batchProcess = batchRuntime.process.bind(batchRuntime);
 	batchRuntime.process = (item) => {
 		batchProcessed.push(copy(item));
@@ -1712,12 +1933,14 @@ async function capturePublicEvidence() {
 
 	const emptyProvider = new TestTreeProviderLite(1, factory);
 	const emptyView = emptyProvider.trees[0].viewWith(configuration);
-	emptyView.initialize(new Root({
-		left: new Items([]),
-		right: new Items([]),
-		byKey: new ArrayMap([["empty", new Items([])]]),
-		narrow: new Points([]),
-	}));
+	emptyView.initialize(
+		new Root({
+			left: new Items([]),
+			right: new Items([]),
+			byKey: new ArrayMap([["empty", new Items([])]]),
+			narrow: new Points([]),
+		}),
+	);
 	emptyProvider.synchronizeMessages();
 	const emptySummary = (await emptyProvider.trees[0].summarize(true)).summary;
 	const emptySummaryCompressor = serializeIdCompressor(
@@ -1745,8 +1968,10 @@ async function capturePublicEvidence() {
 	const tailSummary = (await tailProvider.trees[0].summarize(true)).summary;
 	const tailProcessed: unknown[] = [];
 	const tailPeerRuntime = tailProvider.trees[1].containerRuntime;
-	assert(tailPeerRuntime instanceof MockContainerRuntimeWithOpBunching,
-		"Expected the bunching test runtime.");
+	assert(
+		tailPeerRuntime instanceof MockContainerRuntimeWithOpBunching,
+		"Expected the bunching test runtime.",
+	);
 	const tailProcessMessages = tailPeerRuntime.processMessages.bind(tailPeerRuntime);
 	const tailProcess = tailPeerRuntime.process.bind(tailPeerRuntime);
 	tailPeerRuntime.process = (message) => {
@@ -1761,14 +1986,20 @@ async function capturePublicEvidence() {
 	tailProvider.synchronizeMessages();
 	assert(tailProcessed.length > 0, "The summary-tail probe must capture a remote delivery.");
 	const tailMessages = messagesIn(tailProcessed);
-	assert.equal(tailMessages.length, 1, "The summary-tail probe must capture one tree message.");
+	assert.equal(
+		tailMessages.length,
+		1,
+		"The summary-tail probe must capture one tree message.",
+	);
 	const tailCompressor = serializeIdCompressor(
 		tailProvider.getCompressor(tailProvider.trees[0]),
 		false,
 	);
-	const tailEnvelope = tailProcessed.find((item) =>
-		item !== null && typeof item === "object"
-		&& Reflect.get(Reflect.get(item, "contents") as object, "version") === 7
+	const tailEnvelope = tailProcessed.find(
+		(item) =>
+			item !== null &&
+			typeof item === "object" &&
+			Reflect.get(Reflect.get(item, "contents") as object, "version") === 7,
 	) as Record<string, unknown> | undefined;
 	assert(tailEnvelope !== undefined, "The summary-tail probe must retain the tree envelope.");
 	const readerSession = createSessionId();
@@ -1777,10 +2008,13 @@ async function capturePublicEvidence() {
 	});
 	const continuationSubmitted: unknown[] = [];
 	const tailServices = MockSharedObjectServices.createFromSummary(tailSummary);
-	tailServices.deltaConnection = new MockDeltaConnection((message) => {
-		continuationSubmitted.push(copy(message));
-		return 3;
-	}, () => {});
+	tailServices.deltaConnection = new MockDeltaConnection(
+		(message) => {
+			continuationSubmitted.push(copy(message));
+			return 3;
+		},
+		() => {},
+	);
 	const tailTree = await factory.load(
 		tailRuntime,
 		"watershed-array-tail",
@@ -1802,19 +2036,24 @@ async function capturePublicEvidence() {
 			minimumSequenceNumber: number;
 		},
 	) {
-		kernel.processMessagesCore({
-			envelope: {
-				contents,
-				...envelope,
-				timestamp: 0,
-				type: "op",
+		kernel.processMessagesCore(
+			{
+				envelope: {
+					contents,
+					...envelope,
+					timestamp: 0,
+					type: "op",
+				},
+				messagesContent: [
+					{
+						contents,
+						localOpMetadata: undefined,
+						clientSequenceNumber: envelope.clientSequenceNumber,
+					},
+				],
 			},
-			messagesContent: [{
-				contents,
-				localOpMetadata: undefined,
-				clientSequenceNumber: envelope.clientSequenceNumber,
-			}],
-		}, false);
+			false,
+		);
 	}
 	const tailSequence = {
 		clientId: String(tailEnvelope.clientId),
@@ -1828,10 +2067,15 @@ async function capturePublicEvidence() {
 	tailReader.root.left.insertAtEnd("reader-continuation");
 	const readerAfterContinuation = visible(tailReader.root);
 	const continuationMessages = messagesIn(continuationSubmitted);
-	assert.equal(continuationMessages.length, 1,
-		"The fresh reader must submit one continuation message.");
-	assert(tailRuntime.idCompressor !== undefined,
-		"The fresh reader runtime must retain its ID compressor.");
+	assert.equal(
+		continuationMessages.length,
+		1,
+		"The fresh reader must submit one continuation message.",
+	);
+	assert(
+		tailRuntime.idCompressor !== undefined,
+		"The fresh reader runtime must retain its ID compressor.",
+	);
 	const continuationSession = tailRuntime.idCompressor.localSessionId;
 	const continuationCompressorCore = toIdCompressorWithCore(tailRuntime.idCompressor);
 	const continuationCreationRange = continuationCompressorCore.takeNextCreationRange();
@@ -1841,10 +2085,13 @@ async function capturePublicEvidence() {
 	const verifierRuntime = new MockFluidDataStoreRuntime({
 		idCompressor: deserializeIdCompressor(tailCompressor, verifierSession),
 	});
-	assert(verifierRuntime.idCompressor !== undefined,
-		"The independent verifier runtime must retain its ID compressor.");
-	toIdCompressorWithCore(verifierRuntime.idCompressor)
-		.finalizeCreationRange(continuationCreationRange);
+	assert(
+		verifierRuntime.idCompressor !== undefined,
+		"The independent verifier runtime must retain its ID compressor.",
+	);
+	toIdCompressorWithCore(verifierRuntime.idCompressor).finalizeCreationRange(
+		continuationCreationRange,
+	);
 	const verifierTree = await factory.load(
 		verifierRuntime,
 		"watershed-array-tail-verifier",
@@ -1871,8 +2118,11 @@ async function capturePublicEvidence() {
 		minimumSequenceNumber: tailSequence.minimumSequenceNumber,
 		contents: continuationMessages[0],
 	};
-	assert.deepEqual(visible(verifierView.root), readerAfterContinuation,
-		"An independently loaded reader must apply the tail and continuation.");
+	assert.deepEqual(
+		visible(verifierView.root),
+		readerAfterContinuation,
+		"An independently loaded reader must apply the tail and continuation.",
+	);
 
 	return {
 		provider,
@@ -1932,7 +2182,12 @@ async function capturePublicEvidence() {
 async function makeCases() {
 	const publicEvidence = await capturePublicEvidence();
 	const rootArrayContent = ["root", ["nested"]];
-	const mapRootContent = { map: [["0", ["zero"]], ["", []]] };
+	const mapRootContent = {
+		map: [
+			["0", ["zero"]],
+			["", []],
+		],
+	};
 	const schemas = {
 		rootArray: schemaString(Items),
 		objectArrays: schemaString(Root),
@@ -2016,16 +2271,18 @@ async function makeCases() {
 		schemaScenarios.push({
 			id,
 			input,
-			observation: id === "incompatible-arrays"
-				? { accepted: Reflect.get(output as object, "accepted") }
-				: {},
+			observation:
+				id === "incompatible-arrays"
+					? { accepted: Reflect.get(output as object, "accepted") }
+					: {},
 			output,
 		});
 	}
 	const incompatibleCompatibility = copy(schemaInputs.compatibility);
 	incompatibleCompatibility.viewSchema = "incompatibleArrays";
 	const compatibilityMutation = await executedAsync(() =>
-		replayArraySchemaInput(incompatibleCompatibility));
+		replayArraySchemaInput(incompatibleCompatibility),
+	);
 	assert(
 		compatibilityMutation.accepted === false,
 		"Changing the compatibility schema selector without its bytes must reject replay.",
@@ -2034,7 +2291,10 @@ async function makeCases() {
 	const message = publicEvidence.operationMessages.at(-1);
 	assert(message !== undefined, "Array operations must yield a final message.");
 	const changeset = Reflect.get(message, "changeset") as unknown[];
-	assert(changeset[0] !== null && typeof changeset[0] === "object", "Message changeset must be an object.");
+	assert(
+		changeset[0] !== null && typeof changeset[0] === "object",
+		"Message changeset must be an object.",
+	);
 	const modular = Reflect.get(changeset[0], "data");
 	const modularKinds = fieldKinds(modular);
 	assert(modularKinds.includes("Sequence"), "Array operations must encode a Sequence field.");
@@ -2146,16 +2406,25 @@ async function makeCases() {
 		["left", sequence([])],
 		["unused", generic([])],
 	]);
-	const sequenceTombstone = emptyChange(r0, [["left", sequence([
-		{
-			type: "Insert",
-			count: 1,
-			id: 0,
-			cellId: atom(r0, 0),
-			revision: Number(r0),
-		},
-		{ count: 1, cellId: atom(r0, 10) },
-	])]], { maxLocalId: 10 });
+	const sequenceTombstone = emptyChange(
+		r0,
+		[
+			[
+				"left",
+				sequence([
+					{
+						type: "Insert",
+						count: 1,
+						id: 0,
+						cellId: atom(r0, 0),
+						revision: Number(r0),
+					},
+					{ count: 1, cellId: atom(r0, 10) },
+				]),
+			],
+		],
+		{ maxLocalId: 10 },
+	);
 	const emptySequence = emptyChange(r1, [["left", sequence([])]]);
 	const nestedMap = emptyChange(r2, [["byKey", generic([[0, atom(r2, 20)]])]], {
 		maxLocalId: 22,
@@ -2208,34 +2477,39 @@ async function makeCases() {
 		nodes: [[atom(r9, 61), { fields: [] }]],
 		parents: [[atom(r9, 61), parent("left")]],
 	});
-	const nestedGeneric = emptyChange(r0, [["outer", sequence([
-		{ count: 1, changes: atom(r0, 70) },
-	])]], {
-		maxLocalId: 72,
-		nodes: [
-			[atom(r0, 70), { fields: [["inner", generic([[0, atom(r0, 72)]])]] }],
-			[atom(r0, 72), { fields: [] }],
-		],
-		parents: [
-			[atom(r0, 70), parent("outer")],
-			[atom(r0, 72), parent("inner", atom(r0, 70))],
-		],
-	});
-	const nestedSequence = emptyChange(r1, [["outer", sequence([
-		{ count: 1, changes: atom(r1, 71) },
-	])]], {
-		maxLocalId: 73,
-		nodes: [
-			[atom(r1, 71), { fields: [["inner", sequence([
-				{ count: 1, changes: atom(r1, 73) },
-			])]] }],
-			[atom(r1, 73), { fields: [] }],
-		],
-		parents: [
-			[atom(r1, 71), parent("outer")],
-			[atom(r1, 73), parent("inner", atom(r1, 71))],
-		],
-	});
+	const nestedGeneric = emptyChange(
+		r0,
+		[["outer", sequence([{ count: 1, changes: atom(r0, 70) }])]],
+		{
+			maxLocalId: 72,
+			nodes: [
+				[atom(r0, 70), { fields: [["inner", generic([[0, atom(r0, 72)]])]] }],
+				[atom(r0, 72), { fields: [] }],
+			],
+			parents: [
+				[atom(r0, 70), parent("outer")],
+				[atom(r0, 72), parent("inner", atom(r0, 70))],
+			],
+		},
+	);
+	const nestedSequence = emptyChange(
+		r1,
+		[["outer", sequence([{ count: 1, changes: atom(r1, 71) }])]],
+		{
+			maxLocalId: 73,
+			nodes: [
+				[
+					atom(r1, 71),
+					{ fields: [["inner", sequence([{ count: 1, changes: atom(r1, 73) }])]] },
+				],
+				[atom(r1, 73), { fields: [] }],
+			],
+			parents: [
+				[atom(r1, 71), parent("outer")],
+				[atom(r1, 73), parent("inner", atom(r1, 71))],
+			],
+		},
+	);
 	const nestedCrossField = copy(
 		crossFieldCoordinationInput(r6, modularCompressor),
 	) as unknown as {
@@ -2257,10 +2531,15 @@ async function makeCases() {
 		const node = { revision: Number(r6), localId: 60 + index };
 		change.nodes = [[node, { fields: change.fields }], ...change.nodes];
 		change.parents = [[node, { node: null, field: "outer" }], ...change.parents];
-		change.fields = [["outer", {
-			kind: "Sequence",
-			change: [{ count: 1, changes: node }],
-		}]];
+		change.fields = [
+			[
+				"outer",
+				{
+					kind: "Sequence",
+					change: [{ count: 1, changes: node }],
+				},
+			],
+		];
 		change.crossFieldKeys = change.crossFieldKeys.map((key) => ({
 			...key,
 			field: { ...key.field, node },
@@ -2281,24 +2560,31 @@ async function makeCases() {
 	});
 	nestedAliasedChain.allocator.maxLocalId = 161;
 	const chainSecond = nestedAliasedChain.operands.changes[1].change;
-	const chainNode = chainSecond.nodes[0] as [
-		unknown,
-		{ fields: unknown[] },
-	];
+	const chainNode = chainSecond.nodes[0] as [unknown, { fields: unknown[] }];
 	chainNode[1].fields = [
-		["right", sequence([{
-			type: "MoveOut",
-			id: 44,
-			count: 2,
-			revision: Number(r6),
-		}])],
-		["narrow", sequence([{
-			type: "MoveIn",
-			id: 44,
-			count: 2,
-			cellId: atom(r6, 46),
-			revision: Number(r6),
-		}])],
+		[
+			"right",
+			sequence([
+				{
+					type: "MoveOut",
+					id: 44,
+					count: 2,
+					revision: Number(r6),
+				},
+			]),
+		],
+		[
+			"narrow",
+			sequence([
+				{
+					type: "MoveIn",
+					id: 44,
+					count: 2,
+					cellId: atom(r6, 46),
+					revision: Number(r6),
+				},
+			]),
+		],
 	];
 	Reflect.set(chainSecond, "crossFieldKeys", [
 		{
@@ -2320,36 +2606,52 @@ async function makeCases() {
 	nestedOuterEffects.operands.changes.forEach(({ change }, index) => {
 		const node = atom(r6, 60 + index);
 		const move = 141 + index * 3;
-		change.fields = [["outer", sequence(index === 0
-			? [{
-				type: "MoveIn",
-				id: move,
-				count: 1,
-				cellId: atom(r6, move + 2),
-				revision: Number(r6),
-			}, { count: 1, changes: node }, {
-				type: "MoveOut",
-				id: move,
-				count: 1,
-				revision: Number(r6),
-			}]
-			: [{
-				type: "MoveOut",
-				id: move,
-				count: 1,
-				revision: Number(r6),
-			}, { count: 1, changes: node }, {
-				type: "MoveIn",
-				id: move,
-				count: 1,
-				cellId: atom(r6, move + 2),
-				revision: Number(r6),
-			}],
-		)]];
-		const sourceKeys = change.crossFieldKeys.filter((key) =>
-			Reflect.get(key, "target") === "source");
-		const destinationKeys = change.crossFieldKeys.filter((key) =>
-			Reflect.get(key, "target") === "destination");
+		change.fields = [
+			[
+				"outer",
+				sequence(
+					index === 0
+						? [
+								{
+									type: "MoveIn",
+									id: move,
+									count: 1,
+									cellId: atom(r6, move + 2),
+									revision: Number(r6),
+								},
+								{ count: 1, changes: node },
+								{
+									type: "MoveOut",
+									id: move,
+									count: 1,
+									revision: Number(r6),
+								},
+							]
+						: [
+								{
+									type: "MoveOut",
+									id: move,
+									count: 1,
+									revision: Number(r6),
+								},
+								{ count: 1, changes: node },
+								{
+									type: "MoveIn",
+									id: move,
+									count: 1,
+									cellId: atom(r6, move + 2),
+									revision: Number(r6),
+								},
+							],
+				),
+			],
+		];
+		const sourceKeys = change.crossFieldKeys.filter(
+			(key) => Reflect.get(key, "target") === "source",
+		);
+		const destinationKeys = change.crossFieldKeys.filter(
+			(key) => Reflect.get(key, "target") === "destination",
+		);
 		Reflect.set(change, "crossFieldKeys", [
 			...sourceKeys,
 			{
@@ -2383,9 +2685,7 @@ async function makeCases() {
 			};
 			return {
 				...key,
-				field: field.node?.localId === 60 + index
-					? { ...field, node: source }
-					: field,
+				field: field.node?.localId === 60 + index ? { ...field, node: source } : field,
 			};
 		});
 		change.maxLocalId = 160 + index;
@@ -2395,10 +2695,7 @@ async function makeCases() {
 		ReturnType<typeof atom>,
 		{ fields: [string, unknown][] },
 	];
-	retryFirstNode[1].fields.push([
-		"convert",
-		sequence([{ count: 1, changes: atom(r6, 163) }]),
-	]);
+	retryFirstNode[1].fields.push(["convert", sequence([{ count: 1, changes: atom(r6, 163) }])]);
 	retryFirst.nodes.push([atom(r6, 163), { fields: [] }]);
 	retryFirst.parents.push([atom(r6, 163), parent("convert", atom(r6, 60))]);
 	retryFirst.maxLocalId = 163;
@@ -2407,149 +2704,204 @@ async function makeCases() {
 		ReturnType<typeof atom>,
 		{ fields: [string, unknown][] },
 	];
-	retrySecondNode[1].fields.push([
-		"convert",
-		generic([[0, atom(r6, 162)]]),
-	]);
+	retrySecondNode[1].fields.push(["convert", generic([[0, atom(r6, 162)]])]);
 	retrySecond.nodes.push([atom(r6, 162), { fields: [] }]);
 	retrySecond.parents.push([atom(r6, 162), parent("convert", atom(r6, 61))]);
 	retrySecond.maxLocalId = 162;
 	nestedAliasedConversionRetry.allocator.maxLocalId = 163;
 	const multiRevisionInverse = {
-		...multiRevisionInversionInput(
-			[r0, r1, r5],
-			modularCompressor,
-			modularRevisions,
-		),
+		...multiRevisionInversionInput([r0, r1, r5], modularCompressor, modularRevisions),
 		initialState: visible(initialRoot()),
 	};
 	const multiRevisionSplitInverse = {
-		...multiRevisionInversionInput(
-			[r0, r1, r5],
-			modularCompressor,
-			modularRevisions,
-			true,
-		),
+		...multiRevisionInversionInput([r0, r1, r5], modularCompressor, modularRevisions, true),
 		initialState: visible(initialRoot()),
 	};
-	const sequenceAncestorAuthored = emptyChange(r7, [["outer", sequence([
-		{ count: 1, changes: atom(r7, 80) },
-	])]], {
-		maxLocalId: 84,
-		nodes: [
-			[atom(r7, 80), { fields: [["left", sequence([
-				{ count: 1, changes: atom(r7, 81) },
-			])]] }],
-			[atom(r7, 81), { fields: [["", sequence([
-				{ count: 1, changes: atom(r7, 83) },
-			])]] }],
-			[atom(r7, 83), { fields: [["x", generic([[0, atom(r7, 84)]])]] }],
-			[atom(r7, 84), { fields: [["", sequence([{
-				type: "Insert",
-				count: 1,
-				id: 0,
-				cellId: atom(r7, 0),
-				revision: Number(r7),
-			}])]] }],
-		],
-		parents: [
-			[atom(r7, 80), parent("outer")],
-			[atom(r7, 81), parent("left", atom(r7, 80))],
-			[atom(r7, 83), parent("", atom(r7, 81))],
-			[atom(r7, 84), parent("x", atom(r7, 83))],
-		],
-	});
-	const sequenceAncestorIntersectingAuthored = emptyChange(r7, [["outer", sequence([
-		{ count: 1, changes: atom(r7, 80) },
-	])]], {
-		maxLocalId: 86,
-		nodes: [
-			[atom(r7, 80), { fields: [
-				["left", sequence([
-					{ count: 1, changes: atom(r7, 81) },
-				])],
-				["right", sequence([
-					{ count: 1 },
-					{ count: 1, changes: atom(r7, 85) },
-				])],
-			] }],
-			[atom(r7, 81), { fields: [["", sequence([
-				{ count: 1, changes: atom(r7, 83) },
-			])]] }],
-			[atom(r7, 83), { fields: [["x", generic([[0, atom(r7, 84)]])]] }],
-			[atom(r7, 84), { fields: [["", sequence([{
-				type: "Insert",
-				count: 1,
-				id: 0,
-				cellId: atom(r7, 0),
-				revision: Number(r7),
-			}])]] }],
-			[atom(r7, 85), { fields: [["", sequence([{
-				type: "Insert",
-				count: 1,
-				id: 86,
-				cellId: atom(r7, 86),
-				revision: Number(r7),
-			}])]] }],
-		],
-		parents: [
-			[atom(r7, 80), parent("outer")],
-			[atom(r7, 81), parent("left", atom(r7, 80))],
-			[atom(r7, 83), parent("", atom(r7, 81))],
-			[atom(r7, 84), parent("x", atom(r7, 83))],
-			[atom(r7, 85), parent("right", atom(r7, 80))],
-		],
-	});
-	const sequenceAncestorBase = emptyChange(r8, [["outer", sequence([
-		{ count: 1, changes: atom(r8, 90) },
-	])]], {
-		maxLocalId: 102,
-		nodes: [
-			[atom(r8, 90), { fields: [
-				["left", sequence([{ count: 1, changes: atom(r8, 91) }])],
-				["right", sequence([
-					{ count: 1 },
-					{ count: 1, changes: atom(r8, 92) },
-				])],
-			] }],
-			[atom(r8, 91), { fields: [["", sequence([{
-				type: "MoveOut",
-				id: 100,
-				count: 1,
-				revision: Number(r8),
-			}])]] }],
-			[atom(r8, 92), { fields: [["", sequence([{
-				type: "MoveIn",
-				id: 100,
-				count: 1,
-				cellId: atom(r8, 102),
-				revision: Number(r8),
-			}])]] }],
-		],
-		parents: [
-			[atom(r8, 90), parent("outer")],
-			[atom(r8, 91), parent("left", atom(r8, 90))],
-			[atom(r8, 92), parent("right", atom(r8, 90))],
-		],
-		crossFieldKeys: [
-			{
-				target: "source",
-				revision: Number(r8),
-				localId: 100,
-				count: 1,
-				field: { node: atom(r8, 91), field: "" },
-			},
-			{
-				target: "destination",
-				revision: Number(r8),
-				localId: 100,
-				count: 1,
-				field: { node: atom(r8, 92), field: "" },
-			},
-		],
-	});
-	const crossFieldInput =
-		crossFieldCoordinationInput(r6, modularCompressor) as unknown as Record<string, unknown>;
+	const sequenceAncestorAuthored = emptyChange(
+		r7,
+		[["outer", sequence([{ count: 1, changes: atom(r7, 80) }])]],
+		{
+			maxLocalId: 84,
+			nodes: [
+				[
+					atom(r7, 80),
+					{ fields: [["left", sequence([{ count: 1, changes: atom(r7, 81) }])]] },
+				],
+				[atom(r7, 81), { fields: [["", sequence([{ count: 1, changes: atom(r7, 83) }])]] }],
+				[atom(r7, 83), { fields: [["x", generic([[0, atom(r7, 84)]])]] }],
+				[
+					atom(r7, 84),
+					{
+						fields: [
+							[
+								"",
+								sequence([
+									{
+										type: "Insert",
+										count: 1,
+										id: 0,
+										cellId: atom(r7, 0),
+										revision: Number(r7),
+									},
+								]),
+							],
+						],
+					},
+				],
+			],
+			parents: [
+				[atom(r7, 80), parent("outer")],
+				[atom(r7, 81), parent("left", atom(r7, 80))],
+				[atom(r7, 83), parent("", atom(r7, 81))],
+				[atom(r7, 84), parent("x", atom(r7, 83))],
+			],
+		},
+	);
+	const sequenceAncestorIntersectingAuthored = emptyChange(
+		r7,
+		[["outer", sequence([{ count: 1, changes: atom(r7, 80) }])]],
+		{
+			maxLocalId: 86,
+			nodes: [
+				[
+					atom(r7, 80),
+					{
+						fields: [
+							["left", sequence([{ count: 1, changes: atom(r7, 81) }])],
+							["right", sequence([{ count: 1 }, { count: 1, changes: atom(r7, 85) }])],
+						],
+					},
+				],
+				[atom(r7, 81), { fields: [["", sequence([{ count: 1, changes: atom(r7, 83) }])]] }],
+				[atom(r7, 83), { fields: [["x", generic([[0, atom(r7, 84)]])]] }],
+				[
+					atom(r7, 84),
+					{
+						fields: [
+							[
+								"",
+								sequence([
+									{
+										type: "Insert",
+										count: 1,
+										id: 0,
+										cellId: atom(r7, 0),
+										revision: Number(r7),
+									},
+								]),
+							],
+						],
+					},
+				],
+				[
+					atom(r7, 85),
+					{
+						fields: [
+							[
+								"",
+								sequence([
+									{
+										type: "Insert",
+										count: 1,
+										id: 86,
+										cellId: atom(r7, 86),
+										revision: Number(r7),
+									},
+								]),
+							],
+						],
+					},
+				],
+			],
+			parents: [
+				[atom(r7, 80), parent("outer")],
+				[atom(r7, 81), parent("left", atom(r7, 80))],
+				[atom(r7, 83), parent("", atom(r7, 81))],
+				[atom(r7, 84), parent("x", atom(r7, 83))],
+				[atom(r7, 85), parent("right", atom(r7, 80))],
+			],
+		},
+	);
+	const sequenceAncestorBase = emptyChange(
+		r8,
+		[["outer", sequence([{ count: 1, changes: atom(r8, 90) }])]],
+		{
+			maxLocalId: 102,
+			nodes: [
+				[
+					atom(r8, 90),
+					{
+						fields: [
+							["left", sequence([{ count: 1, changes: atom(r8, 91) }])],
+							["right", sequence([{ count: 1 }, { count: 1, changes: atom(r8, 92) }])],
+						],
+					},
+				],
+				[
+					atom(r8, 91),
+					{
+						fields: [
+							[
+								"",
+								sequence([
+									{
+										type: "MoveOut",
+										id: 100,
+										count: 1,
+										revision: Number(r8),
+									},
+								]),
+							],
+						],
+					},
+				],
+				[
+					atom(r8, 92),
+					{
+						fields: [
+							[
+								"",
+								sequence([
+									{
+										type: "MoveIn",
+										id: 100,
+										count: 1,
+										cellId: atom(r8, 102),
+										revision: Number(r8),
+									},
+								]),
+							],
+						],
+					},
+				],
+			],
+			parents: [
+				[atom(r8, 90), parent("outer")],
+				[atom(r8, 91), parent("left", atom(r8, 90))],
+				[atom(r8, 92), parent("right", atom(r8, 90))],
+			],
+			crossFieldKeys: [
+				{
+					target: "source",
+					revision: Number(r8),
+					localId: 100,
+					count: 1,
+					field: { node: atom(r8, 91), field: "" },
+				},
+				{
+					target: "destination",
+					revision: Number(r8),
+					localId: 100,
+					count: 1,
+					field: { node: atom(r8, 92), field: "" },
+				},
+			],
+		},
+	);
+	const crossFieldInput = crossFieldCoordinationInput(
+		r6,
+		modularCompressor,
+	) as unknown as Record<string, unknown>;
 	const crossFieldOutput = replayArrayModularInput(copy(crossFieldInput)) as {
 		graph: Record<string, unknown>;
 	};
@@ -2557,12 +2909,16 @@ async function makeCases() {
 		allocator: { maxLocalId: number };
 		operands: { changes: unknown[] };
 	};
-	ownershipRoundtrip.operands.changes = [{
-		revision: Number(r6),
-		change: crossFieldOutput.graph,
-	}];
-	ownershipRoundtrip.allocator.maxLocalId =
-		Reflect.get(crossFieldOutput.graph, "maxLocalId") as number;
+	ownershipRoundtrip.operands.changes = [
+		{
+			revision: Number(r6),
+			change: crossFieldOutput.graph,
+		},
+	];
+	ownershipRoundtrip.allocator.maxLocalId = Reflect.get(
+		crossFieldOutput.graph,
+		"maxLocalId",
+	) as number;
 	const modularInputs: Record<string, Record<string, unknown>> = {
 		"generic-to-sequence": replayContext("compose", [
 			tagged(r0, genericLeft),
@@ -2622,8 +2978,10 @@ async function makeCases() {
 		"nested-cross-field-endpoints": nestedCrossField as unknown as Record<string, unknown>,
 		"nested-aliased-chain": nestedAliasedChain as unknown as Record<string, unknown>,
 		"nested-outer-effects": nestedOuterEffects as unknown as Record<string, unknown>,
-		"nested-aliased-conversion-retry":
-			nestedAliasedConversionRetry as unknown as Record<string, unknown>,
+		"nested-aliased-conversion-retry": nestedAliasedConversionRetry as unknown as Record<
+			string,
+			unknown
+		>,
 		"multi-revision-inversion-retry": multiRevisionInverse,
 		"multi-revision-inversion-retry-split": multiRevisionSplitInverse,
 		"three-pass-nested-moves": multiPassComposeInput(
@@ -2709,9 +3067,9 @@ async function makeCases() {
 		) {
 			const expectedDirection =
 				id === "sequence-to-generic" ||
-					id === "nested-conversions-reversed" ||
-					id === "nested-rebase-conversion" ||
-					id === "nested-aliased-conversion-retry"
+				id === "nested-conversions-reversed" ||
+				id === "nested-rebase-conversion" ||
+				id === "nested-aliased-conversion-retry"
 					? "generic-right"
 					: "generic-left";
 			const conversion = Reflect.get(outputRecord, "conversion");
@@ -2754,9 +3112,12 @@ async function makeCases() {
 					changes: {
 						change: {
 							fields: [string, { change: { children?: [number, unknown][] } }][];
-							nodes: [unknown, {
-								fields: [string, { change: { children?: [number, unknown][] } }][];
-							}][];
+							nodes: [
+								unknown,
+								{
+									fields: [string, { change: { children?: [number, unknown][] } }][];
+								},
+							][];
 						};
 					}[];
 				};
@@ -2782,7 +3143,8 @@ async function makeCases() {
 		if (id === "cross-field-endpoints" || id === "nested-cross-field-endpoints") {
 			const coordination = rawOutput.coordination;
 			assert.deepEqual(
-				coordination.handlerCalls.slice(0, id === "cross-field-endpoints" ? 3 : 4)
+				coordination.handlerCalls
+					.slice(0, id === "cross-field-endpoints" ? 3 : 4)
 					.map(({ field }) => field.field),
 				id === "cross-field-endpoints"
 					? ["right", "left", "right"]
@@ -2791,9 +3153,7 @@ async function makeCases() {
 			);
 			assert(
 				coordination.managerCalls.some(
-					(call) =>
-						call.method === "set" &&
-						call.invalidateDependents === true,
+					(call) => call.method === "set" && call.invalidateDependents === true,
 				),
 				"A later source-manager update must invalidate a registered dependency.",
 			);
@@ -2814,11 +3174,13 @@ async function makeCases() {
 				nodes: unknown[];
 			};
 			assert(
-				graph.aliases.some(([source, target]) =>
-					source.revision === Number(r6) &&
-					source.localId === 61 &&
-					target.revision === Number(r6) &&
-					target.localId === 60),
+				graph.aliases.some(
+					([source, target]) =>
+						source.revision === Number(r6) &&
+						source.localId === 61 &&
+						target.revision === Number(r6) &&
+						target.localId === 60,
+				),
 				"The nested chain must retain the second operand alias.",
 			);
 			assert.deepEqual(
@@ -2845,12 +3207,14 @@ async function makeCases() {
 				"The deferred node round must be followed by a changed-information retry.",
 			);
 			assert.deepEqual(
-				writes.slice(0, 2).map(({ field, target, localId }) => [
-					field.node?.localId,
-					field.field,
-					target,
-					localId,
-				]),
+				writes
+					.slice(0, 2)
+					.map(({ field, target, localId }) => [
+						field.node?.localId,
+						field.field,
+						target,
+						localId,
+					]),
 				[
 					[undefined, "outer", "source", 141],
 					[undefined, "outer", "destination", 144],
@@ -2867,8 +3231,7 @@ async function makeCases() {
 				"Both outer writes must precede the first nested handler.",
 			);
 			const destinationWrite = writes.find(
-				({ target, localId }) =>
-					target === "destination" && localId === 44,
+				({ target, localId }) => target === "destination" && localId === 44,
 			);
 			const destinationReads = rawOutput.coordination.managerCalls.filter(
 				({ method, field, target, localId }) =>
@@ -2879,18 +3242,22 @@ async function makeCases() {
 			);
 			assert(
 				destinationWrite !== undefined &&
-					destinationReads.some(({ sequence, count, returnedLength, found, addDependency }) =>
-						sequence < destinationWrite.sequence &&
-						count === 2 &&
-						returnedLength === 2 &&
-						found === false &&
-						addDependency === true) &&
-					destinationReads.some(({ sequence, count, returnedLength, found, addDependency }) =>
-						sequence > destinationWrite.sequence &&
-						count === 2 &&
-						returnedLength === 1 &&
-						found === true &&
-						addDependency === true),
+					destinationReads.some(
+						({ sequence, count, returnedLength, found, addDependency }) =>
+							sequence < destinationWrite.sequence &&
+							count === 2 &&
+							returnedLength === 2 &&
+							found === false &&
+							addDependency === true,
+					) &&
+					destinationReads.some(
+						({ sequence, count, returnedLength, found, addDependency }) =>
+							sequence > destinationWrite.sequence &&
+							count === 2 &&
+							returnedLength === 1 &&
+							found === true &&
+							addDependency === true,
+					),
 				"The retry must read destination 44 after its dependent absent read and causal write.",
 			);
 		}
@@ -2929,9 +3296,7 @@ async function makeCases() {
 					field.node?.localId,
 					field.field,
 				]),
-				[
-					["generic-right", 61, "convert"],
-				],
+				[["generic-right", 61, "convert"]],
 				"The conversion must retain the original right operand identity.",
 			);
 			for (const entries of [
@@ -3000,21 +3365,17 @@ async function makeCases() {
 			assert.deepEqual(
 				rawOutput.coordination.managerCalls
 					.filter(({ method }) => method === "onMoveIn")
-					.map(({ field, id: child }) => [
-						field.field,
-						child?.revision,
-						child?.localId,
-					]),
-				[
-					["left1", Number(r1), 30],
-				],
+					.map(({ field, id: child }) => [field.field, child?.revision, child?.localId]),
+				[["left1", Number(r1), 30]],
 				"The split prefix must apply its child without an onMoveIn callback.",
 			);
 		}
 		if (id === "three-pass-nested-moves") {
-			const invocations = rawOutput.coordination.handlerCalls.map(
-				({ field, invocation }) => [field.node?.localId, field.field, invocation],
-			);
+			const invocations = rawOutput.coordination.handlerCalls.map(({ field, invocation }) => [
+				field.node?.localId,
+				field.field,
+				invocation,
+			]);
 			assert(
 				rawOutput.coordination.handlerCalls.some(({ invocation }) => invocation >= 3),
 				`The source operation must include a third information pass: ${JSON.stringify(invocations)}`,
@@ -3022,32 +3383,38 @@ async function makeCases() {
 		}
 		if (id === "sequence-ancestor-rebase") {
 			const graph = Reflect.get(outputRecord, "graph") as {
-				nodes: [ReturnType<typeof atom>, {
-					fields: [string, { kind: string; change: unknown[] }][];
-				}][];
-				parents: [ReturnType<typeof atom>, {
-					node: ReturnType<typeof atom> | null;
-					field: string;
-				}][];
+				nodes: [
+					ReturnType<typeof atom>,
+					{
+						fields: [string, { kind: string; change: unknown[] }][];
+					},
+				][];
+				parents: [
+					ReturnType<typeof atom>,
+					{
+						node: ReturnType<typeof atom> | null;
+						field: string;
+					},
+				][];
 			};
-			const parentNode = graph.nodes.find(([id]) =>
-				id.revision === Number(r7) && id.localId === 80);
+			const parentNode = graph.nodes.find(
+				([id]) => id.revision === Number(r7) && id.localId === 80,
+			);
 			const right = parentNode?.[1].fields.find(([field]) => field === "right");
 			assert.deepEqual(
 				right,
-				["right", sequence([
-					{ count: 1 },
-					{ count: 1, changes: atom(r8, 92) },
-				])],
+				["right", sequence([{ count: 1 }, { count: 1, changes: atom(r8, 92) }])],
 				"The Sequence ancestor must attach the affected child at index 1.",
 			);
 			assert(
-				graph.parents.some(([child, owner]) =>
-					child.revision === Number(r8) &&
-					child.localId === 92 &&
-					owner.node?.revision === Number(r7) &&
-					owner.node.localId === 80 &&
-					owner.field === "right"),
+				graph.parents.some(
+					([child, owner]) =>
+						child.revision === Number(r8) &&
+						child.localId === 92 &&
+						owner.node?.revision === Number(r7) &&
+						owner.node.localId === 80 &&
+						owner.field === "right",
+				),
 				"The materialized child must be owned by the rebased Sequence ancestor.",
 			);
 			assert.deepEqual(
@@ -3067,48 +3434,58 @@ async function makeCases() {
 		}
 		if (id === "sequence-ancestor-rebase-intersecting") {
 			const graph = Reflect.get(outputRecord, "graph") as {
-				nodes: [ReturnType<typeof atom>, {
-					fields: [string, { kind: string; change: unknown[] }][];
-				}][];
-				parents: [ReturnType<typeof atom>, {
-					node: ReturnType<typeof atom> | null;
-					field: string;
-				}][];
+				nodes: [
+					ReturnType<typeof atom>,
+					{
+						fields: [string, { kind: string; change: unknown[] }][];
+					},
+				][];
+				parents: [
+					ReturnType<typeof atom>,
+					{
+						node: ReturnType<typeof atom> | null;
+						field: string;
+					},
+				][];
 			};
-			const parentNode = graph.nodes.find(([id]) =>
-				id.revision === Number(r7) && id.localId === 80);
+			const parentNode = graph.nodes.find(
+				([id]) => id.revision === Number(r7) && id.localId === 80,
+			);
 			const right = parentNode?.[1].fields.find(([field]) => field === "right");
 			assert.deepEqual(
 				right,
-				["right", sequence([
-					{ count: 1 },
-					{ count: 1, changes: atom(r7, 85) },
-				])],
+				["right", sequence([{ count: 1 }, { count: 1, changes: atom(r7, 85) }])],
 				"The Sequence ancestor must attach the affected child at index 1.",
 			);
 			assert(
-				graph.parents.some(([child, owner]) =>
-					child.revision === Number(r7) &&
-					child.localId === 85 &&
-					owner.node?.revision === Number(r7) &&
-					owner.node.localId === 80 &&
-					owner.field === "right"),
+				graph.parents.some(
+					([child, owner]) =>
+						child.revision === Number(r7) &&
+						child.localId === 85 &&
+						owner.node?.revision === Number(r7) &&
+						owner.node.localId === 80 &&
+						owner.field === "right",
+				),
 				"The materialized child must be owned by the rebased Sequence ancestor.",
 			);
-			const destinationNode = graph.nodes.find(([id]) =>
-				id.revision === Number(r7) && id.localId === 85);
+			const destinationNode = graph.nodes.find(
+				([id]) => id.revision === Number(r7) && id.localId === 85,
+			);
 			assert.deepEqual(
 				destinationNode?.[1].fields.find(([field]) => field === ""),
-				["", sequence([
-					{ count: 1, changes: atom(r7, 83) },
-					{
-						type: "Insert",
-						count: 1,
-						id: 86,
-						cellId: atom(r7, 86),
-						revision: Number(r7),
-					},
-				])],
+				[
+					"",
+					sequence([
+						{ count: 1, changes: atom(r7, 83) },
+						{
+							type: "Insert",
+							count: 1,
+							id: 86,
+							cellId: atom(r7, 86),
+							revision: Number(r7),
+						},
+					]),
+				],
 				"The intersecting authored destination must retain its child and the moved child.",
 			);
 			assert.deepEqual(
@@ -3132,16 +3509,21 @@ async function makeCases() {
 			};
 			assert.deepEqual(
 				graph.fields,
-				[["left", sequence([
-					{
-						type: "Insert",
-						count: 1,
-						id: 0,
-						cellId: atom(r0, 0),
-						revision: Number(r0),
-					},
-					{ count: 1, cellId: atom(r0, 10) },
-				])]],
+				[
+					[
+						"left",
+						sequence([
+							{
+								type: "Insert",
+								count: 1,
+								id: 0,
+								cellId: atom(r0, 0),
+								revision: Number(r0),
+							},
+							{ count: 1, cellId: atom(r0, 10) },
+						]),
+					],
+				],
 				"Rebase must retain a significant trailing tombstone.",
 			);
 		}
@@ -3149,9 +3531,11 @@ async function makeCases() {
 			const graph = Reflect.get(outputRecord, "graph") as {
 				crossFieldKeys: unknown[];
 			};
-			const operand = (Reflect.get(input, "operands") as {
-				changes: { change: { crossFieldKeys: unknown[] } }[];
-			}).changes[0].change;
+			const operand = (
+				Reflect.get(input, "operands") as {
+					changes: { change: { crossFieldKeys: unknown[] } }[];
+				}
+			).changes[0].change;
 			assert.deepEqual(
 				graph.crossFieldKeys,
 				operand.crossFieldKeys,
@@ -3180,13 +3564,35 @@ async function makeCases() {
 		initialState: plainInitialRoot(),
 		clients: [copy(replayClients[0])],
 		schedule: [
-			{ id: "insert", op: "insert", client: 0, path: ["left"], index: 1,
-				values: ["inserted", { point: { label: "new", x: 2 } }] },
+			{
+				id: "insert",
+				op: "insert",
+				client: 0,
+				path: ["left"],
+				index: 1,
+				values: ["inserted", { point: { label: "new", x: 2 } }],
+			},
 			{ id: "remove", op: "remove", client: 0, path: ["left"], start: 0, end: 1 },
-			{ id: "interior-move", op: "move", client: 0, path: ["left"],
-				sourcePath: ["left"], start: 1, end: 3, gap: 2 },
-			{ id: "cross-array-move", op: "move", client: 0, path: ["right"],
-				sourcePath: ["left"], start: 1, end: 2, gap: 1 },
+			{
+				id: "interior-move",
+				op: "move",
+				client: 0,
+				path: ["left"],
+				sourcePath: ["left"],
+				start: 1,
+				end: 3,
+				gap: 2,
+			},
+			{
+				id: "cross-array-move",
+				op: "move",
+				client: 0,
+				path: ["right"],
+				sourcePath: ["left"],
+				start: 1,
+				end: 2,
+				gap: 1,
+			},
 			{ id: "deliver", op: "deliver" },
 		],
 	};
@@ -3200,7 +3606,9 @@ async function makeCases() {
 	const ownershipScenario = modularScenarios.find(({ id }) => id === "ownership-roundtrip");
 	assert(ownershipScenario !== undefined, "Ownership codec scenario must exist.");
 	const ownershipInput = ownershipScenario.input as {
-		operands: { changes: { revision: number; change: Parameters<typeof encodeModularV5>[0] }[] };
+		operands: {
+			changes: { revision: number; change: Parameters<typeof encodeModularV5>[0] }[];
+		};
 		compressor: { sessionId: string; serialized: string };
 	};
 	const ownershipChange = ownershipInput.operands.changes[0];
@@ -3216,47 +3624,53 @@ async function makeCases() {
 	const remapRevision = (value: unknown): unknown => {
 		if (Array.isArray(value)) return value.map(remapRevision);
 		if (value !== null && typeof value === "object") {
-			return Object.fromEntries(Object.entries(value).map(([key, child]) => [
-				key,
-				key === "revision" && child === ownershipChange.revision
-					? Number(advancedRevision)
-					: remapRevision(child),
-			]));
+			return Object.fromEntries(
+				Object.entries(value).map(([key, child]) => [
+					key,
+					key === "revision" && child === ownershipChange.revision
+						? Number(advancedRevision)
+						: remapRevision(child),
+				]),
+			);
 		}
 		return value;
 	};
-	const advancedChange = remapRevision(
-		ownershipChange.change,
-	) as Parameters<typeof encodeModularV5>[0];
+	const advancedChange = remapRevision(ownershipChange.change) as Parameters<
+		typeof encodeModularV5
+	>[0];
 	const advancedCodec = encodeModularV5(advancedChange, ownershipCompressor);
 	const attachAndDetachChange = {
 		maxLocalId: 60,
 		revisions: [{ revision: Number(advancedRevision), rollbackOf: null }],
-		fields: [[
-			"left",
-			{
-				kind: "Sequence",
-				change: [{
-					count: 1,
-					cellId: { revision: Number(advancedRevision), localId: 55 },
-					type: "AttachAndDetach",
-					attach: {
-						type: "MoveIn",
-						id: 56,
-						revision: Number(advancedRevision),
-					},
-					detach: {
-						type: "Remove",
-						id: 57,
-						revision: Number(advancedRevision),
-						idOverride: {
-							revision: Number(advancedRevision),
-							localId: 58,
+		fields: [
+			[
+				"left",
+				{
+					kind: "Sequence",
+					change: [
+						{
+							count: 1,
+							cellId: { revision: Number(advancedRevision), localId: 55 },
+							type: "AttachAndDetach",
+							attach: {
+								type: "MoveIn",
+								id: 56,
+								revision: Number(advancedRevision),
+							},
+							detach: {
+								type: "Remove",
+								id: 57,
+								revision: Number(advancedRevision),
+								idOverride: {
+									revision: Number(advancedRevision),
+									localId: 58,
+								},
+							},
 						},
-					},
-				}],
-			},
-		]],
+					],
+				},
+			],
+		],
 		nodes: [],
 		parents: [],
 		aliases: [],
@@ -3265,40 +3679,60 @@ async function makeCases() {
 		refreshers: [],
 		destroys: [],
 	} as Parameters<typeof encodeModularV5>[0];
-	const attachAndDetachCodec = encodeModularV5(
-		attachAndDetachChange,
-		ownershipCompressor,
-	);
+	const attachAndDetachCodec = encodeModularV5(attachAndDetachChange, ownershipCompressor);
+	const reservedRenameWire = copy(advancedCodec.encoded) as {
+		changes: { change: { effect?: Record<string, unknown> }[] }[];
+	};
+	const renameMark = reservedRenameWire.changes
+		.flatMap(({ change }) => change)
+		.find(({ effect }) => effect !== undefined && "rename" in effect);
+	assert(renameMark?.effect !== undefined, "Advanced wire must contain a rename.");
+	const rename = renameMark.effect.rename as { idOverride: unknown };
+	renameMark.effect = {
+		attachAndDetach: {
+			attach: { moveIn: { id: -1 } },
+			detach: { moveOut: { id: -1, idOverride: rename.idOverride } },
+		},
+	};
+	const openAttachAndDetachWire = copy(attachAndDetachCodec.encoded) as {
+		changes: { change: { effect?: Record<string, unknown> }[] }[];
+	};
+	const pairedMark = openAttachAndDetachWire.changes
+		.flatMap(({ change }) => change)
+		.find(({ effect }) => effect !== undefined && "attachAndDetach" in effect);
+	assert(pairedMark?.effect !== undefined, "Advanced wire must contain attach-and-detach.");
+	const paired = pairedMark.effect.attachAndDetach as Record<string, unknown>;
+	paired.extra = true;
+	const reservedGraph = decodeModularV5(reservedRenameWire, ownershipCompressor, 513);
+	const openPairedGraph = decodeModularV5(openAttachAndDetachWire, ownershipCompressor, 513);
 	const advancedWireRevision = Number(
 		ownershipCompressor.normalizeToOpSpace(advancedRevision),
 	);
 	const normalizeAdvancedRevision = (value: unknown): unknown => {
 		if (Array.isArray(value)) return value.map(normalizeAdvancedRevision);
 		if (value !== null && typeof value === "object") {
-			return Object.fromEntries(Object.entries(value).map(([key, child]) => [
-				key,
-				key === "revision" && child === Number(advancedRevision)
-					? advancedWireRevision
-					: normalizeAdvancedRevision(child),
-			]));
+			return Object.fromEntries(
+				Object.entries(value).map(([key, child]) => [
+					key,
+					key === "revision" && child === Number(advancedRevision)
+						? advancedWireRevision
+						: normalizeAdvancedRevision(child),
+				]),
+			);
 		}
 		return value;
 	};
 	const advancedMessage = {
 		revision: advancedWireRevision,
 		originatorId: ownershipCompressor.localSessionId,
-		changeset: [{ data: advancedCodec.encoded }],
+		changeset: [{ data: reservedRenameWire }],
 		version: 7,
 	};
 	const attachAndDetachMessage = {
 		...advancedMessage,
-		changeset: [{ data: attachAndDetachCodec.encoded }],
+		changeset: [{ data: openAttachAndDetachWire }],
 	};
-	const summaryInput = (
-		operation: string,
-		encodedSummary: unknown,
-		compressor: string,
-	) => ({
+	const summaryInput = (operation: string, encodedSummary: unknown, compressor: string) => ({
 		operation,
 		profile: codecProfile,
 		encodedSummary,
@@ -3312,13 +3746,15 @@ async function makeCases() {
 		profile: codecProfile,
 		encodedMessages,
 		decodeContext: messageDecodeContext,
-		sequencing: (publicEvidence.operationEnvelopes as Record<string, unknown>[]).map((envelope) => ({
-			clientId: envelope.clientId,
-			clientSequenceNumber: envelope.clientSequenceNumber,
-			referenceSequenceNumber: envelope.referenceSequenceNumber,
-			sequenceNumber: envelope.sequenceNumber,
-			minimumSequenceNumber: envelope.minimumSequenceNumber,
-		})),
+		sequencing: (publicEvidence.operationEnvelopes as Record<string, unknown>[]).map(
+			(envelope) => ({
+				clientId: envelope.clientId,
+				clientSequenceNumber: envelope.clientSequenceNumber,
+				referenceSequenceNumber: envelope.referenceSequenceNumber,
+				sequenceNumber: envelope.sequenceNumber,
+				minimumSequenceNumber: envelope.minimumSequenceNumber,
+			}),
+		),
 	});
 	const codecInputs: Record<string, Record<string, unknown>> = {
 		"sequence-v3": {
@@ -3329,8 +3765,8 @@ async function makeCases() {
 				sessionId: ownershipCompressor.localSessionId,
 			},
 			advancedExpected: [
-				[normalizeAdvancedRevision(advancedCodec.graph)],
-				[normalizeAdvancedRevision(attachAndDetachCodec.graph)],
+				[normalizeAdvancedRevision(reservedGraph)],
+				[normalizeAdvancedRevision(openPairedGraph)],
 			],
 		},
 		"message-v7": messageInput("message-v7", publicEvidence.operationMessages),
@@ -3365,21 +3801,27 @@ async function makeCases() {
 		const output = await replayArrayCodecInput(copy(input));
 		codecScenarios.push({ id, input, observation: {}, output });
 	}
-	const decodedBuild = (Reflect.get(
-		codecScenarios.find(({ id }) => id === "builds")?.output as object,
-		"decoded",
-	) as { changes: { type: string; data: { builds: unknown[] } }[] }[])
+	const decodedBuild = (
+		Reflect.get(
+			codecScenarios.find(({ id }) => id === "builds")?.output as object,
+			"decoded",
+		) as { changes: { type: string; data: { builds: unknown[] } }[] }[]
+	)
 		.flatMap(({ changes }) => changes)
 		.find(({ type, data }) => type === "data" && data.builds.length > 0);
-	assert(decodedBuild !== undefined,
-		"The decoded Message V7 build must retain its modular build table.");
+	assert(
+		decodedBuild !== undefined,
+		"The decoded Message V7 build must retain its modular build table.",
+	);
 	const codecMutation = copy(codecInputs["message-v7"]);
 	const nativeCodecInput = Reflect.get(
 		Reflect.get(codecMutation, "decodeContext") as object,
 		"nativeInput",
 	) as { schedule: { index?: number }[] };
-	assert(typeof nativeCodecInput.schedule[0].index === "number",
-		"The codec mutation needs an insert index.");
+	assert(
+		typeof nativeCodecInput.schedule[0].index === "number",
+		"The codec mutation needs an insert index.",
+	);
 	nativeCodecInput.schedule[0].index += 1;
 	const changedCodec = await executedAsync(() => replayArrayCodecInput(codecMutation));
 	assert(
@@ -3398,8 +3840,13 @@ async function makeCases() {
 		schedule,
 	});
 	const windowSchedule: ReplayAction[] = [
-		{ id: "retain-left-1", op: "retain", name: "removed-left-1", client: 0,
-			path: ["left", "1"] },
+		{
+			id: "retain-left-1",
+			op: "retain",
+			name: "removed-left-1",
+			client: 0,
+			path: ["left", "1"],
+		},
 		{ id: "remove-retained", op: "remove", client: 0, path: ["left"], start: 1, end: 2 },
 		{ id: "deliver-removal", op: "advance-minimum" },
 	];
@@ -3425,16 +3872,32 @@ async function makeCases() {
 	const historyInputs: Record<string, Record<string, unknown>> = {
 		"pending-chains": historyInput("pending-chains", [
 			{ id: "disconnect-local", op: "connect", client: 0, connected: false },
-			{ id: "local-a", op: "insert", client: 0, path: ["left"], index: 4,
-				values: ["pending-a"] },
-			{ id: "local-b", op: "insert", client: 0, path: ["left"], index: 5,
-				values: ["pending-b"] },
-			{ id: "remote", op: "insert", client: 1, path: ["right"], index: 1,
-				values: ["remote"] },
+			{
+				id: "local-a",
+				op: "insert",
+				client: 0,
+				path: ["left"],
+				index: 4,
+				values: ["pending-a"],
+			},
+			{
+				id: "local-b",
+				op: "insert",
+				client: 0,
+				path: ["left"],
+				index: 5,
+				values: ["pending-b"],
+			},
+			{ id: "remote", op: "insert", client: 1, path: ["right"], index: 1, values: ["remote"] },
 			{ id: "deliver-remote", op: "deliver" },
 			{ id: "pending-checkpoint", op: "checkpoint" },
-			{ id: "reconnect-local", op: "connect", client: 0, connected: true,
-				reconnectId: "client-0-reconnect-pending" },
+			{
+				id: "reconnect-local",
+				op: "connect",
+				client: 0,
+				connected: true,
+				reconnectId: "client-0-reconnect-pending",
+			},
 			{ id: "settle", op: "deliver" },
 		]),
 		batching: historyInput("batching", [
@@ -3443,29 +3906,37 @@ async function makeCases() {
 				op: "transaction",
 				client: 0,
 				edits: [
-					{ id: "batch-left", op: "insert", path: ["left"], index: 4,
-						values: ["batch-a"] },
-					{ id: "batch-right", op: "insert", path: ["right"], index: 1,
-						values: ["batch-b"] },
+					{ id: "batch-left", op: "insert", path: ["left"], index: 4, values: ["batch-a"] },
+					{ id: "batch-right", op: "insert", path: ["right"], index: 1, values: ["batch-b"] },
 				],
 			},
 			{ id: "deliver-batch", op: "deliver" },
 		]),
 		acknowledgements: historyInput("acknowledgements", [
-			{ id: "local-edit", op: "insert", client: 0, path: ["left"], index: 4,
-				values: ["ack"] },
+			{ id: "local-edit", op: "insert", client: 0, path: ["left"], index: 4, values: ["ack"] },
 			{ id: "before-ack", op: "checkpoint" },
 			{ id: "ack", op: "ack" },
 		]),
 		reconnect: historyInput("reconnect", [
 			{ id: "disconnect", op: "connect", client: 0, connected: false },
-			{ id: "local-edit", op: "insert", client: 0, path: ["left"], index: 4,
-				values: ["offline"] },
-			{ id: "remote-edit", op: "insert", client: 1, path: ["right"], index: 1,
-				values: ["remote"] },
+			{
+				id: "local-edit",
+				op: "insert",
+				client: 0,
+				path: ["left"],
+				index: 4,
+				values: ["offline"],
+			},
+			{
+				id: "remote-edit",
+				op: "insert",
+				client: 1,
+				path: ["right"],
+				index: 1,
+				values: ["remote"],
+			},
 			{ id: "deliver-remote", op: "deliver" },
-			{ id: "reconnect", op: "reconnect", client: 0,
-				reconnectId: "client-0-reconnect" },
+			{ id: "reconnect", op: "reconnect", client: 0, reconnectId: "client-0-reconnect" },
 			{ id: "deliver-resubmission", op: "deliver" },
 		]),
 		"window-advance": historyInput("window-advance", windowSchedule),
@@ -3475,8 +3946,14 @@ async function makeCases() {
 			schedule: [
 				{ id: "load-summary", op: "load-summary" },
 				{ id: "deliver-tail", op: "deliver-tail" },
-				{ id: "author-continuation", op: "continue", client: 0, path: ["left"],
-					index: 4, values: ["reader-continuation"] },
+				{
+					id: "author-continuation",
+					op: "continue",
+					client: 0,
+					path: ["left"],
+					index: 4,
+					values: ["reader-continuation"],
+				},
 				{ id: "load-peer", op: "load-peer" },
 				{ id: "deliver-continuation-to-peer", op: "deliver-continuation" },
 			],
@@ -3488,18 +3965,46 @@ async function makeCases() {
 				continuationCreationRange: publicEvidence.summaryTail.continuationCreationRange,
 			},
 		},
-		"public-noops": historyInput("public-noops", [
-			{ id: "empty-insert", op: "insert", client: 0, path: ["left"], index: 0, values: [] },
-			{ id: "empty-remove", op: "remove", client: 0, path: ["left"], start: 1, end: 1 },
-			{ id: "empty-move", op: "move", client: 0, path: ["left"], sourcePath: ["left"],
-				start: 1, end: 1, gap: 1 },
-			{ id: "equal-value-swap", op: "move", client: 0, path: ["left"],
-				sourcePath: ["left"], start: 1, end: 2, gap: 3 },
-			{ id: "deliver-swap", op: "deliver" },
-			{ id: "public-interior-move", op: "move", client: 0, path: ["left"],
-				sourcePath: ["left"], start: 0, end: 3, gap: 1 },
-			{ id: "deliver-interior", op: "deliver" },
-		], equalRoot),
+		"public-noops": historyInput(
+			"public-noops",
+			[
+				{ id: "empty-insert", op: "insert", client: 0, path: ["left"], index: 0, values: [] },
+				{ id: "empty-remove", op: "remove", client: 0, path: ["left"], start: 1, end: 1 },
+				{
+					id: "empty-move",
+					op: "move",
+					client: 0,
+					path: ["left"],
+					sourcePath: ["left"],
+					start: 1,
+					end: 1,
+					gap: 1,
+				},
+				{
+					id: "equal-value-swap",
+					op: "move",
+					client: 0,
+					path: ["left"],
+					sourcePath: ["left"],
+					start: 1,
+					end: 2,
+					gap: 3,
+				},
+				{ id: "deliver-swap", op: "deliver" },
+				{
+					id: "public-interior-move",
+					op: "move",
+					client: 0,
+					path: ["left"],
+					sourcePath: ["left"],
+					start: 0,
+					end: 3,
+					gap: 1,
+				},
+				{ id: "deliver-interior", op: "deliver" },
+			],
+			equalRoot,
+		),
 	};
 	const historyScenarios: Scenario[] = [];
 	for (const id of scenarioIds["array-history"]) {
@@ -3515,8 +4020,9 @@ async function makeCases() {
 		historyScenarios.push({ id, input, observation: {}, output });
 	}
 	const historyMutation = copy(historyInputs["pending-chains"]);
-	const historyInsert = (historyMutation.schedule as { op: string; values?: unknown[] }[])
-		.find(({ op }) => op === "insert");
+	const historyInsert = (
+		historyMutation.schedule as { op: string; values?: unknown[] }[]
+	).find(({ op }) => op === "insert");
 	assert(historyInsert?.values !== undefined, "The history mutation needs an insert action.");
 	historyInsert.values[0] = "mutated-pending";
 	const originalHistory = historyScenarios.find(({ id }) => id === "pending-chains")?.output;
@@ -3534,12 +4040,14 @@ async function makeCases() {
 	continuationEnvelope.sequenceNumber += 1;
 	const changedTail = await executedAsync(() => replayArrayHistoryInput(tailMutation));
 	assert(
-		changedTail.accepted === false
-			|| JSON.stringify(Reflect.get(changedTail.value as object, "peerHistory"))
-				!== JSON.stringify(Reflect.get(
-					historyScenarios.find(({ id }) => id === "summary-tail")?.output as object,
-					"peerHistory",
-				)),
+		changedTail.accepted === false ||
+			JSON.stringify(Reflect.get(changedTail.value as object, "peerHistory")) !==
+				JSON.stringify(
+					Reflect.get(
+						historyScenarios.find(({ id }) => id === "summary-tail")?.output as object,
+						"peerHistory",
+					),
+				),
 		"Changing continuation sequencing metadata must change source history or reject replay.",
 	);
 
@@ -3632,11 +4140,17 @@ async function makeCases() {
 		const input = copy(invalidInputs[id]);
 		const output = await replayArrayInvalidInput(copy(input));
 		if (id === "corrupt-mark" || id === "corrupt-revision") {
-			assert.equal(Reflect.get(Reflect.get(output as object, "control"), "accepted"), true,
-				`${id}: the valid payload must decode with the same context.`);
+			assert.equal(
+				Reflect.get(Reflect.get(output as object, "control"), "accepted"),
+				true,
+				`${id}: the valid payload must decode with the same context.`,
+			);
 			const malformed = Reflect.get(output as object, "malformed");
-			assert.equal(Reflect.get(malformed, "accepted"), false,
-				`${id}: the malformed payload must be rejected by the source decoder.`);
+			assert.equal(
+				Reflect.get(malformed, "accepted"),
+				false,
+				`${id}: the malformed payload must be rejected by the source decoder.`,
+			);
 			assert.match(
 				String(Reflect.get(malformed, "error")),
 				new RegExp(id === "corrupt-mark" ? "0xac2" : "0x88d"),
@@ -3644,41 +4158,61 @@ async function makeCases() {
 			);
 		}
 		if (id === "corrupt-ownership") {
-			assert.equal(Reflect.get(Reflect.get(output as object, "control"), "accepted"), true,
-				"Same-context ownership control must succeed.");
-			assert.equal(Reflect.get(Reflect.get(output as object, "malformed"), "accepted"), false,
-				"Cross-context ownership must fail.");
+			assert.equal(
+				Reflect.get(Reflect.get(output as object, "control"), "accepted"),
+				true,
+				"Same-context ownership control must succeed.",
+			);
+			assert.equal(
+				Reflect.get(Reflect.get(output as object, "malformed"), "accepted"),
+				false,
+				"Cross-context ownership must fail.",
+			);
 		}
 		invalidScenarios.push({
 			id,
 			input,
 			observation: {
-				rejected: id === "native-remove-beyond-length"
-					? false
-					: id === "corrupt-mark" || id === "corrupt-revision"
-						|| id === "corrupt-ownership"
-						? Reflect.get(Reflect.get(output as object, "malformed"), "accepted") === false
-						: Reflect.get(output as object, "accepted") === false,
+				rejected:
+					id === "native-remove-beyond-length"
+						? false
+						: id === "corrupt-mark" || id === "corrupt-revision" || id === "corrupt-ownership"
+							? Reflect.get(Reflect.get(output as object, "malformed"), "accepted") === false
+							: Reflect.get(output as object, "accepted") === false,
 			},
 			output,
 		});
 	}
 
 	return [
-		oracleCase("array-schema-content", "schema", schemaScenarios, {
-			profile: { schema: 2, forest: 2 },
-			schemas,
-		}, {
-			schemas: Object.fromEntries(Object.entries(schemas).map(([name, bytes]) => [
-				name,
-				{ bytes, parsed: JSON.parse(bytes) },
-			])),
-			summaries: { initial: publicEvidence.initialSummary },
-		}),
+		oracleCase(
+			"array-schema-content",
+			"schema",
+			schemaScenarios,
+			{
+				profile: { schema: 2, forest: 2 },
+				schemas,
+			},
+			{
+				schemas: Object.fromEntries(
+					Object.entries(schemas).map(([name, bytes]) => [
+						name,
+						{ bytes, parsed: JSON.parse(bytes) },
+					]),
+				),
+				summaries: { initial: publicEvidence.initialSummary },
+			},
+		),
 		oracleCase("array-modular-algebra", "modular", modularScenarios),
-		oracleCase("array-codecs", "codec", codecScenarios, {}, {
-			messages: publicEvidence.operationMessages,
-		}),
+		oracleCase(
+			"array-codecs",
+			"codec",
+			codecScenarios,
+			{},
+			{
+				messages: publicEvidence.operationMessages,
+			},
+		),
 		oracleCase("array-history", "history", historyScenarios),
 		oracleCase("array-invalid", "invalid", invalidScenarios),
 	];
@@ -3688,7 +4222,10 @@ if (process.env.WATERSHED_ORACLE_CORPUS === "1") {
 	describe("Watershed array oracle", () => {
 		it("records public array, codec, history, and invalid-input evidence", async () => {
 			const output = process.env.WATERSHED_ORACLE_OUTPUT;
-			assert(output !== undefined && isAbsolute(output), "WATERSHED_ORACLE_OUTPUT must be absolute.");
+			assert(
+				output !== undefined && isAbsolute(output),
+				"WATERSHED_ORACLE_OUTPUT must be absolute.",
+			);
 			assert.equal(
 				process.env.WATERSHED_ORACLE_COMMIT,
 				reference.commit,
