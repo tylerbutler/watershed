@@ -263,7 +263,6 @@ pub fn from_data(
     [] -> Ok(derived)
     keys -> {
       use keys <- result.try(sort_cross_field_keys(keys, identity_order))
-      let keys = coalesce_cross_field_keys(keys)
       use _ <- result.try(validate_owned_fields(keys, data))
       use _ <- result.try(validate_cross_field_ranges(keys))
       use _ <- result.try(validate_cross_field_ownership(
@@ -493,8 +492,7 @@ fn derived_cross_field_keys(
   data: ChangeData,
   identity_order: IdentityOrder,
 ) -> Result(List(CrossFieldKey), TreeError) {
-  use keys <- result.try(sorted_derived_cross_field_keys(data, identity_order))
-  Ok(coalesce_cross_field_keys(keys))
+  sorted_derived_cross_field_keys(data, identity_order)
 }
 
 fn sorted_derived_cross_field_keys(
@@ -675,7 +673,9 @@ fn sequence_effect_keys(
   field: moves.FieldId,
 ) -> List(CrossFieldKey) {
   case effect {
-    sequence_field.Noop | sequence_field.Rename(_) -> []
+    sequence_field.Noop
+    | sequence_field.Rename(_)
+    | sequence_field.Attach(sequence_field.Insert(_)) -> []
     sequence_field.Attach(sequence_field.MoveIn(id, _)) -> [
       CrossFieldKey(
         moves.Key(moves.Destination, id.revision, id.local_id),
@@ -694,6 +694,64 @@ fn sequence_effect_keys(
       list.append(
         sequence_effect_keys(sequence_field.Attach(attach), count, field),
         sequence_effect_keys(sequence_field.Detach(detach), count, field),
+      )
+    _ -> []
+  }
+}
+
+/// Return the ownership ranges that the Sequence codec registers for a field.
+pub fn sequence_codec_keys(
+  value: sequence_field.Changeset,
+  parent: Option(AtomId),
+  field: String,
+) -> List(CrossFieldKey) {
+  sequence_field.to_marks(value)
+  |> list.flat_map(fn(mark) {
+    sequence_codec_effect_keys(
+      mark.effect,
+      mark.count,
+      moves.FieldId(parent, field),
+    )
+  })
+}
+
+fn sequence_codec_effect_keys(
+  effect: sequence_field.Effect,
+  count: Int,
+  field: moves.FieldId,
+) -> List(CrossFieldKey) {
+  case effect {
+    sequence_field.Noop | sequence_field.Rename(_) -> []
+    sequence_field.Attach(sequence_field.Insert(id)) -> [
+      CrossFieldKey(
+        moves.Key(moves.Source, id.revision, id.local_id),
+        count,
+        field,
+      ),
+      CrossFieldKey(
+        moves.Key(moves.Destination, id.revision, id.local_id),
+        count,
+        field,
+      ),
+    ]
+    sequence_field.Attach(sequence_field.MoveIn(id, _)) -> [
+      CrossFieldKey(
+        moves.Key(moves.Destination, id.revision, id.local_id),
+        count,
+        field,
+      ),
+    ]
+    sequence_field.Detach(sequence_field.MoveOut(id, _, _)) -> [
+      CrossFieldKey(
+        moves.Key(moves.Source, id.revision, id.local_id),
+        count,
+        field,
+      ),
+    ]
+    sequence_field.AttachAndDetach(attach, detach) ->
+      list.append(
+        sequence_codec_effect_keys(sequence_field.Attach(attach), count, field),
+        sequence_codec_effect_keys(sequence_field.Detach(detach), count, field),
       )
     _ -> []
   }

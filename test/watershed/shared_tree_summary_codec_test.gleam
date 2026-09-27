@@ -49,6 +49,27 @@ fn summary_fixture(
   #(decode_summary_entry(encoded), session, compressor)
 }
 
+fn array_summary_fixture(
+  id: String,
+) -> #(fluid_summary.SummaryEntry, fluid_ids.SessionId, fluid_ids.Compressor) {
+  let assert Ok(fixtures.Case(input: input, ..)) = fixtures.load("array-codecs")
+  let assert Ok(VObject(input)) = json_ot.parse_json(json.to_string(input))
+  let assert Ok(VArray(scenarios)) = list.key_find(input, "scenarios")
+  let assert Ok(VObject(found)) =
+    list.find(scenarios, fn(value) {
+      let assert VObject(members) = value
+      list.key_find(members, "id") == Ok(VString(id))
+    })
+  let assert Ok(encoded) = list.key_find(found, "encodedSummary")
+  let assert Ok(VObject(context)) = list.key_find(found, "decodeContext")
+  let assert Ok(VString(session_raw)) = list.key_find(context, "sessionId")
+  let assert Ok(session) = fluid_ids.session_id(session_raw)
+  let assert Ok(VString(compressor_raw)) = list.key_find(context, "compressor")
+  let assert Ok(compressor) =
+    fluid_ids.deserialize(json.string(compressor_raw), session)
+  #(decode_summary_entry(encoded), session, compressor)
+}
+
 fn decode_summary_entry(value: JsonValue) -> fluid_summary.SummaryEntry {
   let assert VObject(members) = value
   let assert Ok(VNumber(NInt(kind))) = list.key_find(members, "type")
@@ -259,6 +280,47 @@ pub fn shared_tree_summary_restores_initial_schema_commit_test() {
     tree_runtime.restore(snapshot, view_id, view, compressor)
   let assert Ok(resnapshot) = tree_kernel.snapshot(state)
   let assert Ok(written) = tree_summary.to_wire(resnapshot)
+  written |> expect.to_equal(decoded)
+}
+
+pub fn shared_tree_summary_excludes_pending_array_edits_test() {
+  let #(entry, session, compressor) = array_summary_fixture("retained-history")
+  let assert Ok(decoded) =
+    summary.decode(
+      entry,
+      None,
+      session,
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+  let summary.TreeSummaryData(
+    stored,
+    _,
+    _,
+    summary.EditManagerSummary(trunk, _),
+  ) = decoded
+  let assert Ok(summary.SummaryCommit(_, Some(sequence_number), _)) =
+    list.last(trunk)
+  let assert Ok(view_id) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000012")
+  let assert Ok(snapshot) =
+    tree_summary.from_wire(decoded, view_id, compressor, sequence_number, 0)
+  let assert Ok(view) = schema.view_from_json(schema.stored_to_json(stored))
+  let assert Ok(state) =
+    tree_runtime.restore(snapshot, view_id, view, compressor)
+  let assert Ok(#(state, _, _, _)) =
+    tree_runtime.author_edit(
+      state,
+      types.ArrayInsert(["left"], 0, [types.StringValue("pending")]),
+      compressor,
+    )
+  let assert Ok(Some(types.ArrayValue(_, visible))) =
+    tree_kernel.read(state, ["left"])
+  list.first(visible) |> expect.to_equal(Ok(types.StringValue("pending")))
+  tree_kernel.history_view(state).pending
+  |> list.length
+  |> expect.to_equal(1)
+  let assert Ok(sequenced) = tree_kernel.snapshot(state)
+  let assert Ok(written) = tree_summary.to_wire(sequenced)
   written |> expect.to_equal(decoded)
 }
 

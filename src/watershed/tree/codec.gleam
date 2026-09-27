@@ -12,12 +12,12 @@ import watershed/json_ot.{
 }
 import watershed/tree/change
 import watershed/tree/codec/field_batch
+import watershed/tree/codec/sequence_field as sequence_field_codec
 import watershed/tree/forest
 import watershed/tree/optional_field
 import watershed/tree/schema
-import watershed/tree/types.{
-  type TreeError, CorruptData, InvalidHistory, UnsupportedFeature,
-}
+import watershed/tree/sequence_field
+import watershed/tree/types.{type TreeError, CorruptData, InvalidHistory}
 
 const max_safe_integer = 9_007_199_254_740_991
 
@@ -89,6 +89,7 @@ type DecodeChangeState {
     next_id: Int,
     nodes: List(#(types.AtomId, change.NodeChange)),
     parents: List(#(types.AtomId, change.ParentField)),
+    cross_field_keys: List(change.CrossFieldKey),
   )
 }
 
@@ -538,7 +539,7 @@ fn decode_modular_value(
     location <> ".revisions",
   ))
   use changes <- result.try(required(members, "changes", location <> ".changes"))
-  let state = DecodeChangeState(max_id + 1, [], [])
+  let state = DecodeChangeState(max_id + 1, [], [], [])
   use #(fields, state) <- result.try(decode_field_map(
     changes,
     None,
@@ -569,7 +570,7 @@ fn decode_modular_value(
         location <> ".refreshers",
       )
   })
-  let DecodeChangeState(_, nodes, parents) = state
+  let DecodeChangeState(_, nodes, parents, cross_field_keys) = state
   let data =
     change.ChangeData(
       max_local_id: max_id,
@@ -581,7 +582,7 @@ fn decode_modular_value(
       builds: builds,
       destroys: [],
       refreshers: refreshers,
-      cross_field_keys: [],
+      cross_field_keys: cross_field_keys,
     )
   let DecodeContext(compressor: compressor, ..) = context
   use order <- result.try(identity_order(
@@ -772,6 +773,43 @@ fn decode_field_entries(
             entry_location <> ".change",
           )
           |> result.map(fn(value) { #(change.GenericField(value.0), value.1) })
+        "Sequence" ->
+          sequence_field_codec.decode(
+            encoded,
+            state,
+            fn(value, location) {
+              decode_atom(value, context, change_context, location)
+            },
+            fn(value, state, location) {
+              decode_node_change(
+                value,
+                parent,
+                key,
+                state,
+                context,
+                change_context,
+                location,
+              )
+            },
+            entry_location <> ".change",
+          )
+          |> result.map(fn(value) {
+            let #(sequence, state) = value
+            let DecodeChangeState(next_id, nodes, parents, cross_field_keys) =
+              state
+            #(
+              change.SequenceField(sequence),
+              DecodeChangeState(
+                next_id,
+                nodes,
+                parents,
+                list.append(
+                  cross_field_keys,
+                  change.sequence_codec_keys(sequence, parent, key),
+                ),
+              ),
+            )
+          })
         other ->
           Error(types.UnsupportedFeature(
             entry_location <> ".fieldKind",
@@ -974,7 +1012,7 @@ fn decode_node_change(
   change_context: ChangeContext,
   location: String,
 ) -> Result(#(types.AtomId, DecodeChangeState), TreeError) {
-  let DecodeChangeState(next_id, nodes, parents) = state
+  let DecodeChangeState(next_id, nodes, parents, cross_field_keys) = state
   use _ <- result.try(case next_id <= max_safe_integer {
     True -> Ok(Nil)
     False -> Error(CorruptData(location, "node change ID is out of range"))
@@ -995,7 +1033,7 @@ fn decode_node_change(
         "node existence constraints",
       ))
   })
-  let state = DecodeChangeState(next_id + 1, nodes, parents)
+  let state = DecodeChangeState(next_id + 1, nodes, parents, cross_field_keys)
   use #(fields, state) <- result.try(case optional(members, "fieldChanges") {
     None -> Ok(#([], state))
     Some(value) ->
@@ -1008,13 +1046,15 @@ fn decode_node_change(
         location <> ".fieldChanges",
       )
   })
-  let DecodeChangeState(next_id, nodes, parents) = state
+  let DecodeChangeState(next_id, nodes, parents, cross_field_keys) = state
   Ok(#(
     id,
-    DecodeChangeState(next_id, [#(id, change.NodeChange(fields)), ..nodes], [
-      #(id, change.ParentField(parent, field)),
-      ..parents
-    ]),
+    DecodeChangeState(
+      next_id,
+      [#(id, change.NodeChange(fields)), ..nodes],
+      [#(id, change.ParentField(parent, field)), ..parents],
+      cross_field_keys,
+    ),
   ))
 }
 
@@ -1305,11 +1345,27 @@ fn encode_field_map(
             location <> ".change",
           )
           |> result.map(fn(value) { #("ModularEditBuilder.Generic", value) })
-        change.SequenceField(_) ->
-          Error(UnsupportedFeature(
-            location,
-            "Sequence field V3 encoding is not implemented",
-          ))
+        change.SequenceField(value) ->
+          sequence_field_codec.encode(
+            value,
+            Nil,
+            fn(id, location) {
+              encode_atom(id, context, change_context, location)
+            },
+            fn(id, _, location) {
+              encode_node_change(
+                id,
+                data,
+                context,
+                change_context,
+                [],
+                location,
+              )
+              |> result.map(fn(value) { #(value, Nil) })
+            },
+            location <> ".change",
+          )
+          |> result.map(fn(value) { #("Sequence", value.0) })
       })
       Ok(
         VObject([
@@ -1796,7 +1852,11 @@ fn collect_field_revisions(
         list.fold(children, revisions, fn(revisions, child) {
           collect_atom_revision(child.1, revisions)
         })
-      change.SequenceField(_) -> revisions
+      change.SequenceField(field) ->
+        sequence_field.to_marks(field)
+        |> list.fold(revisions, fn(revisions, mark) {
+          collect_sequence_mark_revisions(mark, revisions)
+        })
       change.ValueField(field) | change.OptionalField(field) -> {
         let revisions =
           list.fold(field.moves, revisions, fn(revisions, move) {
@@ -1829,6 +1889,75 @@ fn collect_field_revisions(
       }
     }
   })
+}
+
+fn collect_sequence_mark_revisions(
+  mark: sequence_field.Mark,
+  revisions: List(fluid_ids.StableId),
+) -> List(fluid_ids.StableId) {
+  let revisions = case mark.cell_id {
+    None -> revisions
+    Some(id) -> collect_atom_revision(id, revisions)
+  }
+  let revisions = case mark.child {
+    None -> revisions
+    Some(id) -> collect_atom_revision(id, revisions)
+  }
+  case mark.effect {
+    sequence_field.Noop -> revisions
+    sequence_field.Rename(id) -> collect_atom_revision(id, revisions)
+    sequence_field.Attach(attach) ->
+      collect_sequence_attach_revisions(attach, revisions)
+    sequence_field.Detach(detach) ->
+      collect_sequence_detach_revisions(detach, revisions)
+    sequence_field.AttachAndDetach(attach, detach) ->
+      collect_sequence_detach_revisions(
+        detach,
+        collect_sequence_attach_revisions(attach, revisions),
+      )
+  }
+}
+
+fn collect_sequence_attach_revisions(
+  attach: sequence_field.Attach,
+  revisions: List(fluid_ids.StableId),
+) -> List(fluid_ids.StableId) {
+  case attach {
+    sequence_field.Insert(id) -> collect_atom_revision(id, revisions)
+    sequence_field.MoveIn(id, endpoint) -> {
+      let revisions = collect_atom_revision(id, revisions)
+      case endpoint {
+        None -> revisions
+        Some(id) -> collect_atom_revision(id, revisions)
+      }
+    }
+  }
+}
+
+fn collect_sequence_detach_revisions(
+  detach: sequence_field.Detach,
+  revisions: List(fluid_ids.StableId),
+) -> List(fluid_ids.StableId) {
+  case detach {
+    sequence_field.Remove(id, id_override) -> {
+      let revisions = collect_atom_revision(id, revisions)
+      case id_override {
+        None -> revisions
+        Some(id) -> collect_atom_revision(id, revisions)
+      }
+    }
+    sequence_field.MoveOut(id, endpoint, id_override) -> {
+      let revisions = collect_atom_revision(id, revisions)
+      let revisions = case endpoint {
+        None -> revisions
+        Some(id) -> collect_atom_revision(id, revisions)
+      }
+      case id_override {
+        None -> revisions
+        Some(id) -> collect_atom_revision(id, revisions)
+      }
+    }
+  }
 }
 
 fn collect_atom_revision(

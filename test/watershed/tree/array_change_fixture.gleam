@@ -1,3 +1,4 @@
+import gleam/float
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
@@ -10,6 +11,7 @@ import watershed/tree/change
 import watershed/tree/change_fixture_codec as codec
 import watershed/tree/codec as tree_codec
 import watershed/tree/forest
+import watershed/tree/optional_field
 import watershed/tree/sequence_field
 import watershed/tree/sequence_field/moves
 import watershed/tree/types
@@ -530,6 +532,16 @@ fn graph_json(
   )
   use keys <- result.try(change.cross_field_keys(value) |> codec.native)
   use keys <- result.try(list.try_map(keys, cross_field_key_json(_, context)))
+  use builds <- result.try(list.try_map(data.builds, build_json(_, context)))
+  use refreshers <- result.try(
+    list.try_map(data.refreshers, build_json(_, context)),
+  )
+  use destroys <- result.try(
+    list.try_map(data.destroys, fn(value) {
+      use id <- result.try(atom_json(value.id, context))
+      Ok(codec.array([id, json.int(value.count)]))
+    }),
+  )
   Ok(
     json.object([
       #("maxLocalId", json.int(data.max_local_id)),
@@ -539,10 +551,105 @@ fn graph_json(
       #("parents", codec.array(parents)),
       #("aliases", codec.array(aliases)),
       #("crossFieldKeys", codec.array(keys)),
-      #("builds", codec.array([])),
-      #("refreshers", codec.array([])),
-      #("destroys", codec.array([])),
+      #("builds", codec.array(builds)),
+      #("refreshers", codec.array(refreshers)),
+      #("destroys", codec.array(destroys)),
     ]),
+  )
+}
+
+pub fn graph_json_with_compressor(
+  value: change.Changeset,
+  compressor: fluid_ids.Compressor,
+) -> Result(Json, String) {
+  use revisions <- result.try(
+    list.try_map(change.identity_revisions(value), fn(revision) {
+      use encoded <- result.try(
+        tree_codec.encode_stable_revision(
+          revision,
+          tree_codec.EncodeContext(tree_codec.Fluid310, compressor, None),
+          "array codec fixture revision",
+        )
+        |> codec.native,
+      )
+      Ok(#(encoded, revision))
+    }),
+  )
+  use order <- result.try(
+    tree_codec.identity_order(
+      change.identity_revisions(value),
+      compressor,
+      "array codec fixture revisions",
+    )
+    |> codec.native,
+  )
+  graph_json(value, Context(revisions, order))
+}
+
+fn build_json(value: forest.Build, context: Context) -> Result(Json, String) {
+  use id <- result.try(atom_json(value.id, context))
+  Ok(
+    codec.array([
+      id,
+      json.array(value.trees, source_tree_json),
+    ]),
+  )
+}
+
+pub fn source_tree_json(value: types.TreeValue) -> Json {
+  case value {
+    types.StringValue(value) ->
+      json.object([
+        #("type", json.string("com.fluidframework.leaf.string")),
+        #("value", json.string(value)),
+      ])
+    types.NumberValue(value) -> {
+      let encoded = case int.to_float(float.truncate(value)) == value {
+        True -> json.int(float.truncate(value))
+        False -> json.float(value)
+      }
+      json.object([
+        #("type", json.string("com.fluidframework.leaf.number")),
+        #("value", encoded),
+      ])
+    }
+    types.BooleanValue(value) ->
+      json.object([
+        #("type", json.string("com.fluidframework.leaf.boolean")),
+        #("value", json.bool(value)),
+      ])
+    types.NullValue ->
+      json.object([#("type", json.string("com.fluidframework.leaf.null"))])
+    types.ObjectValue(identifier, fields)
+    | types.MapValue(identifier, fields) ->
+      json.object([
+        #("type", json.string(identifier)),
+        #("fields", source_fields_json(fields)),
+      ])
+    types.ArrayValue(identifier, elements) -> {
+      let members = [#("type", json.string(identifier))]
+      let members = case elements {
+        [] -> members
+        _ ->
+          list.append(members, [
+            #(
+              "fields",
+              json.object([
+                #("", json.array(elements, source_tree_json)),
+              ]),
+            ),
+          ])
+      }
+      json.object(members)
+    }
+  }
+}
+
+fn source_fields_json(fields: List(#(String, types.TreeValue))) -> Json {
+  json.object(
+    list.map(fields, fn(field) {
+      #(field.0, json.array([field.1], source_tree_json))
+    }),
   )
 }
 
@@ -592,9 +699,65 @@ fn field_json(
         ]),
       )
     }
-    change.ValueField(_) | change.OptionalField(_) ->
-      Error("register fields are not part of the array modular fixture")
+    change.ValueField(value) -> optional_field_json("Value", value, context)
+    change.OptionalField(value) ->
+      optional_field_json("Optional", value, context)
   }
+}
+
+fn optional_field_json(
+  kind: String,
+  field: optional_field.FieldChange,
+  context: Context,
+) -> Result(Json, String) {
+  use moves <- result.try(
+    list.try_map(field.moves, fn(entry) {
+      use source <- result.try(atom_json(entry.0, context))
+      use destination <- result.try(atom_json(entry.1, context))
+      Ok(codec.array([source, destination]))
+    }),
+  )
+  use children <- result.try(
+    list.try_map(field.child_changes, fn(entry) {
+      use child <- result.try(atom_json(entry.1, context))
+      use register <- result.try(case entry.0 {
+        optional_field.Active -> Ok(json.null())
+        optional_field.Detached(id) -> atom_json(id, context)
+      })
+      Ok(codec.array([register, child]))
+    }),
+  )
+  use replacement <- result.try(case field.replacement {
+    None -> Ok(json.null())
+    Some(value) -> {
+      use destination <- result.try(atom_json(value.detach_id, context))
+      use source <- result.try(case value.source {
+        None -> Ok(json.null())
+        Some(optional_field.Active) -> Ok(json.null())
+        Some(optional_field.Detached(id)) -> atom_json(id, context)
+      })
+      Ok(
+        json.object([
+          #("isEmpty", json.bool(value.was_empty)),
+          #("dst", destination),
+          #("src", source),
+        ]),
+      )
+    }
+  })
+  Ok(
+    json.object([
+      #("kind", json.string(kind)),
+      #(
+        "change",
+        json.object([
+          #("moves", codec.array(moves)),
+          #("childChanges", codec.array(children)),
+          #("valueReplace", replacement),
+        ]),
+      ),
+    ]),
+  )
 }
 
 fn sequence_mark_json(
