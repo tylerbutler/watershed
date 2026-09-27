@@ -301,6 +301,109 @@ pub fn shared_tree_history_decode_mutation_changes_historical_decode_test() -> N
   ))
 }
 
+pub fn shared_tree_history_captured_tail_bytes_drive_replay_test() -> Nil {
+  let assert Ok(fixture) = fixtures.load("schema-evolution-history")
+  let original = run_history(fixture.input)
+  let mutated =
+    schema_evolution_fixture.run_history_with_tail_replacement(
+      fixture.input,
+      "tail",
+      "changed-wire-tail",
+    )
+    |> expect.to_be_ok()
+  observation_field(original, "summary-upgrade-plus-tail", "continuation")
+  |> expect.to_not_equal(observation_field(
+    mutated,
+    "summary-upgrade-plus-tail",
+    "continuation",
+  ))
+}
+
+pub fn shared_tree_history_corrupt_captured_tail_bytes_fail_test() -> Nil {
+  let assert Ok(fixture) = fixtures.load("schema-evolution-history")
+  let _ =
+    schema_evolution_fixture.run_history_with_corrupt_tail(fixture.input)
+    |> expect.to_be_error()
+  Nil
+}
+
+pub fn shared_tree_history_semantic_projection_keeps_values_and_ids_test() -> Nil {
+  let base =
+    json.object([
+      #(
+        "changes",
+        json.array(
+          [
+            json.object([
+              #("type", json.string("data")),
+              #(
+                "innerChange",
+                json.object([
+                  #("maxLocalId", json.int(3)),
+                  #(
+                    "builds",
+                    json.array(
+                      [
+                        json.object([
+                          #(
+                            "id",
+                            json.object([
+                              #("revision", json.string("revision-a")),
+                              #("localId", json.int(2)),
+                            ]),
+                          ),
+                          #(
+                            "trees",
+                            json.array(
+                              [
+                                json.object([
+                                  #("kind", json.string("number")),
+                                  #("value", json.float(2.5)),
+                                ]),
+                              ],
+                              fn(value) { value },
+                            ),
+                          ),
+                        ]),
+                      ],
+                      fn(value) { value },
+                    ),
+                  ),
+                  #(
+                    "destroys",
+                    json.array(
+                      [
+                        json.object([
+                          #("revision", json.string("revision-a")),
+                          #("localId", json.int(3)),
+                        ]),
+                      ],
+                      fn(value) { value },
+                    ),
+                  ),
+                ]),
+              ),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
+    ])
+  let changed_value =
+    base
+    |> json.to_string
+    |> string.replace("\"value\":2.5", "\"value\":999.5")
+    |> canonical_history_change()
+  let changed_identity =
+    base
+    |> json.to_string
+    |> string.replace("\"localId\":2", "\"localId\":8")
+    |> canonical_history_change()
+  let canonical = canonical_history_change(json.to_string(base))
+  changed_value |> expect.to_not_equal(canonical)
+  changed_identity |> expect.to_not_equal(canonical)
+}
+
 fn observation_field(
   output: json.Json,
   id: String,
@@ -319,6 +422,11 @@ fn observation_field(
     })
   let assert Ok(value) = list.key_find(observation, field)
   value
+}
+
+fn canonical_history_change(raw: String) -> json.Json {
+  let assert Ok(value) = json.parse(raw, json_ot.decoder())
+  schema_evolution_fixture.canonical_history_change(json_ot.to_json(value))
 }
 
 fn assert_history_scenario_rename(

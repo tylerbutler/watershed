@@ -1,6 +1,7 @@
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import gleam/string
 import startest/expect
 import watershed/channel
@@ -16,7 +17,8 @@ import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
 import watershed/tree/shared_change
 import watershed/tree/types.{
-  InvalidHistory, NumberValue, ObjectValue, SequencePoint, SetField, StringValue,
+  type TreeError, CorruptData, InvalidHistory, NumberValue, ObjectValue,
+  SequencePoint, SetField, StringValue,
 }
 import watershed/tree_kernel
 import watershed/wire/fluid_container
@@ -477,14 +479,15 @@ pub fn shared_tree_bridge_decodes_local_data_ack_after_same_reference_upgrade_te
     |> expect.to_be_ok()
   let order =
     change.identity_order([#(schema_revision, -1)]) |> expect.to_be_ok()
-  let assert Ok(#(upgraded, upgrade, _)) =
+  let #(upgraded, upgrade, _) =
     tree_kernel.apply_local_change(
       tree_state(),
       schema_revision,
       order,
       schema_change,
     )
-  let assert Ok(#(edited, data, _, compressor)) =
+    |> expect.to_be_ok()
+  let #(edited, data, _, compressor) =
     tree_runtime.author_edit(
       upgraded,
       SetField(
@@ -493,6 +496,7 @@ pub fn shared_tree_bridge_decodes_local_data_ack_after_same_reference_upgrade_te
       ),
       compressor,
     )
+    |> expect.to_be_ok()
   let data_wire =
     tree_runtime.encode_commit(data, edited, compressor) |> expect.to_be_ok()
   let assert Ok(#(acked, _, compressor)) =
@@ -513,6 +517,264 @@ pub fn shared_tree_bridge_decodes_local_data_ack_after_same_reference_upgrade_te
       compressor,
     )
   Nil
+}
+
+pub fn shared_tree_bridge_decodes_muted_local_schema_ack_after_remote_winner_test() {
+  let #(rebased, upgrade_wire, _, compressor) =
+    concurrent_local_upgrade_and_data()
+  let #(upgrade, _) = case
+    tree_runtime.decode_sequenced_message(
+      json.to_string(upgrade_wire),
+      rebased,
+      0,
+      compressor,
+    )
+  {
+    Ok(value) -> value
+    Error(error) -> panic as { "schema ack decode: " <> string.inspect(error) }
+  }
+  let #(acked, _, _) = case
+    tree_runtime.receive_commit(
+      rebased,
+      upgrade,
+      SequencePoint(2, 0),
+      0,
+      0,
+      compressor,
+    )
+  {
+    Ok(value) -> value
+    Error(error) -> panic as { "schema ack receive: " <> string.inspect(error) }
+  }
+  let assert [_, muted] = tree_kernel.history_view(acked).sequenced.trunk
+  shared_change.to_changes(muted.commit.change) |> expect.to_equal([])
+}
+
+pub fn shared_tree_bridge_decodes_rebased_local_data_ack_with_authored_schema_test() {
+  let #(rebased, upgrade_wire, data_wire, compressor) =
+    concurrent_local_upgrade_and_data()
+  let #(upgrade, _) = case
+    tree_runtime.decode_sequenced_message(
+      json.to_string(upgrade_wire),
+      rebased,
+      0,
+      compressor,
+    )
+  {
+    Ok(value) -> value
+    Error(error) -> panic as { "schema ack decode: " <> string.inspect(error) }
+  }
+  let #(acked, _, compressor) = case
+    tree_runtime.receive_commit(
+      rebased,
+      upgrade,
+      SequencePoint(2, 0),
+      0,
+      0,
+      compressor,
+    )
+  {
+    Ok(value) -> value
+    Error(error) -> panic as { "schema ack receive: " <> string.inspect(error) }
+  }
+
+  tree_runtime.decode_sequenced_message(
+    json.to_string(data_wire),
+    acked,
+    0,
+    compressor,
+  )
+  |> expect.to_be_ok()
+  Nil
+}
+
+fn concurrent_local_upgrade_and_data() -> #(
+  tree_kernel.TreeState,
+  json.Json,
+  json.Json,
+  fluid_ids.Compressor,
+) {
+  let local_session =
+    fluid_ids.session_id("00000000-0000-4000-8000-000000000001")
+    |> expect.to_be_ok()
+  let remote_session =
+    fluid_ids.session_id("20000000-0000-4000-8000-000000000000")
+    |> expect.to_be_ok()
+  let base = schema.stored_from_string(schema_text) |> expect.to_be_ok()
+  let extra = schema.stored_from_string(extra_schema_text) |> expect.to_be_ok()
+  let note = schema.stored_from_string(note_schema_text) |> expect.to_be_ok()
+  let #(compressor, schema_id) =
+    fluid_ids.generate(fluid_ids.new(local_session)) |> expect.to_be_ok()
+  let schema_revision =
+    fluid_ids.decompress(compressor, schema_id) |> expect.to_be_ok()
+  let schema_change =
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(base),
+        schema.FixedSchema(extra),
+        False,
+      ),
+    ])
+    |> expect.to_be_ok()
+  let order =
+    change.identity_order([#(schema_revision, -1)]) |> expect.to_be_ok()
+  let assert Ok(#(upgraded, upgrade, _)) =
+    tree_kernel.apply_local_change(
+      tree_state(),
+      schema_revision,
+      order,
+      schema_change,
+    )
+  let assert Ok(#(edited, data, _, compressor)) =
+    tree_runtime.author_edit(
+      upgraded,
+      SetField(
+        ["extra"],
+        ObjectValue("Extra", [#("value", StringValue("local"))]),
+      ),
+      compressor,
+    )
+  let upgrade_wire =
+    codec.encode_message(
+      codec.TreeMessage(
+        codec.WireCommit(
+          upgrade.revision,
+          upgrade.originator,
+          shared_change.to_changes(upgrade.change),
+          None,
+        ),
+        [],
+      ),
+      codec.EncodeContext(codec.Fluid310, compressor, Some(extra)),
+    )
+    |> expect.to_be_ok()
+  let data_wire =
+    tree_runtime.encode_commit(data, edited, compressor) |> expect.to_be_ok()
+  let remote_view = schema.view_from_string(schema_text) |> expect.to_be_ok()
+  let snapshot = tree_kernel.snapshot(tree_state()) |> expect.to_be_ok()
+  let remote =
+    tree_kernel.restore(
+      snapshot,
+      fluid_ids.stable_id("00000000-0000-4000-8000-000000000002")
+        |> expect.to_be_ok(),
+      remote_session,
+      remote_view,
+    )
+    |> expect.to_be_ok()
+  let #(remote_compressor, remote_id) =
+    fluid_ids.generate(fluid_ids.new(remote_session)) |> expect.to_be_ok()
+  let remote_revision =
+    fluid_ids.decompress(remote_compressor, remote_id) |> expect.to_be_ok()
+  let remote_change =
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(base),
+        schema.FixedSchema(note),
+        False,
+      ),
+    ])
+    |> expect.to_be_ok()
+  let remote_order =
+    change.identity_order([#(remote_revision, -1)]) |> expect.to_be_ok()
+  let #(_, winner, _) =
+    tree_kernel.apply_local_change(
+      remote,
+      remote_revision,
+      remote_order,
+      remote_change,
+    )
+    |> expect.to_be_ok()
+  let assert #(_, Some(remote_range)) =
+    fluid_ids.take_unfinalized_range(remote_compressor)
+  let compressor =
+    fluid_ids.finalize(compressor, remote_range) |> expect.to_be_ok()
+  let revisions = [
+    winner.revision,
+    ..list.append(
+      shared_change.identity_revisions(winner.change),
+      tree_kernel.identity_revisions(edited),
+    )
+  ]
+  let receive_order =
+    codec.identity_order(
+      revisions,
+      compressor,
+      "concurrent local acknowledgement receive order",
+    )
+    |> expect.to_be_ok()
+  let rollback_session =
+    fluid_ids.session_id("30000000-0000-4000-8000-000000000000")
+    |> expect.to_be_ok()
+  let #(rollback_compressor, rollback_revisions) =
+    channel_revisions(fluid_ids.new(rollback_session), 4, [])
+    |> expect.to_be_ok()
+  let assert #(_, Some(rollback_range)) =
+    fluid_ids.take_unfinalized_range(rollback_compressor)
+  let compressor =
+    fluid_ids.finalize(compressor, rollback_range) |> expect.to_be_ok()
+  let #(rebased, _, allocation) =
+    tree_kernel.receive_ordered(
+      edited,
+      winner,
+      receive_order,
+      SequencePoint(1, 0),
+      0,
+      0,
+      #(compressor, revisions, rollback_revisions),
+      mint_channel_revision,
+    )
+    |> expect.to_be_ok()
+  let #(compressor, _, _) = allocation
+  #(rebased, upgrade_wire, data_wire, compressor)
+}
+
+fn mint_channel_revision(
+  allocation: #(
+    fluid_ids.Compressor,
+    List(fluid_ids.StableId),
+    List(fluid_ids.StableId),
+  ),
+) -> Result(
+  #(
+    fluid_ids.StableId,
+    change.IdentityOrder,
+    #(fluid_ids.Compressor, List(fluid_ids.StableId), List(fluid_ids.StableId)),
+  ),
+  TreeError,
+) {
+  let #(compressor, revisions, available) = allocation
+  use #(revision, remaining) <- result.try(case available {
+    [revision, ..remaining] -> Ok(#(revision, remaining))
+    [] ->
+      Error(CorruptData(
+        "concurrent local acknowledgement rollback",
+        "rollback identity pool is empty",
+      ))
+  })
+  use order <- result.try(codec.identity_order(
+    [revision, ..revisions],
+    compressor,
+    "concurrent local acknowledgement rollback order",
+  ))
+  Ok(#(revision, order, #(compressor, [revision, ..revisions], remaining)))
+}
+
+fn channel_revisions(
+  compressor: fluid_ids.Compressor,
+  remaining: Int,
+  revisions: List(fluid_ids.StableId),
+) -> Result(
+  #(fluid_ids.Compressor, List(fluid_ids.StableId)),
+  fluid_ids.IdError,
+) {
+  case remaining {
+    0 -> Ok(#(compressor, list.reverse(revisions)))
+    _ -> {
+      use #(compressor, id) <- result.try(fluid_ids.generate(compressor))
+      use revision <- result.try(fluid_ids.decompress(compressor, id))
+      channel_revisions(compressor, remaining - 1, [revision, ..revisions])
+    }
+  }
 }
 
 pub fn shared_tree_bridge_rebases_pending_with_allocated_rollback_identity_test() {

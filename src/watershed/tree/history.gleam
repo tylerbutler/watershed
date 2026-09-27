@@ -126,6 +126,7 @@ pub opaque type History {
     peers: List(PeerState),
     pending: List(LocalCommit),
     local_base: Option(BranchBase),
+    local_authored_context: List(Commit),
     rollbacks: List(RollbackEntry),
     receipts: List(RetainedReceipt),
     next_node_id: Int,
@@ -142,6 +143,7 @@ pub fn new(local_session: fluid_ids.SessionId) -> History {
     peers: [],
     pending: [],
     local_base: None,
+    local_authored_context: [],
     rollbacks: [],
     receipts: [],
     next_node_id: 0,
@@ -282,6 +284,10 @@ pub fn append_local(
       local_base: case state.pending {
         [] -> Some(trunk_head(state.trunk))
         _ -> state.local_base
+      },
+      local_authored_context: case state.pending {
+        [] -> list.map(state.trunk, fn(entry) { entry.commit })
+        _ -> state.local_authored_context
       },
       next_node_id: state.next_node_id + 1,
     )
@@ -492,6 +498,10 @@ fn receive_local(
           local_base: case rest {
             [] -> None
             _ -> Some(Revision(current.commit.revision))
+          },
+          local_authored_context: case rest {
+            [] -> []
+            _ -> list.append(state.local_authored_context, [original.commit])
           },
           receipts: list.append(state.receipts, [
             RetainedReceipt(
@@ -1099,9 +1109,7 @@ pub fn authoring_commits(
     pending_commits_before(state.pending, revision, [])
   {
     True, Some(pending) -> {
-      use base <- result.try(require_local_base(state.local_base))
-      use ancestry <- result.try(commits_through_base(state.trunk, base))
-      Ok(list.append(ancestry, pending))
+      Ok(list.append(state.local_authored_context, pending))
     }
     _, _ ->
       remote_authoring_commits(state, originator, reference_sequence_number)
@@ -1427,6 +1435,7 @@ pub fn restore(
     peers: peers,
     pending: [],
     local_base: None,
+    local_authored_context: [],
     rollbacks: [],
     receipts: list.map(snapshot.trunk, fn(entry) {
       RetainedReceipt(

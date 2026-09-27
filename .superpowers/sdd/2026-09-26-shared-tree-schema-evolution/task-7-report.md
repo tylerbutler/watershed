@@ -232,3 +232,82 @@ schema from optimistic receiver state and does not change the wire format.
 The full oracle suite still has the environment-specific `EACCES` versus
 `ENOENT` assertion described above; the focused interop suites and required
 codec gate pass.
+
+## Fix round 3
+
+### Result
+
+Historical-decode comparison now projects the decoded native changes back
+through the production wire encoder and compares the complete canonical wire
+change. The projection retains data values, revision and local identities,
+field positions, builds, destroys, nested node types, field names, and list
+order. Self-describing field batches are decoded to canonical tree values so
+native and upstream shape tables can differ without hiding semantic changes.
+
+Summary-tail replay now parses each captured `_tailBytes` envelope and sends
+its exact `contents`, reference sequence number, sequence number, minimum
+sequence number, and batch index through production decode and receive paths
+for every active client. It does not regenerate bytes from queued semantic
+commits. Tail-byte mutation changes the continuation, and corrupt bytes fail.
+
+Pending local operations now retain their original authored commit context
+separately from the rebased pending branch. A local schema acknowledgment can
+therefore reconcile as a muted change after a concurrent winner, while the
+next same-reference data acknowledgment still decodes with the original
+`Extra` schema. Remote messages continue to use peer/reference reconstruction.
+
+### RED
+
+- The semantic projection treated changes with different numeric values and
+  local identities as equal.
+- Replacing captured tail content did not affect continuation because replay
+  regenerated wire bytes from semantic commits, and corrupt captured bytes
+  were not consumed.
+- After the concurrent schema winner, decoding the same-reference local data
+  acknowledgment failed at `message.changeset[0].data.builds.trees` with
+  `unknown node schema: Extra`.
+- The concurrent schema acknowledgment regression initially could not reach
+  reconciliation until its rollback identities were allocated from a
+  disjoint, prefinalized session range.
+
+### GREEN
+
+- `gleam test --target erlang -- shared_tree_codec shared_tree_summary shared_tree_history shared_tree_channel`:
+  112 passed.
+- `gleam test --target javascript -- shared_tree_codec shared_tree_summary shared_tree_history shared_tree_channel`:
+  112 passed.
+- `node --test tools/shared-tree-oracle/codec-interop.test.mjs tools/shared-tree-oracle/summary-interop.test.mjs`:
+  23 passed.
+- `npm --prefix tools/shared-tree-oracle run summary:interop`: four scenarios
+  per target loaded; six retained-history continuation checks passed.
+- `just shared-tree-codec-interop`: two targets, 20 items each passed pinned
+  upstream consumption.
+- `git diff --check` and direct Gleam formatting checks passed.
+
+### Files
+
+- `src/watershed/tree/history.gleam`
+- `test/watershed/shared_tree_channel_test.gleam`
+- `test/watershed/shared_tree_history_test.gleam`
+- `test/watershed/tree/schema_evolution_fixture.gleam`
+
+### Self-review
+
+The authored context exists only while local commits are pending. It starts
+from the exact trunk visible when the pending run begins and appends each
+original acknowledged commit, while `local_base` continues to track the
+rebased branch used for reconciliation. Snapshots still reject pending state,
+so this transient context does not add a summary format.
+
+Historical comparison derives native semantics from the decoded change rather
+than from the original bytes. Captured bytes remain a separate observation and
+are the only input to restored-tail delivery. Duplicate sequence points stay
+in history, while the existing revision deduplication prevents repeated schema
+application.
+
+### Concerns
+
+Canonical comparison intentionally normalizes FieldBatch shape-table encoding
+to nested tree values. It preserves semantic values, types, identities,
+positions, builds, destroys, and structure, but does not require byte-identical
+shape-table layouts between native and upstream implementations.
