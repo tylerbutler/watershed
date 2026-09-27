@@ -2,6 +2,7 @@ import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/order
 import gleam/result
 import gleam/string
 import watershed/canonical_json
@@ -10,6 +11,9 @@ import watershed/json_ot.{type JsonValue, VNull, VObject}
 import watershed/tree/change_fixture_codec as codec
 import watershed/tree/forest
 import watershed/tree/sequence_field
+import watershed/tree/sequence_field/compose
+import watershed/tree/sequence_field/invert
+import watershed/tree/sequence_field/moves
 import watershed/tree/types
 
 type Context {
@@ -26,12 +30,792 @@ type Child {
   )
 }
 
+type ComposeState {
+  ComposeState(context: Context, callbacks: List(Json))
+}
+
+type InvertState {
+  InvertState(context: Context, aliases: sequence_field.AliasContext)
+}
+
 pub fn run_editor(input: Json) -> Result(Json, String) {
   use value <- result.try(codec.parse(input))
   use _ <- result.try(codec.exact(value, ["scenarios"]))
   use scenarios <- result.try(codec.field(value, "scenarios", codec.items))
   use observations <- result.try(run_scenarios(scenarios, []))
   Ok(json.object([#("observations", array(list.reverse(observations)))]))
+}
+
+pub fn run_compose_invert(input: Json) -> Result(Json, String) {
+  use value <- result.try(codec.parse(input))
+  use _ <- result.try(codec.exact(value, ["scenarios"]))
+  use scenarios <- result.try(codec.field(value, "scenarios", codec.items))
+  use observations <- result.try(run_algebra_scenarios(scenarios, []))
+  Ok(json.object([#("observations", array(list.reverse(observations)))]))
+}
+
+fn run_algebra_scenarios(
+  scenarios: List(JsonValue),
+  observations: List(Json),
+) -> Result(List(Json), String) {
+  case scenarios {
+    [] -> Ok(observations)
+    [scenario, ..rest] -> {
+      use observation <- result.try(run_algebra_scenario(scenario))
+      run_algebra_scenarios(rest, [observation, ..observations])
+    }
+  }
+}
+
+fn run_algebra_scenario(value: JsonValue) -> Result(Json, String) {
+  use id <- result.try(codec.field(value, "id", codec.text))
+  use operation <- result.try(codec.field(value, "operation", codec.text))
+  use revisions <- result.try(
+    codec.field(value, "revisions", fn(value) {
+      codec.many(value, codec.integer)
+    }),
+  )
+  use operands <- result.try(
+    codec.field(value, "operands", fn(value) { Ok(value) }),
+  )
+  use context <- result.try(
+    context(list.unique(list.append(revisions, collect_revisions(operands)))),
+  )
+  use result_json <- result.try(case operation {
+    "codec" -> run_codec(operands, context)
+    "compose" -> run_compose(operands, context)
+    "compose-invert" -> run_compose_and_invert(operands, context)
+    "invert" -> run_invert(operands, context)
+    "replace-revisions" -> run_replace_revisions(operands, context)
+    "prune" -> run_prune(operands, context)
+    "removed-roots" -> run_removed_roots(operands, context)
+    _ -> Error("unsupported sequence algebra operation: " <> operation)
+  })
+  Ok(
+    json.object([
+      #("id", json.string(id)),
+      #("executed", json.bool(True)),
+      #("accepted", json.bool(True)),
+      #("value", result_json),
+      #("result", result_json),
+    ]),
+  )
+}
+
+fn collect_revisions(value: JsonValue) -> List(Int) {
+  case value {
+    VObject(fields) ->
+      list.flat_map(fields, fn(entry) {
+        case entry.0 {
+          "revision" | "major" | "replacement" | "inverseRevision" ->
+            case codec.integer(entry.1) {
+              Ok(value) -> [value]
+              Error(_) -> collect_revisions(entry.1)
+            }
+          "obsolete" ->
+            case codec.items(entry.1) {
+              Ok(values) ->
+                list.filter_map(values, fn(value) {
+                  codec.integer(value) |> result.map_error(fn(_) { Nil })
+                })
+              Error(_) -> []
+            }
+          _ -> collect_revisions(entry.1)
+        }
+      })
+    json_ot.VArray(values) -> list.flat_map(values, collect_revisions)
+    _ -> []
+  }
+}
+
+fn run_codec(operands: JsonValue, context: Context) -> Result(Json, String) {
+  use #(change, context) <- result.try(
+    codec.field(operands, "change", decode_change(_, context)),
+  )
+  use changes <- result.try(encode_change(change, context))
+  use encoded <- result.try(encode_codec(change, context))
+  Ok(
+    json.object([
+      #("changes", changes),
+      #(
+        "codec",
+        json.object([
+          #("encoded", encoded),
+          #("decoded", changes),
+        ]),
+      ),
+    ]),
+  )
+}
+
+fn run_compose(operands: JsonValue, context: Context) -> Result(Json, String) {
+  use encoded <- result.try(codec.field(operands, "changes", codec.items))
+  use #(changes, context) <- result.try(decode_changes(encoded, context, []))
+  use operands_json <- result.try(
+    list.try_map(changes, encode_change(_, context)),
+  )
+  let state = ComposeState(context, [])
+  use empty <- result.try(sequence_field.from_marks([]) |> native_error)
+  use #(composed, state, _) <- result.try(
+    compose_changes([empty, ..changes], state, moves.new()) |> native_error,
+  )
+  let ComposeState(context, callbacks) = state
+  use composed <- result.try(encode_change(composed, context))
+  Ok(
+    json.object([
+      #("operands", array(operands_json)),
+      #("callbacks", array(list.reverse(callbacks))),
+      #("composed", composed),
+    ]),
+  )
+}
+
+fn run_compose_and_invert(
+  operands: JsonValue,
+  context: Context,
+) -> Result(Json, String) {
+  use tagged <- result.try(
+    codec.field(operands, "change", decode_tagged(_, context)),
+  )
+  let #(change, original_revision, context) = tagged
+  use inverse_revision <- result.try(
+    codec.field(operands, "inverseRevision", decode_revision(_, context)),
+  )
+  use is_rollback <- result.try(codec.field(
+    operands,
+    "isRollback",
+    codec.boolean,
+  ))
+  use aliases <- result.try(
+    sequence_field.new_alias_context([
+      #(Some(original_revision), max_local_id(change)),
+    ])
+    |> native_error,
+  )
+  let invert_state = InvertState(context, aliases)
+  use #(inverted, invert_state, move_context) <- result.try(
+    invert.invert(
+      change,
+      is_rollback,
+      invert_state,
+      fixture_alias,
+      Some(inverse_revision),
+      fixture_field(),
+      moves.new(),
+    )
+    |> native_error,
+  )
+  let InvertState(context, _) = invert_state
+  let compose_state = ComposeState(context, [])
+  use #(composed, compose_state, _) <- result.try(
+    compose.compose(
+      change,
+      inverted,
+      compose_state,
+      compose_children,
+      algebra(context),
+      fixture_field(),
+      move_context,
+    )
+    |> native_error,
+  )
+  let ComposeState(context, _) = compose_state
+  use change_json <- result.try(encode_change(change, context))
+  use inverted_json <- result.try(encode_change(inverted, context))
+  use composed_json <- result.try(encode_change(composed, context))
+  Ok(
+    json.object([
+      #("operands", array([change_json, inverted_json])),
+      #("composed", composed_json),
+      #("inverted", inverted_json),
+    ]),
+  )
+}
+
+fn run_invert(operands: JsonValue, context: Context) -> Result(Json, String) {
+  use tagged <- result.try(
+    codec.field(operands, "change", decode_tagged(_, context)),
+  )
+  let #(change, original_revision, context) = tagged
+  use inverse_revision <- result.try(
+    codec.field(operands, "inverseRevision", decode_revision(_, context)),
+  )
+  use is_rollback <- result.try(codec.field(
+    operands,
+    "isRollback",
+    codec.boolean,
+  ))
+  use aliases <- result.try(
+    sequence_field.new_alias_context([
+      #(Some(original_revision), max_local_id(change)),
+    ])
+    |> native_error,
+  )
+  use #(inverted, state, _) <- result.try(
+    invert.invert(
+      change,
+      is_rollback,
+      InvertState(context, aliases),
+      fixture_alias,
+      Some(inverse_revision),
+      fixture_field(),
+      moves.new(),
+    )
+    |> native_error,
+  )
+  let InvertState(context, _) = state
+  encode_change(inverted, context)
+}
+
+fn run_replace_revisions(
+  operands: JsonValue,
+  context: Context,
+) -> Result(Json, String) {
+  use #(change, context) <- result.try(
+    codec.field(operands, "change", decode_change(_, context)),
+  )
+  use obsolete <- result.try(
+    codec.field(operands, "obsolete", fn(value) {
+      codec.many(value, decode_revision(_, context))
+    }),
+  )
+  use replacement <- result.try(
+    codec.field(operands, "replacement", decode_revision(_, context)),
+  )
+  use changed <- result.try(
+    sequence_field.replace_revisions(change, fn(id, _) {
+      case id.revision {
+        Some(revision) ->
+          case list.contains(obsolete, revision) {
+            True -> Ok(types.AtomId(Some(replacement), id.local_id))
+            False -> Ok(id)
+          }
+        _ -> Ok(id)
+      }
+    })
+    |> native_error,
+  )
+  use input <- result.try(encode_change(change, context))
+  use obsolete <- result.try(
+    list.try_map(obsolete, fn(revision) {
+      source_revision(revision, context) |> result.map(json.int)
+    }),
+  )
+  use replacement <- result.try(source_revision(replacement, context))
+  use changed <- result.try(encode_change(changed, context))
+  Ok(
+    json.object([
+      #("input", input),
+      #("obsolete", array(obsolete)),
+      #("replacement", json.int(replacement)),
+      #("result", changed),
+    ]),
+  )
+}
+
+fn run_prune(operands: JsonValue, context: Context) -> Result(Json, String) {
+  use #(change, context) <- result.try(
+    codec.field(operands, "change", decode_change(_, context)),
+  )
+  use change <- result.try(
+    sequence_field.prune(change, fn(_) { Ok(None) }) |> native_error,
+  )
+  encode_change(change, context)
+}
+
+fn run_removed_roots(
+  operands: JsonValue,
+  context: Context,
+) -> Result(Json, String) {
+  use #(change, context) <- result.try(
+    codec.field(operands, "change", decode_change(_, context)),
+  )
+  use child_roots <- result.try(
+    codec.field(operands, "childRemovedRoots", fn(value) {
+      codec.many(value, decode_delta_atom(_, context))
+    }),
+  )
+  use roots <- result.try(
+    sequence_field.relevant_removed_roots(change, fn(_) { Ok(child_roots) })
+    |> native_error,
+  )
+  use roots <- result.try(list.try_map(roots, encode_delta_id(_, context)))
+  Ok(array(roots))
+}
+
+fn decode_changes(
+  encoded: List(JsonValue),
+  context: Context,
+  output: List(sequence_field.Changeset),
+) -> Result(#(List(sequence_field.Changeset), Context), String) {
+  case encoded {
+    [] -> Ok(#(list.reverse(output), context))
+    [value, ..rest] -> {
+      use #(change, _, context) <- result.try(decode_tagged(value, context))
+      decode_changes(rest, context, [change, ..output])
+    }
+  }
+}
+
+fn decode_tagged(
+  value: JsonValue,
+  context: Context,
+) -> Result(#(sequence_field.Changeset, StableId, Context), String) {
+  use change <- result.try(
+    codec.field(value, "change", fn(value) { Ok(value) }),
+  )
+  use revision <- result.try(
+    codec.field(value, "revision", decode_revision(_, context)),
+  )
+  use #(change, context) <- result.try(decode_change(change, context))
+  Ok(#(change, revision, context))
+}
+
+fn decode_change(
+  value: JsonValue,
+  context: Context,
+) -> Result(#(sequence_field.Changeset, Context), String) {
+  use marks <- result.try(codec.items(value))
+  use #(marks, context) <- result.try(decode_marks(marks, context, []))
+  use change <- result.try(
+    sequence_field.from_marks(list.reverse(marks)) |> native_error,
+  )
+  Ok(#(change, context))
+}
+
+fn decode_marks(
+  values: List(JsonValue),
+  context: Context,
+  output: List(sequence_field.Mark),
+) -> Result(#(List(sequence_field.Mark), Context), String) {
+  case values {
+    [] -> Ok(#(output, context))
+    [value, ..rest] -> {
+      use #(mark, context) <- result.try(decode_mark(value, context))
+      decode_marks(rest, context, [mark, ..output])
+    }
+  }
+}
+
+fn decode_mark(
+  value: JsonValue,
+  context: Context,
+) -> Result(#(sequence_field.Mark, Context), String) {
+  use count <- result.try(codec.field(value, "count", codec.integer))
+  use cell_id <- result.try(optional_field(
+    value,
+    "cellId",
+    fn(value) { decode_atom(value, context) |> result.map(Some) },
+    None,
+  ))
+  use #(child, context) <- result.try(optional_child(value, context))
+  use effect <- result.try(optional_field(
+    value,
+    "type",
+    decode_effect(_, value, context),
+    sequence_field.Noop,
+  ))
+  Ok(#(sequence_field.Mark(count, cell_id, effect, child), context))
+}
+
+fn decode_effect(
+  type_value: JsonValue,
+  value: JsonValue,
+  context: Context,
+) -> Result(sequence_field.Effect, String) {
+  use name <- result.try(codec.text(type_value))
+  case name {
+    "Insert" ->
+      decode_effect_atom(value, context)
+      |> result.map(sequence_field.Insert)
+      |> result.map(sequence_field.Attach)
+    "MoveIn" ->
+      decode_move_in(value, context) |> result.map(sequence_field.Attach)
+    "Remove" ->
+      decode_remove(value, context) |> result.map(sequence_field.Detach)
+    "MoveOut" ->
+      decode_move_out(value, context) |> result.map(sequence_field.Detach)
+    "AttachAndDetach" -> {
+      use attach <- result.try(
+        codec.field(value, "attach", decode_attach(_, context)),
+      )
+      use detach <- result.try(
+        codec.field(value, "detach", decode_detach(_, context)),
+      )
+      Ok(sequence_field.AttachAndDetach(attach, detach))
+    }
+    "Rename" ->
+      codec.field(value, "idOverride", decode_atom(_, context))
+      |> result.map(sequence_field.Rename)
+    _ -> Error("unsupported sequence mark type: " <> name)
+  }
+}
+
+fn decode_attach(
+  value: JsonValue,
+  context: Context,
+) -> Result(sequence_field.Attach, String) {
+  use name <- result.try(codec.field(value, "type", codec.text))
+  case name {
+    "Insert" ->
+      decode_effect_atom(value, context) |> result.map(sequence_field.Insert)
+    "MoveIn" -> decode_move_in(value, context)
+    _ -> Error("unsupported sequence attach type: " <> name)
+  }
+}
+
+fn decode_detach(
+  value: JsonValue,
+  context: Context,
+) -> Result(sequence_field.Detach, String) {
+  use name <- result.try(codec.field(value, "type", codec.text))
+  case name {
+    "Remove" -> decode_remove(value, context)
+    "MoveOut" -> decode_move_out(value, context)
+    _ -> Error("unsupported sequence detach type: " <> name)
+  }
+}
+
+fn decode_move_in(
+  value: JsonValue,
+  context: Context,
+) -> Result(sequence_field.Attach, String) {
+  use id <- result.try(decode_effect_atom(value, context))
+  use endpoint <- result.try(optional_field(
+    value,
+    "finalEndpoint",
+    fn(value) { decode_atom(value, context) |> result.map(Some) },
+    None,
+  ))
+  Ok(sequence_field.MoveIn(id, endpoint))
+}
+
+fn decode_remove(
+  value: JsonValue,
+  context: Context,
+) -> Result(sequence_field.Detach, String) {
+  use id <- result.try(decode_effect_atom(value, context))
+  use id_override <- result.try(optional_field(
+    value,
+    "idOverride",
+    fn(value) { decode_atom(value, context) |> result.map(Some) },
+    None,
+  ))
+  Ok(sequence_field.Remove(id, id_override))
+}
+
+fn decode_move_out(
+  value: JsonValue,
+  context: Context,
+) -> Result(sequence_field.Detach, String) {
+  use id <- result.try(decode_effect_atom(value, context))
+  use endpoint <- result.try(optional_field(
+    value,
+    "finalEndpoint",
+    fn(value) { decode_atom(value, context) |> result.map(Some) },
+    None,
+  ))
+  use id_override <- result.try(optional_field(
+    value,
+    "idOverride",
+    fn(value) { decode_atom(value, context) |> result.map(Some) },
+    None,
+  ))
+  Ok(sequence_field.MoveOut(id, endpoint, id_override))
+}
+
+fn decode_effect_atom(
+  value: JsonValue,
+  context: Context,
+) -> Result(types.AtomId, String) {
+  use local_id <- result.try(codec.field(value, "id", codec.integer))
+  use revision <- result.try(optional_field(
+    value,
+    "revision",
+    fn(value) { decode_revision(value, context) |> result.map(Some) },
+    None,
+  ))
+  Ok(types.AtomId(revision, local_id))
+}
+
+fn optional_child(
+  value: JsonValue,
+  context: Context,
+) -> Result(#(Option(types.AtomId), Context), String) {
+  case value {
+    VObject(fields) ->
+      case list.key_find(fields, "changes") {
+        Error(Nil) -> Ok(#(None, context))
+        Ok(value) -> {
+          use child <- result.try(decode_child(value, context))
+          let Context(revisions, children) = context
+          Ok(#(Some(child.id), Context(revisions, [child, ..children])))
+        }
+      }
+    _ -> Error("expected a sequence mark object")
+  }
+}
+
+fn compose_changes(
+  changes: List(sequence_field.Changeset),
+  state: ComposeState,
+  move_context: moves.Context,
+) -> Result(
+  #(sequence_field.Changeset, ComposeState, moves.Context),
+  types.TreeError,
+) {
+  case changes {
+    [] -> {
+      use empty <- result.try(sequence_field.from_marks([]))
+      Ok(#(empty, state, move_context))
+    }
+    [change] -> Ok(#(change, state, move_context))
+    [first, second, ..rest] -> {
+      let ComposeState(context, _) = state
+      use #(composed, state, move_context) <- result.try(compose_pair_fixture(
+        first,
+        second,
+        state,
+        move_context,
+        algebra(context),
+      ))
+      compose_changes([composed, ..rest], state, move_context)
+    }
+  }
+}
+
+fn compose_pair_fixture(
+  first: sequence_field.Changeset,
+  second: sequence_field.Changeset,
+  state: ComposeState,
+  move_context: moves.Context,
+  algebra: sequence_field.AlgebraContext,
+) -> Result(
+  #(sequence_field.Changeset, ComposeState, moves.Context),
+  types.TreeError,
+) {
+  use #(composed, next_state, move_context) <- result.try(compose.compose(
+    first,
+    second,
+    state,
+    compose_children,
+    algebra,
+    fixture_field(),
+    move_context,
+  ))
+  let #(invalidated, move_context) = moves.take_invalidated(move_context)
+  case invalidated {
+    [] -> Ok(#(composed, next_state, move_context))
+    _ ->
+      compose.compose(
+        first,
+        second,
+        state,
+        compose_children,
+        algebra,
+        fixture_field(),
+        move_context,
+      )
+  }
+}
+
+fn compose_children(
+  left: Option(types.AtomId),
+  right: Option(types.AtomId),
+  state: ComposeState,
+) -> Result(#(types.AtomId, ComposeState), types.TreeError) {
+  let ComposeState(context, callbacks) = state
+  let callback =
+    json.object([
+      #("left", option_child_json(left, context)),
+      #("right", option_child_json(right, context)),
+    ])
+  let assert Some(id) = case left {
+    Some(id) -> Some(id)
+    None -> right
+  }
+  let left_child = find_child(left, context)
+  let right_child = find_child(right, context)
+  let child = merge_child(id, left_child, right_child)
+  let Context(revisions, children) = context
+  Ok(#(
+    id,
+    ComposeState(Context(revisions, put_child_value(children, child)), [
+      callback,
+      ..callbacks
+    ]),
+  ))
+}
+
+fn option_child_json(id: Option(types.AtomId), context: Context) -> Json {
+  case id {
+    None -> json.null()
+    Some(id) -> encode_child(id, context) |> result.unwrap(json.null())
+  }
+}
+
+fn find_child(id: Option(types.AtomId), context: Context) -> Option(Child) {
+  let Context(children:, ..) = context
+  case id {
+    None -> None
+    Some(id) ->
+      list.find(children, fn(child) { child.id == id })
+      |> option.from_result
+  }
+}
+
+fn merge_child(
+  id: types.AtomId,
+  left: Option(Child),
+  right: Option(Child),
+) -> Child {
+  case left, right {
+    Some(left), Some(right) ->
+      Child(
+        id,
+        left.source_revision,
+        left.input_context,
+        list.append(left.intentions, right.intentions),
+        right.output_context,
+      )
+    Some(child), None | None, Some(child) -> Child(..child, id:)
+    None, None -> Child(id, None, None, [], None)
+  }
+}
+
+fn put_child_value(children: List(Child), child: Child) -> List(Child) {
+  [child, ..list.filter(children, fn(existing) { existing.id != child.id })]
+}
+
+fn fixture_alias(
+  id: types.AtomId,
+  state: InvertState,
+) -> Result(#(Int, InvertState), types.TreeError) {
+  let InvertState(context, aliases) = state
+  use #(local_id, aliases) <- result.try(sequence_field.alias(id, aliases))
+  Ok(#(local_id, InvertState(context, aliases)))
+}
+
+fn fixture_field() -> moves.FieldId {
+  moves.FieldId(None, "field")
+}
+
+fn algebra(context: Context) -> sequence_field.AlgebraContext {
+  sequence_field.AlgebraContext(
+    compare_atoms: fn(first, second) {
+      use first_revision <- result.try(atom_revision_index(first, context))
+      use second_revision <- result.try(atom_revision_index(second, context))
+      Ok(case int.compare(first_revision, second_revision) {
+        order.Eq -> int.compare(first.local_id, second.local_id)
+        other -> other
+      })
+    },
+    revision_index: fn(revision) {
+      revision_position(revision, context)
+      |> result.map_error(fn(_) {
+        types.InvalidHistory("fixture revision has no chronology")
+      })
+    },
+    rollback_of: fn(_) { Ok(None) },
+  )
+}
+
+fn atom_revision_index(
+  id: types.AtomId,
+  context: Context,
+) -> Result(Int, types.TreeError) {
+  case id.revision {
+    None -> Ok(-1)
+    Some(revision) ->
+      revision_position(revision, context)
+      |> result.map_error(fn(_) {
+        types.InvalidHistory("fixture atom revision has no identity order")
+      })
+  }
+}
+
+fn revision_position(revision: StableId, context: Context) -> Result(Int, Nil) {
+  let Context(revisions:, ..) = context
+  revision_position_loop(revisions, revision, 0)
+}
+
+fn revision_position_loop(
+  revisions: List(#(Int, StableId)),
+  revision: StableId,
+  index: Int,
+) -> Result(Int, Nil) {
+  case revisions {
+    [] -> Error(Nil)
+    [entry, ..rest] ->
+      case entry.1 == revision {
+        True -> Ok(index)
+        False -> revision_position_loop(rest, revision, index + 1)
+      }
+  }
+}
+
+fn max_local_id(change: sequence_field.Changeset) -> Int {
+  sequence_field.to_marks(change)
+  |> list.fold(-1, fn(maximum, mark) {
+    let maximum = max_atom(maximum, mark.cell_id, mark.count)
+    let maximum = max_atom(maximum, mark.child, 1)
+    max_effect(maximum, mark.effect, mark.count)
+  })
+}
+
+fn max_effect(maximum: Int, effect: sequence_field.Effect, count: Int) -> Int {
+  case effect {
+    sequence_field.Noop -> maximum
+    sequence_field.Rename(id) -> max_atom(maximum, Some(id), count)
+    sequence_field.Attach(attach) -> max_attach(maximum, attach, count)
+    sequence_field.Detach(detach) -> max_detach(maximum, detach, count)
+    sequence_field.AttachAndDetach(attach, detach) ->
+      max_detach(max_attach(maximum, attach, count), detach, count)
+  }
+}
+
+fn max_attach(maximum: Int, attach: sequence_field.Attach, count: Int) -> Int {
+  case attach {
+    sequence_field.Insert(id) -> max_atom(maximum, Some(id), count)
+    sequence_field.MoveIn(id, endpoint) ->
+      max_atom(max_atom(maximum, Some(id), count), endpoint, count)
+  }
+}
+
+fn max_detach(maximum: Int, detach: sequence_field.Detach, count: Int) -> Int {
+  case detach {
+    sequence_field.Remove(id, id_override) ->
+      max_atom(max_atom(maximum, Some(id), count), id_override, count)
+    sequence_field.MoveOut(id, endpoint, id_override) ->
+      max_atom(
+        max_atom(max_atom(maximum, Some(id), count), endpoint, count),
+        id_override,
+        count,
+      )
+  }
+}
+
+fn max_atom(maximum: Int, id: Option(types.AtomId), count: Int) -> Int {
+  case id {
+    None -> maximum
+    Some(id) -> int.max(maximum, id.local_id + count - 1)
+  }
+}
+
+fn decode_delta_atom(
+  value: JsonValue,
+  context: Context,
+) -> Result(types.AtomId, String) {
+  use local_id <- result.try(codec.field(value, "minor", codec.integer))
+  use revision <- result.try(
+    codec.field(value, "major", fn(value) {
+      case value {
+        VNull -> Ok(None)
+        _ -> decode_revision(value, context) |> result.map(Some)
+      }
+    }),
+  )
+  Ok(types.AtomId(revision, local_id))
 }
 
 fn run_scenarios(
@@ -342,18 +1126,31 @@ fn optional_field(
 }
 
 fn context(revisions: List(Int)) -> Result(Context, String) {
-  use values <- result.try(
-    list.try_map(revisions, fn(revision) {
-      revision_for(revision) |> result.map(fn(stable) { #(revision, stable) })
-    }),
-  )
+  use values <- result.try(context_revisions(revisions, 1, []))
   Ok(Context(values, []))
 }
 
-fn revision_for(revision: Int) -> Result(StableId, String) {
+fn context_revisions(
+  revisions: List(Int),
+  index: Int,
+  output: List(#(Int, StableId)),
+) -> Result(List(#(Int, StableId)), String) {
+  case revisions {
+    [] -> Ok(list.reverse(output))
+    [revision, ..rest] -> {
+      use _ <- result.try(case list.key_find(output, revision) {
+        Ok(_) -> Error("duplicate fixture revision")
+        Error(Nil) -> Ok(Nil)
+      })
+      use stable <- result.try(revision_for(index))
+      context_revisions(rest, index + 1, [#(revision, stable), ..output])
+    }
+  }
+}
+
+fn revision_for(index: Int) -> Result(StableId, String) {
   let suffix =
-    revision
-    |> int.absolute_value
+    index
     |> int.to_base_string(16)
     |> result.unwrap("0")
     |> string.pad_start(12, "0")
@@ -388,6 +1185,179 @@ fn source_revision(
   list.find(revisions, fn(pair) { pair.1 == revision })
   |> result.map(fn(pair) { pair.0 })
   |> result.map_error(fn(_) { "unknown fixture revision" })
+}
+
+fn encode_codec(
+  change: sequence_field.Changeset,
+  context: Context,
+) -> Result(Json, String) {
+  use marks <- result.try(
+    list.try_map(sequence_field.to_marks(change), fn(mark) {
+      let fields = [#("count", json.int(mark.count))]
+      use fields <- result.try(case mark.effect {
+        sequence_field.Noop -> Ok(fields)
+        effect ->
+          encode_codec_effect(effect, context)
+          |> result.map(fn(effect) {
+            list.append(fields, [#("effect", effect)])
+          })
+      })
+      use fields <- result.try(case mark.cell_id {
+        None -> Ok(fields)
+        Some(id) ->
+          encode_codec_atom(id, context)
+          |> result.map(fn(id) { list.append(fields, [#("cellId", id)]) })
+      })
+      use fields <- result.try(case mark.child {
+        None -> Ok(fields)
+        Some(child) ->
+          encode_child(child, context)
+          |> result.map(fn(child) { list.append(fields, [#("changes", child)]) })
+      })
+      Ok(json.object(fields))
+    }),
+  )
+  Ok(array(marks))
+}
+
+fn encode_codec_effect(
+  effect: sequence_field.Effect,
+  context: Context,
+) -> Result(Json, String) {
+  case effect {
+    sequence_field.Noop -> Ok(json.object([]))
+    sequence_field.Attach(attach) -> encode_codec_attach(attach, context)
+    sequence_field.Detach(detach) -> encode_codec_detach(detach, context)
+    sequence_field.AttachAndDetach(attach, detach) -> {
+      use attach <- result.try(encode_codec_attach(attach, context))
+      use detach <- result.try(encode_codec_detach(detach, context))
+      Ok(
+        json.object([
+          #(
+            "attachAndDetach",
+            json.object([#("attach", attach), #("detach", detach)]),
+          ),
+        ]),
+      )
+    }
+    sequence_field.Rename(id) -> {
+      use id <- result.try(encode_codec_atom(id, context))
+      Ok(json.object([#("rename", json.object([#("idOverride", id)]))]))
+    }
+  }
+}
+
+fn encode_codec_attach(
+  attach: sequence_field.Attach,
+  context: Context,
+) -> Result(Json, String) {
+  case attach {
+    sequence_field.Insert(id) -> {
+      use effect <- result.try(encode_codec_primary(id, context))
+      Ok(json.object([#("insert", effect)]))
+    }
+    sequence_field.MoveIn(id, endpoint) -> {
+      use effect <- result.try(encode_codec_primary(id, context))
+      use fields <- result.try(codec_object_fields(effect))
+      use fields <- result.try(add_optional_codec_atom(
+        fields,
+        "finalEndpoint",
+        endpoint,
+        context,
+      ))
+      Ok(json.object([#("moveIn", json.object(fields))]))
+    }
+  }
+}
+
+fn encode_codec_detach(
+  detach: sequence_field.Detach,
+  context: Context,
+) -> Result(Json, String) {
+  case detach {
+    sequence_field.Remove(id, id_override) -> {
+      use effect <- result.try(encode_codec_primary(id, context))
+      use fields <- result.try(codec_object_fields(effect))
+      use fields <- result.try(add_optional_codec_atom(
+        fields,
+        "idOverride",
+        id_override,
+        context,
+      ))
+      Ok(json.object([#("remove", json.object(fields))]))
+    }
+    sequence_field.MoveOut(id, endpoint, id_override) -> {
+      use effect <- result.try(encode_codec_primary(id, context))
+      use fields <- result.try(codec_object_fields(effect))
+      use fields <- result.try(add_optional_codec_atom(
+        fields,
+        "finalEndpoint",
+        endpoint,
+        context,
+      ))
+      use fields <- result.try(add_optional_codec_atom(
+        fields,
+        "idOverride",
+        id_override,
+        context,
+      ))
+      Ok(json.object([#("moveOut", json.object(fields))]))
+    }
+  }
+}
+
+fn encode_codec_primary(
+  id: types.AtomId,
+  context: Context,
+) -> Result(Json, String) {
+  use revision <- result.try(optional_revision_json(id.revision, context))
+  Ok(
+    json.object(case revision {
+      None -> [#("id", json.int(id.local_id))]
+      Some(revision) -> [
+        #("revision", revision),
+        #("id", json.int(id.local_id)),
+      ]
+    }),
+  )
+}
+
+fn encode_codec_atom(
+  id: types.AtomId,
+  context: Context,
+) -> Result(Json, String) {
+  use revision <- result.try(optional_revision_json(id.revision, context))
+  Ok(
+    array(case revision {
+      None -> [json.int(id.local_id)]
+      Some(revision) -> [json.int(id.local_id), revision]
+    }),
+  )
+}
+
+fn add_optional_codec_atom(
+  fields: List(#(String, Json)),
+  name: String,
+  id: Option(types.AtomId),
+  context: Context,
+) -> Result(List(#(String, Json)), String) {
+  case id {
+    None -> Ok(fields)
+    Some(id) ->
+      encode_codec_atom(id, context)
+      |> result.map(fn(id) { list.append(fields, [#(name, id)]) })
+  }
+}
+
+fn codec_object_fields(value: Json) -> Result(List(#(String, Json)), String) {
+  use value <- result.try(codec.parse(value))
+  case value {
+    VObject(fields) ->
+      list.try_map(fields, fn(entry) {
+        Ok(#(entry.0, json_ot.to_json(entry.1)))
+      })
+    _ -> Error("expected encoded codec object")
+  }
 }
 
 fn encode_change(

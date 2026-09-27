@@ -3,6 +3,7 @@
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/order.{type Order}
 import gleam/result
 import watershed/fluid_ids.{type StableId}
 import watershed/tree/forest
@@ -51,6 +52,55 @@ pub type DeltaResult {
     global: List(forest.DetachedChange),
     rename: List(forest.Rename),
   )
+}
+
+pub type AlgebraContext {
+  AlgebraContext(
+    compare_atoms: fn(AtomId, AtomId) -> Result(Order, TreeError),
+    revision_index: fn(StableId) -> Result(Int, TreeError),
+    rollback_of: fn(StableId) -> Result(Option(StableId), TreeError),
+  )
+}
+
+pub opaque type AliasContext {
+  AliasContext(
+    reservations: List(#(Option(StableId), Int, Int)),
+    max_local_id: Int,
+  )
+}
+
+pub fn new_alias_context(
+  reservations: List(#(Option(StableId), Int)),
+) -> Result(AliasContext, TreeError) {
+  list.try_fold(reservations, AliasContext([], -1), fn(context, reservation) {
+    reserve_alias(context, reservation.0, reservation.1)
+  })
+}
+
+pub fn alias(
+  id: AtomId,
+  context: AliasContext,
+) -> Result(#(Int, AliasContext), TreeError) {
+  let AliasContext(reservations, _) = context
+  case list.find(reservations, fn(entry) { entry.0 == id.revision }) {
+    Error(Nil) ->
+      Error(CorruptData("sequence aliases", "revision is not reserved"))
+    Ok(#(_, original_max, offset)) -> {
+      use _ <- result.try(check(
+        id.local_id >= 0 && id.local_id <= original_max,
+        "alias source exceeds its reservation",
+      ))
+      use _ <- result.try(check(
+        id.local_id <= max_safe_integer - offset,
+        "alias exceeds the safe integer range",
+      ))
+      Ok(#(id.local_id + offset, context))
+    }
+  }
+}
+
+pub fn alias_max_id(context: AliasContext) -> Int {
+  context.max_local_id
 }
 
 pub fn from_marks(marks: List(Mark)) -> Result(Changeset, TreeError) {
@@ -236,6 +286,7 @@ pub fn into_delta(
           ..output.1
         ])
       }
+
       delta_mark(mark, local_fields, output.0, global, output.2)
     }),
   )
@@ -248,6 +299,58 @@ pub fn into_delta(
     marks -> Some(forest.FieldDelta(marks))
   }
   Ok(DeltaResult(local, list.reverse(output.1), list.reverse(output.2)))
+}
+
+pub fn replace_revisions(
+  change: Changeset,
+  replace: fn(AtomId, Int) -> Result(AtomId, TreeError),
+) -> Result(Changeset, TreeError) {
+  use marks <- result.try(
+    list.try_map(change.marks, fn(mark) {
+      use cell_id <- result.try(replace_optional(
+        mark.cell_id,
+        mark.count,
+        replace,
+      ))
+      use effect <- result.try(replace_effect(mark.effect, mark.count, replace))
+      use child <- result.try(replace_optional(mark.child, 1, replace))
+      Ok(Mark(mark.count, cell_id, effect, child))
+    }),
+  )
+  from_marks(marks)
+}
+
+pub fn prune(
+  change: Changeset,
+  prune_child: fn(AtomId) -> Result(Option(AtomId), TreeError),
+) -> Result(Changeset, TreeError) {
+  use marks <- result.try(
+    list.try_map(change.marks, fn(mark) {
+      use child <- result.try(case mark.child {
+        None -> Ok(None)
+        Some(child) -> prune_child(child)
+      })
+      Ok(Mark(..mark, child:))
+    }),
+  )
+  from_marks(marks)
+}
+
+pub fn relevant_removed_roots(
+  change: Changeset,
+  roots_from_child: fn(AtomId) -> Result(List(AtomId), TreeError),
+) -> Result(List(AtomId), TreeError) {
+  list.try_fold(change.marks, [], fn(roots, mark) {
+    let own = case mark.cell_id, refers_to_removed_root(mark) {
+      Some(id), True -> atom_range(id, mark.count)
+      _, _ -> []
+    }
+    use child_roots <- result.try(case mark.child {
+      None -> Ok([])
+      Some(child) -> roots_from_child(child)
+    })
+    Ok(list.append(roots, list.append(own, child_roots)))
+  })
 }
 
 fn normalize_marks(
@@ -333,10 +436,10 @@ fn validate_effect(effect: Effect, count: Int) -> Result(Nil, TreeError) {
   case effect {
     Noop -> Ok(Nil)
     Attach(attach) -> validate_attach(attach, count)
-    Detach(detach) -> validate_detach(detach, count)
+    Detach(detach) -> validate_detach_range(detach, count)
     AttachAndDetach(attach, detach) -> {
       use _ <- result.try(validate_attach(attach, count))
-      validate_detach(detach, count)
+      validate_detach_range(detach, count)
     }
     Rename(id) -> validate_atom(id, count)
   }
@@ -352,18 +455,28 @@ fn validate_attach(attach: Attach, count: Int) -> Result(Nil, TreeError) {
   }
 }
 
-fn validate_detach(detach: Detach, count: Int) -> Result(Nil, TreeError) {
+@internal
+pub fn validate_detach_range(
+  detach: Detach,
+  count: Int,
+) -> Result(Nil, TreeError) {
   case detach {
     Remove(id, id_override) -> {
       use _ <- result.try(validate_atom(id, count))
       validate_optional_atom(id_override, count)
     }
+
     MoveOut(id, final_endpoint, id_override) -> {
       use _ <- result.try(validate_atom(id, count))
       use _ <- result.try(validate_optional_atom(final_endpoint, count))
       validate_optional_atom(id_override, count)
     }
   }
+}
+
+@internal
+pub fn offset_detach(detach: Detach, split: Int) -> Detach {
+  split_detach(detach, split).1
 }
 
 fn validate_optional_atom(
@@ -497,7 +610,8 @@ fn split_detach(detach: Detach, split: Int) -> #(Detach, Detach) {
   }
 }
 
-fn offset_atom(id: AtomId, amount: Int) -> AtomId {
+@internal
+pub fn offset_atom(id: AtomId, amount: Int) -> AtomId {
   AtomId(..id, local_id: id.local_id + amount)
 }
 
@@ -743,25 +857,39 @@ fn output_cells_empty(mark: Mark) -> Bool {
   }
 }
 
-fn input_length(mark: Mark) -> Int {
+@internal
+pub fn input_length(mark: Mark) -> Int {
   case mark.cell_id {
     None -> mark.count
     Some(_) -> 0
   }
 }
 
-fn output_length(mark: Mark) -> Int {
+@internal
+pub fn output_length(mark: Mark) -> Int {
   case output_cells_empty(mark) {
     True -> 0
     False -> mark.count
   }
 }
 
-fn detached_id(detach: Detach) -> AtomId {
+@internal
+pub fn detached_id(detach: Detach) -> AtomId {
   case detach {
     Remove(_, Some(id_override)) -> id_override
     Remove(id, None) -> id
     MoveOut(id, _, _) -> id
+  }
+}
+
+@internal
+pub fn output_cell_id(mark: Mark) -> Option(AtomId) {
+  case mark.effect {
+    Detach(detach) -> Some(detached_id(detach))
+    Rename(id) -> Some(id)
+    AttachAndDetach(_, detach) -> Some(detached_id(detach))
+    Attach(_) -> None
+    Noop -> mark.cell_id
   }
 }
 
@@ -776,5 +904,145 @@ fn drop_delta_skips(marks: List(forest.Mark)) -> List(forest.Mark) {
   case marks {
     [forest.Mark(_, None, None, []), ..rest] -> drop_delta_skips(rest)
     _ -> marks
+  }
+}
+
+fn reserve_alias(
+  context: AliasContext,
+  revision: Option(StableId),
+  original_max: Int,
+) -> Result(AliasContext, TreeError) {
+  let AliasContext(reservations, max_local_id) = context
+  use _ <- result.try(check(
+    original_max >= -1 && original_max <= max_safe_integer,
+    "alias reservation is outside the safe integer range",
+  ))
+  case list.find(reservations, fn(entry) { entry.0 == revision }) {
+    Ok(#(_, found, _)) ->
+      case found == original_max {
+        True -> Ok(context)
+        False ->
+          Error(CorruptData(
+            "sequence aliases",
+            "revision has inconsistent reservations",
+          ))
+      }
+    Error(Nil) -> {
+      let count = original_max + 1
+      let offset = max_local_id + 1
+      use _ <- result.try(check(
+        count == 0 || offset <= max_safe_integer - count,
+        "alias reservation exceeds the safe integer range",
+      ))
+      Ok(AliasContext(
+        list.append(reservations, [#(revision, original_max, offset)]),
+        max_local_id + count,
+      ))
+    }
+  }
+}
+
+fn replace_effect(
+  effect: Effect,
+  count: Int,
+  replace: fn(AtomId, Int) -> Result(AtomId, TreeError),
+) -> Result(Effect, TreeError) {
+  case effect {
+    Noop -> Ok(Noop)
+    Rename(id) -> replace(id, count) |> result.map(Rename)
+    Attach(attach) ->
+      replace_attach(attach, count, replace) |> result.map(Attach)
+    Detach(detach) ->
+      replace_detach(detach, count, replace) |> result.map(Detach)
+    AttachAndDetach(attach, detach) -> {
+      use attach <- result.try(replace_attach(attach, count, replace))
+      use detach <- result.try(replace_detach(detach, count, replace))
+      Ok(AttachAndDetach(attach, detach))
+    }
+  }
+}
+
+fn replace_attach(
+  attach: Attach,
+  count: Int,
+  replace: fn(AtomId, Int) -> Result(AtomId, TreeError),
+) -> Result(Attach, TreeError) {
+  case attach {
+    Insert(id) -> replace(id, count) |> result.map(Insert)
+    MoveIn(id, endpoint) -> {
+      use id <- result.try(replace(id, count))
+      use endpoint <- result.try(replace_optional(endpoint, count, replace))
+      Ok(MoveIn(id, endpoint))
+    }
+  }
+}
+
+fn replace_detach(
+  detach: Detach,
+  count: Int,
+  replace: fn(AtomId, Int) -> Result(AtomId, TreeError),
+) -> Result(Detach, TreeError) {
+  case detach {
+    Remove(id, id_override) -> {
+      use id <- result.try(replace(id, count))
+      use id_override <- result.try(replace_optional(
+        id_override,
+        count,
+        replace,
+      ))
+      Ok(Remove(id, id_override))
+    }
+    MoveOut(id, endpoint, id_override) -> {
+      use id <- result.try(replace(id, count))
+      use endpoint <- result.try(replace_optional(endpoint, count, replace))
+      use id_override <- result.try(replace_optional(
+        id_override,
+        count,
+        replace,
+      ))
+      Ok(MoveOut(id, endpoint, id_override))
+    }
+  }
+}
+
+fn replace_optional(
+  id: Option(AtomId),
+  count: Int,
+  replace: fn(AtomId, Int) -> Result(AtomId, TreeError),
+) -> Result(Option(AtomId), TreeError) {
+  case id {
+    None -> Ok(None)
+    Some(id) -> replace(id, count) |> result.map(Some)
+  }
+}
+
+fn refers_to_removed_root(mark: Mark) -> Bool {
+  case mark.cell_id {
+    None -> False
+    Some(_) ->
+      case mark.effect {
+        Attach(Insert(_)) | AttachAndDetach(Insert(_), _) -> True
+        Detach(_) -> True
+        _ -> mark.child != None
+      }
+  }
+}
+
+fn atom_range(id: AtomId, count: Int) -> List(AtomId) {
+  atom_range_loop(id, count, [])
+}
+
+fn atom_range_loop(
+  id: AtomId,
+  count: Int,
+  output: List(AtomId),
+) -> List(AtomId) {
+  case count {
+    0 -> list.reverse(output)
+    _ ->
+      atom_range_loop(AtomId(..id, local_id: id.local_id + 1), count - 1, [
+        id,
+        ..output
+      ])
   }
 }

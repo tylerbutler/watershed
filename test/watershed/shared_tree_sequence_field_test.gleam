@@ -7,6 +7,7 @@ import watershed/tree/array_fixture
 import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/sequence_field
+import watershed/tree/sequence_field/moves
 import watershed/tree/sequence_field_fixture
 import watershed/tree/types
 
@@ -33,6 +34,50 @@ pub fn shared_tree_sequence_editor_matches_upstream_test() {
     "sequence-field-editor",
     sequence_field_fixture.run_editor,
   )
+}
+
+pub fn shared_tree_sequence_compose_invert_matches_upstream_test() {
+  fixtures.assert_case(
+    "sequence-compose-invert",
+    sequence_field_fixture.run_compose_invert,
+  )
+}
+
+pub fn shared_tree_sequence_move_effect_ranges_invalidate_dependents_test() {
+  let source = moves.Key(moves.Source, Some(revision("01")), 10)
+  let field = moves.FieldId(None, "items")
+  let effect =
+    moves.MoveEffect(
+      modify_after: None,
+      moved_effect: None,
+      rebased_child: None,
+      endpoint: Some(atom(Some(revision("02")), 20)),
+      truncated_endpoint: None,
+      truncated_endpoint_for_inner: None,
+    )
+  let assert Ok(#(moves.Query(2, None), context)) =
+    moves.get(moves.new(), source, 2, Some(field))
+  let assert Ok(context) = moves.set(context, source, 2, effect)
+  let #(invalidated, context) = moves.take_invalidated(context)
+  invalidated |> expect.to_equal([field])
+  let assert Ok(#(moves.Query(1, Some(found)), context)) =
+    moves.get(
+      context,
+      moves.Key(moves.Source, Some(revision("01")), 11),
+      1,
+      None,
+    )
+  found
+  |> expect.to_equal(moves.MoveEffect(
+    modify_after: None,
+    moved_effect: None,
+    rebased_child: None,
+    endpoint: Some(atom(Some(revision("02")), 21)),
+    truncated_endpoint: None,
+    truncated_endpoint_for_inner: None,
+  ))
+  let assert Ok(context) = moves.set(context, source, 2, effect)
+  moves.take_invalidated(context).0 |> expect.to_equal([])
 }
 
 pub fn shared_tree_sequence_rejects_zero_count_marks_test() {
