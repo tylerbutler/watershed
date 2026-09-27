@@ -8,6 +8,7 @@ import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/forest_fixture
 import watershed/tree/schema
+import watershed/tree/schema_evolution_fixture
 import watershed/tree/types
 
 const forest_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
@@ -38,6 +39,84 @@ fn root() -> types.TreeValue {
 fn stored_schema() -> schema.StoredSchema {
   let assert Ok(stored) = schema.stored_from_string(forest_schema)
   stored
+}
+
+pub fn shared_tree_forest_schema_replacement_preserves_identity_test() -> Nil {
+  let assert Ok(fixture) = fixtures.load("schema-evolution-history")
+  let assert Ok(#(initial, upgraded, root)) =
+    schema_evolution_fixture.forest_transition(fixture.input, "v1", "optional")
+  let assert Ok(before) = forest.new(view_a(), initial, Some(root))
+  let assert Ok(reference) = forest.locate(before, ["point"])
+  let assert Ok(data) = forest.export_data(before)
+  let assert Ok(after) = forest.replace_schema(before, upgraded)
+  forest.read_node(after, reference)
+  |> expect.to_equal(forest.read_node(before, reference))
+  forest.export_data(after) |> expect.to_equal(Ok(data))
+  schema.stored_to_json(forest.stored_schema(after))
+  |> expect.to_equal(schema.stored_to_json(upgraded))
+}
+
+pub fn shared_tree_forest_failed_schema_replacement_is_atomic_test() -> Nil {
+  let assert Ok(fixture) = fixtures.load("schema-evolution-history")
+  let assert Ok(#(initial, invalid, root)) =
+    schema_evolution_fixture.forest_transition(
+      fixture.input,
+      "v1",
+      "new-required",
+    )
+  let assert Ok(before) = forest.new(view_a(), initial, Some(root))
+  let assert Ok(reference) = forest.locate(before, ["point"])
+  let assert Ok(data) = forest.export_data(before)
+  forest.replace_schema(before, invalid) |> expect.to_be_error
+  forest.read_node(before, reference)
+  |> expect.to_equal(
+    Ok(
+      types.ObjectValue("org.watershed.shared-tree.m4.Point", [
+        #("x", types.NumberValue(1.0)),
+        #("y", types.NumberValue(2.0)),
+      ]),
+    ),
+  )
+  forest.export_data(before) |> expect.to_equal(Ok(data))
+  schema.stored_to_json(forest.stored_schema(before))
+  |> expect.to_equal(schema.stored_to_json(initial))
+}
+
+pub fn shared_tree_forest_schema_rollback_retains_new_type_content_test() -> Nil {
+  let assert Ok(fixture) = fixtures.load("schema-evolution-history")
+  let assert Ok(#(restored, authored, root)) =
+    schema_evolution_fixture.forest_rollback(fixture.input, fixture.raw)
+  let assert Ok(before) = forest.new(view_a(), authored, Some(root))
+  let assert Ok(reference) = forest.locate(before, ["extra"])
+  let detached =
+    apply(
+      before,
+      forest.DeltaData(..empty_delta(), fields: [
+        #(
+          "rootFieldKey",
+          forest.FieldDelta([
+            forest.Mark(1, None, None, [
+              #(
+                "extra",
+                forest.FieldDelta([
+                  forest.Mark(1, None, Some(atom(20)), []),
+                ]),
+              ),
+            ]),
+          ]),
+        ),
+      ]),
+    )
+  let assert Ok(data) = forest.export_data(detached)
+  let assert Ok(after) = forest.replace_schema(detached, restored)
+  forest.read_node(after, reference)
+  |> expect.to_equal(forest.read_node(detached, reference))
+  forest.is_attached(after, reference) |> expect.to_equal(Ok(False))
+  forest.export_data(after) |> expect.to_equal(Ok(data))
+  let assert Ok(loaded) = forest.import_data(view_b(), restored, data)
+  let assert Ok(retained) = forest.locate_detached(loaded, atom(20))
+  forest.read_node(loaded, retained)
+  |> expect.to_equal(forest.read_node(detached, reference))
 }
 
 pub fn shared_tree_forest_rejects_foreign_reference_test() -> Nil {
@@ -315,7 +394,13 @@ pub fn shared_tree_forest_import_refuses_invalid_metadata_test() -> Nil {
       forest.DetachedTreeData(..entry, id: atom(-1)),
     ]),
     forest.ForestData(..data, detached: [
-      forest.DetachedTreeData(..entry, value: types.ObjectValue("Unknown", [])),
+      forest.DetachedTreeData(
+        ..entry,
+        value: types.ObjectValue("Historical", [
+          #("value", types.StringValue("first")),
+          #("value", types.StringValue("second")),
+        ]),
+      ),
     ]),
   ]
   |> list.each(fn(data) {

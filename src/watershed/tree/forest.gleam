@@ -4,6 +4,7 @@
 //// belong to one accepted state sequence. Use a new view ID for a fork.
 
 import gleam/dict.{type Dict}
+import gleam/float
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -16,10 +17,12 @@ import watershed/fluid_ids.{type StableId}
 import watershed/tree/schema.{type StoredSchema}
 import watershed/tree/types.{
   type AtomId, type FieldPath, type TreeError, type TreeValue, ArrayValue,
-  AtomId, CorruptData, InvalidEdit, MapValue, ObjectValue,
+  AtomId, CorruptData, InvalidEdit, MapValue, NumberValue, ObjectValue,
 }
 
 const max_safe_integer = 9_007_199_254_740_991
+
+const largest_finite = 1.7976931348623157e308
 
 type Node {
   Leaf(value: TreeValue)
@@ -165,6 +168,19 @@ pub fn new(
       Ok(Forest(..state, root: [id]))
     }
   }
+}
+
+pub fn stored_schema(state: Forest) -> StoredSchema {
+  state.schema
+}
+
+pub fn replace_schema(
+  state: Forest,
+  stored: StoredSchema,
+) -> Result(Forest, TreeError) {
+  use root <- result.try(visible_root(state))
+  use _ <- result.try(schema.validate_root_field(stored, root))
+  Ok(Forest(..state, schema: stored))
 }
 
 pub fn locate_detached(
@@ -366,10 +382,7 @@ pub fn export_data(state: Forest) -> Result(ForestData, TreeError) {
         entry.node_id,
         acc.1,
       ))
-      use _ <- result.try(
-        schema.validate_subtree(state.schema, value)
-        |> result.map_error(fn(error) { contextual(atom_location(id), error) }),
-      )
+      use _ <- result.try(validate_retained(value, atom_location(id)))
       Ok(#(
         [
           DetachedTreeData(
@@ -424,12 +437,10 @@ pub fn import_data(
         atom_location(entry.id),
         "detached root exceeds allocation watermark",
       ))
-      use _ <- result.try(
-        schema.validate_subtree(schema, entry.value)
-        |> result.map_error(fn(error) {
-          contextual(atom_location(entry.id), error)
-        }),
-      )
+      use _ <- result.try(validate_retained(
+        entry.value,
+        atom_location(entry.id),
+      ))
       use #(state, node_id) <- result.try(allocate(state, entry.value))
       Ok(put_entry(
         state,
@@ -466,6 +477,39 @@ fn check(
 
 fn contextual(location: String, error: TreeError) -> TreeError {
   CorruptData(location, string.inspect(error))
+}
+
+fn validate_retained(
+  value: TreeValue,
+  location: String,
+) -> Result(Nil, TreeError) {
+  case value {
+    NumberValue(number) ->
+      check(
+        float.absolute_value(number) <=. largest_finite,
+        location,
+        "number must be finite",
+      )
+    ObjectValue(_, fields) | MapValue(_, fields) -> {
+      use _ <- result.try(unique(
+        list.map(fields, fn(field) { field.0 }),
+        location,
+      ))
+      list.try_each(fields, fn(field) {
+        validate_retained(field.1, location <> "." <> field.0)
+      })
+    }
+    ArrayValue(_, elements) ->
+      elements
+      |> list.index_map(fn(element, index) { #(element, index) })
+      |> list.try_each(fn(element) {
+        validate_retained(
+          element.0,
+          location <> "[" <> int.to_string(element.1) <> "]",
+        )
+      })
+    _ -> Ok(Nil)
+  }
 }
 
 fn atom_location(id: AtomId) -> String {

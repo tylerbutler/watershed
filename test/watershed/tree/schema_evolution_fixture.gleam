@@ -189,6 +189,139 @@ pub fn data_observation(value: change.Changeset) -> Json {
   fixture_codec.state_json(value)
 }
 
+pub fn forest_transition(
+  input: Json,
+  before_id: String,
+  after_id: String,
+) -> Result(
+  #(schema.StoredSchema, schema.StoredSchema, types.TreeValue),
+  String,
+) {
+  use input <- result.try(fixture_codec.parse(input))
+  use catalog <- result.try(algebra_schema_catalog(input))
+  use before <- result.try(
+    dict.get(catalog, before_id)
+    |> result.map_error(fn(_) { "unknown schema " <> before_id }),
+  )
+  use after <- result.try(
+    dict.get(catalog, after_id)
+    |> result.map_error(fn(_) { "unknown schema " <> after_id }),
+  )
+  use root <- result.try(fixture_codec.get(input, "initialRoot"))
+  use root <- result.try(
+    json.parse(
+      json.to_string(json_ot.to_json(root)),
+      fixtures.tree_value_decoder(),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use root <- result.try(normalize_tree(before, root))
+  Ok(#(before, after, root))
+}
+
+pub fn forest_rollback(
+  input: Json,
+  raw: Json,
+) -> Result(
+  #(schema.StoredSchema, schema.StoredSchema, types.TreeValue),
+  String,
+) {
+  use #(restored, _, root) <- result.try(forest_transition(input, "v1", "v1"))
+  use raw <- result.try(fixture_codec.parse(raw))
+  use messages <- result.try(
+    fixture_codec.field(raw, "rollback", fn(rollback) {
+      fixture_codec.field(rollback, "messages", fixture_codec.items)
+    }),
+  )
+  use authored <- result.try(find_historical_schema(messages))
+  use retained <- result.try(
+    fixture_codec.field(raw, "rollback", fn(rollback) {
+      fixture_codec.field(rollback, "retainedExtra", fn(extra) {
+        use identifier <- result.try(fixture_codec.field(
+          extra,
+          "type",
+          fixture_codec.text,
+        ))
+        use value <- result.try(fixture_codec.field(
+          extra,
+          "value",
+          fixture_codec.text,
+        ))
+        Ok(types.ObjectValue(identifier, [#("value", StringValue(value))]))
+      })
+    }),
+  )
+  let assert types.ObjectValue(identifier, fields) = root
+  Ok(#(
+    restored,
+    authored,
+    types.ObjectValue(identifier, list.append(fields, [#("extra", retained)])),
+  ))
+}
+
+fn find_historical_schema(
+  messages: List(JsonValue),
+) -> Result(schema.StoredSchema, String) {
+  case messages {
+    [] -> Error("historical schema message is missing")
+    [message, ..rest] -> {
+      let changes = case fixture_codec.get(message, "contents") {
+        Error(_) -> Error("message contents are missing")
+        Ok(contents) ->
+          fixture_codec.field(contents, "changeset", fixture_codec.items)
+      }
+      case changes {
+        Error(_) | Ok([]) -> find_historical_schema(rest)
+        Ok([change, ..]) ->
+          case fixture_codec.get(change, "schema") {
+            Error(_) -> find_historical_schema(rest)
+            Ok(transition) -> {
+              use stored <- result.try(fixture_codec.get(transition, "new"))
+              schema.stored_from_json(json_ot.to_json(stored))
+              |> result.map_error(string.inspect)
+            }
+          }
+      }
+    }
+  }
+}
+
+fn normalize_tree(
+  stored: schema.StoredSchema,
+  value: types.TreeValue,
+) -> Result(types.TreeValue, String) {
+  case value {
+    types.ObjectValue(identifier, fields) -> {
+      use fields <- result.try(
+        list.try_map(fields, fn(field) {
+          use value <- result.try(normalize_tree(stored, field.1))
+          Ok(#(field.0, value))
+        }),
+      )
+      use node <- result.try(
+        schema.node_schema(stored, identifier)
+        |> result.map_error(string.inspect),
+      )
+      case node {
+        schema.Map(_) -> Ok(types.MapValue(identifier, fields))
+        schema.Object(_) -> Ok(types.ObjectValue(identifier, fields))
+        schema.Array(_) | schema.Leaf(_) ->
+          Error(identifier <> " is not an object node")
+      }
+    }
+    types.MapValue(identifier, entries) -> {
+      use entries <- result.try(
+        list.try_map(entries, fn(entry) {
+          use value <- result.try(normalize_tree(stored, entry.1))
+          Ok(#(entry.0, value))
+        }),
+      )
+      Ok(types.MapValue(identifier, entries))
+    }
+    _ -> Ok(value)
+  }
+}
+
 fn algebra_state(input: JsonValue) -> Result(AlgebraState, String) {
   let assert Ok(originator) =
     fluid_ids.session_id("00000000-0000-4000-8000-000000000000")
@@ -679,6 +812,7 @@ fn decode_internal_data(
       builds:,
       destroys:,
       refreshers: [],
+      cross_field_keys: [],
     ),
     identity_order,
   )
