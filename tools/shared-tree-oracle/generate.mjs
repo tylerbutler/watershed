@@ -1699,6 +1699,35 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     assert.deepEqual(inverse.checkpoints.at(-1).after.identity,
       { field: "rootFieldKey", index: 0, parent: null },
       `${label}: inverse restored identity`);
+    const removeThenChild = modularRun("remove-then-child");
+    const childThenRemove = modularRun("child-then-remove");
+    const replaceThenChild = modularRun("replace-then-child");
+    const childThenReplace = modularRun("child-then-replace");
+    for (const run of [
+      removeThenChild,
+      childThenRemove,
+      replaceThenChild,
+      childThenReplace,
+    ]) {
+      check(run.checkpoints.length === 2
+        && run.checkpoints.every((checkpoint) => checkpoint.result.accepted === true)
+        && run.checkpoints.at(-1).after.root.length === 1
+        && run.checkpoints.at(-1).after.root[0] === "B"
+        && run.checkpoints.at(-1).after.detached.length === 2
+        && run.checkpoints.at(-1).after.identity.index === 0
+        && run.checkpoints.at(-1).after.identity.parent === null
+        && run.checkpoints.at(-1).after.identity.field.startsWith("watershed-array-forest-"),
+      `modular-checkpoints ${run.id} detached continuation`);
+    }
+    check(nonemptyArray(removeThenChild.checkpoints[1].delta.global)
+      && nonemptyArray(replaceThenChild.checkpoints[1].delta.global),
+    "modular-checkpoints detached descendant routing");
+    assert.deepEqual(removeThenChild.checkpoints.at(-1).after.detached,
+      childThenRemove.checkpoints.at(-1).after.detached,
+      `${label}: ancestor removal order`);
+    assert.deepEqual(replaceThenChild.checkpoints.at(-1).after.detached,
+      childThenReplace.checkpoints.at(-1).after.detached,
+      `${label}: ancestor replacement order`);
     check(output.get("invalid-overlap").at(-1)?.result?.accepted === false,
       "invalid overlap rejection");
     check(output.get("invalid-cycle")?.result?.accepted === false,

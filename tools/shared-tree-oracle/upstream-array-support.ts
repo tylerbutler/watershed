@@ -1303,6 +1303,41 @@ export function forestCheckpointInput(
 			inverseRevision: Number(revisions[4]),
 		}),
 	};
+	const raceChild = author(revisions[5], (editor) => {
+		editor.sequenceField({
+			parent: { parent: undefined, parentField: rootFieldKey, parentIndex: 0 },
+			field: child,
+		}).remove(0, 1);
+	});
+	const removeAncestor = author(revisions[6], (editor) => {
+		editor.sequenceField(root).remove(0, 1);
+	});
+	const moveReplacement = author(revisions[7], (editor) => moveWithin(editor, root, 1, 1, 0));
+	const removeReplacedAncestor = author(revisions[8], (editor) => {
+		editor.sequenceField(root).remove(1, 1);
+	});
+	const replaceAncestor = family.compose([
+		tagChange(moveReplacement, revisions[7]),
+		tagChange(removeReplacedAncestor, revisions[8]),
+	]);
+	const raceStep = (
+		id: string,
+		operation: ReplayInput["operation"],
+		changes: readonly TaggedPlainModularChange[],
+	) => ({
+		id,
+		...replay(operation, changes, operation === "rebase"
+			? {
+					revisionMetadata: revisions.slice(5, 9).map((revision) => ({
+						revision: Number(revision),
+						rollbackOf: null,
+					})),
+				}
+			: {}),
+	});
+	const raceChildTagged = taggedPlain(revisions[5], raceChild);
+	const removeAncestorTagged = taggedPlain(revisions[6], removeAncestor);
+	const replaceAncestorTagged = taggedPlain(revisions[8], replaceAncestor);
 	return {
 		operation: "apply-modular",
 		initialState: {
@@ -1320,6 +1355,50 @@ export function forestCheckpointInput(
 				{ id: "composed", retainIndex: 0, steps: [composedStep] },
 				{ id: "rebased", retainIndex: 0, steps: [moveStep, rebasedStep] },
 				{ id: "inverse", retainIndex: 0, steps: [composedStep, inverseStep] },
+				{
+					id: "remove-then-child",
+					retainIndex: 0,
+					steps: [
+						raceStep("remove-ancestor", "compose", [removeAncestorTagged]),
+						raceStep("child-over-remove", "rebase", [
+							raceChildTagged,
+							removeAncestorTagged,
+						]),
+					],
+				},
+				{
+					id: "child-then-remove",
+					retainIndex: 0,
+					steps: [
+						raceStep("child", "compose", [raceChildTagged]),
+						raceStep("remove-over-child", "rebase", [
+							removeAncestorTagged,
+							raceChildTagged,
+						]),
+					],
+				},
+				{
+					id: "replace-then-child",
+					retainIndex: 0,
+					steps: [
+						raceStep("replace-ancestor", "compose", [replaceAncestorTagged]),
+						raceStep("child-over-replacement", "rebase", [
+							raceChildTagged,
+							replaceAncestorTagged,
+						]),
+					],
+				},
+				{
+					id: "child-then-replace",
+					retainIndex: 0,
+					steps: [
+						raceStep("child", "compose", [raceChildTagged]),
+						raceStep("replacement-over-child", "rebase", [
+							replaceAncestorTagged,
+							raceChildTagged,
+						]),
+					],
+				},
 			],
 		},
 		revisions: revisions.map(Number),
