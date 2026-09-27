@@ -48,6 +48,8 @@ const requiredItemIds = [
   "summary-array-full-summary",
   "summary-array-peer-history",
   "summary-schema-initial",
+  "summary-schema-peer-before-upgrade",
+  "summary-schema-upgrade-tail",
 ];
 const point = (x, y) => ({
   type: "org.watershed.shared-tree.m1.Point",
@@ -570,6 +572,19 @@ export function validateConsumerOutput(
               && Array.isArray(data.refreshers) && data.refreshers.length > 0))),
         `${observation.id} nonempty peer changes`);
       }
+    }
+    if (observation.id === "summary-schema-peer-before-upgrade") {
+      requireValue(observation.history.peers.some((peer) =>
+        peer.base !== "root" && peer.revisions.length > 0),
+      "summary-schema-peer-before-upgrade retained pre-upgrade peer branch");
+      requireValue(observation.continued === "upstream-continuation",
+        "summary-schema-peer-before-upgrade continuation");
+    }
+    if (observation.id === "summary-schema-upgrade-tail") {
+      requireValue(observation.history.trunk.length >= 3,
+        "summary-schema-upgrade-tail retained schema tail");
+      requireValue(observation.continued === "upstream-continuation",
+        "summary-schema-upgrade-tail continuation");
     }
   }
   requireValue(expectedIds.length === ids.size

@@ -65,6 +65,28 @@ pub fn decode_message(
   Ok(#(commit, message))
 }
 
+pub fn decode_sequenced_message(
+  raw: String,
+  state: tree_kernel.TreeState,
+  reference_sequence_number: Int,
+  compressor: fluid_ids.Compressor,
+) -> Result(#(history.Commit, codec.TreeMessage), TreeError) {
+  use originator <- result.try(codec.decode_message_originator(raw))
+  use stored <- result.try(tree_kernel.authoring_schema(
+    state,
+    originator,
+    reference_sequence_number,
+  ))
+  use message <- result.try(codec.decode_message_with_schema_state(
+    raw,
+    codec.DecodeContext(codec.Fluid310, compressor),
+    stored,
+  ))
+  use commit <- result.try(wire_to_commit(message.commit))
+  use _ <- result.try(identity_order(state, commit, compressor))
+  Ok(#(commit, message))
+}
+
 pub fn encode_commit(
   commit: history.Commit,
   state: tree_kernel.TreeState,

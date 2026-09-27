@@ -2608,9 +2608,10 @@ fn handle_operation(
                     ))
                 })
                 use #(commit, _) <- result.try(
-                  tree_runtime.decode_message(
+                  tree_runtime.decode_sequenced_message(
                     json.to_string(contents),
                     state,
+                    msg.reference_sequence_number,
                     compressor,
                   )
                   |> result.map_error(fn(error) {

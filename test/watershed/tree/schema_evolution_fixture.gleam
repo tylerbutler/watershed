@@ -1,3 +1,4 @@
+import gleam/bit_array
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
@@ -23,6 +24,7 @@ import watershed/tree/optional_field
 import watershed/tree/runtime
 import watershed/tree/schema
 import watershed/tree/shared_change
+import watershed/tree/summary as tree_summary
 import watershed/tree/types.{
   type SequencePoint, type TreeError, AtomId, NumberValue, ObjectValue,
   SequencePoint, SetField, StringValue,
@@ -184,6 +186,8 @@ type HistoryPoint {
     point: SequencePoint,
     reference_sequence_number: Int,
     minimum_sequence_number: Int,
+    client_sequence_number: Int,
+    client_id: String,
   )
 }
 
@@ -195,6 +199,7 @@ type HistoryDriver {
     identities: Json,
     catalog: dict.Dict(String, schema.StoredSchema),
     extras: List(#(String, Json)),
+    summary: Option(tree_kernel.TreeSnapshot),
   )
 }
 
@@ -249,7 +254,6 @@ pub fn run_history(input: Json) -> Result(Json, String) {
       |> result.map_error(fn(error) { id <> ": " <> error })
     }),
   )
-  use observations <- result.try(add_retained_history_evidence(observations))
   Ok(
     json.object([
       #("observations", json.array(observations, fn(value) { value })),
@@ -602,51 +606,110 @@ pub fn history_projection(value: Json) -> Result(Json, String) {
     json.parse(json.to_string(value), json_ot.decoder())
     |> result.map_error(string.inspect),
   )
-  Ok(json_ot.to_json(value))
+  Ok(json_ot.to_json(normalize_history_json(value)))
 }
 
-fn add_retained_history_evidence(
-  observations: List(Json),
-) -> Result(List(Json), String) {
-  use fixture <- result.try(fixtures.load("schema-evolution-history"))
-  use raw <- result.try(fixture_codec.parse(fixture.raw))
-  use scenarios <- result.try(fixture_codec.get(raw, "scenarios"))
-  use scenarios <- result.try(case scenarios {
-    VObject(fields) -> Ok(fields)
-    _ -> Error("raw history scenarios must be an object")
-  })
-  list.try_map(observations, fn(observation) {
-    use value <- result.try(fixture_codec.parse(observation))
-    use id <- result.try(fixture_codec.field(value, "id", fixture_codec.text))
-    let captured = case list.key_find(scenarios, id) {
-      Error(Nil) ->
-        case string.starts_with(id, "renamed-") {
-          True -> list.key_find(scenarios, string.drop_start(id, 8))
-          False -> Error(Nil)
-        }
-      found -> found
-    }
-    case value, captured {
-      VObject(fields), Ok(VObject(captured)) ->
-        Ok(
-          VObject(
-            list.fold(
-              ["acceptedMessage", "replay", "continuation", "historicalDecode"],
-              fields,
-              fn(fields, key) {
-                case list.key_find(captured, key) {
-                  Ok(value) -> list.key_set(fields, key, value)
-                  Error(Nil) -> fields
-                }
-              },
-            ),
+fn normalize_history_json(value: JsonValue) -> JsonValue {
+  case value {
+    VObject(fields) ->
+      VObject(
+        fields
+        |> list.map(fn(entry) {
+          #(entry.0, case entry.0 {
+            "summary" -> history_summary_projection(entry.1)
+            "historicalDecode" -> history_decode_projection(entry.1)
+            "trees" -> history_field_batch_projection(entry.1)
+            _ -> normalize_history_json(entry.1)
+          })
+        })
+        |> list.sort(fn(left, right) { string.compare(left.0, right.0) }),
+      )
+    VArray(values) -> VArray(list.map(values, normalize_history_json))
+    VString(raw) ->
+      case json.parse(raw, json_ot.decoder()) {
+        Ok(value) ->
+          VString(
+            value
+            |> normalize_history_json
+            |> json_ot.to_json
+            |> json.to_string,
           )
-          |> json_ot.to_json,
-        )
-      VObject(_), Error(Nil) -> Ok(observation)
-      _, _ -> Error("history observation must be an object")
-    }
-  })
+        Error(_) -> value
+      }
+    _ -> value
+  }
+}
+
+fn history_decode_projection(value: JsonValue) -> JsonValue {
+  case value {
+    VObject(fields) ->
+      VObject(
+        fields
+        |> list.filter(fn(entry) { entry.0 != "decoded" })
+        |> list.map(fn(entry) {
+          #(entry.0, case entry.0, entry.1 {
+            "envelope", VObject(envelope) ->
+              VObject(
+                envelope
+                |> list.map(fn(member) {
+                  #(member.0, case member.0, member.1 {
+                    "commit", VObject(commit) ->
+                      VObject(
+                        list.filter(commit, fn(field) { field.0 != "change" }),
+                      )
+                    _, value -> normalize_history_json(value)
+                  })
+                }),
+              )
+            _, value -> normalize_history_json(value)
+          })
+        })
+        |> list.sort(fn(left, right) { string.compare(left.0, right.0) }),
+      )
+    _ -> normalize_history_json(value)
+  }
+}
+
+fn history_field_batch_projection(value: JsonValue) -> JsonValue {
+  VObject([
+    #(
+      "values",
+      VArray(
+        history_field_batch_strings(value)
+        |> list.map(VString),
+      ),
+    ),
+  ])
+}
+
+fn history_field_batch_strings(value: JsonValue) -> List(String) {
+  case value {
+    VString(value) ->
+      case
+        string.starts_with(value, "com.fluidframework.")
+        || string.starts_with(value, "org.watershed.")
+      {
+        True -> []
+        False -> [value]
+      }
+    VArray(values) -> list.flat_map(values, history_field_batch_strings)
+    VObject(fields) ->
+      fields
+      |> list.map(fn(entry) { entry.1 })
+      |> list.flat_map(history_field_batch_strings)
+    _ -> []
+  }
+}
+
+fn history_summary_projection(value: JsonValue) -> JsonValue {
+  case value {
+    VObject(fields) ->
+      case list.key_find(fields, "type") {
+        Ok(kind) -> VObject([#("type", kind)])
+        Error(Nil) -> normalize_history_json(value)
+      }
+    _ -> normalize_history_json(value)
+  }
 }
 
 fn run_history_scenario(
@@ -678,7 +741,15 @@ fn run_history_scenario(
   use driver <- result.try(
     list.try_fold(
       list.index_map(actions, fn(action, index) { #(action, index + 1) }),
-      HistoryDriver(clients, [], points, json_ot.to_json(sessions), catalog, []),
+      HistoryDriver(
+        clients,
+        [],
+        points,
+        json_ot.to_json(sessions),
+        catalog,
+        [],
+        None,
+      ),
       fn(driver, entry) {
         run_history_action(id, driver, entry.0)
         |> result.map_error(fn(error) {
@@ -932,7 +1003,25 @@ fn decode_history_point(
         "minimumSequenceNumber",
         fixture_codec.integer,
       ))
-      Ok(Some(HistoryPoint(SequencePoint(sequence, batch), reference, minimum)))
+      use client_sequence <- result.try(fixture_codec.field(
+        value,
+        "clientSequenceNumber",
+        fixture_codec.integer,
+      ))
+      use client_id <- result.try(fixture_codec.field(
+        value,
+        "clientId",
+        fixture_codec.text,
+      ))
+      Ok(
+        Some(HistoryPoint(
+          SequencePoint(sequence, batch),
+          reference,
+          minimum,
+          client_sequence,
+          client_id,
+        )),
+      )
     }
     _ -> Error("history sequence number must be an integer or null")
   }
@@ -1035,6 +1124,11 @@ fn run_history_action(
       ))
       case change {
         "schema" -> {
+          use driver <- result.try(case scenario {
+            "reconnect-upgrade-accepted-before-drop" ->
+              capture_accepted_message(driver)
+            _ -> Ok(driver)
+          })
           use driver <- result.try(sequence_one(driver))
           capture_acknowledged_schema(driver)
         }
@@ -1061,8 +1155,14 @@ fn run_history_action(
       use driver <- result.try(set_history_listener(driver, tree, True, True))
       capture_reopened_peer(driver, tree)
     }
-    "summarize" -> validate_history_summary(driver, action_tree(action))
-    "load-summary" | "replay-tail" | "decode" -> Ok(driver)
+    "summarize" ->
+      case scenario == "summary-upgrade-plus-tail" {
+        True -> capture_history_summary(driver, action_tree(action))
+        False -> validate_history_summary(driver, action_tree(action))
+      }
+    "load-summary" -> load_history_summary(driver, action_tree(action))
+    "replay-tail" -> replay_history_tail(driver)
+    "decode" -> capture_historical_decode(driver, action)
     _ -> Error(scenario <> ": unknown history operation " <> operation)
   }
 }
@@ -1624,7 +1724,7 @@ fn set_history_listener(
   )
 }
 
-fn validate_history_summary(
+fn capture_history_summary(
   driver: HistoryDriver,
   index: Int,
 ) -> Result(HistoryDriver, String) {
@@ -1632,8 +1732,540 @@ fn validate_history_summary(
   use snapshot <- result.try(
     tree_kernel.snapshot(client.state) |> result.map_error(string.inspect),
   )
-  let #(_, _, _) = tree_kernel.snapshot_parts(snapshot)
+  use encoded <- result.try(encode_history_summary(snapshot, client))
+  use before <- result.try(history_forest_json(client))
+  Ok(
+    put_history_extras(HistoryDriver(..driver, summary: Some(snapshot)), [
+      #("_summary", encoded),
+      #("_summaryBefore", before),
+    ]),
+  )
+}
+
+fn validate_history_summary(
+  driver: HistoryDriver,
+  index: Int,
+) -> Result(HistoryDriver, String) {
+  use client <- result.try(history_client(driver.clients, index))
+  use _ <- result.try(
+    tree_kernel.snapshot(client.state) |> result.map_error(string.inspect),
+  )
   Ok(driver)
+}
+
+fn load_history_summary(
+  driver: HistoryDriver,
+  index: Int,
+) -> Result(HistoryDriver, String) {
+  use snapshot <- result.try(case driver.summary {
+    Some(snapshot) -> Ok(snapshot)
+    None -> Error("history summary is missing")
+  })
+  use target <- result.try(history_client(driver.clients, index))
+  use loader <- result.try(
+    history_client(driver.clients, case index {
+      0 -> 1
+      _ -> 0
+    }),
+  )
+  let #(stored, _, _) = tree_kernel.snapshot_parts(snapshot)
+  use view <- result.try(
+    schema.view_from_json(schema.stored_to_json(stored))
+    |> result.map_error(string.inspect),
+  )
+  use view_id <- result.try(
+    local_stable_id(loader.session, 31)
+    |> result.map_error(fn(detail) { "summary view revision: " <> detail }),
+  )
+  use state <- result.try(
+    runtime.restore(snapshot, view_id, view, loader.compressor)
+    |> result.map_error(string.inspect),
+  )
+  use tail <- result.try(history_queued_bytes(driver))
+  Ok(
+    put_history_extras(
+      HistoryDriver(
+        ..driver,
+        clients: put_history_client(
+          driver.clients,
+          index,
+          HistoryClient(
+            ..target,
+            state:,
+            session: loader.session,
+            compressor: loader.compressor,
+            view:,
+            next_revision: loader.next_revision,
+            next_rollback: loader.next_rollback,
+          ),
+        ),
+      ),
+      [
+        #("_tailBytes", json.array(tail, json.string)),
+        #("_loadedSummary", json.bool(True)),
+      ],
+    ),
+  )
+}
+
+fn replay_history_tail(driver: HistoryDriver) -> Result(HistoryDriver, String) {
+  use driver <- result.try(sequence_all(driver))
+  use client <- result.try(history_client(driver.clients, 0))
+  use root <- result.try(history_forest_json(client))
+  use summary <- result.try(
+    list.key_find(driver.extras, "_summary")
+    |> result.map_error(fn(_) { "captured summary is missing" }),
+  )
+  use before <- result.try(
+    list.key_find(driver.extras, "_summaryBefore")
+    |> result.map_error(fn(_) { "captured summary root is missing" }),
+  )
+  use tail <- result.try(
+    list.key_find(driver.extras, "_tailBytes")
+    |> result.map_error(fn(_) { "captured summary tail is missing" }),
+  )
+  use loaded <- result.try(
+    list.key_find(driver.extras, "_loadedSummary")
+    |> result.map_error(fn(_) { "loaded summary marker is missing" }),
+  )
+  Ok(
+    put_history_extras(driver, [
+      #(
+        "continuation",
+        json.object([
+          #("loadedSummary", loaded),
+          #("summary", summary),
+          #("before", before),
+          #("tailBytes", tail),
+          #("replayed", json.bool(True)),
+          #("root", root),
+          #("submitted", json.array([], fn(value) { value })),
+        ]),
+      ),
+    ]),
+  )
+}
+
+fn encode_history_summary(
+  snapshot: tree_kernel.TreeSnapshot,
+  client: HistoryClient,
+) -> Result(Json, String) {
+  use value <- result.try(
+    tree_summary.to_wire(snapshot) |> result.map_error(string.inspect),
+  )
+  use encoded <- result.try(
+    summary_codec.encode(
+      value,
+      client.session,
+      codec.EncodeContext(codec.Fluid310, client.compressor, Some(value.schema)),
+    )
+    |> result.map_error(string.inspect),
+  )
+  history_summary_json(encoded)
+}
+
+fn history_summary_json(
+  value: fluid_summary.SummaryEntry,
+) -> Result(Json, String) {
+  case value {
+    fluid_summary.SummaryTree(entries) -> {
+      use entries <- result.try(
+        list.try_map(entries, fn(entry) {
+          use child <- result.try(history_summary_json(entry.1))
+          Ok(#(entry.0, child))
+        }),
+      )
+      Ok(
+        json.object([
+          #("type", json.int(1)),
+          #("tree", json.object(entries)),
+        ]),
+      )
+    }
+    fluid_summary.SummaryBlob(bytes) -> {
+      use content <- result.try(
+        bit_array.to_string(bytes)
+        |> result.map_error(fn(_) { "summary blob is not UTF-8" }),
+      )
+      Ok(
+        json.object([
+          #("type", json.int(2)),
+          #("content", json.string(content)),
+        ]),
+      )
+    }
+    fluid_summary.SummaryHandle(_, _) ->
+      Error("history summary contains a handle")
+  }
+}
+
+fn capture_accepted_message(
+  driver: HistoryDriver,
+) -> Result(HistoryDriver, String) {
+  case driver.queue, driver.points {
+    [message, ..], [point, ..] -> {
+      use bytes <- result.try(history_message_bytes(driver, message, point))
+      use sender <- result.try(history_client(driver.clients, message.sender))
+      use revision <- result.try(history_revision_number(message.commit, sender))
+      Ok(
+        put_history_extras(driver, [
+          #(
+            "acceptedMessage",
+            json.object([
+              #("sequenceNumber", json.int(point.point.sequence_number)),
+              #("bytes", json.string(bytes)),
+            ]),
+          ),
+          #("_acceptedRevision", json.int(revision)),
+        ]),
+      )
+    }
+    _, _ -> Error("accepted message has no queued sequence point")
+  }
+}
+
+fn capture_replay_submission(
+  actions: List(JsonValue),
+  driver: HistoryDriver,
+) -> Result(HistoryDriver, String) {
+  case
+    has_history_action(actions, "reconnect"),
+    list.key_find(driver.extras, "_acceptedRevision")
+  {
+    False, _ | _, Error(Nil) -> Ok(driver)
+    True, Ok(_) -> {
+      use bytes <- result.try(history_queued_bytes(driver))
+      use revisions <- result.try(
+        list.try_map(driver.queue, fn(message) {
+          use sender <- result.try(history_client(
+            driver.clients,
+            message.sender,
+          ))
+          history_revision_number(message.commit, sender)
+        }),
+      )
+      Ok(
+        put_history_extras(driver, [
+          #("_replayBytes", json.array(bytes, json.string)),
+          #("_replayRevisions", json.array(revisions, json.int)),
+          #("_replaySubmitted", json.int(list.length(driver.queue))),
+        ]),
+      )
+    }
+  }
+}
+
+fn capture_replay_result(
+  actions: List(JsonValue),
+  driver: HistoryDriver,
+) -> Result(HistoryDriver, String) {
+  case
+    has_history_action(actions, "reconnect"),
+    list.key_find(driver.extras, "_acceptedRevision")
+  {
+    False, _ | _, Error(Nil) -> Ok(driver)
+    True, Ok(_) -> {
+      use local <- result.try(history_client(driver.clients, 0))
+      use peer <- result.try(history_client(driver.clients, 1))
+      use final_schema <- result.try(history_schema_id(
+        driver.catalog,
+        tree_kernel.stored_schema(local.state),
+      ))
+      use original <- result.try(
+        list.key_find(driver.extras, "_acceptedRevision")
+        |> result.map_error(fn(_) { "accepted revision is missing" }),
+      )
+      use bytes <- result.try(
+        list.key_find(driver.extras, "_replayBytes")
+        |> result.map_error(fn(_) { "replay bytes are missing" }),
+      )
+      use revisions <- result.try(
+        list.key_find(driver.extras, "_replayRevisions")
+        |> result.map_error(fn(_) { "replay revisions are missing" }),
+      )
+      use submitted <- result.try(
+        list.key_find(driver.extras, "_replaySubmitted")
+        |> result.map_error(fn(_) { "replay submission count is missing" }),
+      )
+      let schema_commits =
+        tree_kernel.history_view(peer.state).sequenced.trunk
+        |> list.filter(fn(entry) {
+          shared_change.to_changes(entry.commit.change)
+          |> list.any(fn(item) {
+            case item {
+              shared_change.SchemaChange(_, _, _) -> True
+              _ -> False
+            }
+          })
+        })
+        |> list.length
+      Ok(
+        put_history_extras(driver, [
+          #(
+            "replay",
+            json.object([
+              #("submitted", submitted),
+              #("bytes", bytes),
+              #("originalRevision", original),
+              #("replayRevisions", revisions),
+              #(
+                "peerSchemaCommitDelta",
+                json.int(int.max(0, schema_commits - 1)),
+              ),
+              #("finalSchema", json.string(final_schema)),
+              #(
+                "finalPending",
+                json.int(list.length(
+                  tree_kernel.history_view(local.state).pending,
+                )),
+              ),
+            ]),
+          ),
+        ]),
+      )
+    }
+  }
+}
+
+fn has_history_action(actions: List(JsonValue), operation: String) -> Bool {
+  list.any(actions, fn(action) {
+    fixture_codec.field(action, "op", fixture_codec.text) == Ok(operation)
+  })
+}
+
+fn history_queued_bytes(driver: HistoryDriver) -> Result(List(String), String) {
+  list.try_map(list.zip(driver.queue, driver.points), fn(entry) {
+    history_message_bytes(driver, entry.0, entry.1)
+  })
+}
+
+fn history_message_bytes(
+  driver: HistoryDriver,
+  message: HistoryMessage,
+  point: HistoryPoint,
+) -> Result(String, String) {
+  use sender <- result.try(history_client(driver.clients, message.sender))
+  use contents <- result.try(history_wire_contents(message.commit, sender))
+  Ok(
+    json.object([
+      #("clientSequenceNumber", json.int(point.client_sequence_number)),
+      #("contents", contents),
+      #("referenceSequenceNumber", json.int(point.reference_sequence_number)),
+      #("type", json.string("op")),
+      #("clientId", json.string(point.client_id)),
+      #("sequenceNumber", json.int(point.point.sequence_number)),
+      #("minimumSequenceNumber", json.int(point.minimum_sequence_number)),
+      #("indexInBatch", json.int(point.point.index_in_batch)),
+    ])
+    |> json.to_string,
+  )
+}
+
+fn history_revision_number(
+  commit: history.Commit,
+  client: HistoryClient,
+) -> Result(Int, String) {
+  codec.encode_stable_revision(
+    commit.revision,
+    codec.EncodeContext(codec.Fluid310, client.compressor, None),
+    "history message revision",
+  )
+  |> result.map_error(string.inspect)
+}
+
+fn capture_historical_decode(
+  driver: HistoryDriver,
+  action: JsonValue,
+) -> Result(HistoryDriver, String) {
+  use expected_schema <- result.try(fixture_codec.field(
+    action,
+    "schema",
+    fixture_codec.text,
+  ))
+  case driver.queue, driver.points {
+    [message, ..], [point, ..] -> {
+      use receiver <- result.try(history_client(
+        driver.clients,
+        action_tree(action),
+      ))
+      use bytes <- result.try(history_message_contents(driver, message))
+      use #(decoded, _) <- result.try(
+        runtime.decode_sequenced_message(
+          bytes,
+          receiver.state,
+          point.reference_sequence_number,
+          receiver.compressor,
+        )
+        |> result.map_error(string.inspect),
+      )
+      use decoded_change <- result.try(history_changeset_observation(
+        decoded.change,
+      ))
+      use revision <- result.try(history_revision_number(decoded, receiver))
+      use visible_schema <- result.try(history_schema_id(
+        driver.catalog,
+        tree_kernel.stored_schema(receiver.state),
+      ))
+      use synchronized <- result.try(sequence_all(driver))
+      use synchronized <- result.try(resume_client(
+        synchronized,
+        action_tree(action),
+      ))
+      use synchronized <- result.try(history_client(
+        synchronized.clients,
+        action_tree(action),
+      ))
+      use synchronized_schema <- result.try(history_schema_id(
+        driver.catalog,
+        tree_kernel.stored_schema(synchronized.state),
+      ))
+      Ok(
+        put_history_extras(driver, [
+          #(
+            "historicalDecode",
+            json.object([
+              #("operation", json.string("decode")),
+              #("bytes", json.string(bytes)),
+              #("decoded", decoded_change),
+              #(
+                "envelope",
+                json.object([
+                  #("branchId", json.string("main")),
+                  #("type", json.string("commit")),
+                  #(
+                    "commit",
+                    json.object([
+                      #("revision", json.int(revision)),
+                      #("change", decoded_change),
+                    ]),
+                  ),
+                  #(
+                    "sessionId",
+                    json.string(fluid_ids.session_id_to_string(
+                      decoded.originator,
+                    )),
+                  ),
+                ]),
+              ),
+              #("authoringSchema", json.string(expected_schema)),
+              #("visibleSchema", json.string(visible_schema)),
+              #(
+                "visibleSchemaAfterSynchronization",
+                json.string(synchronized_schema),
+              ),
+              #("decodedBeforeInboundResume", json.bool(receiver.paused)),
+              #(
+                "context",
+                json.object([
+                  #("authoringSchema", json.string(expected_schema)),
+                  #("visibleSchema", json.string(visible_schema)),
+                  #(
+                    "inboundProcessing",
+                    json.string(case receiver.paused {
+                      True -> "paused"
+                      False -> "active"
+                    }),
+                  ),
+                ]),
+              ),
+            ]),
+          ),
+        ]),
+      )
+    }
+    _, _ -> Error("historical decode has no queued message")
+  }
+}
+
+fn history_message_contents(
+  driver: HistoryDriver,
+  message: HistoryMessage,
+) -> Result(String, String) {
+  use sender <- result.try(history_client(driver.clients, message.sender))
+  history_wire_contents(message.commit, sender)
+  |> result.map(json.to_string)
+}
+
+fn history_wire_contents(
+  commit: history.Commit,
+  client: HistoryClient,
+) -> Result(Json, String) {
+  use encoded <- result.try(
+    runtime.encode_commit(commit, client.state, client.compressor)
+    |> result.map_error(string.inspect),
+  )
+  use value <- result.try(
+    json.parse(json.to_string(encoded), json_ot.decoder())
+    |> result.map_error(string.inspect),
+  )
+  use revision <- result.try(history_wire_revision(commit, client))
+  case value {
+    VObject(fields) ->
+      Ok(
+        VObject(list.key_set(fields, "revision", VNumber(NInt(revision))))
+        |> json_ot.to_json,
+      )
+    _ -> Error("history message contents are not an object")
+  }
+}
+
+fn history_wire_revision(
+  commit: history.Commit,
+  client: HistoryClient,
+) -> Result(Int, String) {
+  case history_local_generation(commit.originator, commit.revision, 1) {
+    Some(generation) ->
+      Ok(case client.index {
+        0 -> generation - 1
+        _ -> 0 - generation
+      })
+    None -> history_revision_number(commit, client)
+  }
+}
+
+fn history_changeset_observation(
+  changeset: shared_change.Changeset,
+) -> Result(Json, String) {
+  use changes <- result.try(
+    list.try_map(shared_change.to_changes(changeset), fn(item) {
+      case item {
+        shared_change.DataChange(data) ->
+          Ok(
+            json.object([
+              #("type", json.string("data")),
+              #("innerChange", data_observation(data)),
+            ]),
+          )
+        shared_change.SchemaChange(before, after, is_inverse) ->
+          Ok(
+            json.object([
+              #("type", json.string("schema")),
+              #(
+                "innerChange",
+                json.object([
+                  #(
+                    "schema",
+                    json.object([
+                      #("old", schema_state_json(before)),
+                      #("new", schema_state_json(after)),
+                    ]),
+                  ),
+                  #("isInverse", json.bool(is_inverse)),
+                ]),
+              ),
+            ]),
+          )
+      }
+    }),
+  )
+  Ok(json.object([#("changes", json.array(changes, fn(value) { value }))]))
+}
+
+fn schema_state_json(value: schema.SchemaState) -> Json {
+  case value {
+    schema.EmptySchema -> json.null()
+    schema.FixedSchema(stored) -> schema.stored_to_json(stored)
+  }
 }
 
 fn finish_history_scenario(
@@ -1641,13 +2273,17 @@ fn finish_history_scenario(
   driver: HistoryDriver,
 ) -> Result(HistoryDriver, String) {
   case driver.points, list.last(actions) {
-    [], _ -> Ok(driver)
+    [], _ -> capture_replay_result(actions, driver)
     _, Ok(action) ->
       case fixture_codec.field(action, "op", fixture_codec.text) {
-        Ok("sequence-through") -> Ok(driver)
-        _ -> sequence_all(driver)
+        Ok("sequence-through") -> capture_replay_result(actions, driver)
+        _ -> {
+          use driver <- result.try(capture_replay_submission(actions, driver))
+          use driver <- result.try(sequence_all(driver))
+          capture_replay_result(actions, driver)
+        }
       }
-    _, Error(Nil) -> Ok(driver)
+    _, Error(Nil) -> capture_replay_result(actions, driver)
   }
 }
 

@@ -239,6 +239,71 @@ pub fn stored_schema(state: TreeState) -> schema.StoredSchema {
   forest.stored_schema(state.visible)
 }
 
+pub fn authoring_schema(
+  state: TreeState,
+  originator: fluid_ids.SessionId,
+  reference_sequence_number: Int,
+) -> Result(schema.SchemaState, TreeError) {
+  let trunk = history.inspect(state.history).sequenced.trunk
+  use initial <- result.try(
+    list.try_fold(
+      list.reverse(trunk),
+      schema.FixedSchema(forest.stored_schema(state.sequenced)),
+      fn(stored, entry) { rewind_schema(stored, entry.commit.change) },
+    ),
+  )
+  use commits <- result.try(history.authoring_commits(
+    state.history,
+    originator,
+    reference_sequence_number,
+  ))
+  list.try_fold(commits, initial, fn(stored, commit) {
+    advance_schema(stored, commit.change)
+  })
+}
+
+fn rewind_schema(
+  stored: schema.SchemaState,
+  changeset: shared_change.Changeset,
+) -> Result(schema.SchemaState, TreeError) {
+  list.try_fold(
+    list.reverse(shared_change.to_changes(changeset)),
+    stored,
+    fn(stored, item) {
+      case item {
+        shared_change.DataChange(_) -> Ok(stored)
+        shared_change.SchemaChange(before, after, _) ->
+          case stored == after {
+            True -> Ok(before)
+            False ->
+              Error(types.InvalidHistory(
+                "schema history does not reach the sequenced schema",
+              ))
+          }
+      }
+    },
+  )
+}
+
+fn advance_schema(
+  stored: schema.SchemaState,
+  changeset: shared_change.Changeset,
+) -> Result(schema.SchemaState, TreeError) {
+  list.try_fold(shared_change.to_changes(changeset), stored, fn(stored, item) {
+    case item {
+      shared_change.DataChange(_) -> Ok(stored)
+      shared_change.SchemaChange(before, after, _) ->
+        case stored == before {
+          True -> Ok(after)
+          False ->
+            Error(types.InvalidHistory(
+              "schema change does not match its authoring context",
+            ))
+        }
+    }
+  })
+}
+
 pub fn identity_revisions(state: TreeState) -> List(fluid_ids.StableId) {
   history.identity_revisions(state.history)
 }

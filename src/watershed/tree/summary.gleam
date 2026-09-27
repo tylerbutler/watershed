@@ -274,7 +274,10 @@ pub fn to_wire(
   Ok(summary_codec.TreeSummaryData(
     stored,
     summary_codec.ForestSummary(fields),
-    summary_codec.DetachedFieldIndex(detached, data.next_detached_root_id - 1),
+    summary_codec.DetachedFieldIndex(
+      detached,
+      int.max(0, data.next_detached_root_id - 1),
+    ),
     summary_codec.EditManagerSummary(trunk, peers),
   ))
 }

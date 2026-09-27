@@ -113,6 +113,39 @@ const factory = configuredSharedTreeInternal({
 	minVersionForCollab: FluidClientVersion.v2_117,
 }).getFactory();
 
+const captionSchema = new SchemaFactory("org.watershed.shared-tree.m1");
+class CaptionPoint extends captionSchema.object("Point", {
+	x: captionSchema.number,
+	y: captionSchema.number,
+}) {}
+class CaptionRoot extends captionSchema.object("Root", {
+	title: captionSchema.string,
+	caption: captionSchema.optional(captionSchema.string),
+	enabled: captionSchema.boolean,
+	rating: captionSchema.number,
+	marker: captionSchema.null,
+	note: captionSchema.optional(captionSchema.string),
+	point: CaptionPoint,
+}) {}
+const captionConfiguration = new TreeViewConfiguration({ schema: CaptionRoot });
+
+const detailsSchema = new SchemaFactory("org.watershed.shared-tree.m1");
+class DetailsPoint extends detailsSchema.object("Point", {
+	x: detailsSchema.number,
+	y: detailsSchema.number,
+}) {}
+class DetailsRoot extends detailsSchema.object("Root", {
+	title: detailsSchema.string,
+	caption: detailsSchema.optional(detailsSchema.string),
+	details: detailsSchema.optional(detailsSchema.string),
+	enabled: detailsSchema.boolean,
+	rating: detailsSchema.number,
+	marker: detailsSchema.null,
+	note: detailsSchema.optional(detailsSchema.string),
+	point: DetailsPoint,
+}) {}
+const detailsConfiguration = new TreeViewConfiguration({ schema: DetailsRoot });
+
 const mapSchema = new SchemaFactory("org.watershed.shared-tree.m2");
 class MapPoint extends mapSchema.object("Point", {
 	x: mapSchema.number,
@@ -1038,7 +1071,13 @@ async function consume(item: ArtifactItem) {
 					continued,
 				};
 			}
-			const view = tree.viewWith(configuration);
+			const summaryConfiguration =
+				item.id === "summary-schema-peer-before-upgrade"
+					? captionConfiguration
+					: item.id === "summary-schema-upgrade-tail"
+						? detailsConfiguration
+						: configuration;
+			const view = tree.viewWith(summaryConfiguration);
 			const visible = visibleRoot(view.root);
 			const history = summaryHistory(tree, idCompressor, item.id);
 			const contentSnapshot: unknown = Reflect.get(tree, "contentSnapshot");

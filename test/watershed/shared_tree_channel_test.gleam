@@ -24,6 +24,10 @@ import watershed/wire/op as wire_op
 
 const schema_text = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Root\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
+const note_schema_text = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Root\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+
+const score_schema_text = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Root\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+
 fn tree_state() -> tree_kernel.TreeState {
   let assert Ok(session) =
     fluid_ids.session_id("00000000-0000-4000-8000-000000000001")
@@ -233,6 +237,132 @@ pub fn shared_tree_bridge_authors_without_finalizing_and_round_trips_test() {
     tree_runtime.decode_message(json.to_string(wire), edited, compressor)
   decoded.revision |> expect.to_equal(commit.revision)
   decoded.originator |> expect.to_equal(commit.originator)
+  Nil
+}
+
+pub fn shared_tree_bridge_decodes_losing_peer_data_with_authored_schema_test() {
+  let receiver_session =
+    fluid_ids.session_id("00000000-0000-4000-8000-000000000001")
+    |> expect.to_be_ok()
+  let sender_session =
+    fluid_ids.session_id("00000000-0000-4000-8000-000000000004")
+    |> expect.to_be_ok()
+  let winner_session =
+    fluid_ids.session_id("00000000-0000-4000-8000-000000000005")
+    |> expect.to_be_ok()
+  let view_id =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000002")
+    |> expect.to_be_ok()
+  let base = schema.stored_from_string(schema_text) |> expect.to_be_ok()
+  let note = schema.stored_from_string(note_schema_text) |> expect.to_be_ok()
+  let score = schema.stored_from_string(score_schema_text) |> expect.to_be_ok()
+  let view = schema.view_from_string(note_schema_text) |> expect.to_be_ok()
+  let sender_view =
+    schema.view_from_string(score_schema_text) |> expect.to_be_ok()
+  let #(sender_compressor, schema_id) =
+    fluid_ids.generate(fluid_ids.new(sender_session)) |> expect.to_be_ok()
+  let schema_revision =
+    fluid_ids.decompress(sender_compressor, schema_id) |> expect.to_be_ok()
+  let winner_revision =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000006")
+    |> expect.to_be_ok()
+  let winner =
+    history.Commit(
+      winner_revision,
+      winner_session,
+      shared_change.from_changes([
+        shared_change.SchemaChange(
+          schema.FixedSchema(base),
+          schema.FixedSchema(note),
+          False,
+        ),
+      ])
+        |> expect.to_be_ok(),
+    )
+  let losing =
+    history.Commit(
+      schema_revision,
+      sender_session,
+      shared_change.from_changes([
+        shared_change.SchemaChange(
+          schema.FixedSchema(base),
+          schema.FixedSchema(score),
+          False,
+        ),
+      ])
+        |> expect.to_be_ok(),
+    )
+  let muted =
+    history.Commit(schema_revision, sender_session, shared_change.empty())
+  let history_snapshot =
+    history.HistorySnapshot(
+      history.InitialBase,
+      [
+        history.SequencedCommit(winner, SequencePoint(1, 0)),
+        history.SequencedCommit(muted, SequencePoint(2, 0)),
+      ],
+      [history.PeerBranch(sender_session, None, [losing])],
+      2,
+      0,
+    )
+  let data =
+    forest.ForestData(
+      Some(ObjectValue("Root", [#("x", NumberValue(1.0))])),
+      [],
+      0,
+    )
+  let receiver_snapshot =
+    tree_kernel.snapshot_from_parts(view_id, note, data, history_snapshot)
+    |> expect.to_be_ok()
+  let receiver =
+    tree_kernel.restore(receiver_snapshot, view_id, receiver_session, view)
+    |> expect.to_be_ok()
+  let sender_snapshot =
+    tree_kernel.snapshot_from_parts(
+      view_id,
+      score,
+      data,
+      history.inspect(history.new(sender_session)).sequenced,
+    )
+    |> expect.to_be_ok()
+  let sender =
+    tree_kernel.restore(sender_snapshot, view_id, sender_session, sender_view)
+    |> expect.to_be_ok()
+  let assert Ok(#(sender, Some(commit), _, sender_compressor)) =
+    tree_runtime.author_edit(
+      sender,
+      SetField(["score"], NumberValue(9.0)),
+      sender_compressor,
+    )
+  let wire =
+    tree_runtime.encode_commit(commit, sender, sender_compressor)
+    |> expect.to_be_ok()
+  let #(sender_compressor, range) =
+    fluid_ids.take_creation_range(sender_compressor)
+  let assert Some(range) = range
+  let receiver_compressor =
+    fluid_ids.finalize(fluid_ids.new(receiver_session), range)
+    |> expect.to_be_ok()
+  let assert Ok(#(decoded, _)) =
+    tree_runtime.decode_sequenced_message(
+      json.to_string(wire),
+      receiver,
+      0,
+      receiver_compressor,
+    )
+  let assert Ok(#(received, _, _)) =
+    tree_runtime.receive_commit(
+      receiver,
+      decoded,
+      SequencePoint(3, 0),
+      0,
+      0,
+      receiver_compressor,
+    )
+  let assert [_, _, rebased] =
+    tree_kernel.history_view(received).sequenced.trunk
+  shared_change.to_changes(rebased.commit.change) |> expect.to_equal([])
+  let _ = sender_compressor
   Nil
 }
 

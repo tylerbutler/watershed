@@ -20,6 +20,7 @@ import watershed/tree/codec
 import watershed/tree/codec/field_batch
 import watershed/tree/codec/summary
 import watershed/tree/forest
+import watershed/tree/schema
 import watershed/tree/sequence_field
 import watershed/tree/shared_change
 import watershed/tree/summary as tree_summary
@@ -514,6 +515,7 @@ fn build_artifact(
   use initial <- result.try(summary_state(summaries, "initial"))
   use note <- result.try(summary_state(message_bases, "optional"))
   use settled <- result.try(summary_state(summaries, "settled-detached"))
+  use schema_history_items <- result.try(schema_history_summaries(initial))
   use message_items <- result.try(native_messages(initial, note))
   use map_message <- result.try(native_message(
     "message-map-set",
@@ -533,6 +535,7 @@ fn build_artifact(
       batch_items,
       message_items,
       summary_items,
+      schema_history_items,
       [authored_summary, restored_summary, map_message, map_summary],
       array_items,
     ])
@@ -1165,6 +1168,225 @@ fn array_peer_summary_item(
 ) -> Result(Json, String) {
   let #(_, encoded, session, compressor) = source
   array_summary_item(#("peer-history", encoded, session, compressor))
+}
+
+fn schema_history_summaries(
+  initial: InitialState,
+) -> Result(List(Json), String) {
+  let InitialState(base, session, compressor) = initial
+  let summary.TreeSummaryData(
+    fixed,
+    forest_summary,
+    detached,
+    summary.EditManagerSummary(trunk, branches),
+  ) = base
+  use initial_commit <- result.try(
+    list.first(trunk)
+    |> result.map_error(fn(_) { "initial summary has no trunk commit" }),
+  )
+  let summary.SummaryCommit(
+    codec.WireCommit(revision: initial_revision, ..),
+    ..,
+  ) = initial_commit
+  use caption_schema <- result.try(add_optional_caption(fixed))
+  use details_schema <- result.try(add_optional_details(caption_schema))
+  use #(compressor, upgrade_local) <- result.try(
+    fluid_ids.generate(compressor) |> result.map_error(string.inspect),
+  )
+  use #(compressor, peer_local) <- result.try(
+    fluid_ids.generate(compressor) |> result.map_error(string.inspect),
+  )
+  use #(compressor, tail_local) <- result.try(
+    fluid_ids.generate(compressor) |> result.map_error(string.inspect),
+  )
+  let #(compressor, range) = fluid_ids.take_creation_range(compressor)
+  use range <- result.try(case range {
+    Some(range) -> Ok(range)
+    None -> Error("schema history summaries generated no allocation range")
+  })
+  use compressor <- result.try(
+    fluid_ids.finalize(compressor, range)
+    |> result.map_error(string.inspect),
+  )
+  use upgrade_revision <- result.try(
+    fluid_ids.decompress(compressor, upgrade_local)
+    |> result.map_error(string.inspect),
+  )
+  use peer_revision <- result.try(
+    fluid_ids.decompress(compressor, peer_local)
+    |> result.map_error(string.inspect),
+  )
+  use tail_revision <- result.try(
+    fluid_ids.decompress(compressor, tail_local)
+    |> result.map_error(string.inspect),
+  )
+  use root <- result.try(summary_root(base))
+  use peer_forest <- result.try(
+    forest.new(peer_revision, fixed, Some(root)) |> native,
+  )
+  use order <- result.try(
+    codec.identity_order([peer_revision], compressor, "schema peer summary")
+    |> native,
+  )
+  use peer_change <- result.try(
+    change.edit(
+      fixed,
+      peer_forest,
+      peer_revision,
+      SetField(["title"], StringValue("peer-before-upgrade")),
+      order,
+    )
+    |> native,
+  )
+  let upgrade =
+    summary.SummaryCommit(
+      codec.WireCommit(
+        upgrade_revision,
+        session,
+        [
+          shared_change.SchemaChange(
+            schema.FixedSchema(fixed),
+            schema.FixedSchema(caption_schema),
+            False,
+          ),
+        ],
+        None,
+      ),
+      Some(4),
+      None,
+    )
+  let peer =
+    summary.PeerBranch(session, summary.StableRevision(initial_revision), [
+      summary.SummaryCommit(
+        codec.WireCommit(
+          peer_revision,
+          session,
+          [shared_change.DataChange(peer_change)],
+          None,
+        ),
+        None,
+        None,
+      ),
+    ])
+  let peer_summary =
+    summary.TreeSummaryData(
+      caption_schema,
+      forest_summary,
+      detached,
+      summary.EditManagerSummary(list.append(trunk, [upgrade]), [
+        peer,
+        ..branches
+      ]),
+    )
+  let caption_upgrade =
+    summary.SummaryCommit(
+      codec.WireCommit(
+        upgrade_revision,
+        session,
+        [
+          shared_change.SchemaChange(
+            schema.FixedSchema(fixed),
+            schema.FixedSchema(caption_schema),
+            False,
+          ),
+        ],
+        None,
+      ),
+      Some(4),
+      None,
+    )
+  let details_tail =
+    summary.SummaryCommit(
+      codec.WireCommit(
+        tail_revision,
+        session,
+        [
+          shared_change.SchemaChange(
+            schema.FixedSchema(caption_schema),
+            schema.FixedSchema(details_schema),
+            False,
+          ),
+        ],
+        None,
+      ),
+      Some(6),
+      None,
+    )
+  let tail_summary =
+    summary.TreeSummaryData(
+      details_schema,
+      forest_summary,
+      detached,
+      summary.EditManagerSummary(
+        list.append(trunk, [caption_upgrade, details_tail]),
+        branches,
+      ),
+    )
+  use peer_item <- result.try(native_summary_item(
+    "summary-schema-peer-before-upgrade",
+    peer_summary,
+    session,
+    compressor,
+  ))
+  use tail_item <- result.try(native_summary_item(
+    "summary-schema-upgrade-tail",
+    tail_summary,
+    session,
+    compressor,
+  ))
+  Ok([peer_item, tail_item])
+}
+
+fn add_optional_caption(
+  stored: schema.StoredSchema,
+) -> Result(schema.StoredSchema, String) {
+  stored
+  |> schema.stored_to_json
+  |> json.to_string
+  |> string.replace(
+    "\"enabled\":",
+    "\"caption\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"enabled\":",
+  )
+  |> schema.stored_from_string
+  |> result.map_error(string.inspect)
+}
+
+fn add_optional_details(
+  stored: schema.StoredSchema,
+) -> Result(schema.StoredSchema, String) {
+  stored
+  |> schema.stored_to_json
+  |> json.to_string
+  |> string.replace(
+    "\"enabled\":",
+    "\"details\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"enabled\":",
+  )
+  |> schema.stored_from_string
+  |> result.map_error(string.inspect)
+}
+
+fn native_summary_item(
+  id: String,
+  value: summary.TreeSummaryData,
+  session: fluid_ids.SessionId,
+  compressor: fluid_ids.Compressor,
+) -> Result(Json, String) {
+  use encoded <- result.try(
+    summary.encode(
+      value,
+      session,
+      codec.EncodeContext(codec.Fluid310, compressor, Some(value.schema)),
+    )
+    |> native,
+  )
+  use serialized <- result.try(serialize_compressor(compressor, False))
+  Ok(
+    item(id, "summary", summary_json(encoded), [
+      #("compressor", json.string(serialized)),
+      #("compressorMode", json.string("summary")),
+      #("session", json.string(native_summary_consumer_session)),
+    ]),
+  )
 }
 
 fn restored_summary_item(

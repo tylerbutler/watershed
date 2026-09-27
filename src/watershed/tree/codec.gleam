@@ -89,12 +89,38 @@ type SchemaContext {
   KnownSchema(schema.SchemaState)
 }
 
+/// Read the author of one Message V7 envelope without decoding its changes.
+pub fn decode_message_originator(
+  raw: String,
+) -> Result(fluid_ids.SessionId, TreeError) {
+  use value <- result.try(
+    json_ot.parse_json(raw)
+    |> result.map_error(fn(_) {
+      CorruptData("message", "message is not valid JSON")
+    }),
+  )
+  use members <- result.try(object(value, "message"))
+  use originator_value <- result.try(required(
+    members,
+    "originatorId",
+    "message.originatorId",
+  ))
+  use originator_raw <- result.try(text(
+    originator_value,
+    "message.originatorId",
+  ))
+  fluid_ids.session_id(originator_raw)
+  |> result.map_error(fn(error) {
+    CorruptData("message.originatorId", string.inspect(error))
+  })
+}
+
 /// Decode one Message V7 commit envelope.
 pub fn decode_message(
   raw: String,
   context: DecodeContext,
 ) -> Result(TreeMessage, TreeError) {
-  decode_message_value(raw, context, None)
+  decode_message_value(raw, context, UnknownSchema)
 }
 
 /// Decode one Message V7 commit envelope with its active stored schema.
@@ -103,13 +129,22 @@ pub fn decode_message_with_schema(
   context: DecodeContext,
   stored: schema.StoredSchema,
 ) -> Result(TreeMessage, TreeError) {
-  decode_message_value(raw, context, Some(stored))
+  decode_message_value(raw, context, KnownSchema(schema.FixedSchema(stored)))
+}
+
+/// Decode one Message V7 commit envelope with its active schema state.
+pub fn decode_message_with_schema_state(
+  raw: String,
+  context: DecodeContext,
+  stored: schema.SchemaState,
+) -> Result(TreeMessage, TreeError) {
+  decode_message_value(raw, context, KnownSchema(stored))
 }
 
 fn decode_message_value(
   raw: String,
   context: DecodeContext,
-  stored: Option(schema.StoredSchema),
+  stored: SchemaContext,
 ) -> Result(TreeMessage, TreeError) {
   use value <- result.try(
     json_ot.parse_json(raw)
@@ -160,10 +195,7 @@ fn decode_message_value(
     changeset,
     context,
     ChangeContext(originator, Some(revision), Message),
-    case stored {
-      Some(stored) -> KnownSchema(schema.FixedSchema(stored))
-      None -> UnknownSchema
-    },
+    stored,
     "message.changeset",
   ))
   use custom_metadata <- result.try(case optional(members, "customMetadata") {

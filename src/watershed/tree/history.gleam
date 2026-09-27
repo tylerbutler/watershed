@@ -1088,6 +1088,69 @@ fn reference_base(
   )
 }
 
+pub fn authoring_commits(
+  state: History,
+  originator: fluid_ids.SessionId,
+  reference_sequence_number: Int,
+) -> Result(List(Commit), TreeError) {
+  use reference <- result.try(reference_base(state, reference_sequence_number))
+  case peer_state(state.peers, originator) {
+    None -> commits_through_base(state.trunk, reference)
+    Some(peer) -> {
+      use target_path <- result.try(commits_after_base(state.trunk, peer.base))
+      use up_to_index <- result.try(branch_base_index(
+        target_path,
+        peer.base,
+        reference,
+      ))
+      let matched_index = case up_to_index {
+        -1 -> -1
+        _ ->
+          advanced_base_index(
+            list.drop(target_path, up_to_index + 1),
+            peer.commits,
+            up_to_index,
+            up_to_index + 1,
+            up_to_index,
+          )
+      }
+      let new_base = case item_at(target_path, matched_index) {
+        Some(commit) -> Revision(commit.commit.revision)
+        None -> peer.base
+      }
+      let target_commits =
+        target_path
+        |> list.take(matched_index + 1)
+        |> list.map(fn(entry) { entry.commit })
+      let source =
+        peer.commits
+        |> list.filter(fn(commit) {
+          !contains_revision(target_commits, commit.commit.revision)
+        })
+      case remove_common_prefix(peer.commits, target_commits) {
+        [] -> {
+          use ancestry <- result.try(commits_through_base(state.trunk, new_base))
+          Ok(list.append(
+            ancestry,
+            list.map(source, fn(commit) { commit.commit }),
+          ))
+        }
+        _ -> commits_through_base(state.trunk, reference)
+      }
+    }
+  }
+}
+
+fn commits_through_base(
+  trunk: List(SequencedCommit),
+  base: BranchBase,
+) -> Result(List(Commit), TreeError) {
+  case base {
+    Sentinel -> Ok([])
+    Revision(revision) -> commits_through_revision(trunk, revision)
+  }
+}
+
 fn compose_optional(
   tagged: List(shared_change.TaggedChange),
 ) -> Result(Option(shared_change.Changeset), TreeError) {
@@ -1329,7 +1392,7 @@ pub fn restore(
     receipts: list.map(snapshot.trunk, fn(entry) {
       RetainedReceipt(
         entry.commit.revision,
-        Some(entry.commit),
+        Some(authored_receipt_commit(snapshot.peers, entry.commit)),
         entry.point,
         None,
         None,
@@ -1339,6 +1402,13 @@ pub fn restore(
     sequence_number: snapshot.sequence_number,
     minimum_sequence_number: snapshot.minimum_sequence_number,
   ))
+}
+
+fn authored_receipt_commit(peers: List(PeerBranch), trunk: Commit) -> Commit {
+  peers
+  |> list.flat_map(fn(peer) { peer.commits })
+  |> list.find(fn(commit) { commit.revision == trunk.revision })
+  |> result.unwrap(trunk)
 }
 
 fn restore_peers(

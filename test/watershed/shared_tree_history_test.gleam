@@ -4,7 +4,7 @@ import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
 import watershed/fluid_ids
-import watershed/json_ot
+import watershed/json_ot.{type JsonValue, VArray, VObject}
 import watershed/tree/change
 import watershed/tree/fixtures
 import watershed/tree/forest
@@ -258,6 +258,67 @@ pub fn shared_tree_history_scenario_ids_do_not_change_observations_test() -> Nil
     "schema-schema-right-first",
     "renamed-schema-schema-right-first",
   )
+}
+
+pub fn shared_tree_history_summary_tail_mutation_changes_continuation_test() -> Nil {
+  let assert Ok(fixture) = fixtures.load("schema-evolution-history")
+  let original = run_history(fixture.input)
+  let changed =
+    fixture.input
+    |> json.to_string
+    |> string.replace("\"value\":\"tail\"", "\"value\":\"changed-tail\"")
+  let assert Ok(changed) = json.parse(changed, json_ot.decoder())
+  let mutated = run_history(json_ot.to_json(changed))
+  observation_field(original, "summary-upgrade-plus-tail", "continuation")
+  |> expect.to_not_equal(observation_field(
+    mutated,
+    "summary-upgrade-plus-tail",
+    "continuation",
+  ))
+}
+
+pub fn shared_tree_history_decode_mutation_changes_historical_decode_test() -> Nil {
+  let assert Ok(fixture) = fixtures.load("schema-evolution-history")
+  let original = run_history(fixture.input)
+  let changed =
+    fixture.input
+    |> json.to_string
+    |> string.replace(
+      "\"value\":\"historical\"",
+      "\"value\":\"changed-historical\"",
+    )
+  let assert Ok(changed) = json.parse(changed, json_ot.decoder())
+  let mutated = run_history(json_ot.to_json(changed))
+  observation_field(
+    original,
+    "historical-peer-schema-context",
+    "historicalDecode",
+  )
+  |> expect.to_not_equal(observation_field(
+    mutated,
+    "historical-peer-schema-context",
+    "historicalDecode",
+  ))
+}
+
+fn observation_field(
+  output: json.Json,
+  id: String,
+  field: String,
+) -> JsonValue {
+  let assert Ok(VObject(root)) =
+    json.parse(json.to_string(output), json_ot.decoder())
+  let assert Ok(VArray(observations)) = list.key_find(root, "observations")
+  let assert Ok(VObject(observation)) =
+    list.find(observations, fn(value) {
+      case value {
+        VObject(fields) ->
+          list.key_find(fields, "id") == Ok(json_ot.VString(id))
+        _ -> False
+      }
+    })
+  let assert Ok(value) = list.key_find(observation, field)
+  value
 }
 
 fn assert_history_scenario_rename(
@@ -683,6 +744,55 @@ pub fn shared_tree_history_replay_retains_muted_trunk_content_test() -> Nil {
   let assert [_, first_replay, second_replay] = snapshot.trunk
   first_replay.commit.change |> expect.to_equal(second_replay.commit.change)
   history.restore(snapshot, local_session()) |> expect.to_be_ok
+  Nil
+}
+
+pub fn shared_tree_history_restore_authenticates_muted_schema_replay_test() -> Nil {
+  let base = stored_schema()
+  let assert Ok(optional) = schema.stored_from_string(optional_schema)
+  let assert Ok(score) = schema.stored_from_string(score_schema)
+  let competing = schema_commit(revision_a(), peer_session(), base, optional)
+  let replayed = schema_commit(revision_b(), other_peer_session(), base, score)
+  let assert Ok(order) =
+    change.identity_order([
+      #(revision_a(), -3),
+      #(revision_b(), -2),
+      #(revision_r(), -1),
+    ])
+  let allocation = Allocation([revision_r()], order, 0)
+  let assert Ok(#(first, allocation)) =
+    history.receive(
+      history.new(local_session()),
+      competing,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      allocation,
+      mint,
+    )
+  let assert Ok(#(muted, allocation)) =
+    history.receive(
+      first.history,
+      replayed,
+      types.SequencePoint(2, 0),
+      0,
+      0,
+      allocation,
+      mint,
+    )
+  let assert Ok(snapshot) = history.snapshot(muted.history)
+  let assert Ok(restored) = history.restore(snapshot, local_session())
+
+  history.receive(
+    restored,
+    replayed,
+    types.SequencePoint(3, 0),
+    2,
+    0,
+    allocation,
+    mint,
+  )
+  |> expect.to_be_ok
   Nil
 }
 
