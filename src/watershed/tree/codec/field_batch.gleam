@@ -846,9 +846,9 @@ fn no_fields(
   fields: List(#(String, List(RawNode))),
   location: String,
 ) -> Result(Nil, TreeError) {
-  case fields {
-    [] -> Ok(Nil)
-    _ -> Error(CorruptData(location, "leaf node has fields"))
+  case list.all(fields, fn(field) { list.is_empty(field.1) }) {
+    True -> Ok(Nil)
+    False -> Error(CorruptData(location, "leaf node has fields"))
   }
 }
 

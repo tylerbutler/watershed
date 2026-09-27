@@ -420,6 +420,68 @@ pub fn shared_tree_codec_field_batch_decodes_omitted_empty_array_field_test() {
   |> expect.to_equal(Ok([[ArrayValue(array_type, [])]]))
 }
 
+pub fn shared_tree_codec_field_batch_accepts_empty_leaf_fields_test() {
+  let encoded =
+    json.object([
+      #("version", json.int(2)),
+      #("identifiers", json.array([], fn(value) { value })),
+      #(
+        "shapes",
+        json.array(
+          [
+            json.object([
+              #(
+                "c",
+                json.object([
+                  #("type", json.string("com.fluidframework.leaf.string")),
+                  #("value", json.bool(True)),
+                  #(
+                    "fields",
+                    json.array(
+                      [
+                        json.array(
+                          [json.string("empty"), json.int(1)],
+                          fn(value) { value },
+                        ),
+                      ],
+                      fn(value) { value },
+                    ),
+                  ),
+                ]),
+              ),
+            ]),
+            json.object([#("a", json.int(2))]),
+            json.object([
+              #(
+                "c",
+                json.object([
+                  #("type", json.string("com.fluidframework.leaf.string")),
+                  #("value", json.bool(True)),
+                ]),
+              ),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
+      #(
+        "data",
+        json.array(
+          [
+            stream([
+              json.int(0),
+              json.string("value"),
+              stream([]),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
+    ])
+  field_batch.decode(encoded)
+  |> expect.to_equal(Ok([[StringValue("value")]]))
+}
+
 pub fn shared_tree_codec_field_batch_accepts_finite_recursive_shape_test() {
   let encoded =
     encoded_batch(
