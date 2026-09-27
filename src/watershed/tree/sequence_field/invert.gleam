@@ -382,7 +382,12 @@ fn apply_moved_children(
   case length < mark.count {
     True -> {
       use #(first, second) <- result.try(sequence_field.split_mark(mark, length))
-      let first = with_inverted_child(first, effect)
+      use #(first, context) <- result.try(apply_inverted_child(
+        first,
+        effect,
+        field,
+        context,
+      ))
       use #(rest, context) <- result.try(apply_moved_children(
         second,
         sequence_field.offset_atom(original_id, length),
@@ -391,18 +396,30 @@ fn apply_moved_children(
       ))
       Ok(#([first, ..rest], context))
     }
-    False -> Ok(#([with_inverted_child(mark, effect)], context))
+    False -> {
+      use #(mark, context) <- result.try(apply_inverted_child(
+        mark,
+        effect,
+        field,
+        context,
+      ))
+      Ok(#([mark], context))
+    }
   }
 }
 
-fn with_inverted_child(
+fn apply_inverted_child(
   mark: sequence_field.Mark,
   effect: Option(moves.Effect),
-) -> sequence_field.Mark {
+  field: moves.FieldId,
+  context: moves.Context,
+) -> Result(#(sequence_field.Mark, moves.Context), TreeError) {
   case effect {
-    Some(moves.InvertedChild(child)) ->
-      sequence_field.Mark(..mark, child: Some(child))
-    _ -> mark
+    Some(moves.InvertedChild(child)) -> {
+      use context <- result.try(moves.on_move_in(context, child, field))
+      Ok(#(sequence_field.Mark(..mark, child: Some(child)), context))
+    }
+    _ -> Ok(#(mark, context))
   }
 }
 

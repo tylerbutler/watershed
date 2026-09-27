@@ -88,7 +88,7 @@ const scenarioIds = {
 		"sequence-tombstone-rebase", "nested-ancestors",
 		"common-ancestors", "cross-field-endpoints", "nested-cross-field-endpoints",
 		"nested-aliased-chain", "nested-outer-effects", "nested-aliased-conversion-retry",
-		"sequence-ancestor-rebase",
+		"multi-revision-inversion-retry", "sequence-ancestor-rebase",
 		"node-table", "parent-table", "alias-table",
 		"ownership-roundtrip",
 	],
@@ -2399,6 +2399,80 @@ async function makeCases() {
 	retrySecond.parents.push([atom(r6, 162), parent("convert", atom(r6, 61))]);
 	retrySecond.maxLocalId = 162;
 	nestedAliasedConversionRetry.allocator.maxLocalId = 163;
+	const multiRevisionInverse = emptyChange(r0, [
+		["left0", sequence([{
+			type: "MoveIn",
+			id: 10,
+			count: 1,
+			cellId: atom(r0, 12),
+			revision: Number(r0),
+		}])],
+		["right0", sequence([{
+			type: "MoveOut",
+			id: 10,
+			count: 1,
+			revision: Number(r0),
+			changes: atom(r0, 30),
+		}])],
+		["left1", sequence([{
+			type: "MoveIn",
+			id: 10,
+			count: 1,
+			cellId: atom(r1, 12),
+			revision: Number(r1),
+		}])],
+		["right1", sequence([{
+			type: "MoveOut",
+			id: 10,
+			count: 1,
+			revision: Number(r1),
+			changes: atom(r1, 30),
+		}])],
+	], {
+		maxLocalId: 30,
+		nodes: [
+			[atom(r0, 30), { fields: [] }],
+			[atom(r1, 30), { fields: [] }],
+		],
+		parents: [
+			[atom(r0, 30), parent("right0")],
+			[atom(r1, 30), parent("right1")],
+		],
+		crossFieldKeys: [
+			{
+				target: "source",
+				revision: Number(r1),
+				localId: 10,
+				count: 1,
+				field: parent("right1"),
+			},
+			{
+				target: "source",
+				revision: Number(r0),
+				localId: 10,
+				count: 1,
+				field: parent("right0"),
+			},
+			{
+				target: "destination",
+				revision: Number(r1),
+				localId: 10,
+				count: 1,
+				field: parent("left1"),
+			},
+			{
+				target: "destination",
+				revision: Number(r0),
+				localId: 10,
+				count: 1,
+				field: parent("left0"),
+			},
+		],
+	});
+	multiRevisionInverse.revisions.push({
+		revision: Number(r1),
+		rollbackOf: null,
+	});
 	const sequenceAncestorAuthored = emptyChange(r7, [["outer", sequence([
 		{ count: 1, changes: atom(r7, 80) },
 	])]], {
@@ -2564,6 +2638,14 @@ async function makeCases() {
 		"nested-outer-effects": nestedOuterEffects as unknown as Record<string, unknown>,
 		"nested-aliased-conversion-retry":
 			nestedAliasedConversionRetry as unknown as Record<string, unknown>,
+		"multi-revision-inversion-retry": replayContext(
+			"invert",
+			[tagged(r0, multiRevisionInverse)],
+			{
+				isRollback: false,
+				inverseRevision: Number(r5),
+			},
+		),
 		"sequence-ancestor-rebase": replayContext(
 			"rebase",
 			[tagged(r7, sequenceAncestorAuthored), tagged(r8, sequenceAncestorBase)],
@@ -2818,6 +2900,7 @@ async function makeCases() {
 		}
 		if (id === "nested-aliased-conversion-retry") {
 			const graph = Reflect.get(outputRecord, "graph") as {
+				maxLocalId: number;
 				nodes: [ReturnType<typeof atom>, unknown][];
 				parents: [ReturnType<typeof atom>, unknown][];
 				aliases: [ReturnType<typeof atom>, ReturnType<typeof atom>][];
@@ -2867,6 +2950,55 @@ async function makeCases() {
 					"Retry must not duplicate identity or ownership records.",
 				);
 			}
+		}
+		if (id === "multi-revision-inversion-retry") {
+			const graph = Reflect.get(outputRecord, "graph") as {
+				maxLocalId: number;
+				nodes: [ReturnType<typeof atom>, unknown][];
+				parents: [ReturnType<typeof atom>, unknown][];
+				aliases: [ReturnType<typeof atom>, ReturnType<typeof atom>][];
+				crossFieldKeys: unknown[];
+			};
+			assert.deepEqual(
+				rawOutput.coordination.handlerCalls.map(({ field }) => [
+					field.node?.localId,
+					field.field,
+				]),
+				[
+					[undefined, "left0"],
+					[undefined, "right0"],
+					[undefined, "left1"],
+					[undefined, "right1"],
+					[undefined, "left0"],
+					[undefined, "left1"],
+				],
+				"Inversion must retry both destinations after processing their sources.",
+			);
+			assert.deepEqual(
+				graph.aliases,
+				[],
+				"Inversion must encode reserved IDs directly without synthetic node aliases.",
+			);
+			assert.equal(
+				graph.nodes.filter(([id]) => id.localId === 30).length,
+				2,
+				"Retry must preserve one child node record per original revision.",
+			);
+			assert.equal(
+				graph.parents.filter(([id]) => id.localId === 30).length,
+				2,
+				"Retry must preserve one child parent record per original revision.",
+			);
+			assert.equal(
+				new Set(graph.crossFieldKeys.map((entry) => JSON.stringify(entry))).size,
+				graph.crossFieldKeys.length,
+				"Retry must preserve unique ownership records.",
+			);
+			assert.equal(
+				graph.maxLocalId,
+				61,
+				"Two original revisions with local ID 10 must reserve through 61.",
+			);
 		}
 		if (id === "sequence-ancestor-rebase") {
 			const graph = Reflect.get(outputRecord, "graph") as {
