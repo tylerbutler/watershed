@@ -604,25 +604,29 @@ fn rewind_history_schema(
   stored: HistorySchemaContext,
   location: String,
 ) -> Result(HistorySchemaContext, TreeError) {
-  list.try_fold(list.reverse(commits), stored, fn(stored, commit) {
-    let SummaryCommit(codec.WireCommit(changes: changes, ..), _, _) = commit
-    list.try_fold(list.reverse(changes), stored, fn(stored, item) {
-      case item {
-        shared_change.DataChange(_) -> Ok(stored)
-        shared_change.SchemaChange(before, after, _) ->
-          case stored {
-            UnknownHistorySchema -> Ok(UnknownHistorySchema)
-            KnownHistorySchema(current) if current == after ->
-              Ok(KnownHistorySchema(before))
-            KnownHistorySchema(_) ->
-              Error(CorruptData(
-                location,
-                "schema history does not reach the summary schema",
-              ))
-          }
-      }
-    })
-  })
+  list.try_fold(
+    list.reverse(unique_summary_commits(commits)),
+    stored,
+    fn(stored, commit) {
+      let SummaryCommit(codec.WireCommit(changes: changes, ..), _, _) = commit
+      list.try_fold(list.reverse(changes), stored, fn(stored, item) {
+        case item {
+          shared_change.DataChange(_) -> Ok(stored)
+          shared_change.SchemaChange(before, after, _) ->
+            case stored {
+              UnknownHistorySchema -> Ok(UnknownHistorySchema)
+              KnownHistorySchema(current) if current == after ->
+                Ok(KnownHistorySchema(before))
+              KnownHistorySchema(_) ->
+                Error(CorruptData(
+                  location,
+                  "schema history does not reach the summary schema",
+                ))
+            }
+        }
+      })
+    },
+  )
 }
 
 fn commit_schema_contexts(
@@ -630,15 +634,30 @@ fn commit_schema_contexts(
   initial: HistorySchemaContext,
   location: String,
 ) -> Result(List(#(fluid_ids.StableId, HistorySchemaContext)), TreeError) {
-  use #(contexts, _) <- result.try(
-    list.try_fold(commits, #([], initial), fn(state, commit) {
+  use #(contexts, _, _) <- result.try(
+    list.try_fold(commits, #([], initial, []), fn(state, commit) {
       let SummaryCommit(codec.WireCommit(revision, _, changes, _), _, _) =
         commit
-      use next <- result.try(advance_history_schema(state.1, changes, location))
-      Ok(#([#(revision, next), ..state.0], next))
+      use next <- result.try(case list.contains(state.2, revision) {
+        True -> Ok(state.1)
+        False -> advance_history_schema(state.1, changes, location)
+      })
+      Ok(#([#(revision, next), ..state.0], next, [revision, ..state.2]))
     }),
   )
   Ok(list.reverse(contexts))
+}
+
+fn unique_summary_commits(commits: List(SummaryCommit)) -> List(SummaryCommit) {
+  commits
+  |> list.fold(#([], []), fn(state, commit) {
+    let SummaryCommit(codec.WireCommit(revision, _, _, _), _, _) = commit
+    case list.contains(state.1, revision) {
+      True -> state
+      False -> #([commit, ..state.0], [revision, ..state.1])
+    }
+  })
+  |> fn(state) { list.reverse(state.0) }
 }
 
 fn advance_history_schema(

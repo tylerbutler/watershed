@@ -71,16 +71,26 @@ pub fn decode_sequenced_message(
   reference_sequence_number: Int,
   compressor: fluid_ids.Compressor,
 ) -> Result(#(history.Commit, codec.TreeMessage), TreeError) {
-  use originator <- result.try(codec.decode_message_originator(raw))
+  let context = codec.DecodeContext(codec.Fluid310, compressor)
+  use #(originator, revision) <- result.try(codec.decode_message_identity(
+    raw,
+    context,
+  ))
   use stored <- result.try(tree_kernel.authoring_schema(
     state,
     originator,
     reference_sequence_number,
+    revision,
+  ))
+  use structural <- result.try(codec.decode_message(raw, context))
+  use final_schema <- result.try(tree_kernel.advance_authoring_schema(
+    stored,
+    structural.commit.changes,
   ))
   use message <- result.try(codec.decode_message_with_schema_state(
     raw,
-    codec.DecodeContext(codec.Fluid310, compressor),
-    stored,
+    context,
+    final_schema,
   ))
   use commit <- result.try(wire_to_commit(message.commit))
   use _ <- result.try(identity_order(state, commit, compressor))

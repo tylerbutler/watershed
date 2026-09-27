@@ -151,3 +151,84 @@ The mutation tests and native load/replay paths guard against this becoming
 captured-value substitution. Summaries also still omit original transport
 reference and minimum sequence numbers, so restored authentication covers
 semantic commit content rather than unavailable transport metadata.
+
+## Fix round 2
+
+### Result
+
+Sequenced decoding now reads the message revision before selecting schema
+context. Remote messages still reconstruct context from their reference point
+and retained peer branch. Local acknowledgments instead reconstruct the local
+authored branch up to, but not including, the acknowledged revision. This
+preserves an acknowledged schema upgrade for a later same-reference data
+acknowledgment that uses a newly introduced node type.
+
+Schema reconstruction now applies each revision once while retaining every
+sequenced occurrence. A replayed duplicate schema commit can therefore keep
+its later sequence point without rewinding or advancing the same semantic
+transition twice. The same rule is used by runtime authoring context and
+summary history encoding and decoding.
+
+The history fixture now stores the encoded summary entry and restores it
+through `summary.decode`, `tree_summary.from_wire`, and `runtime.restore`.
+Tail replay decodes the captured message bytes before delivery to the restored
+tree. Historical decoded changes are compared as canonical semantic change
+types and payload values. Summary comparison now retains canonical schema and
+EditManager history instead of reducing the summary to its entry type.
+
+### RED
+
+- `shared_tree_bridge_decodes_after_duplicate_schema_replay_test` failed with
+  `schema history does not reach the sequenced schema`.
+- `shared_tree_bridge_decodes_local_data_ack_after_same_reference_upgrade_test`
+  failed while decoding data that used the new `Extra` node type.
+- Routing every fixture delivery through the wire path exposed that ordinary
+  concurrent schema scenarios encode queued commits from later optimistic
+  state. The final fixture change confines mandatory wire decode to the
+  requested restored-summary tail path while preserving existing semantic
+  scheduling elsewhere.
+
+### GREEN
+
+- Erlang focused codec, summary, history, and runtime tests: 107 passed.
+- JavaScript focused codec, summary, history, and runtime tests: 107 passed.
+- Focused codec and summary interop tests: 23 passed.
+- Native summary artifact interop: four scenarios per target loaded; six
+  retained-history continuation checks passed.
+- `just shared-tree-codec-interop`: two targets, 20 items each passed pinned
+  upstream consumption.
+- `git diff --check` and direct `gleam format --check` passed.
+- The full oracle test command passed 216 of 217 tests. Its unrelated
+  missing-executable assertion received `EACCES` instead of the expected
+  `ENOENT` in this environment.
+
+### Files
+
+- `src/watershed/tree/codec.gleam`
+- `src/watershed/tree/codec/summary.gleam`
+- `src/watershed/tree/history.gleam`
+- `src/watershed/tree/runtime.gleam`
+- `src/watershed/tree_kernel.gleam`
+- `test/watershed/shared_tree_channel_test.gleam`
+- `test/watershed/tree/schema_evolution_fixture.gleam`
+
+### Self-review
+
+The duplicate handling changes only schema-context traversal; trunk entries and
+their sequence points remain intact for replay and retention. Local context
+uses original authored pending commits and stops before the target revision,
+while remote context continues to use peer/reference reconstruction. The
+runtime first performs context-free structural decoding, then performs the
+schema-aware decode against the reconstructed authoring schema. The fixture
+keeps native and upstream field-batch representation differences out of the
+comparison but retains semantic change kinds, payload values, summary schema,
+history, roots, and mutation-sensitive bytes.
+
+### Concerns
+
+Sequenced messages are structurally decoded before their schema-aware decode,
+so this path performs two pure codec passes. This avoids guessing a final
+schema from optimistic receiver state and does not change the wire format.
+The full oracle suite still has the environment-specific `EACCES` versus
+`ENOENT` assertion described above; the focused interop suites and required
+codec gate pass.

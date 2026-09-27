@@ -243,8 +243,11 @@ pub fn authoring_schema(
   state: TreeState,
   originator: fluid_ids.SessionId,
   reference_sequence_number: Int,
+  revision: fluid_ids.StableId,
 ) -> Result(schema.SchemaState, TreeError) {
-  let trunk = history.inspect(state.history).sequenced.trunk
+  let trunk =
+    history.inspect(state.history).sequenced.trunk
+    |> unique_sequenced_commits
   use initial <- result.try(
     list.try_fold(
       list.reverse(trunk),
@@ -256,10 +259,35 @@ pub fn authoring_schema(
     state.history,
     originator,
     reference_sequence_number,
+    revision,
   ))
-  list.try_fold(commits, initial, fn(stored, commit) {
+  list.try_fold(unique_commits(commits), initial, fn(stored, commit) {
     advance_schema(stored, commit.change)
   })
+}
+
+fn unique_sequenced_commits(
+  commits: List(history.SequencedCommit),
+) -> List(history.SequencedCommit) {
+  commits
+  |> list.fold(#([], []), fn(state, commit) {
+    case list.contains(state.1, commit.commit.revision) {
+      True -> state
+      False -> #([commit, ..state.0], [commit.commit.revision, ..state.1])
+    }
+  })
+  |> fn(state) { list.reverse(state.0) }
+}
+
+fn unique_commits(commits: List(history.Commit)) -> List(history.Commit) {
+  commits
+  |> list.fold(#([], []), fn(state, commit) {
+    case list.contains(state.1, commit.revision) {
+      True -> state
+      False -> #([commit, ..state.0], [commit.revision, ..state.1])
+    }
+  })
+  |> fn(state) { list.reverse(state.0) }
 }
 
 fn rewind_schema(
@@ -302,6 +330,14 @@ fn advance_schema(
         }
     }
   })
+}
+
+pub fn advance_authoring_schema(
+  stored: schema.SchemaState,
+  changes: List(shared_change.TreeChange),
+) -> Result(schema.SchemaState, TreeError) {
+  use changeset <- result.try(shared_change.from_changes(changes))
+  advance_schema(stored, changeset)
 }
 
 pub fn identity_revisions(state: TreeState) -> List(fluid_ids.StableId) {

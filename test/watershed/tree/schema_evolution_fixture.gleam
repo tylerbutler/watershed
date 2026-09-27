@@ -199,7 +199,9 @@ type HistoryDriver {
     identities: Json,
     catalog: dict.Dict(String, schema.StoredSchema),
     extras: List(#(String, Json)),
-    summary: Option(tree_kernel.TreeSnapshot),
+    summary: Option(
+      #(fluid_summary.SummaryEntry, fluid_ids.SessionId, Int, Int),
+    ),
   )
 }
 
@@ -645,9 +647,10 @@ fn history_decode_projection(value: JsonValue) -> JsonValue {
     VObject(fields) ->
       VObject(
         fields
-        |> list.filter(fn(entry) { entry.0 != "decoded" })
         |> list.map(fn(entry) {
           #(entry.0, case entry.0, entry.1 {
+            "decoded", decoded_change_projection ->
+              history_semantic_change_projection(decoded_change_projection)
             "envelope", VObject(envelope) ->
               VObject(
                 envelope
@@ -655,7 +658,13 @@ fn history_decode_projection(value: JsonValue) -> JsonValue {
                   #(member.0, case member.0, member.1 {
                     "commit", VObject(commit) ->
                       VObject(
-                        list.filter(commit, fn(field) { field.0 != "change" }),
+                        list.map(commit, fn(field) {
+                          #(field.0, case field.0 {
+                            "change" ->
+                              history_semantic_change_projection(field.1)
+                            _ -> normalize_history_json(field.1)
+                          })
+                        }),
                       )
                     _, value -> normalize_history_json(value)
                   })
@@ -666,6 +675,53 @@ fn history_decode_projection(value: JsonValue) -> JsonValue {
         })
         |> list.sort(fn(left, right) { string.compare(left.0, right.0) }),
       )
+    _ -> normalize_history_json(value)
+  }
+}
+
+fn history_semantic_change_projection(value: JsonValue) -> JsonValue {
+  case value {
+    VObject(fields) ->
+      case list.key_find(fields, "changes") {
+        Ok(VArray(changes)) ->
+          VObject([
+            #(
+              "changes",
+              VArray(
+                list.map(changes, fn(change) {
+                  case change {
+                    VObject(fields) -> {
+                      let kind = list.key_find(fields, "type")
+                      let inner = list.key_find(fields, "innerChange")
+                      case kind, inner {
+                        Ok(VString("data")), Ok(inner) ->
+                          VObject([
+                            #("type", VString("data")),
+                            #(
+                              "values",
+                              VArray(
+                                history_semantic_strings(inner)
+                                |> list.sort(string.compare)
+                                |> list.map(VString),
+                              ),
+                            ),
+                          ])
+                        Ok(VString("schema")), Ok(inner) ->
+                          VObject([
+                            #("type", VString("schema")),
+                            #("schema", normalize_history_json(inner)),
+                          ])
+                        _, _ -> normalize_history_json(change)
+                      }
+                    }
+                    _ -> normalize_history_json(change)
+                  }
+                }),
+              ),
+            ),
+          ])
+        _ -> normalize_history_json(value)
+      }
     _ -> normalize_history_json(value)
   }
 }
@@ -702,14 +758,100 @@ fn history_field_batch_strings(value: JsonValue) -> List(String) {
 }
 
 fn history_summary_projection(value: JsonValue) -> JsonValue {
+  let schema =
+    summary_blob_at(value, [
+      "tree", "indexes", "tree", "Schema", "tree", "SchemaString", "content",
+    ])
+  let history =
+    summary_blob_at(value, [
+      "tree", "indexes", "tree", "EditManager", "tree", "String", "content",
+    ])
+  case schema, history {
+    Some(schema), Some(history) ->
+      VObject([
+        #("schema", parsed_projection(schema)),
+        #("history", summary_history_projection(parsed_projection(history))),
+      ])
+    _, _ -> normalize_history_json(value)
+  }
+}
+
+fn summary_blob_at(value: JsonValue, path: List(String)) -> Option(String) {
+  case path, value {
+    [], VString(value) -> Some(value)
+    [key, ..rest], VObject(fields) ->
+      case list.key_find(fields, key) {
+        Ok(next) -> summary_blob_at(next, rest)
+        Error(Nil) -> None
+      }
+    _, _ -> None
+  }
+}
+
+fn parsed_projection(raw: String) -> JsonValue {
+  case json.parse(raw, json_ot.decoder()) {
+    Ok(value) -> normalize_history_json(value)
+    Error(_) -> VString(raw)
+  }
+}
+
+fn summary_history_projection(value: JsonValue) -> JsonValue {
   case value {
     VObject(fields) ->
-      case list.key_find(fields, "type") {
-        Ok(kind) -> VObject([#("type", kind)])
-        Error(Nil) -> normalize_history_json(value)
-      }
+      VObject(
+        fields
+        |> list.map(fn(field) {
+          #(field.0, case field.0, field.1 {
+            "change", VArray(changes) ->
+              VArray(list.map(changes, wire_change_projection))
+            _, value -> summary_history_projection(value)
+          })
+        })
+        |> list.sort(fn(left, right) { string.compare(left.0, right.0) }),
+      )
+    VArray(values) -> VArray(list.map(values, summary_history_projection))
+    _ -> value
+  }
+}
+
+fn wire_change_projection(value: JsonValue) -> JsonValue {
+  case value {
+    VObject([#("data", data)]) ->
+      VObject([
+        #("type", VString("data")),
+        #(
+          "values",
+          VArray(
+            history_semantic_strings(data)
+            |> list.sort(string.compare)
+            |> list.map(VString),
+          ),
+        ),
+      ])
+    VObject([#("schema", schema)]) ->
+      VObject([
+        #("type", VString("schema")),
+        #("schema", normalize_history_json(schema)),
+      ])
     _ -> normalize_history_json(value)
   }
+}
+
+fn history_semantic_strings(value: JsonValue) -> List(String) {
+  history_field_batch_strings(value)
+  |> list.filter(fn(value) {
+    case fluid_ids.session_id(value) {
+      Ok(_) -> False
+      Error(_) ->
+        !list.contains(
+          [
+            "rootFieldKey", "ModularEditBuilder.Generic", "Generic", "Value",
+            "Map", "string", "title",
+          ],
+          value,
+        )
+    }
+  })
 }
 
 fn run_history_scenario(
@@ -1732,13 +1874,26 @@ fn capture_history_summary(
   use snapshot <- result.try(
     tree_kernel.snapshot(client.state) |> result.map_error(string.inspect),
   )
-  use encoded <- result.try(encode_history_summary(snapshot, client))
+  use encoded <- result.try(encode_history_summary_entry(snapshot, client))
+  use encoded_json <- result.try(history_summary_json(encoded))
   use before <- result.try(history_forest_json(client))
+  let #(_, _, retained) = tree_kernel.snapshot_parts(snapshot)
   Ok(
-    put_history_extras(HistoryDriver(..driver, summary: Some(snapshot)), [
-      #("_summary", encoded),
-      #("_summaryBefore", before),
-    ]),
+    put_history_extras(
+      HistoryDriver(
+        ..driver,
+        summary: Some(#(
+          encoded,
+          client.session,
+          retained.sequence_number,
+          retained.minimum_sequence_number,
+        )),
+      ),
+      [
+        #("_summary", encoded_json),
+        #("_summaryBefore", before),
+      ],
+    ),
   )
 }
 
@@ -1757,8 +1912,8 @@ fn load_history_summary(
   driver: HistoryDriver,
   index: Int,
 ) -> Result(HistoryDriver, String) {
-  use snapshot <- result.try(case driver.summary {
-    Some(snapshot) -> Ok(snapshot)
+  use captured <- result.try(case driver.summary {
+    Some(captured) -> Ok(captured)
     None -> Error("history summary is missing")
   })
   use target <- result.try(history_client(driver.clients, index))
@@ -1768,7 +1923,16 @@ fn load_history_summary(
       _ -> 0
     }),
   )
-  let #(stored, _, _) = tree_kernel.snapshot_parts(snapshot)
+  use decoded <- result.try(
+    summary_codec.decode(
+      captured.0,
+      None,
+      captured.1,
+      codec.DecodeContext(codec.Fluid310, loader.compressor),
+    )
+    |> result.map_error(string.inspect),
+  )
+  let summary_codec.TreeSummaryData(stored, _, _, _) = decoded
   use view <- result.try(
     schema.view_from_json(schema.stored_to_json(stored))
     |> result.map_error(string.inspect),
@@ -1776,6 +1940,16 @@ fn load_history_summary(
   use view_id <- result.try(
     local_stable_id(loader.session, 31)
     |> result.map_error(fn(detail) { "summary view revision: " <> detail }),
+  )
+  use snapshot <- result.try(
+    tree_summary.from_wire(
+      decoded,
+      view_id,
+      loader.compressor,
+      captured.2,
+      captured.3,
+    )
+    |> result.map_error(string.inspect),
   )
   use state <- result.try(
     runtime.restore(snapshot, view_id, view, loader.compressor)
@@ -1809,7 +1983,7 @@ fn load_history_summary(
 }
 
 fn replay_history_tail(driver: HistoryDriver) -> Result(HistoryDriver, String) {
-  use driver <- result.try(sequence_all(driver))
+  use driver <- result.try(sequence_tail_all(driver))
   use client <- result.try(history_client(driver.clients, 0))
   use root <- result.try(history_forest_json(client))
   use summary <- result.try(
@@ -1846,22 +2020,75 @@ fn replay_history_tail(driver: HistoryDriver) -> Result(HistoryDriver, String) {
   )
 }
 
-fn encode_history_summary(
+fn sequence_tail_all(driver: HistoryDriver) -> Result(HistoryDriver, String) {
+  case driver.queue, driver.points {
+    [], _ -> Ok(driver)
+    _, [] -> Error("history sequence metadata is exhausted")
+    [message, ..queue], [point, ..points] -> {
+      use clients <- result.try(advance_history_clients(
+        driver.clients,
+        point.point.sequence_number - 1,
+        point.minimum_sequence_number,
+      ))
+      use sender <- result.try(history_client(clients, message.sender))
+      use clients <- result.try(
+        clients
+        |> list.index_map(fn(client, index) { #(client, index) })
+        |> list.try_map(fn(entry) {
+          let #(client, index) = entry
+          case client.connected, client.paused, index {
+            False, _, _ -> Ok(client)
+            True, True, _ ->
+              Ok(
+                HistoryClient(
+                  ..client,
+                  backlog: list.append(client.backlog, [#(message, point)]),
+                ),
+              )
+            True, False, 0 -> {
+              use bytes <- result.try(history_wire_contents(
+                message.commit,
+                sender,
+              ))
+              use #(commit, _) <- result.try(
+                runtime.decode_sequenced_message(
+                  json.to_string(bytes),
+                  client.state,
+                  point.reference_sequence_number,
+                  client.compressor,
+                )
+                |> result.map_error(string.inspect),
+              )
+              receive_history_message(
+                client,
+                index,
+                HistoryMessage(message.sender, commit),
+                point,
+              )
+            }
+            True, False, _ ->
+              receive_history_message(client, index, message, point)
+          }
+        }),
+      )
+      sequence_tail_all(HistoryDriver(..driver, clients:, queue:, points:))
+    }
+  }
+}
+
+fn encode_history_summary_entry(
   snapshot: tree_kernel.TreeSnapshot,
   client: HistoryClient,
-) -> Result(Json, String) {
+) -> Result(fluid_summary.SummaryEntry, String) {
   use value <- result.try(
     tree_summary.to_wire(snapshot) |> result.map_error(string.inspect),
   )
-  use encoded <- result.try(
-    summary_codec.encode(
-      value,
-      client.session,
-      codec.EncodeContext(codec.Fluid310, client.compressor, Some(value.schema)),
-    )
-    |> result.map_error(string.inspect),
+  summary_codec.encode(
+    value,
+    client.session,
+    codec.EncodeContext(codec.Fluid310, client.compressor, Some(value.schema)),
   )
-  history_summary_json(encoded)
+  |> result.map_error(string.inspect)
 }
 
 fn history_summary_json(

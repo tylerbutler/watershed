@@ -115,6 +115,48 @@ pub fn decode_message_originator(
   })
 }
 
+/// Read the author and revision of one Message V7 envelope.
+pub fn decode_message_identity(
+  raw: String,
+  context: DecodeContext,
+) -> Result(#(fluid_ids.SessionId, fluid_ids.StableId), TreeError) {
+  use value <- result.try(
+    json_ot.parse_json(raw)
+    |> result.map_error(fn(_) {
+      CorruptData("message", "message is not valid JSON")
+    }),
+  )
+  use members <- result.try(object(value, "message"))
+  use originator_value <- result.try(required(
+    members,
+    "originatorId",
+    "message.originatorId",
+  ))
+  use originator_raw <- result.try(text(
+    originator_value,
+    "message.originatorId",
+  ))
+  use originator <- result.try(
+    fluid_ids.session_id(originator_raw)
+    |> result.map_error(fn(error) {
+      CorruptData("message.originatorId", string.inspect(error))
+    }),
+  )
+  use revision_value <- result.try(required(
+    members,
+    "revision",
+    "message.revision",
+  ))
+  use revision_number <- result.try(integer(revision_value, "message.revision"))
+  use revision <- result.try(decode_stable_revision(
+    revision_number,
+    originator,
+    context,
+    "message.revision",
+  ))
+  Ok(#(originator, revision))
+}
+
 /// Decode one Message V7 commit envelope.
 pub fn decode_message(
   raw: String,

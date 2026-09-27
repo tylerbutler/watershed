@@ -16,7 +16,7 @@ import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
 import watershed/tree/shared_change
 import watershed/tree/types.{
-  InvalidHistory, NumberValue, ObjectValue, SequencePoint, SetField,
+  InvalidHistory, NumberValue, ObjectValue, SequencePoint, SetField, StringValue,
 }
 import watershed/tree_kernel
 import watershed/wire/fluid_container
@@ -27,6 +27,8 @@ const schema_text = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\
 const note_schema_text = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Root\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
 const score_schema_text = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Root\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+
+const extra_schema_text = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Extra\":{\"kind\":{\"object\":{\"value\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}},\"Root\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"extra\":{\"kind\":\"Optional\",\"types\":[\"Extra\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
 fn tree_state() -> tree_kernel.TreeState {
   let assert Ok(session) =
@@ -363,6 +365,153 @@ pub fn shared_tree_bridge_decodes_losing_peer_data_with_authored_schema_test() {
     tree_kernel.history_view(received).sequenced.trunk
   shared_change.to_changes(rebased.commit.change) |> expect.to_equal([])
   let _ = sender_compressor
+  Nil
+}
+
+pub fn shared_tree_bridge_decodes_after_duplicate_schema_replay_test() {
+  let receiver_session =
+    fluid_ids.session_id("00000000-0000-4000-8000-000000000001")
+    |> expect.to_be_ok()
+  let sender_session =
+    fluid_ids.session_id("00000000-0000-4000-8000-000000000004")
+    |> expect.to_be_ok()
+  let view_id =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000002")
+    |> expect.to_be_ok()
+  let base = schema.stored_from_string(schema_text) |> expect.to_be_ok()
+  let note = schema.stored_from_string(note_schema_text) |> expect.to_be_ok()
+  let view = schema.view_from_string(note_schema_text) |> expect.to_be_ok()
+  let schema_revision =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000006")
+    |> expect.to_be_ok()
+  let upgrade =
+    history.Commit(
+      schema_revision,
+      sender_session,
+      shared_change.from_changes([
+        shared_change.SchemaChange(
+          schema.FixedSchema(base),
+          schema.FixedSchema(note),
+          False,
+        ),
+      ])
+        |> expect.to_be_ok(),
+    )
+  let history_snapshot =
+    history.HistorySnapshot(
+      history.InitialBase,
+      [
+        history.SequencedCommit(upgrade, SequencePoint(1, 0)),
+        history.SequencedCommit(upgrade, SequencePoint(2, 0)),
+      ],
+      [],
+      2,
+      0,
+    )
+  let data =
+    forest.ForestData(
+      Some(ObjectValue("Root", [#("x", NumberValue(1.0))])),
+      [],
+      0,
+    )
+  let receiver_snapshot =
+    tree_kernel.snapshot_from_parts(view_id, note, data, history_snapshot)
+    |> expect.to_be_ok()
+  let receiver =
+    tree_kernel.restore(receiver_snapshot, view_id, receiver_session, view)
+    |> expect.to_be_ok()
+  let sender_snapshot =
+    tree_kernel.snapshot_from_parts(
+      view_id,
+      note,
+      data,
+      history.inspect(history.new(sender_session)).sequenced,
+    )
+    |> expect.to_be_ok()
+  let sender =
+    tree_kernel.restore(sender_snapshot, view_id, sender_session, view)
+    |> expect.to_be_ok()
+  let assert Ok(#(sender, commit, _, sender_compressor)) =
+    tree_runtime.author_edit(
+      sender,
+      SetField(["note"], StringValue("after duplicate")),
+      fluid_ids.new(sender_session),
+    )
+  let wire =
+    tree_runtime.encode_commit(commit, sender, sender_compressor)
+    |> expect.to_be_ok()
+  let #(_, range) = fluid_ids.take_unfinalized_range(sender_compressor)
+  let assert Some(range) = range
+  let receiver_compressor =
+    fluid_ids.finalize(fluid_ids.new(receiver_session), range)
+    |> expect.to_be_ok()
+
+  let assert Ok(_) =
+    tree_runtime.decode_sequenced_message(
+      json.to_string(wire),
+      receiver,
+      2,
+      receiver_compressor,
+    )
+  Nil
+}
+
+pub fn shared_tree_bridge_decodes_local_data_ack_after_same_reference_upgrade_test() {
+  let session =
+    fluid_ids.session_id("00000000-0000-4000-8000-000000000001")
+    |> expect.to_be_ok()
+  let base = schema.stored_from_string(schema_text) |> expect.to_be_ok()
+  let extra = schema.stored_from_string(extra_schema_text) |> expect.to_be_ok()
+  let #(compressor, schema_id) =
+    fluid_ids.generate(fluid_ids.new(session)) |> expect.to_be_ok()
+  let schema_revision =
+    fluid_ids.decompress(compressor, schema_id) |> expect.to_be_ok()
+  let schema_change =
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(base),
+        schema.FixedSchema(extra),
+        False,
+      ),
+    ])
+    |> expect.to_be_ok()
+  let order =
+    change.identity_order([#(schema_revision, -1)]) |> expect.to_be_ok()
+  let assert Ok(#(upgraded, upgrade, _)) =
+    tree_kernel.apply_local_change(
+      tree_state(),
+      schema_revision,
+      order,
+      schema_change,
+    )
+  let assert Ok(#(edited, data, _, compressor)) =
+    tree_runtime.author_edit(
+      upgraded,
+      SetField(
+        ["extra"],
+        ObjectValue("Extra", [#("value", StringValue("local"))]),
+      ),
+      compressor,
+    )
+  let data_wire =
+    tree_runtime.encode_commit(data, edited, compressor) |> expect.to_be_ok()
+  let assert Ok(#(acked, _, compressor)) =
+    tree_runtime.receive_commit(
+      edited,
+      upgrade,
+      SequencePoint(1, 0),
+      0,
+      0,
+      compressor,
+    )
+
+  let assert Ok(_) =
+    tree_runtime.decode_sequenced_message(
+      json.to_string(data_wire),
+      acked,
+      0,
+      compressor,
+    )
   Nil
 }
 

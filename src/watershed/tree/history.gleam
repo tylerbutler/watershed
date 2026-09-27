@@ -1092,6 +1092,26 @@ pub fn authoring_commits(
   state: History,
   originator: fluid_ids.SessionId,
   reference_sequence_number: Int,
+  revision: fluid_ids.StableId,
+) -> Result(List(Commit), TreeError) {
+  case
+    originator == state.local_session,
+    pending_commits_before(state.pending, revision, [])
+  {
+    True, Some(pending) -> {
+      use base <- result.try(require_local_base(state.local_base))
+      use ancestry <- result.try(commits_through_base(state.trunk, base))
+      Ok(list.append(ancestry, pending))
+    }
+    _, _ ->
+      remote_authoring_commits(state, originator, reference_sequence_number)
+  }
+}
+
+fn remote_authoring_commits(
+  state: History,
+  originator: fluid_ids.SessionId,
+  reference_sequence_number: Int,
 ) -> Result(List(Commit), TreeError) {
   use reference <- result.try(reference_base(state, reference_sequence_number))
   case peer_state(state.peers, originator) {
@@ -1138,6 +1158,25 @@ pub fn authoring_commits(
         _ -> commits_through_base(state.trunk, reference)
       }
     }
+  }
+}
+
+fn pending_commits_before(
+  pending: List(LocalCommit),
+  revision: fluid_ids.StableId,
+  before: List(Commit),
+) -> Option(List(Commit)) {
+  case pending {
+    [] -> None
+    [first, ..rest] ->
+      case first.original.commit.revision == revision {
+        True -> Some(list.reverse(before))
+        False ->
+          pending_commits_before(rest, revision, [
+            first.original.commit,
+            ..before
+          ])
+      }
   }
 }
 
