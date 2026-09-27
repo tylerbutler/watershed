@@ -266,6 +266,38 @@ pub fn shared_tree_sequence_editors_preserve_pre_edit_gaps_test() {
   ])
 }
 
+pub fn shared_tree_sequence_interior_move_preserves_nonzero_source_skip_test() {
+  let move_id = atom(Some(revision("14")), 120)
+  let cell_id = atom(Some(revision("15")), 130)
+  let assert Ok(change) = sequence_field.move(2, 3, 3, move_id, cell_id)
+  sequence_field.to_marks(change)
+  |> expect.to_equal([
+    sequence_field.Mark(2, None, sequence_field.Noop, None),
+    sequence_field.Mark(
+      1,
+      None,
+      sequence_field.Detach(sequence_field.MoveOut(move_id, None, None)),
+      None,
+    ),
+    sequence_field.Mark(
+      3,
+      Some(cell_id),
+      sequence_field.Attach(sequence_field.MoveIn(move_id, None)),
+      None,
+    ),
+    sequence_field.Mark(
+      2,
+      None,
+      sequence_field.Detach(sequence_field.MoveOut(
+        atom(Some(revision("14")), 121),
+        None,
+        None,
+      )),
+      None,
+    ),
+  ])
+}
+
 pub fn shared_tree_sequence_editors_validate_before_suppressing_empty_test() {
   let id = atom(None, 0)
   let unsafe = atom(None, max_safe_integer + 1)

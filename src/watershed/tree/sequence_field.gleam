@@ -166,7 +166,7 @@ pub fn move(
             detach,
             destination_gap - source,
           ))
-          from_marks([first, attach, second])
+          from_marks(marks_with_gap(source, [first, attach, second], 0, []))
         }
       }
     }
