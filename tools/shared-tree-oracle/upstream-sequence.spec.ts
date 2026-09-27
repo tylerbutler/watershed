@@ -598,6 +598,84 @@ function assertSequenceComposeInvertContracts(revs: RevisionTag[]) {
 		"A same-cell MoveOut remains impactful during inversion.",
 	);
 
+	const removeInput = id(revs[5], 30);
+	const removeOutput = id(revs[6], 40);
+	const impactfulRemove = [{
+		type: "Remove",
+		count: 1,
+		cellId: removeInput,
+		id: changeId(30),
+		revision: revs[5],
+		idOverride: removeOutput,
+	}] as Changeset;
+	const impactlessRemove = [{
+		type: "Remove",
+		count: 1,
+		cellId: removeInput,
+		id: changeId(31),
+		revision: revs[5],
+		idOverride: removeInput,
+	}] as Changeset;
+	assert.deepEqual(
+		testCompose([tagChange(impactfulRemove, revs[5]), tagChange([], revs[6])]),
+		impactfulRemove,
+		"Remove impact must use its effective output identity.",
+	);
+	assert.deepEqual(
+		testCompose([tagChange(impactlessRemove, revs[5]), tagChange([], revs[6])]),
+		[{ count: 1, cellId: removeInput }],
+		"A Remove whose override restores its input cell is impactless.",
+	);
+	assert.deepEqual(
+		testInvert(tagChange(impactfulRemove, revs[5]), revs[6], true),
+		[{
+			type: "Remove",
+			count: 1,
+			cellId: removeOutput,
+			id: changeId(30),
+			revision: revs[6],
+			idOverride: removeInput,
+		}],
+		"Inversion must retain a Remove with a distinct effective output identity.",
+	);
+	assert.deepEqual(
+		testInvert(tagChange(impactlessRemove, revs[5]), revs[6], true),
+		[{ count: 1, cellId: removeInput }],
+		"Inversion must drop a Remove whose effective output is its input cell.",
+	);
+
+	const detachedMoveInput = id(revs[7], 30);
+	const detachedMoveOutput = id(revs[7], 20);
+	const detachedMove = [{
+		type: "MoveOut",
+		count: 1,
+		cellId: detachedMoveInput,
+		id: changeId(10),
+		revision: revs[7],
+		idOverride: detachedMoveOutput,
+	}] as Changeset;
+	const removeAfterMove = [{
+		type: "Remove",
+		count: 1,
+		cellId: detachedMoveOutput,
+		id: changeId(40),
+		revision: revs[8],
+	}] as Changeset;
+	assert.deepEqual(
+		testCompose([
+			tagChange(detachedMove, revs[7]),
+			tagChange(removeAfterMove, revs[8]),
+		]),
+		[{
+			type: "Remove",
+			count: 1,
+			cellId: detachedMoveInput,
+			id: changeId(40),
+			revision: revs[8],
+		}],
+		"Detached MoveOut marks must participate in cell-rename composition.",
+	);
+
 	const refillInput = [{
 		type: "AttachAndDetach",
 		count: 2,
@@ -703,6 +781,13 @@ function assertSequenceComposeInvertContracts(revs: RevisionTag[]) {
 	assert.throws(
 		() => TestChange.compose(TestChange.mint([], 7), TestChange.mint([99], 8)),
 		"Child composition must reject incompatible sequential contexts.",
+	);
+	assert.throws(
+		() => TestChange.compose(
+			TestChange.mint([], 7),
+			TestChange.mint([99], [8, -8]),
+		),
+		"Child context validation must happen before intention cancellation.",
 	);
 }
 

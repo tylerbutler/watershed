@@ -117,10 +117,10 @@ pub fn is_impactful(mark: Mark) -> Bool {
   case mark.effect {
     Noop -> False
     Rename(_) | AttachAndDetach(_, _) | Detach(MoveOut(_, _, _)) -> True
-    Detach(Remove(id, _)) ->
+    Detach(Remove(id, id_override)) ->
       case mark.cell_id {
         None -> True
-        Some(input) -> id != input
+        Some(input) -> option.unwrap(id_override, id) != input
       }
     Attach(MoveIn(_, _)) -> True
     Attach(Insert(_)) -> mark.cell_id != None
@@ -898,11 +898,19 @@ pub fn detached_id(detach: Detach) -> AtomId {
 }
 
 @internal
+pub fn detach_output_id(detach: Detach) -> AtomId {
+  case detach {
+    Remove(id, id_override) | MoveOut(id, _, id_override) ->
+      option.unwrap(id_override, id)
+  }
+}
+
+@internal
 pub fn output_cell_id(mark: Mark) -> Option(AtomId) {
   case mark.effect {
-    Detach(detach) -> Some(detached_id(detach))
+    Detach(detach) -> Some(detach_output_id(detach))
     Rename(id) -> Some(id)
-    AttachAndDetach(_, detach) -> Some(detached_id(detach))
+    AttachAndDetach(_, detach) -> Some(detach_output_id(detach))
     Attach(_) -> None
     Noop -> mark.cell_id
   }

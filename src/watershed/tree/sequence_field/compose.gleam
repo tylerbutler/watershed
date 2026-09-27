@@ -556,7 +556,7 @@ fn compose_non_rename(
                 detach,
                 context,
               ))
-              case sequence_field.detached_id(detach) == base_cell {
+              case sequence_field.detach_output_id(detach) == base_cell {
                 True -> Ok(#(noop(base.count, None, Some(base_cell)), context))
                 False ->
                   Ok(#(
@@ -1179,14 +1179,19 @@ fn impactful_rename(
   case mark.cell_id, mark.effect {
     Some(cell), sequence_field.AttachAndDetach(attach, detach) ->
       Some(#(cell, attach, detach))
-    Some(cell), sequence_field.Detach(sequence_field.Remove(id, id_override)) -> {
-      let detach = sequence_field.Remove(id, id_override)
-      case sequence_field.detached_id(detach) == cell {
-        True -> None
-        False -> Some(#(cell, sequence_field.Insert(cell), detach))
+    Some(cell), sequence_field.Detach(detach) ->
+      case sequence_field.is_impactful(mark) {
+        True ->
+          Some(#(cell, sequence_field.Insert(primary_detach_id(detach)), detach))
+        False -> None
       }
-    }
     _, _ -> None
+  }
+}
+
+fn primary_detach_id(detach: sequence_field.Detach) -> AtomId {
+  case detach {
+    sequence_field.Remove(id, _) | sequence_field.MoveOut(id, _, _) -> id
   }
 }
 
@@ -1201,7 +1206,7 @@ fn normalize_rename(
       sequence_field.Mark(
         count,
         Some(cell),
-        sequence_field.Rename(sequence_field.detached_id(detach)),
+        sequence_field.Rename(sequence_field.detach_output_id(detach)),
         None,
       )
     sequence_field.Insert(_), _ ->

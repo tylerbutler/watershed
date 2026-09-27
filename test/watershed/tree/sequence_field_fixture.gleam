@@ -702,59 +702,73 @@ fn compose_child_changes(
   left: Child,
   right: Child,
 ) -> Result(Child, types.TreeError) {
-  use left <- result.try(normalize_child(id, left))
-  use right <- result.try(normalize_child(id, right))
-  case
-    left.input_context,
-    left.output_context,
-    right.input_context,
-    right.output_context
-  {
-    None, None, None, None ->
-      Ok(Child(id, left.source_revision, None, [], None))
-    Some(input), Some(output), None, None ->
-      Ok(Child(
-        id,
-        left.source_revision,
-        Some(input),
-        left.intentions,
-        Some(output),
-      ))
-    None, None, Some(input), Some(output) ->
-      Ok(Child(
-        id,
-        left.source_revision,
-        Some(input),
-        right.intentions,
-        Some(output),
-      ))
-    Some(input), Some(output), Some(right_input), Some(_) -> {
-      use _ <- result.try(case output == right_input {
-        True -> Ok(Nil)
-        False ->
+  compose_child_list(id, left.source_revision, [left, right], None, None, [])
+}
+
+fn compose_child_list(
+  id: types.AtomId,
+  source_revision: Option(Int),
+  children: List(Child),
+  input_context: Option(List(Int)),
+  output_context: Option(List(Int)),
+  intentions: List(Int),
+) -> Result(Child, types.TreeError) {
+  case children {
+    [] ->
+      case intentions, input_context, output_context {
+        [], _, _ -> Ok(Child(id, source_revision, None, [], None))
+        _, Some(input), Some(output) ->
+          Ok(Child(id, source_revision, Some(input), intentions, Some(output)))
+        _, _, _ ->
           Error(types.CorruptData(
             "sequence fixture child",
-            "child input context does not match previous output context",
-          ))
-      })
-      let intentions = compose_intentions(left.intentions, right.intentions)
-      case intentions {
-        [] -> Ok(Child(id, left.source_revision, None, [], None))
-        _ ->
-          Ok(Child(
-            id,
-            left.source_revision,
-            Some(input),
-            intentions,
-            Some(compose_intentions(output, right.intentions)),
+            "child change has incomplete context",
           ))
       }
-    }
-    _, _, _, _ ->
-      Error(types.CorruptData(
-        "sequence fixture child",
-        "child change has incomplete context",
-      ))
+    [child, ..rest] ->
+      case child.input_context, child.output_context {
+        None, None ->
+          compose_child_list(
+            id,
+            source_revision,
+            rest,
+            input_context,
+            output_context,
+            intentions,
+          )
+        Some(input), Some(_) -> {
+          use _ <- result.try(case output_context {
+            None -> Ok(Nil)
+            Some(output) ->
+              case output == input {
+                True -> Ok(Nil)
+                False ->
+                  Error(types.CorruptData(
+                    "sequence fixture child",
+                    "child input context does not match previous output context",
+                  ))
+              }
+          })
+          let output =
+            compose_intentions(
+              option.unwrap(output_context, input),
+              child.intentions,
+            )
+          compose_child_list(
+            id,
+            source_revision,
+            rest,
+            option.or(input_context, Some(input)),
+            Some(output),
+            compose_intentions(intentions, child.intentions),
+          )
+        }
+        _, _ ->
+          Error(types.CorruptData(
+            "sequence fixture child",
+            "child change has incomplete context",
+          ))
+      }
   }
 }
 

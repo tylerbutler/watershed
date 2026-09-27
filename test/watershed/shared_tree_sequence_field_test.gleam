@@ -139,6 +139,15 @@ pub fn shared_tree_sequence_fixture_child_composition_rejects_context_mismatch_t
   Nil
 }
 
+pub fn shared_tree_sequence_fixture_validates_context_before_cancellation_test() {
+  let input =
+    "{\"scenarios\":[{\"id\":\"child-cancel-context\",\"operation\":\"compose\",\"revisions\":[1,2],\"operands\":{\"changes\":[{\"revision\":1,\"change\":[{\"count\":1,\"changes\":{\"localId\":30,\"testChange\":{\"inputContext\":[],\"intentions\":[7],\"outputContext\":[7]}}}]},{\"revision\":2,\"change\":[{\"count\":1,\"changes\":{\"localId\":31,\"testChange\":{\"inputContext\":[99],\"intentions\":[8,-8],\"outputContext\":[99]}}}]}],\"childComposer\":\"test-node\"}}]}"
+  let assert Ok(value) = json_ot.parse_json(input)
+  sequence_field_fixture.run_compose_invert(json_ot.to_json(value))
+  |> expect.to_be_error
+  Nil
+}
+
 pub fn shared_tree_sequence_fixture_invert_reprocesses_moved_children_test() {
   let input =
     "{\"scenarios\":[{\"id\":\"invert-moved-child\",\"operation\":\"invert\",\"revisions\":[1,2],\"operands\":{\"change\":{\"revision\":1,\"change\":[{\"type\":\"MoveIn\",\"id\":10,\"count\":2,\"cellId\":{\"revision\":1,\"localId\":12},\"revision\":1},{\"type\":\"MoveOut\",\"id\":10,\"count\":1,\"revision\":1},{\"type\":\"MoveOut\",\"id\":11,\"count\":1,\"revision\":1,\"changes\":{\"localId\":30,\"testChange\":{\"inputContext\":[],\"intentions\":[7],\"outputContext\":[7]}}}]},\"inverseRevision\":2,\"isRollback\":false}}]}"
@@ -262,6 +271,162 @@ pub fn shared_tree_sequence_invert_keeps_same_cell_move_out_test() {
         sequence_field.MoveIn(atom(Some(inverse_revision), 10), None),
         sequence_field.Remove(atom(Some(inverse_revision), 10), Some(id)),
       ),
+      None,
+    ),
+  ])
+}
+
+pub fn shared_tree_sequence_remove_impact_uses_output_override_test() {
+  let original_revision = revision("20")
+  let override_revision = revision("21")
+  let inverse_revision = revision("22")
+  let input = atom(Some(original_revision), 10)
+  let different_output = atom(Some(override_revision), 20)
+  let same_output = atom(Some(original_revision), 10)
+  let assert Ok(impactful) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        Some(input),
+        sequence_field.Detach(sequence_field.Remove(
+          atom(Some(original_revision), 10),
+          Some(different_output),
+        )),
+        None,
+      ),
+    ])
+  let assert Ok(impactless) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        Some(input),
+        sequence_field.Detach(sequence_field.Remove(
+          atom(Some(original_revision), 11),
+          Some(same_output),
+        )),
+        None,
+      ),
+    ])
+  let assert Ok(empty) = sequence_field.from_marks([])
+  let assert Ok(composed_impactful) = compose_changes(impactful, empty)
+  sequence_field.to_marks(composed_impactful)
+  |> expect.to_equal(sequence_field.to_marks(impactful))
+  let assert Ok(composed_impactless) = compose_changes(impactless, empty)
+  sequence_field.to_marks(composed_impactless)
+  |> expect.to_equal([
+    sequence_field.Mark(1, Some(input), sequence_field.Noop, None),
+  ])
+
+  let assert Ok(aliases) =
+    sequence_field.new_alias_context([#(Some(original_revision), 11)])
+  let assert Ok(#(inverted_impactful, aliases, context)) =
+    invert.invert(
+      impactful,
+      True,
+      aliases,
+      sequence_field.alias,
+      Some(inverse_revision),
+      moves.FieldId(None, "field"),
+      moves.new(),
+    )
+  sequence_field.to_marks(inverted_impactful)
+  |> expect.to_equal([
+    sequence_field.Mark(
+      1,
+      Some(different_output),
+      sequence_field.Detach(sequence_field.Remove(
+        atom(Some(inverse_revision), 10),
+        Some(input),
+      )),
+      None,
+    ),
+  ])
+  let assert Ok(#(inverted_impactless, _, _)) =
+    invert.invert(
+      impactless,
+      True,
+      aliases,
+      sequence_field.alias,
+      Some(inverse_revision),
+      moves.FieldId(None, "field"),
+      context,
+    )
+  sequence_field.to_marks(inverted_impactless)
+  |> expect.to_equal([
+    sequence_field.Mark(1, Some(input), sequence_field.Noop, None),
+  ])
+}
+
+pub fn shared_tree_sequence_compose_treats_detached_move_as_cell_rename_test() {
+  let revision = revision("23")
+  let original = atom(Some(revision), 30)
+  let intermediate = atom(Some(revision), 10)
+  let final = atom(Some(revision), 20)
+  let assert Ok(first) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        Some(original),
+        sequence_field.Detach(sequence_field.MoveOut(intermediate, None, None)),
+        None,
+      ),
+    ])
+  let assert Ok(second) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        Some(intermediate),
+        sequence_field.Detach(sequence_field.Remove(final, None)),
+        None,
+      ),
+    ])
+  let assert Ok(composed) = compose_changes(first, second)
+  sequence_field.to_marks(composed)
+  |> expect.to_equal([
+    sequence_field.Mark(
+      1,
+      Some(original),
+      sequence_field.Detach(sequence_field.Remove(final, None)),
+      None,
+    ),
+  ])
+}
+
+pub fn shared_tree_sequence_compose_uses_move_output_override_test() {
+  let revision = revision("24")
+  let original = atom(Some(revision), 30)
+  let move_id = atom(Some(revision), 10)
+  let move_output = atom(Some(revision), 20)
+  let final = atom(Some(revision), 40)
+  let assert Ok(first) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        Some(original),
+        sequence_field.Detach(sequence_field.MoveOut(
+          move_id,
+          None,
+          Some(move_output),
+        )),
+        None,
+      ),
+    ])
+  let assert Ok(second) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        1,
+        Some(move_output),
+        sequence_field.Detach(sequence_field.Remove(final, None)),
+        None,
+      ),
+    ])
+  let assert Ok(composed) = compose_changes(first, second)
+  sequence_field.to_marks(composed)
+  |> expect.to_equal([
+    sequence_field.Mark(
+      1,
+      Some(original),
+      sequence_field.Detach(sequence_field.Remove(final, None)),
       None,
     ),
   ])
@@ -1356,7 +1521,7 @@ pub fn shared_tree_sequence_aliases_span_fields_and_reprocessing_test() {
   let second_revision = revision("1e")
   let inverse_revision = revision("1f")
   let child = atom(None, 30)
-  let assert Ok(first) =
+  let assert Ok(left) =
     sequence_field.from_marks([
       sequence_field.Mark(
         2,
@@ -1367,6 +1532,9 @@ pub fn shared_tree_sequence_aliases_span_fields_and_reprocessing_test() {
         )),
         None,
       ),
+    ])
+  let assert Ok(right) =
+    sequence_field.from_marks([
       sequence_field.Mark(
         1,
         None,
@@ -1387,9 +1555,6 @@ pub fn shared_tree_sequence_aliases_span_fields_and_reprocessing_test() {
         )),
         Some(child),
       ),
-    ])
-  let assert Ok(second) =
-    sequence_field.from_marks([
       sequence_field.Mark(
         1,
         None,
@@ -1406,24 +1571,53 @@ pub fn shared_tree_sequence_aliases_span_fields_and_reprocessing_test() {
       #(Some(first_revision), 12),
       #(Some(second_revision), 10),
     ])
-  let assert Ok(#(first_inverse, aliases, move_context)) =
-    invert_with_retry(
-      first,
+  let left_field = moves.FieldId(None, "left")
+  let right_field = moves.FieldId(None, "right")
+  let assert Ok(#(left_before_retry, aliases, move_context)) =
+    invert.invert(
+      left,
+      False,
       aliases,
+      sequence_field.alias,
       Some(inverse_revision),
-      moves.FieldId(None, "left"),
+      left_field,
       moves.new(),
     )
-  let after_first = sequence_field.alias_max_id(aliases)
-  let assert Ok(#(second_inverse, aliases, _)) =
-    invert_with_retry(
-      second,
+  sequence_field.to_marks(left_before_retry)
+  |> expect.to_equal([
+    sequence_field.Mark(
+      2,
+      None,
+      sequence_field.Detach(sequence_field.MoveOut(
+        atom(Some(inverse_revision), 10),
+        None,
+        None,
+      )),
+      None,
+    ),
+  ])
+  let assert Ok(#(right_inverse, aliases, move_context)) =
+    invert.invert(
+      right,
+      False,
       aliases,
+      sequence_field.alias,
       Some(inverse_revision),
-      moves.FieldId(None, "right"),
+      right_field,
       move_context,
     )
-  let after_second = sequence_field.alias_max_id(aliases)
+  let #(invalidated, move_context) = moves.take_invalidated(move_context)
+  invalidated |> expect.to_equal([left_field])
+  let assert Ok(#(left_after_retry, aliases, _)) =
+    invert.invert(
+      left,
+      False,
+      aliases,
+      sequence_field.alias,
+      Some(inverse_revision),
+      left_field,
+      move_context,
+    )
   let assert Ok(#(first_alias, aliases)) =
     sequence_field.alias(atom(Some(first_revision), 10), aliases)
   let assert Ok(#(second_alias, aliases)) =
@@ -1433,23 +1627,52 @@ pub fn shared_tree_sequence_aliases_span_fields_and_reprocessing_test() {
   let aliases_collide = first_alias == second_alias
   aliases_collide |> expect.to_be_false
   first_again |> expect.to_equal(first_alias)
-  sequence_field.alias_max_id(aliases)
-  |> expect.to_equal(after_second)
-  let allocation_is_monotonic = after_first <= after_second
-  allocation_is_monotonic |> expect.to_be_true
-  sequence_field.to_marks(first_inverse)
-  |> list.any(fn(mark) { mark.count == 1 && mark.child == Some(child) })
-  |> expect.to_be_true
-  sequence_field.to_marks(second_inverse)
-  |> list.any(fn(mark) {
-    case mark.effect {
-      sequence_field.Attach(sequence_field.MoveIn(_, Some(endpoint))) ->
-        endpoint.revision == Some(inverse_revision)
-        && endpoint.local_id != second_alias
-      _ -> False
-    }
-  })
-  |> expect.to_be_true
+  #(first_alias, second_alias, sequence_field.alias_max_id(aliases))
+  |> expect.to_equal(#(10, 23, 23))
+  sequence_field.to_marks(left_after_retry)
+  |> expect.to_equal([
+    sequence_field.Mark(
+      1,
+      None,
+      sequence_field.Detach(sequence_field.MoveOut(
+        atom(Some(inverse_revision), 10),
+        None,
+        None,
+      )),
+      None,
+    ),
+    sequence_field.Mark(
+      1,
+      None,
+      sequence_field.Detach(sequence_field.MoveOut(
+        atom(Some(inverse_revision), 11),
+        None,
+        None,
+      )),
+      Some(child),
+    ),
+  ])
+  sequence_field.to_marks(right_inverse)
+  |> expect.to_equal([
+    sequence_field.Mark(
+      2,
+      Some(atom(Some(first_revision), 10)),
+      sequence_field.Attach(sequence_field.MoveIn(
+        atom(Some(inverse_revision), 10),
+        None,
+      )),
+      None,
+    ),
+    sequence_field.Mark(
+      1,
+      Some(atom(Some(second_revision), 10)),
+      sequence_field.Attach(sequence_field.MoveIn(
+        atom(Some(inverse_revision), 23),
+        Some(atom(Some(inverse_revision), 11)),
+      )),
+      None,
+    ),
+  ])
 }
 
 pub fn shared_tree_sequence_compose_uses_child_callback_result_and_error_test() {
@@ -1538,39 +1761,4 @@ fn apply_change_to_root(
     ),
   )
   forest.apply_delta(initial, delta)
-}
-
-fn invert_with_retry(
-  change: sequence_field.Changeset,
-  aliases: sequence_field.AliasContext,
-  inverse_revision: Option(fluid_ids.StableId),
-  field: moves.FieldId,
-  move_context: moves.Context,
-) -> Result(
-  #(sequence_field.Changeset, sequence_field.AliasContext, moves.Context),
-  types.TreeError,
-) {
-  use #(inverse, aliases, move_context) <- result.try(invert.invert(
-    change,
-    False,
-    aliases,
-    sequence_field.alias,
-    inverse_revision,
-    field,
-    move_context,
-  ))
-  let #(invalidated, move_context) = moves.take_invalidated(move_context)
-  case invalidated {
-    [] -> Ok(#(inverse, aliases, move_context))
-    _ ->
-      invert.invert(
-        change,
-        False,
-        aliases,
-        sequence_field.alias,
-        inverse_revision,
-        field,
-        move_context,
-      )
-  }
 }

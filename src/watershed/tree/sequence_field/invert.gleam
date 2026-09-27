@@ -361,7 +361,7 @@ fn normalize_effect(
 ) -> sequence_field.Effect {
   case attach, detach {
     sequence_field.MoveIn(_, _), sequence_field.MoveOut(_, _, _) ->
-      sequence_field.Rename(sequence_field.detached_id(detach))
+      sequence_field.Rename(sequence_field.detach_output_id(detach))
     sequence_field.Insert(_), _ -> sequence_field.Detach(detach)
     _, _ -> sequence_field.AttachAndDetach(attach, detach)
   }
