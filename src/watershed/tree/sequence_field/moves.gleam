@@ -50,8 +50,18 @@ pub type Notification {
   KeyMoved(key: Key, count: Int, field: FieldId)
 }
 
+pub type OwnerRange {
+  OwnerRange(key: Key, count: Int, field: FieldId)
+}
+
 pub type TraceEvent {
   HandlerCalled(operation: String, field: FieldId)
+  GenericConverted(
+    operation: String,
+    direction: String,
+    field: FieldId,
+    children: List(#(Int, AtomId)),
+  )
   RangeRead(
     field: FieldId,
     key: Key,
@@ -61,6 +71,7 @@ pub type TraceEvent {
     returned_length: Int,
   )
   RangeWritten(field: FieldId, key: Key, count: Int, invalidate: Bool)
+  DependenciesInvalidated(field: FieldId)
   MoveInNotified(field: FieldId, node: AtomId)
   KeyMoveNotified(field: FieldId, key: Key, count: Int)
 }
@@ -79,13 +90,19 @@ pub opaque type Context {
     dependencies: List(Dependency),
     invalidated: List(FieldId),
     notifications: List(Notification),
+    owners: List(OwnerRange),
+    affected: List(FieldId),
     active_field: Option(FieldId),
     trace: List(TraceEvent),
   )
 }
 
 pub fn new() -> Context {
-  Context([], [], [], [], None, [])
+  Context([], [], [], [], [], [], None, [])
+}
+
+pub fn with_owners(context: Context, owners: List(OwnerRange)) -> Context {
+  Context(..context, owners: owners)
 }
 
 pub fn enter_field(
@@ -99,6 +116,19 @@ pub fn enter_field(
   ])
 }
 
+pub fn record_conversion(
+  context: Context,
+  operation: String,
+  direction: String,
+  field: FieldId,
+  children: List(#(Int, AtomId)),
+) -> Context {
+  Context(..context, trace: [
+    GenericConverted(operation, direction, field, children),
+    ..context.trace
+  ])
+}
+
 pub fn trace(context: Context) -> List(TraceEvent) {
   list.reverse(context.trace)
 }
@@ -108,6 +138,7 @@ pub fn same_work_state(first: Context, second: Context) -> Bool {
   && first.dependencies == second.dependencies
   && first.invalidated == second.invalidated
   && first.notifications == second.notifications
+  && first.affected == second.affected
 }
 
 pub fn get(
@@ -122,6 +153,8 @@ pub fn get(
     dependencies,
     invalidated,
     notifications,
+    owners,
+    affected,
     active_field,
     trace,
   ) = context
@@ -151,6 +184,8 @@ pub fn get(
       dependencies,
       invalidated,
       notifications,
+      owners,
+      affected,
       active_field,
       trace,
     ),
@@ -170,11 +205,14 @@ pub fn set(
     dependencies,
     invalidated,
     notifications,
+    owners,
+    affected,
     active_field,
     trace,
   ) = context
   let unchanged = range_matches(entries, key, count, effect)
   let entries = replace_range(entries, key, count, effect)
+  let previous_invalidated = invalidated
   let invalidated = case unchanged {
     True -> invalidated
     False ->
@@ -185,26 +223,154 @@ pub fn set(
         }
       })
   }
+  let affected = case unchanged {
+    True -> affected
+    False ->
+      list.fold(owners, affected, fn(found, owner) {
+        let OwnerRange(owner_key, owner_count, owner_field) = owner
+        case
+          Some(owner_field) != active_field
+          && ranges_overlap(key, count, owner_key, owner_count)
+        {
+          True -> put_unique(found, owner_field)
+          False -> found
+        }
+      })
+  }
   let trace = case active_field {
     None -> trace
-    Some(field) -> [RangeWritten(field, key, count, True), ..trace]
+    Some(field) ->
+      list.append(
+        case invalidated != previous_invalidated {
+          True -> [DependenciesInvalidated(field)]
+          False -> []
+        },
+        [RangeWritten(field, key, count, True), ..trace],
+      )
   }
   Ok(Context(
     entries,
     dependencies,
     invalidated,
     notifications,
+    owners,
+    affected,
     active_field,
     trace,
   ))
 }
 
 pub fn take_invalidated(context: Context) -> #(List(FieldId), Context) {
-  let Context(entries, _, invalidated, notifications, active_field, trace) =
-    context
+  let Context(
+    entries,
+    _,
+    invalidated,
+    notifications,
+    owners,
+    affected,
+    active_field,
+    trace,
+  ) = context
   #(
     list.reverse(invalidated),
-    Context(entries, [], [], notifications, active_field, trace),
+    Context(
+      entries,
+      [],
+      [],
+      notifications,
+      owners,
+      affected,
+      active_field,
+      trace,
+    ),
+  )
+}
+
+pub fn take_affected(context: Context) -> #(List(FieldId), Context) {
+  let Context(
+    entries,
+    dependencies,
+    invalidated,
+    notifications,
+    owners,
+    affected,
+    active_field,
+    trace,
+  ) = context
+  #(
+    list.reverse(affected),
+    Context(
+      entries,
+      dependencies,
+      invalidated,
+      notifications,
+      owners,
+      [],
+      active_field,
+      trace,
+    ),
+  )
+}
+
+pub fn queue_affected(context: Context, field: FieldId) -> Context {
+  Context(..context, affected: put_unique(context.affected, field))
+}
+
+pub fn take_affected_for(context: Context, field: FieldId) -> #(Bool, Context) {
+  #(
+    list.contains(context.affected, field),
+    Context(
+      ..context,
+      affected: list.filter(context.affected, fn(affected) { affected != field }),
+    ),
+  )
+}
+
+pub fn replace_parent(
+  context: Context,
+  obsolete: AtomId,
+  replacement: AtomId,
+) -> Context {
+  let replace = fn(field: FieldId) {
+    case field.parent == Some(obsolete) {
+      True -> FieldId(Some(replacement), field.field)
+      False -> field
+    }
+  }
+  Context(
+    ..context,
+    dependencies: list.map(context.dependencies, fn(dependency) {
+      Dependency(..dependency, field: replace(dependency.field))
+    }),
+    invalidated: context.invalidated |> list.map(replace) |> list.unique,
+    notifications: list.map(context.notifications, fn(notification) {
+      case notification {
+        NodeMoved(node, field) -> NodeMoved(node, replace(field))
+        KeyMoved(key, count, field) -> KeyMoved(key, count, replace(field))
+      }
+    }),
+    owners: list.map(context.owners, fn(owner) {
+      OwnerRange(..owner, field: replace(owner.field))
+    }),
+    affected: context.affected |> list.map(replace) |> list.unique,
+    active_field: option.map(context.active_field, replace),
+    trace: list.map(context.trace, fn(event) {
+      case event {
+        HandlerCalled(operation, field) ->
+          HandlerCalled(operation, replace(field))
+        GenericConverted(operation, direction, field, children) ->
+          GenericConverted(operation, direction, replace(field), children)
+        RangeRead(field, key, count, dependency, found, length) ->
+          RangeRead(replace(field), key, count, dependency, found, length)
+        RangeWritten(field, key, count, invalidate) ->
+          RangeWritten(replace(field), key, count, invalidate)
+        DependenciesInvalidated(field) ->
+          DependenciesInvalidated(replace(field))
+        MoveInNotified(field, node) -> MoveInNotified(replace(field), node)
+        KeyMoveNotified(field, key, count) ->
+          KeyMoveNotified(replace(field), key, count)
+      }
+    }),
   )
 }
 
@@ -217,6 +383,8 @@ pub fn take_invalidated_for(
     dependencies,
     invalidated,
     notifications,
+    owners,
+    affected,
     active_field,
     trace,
   ) = context
@@ -229,6 +397,8 @@ pub fn take_invalidated_for(
         invalidated_field != field
       }),
       notifications,
+      owners,
+      affected,
       active_field,
       trace,
     ),
@@ -246,6 +416,8 @@ pub fn on_move_in(
     dependencies,
     invalidated,
     notifications,
+    owners,
+    affected,
     active_field,
     trace,
   ) = context
@@ -256,6 +428,8 @@ pub fn on_move_in(
       dependencies,
       invalidated,
       put_unique(notifications, notification),
+      owners,
+      affected,
       active_field,
       [MoveInNotified(field, node), ..trace],
     ),
@@ -274,6 +448,8 @@ pub fn move_key(
     dependencies,
     invalidated,
     notifications,
+    owners,
+    affected,
     active_field,
     trace,
   ) = context
@@ -284,6 +460,8 @@ pub fn move_key(
       dependencies,
       invalidated,
       put_unique(notifications, notification),
+      owners,
+      affected,
       active_field,
       [KeyMoveNotified(field, key, count), ..trace],
     ),

@@ -929,6 +929,44 @@ function replayArrayModular(
 		handlerCalls: instrumentation.handlerCalls,
 		managerCalls: instrumentation.managerCalls,
 	};
+	const retry = instrumentation.handlerCalls.some((call) => call.invocation > 1);
+	const causalCalls = [
+		...instrumentation.handlerCalls.map((call) => ({
+			sequence: call.sequence,
+			value: {
+				kind: "handler",
+				operation: call.operation,
+				field: call.field,
+				invocation: call.invocation,
+			},
+		})),
+		...instrumentation.managerCalls
+			.filter((call) => call.method !== "get")
+			.map(({ sequence, ...call }) => ({
+				sequence: sequence as number,
+				value: { kind: "manager", call },
+			})),
+	]
+		.sort((left, right) => left.sequence - right.sequence)
+		.map((entry) => entry.value);
+	const reads = instrumentation.managerCalls.filter((call) => call.method === "get");
+	const readEvidence = {
+		absent: reads.some((call) => call.found === false),
+		found: reads.some((call) => call.found === true),
+		partial: reads.some(
+			(call) =>
+				typeof call.returnedLength === "number" &&
+				typeof call.count === "number" &&
+				call.returnedLength < call.count,
+		),
+		dependency: reads.some((call) => call.addDependency === true),
+		invalidation:
+			retry &&
+			instrumentation.managerCalls.some(
+				(call) => call.method === "set" && call.invalidateDependents === true,
+			),
+		retry,
+	};
 	return {
 		graph: encodeModularGraph(result),
 		delta: delta(intoDelta(tagChange(result, resultRevision))),
@@ -945,6 +983,8 @@ function replayArrayModular(
 					managerCalls: coordination.managerCalls
 						.filter((call) => call.method !== "get")
 						.map(({ sequence: _, ...call }) => call),
+					causalCalls,
+					readEvidence,
 				},
 	};
 }

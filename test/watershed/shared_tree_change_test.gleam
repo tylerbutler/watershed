@@ -7,6 +7,7 @@ import watershed/tree/change
 import watershed/tree/forest
 import watershed/tree/optional_field
 import watershed/tree/schema
+import watershed/tree/sequence_field
 import watershed/tree/types.{
   type AtomId, type Edit, type TreeError, type TreeValue, AtomId, ClearField,
   CorruptData, InvalidEdit, InvalidHistory, NullValue, NumberValue, ObjectValue,
@@ -83,6 +84,7 @@ fn empty_data() -> change.ChangeData {
     builds: [],
     destroys: [],
     refreshers: [],
+    cross_field_keys: [],
   )
 }
 
@@ -860,6 +862,47 @@ pub fn shared_tree_change_delta_collects_global_rename_and_detached_data_test() 
       destroy: [forest.Destroy(atom(50), 1)],
     ),
   )
+}
+
+pub fn shared_tree_change_sequence_delta_collects_child_global_and_rename_test() {
+  let detached = atom(20)
+  let child = atom(30)
+  let nested = atom(31)
+  let assert Ok(sequence) = sequence_field.build_child_changes([#(2, child)])
+  let data =
+    change.ChangeData(
+      ..empty_data(),
+      max_local_id: 31,
+      fields: [#("root", change.SequenceField(sequence))],
+      nodes: [
+        #(
+          child,
+          change.NodeChange([
+            #(
+              "nested",
+              change.OptionalField(optional_field.FieldChange(
+                [#(atom(10), atom(11))],
+                [#(optional_field.Detached(detached), nested)],
+                None,
+              )),
+            ),
+          ]),
+        ),
+        #(nested, change.NodeChange([])),
+      ],
+      parents: [
+        #(child, change.ParentField(None, "root")),
+        #(nested, change.ParentField(Some(child), "nested")),
+      ],
+    )
+  let assert Ok(authored) = checked(data)
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(Some(revision_a()), None, authored))
+  let delta = forest.delta_data(delta)
+  delta.global
+  |> expect.to_equal([forest.DetachedChange(detached, [])])
+  delta.rename
+  |> expect.to_equal([forest.Rename(atom(10), atom(11), 1)])
 }
 
 pub fn shared_tree_change_delta_orders_nested_globals_child_first_test() {

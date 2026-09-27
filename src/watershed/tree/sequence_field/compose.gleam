@@ -26,6 +26,30 @@ pub fn compose(
   field: moves.FieldId,
   move_context: moves.Context,
 ) -> Result(#(sequence_field.Changeset, state, moves.Context), TreeError) {
+  compose_with_context(
+    first,
+    second,
+    state,
+    fn(left, right, state, context) {
+      use #(child, state) <- result.try(compose_child(left, right, state))
+      Ok(#(child, state, context))
+    },
+    algebra,
+    field,
+    move_context,
+  )
+}
+
+pub fn compose_with_context(
+  first: sequence_field.Changeset,
+  second: sequence_field.Changeset,
+  state: state,
+  compose_child: fn(Option(AtomId), Option(AtomId), state, moves.Context) ->
+    Result(#(AtomId, state, moves.Context), TreeError),
+  algebra: sequence_field.AlgebraContext,
+  field: moves.FieldId,
+  move_context: moves.Context,
+) -> Result(#(sequence_field.Changeset, state, moves.Context), TreeError) {
   let first_marks = sequence_field.to_marks(first)
   let second_marks = sequence_field.to_marks(second)
   let first_sources = cell_sources(first_marks, sequence_field.output_cell_id)
@@ -54,8 +78,8 @@ fn compose_loop(
   first_sources: List(Option(StableId)),
   second_sources: List(Option(StableId)),
   state: state,
-  compose_child: fn(Option(AtomId), Option(AtomId), state) ->
-    Result(#(AtomId, state), TreeError),
+  compose_child: fn(Option(AtomId), Option(AtomId), state, moves.Context) ->
+    Result(#(AtomId, state, moves.Context), TreeError),
   algebra: sequence_field.AlgebraContext,
   field: moves.FieldId,
   move_context: moves.Context,
@@ -434,8 +458,8 @@ fn compose_pair(
   base: sequence_field.Mark,
   new: sequence_field.Mark,
   state: state,
-  compose_child: fn(Option(AtomId), Option(AtomId), state) ->
-    Result(#(AtomId, state), TreeError),
+  compose_child: fn(Option(AtomId), Option(AtomId), state, moves.Context) ->
+    Result(#(AtomId, state, moves.Context), TreeError),
   field: moves.FieldId,
   context: moves.Context,
 ) -> Result(#(sequence_field.Mark, state, moves.Context), TreeError) {
@@ -461,8 +485,8 @@ fn compose_children(
   base: sequence_field.Mark,
   new: sequence_field.Mark,
   state: state,
-  compose_child: fn(Option(AtomId), Option(AtomId), state) ->
-    Result(#(AtomId, state), TreeError),
+  compose_child: fn(Option(AtomId), Option(AtomId), state, moves.Context) ->
+    Result(#(AtomId, state, moves.Context), TreeError),
   field: moves.FieldId,
   context: moves.Context,
 ) -> Result(#(Option(AtomId), state, moves.Context), TreeError) {
@@ -483,7 +507,12 @@ fn compose_children(
       case base.child, new.child {
         None, None -> Ok(#(None, state, context))
         left, right -> {
-          use #(child, state) <- result.try(compose_child(left, right, state))
+          use #(child, state, context) <- result.try(compose_child(
+            left,
+            right,
+            state,
+            context,
+          ))
           Ok(#(Some(child), state, context))
         }
       }

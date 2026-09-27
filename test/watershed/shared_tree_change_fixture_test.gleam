@@ -356,6 +356,7 @@ pub fn shared_tree_fixture_codec_rejects_invalid_tagged_revisions_test() -> Nil 
         builds: [],
         destroys: [],
         refreshers: [],
+        cross_field_keys: [],
       ),
       order,
     )
@@ -387,6 +388,7 @@ pub fn shared_tree_fixture_codec_rejects_multi_tree_build_chunks_test() -> Nil {
         ],
         destroys: [],
         refreshers: [],
+        cross_field_keys: [],
       ),
       order,
     )

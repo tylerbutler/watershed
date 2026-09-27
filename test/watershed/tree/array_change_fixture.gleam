@@ -57,7 +57,7 @@ fn run_scenario(value: JsonValue) -> Result(Json, String) {
   )
   use graph <- result.try(graph_json(output, decoded.context))
   use coordination <- result.try(trace_json(trace, decoded.context))
-  use conversion <- result.try(conversion_json(decoded))
+  use conversion <- result.try(conversion_json(trace, decoded.context))
   Ok(
     json.object([
       #("id", json.string(id)),
@@ -247,6 +247,7 @@ fn decode_graph(
         builds: [],
         refreshers: [],
         destroys: [],
+        cross_field_keys: expected_keys,
       ),
       context.identity_order,
     )
@@ -918,6 +919,10 @@ fn trace_json(
           )
           Ok(#([handler, ..output.0], output.1, sequence + 1))
         }
+        moves.GenericConverted(_, _, _, _) ->
+          Ok(#(output.0, output.1, sequence + 1))
+        moves.DependenciesInvalidated(_) ->
+          Ok(#(output.0, output.1, sequence + 1))
         moves.RangeRead(field, key, count, dependency, found, length) -> {
           let _ = #(field, key, count, dependency, found, length)
           Ok(#(output.0, output.1, sequence + 1))
@@ -958,6 +963,7 @@ fn trace_json(
       }
     }),
   )
+  use causal <- result.try(causal_trace_json(trace, context))
   Ok(
     json.object([
       #(
@@ -965,8 +971,146 @@ fn trace_json(
         output_json(list.reverse(handlers), fn(entry) { entry.1 }),
       ),
       #("managerCalls", codec.array(list.reverse(managers))),
+      #("causalCalls", causal),
+      #("readEvidence", read_evidence_json(trace)),
     ]),
   )
+}
+
+fn causal_trace_json(
+  trace: List(moves.TraceEvent),
+  context: Context,
+) -> Result(Json, String) {
+  trace
+  |> list.try_fold(#([], []), fn(output, event) {
+    case event {
+      moves.HandlerCalled(operation, field) -> {
+        let invocation =
+          output.1
+          |> list.filter(fn(entry) { entry == #(operation, field) })
+          |> list.length
+          |> int.add(1)
+        use field_json <- result.try(field_id_json(field, context))
+        Ok(
+          #(
+            list.append(output.0, [
+              json.object([
+                #("kind", json.string("handler")),
+                #("operation", json.string(operation)),
+                #("field", field_json),
+                #("invocation", json.int(invocation)),
+              ]),
+            ]),
+            [#(operation, field), ..output.1],
+          ),
+        )
+      }
+      moves.RangeWritten(field, key, count, invalidate) -> {
+        use call <- result.try(
+          manager_range_json(0, "set", field, key, count, context, [
+            #("invalidateDependents", json.bool(invalidate)),
+          ]),
+        )
+        Ok(#(
+          list.append(output.0, [
+            json.object([
+              #("kind", json.string("manager")),
+              #("call", call),
+            ]),
+          ]),
+          output.1,
+        ))
+      }
+      moves.MoveInNotified(field, id) -> {
+        use field <- result.try(field_id_json(field, context))
+        use id <- result.try(atom_json(id, context))
+        Ok(#(
+          list.append(output.0, [
+            json.object([
+              #("kind", json.string("manager")),
+              #(
+                "call",
+                json.object([
+                  #("method", json.string("onMoveIn")),
+                  #("field", field),
+                  #("id", id),
+                ]),
+              ),
+            ]),
+          ]),
+          output.1,
+        ))
+      }
+      moves.KeyMoveNotified(field, key, count) -> {
+        use call <- result.try(
+          manager_range_json(0, "moveKey", field, key, count, context, []),
+        )
+        Ok(#(
+          list.append(output.0, [
+            json.object([
+              #("kind", json.string("manager")),
+              #("call", call),
+            ]),
+          ]),
+          output.1,
+        ))
+      }
+      moves.RangeRead(_, _, _, _, _, _)
+      | moves.DependenciesInvalidated(_)
+      | moves.GenericConverted(_, _, _, _) -> Ok(output)
+    }
+  })
+  |> result.map(fn(output) { codec.array(output.0) })
+}
+
+fn read_evidence_json(trace: List(moves.TraceEvent)) -> Json {
+  let evidence =
+    list.fold(
+      trace,
+      #(False, False, False, False, False, False),
+      fn(found, event) {
+        case event {
+          moves.RangeRead(_, _, count, dependency, present, length) -> #(
+            found.0 || !present,
+            found.1 || present,
+            found.2 || length < count,
+            found.3 || dependency,
+            found.4,
+            found.5,
+          )
+          moves.DependenciesInvalidated(_) -> #(
+            found.0,
+            found.1,
+            found.2,
+            found.3,
+            True,
+            found.5,
+          )
+          moves.HandlerCalled(operation, field) -> #(
+            found.0,
+            found.1,
+            found.2,
+            found.3,
+            found.4,
+            found.5
+              || list.filter(trace, fn(candidate) {
+              candidate == moves.HandlerCalled(operation, field)
+            })
+            |> list.length
+            |> fn(count) { count > 1 },
+          )
+          _ -> found
+        }
+      },
+    )
+  json.object([
+    #("absent", json.bool(evidence.0)),
+    #("found", json.bool(evidence.1)),
+    #("partial", json.bool(evidence.2)),
+    #("dependency", json.bool(evidence.3)),
+    #("invalidation", json.bool(evidence.4)),
+    #("retry", json.bool(evidence.5)),
+  ])
 }
 
 fn output_json(values: List(a), encode: fn(a) -> Json) -> Json {
@@ -1004,15 +1148,25 @@ fn manager_range_json(
   )
 }
 
-fn conversion_json(decoded: Decoded) -> Result(Json, String) {
-  let raw_calls = conversion_calls(decoded.tagged)
+fn conversion_json(
+  trace: List(moves.TraceEvent),
+  context: Context,
+) -> Result(Json, String) {
+  let raw_calls =
+    list.filter_map(trace, fn(event) {
+      case event {
+        moves.GenericConverted(_, direction, field, children) ->
+          Ok(#(direction, field, children))
+        _ -> Error(Nil)
+      }
+    })
   use calls <- result.try(
     list.try_map(raw_calls, fn(call) {
       let #(direction, field, children) = call
-      use field <- result.try(field_id_json(field, decoded.context))
+      use field <- result.try(field_id_json(field, context))
       use children <- result.try(
         list.try_map(children, fn(child) {
-          use id <- result.try(atom_json(child.1, decoded.context))
+          use id <- result.try(atom_json(child.1, context))
           Ok(codec.array([json.int(child.0), id]))
         }),
       )
@@ -1031,40 +1185,4 @@ fn conversion_json(decoded: Decoded) -> Result(Json, String) {
       #("calls", codec.array(calls)),
     ]),
   )
-}
-
-fn conversion_calls(
-  changes: List(change.TaggedChange),
-) -> List(#(String, moves.FieldId, List(#(Int, types.AtomId)))) {
-  case changes {
-    [first, second] ->
-      conversion_fields(
-        change.to_data(first.change).fields,
-        change.to_data(second.change).fields,
-        None,
-      )
-    _ -> []
-  }
-}
-
-fn conversion_fields(
-  first: List(#(String, change.FieldChange)),
-  second: List(#(String, change.FieldChange)),
-  parent: Option(types.AtomId),
-) -> List(#(String, moves.FieldId, List(#(Int, types.AtomId)))) {
-  list.flat_map(first, fn(entry) {
-    case list.key_find(second, entry.0) {
-      Error(Nil) -> []
-      Ok(other) ->
-        case entry.1, other {
-          change.GenericField(children), change.SequenceField(_) -> [
-            #("generic-left", moves.FieldId(parent, entry.0), children),
-          ]
-          change.SequenceField(_), change.GenericField(children) -> [
-            #("generic-right", moves.FieldId(parent, entry.0), children),
-          ]
-          _, _ -> []
-        }
-    }
-  })
 }

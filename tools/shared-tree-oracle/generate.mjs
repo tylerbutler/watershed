@@ -121,9 +121,11 @@ export const arrayScenarioIds = {
     "nested-ancestors",
     "common-ancestors",
     "cross-field-endpoints",
+    "nested-cross-field-endpoints",
     "node-table",
     "parent-table",
     "alias-table",
+    "ownership-roundtrip",
   ],
   "array-codecs": [
     "sequence-v3",
@@ -1690,7 +1692,11 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
         && Array.isArray(result.conversion.directions)
         && Array.isArray(result.conversion.calls)
         && Array.isArray(result.coordination.handlerCalls)
-        && Array.isArray(result.coordination.managerCalls),
+        && Array.isArray(result.coordination.managerCalls)
+        && Array.isArray(result.coordination.causalCalls)
+        && object(result.coordination.readEvidence)
+        && ["absent", "found", "partial", "dependency", "invalidation", "retry"]
+          .every((key) => typeof result.coordination.readEvidence[key] === "boolean"),
       `${id} complete modular evidence`);
     }
     const conversionInput = (id) => input.get(id).operands.changes
@@ -1713,6 +1719,23 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
     check(input.get("nested-ancestors").operation === "invert"
       && input.get("common-ancestors").operation === "rebase",
     "modular invert and rebase input");
+    for (const id of ["cross-field-endpoints", "nested-cross-field-endpoints"]) {
+      const coordination = output.get(id).coordination;
+      check(coordination.causalCalls.length > 0
+        && coordination.readEvidence.absent
+        && coordination.readEvidence.found
+        && coordination.readEvidence.dependency
+        && coordination.readEvidence.invalidation
+        && coordination.readEvidence.retry,
+      `${id} native coordination evidence`);
+    }
+    check(output.get("cross-field-endpoints").coordination.readEvidence.partial,
+      "cross-field partial read evidence");
+    assert.deepEqual(
+      output.get("ownership-roundtrip").graph.crossFieldKeys,
+      input.get("ownership-roundtrip").operands.changes[0].change.crossFieldKeys,
+      "ownership roundtrip",
+    );
     const coordination = output.get("cross-field-endpoints");
     const handlerCalls = coordination.coordination.handlerCalls;
     const managerCalls = coordination.coordination.managerCalls;

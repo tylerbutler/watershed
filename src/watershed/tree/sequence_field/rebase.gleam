@@ -30,6 +30,40 @@ pub fn rebase(
   field: moves.FieldId,
   move_context: moves.Context,
 ) -> Result(#(sequence_field.Changeset, state, moves.Context), TreeError) {
+  rebase_with_context(
+    authored,
+    over,
+    state,
+    fn(authored, base, attach, state, context) {
+      use #(child, state) <- result.try(rebase_child(
+        authored,
+        base,
+        attach,
+        state,
+      ))
+      Ok(#(child, state, context))
+    },
+    algebra,
+    field,
+    move_context,
+  )
+}
+
+pub fn rebase_with_context(
+  authored: sequence_field.Changeset,
+  over: sequence_field.Changeset,
+  state: state,
+  rebase_child: fn(
+    Option(AtomId),
+    Option(AtomId),
+    sequence_field.AttachState,
+    state,
+    moves.Context,
+  ) -> Result(#(Option(AtomId), state, moves.Context), TreeError),
+  algebra: sequence_field.AlgebraContext,
+  field: moves.FieldId,
+  move_context: moves.Context,
+) -> Result(#(sequence_field.Changeset, state, moves.Context), TreeError) {
   let authored_marks = sequence_field.to_marks(authored)
   let over_marks = sequence_field.to_marks(over)
   let authored_sources = cell_sources(authored_marks)
@@ -63,7 +97,8 @@ fn rebase_loop(
     Option(AtomId),
     sequence_field.AttachState,
     state,
-  ) -> Result(#(Option(AtomId), state), TreeError),
+    moves.Context,
+  ) -> Result(#(Option(AtomId), state, moves.Context), TreeError),
   algebra: sequence_field.AlgebraContext,
   field: moves.FieldId,
   move_context: moves.Context,
@@ -384,14 +419,21 @@ fn rebase_pair(
     Option(AtomId),
     sequence_field.AttachState,
     state,
-  ) -> Result(#(Option(AtomId), state), TreeError),
+    moves.Context,
+  ) -> Result(#(Option(AtomId), state, moves.Context), TreeError),
   field: moves.FieldId,
   context: moves.Context,
 ) -> Result(#(sequence_field.Mark, state, moves.Context), TreeError) {
-  use #(child, state) <- result.try(case authored.child, base.child {
-    None, None -> Ok(#(None, state))
+  use #(child, state, context) <- result.try(case authored.child, base.child {
+    None, None -> Ok(#(None, state, context))
     authored_child, base_child ->
-      rebase_child(authored_child, base_child, node_state_after(base), state)
+      rebase_child(
+        authored_child,
+        base_child,
+        node_state_after(base),
+        state,
+        context,
+      )
   })
   let authored = sequence_field.Mark(..authored, child:)
   use #(moved_child, context) <- result.try(moved_child(base, field, context))

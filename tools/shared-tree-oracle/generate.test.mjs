@@ -984,6 +984,24 @@ test("array validation requires contract-defining source evidence", () => {
     ["array-modular-algebra", (value) => {
       value.expected.observations[0].fieldKinds.pop();
     }, /field kinds/],
+    ["array-modular-algebra", (value) => {
+      const observation = value.expected.observations.find(
+        ({ id }) => id === "nested-cross-field-endpoints",
+      );
+      observation.result.coordination.causalCalls.reverse();
+    }, /normalized output|nested-cross-field-endpoints/],
+    ["array-modular-algebra", (value) => {
+      const observation = value.expected.observations.find(
+        ({ id }) => id === "cross-field-endpoints",
+      );
+      observation.result.coordination.readEvidence.retry = false;
+    }, /normalized output|coordination evidence|substantive source result/],
+    ["array-modular-algebra", (value) => {
+      const observation = value.expected.observations.find(
+        ({ id }) => id === "generic-to-sequence",
+      );
+      observation.result.conversion.calls = [];
+    }, /normalized output|conversion/],
     ["array-codecs", (value) => {
       value.input.scenarios[0].profile.sequence = 2;
       value.raw.scenarios[0].input.profile.sequence = 2;

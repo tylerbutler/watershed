@@ -1,3 +1,4 @@
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
 import startest/expect
@@ -7,6 +8,7 @@ import watershed/tree/array_fixture
 import watershed/tree/change
 import watershed/tree/fixtures
 import watershed/tree/forest
+import watershed/tree/sequence_field/moves
 import watershed/tree/types
 
 const items_type = "org.watershed.shared-tree.m3.Items"
@@ -19,8 +21,15 @@ fn revision() -> fluid_ids.StableId {
   id
 }
 
+fn revision_b() -> fluid_ids.StableId {
+  let assert Ok(id) =
+    fluid_ids.stable_id("20000000-0000-4000-8000-000000000002")
+  id
+}
+
 fn identity_order() -> change.IdentityOrder {
-  let assert Ok(order) = change.identity_order([#(revision(), 0)])
+  let assert Ok(order) =
+    change.identity_order([#(revision(), 0), #(revision_b(), 1)])
   order
 }
 
@@ -356,4 +365,241 @@ pub fn shared_tree_array_change_moves_between_ancestor_and_child_arrays_test() {
       ]),
     ]),
   )
+}
+
+fn object_arrays_root() -> types.TreeValue {
+  let point = fn(label, x) {
+    types.ObjectValue(point_type, [
+      #("label", types.StringValue(label)),
+      #("x", types.NumberValue(x)),
+    ])
+  }
+  types.ObjectValue("org.watershed.shared-tree.m3.Root", [
+    #("left", types.ArrayValue(items_type, [point("left", 1.0)])),
+    #("right", types.ArrayValue(items_type, [point("right", 2.0)])),
+    #("byKey", types.MapValue("org.watershed.shared-tree.m3.ArrayMap", [])),
+    #("narrow", types.ArrayValue("org.watershed.shared-tree.m3.Points", [])),
+  ])
+}
+
+pub fn shared_tree_array_compose_schedules_untouched_move_destination_test() {
+  let stored = array_fixture.stored("objectArrays")
+  let assert Ok(initial) =
+    forest.new(array_fixture.view_id(), stored, Some(object_arrays_root()))
+  let assert Ok(moved) =
+    change.edit(
+      stored,
+      initial,
+      revision(),
+      types.ArrayMove(["left"], 0, 1, ["right"], 0),
+      identity_order(),
+    )
+  let assert Ok(move_delta) =
+    change.into_delta(change.TaggedChange(Some(revision()), None, moved))
+  let assert Ok(after_move) = forest.apply_delta(initial, move_delta)
+  let assert Ok(edited) =
+    change.edit(
+      stored,
+      after_move,
+      revision_b(),
+      types.SetField(["right", "0", "x"], types.NumberValue(9.0)),
+      identity_order(),
+    )
+  let composed =
+    change.compose([
+      change.TaggedChange(Some(revision()), None, moved),
+      change.TaggedChange(Some(revision_b()), None, edited),
+    ])
+  let assert Ok(composed) = composed
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(None, None, composed))
+  let assert Ok(updated) = forest.apply_delta(initial, delta)
+  forest.read(updated, ["right", "0", "x"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(9.0))))
+}
+
+pub fn shared_tree_array_rebase_schedules_untouched_move_destination_test() {
+  let stored = array_fixture.stored("objectArrays")
+  let assert Ok(initial) =
+    forest.new(array_fixture.view_id(), stored, Some(object_arrays_root()))
+  let assert Ok(moved) =
+    change.edit(
+      stored,
+      initial,
+      revision(),
+      types.ArrayMove(["left"], 0, 1, ["right"], 0),
+      identity_order(),
+    )
+  let assert Ok(edited) =
+    change.edit(
+      stored,
+      initial,
+      revision_b(),
+      types.SetField(["left", "0", "x"], types.NumberValue(9.0)),
+      identity_order(),
+    )
+  let assert Ok(context) =
+    change.rebase_context([
+      change.RevisionInfo(revision(), None),
+      change.RevisionInfo(revision_b(), None),
+    ])
+  let rebased =
+    change.rebase(
+      change.TaggedChange(Some(revision_b()), None, edited),
+      change.TaggedChange(Some(revision()), None, moved),
+      context,
+    )
+  let assert Ok(rebased) = rebased
+  let assert Ok(move_delta) =
+    change.into_delta(change.TaggedChange(Some(revision()), None, moved))
+  let assert Ok(after_move) = forest.apply_delta(initial, move_delta)
+  let assert Ok(rebased_delta) =
+    change.into_delta(change.TaggedChange(Some(revision_b()), None, rebased))
+  let assert Ok(updated) = forest.apply_delta(after_move, rebased_delta)
+  forest.read(updated, ["right", "0", "x"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(9.0))))
+}
+
+pub fn shared_tree_array_ownership_survives_roundtrip_and_singleton_compose_test() {
+  let stored = array_fixture.stored("objectArrays")
+  let point = fn(label, x) {
+    types.ObjectValue(point_type, [
+      #("label", types.StringValue(label)),
+      #("x", types.NumberValue(x)),
+    ])
+  }
+  let root =
+    types.ObjectValue("org.watershed.shared-tree.m3.Root", [
+      #(
+        "left",
+        types.ArrayValue(items_type, [point("first", 1.0), point("second", 2.0)]),
+      ),
+      #("right", types.ArrayValue(items_type, [])),
+      #("byKey", types.MapValue("org.watershed.shared-tree.m3.ArrayMap", [])),
+      #("narrow", types.ArrayValue("org.watershed.shared-tree.m3.Points", [])),
+    ])
+  let assert Ok(initial) =
+    forest.new(array_fixture.view_id(), stored, Some(root))
+  let assert Ok(authored) =
+    change.edit(
+      stored,
+      initial,
+      revision(),
+      types.ArrayMove(["left"], 0, 2, ["right"], 0),
+      identity_order(),
+    )
+  let original = change.cross_field_keys(authored)
+  original
+  |> result.map(fn(keys) { list.map(keys, fn(key) { key.count }) })
+  |> expect.to_equal(Ok([2, 2]))
+  change.to_data(authored).cross_field_keys
+  |> expect.to_equal(result.unwrap(original, []))
+  let assert Ok(roundtripped) =
+    change.from_data(change.to_data(authored), identity_order())
+  change.cross_field_keys(roundtripped) |> expect.to_equal(original)
+  let assert Ok(composed) =
+    change.compose([
+      change.TaggedChange(Some(revision()), None, authored),
+    ])
+  change.cross_field_keys(composed) |> expect.to_equal(original)
+}
+
+pub fn shared_tree_array_compose_runs_move_chain_to_fixed_point_test() {
+  let stored = array_fixture.stored("objectArrays")
+  let assert Ok(initial) =
+    forest.new(array_fixture.view_id(), stored, Some(object_arrays_root()))
+  let assert Ok(first) =
+    change.edit(
+      stored,
+      initial,
+      revision(),
+      types.ArrayMove(["left"], 0, 1, ["right"], 0),
+      identity_order(),
+    )
+  let assert Ok(first_delta) =
+    change.into_delta(change.TaggedChange(Some(revision()), None, first))
+  let assert Ok(after_first) = forest.apply_delta(initial, first_delta)
+  let assert Ok(second) =
+    change.edit(
+      stored,
+      after_first,
+      revision_b(),
+      types.ArrayMove(["right"], 0, 1, ["narrow"], 0),
+      identity_order(),
+    )
+  let assert Ok(#(composed, trace)) =
+    change.compose_with_trace([
+      change.TaggedChange(Some(revision()), None, first),
+      change.TaggedChange(Some(revision_b()), None, second),
+    ])
+  trace
+  |> list.filter(fn(event) {
+    case event {
+      moves.HandlerCalled("compose", _) -> True
+      _ -> False
+    }
+  })
+  |> list.length
+  |> fn(count) { count > 2 }
+  |> expect.to_be_true
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(None, None, composed))
+  let assert Ok(updated) = forest.apply_delta(initial, delta)
+  forest.array_values(updated, ["left"]) |> expect.to_equal(Ok([]))
+  forest.array_values(updated, ["right"])
+  |> expect.to_equal(
+    Ok([
+      types.ObjectValue(point_type, [
+        #("label", types.StringValue("right")),
+        #("x", types.NumberValue(2.0)),
+      ]),
+    ]),
+  )
+  forest.read(updated, ["narrow", "0", "label"])
+  |> expect.to_equal(Ok(Some(types.StringValue("left"))))
+}
+
+pub fn shared_tree_array_change_preserves_duplicate_descendant_identity_test() {
+  let point =
+    types.ObjectValue(point_type, [
+      #("label", types.StringValue("same")),
+      #("x", types.NumberValue(1.0)),
+    ])
+  let root = types.ArrayValue(items_type, [point, point])
+  let stored = array_fixture.stored("rootArray")
+  let assert Ok(initial) =
+    forest.new(array_fixture.view_id(), stored, Some(root))
+  let assert Ok(first) = forest.locate(initial, ["0"])
+  let assert Ok(second) = forest.locate(initial, ["1"])
+  let assert Ok(authored) =
+    change.edit(
+      stored,
+      initial,
+      revision(),
+      types.ArrayMove([], 1, 2, [], 0),
+      identity_order(),
+    )
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(Some(revision()), None, authored))
+  let assert Ok(updated) = forest.apply_delta(initial, delta)
+  forest.locate(updated, ["0"]) |> expect.to_equal(Ok(second))
+  forest.locate(updated, ["1"]) |> expect.to_equal(Ok(first))
+}
+
+pub fn shared_tree_array_change_keeps_map_mutation_scoped_to_selected_item_test() {
+  let map_type = "org.watershed.shared-tree.m3.ArrayMap"
+  let root =
+    types.ArrayValue(items_type, [
+      types.MapValue(map_type, [#("existing", types.StringValue("first"))]),
+      types.MapValue(map_type, [#("existing", types.StringValue("second"))]),
+    ])
+  let assert Ok(updated) =
+    apply_edit(
+      "rootArray",
+      root,
+      types.MapSet(["1"], "added", types.StringValue("value")),
+    )
+  forest.read(updated, ["0", "added"]) |> expect.to_equal(Ok(None))
+  forest.read(updated, ["1", "added"])
+  |> expect.to_equal(Ok(Some(types.StringValue("value"))))
 }

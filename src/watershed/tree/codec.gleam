@@ -581,6 +581,7 @@ fn decode_modular_value(
       builds: builds,
       destroys: [],
       refreshers: refreshers,
+      cross_field_keys: [],
     )
   let DecodeContext(compressor: compressor, ..) = context
   use order <- result.try(identity_order(

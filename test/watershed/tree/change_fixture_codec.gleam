@@ -217,6 +217,7 @@ pub fn state(
       builds:,
       destroys:,
       refreshers:,
+      cross_field_keys: [],
     ),
     identity_order,
   )

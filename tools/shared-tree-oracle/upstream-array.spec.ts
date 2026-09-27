@@ -84,7 +84,8 @@ const scenarioIds = {
 	],
 	"array-modular-algebra": [
 		"generic-to-sequence", "sequence-to-generic", "nested-ancestors", "common-ancestors",
-		"cross-field-endpoints", "node-table", "parent-table", "alias-table",
+		"cross-field-endpoints", "nested-cross-field-endpoints", "node-table", "parent-table",
+		"alias-table", "ownership-roundtrip",
 	],
 	"array-codecs": [
 		"sequence-v3", "message-v7", "builds", "empty-arrays", "retained-history",
@@ -2170,6 +2171,52 @@ async function makeCases() {
 		nodes: [[atom(r9, 61), { fields: [] }]],
 		parents: [[atom(r9, 61), parent("left")]],
 	});
+	const nestedCrossField = copy(
+		crossFieldCoordinationInput(r6, modularCompressor),
+	) as unknown as {
+		allocator: { maxLocalId: number };
+		operands: {
+			changes: {
+				change: {
+					maxLocalId: number;
+					fields: unknown[];
+					nodes: unknown[];
+					parents: unknown[];
+					crossFieldKeys: { field: { node: unknown; field: string } }[];
+				};
+			}[];
+		};
+	};
+	nestedCrossField.operands.changes.forEach(({ change }, index) => {
+		const node = { revision: Number(r6), localId: 60 + index };
+		change.nodes = [[node, { fields: change.fields }], ...change.nodes];
+		change.parents = [[node, { node: null, field: "outer" }], ...change.parents];
+		change.fields = [["outer", {
+			kind: "Sequence",
+			change: [{ count: 1, changes: node }],
+		}]];
+		change.crossFieldKeys = change.crossFieldKeys.map((key) => ({
+			...key,
+			field: { ...key.field, node },
+		}));
+		change.maxLocalId = 60 + index;
+	});
+	nestedCrossField.allocator.maxLocalId = 61;
+	const crossFieldInput =
+		crossFieldCoordinationInput(r6, modularCompressor) as unknown as Record<string, unknown>;
+	const crossFieldOutput = replayArrayModularInput(copy(crossFieldInput)) as {
+		graph: Record<string, unknown>;
+	};
+	const ownershipRoundtrip = copy(crossFieldInput) as {
+		allocator: { maxLocalId: number };
+		operands: { changes: unknown[] };
+	};
+	ownershipRoundtrip.operands.changes = [{
+		revision: Number(r6),
+		change: crossFieldOutput.graph,
+	}];
+	ownershipRoundtrip.allocator.maxLocalId =
+		Reflect.get(crossFieldOutput.graph, "maxLocalId") as number;
 	const modularInputs: Record<string, Record<string, unknown>> = {
 		"generic-to-sequence": replayContext("compose", [
 			tagged(r0, genericLeft),
@@ -2193,10 +2240,8 @@ async function makeCases() {
 				})),
 			},
 		),
-		"cross-field-endpoints": crossFieldCoordinationInput(r6, modularCompressor) as unknown as Record<
-			string,
-			unknown
-		>,
+		"cross-field-endpoints": crossFieldInput,
+		"nested-cross-field-endpoints": nestedCrossField as unknown as Record<string, unknown>,
 		"node-table": replayContext("invert", [tagged(r2, nestedMap)], {
 			isRollback: true,
 			inverseRevision: Number(r7),
@@ -2206,6 +2251,7 @@ async function makeCases() {
 			inverseRevision: Number(r10),
 		}),
 		"alias-table": replayContext("compose", [tagged(r8, aliasLeft), tagged(r9, aliasRight)]),
+		"ownership-roundtrip": ownershipRoundtrip as unknown as Record<string, unknown>,
 	};
 	const modularScenarios: Scenario[] = scenarioIds["array-modular-algebra"].map((id) => {
 		const input = copy(modularInputs[id]);
@@ -2268,11 +2314,14 @@ async function makeCases() {
 				`${id}: changing the child index must change or reject replay.`,
 			);
 		}
-		if (id === "cross-field-endpoints") {
+		if (id === "cross-field-endpoints" || id === "nested-cross-field-endpoints") {
 			const coordination = rawOutput.coordination;
 			assert.deepEqual(
-				coordination.handlerCalls.slice(0, 3).map(({ field }) => field.field),
-				["right", "left", "right"],
+				coordination.handlerCalls.slice(0, id === "cross-field-endpoints" ? 3 : 4)
+					.map(({ field }) => field.field),
+				id === "cross-field-endpoints"
+					? ["right", "left", "right"]
+					: ["outer", "right", "left", "right"],
 				"The source manager must reprocess the destination after discovering the source.",
 			);
 			assert(
@@ -2291,6 +2340,19 @@ async function makeCases() {
 						call.count > call.returnedLength,
 				),
 				"The source manager must expose an overlapping partial-range query.",
+			);
+		}
+		if (id === "ownership-roundtrip") {
+			const graph = Reflect.get(outputRecord, "graph") as {
+				crossFieldKeys: unknown[];
+			};
+			const operand = (Reflect.get(input, "operands") as {
+				changes: { change: { crossFieldKeys: unknown[] } }[];
+			}).changes[0].change;
+			assert.deepEqual(
+				graph.crossFieldKeys,
+				operand.crossFieldKeys,
+				"Singleton composition must retain authoritative counted ownership.",
 			);
 		}
 		return {

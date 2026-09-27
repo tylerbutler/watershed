@@ -132,6 +132,7 @@ fn empty_data() -> change.ChangeData {
     builds: [],
     destroys: [],
     refreshers: [],
+    cross_field_keys: [],
   )
 }
 
