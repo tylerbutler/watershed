@@ -32,6 +32,9 @@ const requiredItemIds = [
   "summary-restored-detached",
   "message-map-set",
   "summary-map-restored",
+  "message-array-sequence",
+  "summary-array-retained-history",
+  "summary-array-full-summary",
 ];
 const point = (x, y) => ({
   type: "org.watershed.shared-tree.m1.Point",
@@ -324,7 +327,9 @@ export function validateNativeArtifact(artifact) {
     ids.add(item.id);
     requireValue(["schema", "fieldBatch", "message", "summary"].includes(item.kind),
       `${item.id} kind`);
-    requireValue(item.schemaProfile === undefined || item.schemaProfile === "map",
+    requireValue(item.schemaProfile === undefined
+      || item.schemaProfile === "map"
+      || item.schemaProfile === "array",
       `${item.id} schemaProfile`);
     requireValue(Object.hasOwn(item, "encoded"), `${item.id} encoded`);
     if (item.kind === "message" || item.kind === "summary") {
@@ -338,15 +343,26 @@ export function validateNativeArtifact(artifact) {
     if (item.kind === "message") {
       requireValue(object(item.initialSummary), `${item.id} initialSummary`);
       requireValue(Array.isArray(item.allocationRanges), `${item.id} allocationRanges`);
-      for (const field of [
-        "sequenceNumber", "referenceSequenceNumber", "minimumSequenceNumber",
-      ]) {
-        requireValue(Number.isSafeInteger(item[field]) && item[field] >= 0,
-          `${item.id} ${field}`);
+      if (item.schemaProfile === "array") {
+        requireValue(Array.isArray(item.encoded) && item.encoded.length > 0,
+          `${item.id} encoded messages`);
+        requireValue(Array.isArray(item.sequencing)
+          && item.sequencing.length >= item.encoded.length,
+        `${item.id} sequencing`);
+        requireValue(Array.isArray(item.expectedGraphs)
+          && item.expectedGraphs.length === item.encoded.length,
+        `${item.id} expected graphs`);
+      } else {
+        for (const field of [
+          "sequenceNumber", "referenceSequenceNumber", "minimumSequenceNumber",
+        ]) {
+          requireValue(Number.isSafeInteger(item[field]) && item[field] >= 0,
+            `${item.id} ${field}`);
+        }
+        requireValue(item.indexInBatch === null
+          || (Number.isSafeInteger(item.indexInBatch) && item.indexInBatch >= 0),
+        `${item.id} indexInBatch`);
       }
-      requireValue(item.indexInBatch === null
-        || (Number.isSafeInteger(item.indexInBatch) && item.indexInBatch >= 0),
-      `${item.id} indexInBatch`);
     }
   }
   return artifact;
@@ -400,6 +416,31 @@ function validateConsumerOutput(output, artifact, expectedIds) {
         "summary-map-restored trunk history");
       requireValue(observation.continued === true,
         "summary-map-restored continuation");
+    }
+    if (observation.id === "message-array-sequence") {
+      requireValue(observation.decoded === true, "message-array-sequence decoded");
+      requireValue(Array.isArray(observation.graphs)
+        && observation.graphs.length === item.encoded.length,
+      "message-array-sequence graphs");
+      requireValue(object(observation.beforeApply)
+        && object(observation.afterApply),
+      "message-array-sequence visible states");
+      requireValue(object(observation.continued)
+        && observation.continued.rangeMoveIdentity === true
+        && observation.continued.nestedEdit === "upstream-nested",
+      "message-array-sequence continuation");
+      requireValue(observation.continuationMessages >= 2,
+        "message-array-sequence authored messages");
+    }
+    if (observation.id === "summary-array-retained-history"
+      || observation.id === "summary-array-full-summary") {
+      requireValue(object(observation.visible), `${observation.id} visible`);
+      requireValue(object(observation.continued)
+        && observation.continued.rangeMoveIdentity === true
+        && observation.continued.nestedEdit === "upstream-nested",
+      `${observation.id} continuation`);
+      requireValue(observation.history.trunk.length > 0,
+        `${observation.id} retained history`);
     }
   }
   requireValue(expectedIds.length === ids.size

@@ -26,10 +26,12 @@ import {
 	jsonableTreeFromFieldCursor,
 	schemaCodecBuilder,
 	TreeCompressionStrategy,
+	type ModularChangeset,
 } from "../feature-libraries/index.js";
 import { SchemaFactory, TreeViewConfiguration } from "../simple-tree/index.js";
 import { configuredSharedTreeInternal } from "../treeFactory.js";
 import { makeTestFieldBatchContexts, assertIsSessionId } from "./utils.js";
+import { encodeModularGraph } from "./watershedArraySupport.js";
 
 const formatVersion = 1;
 const reference = {
@@ -47,7 +49,7 @@ type ArtifactItem = {
 	id: string;
 	kind: "schema" | "fieldBatch" | "message" | "summary";
 	encoded: unknown;
-	schemaProfile?: "map";
+	schemaProfile?: "map" | "array";
 	compressor?: string;
 	compressorMode?: "ongoing" | "summary";
 	session?: string;
@@ -57,6 +59,14 @@ type ArtifactItem = {
 	referenceSequenceNumber?: number;
 	minimumSequenceNumber?: number;
 	indexInBatch?: number | null;
+	sequencing?: {
+		clientId: string;
+		clientSequenceNumber: number;
+		referenceSequenceNumber: number;
+		sequenceNumber: number;
+		minimumSequenceNumber: number;
+	}[];
+	expectedGraphs?: unknown[];
 };
 
 type NativeArtifact = {
@@ -103,6 +113,41 @@ const mapTreeFactory = configuredSharedTreeInternal({
 	minVersionForCollab: FluidClientVersion.v2_117,
 }).getFactory();
 
+const arraySchema = new SchemaFactory("org.watershed.shared-tree.m3");
+class ArrayPoint extends arraySchema.object("Point", {
+	label: arraySchema.string,
+	x: arraySchema.number,
+}) {}
+class Items extends arraySchema.arrayRecursive("Items", [
+	arraySchema.string,
+	arraySchema.number,
+	arraySchema.boolean,
+	arraySchema.null,
+	ArrayPoint,
+	() => Items,
+	() => ArrayMap,
+]) {}
+class ArrayMap extends arraySchema.mapRecursive("ArrayMap", [
+	arraySchema.string,
+	arraySchema.number,
+	arraySchema.boolean,
+	arraySchema.null,
+	ArrayPoint,
+	() => Items,
+	() => ArrayMap,
+]) {}
+class Points extends arraySchema.array("Points", ArrayPoint) {}
+class ArrayRoot extends arraySchema.object("Root", {
+	left: Items,
+	right: Items,
+	byKey: ArrayMap,
+	narrow: Points,
+}) {}
+const arrayConfiguration = new TreeViewConfiguration({ schema: ArrayRoot });
+const arrayTreeFactory = configuredSharedTreeInternal({
+	minVersionForCollab: FluidClientVersion.v2_117,
+}).getFactory();
+
 function compressor(item: ArtifactItem): IIdCompressor {
 	assert(typeof item.compressor === "string" && item.compressor.length > 0,
 		`${item.id}: missing compressor`);
@@ -127,7 +172,9 @@ async function loadSummary(item: ArtifactItem, idCompressor = compressor(item)) 
 	assert(item.encoded !== null && typeof item.encoded === "object",
 		`${item.id}: summary encoding`);
 	const runtime = new MockFluidDataStoreRuntime({ idCompressor });
-	const selectedFactory = item.schemaProfile === "map" ? mapTreeFactory : factory;
+	const selectedFactory = item.schemaProfile === "map"
+		? mapTreeFactory
+		: item.schemaProfile === "array" ? arrayTreeFactory : factory;
 	return selectedFactory.load(
 		runtime,
 		`codec-${item.id}`,
@@ -165,6 +212,55 @@ function visibleRoot(root: Root | undefined) {
 		note: root.note,
 		point: { x: root.point.x, y: root.point.y },
 	};
+}
+
+function arrayValue(value: unknown): unknown {
+	if (value instanceof ArrayPoint) return { point: { label: value.label, x: value.x } };
+	if (value instanceof Items || value instanceof Points) {
+		return Array.from({ length: value.length }, (_, index) => arrayValue(value[index]));
+	}
+	if (value instanceof ArrayMap) {
+		return { map: [...value].map(([key, item]) => [key, arrayValue(item)]) };
+	}
+	return value;
+}
+
+function visibleArray(root: ArrayRoot | undefined) {
+	if (root === undefined) return null;
+	return {
+		left: arrayValue(root.left),
+		right: arrayValue(root.right),
+		byKey: arrayValue(root.byKey),
+		narrow: arrayValue(root.narrow),
+	};
+}
+
+function continueArray(root: ArrayRoot) {
+	assert(root.left.length >= 2, "Array continuation needs two source items");
+	const first = root.left[0];
+	const second = root.left[1];
+	const destination = root.right.length;
+	root.right.moveRangeToEnd(0, 2, root.left);
+	const rangeMoveIdentity =
+		root.right[destination] === first && root.right[destination + 1] === second;
+	const point = [...root.left, ...root.right].find((value) => value instanceof ArrayPoint);
+	assert(point instanceof ArrayPoint, "Array continuation needs a nested point");
+	point.label = "upstream-nested";
+	return {
+		rangeMoveIdentity,
+		nestedEdit: point.label,
+		visible: visibleArray(root),
+	};
+}
+
+function decodedGraphs(decoded: unknown, id: string): unknown[] {
+	assert(decoded !== null && typeof decoded === "object", `${id}: decoded message`);
+	const commit = Reflect.get(decoded, "commit") as {
+		change?: { changes?: readonly { type?: unknown; innerChange?: unknown }[] };
+	};
+	return (commit.change?.changes ?? [])
+		.filter(({ type }) => type === "data")
+		.map(({ innerChange }) => encodeModularGraph(innerChange as ModularChangeset));
 }
 
 function stableRevision(idCompressor: IIdCompressor, revision: unknown): string {
@@ -264,18 +360,27 @@ async function consume(item: ArtifactItem) {
 			assert(item.initialSummary !== undefined, `${item.id}: missing initial summary`);
 			assert(Number.isSafeInteger(item.sequenceNumber)
 				&& Number.isSafeInteger(item.referenceSequenceNumber)
-				&& Number.isSafeInteger(item.minimumSequenceNumber),
+				&& Number.isSafeInteger(item.minimumSequenceNumber)
+				|| item.schemaProfile === "array" && Array.isArray(item.sequencing),
 			`${item.id}: missing sequence metadata`);
 			const runtime = new MockFluidDataStoreRuntime({ idCompressor: compressor(item) });
-			const selectedFactory = item.schemaProfile === "map" ? mapTreeFactory : factory;
+			const idCompressor = runtime.idCompressor;
+			assert(idCompressor !== undefined, `${item.id}: runtime compressor`);
+			const selectedFactory = item.schemaProfile === "map"
+				? mapTreeFactory
+				: item.schemaProfile === "array" ? arrayTreeFactory : factory;
+			const submitted: unknown[] = [];
+			const loadedServices = services(
+				item.initialSummary as Parameters<
+					typeof MockSharedObjectServices.createFromSummary
+				>[0],
+			);
+			loadedServices.deltaConnection =
+				new MockDeltaConnection((message) => submitted.push(message), () => {});
 			const tree = await selectedFactory.load(
 				runtime,
 				`codec-${item.id}`,
-				services(
-					item.initialSummary as Parameters<
-						typeof MockSharedObjectServices.createFromSummary
-					>[0],
-				),
+				loadedServices,
 				selectedFactory.attributes,
 			);
 			const kernel: unknown = Reflect.get(tree, "kernel");
@@ -284,12 +389,67 @@ async function consume(item: ArtifactItem) {
 			assert(messageCodec !== null && typeof messageCodec === "object"
 				&& "decode" in messageCodec && typeof messageCodec.decode === "function",
 			`${item.id}: missing message codec`);
-			const decoded: unknown = messageCodec.decode(item.encoded, {
-				idCompressor: runtime.idCompressor,
-			});
-			assert(decoded !== null && typeof decoded === "object", `${item.id}: decoded message`);
+			const decodeMessage = messageCodec.decode.bind(messageCodec) as (
+				value: unknown,
+				context: { idCompressor: IIdCompressor },
+			) => unknown;
 			const process: unknown = Reflect.get(kernel, "processMessagesCore");
 			assert(typeof process === "function", `${item.id}: missing process function`);
+			if (item.schemaProfile === "array") {
+				assert(Array.isArray(item.encoded) && item.encoded.length > 0,
+					`${item.id}: array messages`);
+				assert(Array.isArray(item.sequencing)
+					&& item.sequencing.length >= item.encoded.length,
+				`${item.id}: array sequencing`);
+				assert(Array.isArray(item.expectedGraphs)
+					&& item.expectedGraphs.length === item.encoded.length,
+				`${item.id}: native graph evidence`);
+				const decoded = item.encoded.map((message) =>
+					decodeMessage(message, { idCompressor }));
+				const graphs = decoded.map((message) => decodedGraphs(message, item.id));
+				assert.deepEqual(graphs, item.expectedGraphs, `${item.id}: decoded modular graphs`);
+				const view = tree.viewWith(arrayConfiguration);
+				const beforeApply = visibleArray(view.root);
+				for (const [index, message] of item.encoded.entries()) {
+					const sequence = item.sequencing[index];
+					assert(sequence !== undefined, `${item.id}: sequence ${index}`);
+					process.call(kernel, {
+						envelope: {
+							clientId: sequence.clientId,
+							clientSequenceNumber: sequence.clientSequenceNumber,
+							contents: message,
+							referenceSequenceNumber: sequence.referenceSequenceNumber,
+							sequenceNumber: sequence.sequenceNumber,
+							minimumSequenceNumber: sequence.minimumSequenceNumber,
+							timestamp: 0,
+							type: "op",
+						},
+						local: false,
+						messagesContent: [{
+							contents: message,
+							localOpMetadata: undefined,
+							clientSequenceNumber: sequence.clientSequenceNumber,
+						}],
+					});
+				}
+				const afterApply = visibleArray(view.root);
+				const continued = continueArray(view.root);
+				assert(submitted.length >= 2, `${item.id}: continuation messages`);
+				return {
+					id: item.id,
+					kind: item.kind,
+					decoded: true,
+					graphs,
+					beforeApply,
+					afterApply,
+					continued,
+					continuationMessages: submitted.length,
+				};
+			}
+			const decoded: unknown = decodeMessage(item.encoded, {
+				idCompressor,
+			});
+			assert(decoded !== null && typeof decoded === "object", `${item.id}: decoded message`);
 			if (item.schemaProfile === "map") {
 				const view = tree.viewWith(mapConfiguration);
 				const beforeApply = visibleMap(view.root);
@@ -374,6 +534,26 @@ async function consume(item: ArtifactItem) {
 					removed: removedContent(snapshot.removed, idCompressor, item.id),
 					history,
 					continued: view.root.items.get("upstream-continuation"),
+				};
+			}
+			if (item.schemaProfile === "array") {
+				const view = tree.viewWith(arrayConfiguration);
+				const visible = visibleArray(view.root);
+				const history = summaryHistory(tree, idCompressor, item.id);
+				const contentSnapshot: unknown = Reflect.get(tree, "contentSnapshot");
+				assert(typeof contentSnapshot === "function", `${item.id}: missing content snapshot`);
+				const snapshot: unknown = contentSnapshot.call(tree);
+				assert(snapshot !== null && typeof snapshot === "object"
+					&& "removed" in snapshot && Array.isArray(snapshot.removed),
+				`${item.id}: missing removed content`);
+				const continued = continueArray(view.root);
+				return {
+					id: item.id,
+					kind: item.kind,
+					visible,
+					removed: removedContent(snapshot.removed, idCompressor, item.id),
+					history,
+					continued,
 				};
 			}
 			const view = tree.viewWith(configuration);

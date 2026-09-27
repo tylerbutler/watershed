@@ -90,6 +90,39 @@ test("message and summary artifacts require their explicit compressor context", 
   }
 });
 
+test("array message artifacts require sequence and graph evidence", async () => {
+  const { validateNativeArtifact } = await import("./codec-interop.mjs");
+  const value = artifact();
+  value.items[0] = {
+    id: "message-array-sequence",
+    kind: "message",
+    schemaProfile: "array",
+    encoded: [{ version: 7 }],
+    compressor: "serialized",
+    compressorMode: "summary",
+    session: "11111111-1111-4111-8111-111111111111",
+    initialSummary: {},
+    allocationRanges: [],
+    sequencing: [{
+      clientId: "client",
+      clientSequenceNumber: 1,
+      referenceSequenceNumber: 0,
+      sequenceNumber: 1,
+      minimumSequenceNumber: 0,
+    }],
+    expectedGraphs: [[]],
+  };
+  assert.doesNotThrow(() => validateNativeArtifact(value));
+  for (const field of ["sequencing", "expectedGraphs"]) {
+    const incomplete = structuredClone(value);
+    delete incomplete.items[0][field];
+    assert.throws(
+      () => validateNativeArtifact(incomplete),
+      new RegExp(field === "expectedGraphs" ? "expected graphs" : field),
+    );
+  }
+});
+
 test("codec interop produces and consumes fresh artifacts for both targets", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "watershed-codec-interop-"));
   t.after(async () => {

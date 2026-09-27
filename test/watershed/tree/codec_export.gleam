@@ -13,6 +13,7 @@ import watershed/fluid_ids
 import watershed/json_ot.{
   type JsonValue, NInt, VArray, VNumber, VObject, VString,
 }
+import watershed/tree/array_change_fixture
 import watershed/tree/change
 import watershed/tree/codec
 import watershed/tree/codec/field_batch
@@ -25,6 +26,10 @@ import watershed/wire/fluid_summary
 const fixture_path = "test/fixtures/shared_tree/cases/tree-codecs.json"
 
 const map_fixture_path = "test/fixtures/shared_tree/cases/map-history-codecs.json"
+
+const array_fixture_path = "test/fixtures/shared_tree/cases/array-codecs.json"
+
+const array_schema_fixture_path = "test/fixtures/shared_tree/cases/array-schema-content.json"
 
 const reference_commit = "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
 
@@ -61,7 +66,25 @@ pub fn main() {
     Ok(value) -> value
     Error(error) -> panic as { error }
   }
-  let artifact = case build_artifact(input, map_initial) {
+  let array_raw = case simplifile.read(array_fixture_path) {
+    Ok(value) -> value
+    Error(error) ->
+      panic as {
+        "could not read array codec fixture: " <> string.inspect(error)
+      }
+  }
+  let array_schema_raw = case simplifile.read(array_schema_fixture_path) {
+    Ok(value) -> value
+    Error(error) ->
+      panic as {
+        "could not read array schema fixture: " <> string.inspect(error)
+      }
+  }
+  let array_input = case decode_array_input(array_raw, array_schema_raw) {
+    Ok(value) -> value
+    Error(error) -> panic as { error }
+  }
+  let artifact = case build_artifact(input, map_initial, array_input) {
     Ok(value) -> value
     Error(error) -> panic as { error }
   }
@@ -86,6 +109,19 @@ type InitialState {
     value: summary.TreeSummaryData,
     session: fluid_ids.SessionId,
     compressor: fluid_ids.Compressor,
+  )
+}
+
+type ArrayInput {
+  ArrayInput(
+    messages: List(JsonValue),
+    sequencing: List(JsonValue),
+    initial_summary: JsonValue,
+    message_session: fluid_ids.SessionId,
+    message_compressor: fluid_ids.Compressor,
+    summaries: List(
+      #(String, JsonValue, fluid_ids.SessionId, fluid_ids.Compressor),
+    ),
   )
 }
 
@@ -160,9 +196,79 @@ fn decode_map_initial(raw: String) -> Result(InitialState, String) {
   Ok(InitialState(value, session, compressor))
 }
 
+fn decode_array_input(
+  raw: String,
+  schema_raw: String,
+) -> Result(ArrayInput, String) {
+  use root <- result.try(
+    json_ot.parse_json(raw) |> result.map_error(string.inspect),
+  )
+  use input <- result.try(field(root, "input"))
+  use scenarios <- result.try(field(input, "scenarios"))
+  use scenarios <- result.try(array(scenarios))
+  use messages <- result.try(find_scenario(scenarios, "sequence-v3"))
+  use encoded_messages <- result.try(field(messages, "encodedMessages"))
+  use encoded_messages <- result.try(array(encoded_messages))
+  use sequencing <- result.try(field(messages, "sequencing"))
+  use sequencing <- result.try(array(sequencing))
+  use decode_context <- result.try(field(messages, "decodeContext"))
+  use decoder <- result.try(field(decode_context, "decoder"))
+  use message_session_raw <- result.try(field_text(decoder, "sessionId"))
+  use message_session <- result.try(
+    fluid_ids.session_id(message_session_raw)
+    |> result.map_error(string.inspect),
+  )
+  use message_compressor_raw <- result.try(field_text(decoder, "compressor"))
+  use message_compressor <- result.try(
+    fluid_ids.deserialize(json.string(message_compressor_raw), message_session)
+    |> result.map_error(string.inspect),
+  )
+  use schema_root <- result.try(
+    json_ot.parse_json(schema_raw) |> result.map_error(string.inspect),
+  )
+  use schema_evidence <- result.try(field(schema_root, "raw"))
+  use schema_summaries <- result.try(field(schema_evidence, "summaries"))
+  use initial_summary <- result.try(field(schema_summaries, "initial"))
+  use summaries <- result.try(
+    ["retained-history", "full-summary"]
+    |> list.try_map(fn(id) {
+      use scenario <- result.try(find_scenario(scenarios, id))
+      use encoded <- result.try(field(scenario, "encodedSummary"))
+      use context <- result.try(field(scenario, "decodeContext"))
+      use session_raw <- result.try(field_text(context, "sessionId"))
+      use session <- result.try(
+        fluid_ids.session_id(session_raw) |> result.map_error(string.inspect),
+      )
+      use compressor_raw <- result.try(field_text(context, "compressor"))
+      use compressor <- result.try(
+        fluid_ids.deserialize(json.string(compressor_raw), session)
+        |> result.map_error(string.inspect),
+      )
+      Ok(#(id, encoded, session, compressor))
+    }),
+  )
+  Ok(ArrayInput(
+    encoded_messages,
+    sequencing,
+    initial_summary,
+    message_session,
+    message_compressor,
+    summaries,
+  ))
+}
+
+fn find_scenario(
+  scenarios: List(JsonValue),
+  id: String,
+) -> Result(JsonValue, String) {
+  list.find(scenarios, fn(value) { field_text(value, "id") == Ok(id) })
+  |> result.map_error(fn(_) { "missing array codec scenario " <> id })
+}
+
 fn build_artifact(
   input: Input,
   map_initial: InitialState,
+  array_input: ArrayInput,
 ) -> Result(Json, String) {
   let Input(schemas, batches, summaries, message_bases) = input
   use schema_items <- result.try(
@@ -195,6 +301,7 @@ fn build_artifact(
   use authored_summary <- result.try(native_summary(settled))
   use restored_summary <- result.try(restored_summary_item(summaries))
   use map_summary <- result.try(map_summary_item(map_initial))
+  use array_items <- result.try(array_codec_items(array_input))
   let items =
     list.flatten([
       schema_items,
@@ -202,6 +309,7 @@ fn build_artifact(
       message_items,
       summary_items,
       [authored_summary, restored_summary, map_message, map_summary],
+      array_items,
     ])
   case items {
     [] -> Error("codec artifact has no items")
@@ -222,6 +330,151 @@ fn build_artifact(
         ]),
       )
   }
+}
+
+fn array_codec_items(input: ArrayInput) -> Result(List(Json), String) {
+  let ArrayInput(
+    messages,
+    sequencing,
+    initial_summary,
+    message_session,
+    message_compressor,
+    summaries,
+  ) = input
+  use initial <- result.try(
+    summary.decode(
+      summary_entry(initial_summary),
+      None,
+      message_session,
+      codec.DecodeContext(codec.Fluid310, message_compressor),
+    )
+    |> native,
+  )
+  use initial_encoded <- result.try(
+    summary.encode(
+      initial,
+      message_session,
+      codec.EncodeContext(
+        codec.Fluid310,
+        message_compressor,
+        Some(initial.schema),
+      ),
+    )
+    |> native,
+  )
+  use decoded <- result.try(
+    list.try_map(messages, fn(message) {
+      codec.decode_message(
+        json.to_string(json_ot.to_json(message)),
+        codec.DecodeContext(codec.Fluid310, message_compressor),
+      )
+      |> native
+    }),
+  )
+  use encoded <- result.try(
+    list.try_map(decoded, fn(message) {
+      codec.encode_message(
+        message,
+        codec.EncodeContext(
+          codec.Fluid310,
+          message_compressor,
+          Some(initial.schema),
+        ),
+      )
+      |> native
+    }),
+  )
+  use graphs <- result.try(
+    list.try_map(decoded, message_graphs(_, message_compressor)),
+  )
+  use compressor_raw <- result.try(serialize_compressor(
+    message_compressor,
+    False,
+  ))
+  use consumer_session <- result.try(
+    fluid_ids.session_id(native_summary_consumer_session)
+    |> result.map_error(string.inspect),
+  )
+  let message_item =
+    item(
+      "message-array-sequence",
+      "message",
+      json.array(encoded, fn(value) { value }),
+      [
+        #("schemaProfile", json.string("array")),
+        #("compressor", json.string(compressor_raw)),
+        #("compressorMode", json.string("summary")),
+        #(
+          "session",
+          json.string(fluid_ids.session_id_to_string(consumer_session)),
+        ),
+        #("initialSummary", summary_json(initial_encoded)),
+        #("allocationRanges", json.array([], fn(value) { value })),
+        #("sequencing", json.array(sequencing, json_ot.to_json)),
+        #("expectedGraphs", json.array(graphs, fn(value) { value })),
+      ],
+    )
+  use summary_items <- result.try(list.try_map(summaries, array_summary_item))
+  Ok([message_item, ..summary_items])
+}
+
+fn message_graphs(
+  message: codec.TreeMessage,
+  compressor: fluid_ids.Compressor,
+) -> Result(Json, String) {
+  let codec.TreeMessage(codec.WireCommit(changes: changes, ..), _) = message
+  use graphs <- result.try(
+    changes
+    |> list.filter_map(fn(item) {
+      case item {
+        codec.DataChange(value) -> Ok(value)
+        codec.SchemaChange(_, _) -> Error(Nil)
+      }
+    })
+    |> list.try_map(fn(value) {
+      array_change_fixture.graph_json_with_compressor(value, compressor)
+    }),
+  )
+  Ok(json.array(graphs, fn(value) { value }))
+}
+
+fn array_summary_item(
+  source: #(String, JsonValue, fluid_ids.SessionId, fluid_ids.Compressor),
+) -> Result(Json, String) {
+  let #(id, encoded, session, compressor) = source
+  use decoded <- result.try(
+    summary.decode(
+      summary_entry(encoded),
+      None,
+      session,
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+    |> native,
+  )
+  use encoded <- result.try(
+    summary.encode(
+      decoded,
+      session,
+      codec.EncodeContext(codec.Fluid310, compressor, Some(decoded.schema)),
+    )
+    |> native,
+  )
+  use compressor_raw <- result.try(serialize_compressor(compressor, False))
+  use consumer_session <- result.try(
+    fluid_ids.session_id(native_summary_consumer_session)
+    |> result.map_error(string.inspect),
+  )
+  Ok(
+    item("summary-array-" <> id, "summary", summary_json(encoded), [
+      #("schemaProfile", json.string("array")),
+      #("compressor", json.string(compressor_raw)),
+      #("compressorMode", json.string("summary")),
+      #(
+        "session",
+        json.string(fluid_ids.session_id_to_string(consumer_session)),
+      ),
+    ]),
+  )
 }
 
 fn restored_summary_item(

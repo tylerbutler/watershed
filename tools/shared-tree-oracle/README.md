@@ -641,10 +641,14 @@ test, not native publication of a full Fluid document summary.
 `npm run codec:interop` runs the native exporter on Erlang and JavaScript, then
 passes each fresh artifact to the pinned source consumer. The consumer decodes
 schema and FieldBatch output, applies native-authored messages, loads native
-DDS tree-index summaries, and makes another accepted upstream edit. The
-coordinator requires all 14 scenario IDs, compares both targets with fixed
-semantic expectations, rejects empty or stale artifacts, and removes its owned
-temporary output.
+DDS tree-index summaries, and makes another accepted upstream edit. Array
+coverage passes a four-message Message V7 sequence through the native codec,
+compares every decoded Modular V5 graph (including ownership ranges), and loads
+both retained-history and full summaries. The source consumer then performs a
+counted cross-array move and a nested object edit, checking that moved object
+identity survives. The coordinator requires all 20 scenario IDs, compares both
+targets with fixed semantic expectations, rejects empty or stale artifacts,
+and removes its owned temporary output.
 
 The FieldBatch writer uses four fixed V2 shapes: a generic node, a field array,
 a polymorphic selector, and a constant-null node. Null is stored in the shape,
