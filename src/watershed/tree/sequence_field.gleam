@@ -516,8 +516,12 @@ fn drop_plain_skips(marks: List(Mark)) -> List(Mark) {
 }
 
 fn merge_marks(first: Mark, second: Mark) -> Option(Mark) {
-  case first.child, second.child {
-    None, None ->
+  case
+    first.count <= max_safe_integer - second.count,
+    first.child,
+    second.child
+  {
+    True, None, None ->
       case
         merge_optional_atoms(first.cell_id, first.count, second.cell_id),
         merge_effects(first.effect, first.count, second.effect)
@@ -526,7 +530,7 @@ fn merge_marks(first: Mark, second: Mark) -> Option(Mark) {
           Some(Mark(first.count + second.count, first.cell_id, effect, None))
         _, _ -> None
       }
-    _, _ -> None
+    _, _, _ -> None
   }
 }
 

@@ -193,6 +193,27 @@ pub fn shared_tree_sequence_split_marks_rejoin_only_matching_ranges_test() {
   ])
 }
 
+pub fn shared_tree_sequence_does_not_create_unsafe_merged_mark_test() {
+  let first =
+    sequence_field.Mark(
+      max_safe_integer,
+      Some(atom(None, 0)),
+      sequence_field.Noop,
+      None,
+    )
+  let second =
+    sequence_field.Mark(
+      1,
+      Some(atom(None, max_safe_integer)),
+      sequence_field.Noop,
+      None,
+    )
+  let assert Ok(change) = sequence_field.from_marks([first, second])
+  sequence_field.to_marks(change) |> expect.to_equal([first, second])
+  sequence_field.into_delta(change, no_child)
+  |> expect.to_equal(Ok(sequence_field.DeltaResult(None, [], [])))
+}
+
 pub fn shared_tree_sequence_editors_preserve_pre_edit_gaps_test() {
   let move_id = atom(Some(revision("07")), 11)
   let cell_id = atom(Some(revision("08")), 14)
