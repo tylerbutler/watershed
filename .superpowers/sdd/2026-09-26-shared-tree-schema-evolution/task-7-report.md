@@ -384,3 +384,78 @@ authoring schema is not serialized. A restored tree has no pending run and
 captures a fresh context on its next local edit. If pending operations are ever
 added to the summary contract, that contract must serialize the matching
 authoring schema at the same time.
+
+## Fix round 5
+
+### Result
+
+History projection now decodes FieldBatch only at the production wire location:
+the `trees` member of a data change's `builds` container. Parsed messages,
+summary history changes, and message envelopes enter that typed path once.
+Generic semantic JSON is only sorted recursively, so an ordinary tree object
+with fields named `version`, `identifiers`, `shapes`, and `data` is never
+mistaken for a FieldBatch. JSON-looking strings remain leaf values.
+
+Identity collection now includes each outer revision and each content identity
+retained by `local_authored_context`. Rebinding therefore keeps acknowledged,
+trimmed authored prefixes usable until their pending run finishes. The full
+receive regression authors data, authors a schema upgrade and same-reference
+data, acknowledges and trims the first data commit, receives the schema
+acknowledgment, then receives the final data acknowledgment. After the pending
+run finishes, advancing the collaboration window removes the sequenced commits
+and leaves no retained history identities.
+
+### RED
+
+- `gleam test --target erlang -- shared_tree_history shared_tree_channel`
+  ran 69 tests and failed two regressions.
+- `shared_tree_history_summary_projection_keeps_ordinary_batch_named_fields_test`
+  panicked on the second FieldBatch decode with `Pattern match failed, no
+  pattern matched the value`.
+- `shared_tree_history_retains_trimmed_authored_prefix_identities_test`
+  returned only revision `...000b`; the acknowledged and trimmed authored
+  revision `...000a` was absent.
+- The full receive regression passed before the identity fix because its later
+  pending changes still supplied enough identities for that specific wire
+  sequence. The direct retained-context assertion exposed the missing identity
+  source and prevents that omission from returning.
+
+### GREEN
+
+- Erlang focused history, runtime, channel, codec, and summary tests: 217
+  passed.
+- JavaScript focused history, runtime, channel, codec, and summary tests: 206
+  passed.
+- Focused codec and summary interop tests: 23 passed.
+- Native summary artifact interop: four scenarios per target loaded; six
+  retained-history continuation checks passed.
+- `just shared-tree-codec-interop`: two targets, 20 items each passed pinned
+  upstream consumption.
+- Direct Gleam formatting and `git diff --check` passed.
+
+### Files
+
+- `src/watershed/tree/history.gleam`
+- `test/watershed/shared_tree_channel_test.gleam`
+- `test/watershed/shared_tree_history_test.gleam`
+- `test/watershed/tree/schema_evolution_fixture.gleam`
+- `.superpowers/sdd/2026-09-26-shared-tree-schema-evolution/task-7-report.md`
+
+### Self-review
+
+The projection has no remaining key-set heuristic. Its only FieldBatch call is
+under `data.builds.trees`, which is the exact location enforced by the
+production codec. Summary history and encoded message envelopes route through
+the same contextual wire-change function, while decoded semantic changes never
+enter it.
+
+`local_authored_context` is added to both revision and content-identity
+collection. The context already clears with the final local acknowledgment, so
+the change does not invent or retain identities after pending work completes.
+The receive regression verifies schema and data acknowledgments, pending-state
+cleanup, final history trimming, and an empty retained identity set.
+
+### Concerns
+
+No new concerns. The existing limitation remains: summaries do not retain the
+original transport reference and minimum sequence numbers.

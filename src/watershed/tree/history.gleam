@@ -235,9 +235,12 @@ pub fn identity_revisions(state: History) -> List(fluid_ids.StableId) {
         list.flat_map(state.peers, fn(peer) {
           list.map(peer.commits, fn(entry) { entry.commit })
         }),
-        list.flat_map(state.pending, fn(entry) {
-          [entry.original.commit, entry.current.commit]
-        }),
+        list.append(
+          list.flat_map(state.pending, fn(entry) {
+            [entry.original.commit, entry.current.commit]
+          }),
+          state.local_authored_context,
+        ),
       ),
     )
   let commits =
@@ -1915,6 +1918,9 @@ fn history_revisions(state: History) -> List(fluid_ids.StableId) {
         list.map(peer.commits, fn(commit) { commit.commit.revision })
       }),
     ),
+  )
+  |> list.append(
+    list.map(state.local_authored_context, fn(commit) { commit.revision }),
   )
 }
 

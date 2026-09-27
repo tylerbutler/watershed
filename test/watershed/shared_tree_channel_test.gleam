@@ -32,6 +32,8 @@ const score_schema_text = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.n
 
 const extra_schema_text = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Extra\":{\"kind\":{\"object\":{\"value\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}},\"Root\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"extra\":{\"kind\":\"Optional\",\"types\":[\"Extra\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
+const note_extra_schema_text = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Extra\":{\"kind\":{\"object\":{\"value\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}},\"Root\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"extra\":{\"kind\":\"Optional\",\"types\":[\"Extra\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+
 fn tree_state() -> tree_kernel.TreeState {
   let assert Ok(session) =
     fluid_ids.session_id("00000000-0000-4000-8000-000000000001")
@@ -642,6 +644,164 @@ pub fn shared_tree_bridge_keeps_local_ack_context_after_restore_and_trim_test() 
   )
   |> expect.to_be_ok()
   Nil
+}
+
+pub fn shared_tree_bridge_receives_authored_prefix_after_trim_test() {
+  let local_session =
+    fluid_ids.session_id("00000000-0000-4000-8000-000000000001")
+    |> expect.to_be_ok()
+  let view_id =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000002")
+    |> expect.to_be_ok()
+  let base = schema.stored_from_string(note_schema_text) |> expect.to_be_ok()
+  let extra =
+    schema.stored_from_string(note_extra_schema_text) |> expect.to_be_ok()
+  let view = schema.view_from_string(note_schema_text) |> expect.to_be_ok()
+  let snapshot =
+    tree_kernel.snapshot_from_parts(
+      view_id,
+      base,
+      forest.ForestData(
+        Some(ObjectValue("Root", [#("x", NumberValue(1.0))])),
+        [],
+        0,
+      ),
+      history.inspect(history.new(local_session)).sequenced,
+    )
+    |> expect.to_be_ok()
+  let initial =
+    tree_kernel.restore(snapshot, view_id, local_session, view)
+    |> expect.to_be_ok()
+  let #(first_state, first, _, compressor) =
+    tree_runtime.author_edit(
+      initial,
+      SetField(["note"], StringValue("before upgrade")),
+      fluid_ids.new(local_session),
+    )
+    |> expect.to_be_ok()
+  let #(compressor, schema_id) =
+    fluid_ids.generate(compressor) |> expect.to_be_ok()
+  let schema_revision =
+    fluid_ids.decompress(compressor, schema_id) |> expect.to_be_ok()
+  let schema_change =
+    shared_change.from_changes([
+      shared_change.SchemaChange(
+        schema.FixedSchema(base),
+        schema.FixedSchema(extra),
+        False,
+      ),
+    ])
+    |> expect.to_be_ok()
+  let order =
+    codec.identity_order(
+      [schema_revision, ..tree_kernel.identity_revisions(first_state)],
+      compressor,
+      "authored prefix schema order",
+    )
+    |> expect.to_be_ok()
+  let #(upgraded, upgrade, _) =
+    tree_kernel.apply_local_change(
+      first_state,
+      schema_revision,
+      order,
+      schema_change,
+    )
+    |> expect.to_be_ok()
+  let #(edited, final_data, _, compressor) =
+    tree_runtime.author_edit(
+      upgraded,
+      SetField(
+        ["extra"],
+        ObjectValue("Extra", [#("value", StringValue("local"))]),
+      ),
+      compressor,
+    )
+    |> expect.to_be_ok()
+  let first_wire =
+    tree_runtime.encode_commit(first, first_state, compressor)
+    |> expect.to_be_ok()
+  let upgrade_wire =
+    codec.encode_message(
+      codec.TreeMessage(
+        codec.WireCommit(
+          upgrade.revision,
+          upgrade.originator,
+          shared_change.to_changes(upgrade.change),
+          None,
+        ),
+        [],
+      ),
+      codec.EncodeContext(codec.Fluid310, compressor, Some(extra)),
+    )
+    |> expect.to_be_ok()
+  let final_wire =
+    tree_runtime.encode_commit(final_data, edited, compressor)
+    |> expect.to_be_ok()
+
+  let #(first_ack, _) =
+    tree_runtime.decode_sequenced_message(
+      json.to_string(first_wire),
+      edited,
+      0,
+      compressor,
+    )
+    |> expect.to_be_ok()
+  let #(acked_first, _, compressor) =
+    tree_runtime.receive_commit(
+      edited,
+      first_ack,
+      SequencePoint(1, 0),
+      0,
+      0,
+      compressor,
+    )
+    |> expect.to_be_ok()
+  let #(trimmed, compressor) =
+    tree_runtime.advance_document(acked_first, 1, 1, compressor)
+    |> expect.to_be_ok()
+  let #(schema_ack, _) =
+    tree_runtime.decode_sequenced_message(
+      json.to_string(upgrade_wire),
+      trimmed,
+      0,
+      compressor,
+    )
+    |> expect.to_be_ok()
+  let #(acked_schema, _, compressor) =
+    tree_runtime.receive_commit(
+      trimmed,
+      schema_ack,
+      SequencePoint(2, 0),
+      0,
+      1,
+      compressor,
+    )
+    |> expect.to_be_ok()
+  let #(data_ack, _) =
+    tree_runtime.decode_sequenced_message(
+      json.to_string(final_wire),
+      acked_schema,
+      0,
+      compressor,
+    )
+    |> expect.to_be_ok()
+  let #(acked_data, _, compressor) =
+    tree_runtime.receive_commit(
+      acked_schema,
+      data_ack,
+      SequencePoint(3, 0),
+      0,
+      1,
+      compressor,
+    )
+    |> expect.to_be_ok()
+
+  tree_kernel.history_view(acked_data).pending |> expect.to_equal([])
+  let #(finished, _) =
+    tree_runtime.advance_document(acked_data, 3, 3, compressor)
+    |> expect.to_be_ok()
+  tree_kernel.history_view(finished).sequenced.trunk |> expect.to_equal([])
+  tree_kernel.identity_revisions(finished) |> expect.to_equal([])
 }
 
 fn concurrent_local_upgrade_and_data() -> #(

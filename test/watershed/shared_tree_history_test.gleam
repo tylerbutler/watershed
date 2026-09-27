@@ -6,6 +6,7 @@ import startest/expect
 import watershed/fluid_ids
 import watershed/json_ot.{type JsonValue, VArray, VObject}
 import watershed/tree/change
+import watershed/tree/codec/field_batch
 import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/history
@@ -14,6 +15,7 @@ import watershed/tree/schema_evolution_fixture
 import watershed/tree/shared_change
 import watershed/tree/types.{
   type TreeError, InvalidHistory, NumberValue, ObjectValue, SetField,
+  StringValue,
 }
 
 const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
@@ -435,6 +437,104 @@ pub fn shared_tree_history_semantic_projection_keeps_json_looking_strings_test()
   |> expect.to_not_equal(canonical_history_change(spaced))
 }
 
+pub fn shared_tree_history_summary_projection_keeps_ordinary_batch_named_fields_test() -> Nil {
+  let batch =
+    field_batch.encode([
+      [
+        ObjectValue("Ordinary", [
+          #("version", StringValue("version")),
+          #("identifiers", StringValue("identifiers")),
+          #("shapes", StringValue("shapes")),
+          #("data", StringValue("data")),
+        ]),
+      ],
+    ])
+    |> expect.to_be_ok()
+  let history =
+    json.object([
+      #(
+        "trunk",
+        json.array(
+          [
+            json.object([
+              #(
+                "change",
+                json.array([json.object([#("data", batch)])], fn(value) {
+                  value
+                }),
+              ),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
+    ])
+  let summary =
+    json.object([
+      #(
+        "summary",
+        json.object([
+          #(
+            "tree",
+            json.object([
+              #(
+                "indexes",
+                json.object([
+                  #(
+                    "tree",
+                    json.object([
+                      #(
+                        "Schema",
+                        json.object([
+                          #(
+                            "tree",
+                            json.object([
+                              #(
+                                "SchemaString",
+                                json.object([
+                                  #("content", json.string("{}")),
+                                ]),
+                              ),
+                            ]),
+                          ),
+                        ]),
+                      ),
+                      #(
+                        "EditManager",
+                        json.object([
+                          #(
+                            "tree",
+                            json.object([
+                              #(
+                                "String",
+                                json.object([
+                                  #(
+                                    "content",
+                                    json.string(json.to_string(history)),
+                                  ),
+                                ]),
+                              ),
+                            ]),
+                          ),
+                        ]),
+                      ),
+                    ]),
+                  ),
+                ]),
+              ),
+            ]),
+          ),
+        ]),
+      ),
+    ])
+
+  let _ =
+    summary
+    |> schema_evolution_fixture.history_projection()
+    |> expect.to_be_ok()
+  Nil
+}
+
 fn observation_field(
   output: json.Json,
   id: String,
@@ -507,6 +607,35 @@ pub fn shared_tree_history_schema_only_commit_retains_outer_revision_test() -> N
   |> expect.to_equal([
     shared_change.SchemaDelta(schema.EmptySchema, schema.EmptySchema, False),
   ])
+}
+
+pub fn shared_tree_history_retains_trimmed_authored_prefix_identities_test() -> Nil {
+  let first = empty_commit(revision_a(), local_session())
+  let second = empty_commit(revision_b(), local_session())
+  let first_update =
+    history.append_local(history.new(local_session()), first)
+    |> expect.to_be_ok()
+  let second_update =
+    history.append_local(first_update.history, second) |> expect.to_be_ok()
+  let #(acked, Nil) =
+    history.receive(
+      second_update.history,
+      first,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+    |> expect.to_be_ok()
+  let #(trimmed, Nil) =
+    history.advance_minimum(acked.history, 1, 1, Nil, no_mint)
+    |> expect.to_be_ok()
+
+  let identities = history.identity_revisions(trimmed.history)
+  identities |> list.length() |> expect.to_equal(2)
+  identities |> list.contains(revision_a()) |> expect.to_equal(True)
+  identities |> list.contains(revision_b()) |> expect.to_equal(True)
 }
 
 pub fn shared_tree_history_ack_does_not_apply_twice_test() -> Nil {
