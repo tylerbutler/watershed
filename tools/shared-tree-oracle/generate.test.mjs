@@ -120,8 +120,21 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
       ],
       "rollback-retains-new-type-content": [
         { op: "upgrade", tree: 1, schema: "new-node" },
-        { op: "set", tree: 1, path: ["extra", "value"], value: "retained" },
-        { op: "set", tree: 0, path: ["title"], value: "wins" },
+        {
+          op: "set",
+          tree: 1,
+          path: ["extra", "value"],
+          value: "retained",
+          identity: { revision: -2, localId: 0 },
+        },
+        {
+          op: "set",
+          tree: 0,
+          path: ["title"],
+          value: "wins",
+          identity: { revision: -2, localId: 0 },
+          detachedLocalId: 1,
+        },
         { op: "sequence", order: "tree-0-first" },
       ],
       "new-view-reopens": [
@@ -139,7 +152,24 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
         { op: "resume-inbound", tree: 0 },
       ],
     }[scenarioId] ?? [{ op: "capture", target: scenarioId }],
-    sessions: [{
+    sessions: scenarioId === "rollback-retains-new-type-content" ? [
+      {
+        tree: "tree-0",
+        session: "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        compressor: {
+          state: "compressor-state",
+          allocations: [{ firstGenCount: 2, count: 1 }],
+        },
+      },
+      {
+        tree: "tree-1",
+        session: "a0693eac-892a-4396-86f7-ad20dc1cade2",
+        compressor: {
+          state: "compressor-state",
+          allocations: [{ firstGenCount: 2, count: 1 }],
+        },
+      },
+    ] : [{
       tree: "tree-0",
       session: "session-0",
       compressor: { state: "compressor-state", allocations: [{ firstGenCount: 1, count: 1 }] },
@@ -293,7 +323,7 @@ function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
     input.rollbackReplay = {
       scenario: "rollback-retains-new-type-content",
       detachedId: {
-        revision: "00000000-0000-4000-8000-0000000000f0",
+        revision: "a0693eac-892a-4396-86f7-ad20dc1cade3",
         localId: 0,
       },
     };
@@ -1730,6 +1760,13 @@ test("schema evolution validation rejects label-only evidence", () => {
       (value) => {
         delete value.expected.observations.find(({ id }) =>
           id === "rollback-retains-new-type-content").retainedExtra;
+      },
+      (value) => {
+        value.input.rollbackReplay.detachedId.revision =
+          "00000000-0000-4000-8000-000000000001";
+      },
+      (value) => {
+        value.input.rollbackReplay.detachedId.localId = 1;
       },
       (value) => {
         delete value.expected.observations.find(({ id }) =>

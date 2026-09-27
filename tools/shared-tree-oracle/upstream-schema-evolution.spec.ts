@@ -1361,7 +1361,7 @@ describe("Watershed schema evolution oracle", () => {
 			"pending-data-remote-upgrade": [{ op: "disconnect", tree: 0 }, { op: "set", tree: 0, path: ["title"], value: "pending" }, { op: "upgrade", tree: 1, schema: "optional" }, { op: "reconnect", tree: 0 }],
 			"ack-common-prefix-keeps-upgrade": [{ op: "upgrade", tree: 0, schema: "optional" }, { op: "set", tree: 0, path: ["score"], value: 7 }, { op: "sequence-through", change: "schema" }],
 			"empty-conflict-acknowledged": [{ op: "upgrade", tree: 0, schema: "optional" }, { op: "set", tree: 1, path: ["title"], value: "conflict" }, { op: "sequence", count: "all" }],
-			"rollback-retains-new-type-content": [{ op: "upgrade", tree: 1, schema: "new-node" }, { op: "set", tree: 1, path: ["extra", "value"], value: "retained" }, { op: "set", tree: 0, path: ["title"], value: "wins" }, { op: "sequence", order: "tree-0-first" }],
+			"rollback-retains-new-type-content": [{ op: "upgrade", tree: 1, schema: "new-node" }, { op: "set", tree: 1, path: ["extra", "value"], value: "retained", identity: { revision: -2, localId: 0 } }, { op: "set", tree: 0, path: ["title"], value: "wins", identity: { revision: -2, localId: 0 }, detachedLocalId: 1 }, { op: "sequence", order: "tree-0-first" }],
 			"old-view-invalidated": [{ op: "upgrade", tree: 0, schema: "optional" }, { op: "observe-view", tree: 1, schema: "v1" }],
 			"new-view-reopens": [{ op: "upgrade", tree: 0, schema: "optional" }, { op: "sequence", count: "all" }, { op: "dispose-view", tree: 1 }, { op: "open-view", tree: 1, schema: "optional" }],
 			"reconnect-upgrade-unacknowledged": [{ op: "disconnect", tree: 0 }, { op: "upgrade", tree: 0, schema: "optional" }, { op: "reconnect", tree: 0 }, { op: "sequence", count: "all" }],

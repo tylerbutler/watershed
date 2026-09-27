@@ -928,11 +928,43 @@ function validateSchemaEvolutionCase(value) {
       `missing actual sequence metadata ${scenario.id}`);
     }
     const rollbackReplay = value.input.rollbackReplay;
+    const rollbackScenario = value.input.scenarios.find(
+      (item) => item.id === "rollback-retains-new-type-content",
+    );
+    const authoredAction = rollbackScenario?.actions?.[1];
+    const authoredSession = rollbackScenario?.sessions?.find(
+      (session) => session.tree === `tree-${authoredAction?.tree}`,
+    );
+    const authoredIdentity = authoredAction?.identity;
+    const generation = -authoredIdentity?.revision;
+    const allocated = authoredSession?.compressor?.allocations?.some(
+      (allocation) => Number.isSafeInteger(allocation.firstGenCount)
+        && Number.isSafeInteger(allocation.count)
+        && generation >= allocation.firstGenCount
+        && generation < allocation.firstGenCount + allocation.count,
+    );
+    const offsetUuid = (value, offset) => {
+      const hex = value.replaceAll("-", "");
+      const next = (BigInt(`0x${hex}`) + BigInt(offset)).toString(16).padStart(32, "0");
+      return `${next.slice(0, 8)}-${next.slice(8, 12)}-${next.slice(12, 16)}-${next.slice(16, 20)}-${next.slice(20)}`;
+    };
     check(object(rollbackReplay)
       && rollbackReplay.scenario === "rollback-retains-new-type-content"
       && object(rollbackReplay.detachedId)
       && typeof rollbackReplay.detachedId.revision === "string"
-      && Number.isSafeInteger(rollbackReplay.detachedId.localId),
+      && object(authoredIdentity)
+      && Number.isSafeInteger(authoredIdentity.revision)
+      && authoredIdentity.revision < 0
+      && Number.isSafeInteger(authoredIdentity.localId)
+      && authoredIdentity.localId >= 0
+      && typeof authoredSession?.session === "string"
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+        authoredSession.session,
+      )
+      && allocated
+      && rollbackReplay.detachedId.revision
+        === offsetUuid(authoredSession.session, generation - 1)
+      && rollbackReplay.detachedId.localId === authoredIdentity.localId,
     `${label}: replayable rollback identity`);
     const actions = (id) => value.input.scenarios.find((item) => item.id === id)?.actions;
     assert.deepEqual(actions("upgrade-then-edit-causal"), [
@@ -952,8 +984,21 @@ function validateSchemaEvolutionCase(value) {
     ], `${label}: replayable acknowledgement actions`);
     assert.deepEqual(actions("rollback-retains-new-type-content"), [
       { op: "upgrade", tree: 1, schema: "new-node" },
-      { op: "set", tree: 1, path: ["extra", "value"], value: "retained" },
-      { op: "set", tree: 0, path: ["title"], value: "wins" },
+      {
+        op: "set",
+        tree: 1,
+        path: ["extra", "value"],
+        value: "retained",
+        identity: { revision: -2, localId: 0 },
+      },
+      {
+        op: "set",
+        tree: 0,
+        path: ["title"],
+        value: "wins",
+        identity: { revision: -2, localId: 0 },
+        detachedLocalId: 1,
+      },
       { op: "sequence", order: "tree-0-first" },
     ], `${label}: replayable rollback actions`);
     assert.deepEqual(actions("new-view-reopens"), [

@@ -1,6 +1,7 @@
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
+import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -8,7 +9,9 @@ import gleam/result
 import gleam/set
 import gleam/string
 import watershed/fluid_ids
-import watershed/json_ot.{type JsonValue, VArray, VObject}
+import watershed/json_ot.{
+  type JsonValue, NFloat, NInt, VArray, VBool, VNull, VNumber, VObject, VString,
+}
 import watershed/tree/change
 import watershed/tree/change_fixture_codec as fixture_codec
 import watershed/tree/codec
@@ -221,10 +224,8 @@ pub fn forest_transition(
 
 pub fn forest_rollback(
   input: Json,
-) -> Result(
-  #(schema.StoredSchema, schema.StoredSchema, types.TreeValue, types.AtomId),
-  String,
-) {
+  view_id: fluid_ids.StableId,
+) -> Result(#(forest.Forest, types.AtomId), String) {
   use #(restored, _, root) <- result.try(forest_transition(input, "v1", "v1"))
   use input <- result.try(fixture_codec.parse(input))
   use catalog <- result.try(algebra_schema_catalog(input))
@@ -270,10 +271,6 @@ pub fn forest_rollback(
       _ -> Error("rollback replay must contain four actions")
     },
   )
-  use detached_revision <- result.try(
-    fluid_ids.stable_id(detached_revision) |> result.map_error(string.inspect),
-  )
-  let detached_id = AtomId(Some(detached_revision), detached_local_id)
   use _ <- result.try(expect_action(upgrade, "upgrade", Some(1)))
   use schema_id <- result.try(fixture_codec.field(
     upgrade,
@@ -295,11 +292,23 @@ pub fn forest_rollback(
     "value",
     fixture_codec.text,
   ))
+  use authored_id <- result.try(replay_atom(scenario, authored_edit))
   use _ <- result.try(expect_action(competing_edit, "set", Some(0)))
   use competing_path <- result.try(action_path(competing_edit))
   use _ <- result.try(expect(
     competing_path == ["title"],
     "unexpected rollback competing path",
+  ))
+  use competing_value <- result.try(fixture_codec.field(
+    competing_edit,
+    "value",
+    fixture_codec.text,
+  ))
+  use competing_id <- result.try(replay_atom(scenario, competing_edit))
+  use detached_title_local_id <- result.try(fixture_codec.field(
+    competing_edit,
+    "detachedLocalId",
+    fixture_codec.integer,
   ))
   use _ <- result.try(expect_action(sequence, "sequence", None))
   use order <- result.try(fixture_codec.field(
@@ -325,12 +334,106 @@ pub fn forest_rollback(
   })
   let retained =
     types.ObjectValue(extra_type, [#("value", StringValue(retained_value))])
-  Ok(#(
-    restored,
-    authored,
-    types.ObjectValue(identifier, list.append(fields, [#("extra", retained)])),
-    detached_id,
+  use detached_revision <- result.try(
+    fluid_ids.stable_id(detached_revision) |> result.map_error(string.inspect),
+  )
+  let observed_id = AtomId(Some(detached_revision), detached_local_id)
+  use _ <- result.try(expect(
+    observed_id == authored_id,
+    "rollback detached identity has no action allocation provenance",
   ))
+  use state <- result.try(
+    forest.new(view_id, restored, Some(types.ObjectValue(identifier, fields)))
+    |> result.map_error(string.inspect),
+  )
+  use state <- result.try(
+    forest.replace_schema(state, authored) |> result.map_error(string.inspect),
+  )
+  use state <- result.try(apply_forest(
+    state,
+    forest.DeltaData(
+      latest_revision: authored_id.revision,
+      fields: [
+        #(
+          "rootFieldKey",
+          forest.FieldDelta([
+            forest.Mark(1, None, None, [
+              #(
+                "extra",
+                forest.FieldDelta([
+                  forest.Mark(1, Some(authored_id), None, []),
+                ]),
+              ),
+            ]),
+          ]),
+        ),
+      ],
+      build: [forest.Build(authored_id, [retained])],
+      refreshers: [],
+      global: [],
+      rename: [],
+      destroy: [],
+    ),
+  ))
+  let removed_title = AtomId(competing_id.revision, detached_title_local_id)
+  use state <- result.try(apply_forest(
+    state,
+    forest.DeltaData(
+      latest_revision: competing_id.revision,
+      fields: [
+        #(
+          "rootFieldKey",
+          forest.FieldDelta([
+            forest.Mark(1, None, None, [
+              #(
+                "title",
+                forest.FieldDelta([
+                  forest.Mark(1, Some(competing_id), Some(removed_title), []),
+                ]),
+              ),
+              #(
+                "extra",
+                forest.FieldDelta([
+                  forest.Mark(1, None, Some(authored_id), []),
+                ]),
+              ),
+            ]),
+          ]),
+        ),
+      ],
+      build: [forest.Build(competing_id, [StringValue(competing_value)])],
+      refreshers: [],
+      global: [],
+      rename: [],
+      destroy: [],
+    ),
+  ))
+  use state <- result.try(
+    forest.replace_schema(state, restored) |> result.map_error(string.inspect),
+  )
+  Ok(#(state, authored_id))
+}
+
+pub fn forest_rollback_attached_observation(
+  input: Json,
+  raw: Json,
+) -> Result(types.TreeValue, String) {
+  use #(restored, _, _) <- result.try(forest_transition(input, "v1", "v1"))
+  use raw <- result.try(fixture_codec.parse(raw))
+  use root <- result.try(
+    fixture_codec.field(raw, "rollback", fn(rollback) {
+      fixture_codec.field(rollback, "visibleRoot", fn(visible) {
+        fixture_codec.field(visible, "tree", fn(value) {
+          use trees <- result.try(fixture_codec.items(value))
+          case trees {
+            [tree] -> decode_snapshot_tree(tree)
+            _ -> Error("rollback observation must contain one attached root")
+          }
+        })
+      })
+    }),
+  )
+  normalize_tree(restored, root)
 }
 
 pub fn forest_rollback_observation(
@@ -352,6 +455,138 @@ pub fn forest_rollback_observation(
       Ok(types.ObjectValue(identifier, [#("value", StringValue(value))]))
     })
   })
+}
+
+fn replay_atom(
+  scenario: JsonValue,
+  action: JsonValue,
+) -> Result(types.AtomId, String) {
+  use tree <- result.try(fixture_codec.field(
+    action,
+    "tree",
+    fixture_codec.integer,
+  ))
+  use identity <- result.try(fixture_codec.get(action, "identity"))
+  use _ <- result.try(fixture_codec.exact(identity, ["revision", "localId"]))
+  use encoded_revision <- result.try(fixture_codec.field(
+    identity,
+    "revision",
+    fixture_codec.integer,
+  ))
+  use local_id <- result.try(fixture_codec.field(
+    identity,
+    "localId",
+    fixture_codec.integer,
+  ))
+  use sessions <- result.try(fixture_codec.field(
+    scenario,
+    "sessions",
+    fixture_codec.items,
+  ))
+  use session <- result.try(
+    list.find(sessions, fn(value) {
+      fixture_codec.field(value, "tree", fixture_codec.text)
+      == Ok("tree-" <> int.to_string(tree))
+    })
+    |> result.map_error(fn(_) { "rollback action session is missing" }),
+  )
+  use session_id <- result.try(
+    fixture_codec.field(session, "session", fn(value) {
+      use value <- result.try(fixture_codec.text(value))
+      fluid_ids.session_id(value) |> result.map_error(string.inspect)
+    }),
+  )
+  use compressor_data <- result.try(fixture_codec.get(session, "compressor"))
+  use _ <- result.try(fixture_codec.field(
+    compressor_data,
+    "state",
+    fixture_codec.text,
+  ))
+  use _ <- result.try(expect(
+    encoded_revision < 0,
+    "rollback action revision must be a local allocation",
+  ))
+  let generation = int.absolute_value(encoded_revision)
+  use allocations <- result.try(fixture_codec.field(
+    compressor_data,
+    "allocations",
+    fixture_codec.items,
+  ))
+  use _ <- result.try(expect(
+    list.any(allocations, fn(allocation) {
+      let first =
+        fixture_codec.field(allocation, "firstGenCount", fixture_codec.integer)
+      let count =
+        fixture_codec.field(allocation, "count", fixture_codec.integer)
+      case first, count {
+        Ok(first), Ok(count) ->
+          generation >= first && generation < first + count
+        _, _ -> False
+      }
+    }),
+    "rollback action revision is outside its session allocation",
+  ))
+  use compressor <- result.try(generate_ids(
+    fluid_ids.new(session_id),
+    generation,
+  ))
+  use session_space_id <- result.try(
+    fluid_ids.session_space_id(encoded_revision)
+    |> result.map_error(string.inspect),
+  )
+  use revision <- result.try(
+    fluid_ids.decompress(compressor, session_space_id)
+    |> result.map_error(string.inspect),
+  )
+  Ok(AtomId(Some(revision), local_id))
+}
+
+fn apply_forest(
+  state: forest.Forest,
+  data: forest.DeltaData,
+) -> Result(forest.Forest, String) {
+  use delta <- result.try(
+    forest.delta(data) |> result.map_error(string.inspect),
+  )
+  forest.apply_delta(state, delta) |> result.map_error(string.inspect)
+}
+
+fn decode_snapshot_tree(value: JsonValue) -> Result(types.TreeValue, String) {
+  use identifier <- result.try(fixture_codec.field(
+    value,
+    "type",
+    fixture_codec.text,
+  ))
+  case fixture_codec.get(value, "value") {
+    Ok(VString(value)) -> Ok(StringValue(value))
+    Ok(VNumber(NInt(value))) -> Ok(types.NumberValue(int.to_float(value)))
+    Ok(VNumber(NFloat(value))) -> Ok(types.NumberValue(value))
+    Ok(VBool(value)) -> Ok(types.BooleanValue(value))
+    Ok(VNull) -> Ok(types.NullValue)
+    Ok(_) -> Error("unsupported rollback leaf value")
+    Error(_) -> {
+      use fields <- result.try(
+        fixture_codec.field(value, "fields", fn(value) {
+          case value {
+            VObject(fields) -> Ok(fields)
+            _ -> Error("rollback object fields must be an object")
+          }
+        }),
+      )
+      use fields <- result.try(
+        list.try_map(fields, fn(field) {
+          use children <- result.try(fixture_codec.items(field.1))
+          case children {
+            [child] ->
+              decode_snapshot_tree(child)
+              |> result.map(fn(child) { #(field.0, child) })
+            _ -> Error("rollback field must contain one node")
+          }
+        }),
+      )
+      Ok(types.ObjectValue(identifier, fields))
+    }
+  }
 }
 
 fn expect_action(

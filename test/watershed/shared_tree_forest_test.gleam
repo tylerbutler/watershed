@@ -1,9 +1,11 @@
 import gleam/int
+import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
 import watershed/fluid_ids
+import watershed/json_ot
 import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/forest_fixture
@@ -84,42 +86,73 @@ pub fn shared_tree_forest_failed_schema_replacement_is_atomic_test() -> Nil {
 
 pub fn shared_tree_forest_schema_rollback_retains_new_type_content_test() -> Nil {
   let assert Ok(fixture) = fixtures.load("schema-evolution-history")
-  let assert Ok(#(restored, authored, root, detached_id)) =
-    schema_evolution_fixture.forest_rollback(fixture.input)
-  let assert Ok(observed) =
-    schema_evolution_fixture.forest_rollback_observation(fixture.raw)
-  let assert Ok(before) = forest.new(view_a(), authored, Some(root))
-  let assert Ok(reference) = forest.locate(before, ["extra"])
-  let detached =
-    apply(
-      before,
-      forest.DeltaData(..empty_delta(), fields: [
-        #(
-          "rootFieldKey",
-          forest.FieldDelta([
-            forest.Mark(1, None, None, [
-              #(
-                "extra",
-                forest.FieldDelta([
-                  forest.Mark(1, None, Some(detached_id), []),
-                ]),
-              ),
-            ]),
-          ]),
-        ),
-      ]),
+  let replay = schema_evolution_fixture.forest_rollback(fixture.input, view_a())
+  replay |> expect.to_be_ok
+  let assert Ok(#(after, detached_id)) = replay
+  let assert Ok(attached) =
+    schema_evolution_fixture.forest_rollback_attached_observation(
+      fixture.input,
+      fixture.raw,
     )
-  let assert Ok(data) = forest.export_data(detached)
-  let assert Ok(after) = forest.replace_schema(detached, restored)
-  forest.read_node(after, reference)
-  |> expect.to_equal(forest.read_node(detached, reference))
+  let assert Ok(retained) =
+    schema_evolution_fixture.forest_rollback_observation(fixture.raw)
+  let assert Ok(data) = forest.export_data(after)
+  data.root
+  |> option.map(canonical_tree)
+  |> expect.to_equal(Some(canonical_tree(attached)))
+  let assert Ok(reference) = forest.locate_detached(after, detached_id)
   forest.is_attached(after, reference) |> expect.to_equal(Ok(False))
-  forest.export_data(after) |> expect.to_equal(Ok(data))
-  let assert Ok(loaded) = forest.import_data(view_b(), restored, data)
-  let assert Ok(retained) = forest.locate_detached(loaded, detached_id)
-  forest.read_node(loaded, retained)
-  |> expect.to_equal(forest.read_node(detached, reference))
-  forest.read_node(loaded, retained) |> expect.to_equal(Ok(observed))
+  forest.read_node(after, reference) |> expect.to_equal(Ok(retained))
+}
+
+pub fn shared_tree_forest_rollback_replays_competing_value_test() -> Nil {
+  let assert Ok(fixture) = fixtures.load("schema-evolution-history")
+  let input =
+    fixture.input
+    |> json.to_string
+    |> string.replace("\"value\":\"wins\"", "\"value\":\"changed\"")
+  let assert Ok(input) = json.parse(input, json_ot.decoder())
+  let replay =
+    schema_evolution_fixture.forest_rollback(json_ot.to_json(input), view_a())
+  replay |> expect.to_be_ok
+  let assert Ok(#(after, _)) = replay
+  let assert Ok(title) = forest.locate(after, ["title"])
+  forest.read_node(after, title)
+  |> expect.to_equal(Ok(types.StringValue("changed")))
+}
+
+pub fn shared_tree_forest_rollback_rejects_unrelated_identity_test() -> Nil {
+  let assert Ok(fixture) = fixtures.load("schema-evolution-history")
+  let input =
+    fixture.input
+    |> json.to_string
+    |> string.replace(
+      "a0693eac-892a-4396-86f7-ad20dc1cade3",
+      "00000000-0000-4000-8000-000000000001",
+    )
+  let assert Ok(input) = json.parse(input, json_ot.decoder())
+  let _ =
+    schema_evolution_fixture.forest_rollback(json_ot.to_json(input), view_a())
+    |> expect.to_be_error
+  Nil
+}
+
+fn canonical_tree(value: types.TreeValue) -> types.TreeValue {
+  case value {
+    types.ObjectValue(identifier, fields) ->
+      types.ObjectValue(identifier, canonical_fields(fields))
+    types.MapValue(identifier, fields) ->
+      types.MapValue(identifier, canonical_fields(fields))
+    value -> value
+  }
+}
+
+fn canonical_fields(
+  fields: List(#(String, types.TreeValue)),
+) -> List(#(String, types.TreeValue)) {
+  fields
+  |> list.map(fn(field) { #(field.0, canonical_tree(field.1)) })
+  |> list.sort(fn(left, right) { string.compare(left.0, right.0) })
 }
 
 pub fn shared_tree_forest_rejects_foreign_reference_test() -> Nil {

@@ -1114,7 +1114,11 @@
               "extra",
               "value"
             ],
-            "value": "retained"
+            "value": "retained",
+            "identity": {
+              "revision": -2,
+              "localId": 0
+            }
           },
           {
             "op": "set",
@@ -1122,7 +1126,12 @@
             "path": [
               "title"
             ],
-            "value": "wins"
+            "value": "wins",
+            "identity": {
+              "revision": -2,
+              "localId": 0
+            },
+            "detachedLocalId": 1
           },
           {
             "op": "sequence",
