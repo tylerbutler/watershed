@@ -515,3 +515,41 @@ Files changed:
 Commit: `c47c637d` (`fix(interop): validate optional attachment sources`)
 
 No code concern remains. Validation is local; no hosted CI workflow was run.
+
+## Final closure after fix round 1
+
+The scoped re-review found the optional replacement fix complete. It confirmed
+that the validator keeps absent, active, and detached sources distinct, rejects
+matching-build no-op shapes, and accepts a genuine detached-source insertion.
+It found no new Critical or Important breakage.
+
+Fresh M4 release evidence at `d5ba375b`:
+
+- `gleam format --check src test`: passed.
+- `npm --prefix tools/shared-tree-oracle test`: 256 passed.
+- `just shared-tree-test`: Erlang 605 passed; JavaScript 594 passed; storage,
+  bootstrap, and creation smoke tests passed.
+- `just shared-tree-codec-interop`: two targets, 20 items each.
+- `just shared-tree-interop`: run
+  `4002c744-ea32-48d2-82f0-d30941e81c0d`; 147 deterministic cases,
+  12 reconnect cases, 24 refusal cases, 200 seeded schedules,
+  3 compatibility rows, 27 schema race cells, 3 schema reconnect rows,
+  all nine writer-reader cells in both reload matrices,
+  577 JavaScript corpus cases, 588 Erlang corpus cases, no skips, and no
+  divergences.
+- `just lint`: passed.
+- `git diff --check`: passed.
+
+Repository-wide closure remains affected by the external Hex API rate limit:
+
+- `just test` passed source snippets, the root Watershed suite
+  (2159 tests), `shared_tree_cli` (4 tests), and `watershed_lustre`
+  (86 tests). Concurrent example dependency resolution then failed with
+  `The rate limit for the Hex API has been exceeded`.
+- The first `just build` attempt built every package except `website_samples`,
+  which hit the same Hex limit.
+- A retry built the Erlang family and every JavaScript package except
+  `website_samples` and `work_queue_lustre`; those two still hit the Hex limit.
+
+These failures occurred during package resolution, not compilation or test
+assertions. No hosted CI workflow was run.
