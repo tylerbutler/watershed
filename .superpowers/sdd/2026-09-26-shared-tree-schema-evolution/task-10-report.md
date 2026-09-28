@@ -199,3 +199,39 @@ Verification:
   `20f1bf58-690b-4cbd-b48b-722f33e28faf`.
 - Persisted report:
   `tools/shared-tree-oracle/.output/interop/20f1bf58-690b-4cbd-b48b-722f33e28faf/report.json`.
+
+## Fix round 4
+
+- Reconnect operation matching now canonicalizes the complete old and new
+  schemas instead of reducing an upgrade to added field names. The canonical
+  form covers schema version and metadata, node definitions and kinds, object
+  fields, map fields, field multiplicity, allowed types, additions, removals,
+  and root-field semantics.
+- The canonicalizer maps upstream runtime schema objects, persisted schema
+  JSON, and JavaScript and Erlang native diagnostic payloads to the same
+  semantic form. Exact operations still match across those encodings.
+- Coordinated reconnect mutations now prove that changing `score` from number
+  to string and deleting `title` both fail one-to-one mapping.
+- Coordinated deep-reload mutations now write the same artifact result shape as
+  production by omitting the `artifacts` member. This prevents artifact
+  equality from hiding the validator branch under test.
+- Post-upgrade reload validation rejects fabricated fresh-reader history as an
+  `AssertionError` with the intended invalid-operation diagnostic while
+  accepting real native history envelopes.
+
+Verification:
+
+- Required Node gate: 120 passed.
+- `just shared-tree-interop`: passed.
+- JavaScript SharedTree corpus: 573 passed.
+- Erlang SharedTree corpus: 584 passed.
+- Schema races: 27.
+- Schema reconnect rows: 3.
+- Schema reload matrix: nine post-upgrade writer-reader cells.
+- Schema tail reload matrix: nine earlier-summary writer-reader cells.
+- Seeded schedules: 200 generated and executed with seed 42.
+- No skipped targets or divergences.
+- Successful run:
+  `a626db57-e6bc-4204-8e6b-2bbf6c68d5a4`.
+- Persisted report:
+  `tools/shared-tree-oracle/.output/interop/a626db57-e6bc-4204-8e6b-2bbf6c68d5a4/report.json`.
