@@ -342,3 +342,132 @@ Final validation:
 
 Floodgate emitted the existing transport-control decoder warnings during the
 real-service run. They did not skip or weaken any gate.
+
+## Latest final review fix wave
+
+Complete.
+
+### Finding 1: retry acknowledgement authoring schema
+
+The existing retry regression used a competing data edit, so the schema before
+and after the rebase was identical. A retry authored after a competing schema
+upgrade therefore did not expose the stale context.
+
+`TreeState` retained one baseline schema for the complete local pending branch.
+After a remote schema upgrade rebased the first local upgrade, a later retry was
+authored from the new visible schema, but acknowledgement decoding reconstructed
+it from the original baseline. The retry then failed with `schema change does
+not match its authoring context`.
+
+The runtime now records the exact schema before each local commit, keyed by its
+revision. Local pending acknowledgements select that per-submission schema and
+remove it when the revision leaves the pending branch. Remote acknowledgements
+and replayed duplicate revisions continue to reconstruct their context from
+history. Reconnect resubmission continues to use the pending history replay and
+its per-commit schemas.
+
+RED:
+
+- `gleam test --target erlang -- shared_tree_runtime`: 112 passed, 1 failed.
+  `shared_tree_upgrade_retry_after_schema_race_uses_its_authored_schema_test`
+  received `InvalidHistory("schema change does not match its authoring
+  context")`.
+- `gleam test --target javascript -- shared_tree_runtime`: 101 passed, 1
+  failed with the same error.
+
+GREEN:
+
+- `gleam test --target erlang -- shared_tree_runtime`: 113 passed.
+- `gleam test --target javascript -- shared_tree_runtime`: 102 passed.
+
+Files changed:
+
+- `src/watershed/tree_kernel.gleam`
+- `test/watershed/shared_tree_runtime_test.gleam`
+
+Commit: `62349b89` (`fix(shared-tree): retain retry authoring schema`)
+
+### Finding 2: complete native persisted-history grammar
+
+The native validator still accepted two shortcuts that the actual printers do
+not emit: a one-argument inner data `Changeset` without `IdentityOrder`, and
+schema-state aliases or compact `FixedSchema` field lists without a genuine
+`StoredSchema`.
+
+The existing parsed constructor tree is now strict at those boundaries. A data
+changeset must contain both `data` and `identity_order`, with a complete
+`ChangeData`. A schema state must be `EmptySchema` or
+`FixedSchema(StoredSchema(...))`. The existing constructor helpers continue to
+accept positional Erlang and named JavaScript forms. The summary escaped-quote
+fixture now keeps its valid schema upgrade as a separate operation instead of
+using a schema alias.
+
+RED:
+
+- `node --test --test-name-pattern='native (schema diagnostics reject|persisted diagnostics reject one-argument)' tools/shared-tree-oracle/interop-scenarios.test.mjs`:
+  0 passed, 3 failed because all three invalid payloads were accepted.
+
+GREEN:
+
+- The same focused command: 3 passed.
+- `node --test tools/shared-tree-oracle/interop-scenarios.test.mjs`: 56 passed.
+- `npm --prefix tools/shared-tree-oracle test`: 253 passed.
+
+Files changed:
+
+- `tools/shared-tree-oracle/interop-scenarios.mjs`
+- `tools/shared-tree-oracle/interop-scenarios.test.mjs`
+- `tools/shared-tree-oracle/summary-interop.test.mjs`
+
+Commit: `d427d00a` (`fix(interop): require complete native history grammar`)
+
+### Finding 3: optional insertion semantics
+
+The validator treated every replacement with `was_empty` set to `true` or no
+source register as non-substantive. A genuine insertion into an empty optional
+field can use `was_empty: true`, no source, and the detach ID as the provenance
+for its built value.
+
+Replacement validation now uses the source ID when one exists. For the
+source-free empty-field insertion form, it uses the detach ID. The existing
+build-provenance check still requires a matching build, so an otherwise
+identical replacement without build data remains rejected.
+
+RED:
+
+- `node --test --test-name-pattern='native persisted diagnostics (accept optional insertion|reject non-substantive replacement)' tools/shared-tree-oracle/interop-scenarios.test.mjs`:
+  the insertion failed with `non-substantive field replacement`; the negative
+  control passed.
+
+GREEN:
+
+- The same focused command: 2 passed.
+- `node --test tools/shared-tree-oracle/interop-scenarios.test.mjs`: 58 passed.
+- `npm --prefix tools/shared-tree-oracle test`: 255 passed.
+
+Files changed:
+
+- `tools/shared-tree-oracle/interop-scenarios.mjs`
+- `tools/shared-tree-oracle/interop-scenarios.test.mjs`
+
+Commit: `42897cdb` (`fix(interop): accept optional field insertions`)
+
+### Final validation
+
+- `gleam format --check src test`: passed.
+- `npm --prefix tools/shared-tree-oracle test`: 255 passed.
+- `just shared-tree-test`: Erlang 605 passed; JavaScript 594 passed; storage,
+  bootstrap, and creation smoke tests passed.
+- `just shared-tree-codec-interop`: two targets, 20 items each.
+- `git diff --check`: passed.
+
+### Self-review and concerns
+
+The diff from `eea9f3f5` contains only the five files required by the three
+findings before this report update. It does not broaden the strict-view
+object/map profile, add a parser, or restore token-based acceptance. The native
+grammar changes reuse `parseNativeDiagnostic`, `nativeArguments`, and the
+existing constructor and provenance validators.
+
+No code concern remains from the local review. Validation is local; no hosted
+CI workflow was run.
