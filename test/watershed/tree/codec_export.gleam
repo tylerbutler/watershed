@@ -23,7 +23,7 @@ import watershed/tree/forest
 import watershed/tree/sequence_field
 import watershed/tree/summary as tree_summary
 import watershed/tree/types.{
-  ArrayMove, ArrayRemove, AtomId, ClearField, MapSet, SetField, StringValue,
+  ArrayMove, AtomId, ClearField, MapSet, SetField, StringValue,
 }
 import watershed/wire/fluid_summary
 
@@ -269,6 +269,7 @@ type ArrayInput {
     sequencing: List(JsonValue),
     advanced_messages: List(JsonValue),
     advanced_expected: List(JsonValue),
+    advanced_applications: List(JsonValue),
     nested_expected: JsonValue,
     initial_summary: JsonValue,
     message_session: fluid_ids.SessionId,
@@ -369,6 +370,11 @@ fn decode_array_input(
   use sequencing <- result.try(array(sequencing))
   use advanced_messages <- result.try(field(messages, "advancedMessages"))
   use advanced_messages <- result.try(array(advanced_messages))
+  use advanced_applications <- result.try(field(
+    messages,
+    "advancedApplications",
+  ))
+  use advanced_applications <- result.try(array(advanced_applications))
   use expected_root <- result.try(field(root, "expected"))
   use observations <- result.try(field(expected_root, "observations"))
   use observations <- result.try(array(observations))
@@ -452,6 +458,7 @@ fn decode_array_input(
     sequencing,
     advanced_messages,
     advanced_expected,
+    advanced_applications,
     nested_expected,
     initial_summary,
     message_session,
@@ -541,9 +548,10 @@ fn array_codec_items(input: ArrayInput) -> Result(List(Json), String) {
   let ArrayInput(
     messages,
     sequencing,
-    advanced_messages,
-    advanced_expected,
-    nested_expected,
+    _advanced_messages,
+    _advanced_expected,
+    advanced_applications,
+    _nested_expected,
     initial_summary,
     message_session,
     message_compressor,
@@ -629,19 +637,11 @@ fn array_codec_items(input: ArrayInput) -> Result(List(Json), String) {
     message_session,
     message_compressor,
   ))
-  use advanced_message_items <- result.try(advanced_array_message_items(
+  use advanced_message_items <- result.try(advanced_application_items(
     initial,
-    advanced_messages,
-    advanced_expected,
+    advanced_applications,
     advanced_session,
     advanced_compressor,
-  ))
-  use nested_message_item <- result.try(advanced_nested_message_item(
-    initial,
-    messages,
-    nested_expected,
-    message_session,
-    message_compressor,
   ))
   use summary_items <- result.try(list.try_map(summaries, array_summary_item))
   use full_summary <- result.try(
@@ -652,12 +652,86 @@ fn array_codec_items(input: ArrayInput) -> Result(List(Json), String) {
   Ok([
     message_item,
     native_message_item,
-    ..list.append(advanced_message_items, [
-      nested_message_item,
-      peer_summary,
-      ..summary_items
-    ])
+    ..list.append(advanced_message_items, [peer_summary, ..summary_items])
   ])
+}
+
+fn advanced_application_items(
+  initial: summary.TreeSummaryData,
+  applications: List(JsonValue),
+  session: fluid_ids.SessionId,
+  compressor: fluid_ids.Compressor,
+) -> Result(List(Json), String) {
+  use initial_encoded <- result.try(
+    summary.encode(
+      initial,
+      session,
+      codec.EncodeContext(codec.Fluid310, compressor, Some(initial.schema)),
+    )
+    |> native,
+  )
+  use compressor_raw <- result.try(serialize_compressor(compressor, True))
+  list.try_map(applications, fn(application_source) {
+    use id <- result.try(field_text(application_source, "id"))
+    use features <- result.try(field(application_source, "features"))
+    use message <- result.try(field(application_source, "message"))
+    use _source_graph <- result.try(field(application_source, "graph"))
+    use application <- result.try(field(application_source, "application"))
+    use follow_on_messages <- result.try(field(application, "followOnMessages"))
+    use follow_on_messages <- result.try(array(follow_on_messages))
+    use decoded <- result.try(
+      [message, ..follow_on_messages]
+      |> list.try_map(fn(source_message) {
+        codec.decode_message(
+          json.to_string(json_ot.to_json(source_message)),
+          codec.DecodeContext(codec.Fluid310, compressor),
+        )
+        |> native
+      }),
+    )
+    use encoded <- result.try(
+      decoded
+      |> list.try_map(fn(decoded_message) {
+        codec.encode_message(
+          decoded_message,
+          codec.EncodeContext(codec.Fluid310, compressor, Some(initial.schema)),
+        )
+        |> native
+      }),
+    )
+    use graphs <- result.try(
+      decoded |> list.try_map(message_graphs(_, compressor)),
+    )
+    Ok(
+      item(id, "message", json.array(encoded, fn(value) { value }), [
+        #("schemaProfile", json.string("array")),
+        #("compressor", json.string(compressor_raw)),
+        #("compressorMode", json.string("ongoing")),
+        #("session", json.string(fluid_ids.session_id_to_string(session))),
+        #("initialSummary", summary_json(initial_encoded)),
+        #("allocationRanges", json.array([], fn(value) { value })),
+        #(
+          "sequencing",
+          json.array(
+            list.index_map(encoded, fn(_, index) {
+              json.object([
+                #("clientId", json.string("watershed-native-advanced")),
+                #("clientSequenceNumber", json.int(index + 1)),
+                #("referenceSequenceNumber", json.int(0)),
+                #("sequenceNumber", json.int(index + 1)),
+                #("minimumSequenceNumber", json.int(0)),
+              ])
+            }),
+            fn(value) { value },
+          ),
+        ),
+        #("expectedGraphs", json.array(graphs, fn(value) { value })),
+        #("nativeGraphs", json.array(graphs, fn(value) { value })),
+        #("features", json_ot.to_json(features)),
+        #("application", json_ot.to_json(application)),
+      ]),
+    )
+  })
 }
 
 fn advanced_nested_message_item(
@@ -721,7 +795,7 @@ fn advanced_nested_message_item(
               json.object([
                 #("clientId", json.string("watershed-native-nested")),
                 #("clientSequenceNumber", json.int(1)),
-                #("referenceSequenceNumber", json.int(1)),
+                #("referenceSequenceNumber", json.int(2)),
                 #("sequenceNumber", json.int(111)),
                 #("minimumSequenceNumber", json.int(0)),
               ]),
@@ -827,7 +901,7 @@ fn advanced_array_message_items(
               json.object([
                 #("clientId", json.string("watershed-native-advanced")),
                 #("clientSequenceNumber", json.int(1)),
-                #("referenceSequenceNumber", json.int(1)),
+                #("referenceSequenceNumber", json.int(2)),
                 #("sequenceNumber", json.int(110)),
                 #("minimumSequenceNumber", json.int(0)),
               ]),
@@ -1072,121 +1146,7 @@ fn array_peer_summary_item(
   source: #(String, JsonValue, fluid_ids.SessionId, fluid_ids.Compressor),
 ) -> Result(Json, String) {
   let #(_, encoded, session, compressor) = source
-  use decoded <- result.try(
-    summary.decode(
-      summary_entry(encoded),
-      None,
-      session,
-      codec.DecodeContext(codec.Fluid310, compressor),
-    )
-    |> native,
-  )
-  use data <- result.try(summary_forest_data(decoded))
-  use view_id <- result.try(
-    fluid_ids.stable_id("72000000-0000-4000-8000-000000000007")
-    |> result.map_error(string.inspect),
-  )
-  use state <- result.try(
-    forest.import_data(view_id, decoded.schema, data) |> native,
-  )
-  use #(compressor, local) <- result.try(
-    fluid_ids.generate(compressor) |> result.map_error(string.inspect),
-  )
-  let #(compressor, range) = fluid_ids.take_creation_range(compressor)
-  use range <- result.try(case range {
-    Some(value) -> Ok(value)
-    None -> Error("native peer summary generated no allocation range")
-  })
-  use compressor <- result.try(
-    fluid_ids.finalize(compressor, range) |> result.map_error(string.inspect),
-  )
-  use revision <- result.try(
-    fluid_ids.decompress(compressor, local) |> result.map_error(string.inspect),
-  )
-  use order <- result.try(
-    codec.identity_order([revision], compressor, "summary-array-peer-history")
-    |> native,
-  )
-  use authored <- result.try(
-    change.edit(
-      decoded.schema,
-      state,
-      revision,
-      ArrayRemove(["narrow"], 0, 1),
-      order,
-    )
-    |> native,
-  )
-  use removed <- result.try(forest.read(state, ["narrow", "0"]) |> native)
-  use removed <- result.try(case removed {
-    Some(value) -> Ok(value)
-    None -> Error("peer summary removal has no source node")
-  })
-  let authored_data = change.to_data(authored)
-  use detached <- result.try(
-    first_detach(authored_data)
-    |> result.map_error(fn(_) { "native peer summary has no detach" }),
-  )
-  use authored <- result.try(
-    change.from_data(
-      change.ChangeData(..authored_data, refreshers: [
-        forest.Build(detached, [removed]),
-      ]),
-      order,
-    )
-    |> native,
-  )
-  use _ <- result.try(case change.to_data(authored).refreshers {
-    [] -> Error("native peer summary did not retain its refresher")
-    _ -> Ok(Nil)
-  })
-  let summary.EditManagerSummary(trunk, branches) = decoded.history
-  use base <- result.try(
-    list.last(trunk)
-    |> result.map(fn(entry) {
-      let summary.SummaryCommit(codec.WireCommit(revision, ..), _, _) = entry
-      summary.StableRevision(revision)
-    })
-    |> result.map_error(fn(_) { "full array summary has no trunk base" }),
-  )
-  let peer_commit =
-    summary.SummaryCommit(
-      codec.WireCommit(revision, session, [codec.DataChange(authored)], None),
-      None,
-      None,
-    )
-  let with_peer =
-    summary.TreeSummaryData(
-      ..decoded,
-      history: summary.EditManagerSummary(trunk, [
-        summary.PeerBranch(session, base, [peer_commit]),
-        ..branches
-      ]),
-    )
-  use encoded <- result.try(
-    summary.encode(
-      with_peer,
-      session,
-      codec.EncodeContext(codec.Fluid310, compressor, Some(decoded.schema)),
-    )
-    |> native,
-  )
-  use serialized <- result.try(serialize_compressor(compressor, False))
-  use consumer_session <- result.try(
-    fluid_ids.session_id(native_summary_consumer_session)
-    |> result.map_error(string.inspect),
-  )
-  Ok(
-    item("summary-array-peer-history", "summary", summary_json(encoded), [
-      #("schemaProfile", json.string("array")),
-      #("compressor", json.string(serialized)),
-      #("compressorMode", json.string("summary")),
-      #(
-        "session",
-        json.string(fluid_ids.session_id_to_string(consumer_session)),
-      ),
-    ]),
-  )
+  array_summary_item(#("peer-history", encoded, session, compressor))
 }
 
 fn restored_summary_item(

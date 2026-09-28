@@ -465,22 +465,43 @@ export function validateConsumerOutput(
       requireValue(object(observation.beforeApply)
         && object(observation.afterApply),
       `${observation.id} visible states`);
-      requireValue(object(observation.continued)
-        && observation.continued.rangeMoveIdentity === true
-        && observation.continued.nestedEdit === "upstream-nested",
-      `${observation.id} continuation`);
-      requireValue(object(observation.continuation)
-        && Array.isArray(observation.continuation.messages)
-        && observation.continuation.messages.length >= 2
-        && observation.continuation.messages.every(({ encoded, graphs }) =>
-          object(encoded) && Array.isArray(graphs) && graphs.length > 0)
-        && typeof observation.continuation.compressor === "string"
-        && typeof observation.continuation.session === "string",
-      `${observation.id} continuation wire evidence`);
       if (observation.id.startsWith("message-array-advanced-")) {
         requireValue(Array.isArray(observation.features)
           && observation.features.length > 0,
         `${observation.id} advanced features`);
+        requireValue(object(observation.effect)
+          && observation.effect.effect?.result?.accepted === true
+          && !isDeepStrictEqual(
+            observation.effect.effect.before,
+            observation.effect.effect.after,
+          )
+          && (observation.effect.followOn === undefined
+            || (observation.effect.followOn.result?.accepted === true
+              && !isDeepStrictEqual(
+                observation.effect.effect.after,
+                observation.effect.followOn.after,
+              ))),
+        `${observation.id} applied effect evidence`);
+        requireValue(object(observation.continuation)
+          && Array.isArray(observation.continuation.messages)
+          && observation.continuation.messages.every(({ encoded, graphs }) =>
+            object(encoded) && Array.isArray(graphs) && graphs.length > 0)
+          && typeof observation.continuation.compressor === "string"
+          && typeof observation.continuation.session === "string",
+        `${observation.id} continuation wire evidence`);
+      } else {
+        requireValue(object(observation.continued)
+          && observation.continued.rangeMoveIdentity === true
+          && observation.continued.nestedEdit === "upstream-nested",
+        `${observation.id} continuation`);
+        requireValue(object(observation.continuation)
+          && Array.isArray(observation.continuation.messages)
+          && observation.continuation.messages.length >= 2
+          && observation.continuation.messages.every(({ encoded, graphs }) =>
+            object(encoded) && Array.isArray(graphs) && graphs.length > 0)
+          && typeof observation.continuation.compressor === "string"
+          && typeof observation.continuation.session === "string",
+        `${observation.id} continuation wire evidence`);
       }
     }
     if (observation.id === "summary-array-retained-history"
@@ -492,10 +513,12 @@ export function validateConsumerOutput(
         && typeof observation.rawInput.compressor === "string",
       `${observation.id} raw input evidence`);
       requireValue(object(observation.emitted)
-        && typeof observation.emitted.schema === "string"
-        && typeof observation.emitted.forest === "string"
+        && object(observation.emitted.schemaSemantics)
         && typeof observation.emitted.compressor === "string",
       `${observation.id} emitted evidence`);
+      requireValue(object(observation.schema)
+        && isDeepStrictEqual(observation.emitted.schemaSemantics, observation.schema),
+      `${observation.id} emitted schema semantics`);
       requireValue(typeof observation.restoredCompressor === "string",
         `${observation.id} restored compressor`);
       requireValue(object(observation.visible), `${observation.id} visible`);

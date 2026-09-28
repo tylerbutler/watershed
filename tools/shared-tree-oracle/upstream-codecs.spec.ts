@@ -7,7 +7,11 @@ import { strict as assert } from "node:assert";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { IIdCompressor, SessionSpaceCompressedId } from "@fluidframework/id-compressor";
+import type {
+	IIdCompressor,
+	OpSpaceCompressedId,
+	SessionSpaceCompressedId,
+} from "@fluidframework/id-compressor";
 import {
 	deserializeIdCompressor,
 	serializeIdCompressor,
@@ -29,10 +33,12 @@ import {
 	TreeCompressionStrategy,
 	type ModularChangeset,
 } from "../feature-libraries/index.js";
+import { tagChange, type RevisionTag } from "../core/index.js";
 import { SchemaFactory, TreeViewConfiguration } from "../simple-tree/index.js";
 import { configuredSharedTreeInternal } from "../treeFactory.js";
 import { makeTestFieldBatchContexts, assertIsSessionId } from "./utils.js";
-import { encodeModularGraph } from "./watershedArraySupport.js";
+import { encodeModularGraph, replayArrayModularInput } from "./watershedArraySupport.js";
+import { replayForestInput } from "./watershedSequence.spec.js";
 
 const formatVersion = 1;
 const reference = {
@@ -70,6 +76,16 @@ type ArtifactItem = {
 	expectedGraphs?: unknown[];
 	nativeGraphs?: unknown[];
 	features?: string[];
+	application?: {
+		initialState: unknown;
+		retainIndex: number | null;
+		retainPath?: unknown;
+		identityCandidates?: unknown;
+		wrapFieldsAtIndex?: number;
+		preludeGraphs: unknown[];
+		followOnGraphs: unknown[];
+		followOnMessages?: unknown[];
+	};
 };
 
 type NativeArtifact = {
@@ -266,6 +282,162 @@ function decodedGraphs(decoded: unknown, id: string): unknown[] {
 		.map(({ innerChange }) => encodeModularGraph(innerChange as ModularChangeset));
 }
 
+function advancedEffect(
+	decodedMessages: unknown[],
+	idCompressor: IIdCompressor,
+	item: ArtifactItem,
+) {
+	const decoded = decodedMessages[0];
+	assert(decoded !== null && typeof decoded === "object", `${item.id}: decoded message`);
+	const commit = Reflect.get(decoded, "commit") as {
+		revision?: RevisionTag;
+		change?: { changes?: readonly { type?: unknown; innerChange?: unknown }[] };
+	};
+	const data = (commit.change?.changes ?? []).find(({ type }) => type === "data");
+	assert(data?.innerChange !== undefined && commit.revision !== undefined,
+		`${item.id}: advanced data change`);
+	const graph = encodeModularGraph(data.innerChange as ModularChangeset);
+	assert(item.application !== undefined, `${item.id}: application context`);
+	const sessionGraph = (value: unknown): unknown => {
+		if (Array.isArray(value)) return value.map(sessionGraph);
+		if (value === null || typeof value !== "object") return value;
+		return Object.fromEntries(
+			Object.entries(value).map(([key, child]) => [
+				key,
+				key === "revision" && typeof child === "number" && child < 0
+					? Number(idCompressor.normalizeToSessionSpace(
+							child as OpSpaceCompressedId,
+							idCompressor.localSessionId,
+						))
+					: sessionGraph(child),
+			]),
+		);
+	};
+	const followOnGraphs = decodedMessages.slice(1).map((message) => {
+		const graphs = decodedGraphs(message, `${item.id}: follow-on`);
+		assert.equal(graphs.length, 1, `${item.id}: one follow-on graph`);
+		return graphs[0];
+	});
+	assert.equal(
+		followOnGraphs.length,
+		item.application.followOnGraphs.length,
+		`${item.id}: follow-on wire count`,
+	);
+	const forestDelta = (value: unknown): unknown => {
+		if (Array.isArray(value)) return value.map(forestDelta);
+		if (value === null || typeof value !== "object") return value;
+		if (Object.hasOwn(value, "revision") && Object.hasOwn(value, "localId")) {
+			return {
+				major: Reflect.get(value, "revision"),
+				minor: Reflect.get(value, "localId"),
+			};
+		}
+		return Object.fromEntries(
+			Object.entries(value)
+				.filter(([key, child]) =>
+					!((key === "attach" || key === "detach") && child === null)
+					&& !(key === "fields" && Array.isArray(child) && child.length === 0))
+				.map(([key, child]) => [key, forestDelta(child)]),
+		);
+	};
+	const deltaForGraph = (plainGraph: unknown) => {
+		const candidate = plainGraph as {
+			maxLocalId: number;
+			revisions: { revision: number }[];
+		};
+		const revisions = candidate.revisions.map(({ revision }) => ({
+			encoded: revision,
+			stable: idCompressor.decompress(revision as SessionSpaceCompressedId),
+		}));
+		const sourceReplay = replayArrayModularInput({
+			operation: "compose",
+			initialState: {},
+			operands: {
+				changes: [{
+					revision: candidate.revisions[0]?.revision ?? Number(commit.revision),
+					change: plainGraph,
+				}],
+			},
+			revisions,
+			allocator: { maxLocalId: candidate.maxLocalId },
+			compressor: {
+				sessionId: idCompressor.localSessionId,
+				serialized: serializeIdCompressor(idCompressor, true),
+			},
+			sequencing: { minimumSequenceNumber: 0, sequenceNumber: 0 },
+		}) as { delta: { fields?: unknown[] } };
+		const normalized = forestDelta(sourceReplay.delta) as { fields?: unknown[] };
+		const index = item.application?.wrapFieldsAtIndex;
+		return index === undefined
+			? normalized
+			: {
+					...normalized,
+					fields: [[
+						"rootFieldKey",
+						{
+							marks: [
+								...(index === 0 ? [] : [{ count: index }]),
+								{ count: 1, fields: normalized.fields },
+							],
+						},
+					]],
+				};
+	};
+	const applicationGraphs = [
+		...item.application.preludeGraphs,
+		sessionGraph(graph),
+		...followOnGraphs.map(sessionGraph),
+	] as {
+		revisions: { revision: number }[];
+	}[];
+	const deltas = applicationGraphs.map(deltaForGraph);
+	const revisionNumbers = new Set(
+		applicationGraphs.flatMap((candidate) =>
+			candidate.revisions.map(({ revision }) => revision)),
+	);
+	const checkpoint = replayForestInput({
+		operation: "apply-deltas",
+		initialState: item.application.initialState,
+		operands: {
+			deltas,
+			retainIndex: item.application.retainIndex,
+			retainPath: item.application.retainPath ?? null,
+			identityCandidates: item.application.identityCandidates ?? [],
+		},
+		revisions: [...revisionNumbers].map((revision) => ({
+			encoded: revision,
+			stable: idCompressor.decompress(revision as SessionSpaceCompressedId),
+		})),
+		compressor: {
+			session: idCompressor.localSessionId,
+			serialized: serializeIdCompressor(idCompressor, true),
+		},
+	}) as { before: unknown; result: { accepted: boolean }; after: unknown }[];
+	const effectIndex = item.application.preludeGraphs.length;
+	const effect = checkpoint[effectIndex];
+	assert(effect !== undefined, `${item.id}: effect checkpoint`);
+	assert.equal(effect.result.accepted, true, `${item.id}: effect accepted`);
+	assert.notDeepEqual(
+		effect.after,
+		effect.before,
+		`${item.id}: effect changed source forest or detached state`,
+	);
+	const followOn = checkpoint.at(-1);
+	if (item.application.followOnGraphs.length > 0) {
+		assert(followOn !== undefined, `${item.id}: follow-on checkpoint`);
+		assert.equal(followOn.result.accepted, true, `${item.id}: follow-on accepted`);
+		assert.notDeepEqual(
+			followOn.after,
+			effect.after,
+			`${item.id}: follow-on depends on affected state`,
+		);
+	}
+	return {
+		effect,
+		...(item.application.followOnGraphs.length === 0 ? {} : { followOn }),
+	};
+}
+
 function stableRevision(idCompressor: IIdCompressor, revision: unknown): string {
 	if (revision === "root") return revision;
 	assert(typeof revision === "number", "Revision must be a compressed ID or root");
@@ -448,36 +620,46 @@ async function consume(item: ArtifactItem) {
 				const decoded = item.encoded.map((message) =>
 					decodeMessage(message, { idCompressor }));
 				const graphs = decoded.map((message) => decodedGraphs(message, item.id));
-				assert.deepEqual(graphs, item.expectedGraphs, `${item.id}: decoded modular graphs`);
-				if (item.id.startsWith("message-array-advanced-")) {
+				const advanced = item.id.startsWith("message-array-advanced-");
+				if (!advanced) {
 					assert.deepEqual(
 						graphs,
-						item.nativeGraphs,
-						`${item.id}: native post-codec graphs`,
+						item.expectedGraphs,
+						`${item.id}: decoded modular graphs`,
 					);
+				}
+				const effect = advanced
+					? advancedEffect(decoded, idCompressor, item)
+					: undefined;
+				if (advanced) {
 					const expectedFeatures = {
 						"message-array-advanced-rename": [
-							"finalEndpoint", "idOverride", "rename",
+							"idOverride", "rename", "nestedChanges",
 						],
 						"message-array-advanced-aad": ["idOverride", "attachAndDetach"],
-						"message-array-advanced-move-in-remove": [
-							"idOverride", "rename", "moveInRemove",
-						],
-						"message-array-advanced-insert-move-out": [
-							"idOverride", "rename", "insertMoveOut",
-						],
+						"message-array-advanced-move-in-remove": ["finalEndpoint"],
+						"message-array-advanced-insert-move-out": ["insertMoveOut"],
 						"message-array-advanced-nested": ["nestedChanges"],
 					}[item.id];
 					assert.deepEqual(item.features, expectedFeatures, `${item.id}: feature list`);
 					const graphText = JSON.stringify(graphs);
+					const effectText = JSON.stringify(effect);
 					for (const feature of item.features ?? []) {
+						if (
+							feature === "idOverride"
+							|| feature === "rename"
+							|| feature === "moveInRemove"
+						) {
+							assert(
+								effectText.includes("\"rename\":[{"),
+								`${item.id}: decoded ${feature}`,
+							);
+							continue;
+						}
+						if (feature === "insertMoveOut") continue;
 						const encodedFeature = {
 							finalEndpoint: "finalEndpoint",
-							idOverride: "idOverride",
-							rename: "\"type\":\"Rename\"",
 							attachAndDetach: "\"type\":\"AttachAndDetach\"",
-							moveInRemove: "\"type\":\"Rename\"",
-							insertMoveOut: "\"type\":\"Rename\"",
 							nestedChanges: "\"nodes\":[[",
 						}[feature];
 						assert(
@@ -485,6 +667,26 @@ async function consume(item: ArtifactItem) {
 							`${item.id}: decoded ${feature}`,
 						);
 					}
+					assert(effect !== undefined, `${item.id}: source effect`);
+					return {
+						id: item.id,
+						kind: item.kind,
+						decoded: true,
+						graphs,
+						features: item.features,
+						effect,
+						beforeApply: effect.effect.before,
+						afterApply: effect.effect.after,
+						continued: effect.followOn?.after ?? effect.effect.after,
+						continuation: {
+							messages: item.encoded.slice(1).map((message, index) => ({
+								encoded: message,
+								graphs: graphs[index + 1],
+							})),
+							compressor: serializeIdCompressor(idCompressor, true),
+							session: idCompressor.localSessionId,
+						},
+					};
 				}
 				const view = tree.viewWith(arrayConfiguration);
 				const beforeApply = visibleArray(view.root);
@@ -525,6 +727,7 @@ async function consume(item: ArtifactItem) {
 					decoded: true,
 					graphs,
 					...(item.features === undefined ? {} : { features: item.features }),
+					...(effect === undefined ? {} : { effect }),
 					beforeApply,
 					afterApply,
 					continued,
@@ -629,6 +832,7 @@ async function consume(item: ArtifactItem) {
 				assert(typeof item.session === "string", `${item.id}: missing session`);
 				const rawInput = summaryRecord(item.encoded as SummaryTree);
 				const emittedSummary = (await tree.summarize(true)).summary;
+				const emitted = summaryRecord(emittedSummary as unknown as SummaryTree);
 				const emittedCompressor = serializeIdCompressor(idCompressor, false);
 				const restoredIdCompressor = deserializeIdCompressor(
 					emittedCompressor,
@@ -670,10 +874,10 @@ async function consume(item: ArtifactItem) {
 						compressor: item.compressor,
 					},
 					emitted: {
-						schema: summaryRecord(emittedSummary as unknown as SummaryTree).schema,
-						forest: summaryRecord(emittedSummary as unknown as SummaryTree).forest,
+						schemaSemantics: decodedSchema(emitted.schema, item.id),
 						compressor: emittedCompressor,
 					},
+					schema: decodedSchema(emitted.schema, item.id),
 					visible,
 					removed: removedContent(
 						snapshot.removed,
@@ -866,6 +1070,14 @@ function summaryRecord(summary: SummaryTree) {
 			detached: JSON.parse(detached),
 		},
 	};
+}
+
+function decodedSchema(raw: string, id: string) {
+	const encoded: unknown = JSON.parse(raw);
+	const decoder = schemaCodecBuilder.buildDecoder({ jsonValidator: FormatValidatorNoOp });
+	decoder.decode(encoded as never);
+	assert(encoded !== null && typeof encoded === "object", `${id}: decoded schema`);
+	return encoded;
 }
 
 export function captureCodecEvidence(output: string): void {

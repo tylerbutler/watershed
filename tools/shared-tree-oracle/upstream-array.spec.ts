@@ -60,6 +60,7 @@ import {
 	decodeModularV5,
 	encodeModularV5,
 	encodeModularGraph,
+	forestCheckpointInput,
 	multiPassComposeInput,
 	multiRevisionInversionInput,
 	replayArrayModularInput,
@@ -1439,21 +1440,57 @@ export async function replayArrayCodecInput(input: Record<string, unknown>): Pro
 				};
 	}
 	const loaded = await loadSummaryInput(input);
-	const summary = input.encodedSummary as { tree: Record<string, unknown> };
 	assert(loaded.runtime.idCompressor !== undefined, "Summary runtime needs an ID compressor.");
+	const rawSummary = input.encodedSummary as { tree: Record<string, unknown> };
+	const emittedSummary = (await loaded.tree.summarize(true)).summary as {
+		tree: Record<string, unknown>;
+	};
+	const emittedCompressor = serializeIdCompressor(loaded.runtime.idCompressor, false);
+	const restored = await loadSummaryInput({
+		...input,
+		encodedSummary: emittedSummary,
+		decodeContext: {
+			compressor: emittedCompressor,
+			sessionId: (input.decodeContext as { sessionId: string }).sessionId,
+		},
+	});
+	assert(restored.runtime.idCompressor !== undefined, "Reloaded summary needs an ID compressor.");
+	const emittedSchema = summaryBlob(
+		emittedSummary,
+		"indexes",
+		"Schema",
+		"SchemaString",
+	);
+	const schemaSemantics = JSON.parse(emittedSchema);
+	schemaCodecBuilder
+		.buildDecoder({ jsonValidator: FormatValidatorNoOp })
+		.decode(schemaSemantics);
 	const result = {
-		visible: visible(loaded.view.root),
-		schema: summaryBlob(summary, "indexes", "Schema", "SchemaString"),
-		forest: summaryBlob(summary, "indexes", "Forest", "contents"),
+		visible: visible(restored.view.root),
+		rawInput: {
+			schema: summaryBlob(rawSummary, "indexes", "Schema", "SchemaString"),
+			forest: summaryBlob(rawSummary, "indexes", "Forest", "contents"),
+			compressor: (input.decodeContext as { compressor: string }).compressor,
+		},
+		emitted: {
+			schemaSemantics,
+			compressor: emittedCompressor,
+		},
+		schema: summaryBlob(rawSummary, "indexes", "Schema", "SchemaString"),
+		schemaSemantics,
+		forest: summaryBlob(rawSummary, "indexes", "Forest", "contents"),
 		restoredDetached: copy(
 			(
-				Reflect.get(loaded.tree, "contentSnapshot") as () => {
+				Reflect.get(restored.tree, "contentSnapshot") as () => {
 					removed: unknown[];
 				}
-			).call(loaded.tree).removed,
+			).call(restored.tree).removed,
 		),
-		restoredHistory: managerState(loaded.tree as TestTreeProviderLite["trees"][number], true),
-		compressor: compressorState(loaded.runtime.idCompressor),
+		restoredHistory: managerState(
+			restored.tree as TestTreeProviderLite["trees"][number],
+			true,
+		),
+		compressor: compressorState(restored.runtime.idCompressor),
 	};
 	if (
 		input.operation === "empty-arrays" ||
@@ -2225,10 +2262,15 @@ async function capturePublicEvidence() {
 	const peerSummaryMain = peerSummaryProvider.trees[0].viewWith(configuration);
 	peerSummaryMain.initialize(initialRoot());
 	peerSummaryProvider.synchronizeMessages();
-	const peerSummaryPeer = peerSummaryProvider.trees[1].viewWith(configuration);
-	const peerSummaryPoint = peerSummaryPeer.root.narrow[0];
+	const peerSummaryPeer = peerSummaryProvider.trees[1].kernel.viewWith(configuration);
+	let peerRemovalRevertible: { revert(): void } | undefined;
+	peerSummaryPeer.events.on("changed", (_change, getRevertible) => {
+		if (getRevertible !== undefined) peerRemovalRevertible = getRevertible();
+	});
 	peerSummaryMain.root.narrow = new Points([new Point({ label: "trunk", x: 2 })]);
-	peerSummaryPoint.label = "stale-peer";
+	peerSummaryPeer.root.narrow.removeAt(0);
+	assert(peerRemovalRevertible !== undefined, "The source peer removal must be revertible.");
+	peerRemovalRevertible.revert();
 	for (let count = 0; peerSummaryProvider.peekNextMessage() !== undefined; count++) {
 		assert(count < 200, "Unexpected peer summary message stream.");
 		peerSummaryProvider.synchronizeMessages({ count: 1, flush: false });
@@ -2242,6 +2284,13 @@ async function capturePublicEvidence() {
 	assert(
 		peerSummaryHistory.branches.some(([, { commits }]) => commits.length > 0),
 		"The source-produced summary must retain a nonempty peer branch.",
+	);
+	assert(
+		peerSummaryHistory.branches.some(([, { commits }]) =>
+			commits.some((commit) =>
+				JSON.stringify(commit).includes("\"refreshers\"") &&
+				!JSON.stringify(commit).includes("\"refreshers\":[]"))),
+		"The source-produced peer branch must retain refresher content.",
 	);
 	const peerSummaryCompressor = serializeIdCompressor(
 		peerSummaryProvider.getCompressor(peerSummaryProvider.trees[0]),
@@ -3746,7 +3795,6 @@ async function makeCases() {
 	const advancedRevision = ownershipCompressor.generateCompressedId();
 	const ownershipRange = toIdCompressorWithCore(ownershipCompressor).takeNextCreationRange();
 	toIdCompressorWithCore(ownershipCompressor).finalizeCreationRange(ownershipRange);
-	const advancedCompressor = serializeIdCompressor(ownershipCompressor, true);
 	const remapRevision = (value: unknown): unknown => {
 		if (Array.isArray(value)) return value.map(remapRevision);
 		if (value !== null && typeof value === "object") {
@@ -3765,6 +3813,182 @@ async function makeCases() {
 		typeof encodeModularV5
 	>[0];
 	const advancedCodec = encodeModularV5(advancedChange, ownershipCompressor);
+	const checkpointRevisions = Array.from({ length: 15 }, () =>
+		ownershipCompressor.generateCompressedId() as RevisionTag);
+	const checkpointRange = toIdCompressorWithCore(ownershipCompressor).takeNextCreationRange();
+	toIdCompressorWithCore(ownershipCompressor).finalizeCreationRange(checkpointRange);
+	const advancedCompressor = serializeIdCompressor(ownershipCompressor, true);
+	const checkpointInput = forestCheckpointInput(checkpointRevisions, ownershipCompressor) as {
+		initialState: unknown;
+		operands: {
+			runs: {
+				id: string;
+				initialState?: unknown;
+				retainIndex: number | null;
+				retainPath?: unknown;
+				identityCandidates?: unknown;
+				wrapFieldsAtIndex?: number;
+				steps: (Record<string, unknown> & { id: string })[];
+			}[];
+		};
+	};
+	const checkpointRun = (id: string) => {
+		const run = checkpointInput.operands.runs.find((candidate) => candidate.id === id);
+		assert(run !== undefined, `Missing ${id} forest checkpoint run.`);
+		return run;
+	};
+	const checkpointStep = (
+		run: ReturnType<typeof checkpointRun>,
+		id: string,
+	) => {
+		const step = run.steps.find((candidate) => candidate.id === id);
+		assert(step !== undefined, `Missing ${id} forest checkpoint step.`);
+		return step;
+	};
+	const renameRun = checkpointRun("global-rename-continuation");
+	const detachStep = checkpointStep(renameRun, "detach-empty-wrapper");
+	const renameStep = checkpointStep(renameRun, "global-edit-and-rename");
+	const followStep = checkpointStep(renameRun, "edit-renamed-detached");
+	const checkpointGraph = (step: Record<string, unknown>) =>
+		(replayArrayModularInput(step) as { graph: Parameters<typeof encodeModularV5>[0] }).graph;
+	const moveGraph = advancedChange;
+	const movePreludeGraph = {
+		maxLocalId: 43,
+		revisions: [{ revision: Number(advancedRevision), rollbackOf: null }],
+		fields: [["seed43", {
+				kind: "Sequence",
+				change: [{
+					type: "Remove",
+					count: 1,
+					id: 43,
+					revision: Number(advancedRevision),
+				}],
+			}]],
+		nodes: [],
+		parents: [],
+		aliases: [],
+		crossFieldKeys: [],
+		builds: [],
+		refreshers: [],
+		destroys: [],
+	} as Parameters<typeof encodeModularV5>[0];
+	const moveRun = {
+		id: "advanced-final-endpoint",
+		initialState: {
+			field: [{
+				type: "org.watershed.shared-tree.m3.ForestNode",
+				fields: [
+					["left", Array.from({ length: 8 }, (_, index) => ({
+						type: "com.fluidframework.leaf.string",
+						value: `left-${index}`,
+						fields: [],
+					}))],
+					["right", Array.from({ length: 2 }, (_, index) => ({
+						type: "com.fluidframework.leaf.string",
+						value: `right-${index}`,
+						fields: [],
+					}))],
+					["seed40", Array.from({ length: 2 }, (_, index) => ({
+						type: "com.fluidframework.leaf.string",
+						value: `seed40-${index}`,
+						fields: [],
+					}))],
+					["seed43", [{
+						type: "com.fluidframework.leaf.string",
+						value: "seed43",
+						fields: [],
+					}]],
+					["seed45", [{
+						type: "com.fluidframework.leaf.string",
+						value: "seed45",
+						fields: [],
+					}]],
+					["seed48", Array.from({ length: 2 }, (_, index) => ({
+						type: "com.fluidframework.leaf.string",
+						value: `seed48-${index}`,
+						fields: [],
+					}))],
+				],
+			}],
+		},
+		retainIndex: null,
+		wrapFieldsAtIndex: 0,
+		steps: [],
+	};
+	const detachGraph = checkpointGraph(detachStep);
+	const renameGraph = checkpointGraph(renameStep);
+	const followGraph = checkpointGraph(followStep);
+	const checkpointMessage = (
+		revision: RevisionTag,
+		graph: Parameters<typeof encodeModularV5>[0],
+	) => ({
+		revision: Number(
+			ownershipCompressor.normalizeToOpSpace(revision as SessionSpaceCompressedId),
+		),
+		originatorId: ownershipCompressor.localSessionId,
+		changeset: [{ data: encodeModularV5(graph, ownershipCompressor).encoded }],
+		version: 7,
+	});
+	const aadPreludeGraph = {
+		maxLocalId: 56,
+		revisions: [{ revision: Number(advancedRevision), rollbackOf: null }],
+		fields: [[
+			"rootFieldKey",
+			{
+				kind: "Sequence",
+				change: [{
+					type: "Remove",
+					count: 2,
+					id: 55,
+					revision: Number(advancedRevision),
+				}],
+			},
+		]],
+		nodes: [],
+		parents: [],
+		aliases: [],
+		crossFieldKeys: [],
+		builds: [],
+		refreshers: [],
+		destroys: [],
+	} as Parameters<typeof encodeModularV5>[0];
+	const aadFollowGraph = {
+		maxLocalId: 59,
+		revisions: [{ revision: Number(advancedRevision), rollbackOf: null }],
+		fields: [[
+			"rootFieldKey",
+			{
+				kind: "Sequence",
+				change: [{
+					type: "MoveIn",
+					id: 58,
+					count: 1,
+					cellId: { localId: 59, revision: Number(advancedRevision) },
+					revision: Number(advancedRevision),
+				}],
+			},
+		]],
+		nodes: [],
+		parents: [],
+		aliases: [],
+		crossFieldKeys: [],
+		builds: [],
+		refreshers: [],
+		destroys: [],
+	} as Parameters<typeof encodeModularV5>[0];
+	const aadRun = {
+		id: "advanced-aad",
+		initialState: {
+			field: [
+				{ type: "com.fluidframework.leaf.string", value: "aad-source", fields: [] },
+				{ type: "com.fluidframework.leaf.string", value: "aad-target", fields: [] },
+			],
+		},
+		retainIndex: null,
+		steps: [],
+	};
+	const renameApplicationMessage = checkpointMessage(checkpointRevisions[13], renameGraph);
+	const followApplicationMessage = checkpointMessage(checkpointRevisions[14], followGraph);
 	const attachAndDetachChange = {
 		maxLocalId: 60,
 		revisions: [{ revision: Number(advancedRevision), rollbackOf: null }],
@@ -3878,6 +4102,105 @@ async function makeCases() {
 		...advancedMessage,
 		changeset: [{ data: insertMoveOutWire }],
 	};
+	const renameApplicationWire = copy(
+		(renameApplicationMessage.changeset[0] as { data: unknown }).data,
+	) as {
+		changes: { change: { effect?: Record<string, unknown>; cellId?: unknown }[] }[];
+	};
+	const applicationReservedWire = copy(renameApplicationWire);
+	const applicationRenameMark = applicationReservedWire.changes
+		.flatMap(({ change }) => change)
+		.find(({ effect, cellId }) =>
+			effect !== undefined && "remove" in effect && cellId !== undefined);
+	assert(applicationRenameMark?.effect !== undefined, "Checkpoint wire must contain a removal.");
+	const applicationRemove = applicationRenameMark.effect.remove as {
+		id: number;
+		revision?: number;
+	};
+	const applicationOverride = [
+		applicationRemove.id,
+		applicationRemove.revision ?? Number(checkpointRevisions[13]),
+	];
+	applicationRenameMark.effect = {
+		attachAndDetach: {
+			attach: { moveIn: { id: -1 } },
+			detach: { moveOut: { id: -1, idOverride: applicationOverride } },
+		},
+	};
+	const applicationInsertMoveOutWire = copy(applicationReservedWire);
+	const applicationInsertMoveOutMark = applicationInsertMoveOutWire.changes
+		.flatMap(({ change }) => change)
+		.find(({ effect }) => effect !== undefined && "attachAndDetach" in effect);
+	assert(applicationInsertMoveOutMark?.effect !== undefined);
+	(
+		applicationInsertMoveOutMark.effect.attachAndDetach as { attach: Record<string, unknown> }
+	).attach = { insert: { id: -1 } };
+	const application = (
+		run: ReturnType<typeof checkpointRun>,
+		preludeGraphs: unknown[],
+		followOnGraphs: unknown[],
+	) => ({
+		initialState: run.initialState ?? checkpointInput.initialState,
+		retainIndex: run.retainIndex,
+		...(run.retainPath === undefined ? {} : { retainPath: run.retainPath }),
+		...(run.identityCandidates === undefined
+			? {}
+			: { identityCandidates: run.identityCandidates }),
+		...(run.wrapFieldsAtIndex === undefined
+			? {}
+			: { wrapFieldsAtIndex: run.wrapFieldsAtIndex }),
+		preludeGraphs,
+		followOnGraphs,
+		followOnMessages: followOnGraphs.map((candidate) => {
+			const followGraph = candidate as Parameters<typeof encodeModularV5>[0];
+			const revision = followGraph.revisions[0]?.revision;
+			assert(revision !== undefined, "Follow-on graph must have a revision.");
+			return checkpointMessage(revision as RevisionTag, followGraph);
+		}),
+	});
+	const advancedApplications = [
+		{
+			id: "message-array-advanced-rename",
+			features: ["idOverride", "rename", "nestedChanges"],
+			message: {
+				...renameApplicationMessage,
+				changeset: [{ data: renameApplicationWire }],
+			},
+			graph: renameGraph,
+			application: application(renameRun, [detachGraph], [followGraph]),
+		},
+		{
+			id: "message-array-advanced-aad",
+			features: ["idOverride", "attachAndDetach"],
+			message: attachAndDetachMessage,
+			graph: attachAndDetachChange,
+			application: application(aadRun, [aadPreludeGraph], [aadFollowGraph]),
+		},
+		{
+			id: "message-array-advanced-move-in-remove",
+			features: ["finalEndpoint"],
+			message: advancedMessage,
+			graph: moveGraph,
+			application: application(moveRun, [movePreludeGraph], []),
+		},
+		{
+			id: "message-array-advanced-insert-move-out",
+			features: ["insertMoveOut"],
+			message: {
+				...renameApplicationMessage,
+				changeset: [{ data: applicationInsertMoveOutWire }],
+			},
+			graph: renameGraph,
+			application: application(renameRun, [detachGraph], []),
+		},
+		{
+			id: "message-array-advanced-nested",
+			features: ["nestedChanges"],
+			message: followApplicationMessage,
+			graph: followGraph,
+			application: application(renameRun, [detachGraph, renameGraph], []),
+		},
+	];
 	const summaryInput = (operation: string, encodedSummary: unknown, compressor: string) => ({
 		operation,
 		profile: codecProfile,
@@ -3915,6 +4238,7 @@ async function makeCases() {
 				compressor: advancedCompressor,
 				sessionId: ownershipCompressor.localSessionId,
 			},
+			advancedApplications,
 		},
 		"message-v7": messageInput("message-v7", publicEvidence.operationMessages),
 		builds: messageInput("builds", publicEvidence.operationMessages),

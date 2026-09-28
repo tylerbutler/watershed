@@ -1,4 +1,3 @@
-import gleam/bit_array
 import gleam/float
 import gleam/int
 import gleam/json.{type Json}
@@ -188,6 +187,12 @@ fn message_graphs(
 
 fn run_summary_scenario(id: String, value: JsonValue) -> Result(Json, String) {
   use context <- result.try(decode_context_value(value))
+  use decode_context_raw <- result.try(fixture_codec.get(value, "decodeContext"))
+  use input_compressor_raw <- result.try(fixture_codec.field(
+    decode_context_raw,
+    "compressor",
+    fixture_codec.text,
+  ))
   use encoded <- result.try(fixture_codec.get(value, "encodedSummary"))
   use decoded <- result.try(
     summary.decode(
@@ -215,21 +220,22 @@ fn run_summary_scenario(id: String, value: JsonValue) -> Result(Json, String) {
     )
     |> result.map_error(string.inspect),
   )
-  use _ <- result.try(summary_entry_json(reencoded))
   use visible <- result.try(summary_visible(round_tripped))
-  use schema_raw <- result.try(
+  use input_schema_raw <- result.try(
     summary_blob(encoded, ["indexes", "Schema", "SchemaString"]),
   )
-  use forest_raw <- result.try(
+  use input_forest_raw <- result.try(
     summary_blob(encoded, ["indexes", "Forest", "contents"]),
   )
+  let schema_semantics = schema.stored_to_json(round_tripped.schema)
   use detached <- result.try(detached_json(
     round_tripped.detached,
     round_tripped.forest,
     context.1,
   ))
   use history <- result.try(history_json(round_tripped.history, context.1))
-  use serialized <- result.try(serialize_compressor(context.1))
+  use emitted_compressor <- result.try(serialize_compressor(context.1, False))
+  use serialized <- result.try(serialize_compressor(context.1, True))
   Ok(
     json.object([
       #("id", json.string(id)),
@@ -237,8 +243,24 @@ fn run_summary_scenario(id: String, value: JsonValue) -> Result(Json, String) {
         "result",
         json.object([
           #("visible", visible),
-          #("schema", json.string(schema_raw)),
-          #("forest", json.string(forest_raw)),
+          #(
+            "rawInput",
+            json.object([
+              #("schema", json.string(input_schema_raw)),
+              #("forest", json.string(input_forest_raw)),
+              #("compressor", json.string(input_compressor_raw)),
+            ]),
+          ),
+          #(
+            "emitted",
+            json.object([
+              #("schemaSemantics", schema_semantics),
+              #("compressor", json.string(emitted_compressor)),
+            ]),
+          ),
+          #("schema", json.string(input_schema_raw)),
+          #("schemaSemantics", schema_semantics),
+          #("forest", json.string(input_forest_raw)),
           #("restoredDetached", detached),
           #("restoredHistory", history),
           #(
@@ -255,55 +277,6 @@ fn run_summary_scenario(id: String, value: JsonValue) -> Result(Json, String) {
       ),
     ]),
   )
-}
-
-fn summary_entry_json(
-  value: fluid_summary.SummaryEntry,
-) -> Result(JsonValue, String) {
-  case value {
-    fluid_summary.SummaryTree(entries) -> {
-      use entries <- result.try(
-        list.try_map(entries, fn(entry) {
-          use value <- result.try(summary_entry_json(entry.1))
-          Ok(#(entry.0, value))
-        }),
-      )
-      Ok(
-        VObject([
-          #("type", VNumber(NInt(1))),
-          #("tree", VObject(entries)),
-        ]),
-      )
-    }
-    fluid_summary.SummaryBlob(content) -> {
-      use content <- result.try(
-        bit_array.to_string(content)
-        |> result.map_error(fn(_) { "summary blob is not UTF-8" }),
-      )
-      Ok(
-        VObject([
-          #("type", VNumber(NInt(2))),
-          #("content", VString(content)),
-        ]),
-      )
-    }
-    fluid_summary.SummaryHandle(handle, handle_type) ->
-      Ok(
-        VObject([
-          #("type", VNumber(NInt(3))),
-          #("handle", VString(handle)),
-          #(
-            "handleType",
-            VNumber(
-              NInt(case handle_type {
-                fluid_summary.TreeHandle -> 1
-                fluid_summary.BlobHandle -> 2
-              }),
-            ),
-          ),
-        ]),
-      )
-  }
 }
 
 fn decode_context(
@@ -601,9 +574,10 @@ fn optional_int_json(value: Option(Int)) -> Json {
 
 fn serialize_compressor(
   compressor: fluid_ids.Compressor,
+  ongoing: Bool,
 ) -> Result(String, String) {
   use encoded <- result.try(
-    fluid_ids.serialize(compressor, True)
+    fluid_ids.serialize(compressor, ongoing)
     |> result.map_error(string.inspect),
   )
   case json_ot.parse_json(json.to_string(encoded)) {

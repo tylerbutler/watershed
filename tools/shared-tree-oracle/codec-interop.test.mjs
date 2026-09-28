@@ -351,10 +351,11 @@ test("array evidence rejects lost continuation, detached, peer, and refresher da
         compressor: "source-compressor",
       },
       emitted: {
-        schema: "emitted-schema",
+        schemaSemantics: { nodes: ["expected"] },
         forest: "emitted-forest",
         compressor: "emitted-compressor",
       },
+      schema: { nodes: ["expected"] },
       visible: { left: ["retained"] },
       removed: [{ major: "revision", minor: 1, tree: { value: "detached" } }],
       history: {
@@ -424,6 +425,10 @@ test("array evidence rejects lost continuation, detached, peer, and refresher da
     },
     (value) => { value.observations[0].removed[0].tree.value = "changed"; },
     (value) => { value.observations[0].visible.left[0] = "changed"; },
+    (value) => {
+       value.observations[0].emitted.schemaSemantics = { nodes: ["changed"] };
+       value.observations[0].schema = { nodes: ["changed"] };
+    },
   ]) {
     const changed = structuredClone(summaryOutput);
     mutate(changed);
