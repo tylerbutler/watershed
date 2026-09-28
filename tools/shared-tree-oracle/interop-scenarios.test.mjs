@@ -358,8 +358,11 @@ test("native persisted data diagnostics decode exponential numbers", () => {
   assert.deepEqual(
     decodeReconnectPayload(
       'Changeset([DataChange(Changeset(ChangeData('
-        + '[#("score", OptionalField(FieldChange()))], '
-        + '[Build(AtomId(1), [NumberValue(1.0e3)])])))])',
+        + '2, [], [#("score", OptionalField(FieldChange([], [], '
+        + "Some(Replacement(False, Some(Detached(AtomId(None, 0))), "
+        + "AtomId(None, 1))))))], [], [], [], "
+        + "[Build(AtomId(None, 0), [NumberValue(1.0e3)])], [], []), "
+        + "IdentityOrder([])))])",
     ),
     { kind: "data", field: "score", value: 1000 },
   );
@@ -369,12 +372,28 @@ test("native named data diagnostics decode complete changesets", () => {
   assert.deepEqual(
     decodeReconnectPayload(
       "Changeset([DataChange(Changeset("
-        + "data: ChangeData(max_local_id: 2, "
-        + 'fields: [#("score", OptionalField(FieldChange()))], '
-        + "builds: [Build(AtomId(1), [NumberValue(1000)])]), "
+        + "data: ChangeData(max_local_id: 2, revisions: [], "
+        + 'fields: [#("score", OptionalField(FieldChange(moves: [], '
+        + "child_changes: [], replacement: Some(Replacement(was_empty: False, "
+        + "source: Some(Detached(AtomId(revision: None, local_id: 0))), "
+        + "detach_id: AtomId(revision: None, local_id: 1))))))], "
+        + "nodes: [], parents: [], aliases: [], "
+        + "builds: [Build(id: AtomId(revision: None, local_id: 0), "
+        + "trees: [NumberValue(1000)])], destroys: [], refreshers: []), "
         + "identity_order: IdentityOrder([])))])",
     ),
     { kind: "data", field: "score", value: 1000 },
+  );
+});
+
+test("native persisted diagnostics reject fabricated constructor shortcuts", () => {
+  assert.throws(
+    () => decodeReconnectPayload(
+      'Changeset([DataChange(Changeset(ChangeData('
+        + '[#("score", OptionalField(FieldChange()))], '
+        + '[Build(AtomId(0), [NumberValue(1000)])])))])',
+    ),
+    /invalid|arguments|replacement/i,
   );
 });
 
