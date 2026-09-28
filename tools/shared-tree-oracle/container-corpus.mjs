@@ -151,7 +151,7 @@ function caseRecord(id, domain, schedules, observations, raw, extraInput = {}) {
   };
 }
 
-export function makeEnvironment() {
+export function makeEnvironment(store = serviceStore) {
   const server = LocalDeltaConnectionServer.create();
   const documentServiceFactory = new LocalDocumentServiceFactory(server);
   const urlResolver = new LocalResolver();
@@ -161,8 +161,8 @@ export function makeEnvironment() {
     let runtime;
     const codeLoader = makeCodeLoader(
       async (type) => {
-        assert.equal(type, serviceStore.type, "Unexpected data store type");
-        return serviceStore;
+        assert.equal(type, store.type, "Unexpected data store type");
+        return store;
       },
       oldestSupportedClient,
       async (parameters) => {
@@ -181,7 +181,7 @@ export function makeEnvironment() {
         }
         return runtime;
       },
-      serviceStore,
+      store,
     );
     const properties = {
       urlResolver,

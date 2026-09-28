@@ -359,7 +359,7 @@ fn summary_visible(value: summary.TreeSummaryData) -> Result(Json, String) {
   }
 }
 
-fn visible_value(value: types.TreeValue) -> Json {
+pub fn visible_value(value: types.TreeValue) -> Json {
   case value {
     types.StringValue(value) -> json.string(value)
     types.NumberValue(value) ->

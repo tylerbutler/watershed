@@ -14,6 +14,7 @@ import watershed/fluid_ids
 import watershed/map_kernel
 import watershed/runtime_core
 import watershed/sluice/frame
+import watershed/tree/array_codec_fixture
 import watershed/tree/codec
 import watershed/tree/codec/summary
 import watershed/tree/fixtures
@@ -754,7 +755,95 @@ fn native_edit(
   }
 }
 
+fn object_outbounds(
+  core: runtime_core.Core,
+) -> Result(#(runtime_core.Core, List(Json)), String) {
+  use #(core, required) <- result.try(
+    native_edit(core, "required-field", [
+      tree_types.SetField(["title"], tree_types.StringValue("native-required")),
+    ]),
+  )
+  use #(core, optional_set) <- result.try(
+    native_edit(core, "optional-set", [
+      tree_types.SetField(["note"], tree_types.StringValue("native-note")),
+    ]),
+  )
+  use #(core, optional_clear) <- result.try(
+    native_edit(core, "optional-clear", [
+      tree_types.ClearField(["note"]),
+    ]),
+  )
+  use #(core, grouped) <- result.try(
+    native_edit(core, "batched-commits", [
+      tree_types.SetField(["title"], tree_types.StringValue("native-batched")),
+      tree_types.SetField(["enabled"], tree_types.BooleanValue(True)),
+      tree_types.SetField(["rating"], tree_types.NumberValue(3.0)),
+    ]),
+  )
+  Ok(#(core, [required, optional_set, optional_clear, grouped]))
+}
+
+fn array_outbounds(
+  core: runtime_core.Core,
+) -> Result(#(runtime_core.Core, List(Json)), String) {
+  let point =
+    tree_types.ObjectValue("org.watershed.shared-tree.m3.Point", [
+      #("label", tree_types.StringValue("same")),
+      #("x", tree_types.NumberValue(1.0)),
+    ])
+  let nested =
+    tree_types.ArrayValue("org.watershed.shared-tree.m3.Items", [
+      tree_types.StringValue("nested"),
+    ])
+  use #(core, insert) <- result.try(
+    native_edit(core, "insert-range", [
+      tree_types.ArrayInsert(["left"], 0, [
+        point,
+        point,
+        tree_types.StringValue("tail"),
+        nested,
+      ]),
+    ]),
+  )
+  use #(core, move) <- result.try(
+    native_edit(core, "cross-array-move", [
+      tree_types.ArrayMove(["left"], 0, 2, ["right"], 0),
+    ]),
+  )
+  use #(core, child) <- result.try(
+    native_edit(core, "moved-child", [
+      tree_types.SetField(["right", "1", "x"], tree_types.NumberValue(9.0)),
+    ]),
+  )
+  use #(core, remove) <- result.try(
+    native_edit(core, "remove-range", [
+      tree_types.ArrayRemove(["left"], 0, 1),
+    ]),
+  )
+  use #(core, grouped) <- result.try(
+    native_edit(core, "batched-array-edits", [
+      tree_types.ArrayInsert(["left"], 0, [
+        tree_types.StringValue("first"),
+        tree_types.StringValue("second"),
+      ]),
+      tree_types.ArrayMove(["right"], 0, 2, ["left"], 1),
+      tree_types.SetField(
+        ["left", "2", "label"],
+        tree_types.StringValue("native-child"),
+      ),
+    ]),
+  )
+  Ok(#(core, [insert, move, child, remove, grouped]))
+}
+
 pub fn export_runtime(input: Json) -> Result(Json, String) {
+  use profile <- result.try(
+    json.parse(json.to_string(input), {
+      use profile <- decode.optional_field("profile", "object", decode.string)
+      decode.success(profile)
+    })
+    |> result.map_error(string.inspect),
+  )
   use session_string <- result.try(read_field(input, "sessionId", decode.string))
   use session <- result.try(
     fluid_ids.session_id(session_string) |> result.map_error(string.inspect),
@@ -787,29 +876,12 @@ pub fn export_runtime(input: Json) -> Result(Json, String) {
     [operation] -> Ok(native_outbound("bootstrap-map-handle", operation))
     _ -> Error("native map set did not produce one outer message")
   })
-  use #(core, required) <- result.try(
-    native_edit(core, "required-field", [
-      tree_types.SetField(["title"], tree_types.StringValue("native-required")),
-    ]),
-  )
-  use #(core, optional_set) <- result.try(
-    native_edit(core, "optional-set", [
-      tree_types.SetField(["note"], tree_types.StringValue("native-note")),
-    ]),
-  )
-  use #(core, optional_clear) <- result.try(
-    native_edit(core, "optional-clear", [
-      tree_types.ClearField(["note"]),
-    ]),
-  )
-  use #(core, grouped) <- result.try(
-    native_edit(core, "batched-commits", [
-      tree_types.SetField(["title"], tree_types.StringValue("native-batched")),
-      tree_types.SetField(["enabled"], tree_types.BooleanValue(True)),
-      tree_types.SetField(["rating"], tree_types.NumberValue(3.0)),
-    ]),
-  )
-  let outbound = [map_outbound, required, optional_set, optional_clear, grouped]
+  use #(core, tree_outbound) <- result.try(case profile {
+    "object" -> object_outbounds(core)
+    "array" -> array_outbounds(core)
+    _ -> Error("unknown runtime fixture profile: " <> profile)
+  })
+  let outbound = [map_outbound, ..tree_outbound]
   use replay <- result.try(read_field(
     input,
     "replayMessages",
@@ -822,11 +894,25 @@ pub fn export_runtime(input: Json) -> Result(Json, String) {
     }),
   )
   use #(pending, positions) <- result.try(tree_history(core))
-  use visible <- result.try(root(core))
+  use visible <- result.try(case profile {
+    "object" -> root(core)
+    "array" -> {
+      use root <- result.try(
+        runtime_core.tree_read(core, "A/_C", [])
+        |> result.map_error(string.inspect),
+      )
+      case root {
+        Some(root) -> Ok(array_codec_fixture.visible_value(root))
+        None -> Error("array runtime fixture root is absent")
+      }
+    }
+    _ -> Error("unknown runtime fixture profile: " <> profile)
+  })
   use path <- result.try(tree_handle(core))
   Ok(
     json.object([
       #("formatVersion", json.int(1)),
+      #("profile", json.string(profile)),
       #("clientId", json.string(client)),
       #("sessionId", json.string(session_string)),
       #("bootstrapPath", json.string("/" <> map)),

@@ -25,6 +25,7 @@ function artifact(target) {
     target, reference,
     artifact: {
       formatVersion: 1, clientId: "native", sessionId: "session",
+      profile: "object",
       bootstrapPath: "/A/root", treePath: "/A/_C",
       initialDocument: {
         snapshot: { tree: { trees: {} }, blobs: { source: "bytes" } },
@@ -38,7 +39,7 @@ function artifact(target) {
         id, clientSequenceNumber: index + 1, referenceSequenceNumber: 2,
         type: "op", contents: { type: "component" }, metadata: null,
       })),
-      root, pendingCount: 0, sequenceNumber: 9,
+      root: structuredClone(root), pendingCount: 0, sequenceNumber: 9,
       treePositions: [
         { sequenceNumber: 4, indexInBatch: 0 },
         { sequenceNumber: 5, indexInBatch: 0 },
@@ -49,6 +50,25 @@ function artifact(target) {
     },
   };
 }
+
+test("runtime artifacts bind array profiles to the complete array scenario set", () => {
+  const value = artifact("erlang");
+  value.artifact.profile = "array";
+  assert.throws(() => validateRuntimeArtifact(value, "erlang", "native", "array"),
+    /scenarios/);
+  value.artifact.outbound = [
+    "bootstrap-map-handle", "insert-range", "cross-array-move",
+    "moved-child", "remove-range", "batched-array-edits",
+  ].map((id, index) => ({
+    id, clientSequenceNumber: index + 1, referenceSequenceNumber: 2,
+    type: "op", contents: { type: "component" }, metadata: null,
+  }));
+  validateRuntimeArtifact(value, "erlang", "native", "array");
+  assert.throws(() => validateRuntimeArtifact(value, "erlang", "native", "object"),
+    /profile/);
+  assert.throws(() => validateRuntimeArtifact(value, "erlang", "native", "unknown"),
+    /profile/);
+});
 
 test("runtime artifacts require fresh output for each target and all scenarios", () => {
   validateRuntimeArtifact(artifact("javascript"), "javascript");
@@ -116,6 +136,70 @@ test("coordinator rejects absent, empty, stale, wrong-target, and failed consume
       }), failure === "consumer" ? /upstream failed/ : /artifact|target|client|outbound/i);
       assert.deepEqual(await readdir(outputRoot), [], `unclean ${failure} run directory`);
     }
+  } finally {
+    await rm(outputRoot, { recursive: true, force: true });
+  }
+});
+
+test("runtime coordination covers fresh object and array artifacts for both targets", async () => {
+  const outputRoot = await mkdtemp(join(tmpdir(), "watershed-array-runtime-test-"));
+  const prepared = [];
+  const closed = [];
+  try {
+    const result = await runRuntimeInterop({
+      outputRoot,
+      prepare: async (target, profile) => {
+        prepared.push(`${target}/${profile}`);
+        return {
+          clientId: "native", input: {},
+          close: async () => closed.push(`${target}/${profile}`),
+        };
+      },
+      produce: async (target, path) => {
+        const profile = path.endsWith(`${target}-array.json`)
+          || path.endsWith(`${target}-array-replay.json`) ? "array" : "object";
+        const replay = path.endsWith("-replay.json");
+        const value = artifact(target);
+        value.artifact.profile = profile;
+        if (profile === "array") {
+          value.artifact.outbound = [
+            "bootstrap-map-handle", "insert-range", "cross-array-move",
+            "moved-child", "remove-range", "batched-array-edits",
+          ].map((id, index) => ({
+            id, clientSequenceNumber: index + 1, referenceSequenceNumber: 2,
+            type: "op", contents: { type: "component" }, metadata: null,
+          }));
+          value.artifact.root = {
+            left: [
+              "first", { point: { label: "same", x: 1 } },
+              { point: { label: "native-child", x: replay ? 42 : 9 } },
+              "second", ["nested"],
+            ],
+            right: [], byKey: { map: [] }, narrow: [],
+          };
+        } else if (!replay) {
+          value.artifact.root.point.x = 0;
+        }
+        if (!replay) {
+          value.artifact.pendingCount = profile === "array" ? 7 : 6;
+          value.artifact.treePositions = [];
+        }
+        await writeFile(path, JSON.stringify(value));
+      },
+      consume: async (value) => {
+        const root = structuredClone(value.root);
+        if (value.profile === "array") root.left[2].point.x = 42;
+        else root.point.x = 42;
+        return { root, treePositions: artifact("erlang").artifact.treePositions,
+          sequenceNumber: 9 };
+      },
+    });
+    assert.deepEqual(prepared, [
+      "erlang/object", "erlang/array", "javascript/object", "javascript/array",
+    ]);
+    assert.deepEqual(closed, prepared);
+    assert.deepEqual(result, { targetCount: 2, profileCount: 2, scenarios: 11 });
+    assert.deepEqual(await readdir(outputRoot), []);
   } finally {
     await rm(outputRoot, { recursive: true, force: true });
   }

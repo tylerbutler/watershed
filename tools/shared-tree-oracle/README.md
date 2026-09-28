@@ -623,15 +623,21 @@ references use the pinned source commit, not the currently released package.
 
 `npm run runtime:interop` creates fresh pinned upstream containers and gives
 each native target the real initial snapshot, server delivery prefix, and its
-own connected transport identity. The native core emits a SharedMap handle set,
-a required-field edit, an optional set and clear, and a grouped three-edit
-batch with ID allocation. The upstream container consumes each outbound
+own connected transport identity. Both targets run the object and array
+profiles: five object scenarios and six array scenarios per target. The object
+scenarios retain the SharedMap handle set, required-field edit, optional set and
+clear, and grouped three-edit batch. The array scenarios insert a range with
+duplicate-valued points and a nested array, move both points across arrays,
+edit a moved child, remove a range, and submit another grouped insert/move/edit.
+Each group carries its ID allocation. The upstream container consumes each outbound
 message unchanged at its own checkpoint, resolves the handle, and authors a
 continuation edit. The native core then replays the actual server messages,
 including its own echoes and the peer's allocation, and checks the final root,
 pending count, outer identities, and per-tree sequence positions. A second
 upstream container loads the native SharedMap header through its normal DDS
-loader and checks integer-key insertion order and handle resolution. The
+loader and checks integer-key insertion order and handle resolution. The array
+consumer also checks the points' distinct identities after both moves and
+after the upstream continuation edits one of them. The
 coordinator rejects missing, stale, incomplete, or divergent output and
 removes only its own temporary directory. This is a local-driver DDS/runtime
 test, not native publication of a full Fluid document summary.

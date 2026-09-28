@@ -26,6 +26,8 @@ import {
 } from "@fluidframework/shared-object-base/internal";
 import { SharedTree } from "@fluidframework/tree/internal";
 import {
+  arrayTreeConfig,
+  initialArrayRoot,
   initialMapRoot,
   initialRoot,
   mapTreeConfig,
@@ -117,6 +119,7 @@ function createServiceStore(config, initialRoot) {
 
 export const serviceStore = createServiceStore(treeConfig, initialRoot);
 export const mapServiceStore = createServiceStore(mapTreeConfig, initialMapRoot);
+export const arrayServiceStore = createServiceStore(arrayTreeConfig, initialArrayRoot);
 
 export function serviceConfig(environment = process.env) {
   const secret = environment.FLOODGATE_JWT_SECRET;
