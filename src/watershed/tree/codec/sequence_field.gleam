@@ -165,12 +165,47 @@ fn decode_attach_and_detach(
     True,
     location <> ".detach",
   ))
+  let reserved_attach = attach_id(attach).local_id == -1
   case attach, detach {
-    sequence_field.MoveIn(id, _),
-      sequence_field.MoveOut(_, _, Some(id_override))
-      if id.local_id == -1
-    -> Ok(sequence_field.Rename(id_override))
-    _, _ -> Ok(sequence_field.AttachAndDetach(attach, detach))
+    _, sequence_field.Remove(_, Some(id_override)) if reserved_attach ->
+      Ok(sequence_field.Rename(id_override))
+    _, sequence_field.MoveOut(_, _, Some(id_override)) if reserved_attach ->
+      Ok(sequence_field.Rename(id_override))
+    _, _ -> {
+      use _ <- result.try(require_normal_effect_id(
+        attach_id(attach),
+        location <> ".attach",
+      ))
+      use _ <- result.try(require_normal_effect_id(
+        detach_id(detach),
+        location <> ".detach",
+      ))
+      Ok(sequence_field.AttachAndDetach(attach, detach))
+    }
+  }
+}
+
+fn attach_id(attach: sequence_field.Attach) -> AtomId {
+  case attach {
+    sequence_field.Insert(id) -> id
+    sequence_field.MoveIn(id, _) -> id
+  }
+}
+
+fn detach_id(detach: sequence_field.Detach) -> AtomId {
+  case detach {
+    sequence_field.Remove(id, _) -> id
+    sequence_field.MoveOut(id, _, _) -> id
+  }
+}
+
+fn require_normal_effect_id(
+  id: AtomId,
+  location: String,
+) -> Result(Nil, TreeError) {
+  case id.local_id >= 0 {
+    True -> Ok(Nil)
+    False -> Error(CorruptData(location <> ".id", "invalid local identifier"))
   }
 }
 
@@ -183,7 +218,13 @@ fn decode_union_attach(
   use members <- result.try(object(value, location))
   case members {
     [#("insert", value)] ->
-      decode_attach(value, "insert", decode_atom, False, location <> ".insert")
+      decode_attach(
+        value,
+        "insert",
+        decode_atom,
+        allow_reserved,
+        location <> ".insert",
+      )
     [#("moveIn", value)] ->
       decode_attach(
         value,
@@ -205,7 +246,13 @@ fn decode_union_detach(
   use members <- result.try(object(value, location))
   case members {
     [#("remove", value)] ->
-      decode_detach(value, "remove", decode_atom, False, location <> ".remove")
+      decode_detach(
+        value,
+        "remove",
+        decode_atom,
+        allow_reserved,
+        location <> ".remove",
+      )
     [#("moveOut", value)] ->
       decode_detach(
         value,

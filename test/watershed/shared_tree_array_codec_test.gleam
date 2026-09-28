@@ -198,6 +198,49 @@ pub fn sequence_v3_codec_decodes_reserved_rename_representation_test() -> Nil {
   ])
 }
 
+fn assert_reserved_rename_subtype(raw: String) -> Nil {
+  let assert Ok(revision) = fluid_ids.stable_id(revision_a)
+  let decode_atom = fn(value, location) {
+    case value {
+      json_ot.VNumber(json_ot.NInt(local_id)) if local_id >= 0 ->
+        Ok(AtomId(Some(revision), local_id))
+      _ -> Error(CorruptData(location, "invalid local identifier"))
+    }
+  }
+  let assert Ok(value) = json_ot.parse_json(raw)
+  let assert Ok(#(decoded, Nil)) =
+    sequence_codec.decode(
+      value,
+      Nil,
+      decode_atom,
+      fn(_value, _state, location) {
+        Error(CorruptData(location, "unexpected child"))
+      },
+      "sequence",
+    )
+  sequence_field.to_marks(decoded)
+  |> expect.to_equal([
+    sequence_field.Mark(
+      1,
+      Some(AtomId(Some(revision), 0)),
+      sequence_field.Rename(AtomId(Some(revision), 1)),
+      None,
+    ),
+  ])
+}
+
+pub fn sequence_v3_codec_decodes_reserved_move_in_remove_test() -> Nil {
+  assert_reserved_rename_subtype(
+    "[{\"count\":1,\"cellId\":0,\"effect\":{\"attachAndDetach\":{\"attach\":{\"moveIn\":{\"id\":-1}},\"detach\":{\"remove\":{\"id\":2,\"idOverride\":1}}}}}]",
+  )
+}
+
+pub fn sequence_v3_codec_decodes_reserved_insert_move_out_test() -> Nil {
+  assert_reserved_rename_subtype(
+    "[{\"count\":1,\"cellId\":0,\"effect\":{\"attachAndDetach\":{\"attach\":{\"insert\":{\"id\":-1}},\"detach\":{\"moveOut\":{\"id\":-1,\"idOverride\":1}}}}}]",
+  )
+}
+
 pub fn sequence_v3_codec_accepts_open_attach_and_detach_object_test() -> Nil {
   let assert Ok(revision) = fluid_ids.stable_id(revision_a)
   let assert Ok(value) =
