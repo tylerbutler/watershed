@@ -1,0 +1,1812 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "observations": [
+    {
+      "id": "summary-array-peer-history",
+      "kind": "summary",
+      "visible": {
+        "left": [
+          "A",
+          {
+            "point": {
+              "label": "same",
+              "x": 1
+            }
+          },
+          {
+            "point": {
+              "label": "same",
+              "x": 1
+            }
+          },
+          [
+            "nested",
+            {
+              "map": [
+                [
+                  "",
+                  "empty-key"
+                ],
+                [
+                  "0",
+                  "numeric-key"
+                ]
+              ]
+            }
+          ]
+        ],
+        "right": [
+          "R"
+        ],
+        "byKey": {
+          "map": [
+            [
+              "",
+              [
+                "empty"
+              ]
+            ],
+            [
+              "0",
+              [
+                "zero",
+                [
+                  "deep"
+                ]
+              ]
+            ],
+            [
+              "01",
+              "leading-zero"
+            ]
+          ]
+        },
+        "narrow": [
+          {
+            "point": {
+              "label": "trunk",
+              "x": 2
+            }
+          }
+        ]
+      },
+      "removed": [
+        {
+          "major": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+          "minor": 1,
+          "tree": {
+            "type": "org.watershed.shared-tree.m3.Points",
+            "fields": {
+              "": [
+                {
+                  "type": "org.watershed.shared-tree.m3.Point",
+                  "fields": {
+                    "label": [
+                      {
+                        "type": "com.fluidframework.leaf.string",
+                        "value": "stale-peer"
+                      }
+                    ],
+                    "x": [
+                      {
+                        "type": "com.fluidframework.leaf.number",
+                        "value": 9
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "major": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+          "minor": 1,
+          "tree": {
+            "type": "com.fluidframework.leaf.string",
+            "value": "narrow"
+          }
+        }
+      ],
+      "history": {
+        "trunk": [
+          {
+            "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+            "session": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "sequenceNumber": 4,
+            "indexInBatch": null,
+            "changes": [
+              {
+                "type": "data",
+                "data": {
+                  "maxLocalId": 2,
+                  "revisions": [
+                    {
+                      "revision": 1,
+                      "rollbackOf": null
+                    }
+                  ],
+                  "fields": [
+                    [
+                      "rootFieldKey",
+                      {
+                        "kind": "Generic",
+                        "change": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": 1,
+                                "localId": 3
+                              }
+                            ]
+                          ]
+                        }
+                      }
+                    ]
+                  ],
+                  "nodes": [
+                    [
+                      {
+                        "revision": 1,
+                        "localId": 3
+                      },
+                      {
+                        "fields": [
+                          [
+                            "narrow",
+                            {
+                              "kind": "Value",
+                              "change": {
+                                "moves": [],
+                                "childChanges": [],
+                                "valueReplace": {
+                                  "isEmpty": false,
+                                  "dst": {
+                                    "localId": 1,
+                                    "revision": 1
+                                  },
+                                  "src": {
+                                    "localId": 0,
+                                    "revision": 1
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  "parents": [
+                    [
+                      {
+                        "revision": 1,
+                        "localId": 3
+                      },
+                      {
+                        "node": null,
+                        "field": "rootFieldKey"
+                      }
+                    ]
+                  ],
+                  "aliases": [],
+                  "crossFieldKeys": [],
+                  "builds": [
+                    [
+                      {
+                        "revision": 1,
+                        "localId": 0
+                      },
+                      [
+                        {
+                          "type": "org.watershed.shared-tree.m3.Points",
+                          "fields": {
+                            "": [
+                              {
+                                "type": "org.watershed.shared-tree.m3.Point",
+                                "fields": {
+                                  "label": [
+                                    {
+                                      "type": "com.fluidframework.leaf.string",
+                                      "value": "trunk"
+                                    }
+                                  ],
+                                  "x": [
+                                    {
+                                      "type": "com.fluidframework.leaf.number",
+                                      "value": 2
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    ]
+                  ],
+                  "refreshers": [],
+                  "destroys": []
+                }
+              }
+            ]
+          },
+          {
+            "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+            "session": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+            "sequenceNumber": 6,
+            "indexInBatch": null,
+            "changes": [
+              {
+                "type": "data",
+                "data": {
+                  "maxLocalId": 4,
+                  "revisions": [
+                    {
+                      "revision": 513,
+                      "rollbackOf": null
+                    }
+                  ],
+                  "fields": [
+                    [
+                      "rootFieldKey",
+                      {
+                        "kind": "Generic",
+                        "change": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": 513,
+                                "localId": 5
+                              }
+                            ]
+                          ]
+                        }
+                      }
+                    ]
+                  ],
+                  "nodes": [
+                    [
+                      {
+                        "revision": 513,
+                        "localId": 5
+                      },
+                      {
+                        "fields": [
+                          [
+                            "narrow",
+                            {
+                              "kind": "Value",
+                              "change": {
+                                "moves": [],
+                                "childChanges": [
+                                  [
+                                    {
+                                      "localId": 1,
+                                      "revision": 1
+                                    },
+                                    {
+                                      "revision": 513,
+                                      "localId": 6
+                                    }
+                                  ]
+                                ],
+                                "valueReplace": null
+                              }
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    [
+                      {
+                        "revision": 513,
+                        "localId": 6
+                      },
+                      {
+                        "fields": [
+                          [
+                            "",
+                            {
+                              "kind": "Generic",
+                              "change": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": 513,
+                                      "localId": 7
+                                    }
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    [
+                      {
+                        "revision": 513,
+                        "localId": 7
+                      },
+                      {
+                        "fields": [
+                          [
+                            "label",
+                            {
+                              "kind": "Value",
+                              "change": {
+                                "moves": [],
+                                "childChanges": [],
+                                "valueReplace": {
+                                  "isEmpty": false,
+                                  "dst": {
+                                    "localId": 1,
+                                    "revision": 513
+                                  },
+                                  "src": {
+                                    "localId": 0,
+                                    "revision": 513
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  "parents": [
+                    [
+                      {
+                        "revision": 513,
+                        "localId": 5
+                      },
+                      {
+                        "node": null,
+                        "field": "rootFieldKey"
+                      }
+                    ],
+                    [
+                      {
+                        "revision": 513,
+                        "localId": 6
+                      },
+                      {
+                        "node": {
+                          "revision": 513,
+                          "localId": 5
+                        },
+                        "field": "narrow"
+                      }
+                    ],
+                    [
+                      {
+                        "revision": 513,
+                        "localId": 7
+                      },
+                      {
+                        "node": {
+                          "revision": 513,
+                          "localId": 6
+                        },
+                        "field": ""
+                      }
+                    ]
+                  ],
+                  "aliases": [],
+                  "crossFieldKeys": [],
+                  "builds": [
+                    [
+                      {
+                        "revision": 513,
+                        "localId": 0
+                      },
+                      [
+                        {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": "stale-peer"
+                        }
+                      ]
+                    ]
+                  ],
+                  "refreshers": [],
+                  "destroys": []
+                }
+              }
+            ]
+          }
+        ],
+        "peers": [
+          {
+            "session": "2ccb8a72-78e5-499d-ba35-88fbc20dcd52",
+            "base": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+            "revisions": [
+              "2ccb8a72-78e5-499d-ba35-88fbc20dcd52"
+            ],
+            "commits": [
+              {
+                "revision": "2ccb8a72-78e5-499d-ba35-88fbc20dcd52",
+                "changes": [
+                  {
+                    "type": "data",
+                    "data": {
+                      "maxLocalId": 2,
+                      "revisions": [
+                        {
+                          "revision": 1026,
+                          "rollbackOf": null
+                        }
+                      ],
+                      "fields": [
+                        [
+                          "rootFieldKey",
+                          {
+                            "kind": "Generic",
+                            "change": {
+                              "children": [
+                                [
+                                  0,
+                                  {
+                                    "revision": 1026,
+                                    "localId": 3
+                                  }
+                                ]
+                              ]
+                            }
+                          }
+                        ]
+                      ],
+                      "nodes": [
+                        [
+                          {
+                            "revision": 1026,
+                            "localId": 3
+                          },
+                          {
+                            "fields": [
+                              [
+                                "narrow",
+                                {
+                                  "kind": "Generic",
+                                  "change": {
+                                    "children": [
+                                      [
+                                        0,
+                                        {
+                                          "revision": 1026,
+                                          "localId": 4
+                                        }
+                                      ]
+                                    ]
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        ],
+                        [
+                          {
+                            "revision": 1026,
+                            "localId": 4
+                          },
+                          {
+                            "fields": [
+                              [
+                                "",
+                                {
+                                  "kind": "Sequence",
+                                  "change": [
+                                    {
+                                      "count": 1,
+                                      "type": "Remove",
+                                      "id": 0,
+                                      "revision": 1026
+                                    }
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      ],
+                      "parents": [
+                        [
+                          {
+                            "revision": 1026,
+                            "localId": 3
+                          },
+                          {
+                            "node": null,
+                            "field": "rootFieldKey"
+                          }
+                        ],
+                        [
+                          {
+                            "revision": 1026,
+                            "localId": 4
+                          },
+                          {
+                            "node": {
+                              "revision": 1026,
+                              "localId": 3
+                            },
+                            "field": "narrow"
+                          }
+                        ]
+                      ],
+                      "aliases": [],
+                      "crossFieldKeys": [],
+                      "builds": [],
+                      "refreshers": [
+                        [
+                          {
+                            "revision": 1026,
+                            "localId": 0
+                          },
+                          [
+                            {
+                              "type": "org.watershed.shared-tree.m3.Point",
+                              "fields": {
+                                "label": [
+                                  {
+                                    "type": "com.fluidframework.leaf.string",
+                                    "value": "trunk"
+                                  }
+                                ],
+                                "x": [
+                                  {
+                                    "type": "com.fluidframework.leaf.number",
+                                    "value": 2
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        ]
+                      ],
+                      "destroys": []
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "session": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+            "base": "root",
+            "revisions": [
+              "a0693eac-892a-4396-86f7-ad20dc1cade2"
+            ],
+            "commits": [
+              {
+                "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                "changes": [
+                  {
+                    "type": "data",
+                    "data": {
+                      "maxLocalId": 4,
+                      "revisions": [
+                        {
+                          "revision": 513,
+                          "rollbackOf": null
+                        }
+                      ],
+                      "fields": [
+                        [
+                          "rootFieldKey",
+                          {
+                            "kind": "Generic",
+                            "change": {
+                              "children": [
+                                [
+                                  0,
+                                  {
+                                    "revision": 513,
+                                    "localId": 5
+                                  }
+                                ]
+                              ]
+                            }
+                          }
+                        ]
+                      ],
+                      "nodes": [
+                        [
+                          {
+                            "revision": 513,
+                            "localId": 5
+                          },
+                          {
+                            "fields": [
+                              [
+                                "narrow",
+                                {
+                                  "kind": "Generic",
+                                  "change": {
+                                    "children": [
+                                      [
+                                        0,
+                                        {
+                                          "revision": 513,
+                                          "localId": 6
+                                        }
+                                      ]
+                                    ]
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        ],
+                        [
+                          {
+                            "revision": 513,
+                            "localId": 6
+                          },
+                          {
+                            "fields": [
+                              [
+                                "",
+                                {
+                                  "kind": "Generic",
+                                  "change": {
+                                    "children": [
+                                      [
+                                        0,
+                                        {
+                                          "revision": 513,
+                                          "localId": 7
+                                        }
+                                      ]
+                                    ]
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        ],
+                        [
+                          {
+                            "revision": 513,
+                            "localId": 7
+                          },
+                          {
+                            "fields": [
+                              [
+                                "label",
+                                {
+                                  "kind": "Value",
+                                  "change": {
+                                    "moves": [],
+                                    "childChanges": [],
+                                    "valueReplace": {
+                                      "isEmpty": false,
+                                      "dst": {
+                                        "localId": 1,
+                                        "revision": 513
+                                      },
+                                      "src": {
+                                        "localId": 0,
+                                        "revision": 513
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      ],
+                      "parents": [
+                        [
+                          {
+                            "revision": 513,
+                            "localId": 5
+                          },
+                          {
+                            "node": null,
+                            "field": "rootFieldKey"
+                          }
+                        ],
+                        [
+                          {
+                            "revision": 513,
+                            "localId": 6
+                          },
+                          {
+                            "node": {
+                              "revision": 513,
+                              "localId": 5
+                            },
+                            "field": "narrow"
+                          }
+                        ],
+                        [
+                          {
+                            "revision": 513,
+                            "localId": 7
+                          },
+                          {
+                            "node": {
+                              "revision": 513,
+                              "localId": 6
+                            },
+                            "field": ""
+                          }
+                        ]
+                      ],
+                      "aliases": [],
+                      "crossFieldKeys": [],
+                      "builds": [
+                        [
+                          {
+                            "revision": 513,
+                            "localId": 0
+                          },
+                          [
+                            {
+                              "type": "com.fluidframework.leaf.string",
+                              "value": "stale-peer"
+                            }
+                          ]
+                        ]
+                      ],
+                      "refreshers": [],
+                      "destroys": []
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "restoredCompressor": "AAAAAAAAAEAAAAAAAADwPwAAAAAAABBAAAAAAAAACEAGAAAAAAAAAAAAAAAAAIABUs0NwvuINXpnluPJKS6zAAZLEujXzFXH/dsNJvhWPgLirRzcIK33huWoJLL6pIECAAAAAAAAAEAAAAAAAAiAQAAAAAAAAABAAAAAAAAACEAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAiAQAAAAAAAAPA/AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQA==",
+      "continued": {
+        "rangeMoveIdentity": true,
+        "nestedEdit": "upstream-nested",
+        "visible": {
+          "left": [
+            {
+              "point": {
+                "label": "upstream-nested",
+                "x": 1
+              }
+            },
+            [
+              "nested",
+              {
+                "map": [
+                  [
+                    "",
+                    "empty-key"
+                  ],
+                  [
+                    "0",
+                    "numeric-key"
+                  ]
+                ]
+              }
+            ]
+          ],
+          "right": [
+            "R",
+            "A",
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            }
+          ],
+          "byKey": {
+            "map": [
+              [
+                "",
+                [
+                  "empty"
+                ]
+              ],
+              [
+                "0",
+                [
+                  "zero",
+                  [
+                    "deep"
+                  ]
+                ]
+              ],
+              [
+                "01",
+                "leading-zero"
+              ]
+            ]
+          },
+          "narrow": [
+            {
+              "point": {
+                "label": "trunk",
+                "x": 2
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "summary-array-retained-history",
+      "kind": "summary",
+      "visible": {
+        "left": [
+          {
+            "point": {
+              "label": "same",
+              "x": 1
+            }
+          },
+          [
+            "nested",
+            {
+              "map": [
+                [
+                  "",
+                  "empty-key"
+                ],
+                [
+                  "0",
+                  "numeric-key"
+                ]
+              ]
+            }
+          ]
+        ],
+        "right": [
+          "R"
+        ],
+        "byKey": {
+          "map": [
+            [
+              "",
+              [
+                "empty"
+              ]
+            ],
+            [
+              "0",
+              [
+                "zero",
+                [
+                  "deep"
+                ]
+              ]
+            ],
+            [
+              "01",
+              "leading-zero"
+            ]
+          ]
+        },
+        "narrow": [
+          {
+            "point": {
+              "label": "narrow",
+              "x": 9
+            }
+          }
+        ]
+      },
+      "removed": [
+        {
+          "major": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+          "minor": 0,
+          "tree": {
+            "type": "com.fluidframework.leaf.string",
+            "value": "A"
+          }
+        },
+        {
+          "major": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+          "minor": 1,
+          "tree": {
+            "type": "org.watershed.shared-tree.m3.Point",
+            "fields": {
+              "label": [
+                {
+                  "type": "com.fluidframework.leaf.string",
+                  "value": "same"
+                }
+              ],
+              "x": [
+                {
+                  "type": "com.fluidframework.leaf.number",
+                  "value": 1
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "history": {
+        "trunk": [
+          {
+            "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+            "session": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "sequenceNumber": 4,
+            "indexInBatch": null,
+            "changes": [
+              {
+                "type": "data",
+                "data": {
+                  "maxLocalId": 3,
+                  "revisions": [
+                    {
+                      "revision": 1,
+                      "rollbackOf": null
+                    }
+                  ],
+                  "fields": [
+                    [
+                      "rootFieldKey",
+                      {
+                        "kind": "Generic",
+                        "change": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": 1,
+                                "localId": 4
+                              }
+                            ]
+                          ]
+                        }
+                      }
+                    ]
+                  ],
+                  "nodes": [
+                    [
+                      {
+                        "revision": 1,
+                        "localId": 4
+                      },
+                      {
+                        "fields": [
+                          [
+                            "left",
+                            {
+                              "kind": "Generic",
+                              "change": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": 1,
+                                      "localId": 5
+                                    }
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    [
+                      {
+                        "revision": 1,
+                        "localId": 5
+                      },
+                      {
+                        "fields": [
+                          [
+                            "",
+                            {
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "count": 2,
+                                  "type": "Remove",
+                                  "id": 0,
+                                  "revision": 1
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  "parents": [
+                    [
+                      {
+                        "revision": 1,
+                        "localId": 4
+                      },
+                      {
+                        "node": null,
+                        "field": "rootFieldKey"
+                      }
+                    ],
+                    [
+                      {
+                        "revision": 1,
+                        "localId": 5
+                      },
+                      {
+                        "node": {
+                          "revision": 1,
+                          "localId": 4
+                        },
+                        "field": "left"
+                      }
+                    ]
+                  ],
+                  "aliases": [],
+                  "crossFieldKeys": [],
+                  "builds": [],
+                  "refreshers": [],
+                  "destroys": []
+                }
+              }
+            ]
+          }
+        ],
+        "peers": []
+      },
+      "restoredCompressor": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAABAAAAAAAAA8D8GAAAAAAAAAAAAAAAAAIABBksS6NfMVcf92w0m+FY+AgAAAAAAAPA/AAAAAAAIgEAAAAAAAAAAQAAAAAAAAABAAAAAAAAA8D8AAAAAAADwPwAAAAAAAPA/AAAAAAAAAEA=",
+      "continued": {
+        "rangeMoveIdentity": true,
+        "nestedEdit": "upstream-nested",
+        "visible": {
+          "left": [],
+          "right": [
+            "R",
+            {
+              "point": {
+                "label": "upstream-nested",
+                "x": 1
+              }
+            },
+            [
+              "nested",
+              {
+                "map": [
+                  [
+                    "",
+                    "empty-key"
+                  ],
+                  [
+                    "0",
+                    "numeric-key"
+                  ]
+                ]
+              }
+            ]
+          ],
+          "byKey": {
+            "map": [
+              [
+                "",
+                [
+                  "empty"
+                ]
+              ],
+              [
+                "0",
+                [
+                  "zero",
+                  [
+                    "deep"
+                  ]
+                ]
+              ],
+              [
+                "01",
+                "leading-zero"
+              ]
+            ]
+          },
+          "narrow": [
+            {
+              "point": {
+                "label": "narrow",
+                "x": 9
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "summary-array-full-summary",
+      "kind": "summary",
+      "visible": {
+        "left": [
+          "A",
+          {
+            "point": {
+              "label": "same",
+              "x": 1
+            }
+          },
+          {
+            "point": {
+              "label": "same",
+              "x": 1
+            }
+          },
+          [
+            "nested",
+            {
+              "map": [
+                [
+                  "",
+                  "empty-key"
+                ],
+                [
+                  "0",
+                  "numeric-key"
+                ]
+              ]
+            }
+          ]
+        ],
+        "right": [
+          "R"
+        ],
+        "byKey": {
+          "map": [
+            [
+              "",
+              [
+                "empty"
+              ]
+            ],
+            [
+              "0",
+              [
+                "zero",
+                [
+                  "deep"
+                ]
+              ]
+            ],
+            [
+              "01",
+              "leading-zero"
+            ]
+          ]
+        },
+        "narrow": [
+          {
+            "point": {
+              "label": "trunk",
+              "x": 2
+            }
+          }
+        ]
+      },
+      "removed": [
+        {
+          "major": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+          "minor": 1,
+          "tree": {
+            "type": "org.watershed.shared-tree.m3.Points",
+            "fields": {
+              "": [
+                {
+                  "type": "org.watershed.shared-tree.m3.Point",
+                  "fields": {
+                    "label": [
+                      {
+                        "type": "com.fluidframework.leaf.string",
+                        "value": "stale-peer"
+                      }
+                    ],
+                    "x": [
+                      {
+                        "type": "com.fluidframework.leaf.number",
+                        "value": 9
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "major": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+          "minor": 1,
+          "tree": {
+            "type": "com.fluidframework.leaf.string",
+            "value": "narrow"
+          }
+        }
+      ],
+      "history": {
+        "trunk": [
+          {
+            "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+            "session": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "sequenceNumber": 4,
+            "indexInBatch": null,
+            "changes": [
+              {
+                "type": "data",
+                "data": {
+                  "maxLocalId": 2,
+                  "revisions": [
+                    {
+                      "revision": 1,
+                      "rollbackOf": null
+                    }
+                  ],
+                  "fields": [
+                    [
+                      "rootFieldKey",
+                      {
+                        "kind": "Generic",
+                        "change": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": 1,
+                                "localId": 3
+                              }
+                            ]
+                          ]
+                        }
+                      }
+                    ]
+                  ],
+                  "nodes": [
+                    [
+                      {
+                        "revision": 1,
+                        "localId": 3
+                      },
+                      {
+                        "fields": [
+                          [
+                            "narrow",
+                            {
+                              "kind": "Value",
+                              "change": {
+                                "moves": [],
+                                "childChanges": [],
+                                "valueReplace": {
+                                  "isEmpty": false,
+                                  "dst": {
+                                    "localId": 1,
+                                    "revision": 1
+                                  },
+                                  "src": {
+                                    "localId": 0,
+                                    "revision": 1
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  "parents": [
+                    [
+                      {
+                        "revision": 1,
+                        "localId": 3
+                      },
+                      {
+                        "node": null,
+                        "field": "rootFieldKey"
+                      }
+                    ]
+                  ],
+                  "aliases": [],
+                  "crossFieldKeys": [],
+                  "builds": [
+                    [
+                      {
+                        "revision": 1,
+                        "localId": 0
+                      },
+                      [
+                        {
+                          "type": "org.watershed.shared-tree.m3.Points",
+                          "fields": {
+                            "": [
+                              {
+                                "type": "org.watershed.shared-tree.m3.Point",
+                                "fields": {
+                                  "label": [
+                                    {
+                                      "type": "com.fluidframework.leaf.string",
+                                      "value": "trunk"
+                                    }
+                                  ],
+                                  "x": [
+                                    {
+                                      "type": "com.fluidframework.leaf.number",
+                                      "value": 2
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    ]
+                  ],
+                  "refreshers": [],
+                  "destroys": []
+                }
+              }
+            ]
+          },
+          {
+            "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+            "session": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+            "sequenceNumber": 6,
+            "indexInBatch": null,
+            "changes": [
+              {
+                "type": "data",
+                "data": {
+                  "maxLocalId": 4,
+                  "revisions": [
+                    {
+                      "revision": 513,
+                      "rollbackOf": null
+                    }
+                  ],
+                  "fields": [
+                    [
+                      "rootFieldKey",
+                      {
+                        "kind": "Generic",
+                        "change": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": 513,
+                                "localId": 5
+                              }
+                            ]
+                          ]
+                        }
+                      }
+                    ]
+                  ],
+                  "nodes": [
+                    [
+                      {
+                        "revision": 513,
+                        "localId": 5
+                      },
+                      {
+                        "fields": [
+                          [
+                            "narrow",
+                            {
+                              "kind": "Value",
+                              "change": {
+                                "moves": [],
+                                "childChanges": [
+                                  [
+                                    {
+                                      "localId": 1,
+                                      "revision": 1
+                                    },
+                                    {
+                                      "revision": 513,
+                                      "localId": 6
+                                    }
+                                  ]
+                                ],
+                                "valueReplace": null
+                              }
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    [
+                      {
+                        "revision": 513,
+                        "localId": 6
+                      },
+                      {
+                        "fields": [
+                          [
+                            "",
+                            {
+                              "kind": "Generic",
+                              "change": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": 513,
+                                      "localId": 7
+                                    }
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    [
+                      {
+                        "revision": 513,
+                        "localId": 7
+                      },
+                      {
+                        "fields": [
+                          [
+                            "label",
+                            {
+                              "kind": "Value",
+                              "change": {
+                                "moves": [],
+                                "childChanges": [],
+                                "valueReplace": {
+                                  "isEmpty": false,
+                                  "dst": {
+                                    "localId": 1,
+                                    "revision": 513
+                                  },
+                                  "src": {
+                                    "localId": 0,
+                                    "revision": 513
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  "parents": [
+                    [
+                      {
+                        "revision": 513,
+                        "localId": 5
+                      },
+                      {
+                        "node": null,
+                        "field": "rootFieldKey"
+                      }
+                    ],
+                    [
+                      {
+                        "revision": 513,
+                        "localId": 6
+                      },
+                      {
+                        "node": {
+                          "revision": 513,
+                          "localId": 5
+                        },
+                        "field": "narrow"
+                      }
+                    ],
+                    [
+                      {
+                        "revision": 513,
+                        "localId": 7
+                      },
+                      {
+                        "node": {
+                          "revision": 513,
+                          "localId": 6
+                        },
+                        "field": ""
+                      }
+                    ]
+                  ],
+                  "aliases": [],
+                  "crossFieldKeys": [],
+                  "builds": [
+                    [
+                      {
+                        "revision": 513,
+                        "localId": 0
+                      },
+                      [
+                        {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": "stale-peer"
+                        }
+                      ]
+                    ]
+                  ],
+                  "refreshers": [],
+                  "destroys": []
+                }
+              }
+            ]
+          }
+        ],
+        "peers": [
+          {
+            "session": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+            "base": "root",
+            "revisions": [
+              "a0693eac-892a-4396-86f7-ad20dc1cade2"
+            ],
+            "commits": [
+              {
+                "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                "changes": [
+                  {
+                    "type": "data",
+                    "data": {
+                      "maxLocalId": 4,
+                      "revisions": [
+                        {
+                          "revision": 513,
+                          "rollbackOf": null
+                        }
+                      ],
+                      "fields": [
+                        [
+                          "rootFieldKey",
+                          {
+                            "kind": "Generic",
+                            "change": {
+                              "children": [
+                                [
+                                  0,
+                                  {
+                                    "revision": 513,
+                                    "localId": 5
+                                  }
+                                ]
+                              ]
+                            }
+                          }
+                        ]
+                      ],
+                      "nodes": [
+                        [
+                          {
+                            "revision": 513,
+                            "localId": 5
+                          },
+                          {
+                            "fields": [
+                              [
+                                "narrow",
+                                {
+                                  "kind": "Generic",
+                                  "change": {
+                                    "children": [
+                                      [
+                                        0,
+                                        {
+                                          "revision": 513,
+                                          "localId": 6
+                                        }
+                                      ]
+                                    ]
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        ],
+                        [
+                          {
+                            "revision": 513,
+                            "localId": 6
+                          },
+                          {
+                            "fields": [
+                              [
+                                "",
+                                {
+                                  "kind": "Generic",
+                                  "change": {
+                                    "children": [
+                                      [
+                                        0,
+                                        {
+                                          "revision": 513,
+                                          "localId": 7
+                                        }
+                                      ]
+                                    ]
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        ],
+                        [
+                          {
+                            "revision": 513,
+                            "localId": 7
+                          },
+                          {
+                            "fields": [
+                              [
+                                "label",
+                                {
+                                  "kind": "Value",
+                                  "change": {
+                                    "moves": [],
+                                    "childChanges": [],
+                                    "valueReplace": {
+                                      "isEmpty": false,
+                                      "dst": {
+                                        "localId": 1,
+                                        "revision": 513
+                                      },
+                                      "src": {
+                                        "localId": 0,
+                                        "revision": 513
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      ],
+                      "parents": [
+                        [
+                          {
+                            "revision": 513,
+                            "localId": 5
+                          },
+                          {
+                            "node": null,
+                            "field": "rootFieldKey"
+                          }
+                        ],
+                        [
+                          {
+                            "revision": 513,
+                            "localId": 6
+                          },
+                          {
+                            "node": {
+                              "revision": 513,
+                              "localId": 5
+                            },
+                            "field": "narrow"
+                          }
+                        ],
+                        [
+                          {
+                            "revision": 513,
+                            "localId": 7
+                          },
+                          {
+                            "node": {
+                              "revision": 513,
+                              "localId": 6
+                            },
+                            "field": ""
+                          }
+                        ]
+                      ],
+                      "aliases": [],
+                      "crossFieldKeys": [],
+                      "builds": [
+                        [
+                          {
+                            "revision": 513,
+                            "localId": 0
+                          },
+                          [
+                            {
+                              "type": "com.fluidframework.leaf.string",
+                              "value": "stale-peer"
+                            }
+                          ]
+                        ]
+                      ],
+                      "refreshers": [],
+                      "destroys": []
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "restoredCompressor": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAAhAAAAAAAAAAEAGAAAAAAAAAAAAAAAAAIABBksS6NfMVcf92w0m+FY+AuKtHNwgrfeG5agksvqkgQIAAAAAAADwPwAAAAAACIBAAAAAAAAAAEAAAAAAAAAAQAAAAAAACIBAAAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPwAAAAAAAABA",
+      "continued": {
+        "rangeMoveIdentity": true,
+        "nestedEdit": "upstream-nested",
+        "visible": {
+          "left": [
+            {
+              "point": {
+                "label": "upstream-nested",
+                "x": 1
+              }
+            },
+            [
+              "nested",
+              {
+                "map": [
+                  [
+                    "",
+                    "empty-key"
+                  ],
+                  [
+                    "0",
+                    "numeric-key"
+                  ]
+                ]
+              }
+            ]
+          ],
+          "right": [
+            "R",
+            "A",
+            {
+              "point": {
+                "label": "same",
+                "x": 1
+              }
+            }
+          ],
+          "byKey": {
+            "map": [
+              [
+                "",
+                [
+                  "empty"
+                ]
+              ],
+              [
+                "0",
+                [
+                  "zero",
+                  [
+                    "deep"
+                  ]
+                ]
+              ],
+              [
+                "01",
+                "leading-zero"
+              ]
+            ]
+          },
+          "narrow": [
+            {
+              "point": {
+                "label": "trunk",
+                "x": 2
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

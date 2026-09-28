@@ -586,12 +586,37 @@ async function consume(item: ArtifactItem) {
 				};
 			}
 			if (item.schemaProfile === "array") {
-				const view = tree.viewWith(arrayConfiguration);
+				assert(typeof item.session === "string", `${item.id}: missing session`);
+				const rawInput = summaryRecord(item.encoded as SummaryTree);
+				const emittedSummary = (await tree.summarize(true)).summary;
+				const emittedCompressor = serializeIdCompressor(idCompressor, false);
+				const restoredIdCompressor = deserializeIdCompressor(
+					emittedCompressor,
+					assertIsSessionId(item.session),
+				);
+				const restoredTree = await loadSummary(
+					{
+						...item,
+						encoded: emittedSummary as unknown as SummaryTree,
+						compressor: emittedCompressor,
+						compressorMode: "summary",
+					},
+					restoredIdCompressor,
+				);
+				const view = restoredTree.viewWith(arrayConfiguration);
 				const visible = visibleArray(view.root);
-				const history = summaryHistory(tree, idCompressor, item.id, true);
-				const contentSnapshot: unknown = Reflect.get(tree, "contentSnapshot");
+				const history = summaryHistory(
+					restoredTree,
+					restoredIdCompressor,
+					item.id,
+					true,
+				);
+				const contentSnapshot: unknown = Reflect.get(
+					restoredTree,
+					"contentSnapshot",
+				);
 				assert(typeof contentSnapshot === "function", `${item.id}: missing content snapshot`);
-				const snapshot: unknown = contentSnapshot.call(tree);
+				const snapshot: unknown = contentSnapshot.call(restoredTree);
 				assert(snapshot !== null && typeof snapshot === "object"
 					&& "removed" in snapshot && Array.isArray(snapshot.removed),
 				`${item.id}: missing removed content`);
@@ -599,9 +624,27 @@ async function consume(item: ArtifactItem) {
 				return {
 					id: item.id,
 					kind: item.kind,
+					rawInput: {
+						schema: rawInput.schema,
+						forest: rawInput.forest,
+						compressor: item.compressor,
+					},
+					emitted: {
+						schema: summaryRecord(emittedSummary as unknown as SummaryTree).schema,
+						forest: summaryRecord(emittedSummary as unknown as SummaryTree).forest,
+						compressor: emittedCompressor,
+					},
 					visible,
-					removed: removedContent(snapshot.removed, idCompressor, item.id),
+					removed: removedContent(
+						snapshot.removed,
+						restoredIdCompressor,
+						item.id,
+					),
 					history,
+					restoredCompressor: serializeIdCompressor(
+						restoredIdCompressor,
+						true,
+					),
 					continued,
 				};
 			}

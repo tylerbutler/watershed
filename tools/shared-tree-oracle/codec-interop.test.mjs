@@ -340,12 +340,26 @@ test("array evidence rejects lost continuation, detached, peer, and refresher da
     observations: [{
       id: "summary-array-peer-history",
       kind: "summary",
-      visible: {},
-      removed: [],
+      rawInput: {
+        schema: "source-schema",
+        forest: "source-forest",
+        compressor: "source-compressor",
+      },
+      emitted: {
+        schema: "emitted-schema",
+        forest: "emitted-forest",
+        compressor: "emitted-compressor",
+      },
+      visible: { left: ["retained"] },
+      removed: [{ major: "revision", minor: 1, tree: { value: "detached" } }],
       history: {
         trunk: [{ changes: [dataChange] }],
-        peers: [{ commits: [{ changes: [dataChange] }] }],
+        peers: [{
+          base: "root",
+          commits: [{ changes: [dataChange] }],
+        }],
       },
+      restoredCompressor: "restored-compressor",
       continued: {
         rangeMoveIdentity: true,
         nestedEdit: "upstream-nested",
@@ -388,4 +402,34 @@ test("array evidence rejects lost continuation, detached, peer, and refresher da
     ),
     /detached content/,
   );
+
+  const expectedSummary = structuredClone(summaryOutput.observations);
+  delete expectedSummary[0].rawInput;
+  delete expectedSummary[0].emitted;
+  summaryArtifact.items[0].id = "summary-array-peer-history";
+  for (const mutate of [
+    (value) => {
+      value.observations[0].history.peers[0].commits[0]
+        .changes[0].data.refreshers[0] = { changed: true };
+    },
+    (value) => { value.observations[0].history.peers[0].base = "changed"; },
+    (value) => {
+      value.observations[0].history.peers[0].commits[0]
+        .changes[0].data.fields = [{ changed: true }];
+    },
+    (value) => { value.observations[0].removed[0].tree.value = "changed"; },
+    (value) => { value.observations[0].visible.left[0] = "changed"; },
+  ]) {
+    const changed = structuredClone(summaryOutput);
+    mutate(changed);
+    assert.throws(
+      () => validateConsumerOutput(
+        changed,
+        summaryArtifact,
+        ["summary-array-peer-history"],
+        expectedSummary,
+      ),
+      /expected summary semantics/,
+    );
+  }
 });

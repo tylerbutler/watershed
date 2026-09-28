@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -14,6 +15,10 @@ const reference = {
   version: "3.1.0",
   commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
 };
+const expectedArrayObservations = JSON.parse(readFileSync(
+  join(directory, "expected-array-observations.json"),
+  "utf8",
+));
 const requiredItemIds = [
   "fixed",
   "empty",
@@ -309,12 +314,23 @@ const expectedObservations = [
     },
     continued: true,
   },
+  ...expectedArrayObservations.observations,
 ];
 
 const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
 function requireValue(condition, detail) {
   if (!condition) throw new Error(`Invalid native codec artifact: ${detail}`);
+}
+
+function comparableObservation(observation) {
+  if (!observation.id?.startsWith("summary-array-")) return observation;
+  const {
+    rawInput: _rawInput,
+    emitted: _emitted,
+    ...semantic
+  } = observation;
+  return semantic;
 }
 
 export function validateNativeArtifact(artifact) {
@@ -370,7 +386,12 @@ export function validateNativeArtifact(artifact) {
   return artifact;
 }
 
-export function validateConsumerOutput(output, artifact, expectedIds) {
+export function validateConsumerOutput(
+  output,
+  artifact,
+  expectedIds,
+  expectedSummaries = [],
+) {
   requireValue(object(output) && output.formatVersion === 1, "consumer formatVersion");
   requireValue(JSON.stringify(output.reference) === JSON.stringify(reference),
     "consumer reference");
@@ -380,6 +401,7 @@ export function validateConsumerOutput(output, artifact, expectedIds) {
   requireValue(output.observations.length === artifact.items.length,
     "consumer observation count");
   const items = new Map(artifact.items.map((item) => [item.id, item]));
+  const summaries = new Map(expectedSummaries.map((item) => [item.id, item]));
   const ids = new Set();
   for (const observation of output.observations) {
     requireValue(object(observation) && typeof observation.id === "string",
@@ -396,6 +418,12 @@ export function validateConsumerOutput(output, artifact, expectedIds) {
         && Array.isArray(observation.history.trunk)
         && Array.isArray(observation.history.peers),
       `${observation.id} history`);
+      const expectedSummary = summaries.get(observation.id);
+      if (expectedSummary !== undefined) {
+        requireValue(
+          isDeepStrictEqual(comparableObservation(observation), expectedSummary),
+          `${observation.id} expected summary semantics`);
+      }
     }
     if (observation.id === "message-map-set") {
       requireValue(observation.decoded === true, "message-map-set decoded");
@@ -444,6 +472,18 @@ export function validateConsumerOutput(output, artifact, expectedIds) {
     if (observation.id === "summary-array-retained-history"
       || observation.id === "summary-array-full-summary"
       || observation.id === "summary-array-peer-history") {
+      requireValue(object(observation.rawInput)
+        && typeof observation.rawInput.schema === "string"
+        && typeof observation.rawInput.forest === "string"
+        && typeof observation.rawInput.compressor === "string",
+      `${observation.id} raw input evidence`);
+      requireValue(object(observation.emitted)
+        && typeof observation.emitted.schema === "string"
+        && typeof observation.emitted.forest === "string"
+        && typeof observation.emitted.compressor === "string",
+      `${observation.id} emitted evidence`);
+      requireValue(typeof observation.restoredCompressor === "string",
+        `${observation.id} restored compressor`);
       requireValue(object(observation.visible), `${observation.id} visible`);
       requireValue(object(observation.continued)
         && observation.continued.rangeMoveIdentity === true
@@ -540,6 +580,7 @@ export async function runCodecInterop({
         await readJson(observationPath, `${target} consumer output`),
         artifact,
         expectedIds,
+        expected?.filter(({ id }) => id.startsWith("summary-array-")) ?? [],
       );
       const sourceContinuation = output.observations.find(
         ({ id }) => id === "message-array-sequence",
@@ -563,7 +604,9 @@ export async function runCodecInterop({
         const expectedIds = new Set(expected.map(({ id }) => id));
         requireValue(
           isDeepStrictEqual(
-            output.observations.filter(({ id }) => expectedIds.has(id)),
+            output.observations
+              .filter(({ id }) => expectedIds.has(id))
+              .map(comparableObservation),
             expected,
           ),
           `${target} consumer observations differ from expected semantics`,
@@ -573,7 +616,10 @@ export async function runCodecInterop({
     }
     const [erlang, javascript] = results;
     requireValue(
-      isDeepStrictEqual(erlang.observations, javascript.observations)
+      isDeepStrictEqual(
+        erlang.observations.map(comparableObservation),
+        javascript.observations.map(comparableObservation),
+      )
         && isDeepStrictEqual(erlang.nativeContinuation, javascript.nativeContinuation),
       "target observations differ",
     );
