@@ -1012,12 +1012,18 @@ function mapRootValue(root) {
   };
 }
 
+function hasSchema(value, schema) {
+  return value !== null
+    && typeof value === "object"
+    && Tree.schema(value).identifier === schema.identifier;
+}
+
 function arrayTreeValue(value) {
   if (value === null) return { kind: "null" };
   if (typeof value === "string") return { kind: "string", value };
   if (typeof value === "number") return { kind: "number", value };
   if (typeof value === "boolean") return { kind: "boolean", value };
-  if (value instanceof ArrayPoint) {
+  if (hasSchema(value, ArrayPoint)) {
     return {
       kind: "object",
       schemaId: "org.watershed.shared-tree.m3.Point",
@@ -1027,16 +1033,16 @@ function arrayTreeValue(value) {
       ],
     };
   }
-  if (value instanceof Items || value instanceof Points) {
+  if (hasSchema(value, Items) || hasSchema(value, Points)) {
     return {
       kind: "array",
-      schemaId: value instanceof Points
+      schemaId: hasSchema(value, Points)
         ? "org.watershed.shared-tree.m3.Points"
         : "org.watershed.shared-tree.m3.Items",
       elements: [...value].map(arrayTreeValue),
     };
   }
-  if (value instanceof ArrayMap) {
+  if (hasSchema(value, ArrayMap)) {
     return {
       kind: "map",
       schemaId: "org.watershed.shared-tree.m3.ArrayMap",
@@ -1094,11 +1100,15 @@ function setUpstream(root, path, value) {
   assert(path.length > 0, "Upstream path must not be empty");
   let parent = root;
   for (const segment of path.slice(0, -1)) {
-    parent = parent instanceof DynamicMap ? parent.get(segment) : parent[segment];
+    parent = hasSchema(parent, DynamicMap) || hasSchema(parent, ArrayMap)
+      ? parent.get(segment)
+      : parent[segment];
     assert(parent !== undefined, `Missing upstream path segment: ${segment}`);
   }
   const field = path.at(-1);
-  if (parent instanceof DynamicMap) parent.set(field, value);
+  if (hasSchema(parent, DynamicMap) || hasSchema(parent, ArrayMap)) {
+    parent.set(field, value);
+  }
   else parent[field] = value;
 }
 
@@ -1211,7 +1221,7 @@ function mapTreeValue(value) {
   if (typeof value === "string") return { kind: "string", value };
   if (typeof value === "number") return { kind: "number", value };
   if (typeof value === "boolean") return { kind: "boolean", value };
-  if (value instanceof MapPoint) {
+  if (hasSchema(value, MapPoint)) {
     return {
       kind: "object",
       schemaId: "org.watershed.shared-tree.m2.Point",
@@ -1221,7 +1231,7 @@ function mapTreeValue(value) {
       ],
     };
   }
-  if (value instanceof DynamicMap) {
+  if (hasSchema(value, DynamicMap)) {
     return {
       kind: "map",
       schemaId: "org.watershed.shared-tree.m2.DynamicMap",
@@ -1234,17 +1244,32 @@ function mapTreeValue(value) {
 
 function mapAt(root, path) {
   const value = path.reduce((node, segment) =>
-    node instanceof DynamicMap ? node.get(segment) : node[segment], root);
-  assert(value instanceof DynamicMap, `Path is not a dynamic map: ${path.join(".")}`);
+    hasSchema(node, DynamicMap) || hasSchema(node, ArrayMap)
+      ? node.get(segment)
+      : node[segment], root);
+  assert(hasSchema(value, DynamicMap) || hasSchema(value, ArrayMap),
+    `Path is not a dynamic map: ${path.join(".")}`);
   return value;
+}
+
+function mapInput(map, value) {
+  return hasSchema(map, ArrayMap)
+    ? upstreamArrayValue(value)
+    : upstreamMapValue(value);
+}
+
+function mapOutput(map, value) {
+  return hasSchema(map, ArrayMap)
+    ? arrayTreeValue(value)
+    : mapTreeValue(value);
 }
 
 function arrayAt(root, path) {
   const value = path.reduce((node, segment) => {
-    if (node instanceof ArrayMap) return node.get(segment);
+    if (hasSchema(node, ArrayMap)) return node.get(segment);
     return node[segment];
   }, root);
-  assert(value instanceof Items || value instanceof Points,
+  assert(hasSchema(value, Items) || hasSchema(value, Points),
     `Path is not an array: ${path.join(".")}`);
   return value;
 }
@@ -1287,11 +1312,12 @@ export function upstreamAdapter(session) {
     async mapGet(path, key) {
       const map = mapAt(session.data.view.root, path);
       return map.has(key)
-        ? { present: true, value: canonicalValue(mapTreeValue(map.get(key))) }
+        ? { present: true, value: canonicalValue(mapOutput(map, map.get(key))) }
         : { present: false };
     },
     async mapSet(path, key, value) {
-      mapAt(session.data.view.root, path).set(key, upstreamMapValue(value));
+      const map = mapAt(session.data.view.root, path);
+      map.set(key, mapInput(map, value));
     },
     async mapDelete(path, key) {
       mapAt(session.data.view.root, path).delete(key);
@@ -1300,9 +1326,10 @@ export function upstreamAdapter(session) {
       return canonicalMapKeys(mapAt(session.data.view.root, path).keys());
     },
     async mapEntries(path) {
+      const map = mapAt(session.data.view.root, path);
       return canonicalMapEntries(
-        [...mapAt(session.data.view.root, path).entries()]
-          .map(([key, value]) => [key, mapTreeValue(value)]),
+        [...map.entries()]
+          .map(([key, value]) => [key, mapOutput(map, value)]),
       );
     },
     async arrayGet(path, index) {
@@ -1344,9 +1371,9 @@ export function upstreamAdapter(session) {
         pendingTreeCount: pendingTreeCommits(session),
         inflightSubmissionCount: session.container.deltaManager.outbound.length,
         wholeTree: canonicalValue(
-          session.data.view.root instanceof ArrayRoot
+          hasSchema(session.data.view.root, ArrayRoot)
             ? arrayRootValue(session.data.view.root)
-            : session.data.view.root.items instanceof DynamicMap
+            : hasSchema(session.data.view.root.items, DynamicMap)
               ? mapRootValue(session.data.view.root)
               : rootValue(session.data.view.root),
         ),

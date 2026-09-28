@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { SchemaFactory } from "fluid-framework/alpha";
 import {
   decodeTreeSubmissions,
   decodedEvidence,
@@ -449,6 +450,120 @@ test("array adapters use public range methods and preserve element order", async
 });
 
 test("native reconnect retries one transient transport timeout", async () => {
+test("upstream array adapter resolves recursive map paths with array values", async () => {
+  const root = initialArrayRoot();
+  const session = {
+    container: {
+      connected: true,
+      clientId: "upstream-array-map",
+      deltaManager: {
+        on() {},
+        lastSequenceNumber: 0,
+        outbound: [],
+        inbound: [],
+      },
+    },
+    data: {
+      tree: {
+        kernel: {
+          editManager: {
+            constructor: { name: "EditManager" },
+            getLocalCommits() { return []; },
+          },
+        },
+      },
+      view: { root },
+    },
+  };
+  const upstream = upstreamAdapter(session);
+  const nested = {
+    kind: "map",
+    schemaId: "org.watershed.shared-tree.m3.ArrayMap",
+    entries: [],
+  };
+  await upstream.mapSet(["byKey"], "nested", nested);
+  await upstream.mapSet(["byKey", "nested"], "items", {
+    kind: "array",
+    schemaId: "org.watershed.shared-tree.m3.Items",
+    elements: [{ kind: "string", value: "inside" }],
+  });
+  assert.deepEqual(await upstream.mapGet(["byKey", "nested"], "items"), {
+    present: true,
+    value: {
+      kind: "array",
+      schemaId: "org.watershed.shared-tree.m3.Items",
+      elements: [{ kind: "string", value: "inside" }],
+    },
+  });
+});
+
+test("upstream checkpoint identifies schema-compatible array roots by profile", async () => {
+  const factory = new SchemaFactory("org.watershed.shared-tree.m3");
+  class ForeignPoint extends factory.object("Point", {
+    label: factory.string,
+    x: factory.number,
+  }) {}
+  class ForeignItems extends factory.arrayRecursive("Items", [
+    factory.string,
+    factory.number,
+    factory.boolean,
+    factory.null,
+    ForeignPoint,
+    () => ForeignItems,
+    () => ForeignMap,
+  ]) {}
+  class ForeignMap extends factory.mapRecursive("ArrayMap", [
+    factory.string,
+    factory.number,
+    factory.boolean,
+    factory.null,
+    ForeignPoint,
+    () => ForeignItems,
+    () => ForeignMap,
+  ]) {}
+  class ForeignPoints extends factory.array("Points", ForeignPoint) {}
+  class ForeignRoot extends factory.object("Root", {
+    left: ForeignItems,
+    right: ForeignItems,
+    byKey: ForeignMap,
+    narrow: ForeignPoints,
+  }) {}
+  const root = new ForeignRoot({
+    left: new ForeignItems([]),
+    right: new ForeignItems([]),
+    byKey: new ForeignMap([]),
+    narrow: new ForeignPoints([]),
+  });
+  const upstream = upstreamAdapter({
+    container: {
+      connected: true,
+      clientId: "upstream-array-profile",
+      deltaManager: {
+        on() {},
+        lastSequenceNumber: 0,
+        outbound: [],
+        inbound: [],
+      },
+    },
+    data: {
+      tree: {
+        kernel: {
+          editManager: {
+            constructor: { name: "EditManager" },
+            getLocalCommits() { return []; },
+          },
+        },
+      },
+      view: { root },
+    },
+  });
+
+  const checkpoint = await upstream.checkpoint();
+
+  assert.equal(checkpoint.wholeTree.value.schemaId,
+    "org.watershed.shared-tree.m3.Root");
+});
+
   let reconnects = 0;
   let syncs = 0;
   const gate = {
