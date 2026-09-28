@@ -136,7 +136,7 @@ pub fn receive_commit(
   minimum_sequence_number: Int,
   compressor: fluid_ids.Compressor,
 ) -> Result(
-  #(tree_kernel.TreeState, List(tree_kernel.TreeEvent), fluid_ids.Compressor),
+  #(tree_kernel.TreeState, tree_kernel.ChangeEvents, fluid_ids.Compressor),
   TreeError,
 ) {
   let revisions = [
@@ -189,7 +189,7 @@ pub fn author_edit(
   #(
     tree_kernel.TreeState,
     Option(history.Commit),
-    List(tree_kernel.TreeEvent),
+    tree_kernel.ChangeEvents,
     fluid_ids.Compressor,
   ),
   TreeError,
@@ -201,7 +201,10 @@ pub fn author_edit(
       start == end
     _ -> False
   }
-  use <- bool.guard(empty, Ok(#(state, None, [], compressor)))
+  use <- bool.guard(
+    empty,
+    Ok(#(state, None, tree_kernel.ChangeEvents([], False), compressor)),
+  )
   use #(compressor, id) <- result.try(
     fluid_ids.generate(compressor)
     |> result.map_error(fn(error) {

@@ -576,7 +576,7 @@ fn apply_edit(
         ..client,
         state:,
         compressor:,
-        changes: client.changes + list.length(events),
+        changes: client.changes + list.length(events.events),
       ),
     )
   let queue =
@@ -735,7 +735,8 @@ fn deliver_one(driver: Driver, message: Message) -> Result(Driver, String) {
             |> result.map(fn(value) { #(value.0, value.1, value.2.compressor) })
             |> native
           }
-          _ -> Ok(#(client.state, [], compressor))
+          _ ->
+            Ok(#(client.state, tree_kernel.ChangeEvents([], False), compressor))
         })
         let _ = index
         Ok(
@@ -744,7 +745,7 @@ fn deliver_one(driver: Driver, message: Message) -> Result(Driver, String) {
             state:,
             compressor:,
             last_sequence: sequence,
-            changes: client.changes + list.length(events),
+            changes: client.changes + list.length(events.events),
           ),
         )
       },

@@ -164,7 +164,7 @@ pub fn shared_tree_kernel_edits_locally_without_snapshotting_pending_test() {
       SetField(["point", "x"], NumberValue(7.0)),
     )
   commit.revision |> expect.to_equal(revision())
-  events |> expect.to_equal([tree_kernel.TreeChanged(True)])
+  events.events |> expect.to_equal([tree_kernel.TreeChanged(True)])
   tree_kernel.read(edited, ["point", "x"])
   |> expect.to_equal(Ok(Some(NumberValue(7.0))))
   let assert Ok(visible_data) = tree_kernel.visible_data(edited)
@@ -183,7 +183,7 @@ pub fn shared_tree_kernel_edits_locally_without_snapshotting_pending_test() {
       Nil,
       no_mint,
     )
-  events |> expect.to_equal([])
+  events.events |> expect.to_equal([])
   let assert Ok(after) = tree_kernel.snapshot(acked)
   after |> expect.to_not_equal(before)
   let #(_, sequenced_data, sequenced_history) =
@@ -232,7 +232,7 @@ pub fn shared_tree_kernel_suppresses_same_value_event_test() {
       order,
       SetField(["point", "x"], NumberValue(1.0)),
     )
-  events |> expect.to_equal([])
+  events.events |> expect.to_equal([])
   tree_kernel.read(edited, ["point", "x"])
   |> expect.to_equal(Ok(Some(NumberValue(1.0))))
 }
@@ -258,7 +258,7 @@ pub fn shared_tree_kernel_receive_remote_and_duplicate_test() {
       Nil,
       no_mint,
     )
-  events |> expect.to_equal([tree_kernel.TreeChanged(False)])
+  events.events |> expect.to_equal([tree_kernel.TreeChanged(False)])
   tree_kernel.read(updated, ["point", "x"])
   |> expect.to_equal(Ok(Some(NumberValue(9.0))))
   let assert Ok(#(replayed, events, Nil)) =
@@ -271,7 +271,7 @@ pub fn shared_tree_kernel_receive_remote_and_duplicate_test() {
       Nil,
       no_mint,
     )
-  events |> expect.to_equal([])
+  events.events |> expect.to_equal([])
   tree_kernel.snapshot(replayed)
   |> expect.to_equal(tree_kernel.snapshot(updated))
 }
@@ -420,7 +420,7 @@ pub fn shared_tree_kernel_advances_non_tree_messages_before_first_commit_test() 
       Nil,
       no_mint,
     )
-  events |> expect.to_equal([tree_kernel.TreeChanged(False)])
+  events.events |> expect.to_equal([tree_kernel.TreeChanged(False)])
   tree_kernel.read(received, ["point", "x"])
   |> expect.to_equal(Ok(Some(NumberValue(3.0))))
 }

@@ -122,7 +122,7 @@ pub fn shared_tree_map_kernel_reads_pending_edits_not_snapshot_test() {
       fn(acc, entry) {
         let assert Ok(#(next, _, events, compressor)) =
           tree_runtime.author_edit(acc.0, entry.0, acc.1)
-        events
+        events.events
         |> expect.to_equal(case entry.1 {
           True -> [tree_kernel.TreeChanged(True)]
           False -> []

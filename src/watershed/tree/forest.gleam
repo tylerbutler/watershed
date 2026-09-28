@@ -142,6 +142,7 @@ type Work {
     revision: Option(StableId),
     refreshers: Dict(AtomId, TreeValue),
     pending: List(#(Int, List(#(String, FieldDelta)))),
+    changed_arrays: Set(Int),
   )
 }
 
@@ -251,6 +252,17 @@ fn field_ranges(
 
 /// Apply all phases to candidate state. An error leaves the input unchanged.
 pub fn apply_delta(state: Forest, delta: Delta) -> Result(Forest, TreeError) {
+  apply_delta_with_array_changes(state, delta)
+  |> result.map(fn(applied) { applied.0 })
+}
+
+/// Report array field mutations even when values and final order are equal.
+/// Changes to arrays that remain detached do not affect the visible tree.
+pub fn apply_delta_with_array_changes(
+  before: Forest,
+  delta: Delta,
+) -> Result(#(Forest, Bool), TreeError) {
+  let state = before
   let data = delta.data
   use _ <- result.try(validate_applicable_fields(data.fields))
   use _ <- result.try(
@@ -264,7 +276,7 @@ pub fn apply_delta(state: Forest, delta: Delta) -> Result(Forest, TreeError) {
         dict.insert(acc, offset(build.id, index), tree)
       })
     })
-  let work = Work(state, data.latest_revision, refreshers, [])
+  let work = Work(state, data.latest_revision, refreshers, [], set.new())
   use work <- result.try(
     list.try_fold(data.build, work, fn(work, build) {
       build_trees(work, build.id, build.trees)
@@ -310,7 +322,27 @@ pub fn apply_delta(state: Forest, delta: Delta) -> Result(Forest, TreeError) {
     }),
   )
   use _ <- result.try(export_data(state))
-  Ok(state)
+  use array_changed <- result.try(case set.size(work.changed_arrays) {
+    0 -> Ok(False)
+    _ -> {
+      use #(_, old) <- result.try(materialize_field(
+        before,
+        before.root,
+        set.new(),
+      ))
+      use #(_, new) <- result.try(materialize_field(
+        state,
+        state.root,
+        set.new(),
+      ))
+      Ok(
+        work.changed_arrays
+        |> set.to_list
+        |> list.any(fn(id) { set.contains(old, id) || set.contains(new, id) }),
+      )
+    }
+  })
+  Ok(#(state, array_changed))
 }
 
 pub fn export_data(state: Forest) -> Result(ForestData, TreeError) {
@@ -839,6 +871,29 @@ fn visit_fields(
 ) -> Result(Work, TreeError) {
   list.try_fold(fields, work, fn(work, pair) {
     use _ <- result.try(children(work.state, parent, pair.0))
+    use work <- result.try(case parent {
+      Root -> Ok(work)
+      Child(id) -> {
+        use node <- result.try(get_node(work.state, id))
+        case node {
+          Array(_, _) -> {
+            let mutates =
+              list.any(pair.1.marks, fn(mark) {
+                mark.attach != None || mark.detach != None
+              })
+            Ok(case mutates {
+              True ->
+                Work(
+                  ..work,
+                  changed_arrays: set.insert(work.changed_arrays, id),
+                )
+              False -> work
+            })
+          }
+          _ -> Ok(work)
+        }
+      }
+    })
     visit_marks(work, parent, pair.0, pair.1.marks, 0, pass)
   })
 }

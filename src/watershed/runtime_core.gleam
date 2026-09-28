@@ -2211,7 +2211,10 @@ fn apply_one(
       minimum_sequence_number: msg.minimum_sequence_number,
       persistence:,
     ),
-    list.append(events, tree_events),
+    list.append(
+      events,
+      list.filter(tree_events, fn(event) { !list.contains(events, event) }),
+    ),
     resolutions,
     summary_events,
   ))
@@ -2620,7 +2623,7 @@ fn handle_operation(
                   },
                 )
                 let ordinal = dict.get(ordinals, address) |> result.unwrap(0)
-                use #(state, _, compressor) <- result.try(
+                use #(state, changes, compressor) <- result.try(
                   tree_runtime.receive_commit(
                     state,
                     commit,
@@ -2644,7 +2647,13 @@ fn handle_operation(
                       ),
                       compressor: Some(compressor),
                     ),
-                    [],
+                    case changes.array_changed {
+                      True ->
+                        list.map(changes.events, fn(event) {
+                          #(address, channel.TreeEvent(event))
+                        })
+                      False -> []
+                    },
                     [],
                   ),
                 )
@@ -2795,7 +2804,15 @@ fn handle_operation(
       use ordinals <- result.try(ordinals)
       Ok(#(
         core,
-        list.append(events, more_events),
+        list.append(
+          events,
+          list.filter(more_events, fn(event) {
+            case event.1 {
+              channel.TreeEvent(_) -> !list.contains(events, event)
+              _ -> True
+            }
+          }),
+        ),
         list.append(resolutions, more_resolutions),
         ordinals,
       ))
@@ -3491,19 +3508,22 @@ pub fn submit_tree_edits(
     tree_kernel.read(state, [])
     |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
   )
-  use #(state, compressor, commits) <- result.try(
-    list.try_fold(edits, #(state, compressor, []), fn(acc, edit) {
-      let #(state, compressor, commits) = acc
-      use #(state, commit, _, compressor) <- result.try(
+  use #(state, compressor, commits, array_changed) <- result.try(
+    list.try_fold(edits, #(state, compressor, [], False), fn(acc, edit) {
+      let #(state, compressor, commits, array_changed) = acc
+      use #(state, commit, changes, compressor) <- result.try(
         tree_runtime.author_edit(state, edit, compressor)
         |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
       )
-      Ok(
-        #(state, compressor, case commit {
+      Ok(#(
+        state,
+        compressor,
+        case commit {
           Some(commit) -> list.append(commits, [commit])
           None -> commits
-        }),
-      )
+        },
+        array_changed || changes.array_changed,
+      ))
     }),
   )
   use <- bool.guard(list.is_empty(commits), Ok(#(core, [], [])))
@@ -3574,7 +3594,7 @@ pub fn submit_tree_edits(
     tree_kernel.read(state, [])
     |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
   )
-  let events = case before == after {
+  let events = case before == after && !array_changed {
     True -> []
     False -> [#(address, channel.TreeEvent(tree_kernel.TreeChanged(True)))]
   }

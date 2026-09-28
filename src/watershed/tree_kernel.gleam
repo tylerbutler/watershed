@@ -1,4 +1,4 @@
-//// Pure state for the SharedTree object and dynamic-map profiles.
+//// Pure state for the SharedTree object, map, and array profiles.
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -36,6 +36,11 @@ pub opaque type TreeState {
 
 pub type TreeEvent {
   TreeChanged(local: Bool)
+}
+
+/// Preserve array mutations when a runtime batch has equal visible values.
+pub type ChangeEvents {
+  ChangeEvents(events: List(TreeEvent), array_changed: Bool)
 }
 
 pub fn snapshot_from_parts(
@@ -116,6 +121,21 @@ pub fn map_entries(
   path: FieldPath,
 ) -> Result(List(#(String, TreeValue)), TreeError) {
   forest.map_entries(state.visible, path)
+}
+
+pub fn array_get(
+  state: TreeState,
+  path: FieldPath,
+  index: Int,
+) -> Result(Option(TreeValue), TreeError) {
+  forest.array_get(state.visible, path, index)
+}
+
+pub fn array_values(
+  state: TreeState,
+  path: FieldPath,
+) -> Result(List(TreeValue), TreeError) {
+  forest.array_values(state.visible, path)
 }
 
 pub fn reference_at(
@@ -276,7 +296,7 @@ pub fn apply_local(
   revision: fluid_ids.StableId,
   order: change.IdentityOrder,
   edit: Edit,
-) -> Result(#(TreeState, history.Commit, List(TreeEvent)), TreeError) {
+) -> Result(#(TreeState, history.Commit, ChangeEvents), TreeError) {
   use _ <- result.try(validate_edit(state, edit))
   use authored <- result.try(change.edit_from(
     state.stored,
@@ -292,8 +312,15 @@ pub fn apply_local(
     Some(delta) -> Ok(delta)
     None -> Error(types.InvalidHistory("local edit has no delta"))
   })
-  use visible <- result.try(forest.apply_delta(state.visible, delta))
-  use events <- result.try(changed_events(state.visible, visible, True))
+  use #(visible, array_changed) <- result.try(
+    forest.apply_delta_with_array_changes(state.visible, delta),
+  )
+  use events <- result.try(changed_events(
+    state.visible,
+    visible,
+    True,
+    array_changed,
+  ))
   Ok(#(
     TreeState(
       ..state,
@@ -314,7 +341,7 @@ pub fn receive(
   minimum_sequence_number: Int,
   allocation: allocation,
   mint: history.MintRevision(allocation),
-) -> Result(#(TreeState, List(TreeEvent), allocation), TreeError) {
+) -> Result(#(TreeState, ChangeEvents, allocation), TreeError) {
   use #(update, allocation) <- result.try(history.receive(
     state.history,
     commit,
@@ -328,8 +355,16 @@ pub fn receive(
     state.sequenced,
     update.sequenced_delta,
   ))
-  use visible <- result.try(apply_optional(state.visible, update.delta))
-  use events <- result.try(changed_events(state.visible, visible, False))
+  use #(visible, array_changed) <- result.try(case update.delta {
+    None -> Ok(#(state.visible, False))
+    Some(delta) -> forest.apply_delta_with_array_changes(state.visible, delta)
+  })
+  use events <- result.try(changed_events(
+    state.visible,
+    visible,
+    False,
+    array_changed,
+  ))
   Ok(#(
     TreeState(..state, visible:, sequenced:, history: update.history),
     events,
@@ -346,7 +381,7 @@ pub fn receive_ordered(
   minimum_sequence_number: Int,
   allocation: allocation,
   mint: history.MintRevision(allocation),
-) -> Result(#(TreeState, List(TreeEvent), allocation), TreeError) {
+) -> Result(#(TreeState, ChangeEvents, allocation), TreeError) {
   use state <- result.try(rebind_identity_order(state, order))
   use authored <- result.try(
     change.rebind_identity_order(commit.change, order, [commit.revision]),
@@ -376,11 +411,15 @@ fn changed_events(
   before: forest.Forest,
   after: forest.Forest,
   local: Bool,
-) -> Result(List(TreeEvent), TreeError) {
+  array_changed: Bool,
+) -> Result(ChangeEvents, TreeError) {
   use before <- result.try(forest.visible_root(before))
   use after <- result.try(forest.visible_root(after))
-  case before == after {
-    True -> Ok([])
-    False -> Ok([TreeChanged(local)])
-  }
+  Ok(ChangeEvents(
+    events: case before == after && !array_changed {
+      True -> []
+      False -> [TreeChanged(local)]
+    },
+    array_changed:,
+  ))
 }

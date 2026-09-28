@@ -71,6 +71,48 @@ fn root_array_delta(
   ]
 }
 
+pub fn shared_tree_array_mutation_observation_excludes_detached_arrays_test() {
+  let root = types.ArrayValue(items_type, [point(1.0), point(1.0)])
+  let assert Ok(initial) =
+    forest.new(
+      array_fixture.view_id(),
+      array_fixture.stored("rootArray"),
+      Some(root),
+    )
+  let data =
+    forest.DeltaData(
+      ..empty_delta(),
+      build: [forest.Build(atom(10), [root])],
+      global: [
+        forest.DetachedChange(atom(10), [
+          #(
+            "",
+            forest.FieldDelta([
+              forest.Mark(1, None, Some(atom(20)), []),
+              forest.Mark(1, None, None, []),
+              forest.Mark(1, Some(atom(20)), None, []),
+            ]),
+          ),
+        ]),
+      ],
+    )
+  let assert Ok(detached_only) = forest.delta(data)
+  let assert Ok(#(after, changed)) =
+    forest.apply_delta_with_array_changes(initial, detached_only)
+  changed |> expect.to_equal(False)
+  forest.visible_root(after) |> expect.to_equal(Ok(Some(root)))
+  let assert Ok(attached) =
+    forest.delta(
+      forest.DeltaData(..data, fields: [
+        replace_field("rootFieldKey", atom(10), atom(30)),
+      ]),
+    )
+  let assert Ok(#(after, changed)) =
+    forest.apply_delta_with_array_changes(initial, attached)
+  changed |> expect.to_equal(True)
+  forest.visible_root(after) |> expect.to_equal(Ok(Some(root)))
+}
+
 pub fn shared_tree_array_forest_moves_counted_duplicate_objects_by_identity_test() {
   let first = point(1.0)
   let second = point(1.0)
