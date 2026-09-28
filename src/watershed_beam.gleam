@@ -639,6 +639,12 @@ pub fn tree_history_evidence(tree: SharedTree) -> Result(Json, String) {
 }
 
 @target(erlang)
+@internal
+pub fn pending_summary_evidence(document: Document(a)) -> Result(Json, String) {
+  runtime_beam.pending_summary_evidence(document.runtime)
+}
+
+@target(erlang)
 pub fn tree_upgrade_schema(tree: SharedTree) -> Result(Nil, String) {
   runtime_beam.tree_upgrade_schema(tree.runtime, tree.address, tree.view)
 }

@@ -439,6 +439,7 @@ pub type Msg {
     reply: Subject(Result(tree_schema.Compatibility, String)),
   )
   TreeHistoryEvidence(address: String, reply: Subject(Result(Json, String)))
+  PendingSummaryEvidence(reply: Subject(Result(Json, String)))
   TreeRead(
     address: String,
     path: tree_types.FieldPath,
@@ -1016,6 +1017,16 @@ pub fn tree_history_evidence(
     runtime,
     waiting: connect_timeout_milliseconds,
     sending: fn(reply) { TreeHistoryEvidence(address, reply) },
+  )
+}
+
+@target(erlang)
+@internal
+pub fn pending_summary_evidence(runtime: Subject(Msg)) -> Result(Json, String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { PendingSummaryEvidence(reply) },
   )
 }
 
@@ -1861,6 +1872,20 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
           Error("tree history evidence requires a ready document connection"),
           fn(core) {
             runtime_core.tree_history_evidence(core, address)
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
+    PendingSummaryEvidence(reply) -> {
+      process.send(
+        reply,
+        read(
+          state,
+          Error("summary evidence requires a ready document connection"),
+          fn(core) {
+            runtime_core.pending_summary_evidence(core)
             |> result.map_error(string.inspect)
           },
         ),

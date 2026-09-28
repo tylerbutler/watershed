@@ -11,6 +11,7 @@
 //// in `watershed/channel`. The sequencing discipline itself does not know the
 //// kernels.
 
+import gleam/bit_array
 import gleam/bool
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
@@ -1130,13 +1131,25 @@ pub fn summary_channels(
 pub fn capture_summary(
   core: Core,
 ) -> Result(fluid_document.DocumentSummary, CoreError) {
-  use _ <- result.try(seed_requirement(
-    core.ingest == Live
-      && core.in_flight == []
-      && core.out_of_order == []
-      && dict.size(core.detached) == 0,
-    "summary requires a synchronized document",
-  ))
+  capture_summary_state(core, True)
+}
+
+fn capture_summary_state(
+  core: Core,
+  require_synced: Bool,
+) -> Result(fluid_document.DocumentSummary, CoreError) {
+  use _ <- result.try(
+    seed_requirement(
+      core.ingest == Live
+        && { !require_synced || core.in_flight == [] }
+        && core.out_of_order == []
+        && dict.size(core.detached) == 0,
+      case require_synced {
+        True -> "summary requires a synchronized document"
+        False -> "summary evidence requires a live document"
+      },
+    ),
+  )
   use channels <- result.try(summary_channels(core))
   case core.persistence {
     Some(previous) ->
@@ -1159,6 +1172,50 @@ pub fn capture_summary(
         channels,
       )
       |> result.map_error(fn(error) { BadBootstrapSeed(string.inspect(error)) })
+  }
+}
+
+@internal
+pub fn pending_summary_evidence(core: Core) -> Result(Json, CoreError) {
+  use captured <- result.try(capture_summary_state(core, False))
+  use encoded <- result.try(
+    fluid_document.encode(captured)
+    |> result.map_error(fn(error) { BadBootstrapSeed(string.inspect(error)) }),
+  )
+  Ok(
+    json.object([
+      #("sequenceNumber", json.int(fluid_document.sequence_number(captured))),
+      #("tree", summary_entry_evidence(encoded)),
+    ]),
+  )
+}
+
+fn summary_entry_evidence(entry: fluid_summary.SummaryEntry) -> Json {
+  case entry {
+    fluid_summary.SummaryTree(entries) ->
+      json.object([
+        #("type", json.string("tree")),
+        #(
+          "entries",
+          json.array(entries, fn(entry) {
+            json.array(
+              [json.string(entry.0), summary_entry_evidence(entry.1)],
+              fn(value) { value },
+            )
+          }),
+        ),
+      ])
+    fluid_summary.SummaryBlob(bytes) ->
+      json.object([
+        #("type", json.string("blob")),
+        #("base64", json.string(bit_array.base64_encode(bytes, True))),
+      ])
+    fluid_summary.SummaryHandle(path, kind) ->
+      json.object([
+        #("type", json.string("handle")),
+        #("kind", json.string(string.inspect(kind))),
+        #("path", json.string(path)),
+      ])
   }
 }
 

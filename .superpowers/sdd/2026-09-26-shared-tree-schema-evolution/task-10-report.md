@@ -112,3 +112,42 @@ runtime's stable revision. The evidence retains both representations and binds
 acceptance by decoded operation content and originator identity instead of
 inventing a shared revision value. Floodgate still logs its expected
 Socket.IO transport-control decoder warnings.
+
+## Fix round 2
+
+- Schema/data race polling now waits for every participant to apply the winning
+  sequence and for the identified loser's pending changeset to become empty.
+  Polling preserves notifications, and the evidence records the reconciled
+  rollback state without a pre-reconciliation checkpoint.
+- Pending-summary evidence now invokes the real schema and forest summary
+  encoders while the writer has a pending upgrade. Each component is bound to
+  measured pre-upgrade and post-upgrade sequenced encoder output; service
+  publication remains sequenced.
+- All nine writer-reader cells publish and load a post-upgrade summary. The
+  earlier-schema peer edit is accepted before the upgrade, retained in the
+  stored forest, observed by each fresh reader before continuation, and paired
+  with the historical and upgraded schema blobs.
+- Reconnect evidence maps each original schema and dependent data operation to
+  exactly one accepted operation by originator and decoded semantic content.
+  The validators reject duplicates, reauthoring, semantic mismatches, and
+  unrelated accepted operations.
+- Validators now reject coordinated report and artifact mutations, including
+  empty accepted commits, unrelated tree or blob requests, empty fresh-reader
+  histories, wrong retained peers or schema context, and wrong pending
+  operations.
+
+Verification:
+
+- Required Node gate: 116 passed.
+- `just shared-tree-interop`: passed.
+- JavaScript SharedTree corpus: 573 passed.
+- Erlang SharedTree corpus: 584 passed.
+- Schema races: 27.
+- Schema reconnect rows: 3, with two cases and two one-to-one accepted mappings
+  per row.
+- Schema reload matrix: all nine post-upgrade writer-reader cells.
+- No skipped targets or divergences.
+- Successful run:
+  `a4248573-d2bc-4058-9e3a-89573124d267`.
+- Persisted report:
+  `tools/shared-tree-oracle/.output/interop/a4248573-d2bc-4058-9e3a-89573124d267/report.json`.

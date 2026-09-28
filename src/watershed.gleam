@@ -526,6 +526,12 @@ pub fn tree_history_evidence(tree: SharedTree) -> Result(Json, String) {
 }
 
 @target(javascript)
+@internal
+pub fn pending_summary_evidence(document: Document(a)) -> Result(Json, String) {
+  runtime.pending_summary_evidence(document.runtime)
+}
+
+@target(javascript)
 pub fn tree_upgrade_schema(tree: SharedTree) -> Result(Nil, String) {
   runtime.tree_upgrade_schema(tree.runtime, tree.address, tree.view)
 }

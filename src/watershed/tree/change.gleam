@@ -3259,6 +3259,13 @@ fn detached_roots_from_fields(
         list.try_fold(children, roots, fn(roots, child) {
           detached_roots_from_child(child.1, data, roots)
         })
+      SequenceField(change) ->
+        sequence_field.relevant_removed_roots(change, fn(child) {
+          detached_roots_from_child(child, data, [])
+        })
+        |> result.map(fn(found) {
+          list.fold(found, roots, fn(roots, root) { append_unique(roots, root) })
+        })
       ValueField(field) | OptionalField(field) -> {
         let optional_field.FieldChange(_, children, replacement) = field
         let roots = case replacement {

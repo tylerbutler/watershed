@@ -2088,6 +2088,19 @@ pub fn tree_history_evidence(
 }
 
 @target(javascript)
+@internal
+pub fn pending_summary_evidence(runtime: Runtime) -> Result(Json, String) {
+  read(
+    runtime.cell,
+    Error("summary evidence requires a ready document connection"),
+    fn(core) {
+      runtime_core.pending_summary_evidence(core)
+      |> result.map_error(string.inspect)
+    },
+  )
+}
+
+@target(javascript)
 /// Read a tree in the checked document core. This is not a typed tree facade.
 pub fn tree_read(
   runtime: Runtime,
