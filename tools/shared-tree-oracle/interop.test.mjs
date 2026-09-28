@@ -229,6 +229,14 @@ function deterministicEvidence(cell) {
       restoredAfter: `${cell.id}-before-${index}`,
     }));
   }
+  if (cell.profile === "array") {
+    evidence.array = {
+      finalTree: { present: true, value: { kind: "object", fields: [] } },
+      retainedObjectReferences: [true, true],
+      childEditObserved: ["array-move-child-edit", "array-summary-tail"]
+        .includes(cell.family),
+    };
+  }
   return evidence;
 }
 
@@ -386,7 +394,7 @@ async function validFixture() {
       writableTreeExposedAfterRefusal: false,
     }),
   }));
-  const seeded = generateSchedules({ seed: 42, iterations: 200 })
+  const seeded = generateSchedules({ seed: 42, iterations: 300 })
     .map((schedule, index) => {
     const prefix = `seeded-${index}`;
     const item = {
@@ -673,6 +681,130 @@ async function validFixture() {
       return [reader, item];
     })),
   ]));
+  const arrayPoint = (label, x) => ({
+    kind: "object",
+    schemaId: "org.watershed.shared-tree.m3.Point",
+    fields: [
+      ["label", { kind: "string", value: label }],
+      ["x", { kind: "number", value: x }],
+    ],
+  });
+  const array = (schemaId, elements) => ({ kind: "array", schemaId, elements });
+  const arrayTree = (writer, continuation) => ({
+    present: true,
+    value: {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m3.Root",
+      fields: [
+        ["byKey", {
+          kind: "map",
+          schemaId: "org.watershed.shared-tree.m3.ArrayMap",
+          entries: [
+            ["", array("org.watershed.shared-tree.m3.Items", [])],
+            ["0", array("org.watershed.shared-tree.m3.Items", [
+              arrayPoint("numeric", 0),
+            ])],
+          ],
+        }],
+        ["left", array("org.watershed.shared-tree.m3.Items", [
+          ...(continuation ? [arrayPoint(continuation, 42)] : []),
+          arrayPoint("duplicate", 1),
+          arrayPoint("duplicate", 1),
+          array("org.watershed.shared-tree.m3.Items", [arrayPoint("nested", 2)]),
+        ])],
+        ["narrow", array("org.watershed.shared-tree.m3.Points", [])],
+        ["right", array("org.watershed.shared-tree.m3.Items", [
+          {
+            kind: "map",
+            schemaId: "org.watershed.shared-tree.m3.ArrayMap",
+            entries: [["inside", arrayPoint("map-child", 3)]],
+          },
+          ...(continuation ? [] : [arrayPoint("moved", 4)]),
+          arrayPoint(`after-summary-${writer}`, 7),
+        ])],
+      ],
+    },
+  });
+  const arrayReload = Object.fromEntries(implementations.map((writer, writerIndex) => [
+    writer,
+    Object.fromEntries(implementations.map((reader, readerIndex) => {
+      const continuation = `${writer}-${reader}-continuation`;
+      const item = {
+        runId: "current",
+        profileDigest: loaded.profileDigest,
+        profile: "array",
+        writer,
+        reader,
+        writerVersion: `${writer}-array-version`,
+        loadedVersion: `${writer}-array-version`,
+        readerInstanceId: `array-reload-${writer}-${reader}`,
+        snapshotSequenceNumber: 110 + writerIndex,
+        dataEditSequenceNumber: 120 + writerIndex,
+        publicationSequenceNumber: 130 + writerIndex,
+        tailSequenceNumber: 140 + writerIndex,
+        replayWatermark: 150 + readerIndex,
+        replayStartSequenceNumber: 110 + writerIndex,
+        replayEvidence: reader === "upstream"
+          ? "upstream-delta-storage"
+          : "native-handshake",
+        selectedSummaryRequests: [`${writer}-array-version`],
+        scenarioId: "array-summary-tail-retained",
+        loaded: true,
+        tailObserved: true,
+        continuedEditing: true,
+        peerObservedEdit: true,
+        pendingTreeCount: 0,
+        inflightSubmissionCount: 0,
+        wholeTree: arrayTree(writer),
+        continuationTree: arrayTree(writer, continuation),
+        peerWholeTree: arrayTree(writer, continuation),
+        continuationLabel: continuation,
+        retained: {
+          removed: [[0, 1, arrayPoint("deleted", 9)]],
+          movedIdentity: {
+            before: `${writer}-moved`,
+            after: `${writer}-moved`,
+            upstreamReferencePreserved: true,
+            childEditObserved: true,
+          },
+          summaryConsumed: true,
+        },
+        continuationIdentity: {
+          clientId: `${reader}-array-client`,
+          referenceSequenceNumber: 150,
+          revisions: [{ revision: 1, originatorId: `${reader}-array-origin` }],
+        },
+        documentId: `array-reload-${writer}`,
+        writerVersionBeforeLoad: `${writer}-array-version`,
+        writerVersionAfterLoad: `${writer}-array-version`,
+        artifacts: [],
+      };
+      item.artifacts = [artifact(
+        "array-reload",
+        `${writer}->${reader}`,
+        item.documentId,
+        {
+          measured: reloadMeasuredPayload(item),
+          ...(reader === "upstream" ? {} : {
+            raw: {
+              load: {
+                handshakes: [{
+                  checkpointSequenceNumber: item.snapshotSequenceNumber,
+                  summarySequenceNumber: item.snapshotSequenceNumber,
+                  initialMessageSequenceNumbers: [
+                    1,
+                    item.snapshotSequenceNumber + 1,
+                  ],
+                }],
+                repairRequests: [],
+              },
+            },
+          }),
+        },
+      )];
+      return [reader, item];
+    })),
+  ]));
   const report = {
     formatVersion: 1,
     runId: "current",
@@ -693,12 +825,13 @@ async function validFixture() {
     realService: true,
     mode: "acceptance",
     seed: 42,
-    iterations: 200,
+    iterations: 300,
     seededAccounting: {
-      requested: 200,
-      generated: 200,
-      executed: 200,
+      requested: 300,
+      generated: 300,
+      executed: 300,
       seed: 42,
+      profiles: { object: 100, map: 100, array: 100 },
     },
     deterministic,
     reconnect,
@@ -706,6 +839,7 @@ async function validFixture() {
     seeded,
     reload,
     mapReload,
+    arrayReload,
     corpus: Object.fromEntries(implementations.slice(1).map((target) => {
       const output = "Running 1 tests\nTests: 1 passed (1)";
       return [target, {
@@ -734,7 +868,7 @@ async function validFixture() {
     profileDigest: loaded.profileDigest,
     profile: loaded.profile,
     seed: 42,
-    iterations: 200,
+    iterations: 300,
     mode: "acceptance",
     artifactDirectory: owned,
     artifacts,
@@ -759,12 +893,14 @@ test("an empty result cannot prove interoperability", async () => {
     realService: true,
     mode: "acceptance",
     seed: 42,
-    iterations: 200,
+    iterations: 300,
     deterministic: [],
     reconnect: [],
     failures: [],
     seeded: [],
     reload: {},
+    mapReload: {},
+    arrayReload: {},
     corpus: {},
     skipped: [],
     divergences: [],
@@ -781,6 +917,22 @@ test("the acceptance report requires all nine map reload cells", async () => {
   delete report.mapReload.upstream.javascript;
   assert.throws(() => validateInteropReport(report, expected),
     /map summary interop needs all three readers/i);
+});
+
+test("the acceptance report requires all nine array reload cells", async () => {
+  const { expected, report } = await validFixture();
+  delete report.arrayReload.upstream.javascript;
+  assert.throws(() => validateInteropReport(report, expected),
+    /array summary interop needs all three readers/i);
+});
+
+test("the acceptance report rejects one missing required array scenario cell", async () => {
+  const { expected, report } = await validFixture();
+  const index = report.deterministic.findIndex(({ profile }) => profile === "array");
+  assert(index >= 0);
+  report.deterministic.splice(index, 1);
+  assert.throws(() => validateInteropReport(report, expected),
+    /deterministic results/i);
 });
 
 test("single-author algebra cells do not invent pending state", async () => {
@@ -1086,7 +1238,7 @@ test("partial, stale, and synthetic-shaped evidence cannot pass", async () => {
     ["duplicate seeded index", (copy) => { copy.seeded[1].index = 0; }],
     ["fewer seeded schedules", (copy) => { copy.seeded.pop(); }],
     ["incomplete seeded producer", (copy) => {
-      copy.seededAccounting.executed = 199;
+      copy.seededAccounting.executed = 299;
     }],
     ["missing seeded accounting", (copy) => {
       delete copy.seededAccounting;
@@ -1176,7 +1328,7 @@ test("the committed profile is hashed and every compatibility pin is validated",
   assert.match(loaded.profileDigest, /^[0-9a-f]{64}$/);
   assert.equal(
     loaded.profileDigest,
-    "a13390fcfcb551c142eee272db78b18fa899e9f2e7dc608e2ca71be06fee8fc2",
+    "d0cc4a5e3fd47dc942cbaeb56604160fb75f5ba18c704b356b89d22e65747112",
   );
   assert.deepEqual(loaded.profile.reference, reference);
   assert.deepEqual(
@@ -1196,9 +1348,13 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "recursive-map-values",
     "canonical-map-iteration",
     "bootstrap-map-handle",
+    "recursive-array-values",
+    "range-array-edits",
+    "cross-array-moves",
     "grouped-batches",
     "gc-metadata",
   ]);
+  assert(!loaded.profile.excludedFeatures.includes("arrays"));
   assert(!loaded.profile.excludedFeatures.includes("maps-in-tree"));
   const directory = await mkdtemp(join(tmpdir(), "watershed-profile-"));
   const profile = JSON.parse(await readFile(profilePath, "utf8"));
@@ -1231,7 +1387,7 @@ test("CLI options accept only bounded acceptance or replay invocations", () => {
   assert.deepEqual(parseInteropOptions([], { cwd: repository }), {
     mode: "acceptance",
     profilePath,
-    iterations: 200,
+    iterations: 300,
     seed: 42,
     outputDirectory: join(repository, "tools/shared-tree-oracle/.output/interop"),
     replayPath: undefined,
@@ -1239,14 +1395,14 @@ test("CLI options accept only bounded acceptance or replay invocations", () => {
   });
   assert.deepEqual(parseInteropOptions([
     "--profile", "test/fixtures/shared_tree/profile.json",
-    "--iterations", "200",
+    "--iterations", "300",
     "--seed", "42",
     "--output", "artifacts",
     "--external-floodgate",
   ], { cwd: repository }), {
     mode: "acceptance",
     profilePath,
-    iterations: 200,
+    iterations: 300,
     seed: 42,
     outputDirectory: join(repository, "artifacts"),
     replayPath: undefined,
@@ -1255,7 +1411,7 @@ test("CLI options accept only bounded acceptance or replay invocations", () => {
   assert.deepEqual(parseInteropOptions([], { cwd: oracleDirectory }), {
     mode: "acceptance",
     profilePath,
-    iterations: 200,
+    iterations: 300,
     seed: 42,
     outputDirectory: join(repository, "tools/shared-tree-oracle/.output/interop"),
     replayPath: undefined,
@@ -1274,16 +1430,16 @@ test("CLI options accept only bounded acceptance or replay invocations", () => {
     externalFloodgate: false,
   });
   for (const args of [
-    ["--profile", "profile.json", "--iterations", "199", "--seed", "42"],
+    ["--profile", "profile.json", "--iterations", "299", "--seed", "42"],
     ["--profile", "profile.json", "--iterations", "0", "--seed", "42"],
     ["--profile", "profile.json", "--iterations", "-1", "--seed", "42"],
-    ["--profile", "profile.json", "--iterations", "200.5", "--seed", "42"],
+    ["--profile", "profile.json", "--iterations", "300.5", "--seed", "42"],
     ["--profile", "profile.json", "--iterations", "abc", "--seed", "42"],
-    ["--profile", "profile.json", "--iterations", "200", "--seed", "-1"],
-    ["--profile", "profile.json", "--iterations", "200", "--seed", "4294967296"],
-    ["--profile", "profile.json", "--iterations", "200", "--seed", "1.5"],
-    ["--profile", "profile.json", "--iterations", "200", "--seed", "42", "--unknown"],
-    ["--replay", "failure.json", "--iterations", "200"],
+    ["--profile", "profile.json", "--iterations", "300", "--seed", "-1"],
+    ["--profile", "profile.json", "--iterations", "300", "--seed", "4294967296"],
+    ["--profile", "profile.json", "--iterations", "300", "--seed", "1.5"],
+    ["--profile", "profile.json", "--iterations", "300", "--seed", "42", "--unknown"],
+    ["--replay", "failure.json", "--iterations", "300"],
     ["--replay", "failure.json", "--profile", "profile.json"],
     ["--replay", "failure.json", "--external-floodgate"],
   ]) {
@@ -1304,7 +1460,7 @@ test("the coordinator routes parsed defaults to the acceptance gate", async () =
   });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].profilePath, profilePath);
-  assert.equal(calls[0].iterations, 200);
+  assert.equal(calls[0].iterations, 300);
   assert.equal(calls[0].seed, 42);
   assert.equal(calls[0].externalFloodgate, false);
   assert.deepEqual(JSON.parse(output.join("")), {

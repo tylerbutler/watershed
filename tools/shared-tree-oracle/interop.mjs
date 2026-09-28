@@ -35,8 +35,10 @@ import {
   withLocalFloodgate,
 } from "./service.mjs";
 import {
+  runArrayReloadMatrix,
   runMapReloadMatrix,
   runReloadMatrix,
+  validateArrayResults,
   validateMapResults,
 } from "./summary-interop.mjs";
 
@@ -55,7 +57,7 @@ const service = {
   revision: "0eb493fc46d1bb9baf1151a6ccdde93544e057e7",
 };
 const profileDigest =
-  "a13390fcfcb551c142eee272db78b18fa899e9f2e7dc608e2ca71be06fee8fc2";
+  "d0cc4a5e3fd47dc942cbaeb56604160fb75f5ba18c704b356b89d22e65747112";
 const runtimeOptions = {
   enableRuntimeIdCompressor: "on",
   compressionOptions: {
@@ -241,7 +243,7 @@ export function parseInteropOptions(args, { cwd = process.cwd() } = {}) {
     profilePath: values.profile === undefined
       ? join(repository, "test/fixtures/shared_tree/profile.json")
       : resolve(cwd, values.profile),
-    iterations: unsignedInteger(values.iterations ?? "200", "--iterations", 200),
+    iterations: unsignedInteger(values.iterations ?? "300", "--iterations", 300),
     seed: unsignedInteger(values.seed ?? "42", "--seed", 0, 0xffff_ffff),
     outputDirectory,
     replayPath: undefined,
@@ -445,7 +447,15 @@ async function readViewSchemas() {
     "Pinned map schema reference changed");
   const map = mapFixture.input.schemas.objectContainedMap;
   assert.equal(typeof map, "string", "Fixture lacks the object-contained map schema");
-  return { object, map };
+  const arrayFixture = JSON.parse(await readFile(join(
+    repository,
+    "test/fixtures/shared_tree/cases/array-schema-content.json",
+  ), "utf8"));
+  assert.equal(arrayFixture.reference.version, reference.version,
+    "Pinned array schema reference changed");
+  const array = arrayFixture.input.schemas.objectArrays;
+  assert.equal(typeof array, "string", "Fixture lacks the object-contained array schema");
+  return { object, map, array };
 }
 
 export function assertPreflightProfile(actual, expected) {
@@ -513,6 +523,8 @@ function artifactReferences(report) {
       Object.values(row).flatMap(({ artifacts }) => artifacts)),
     ...Object.values(report.mapReload).flatMap((row) =>
       Object.values(row).flatMap(({ artifacts }) => artifacts)),
+    ...Object.values(report.arrayReload).flatMap((row) =>
+      Object.values(row).flatMap(({ artifacts }) => artifacts)),
     ...Object.values(report.corpus).flatMap(({ artifacts }) => artifacts),
   ];
 }
@@ -551,6 +563,10 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
   log("shared-tree interop: dynamic-map selected-summary reload matrix");
   const mapReload = await runMapReloadMatrix(config, context);
 
+  await writeStatus(runDirectory, "array-reload");
+  log("shared-tree interop: array selected-summary reload matrix");
+  const arrayReload = await runArrayReloadMatrix(config, context);
+
   await writeStatus(runDirectory, "seeded", {
     requested: options.iterations,
     seed: options.seed,
@@ -585,6 +601,7 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
     seeded: seeded.results,
     reload,
     mapReload,
+    arrayReload,
     corpus,
     skipped: [],
     divergences: [],
@@ -604,6 +621,7 @@ async function acceptance(options, { env, stderr }) {
     profile: loaded.profile,
     viewSchema: viewSchemas.object,
     mapViewSchema: viewSchemas.map,
+    arrayViewSchema: viewSchemas.array,
     artifactDirectory: runDirectory,
   };
   try {
@@ -661,6 +679,7 @@ async function replay(options, { env, stderr }) {
     profile: loaded.profile,
     viewSchema: viewSchemas.object,
     mapViewSchema: viewSchemas.map,
+    arrayViewSchema: viewSchemas.array,
     artifactDirectory: runDirectory,
   };
   const log = (message) => stderr.write(`${message}\n`);
@@ -805,6 +824,12 @@ function exactImplementations(values, label) {
     `${label} must cover all three implementations`);
 }
 
+function schedulesForProfile(iterations, profile) {
+  const legacyCount = 2 * Math.floor(iterations / 3);
+  if (profile === "array") return iterations - legacyCount;
+  return Math.floor((legacyCount + (profile === "object" ? 1 : 0)) / 2);
+}
+
 function measuredPayload(item) {
   return {
     id: item.id,
@@ -909,6 +934,23 @@ function deterministicEvidence(item, authors, label) {
     `${label} local notifications`);
   assert(Array.isArray(notifications.settledRemoteObservers),
     `${label} lacks remote notification evidence`);
+
+  if (item.profile === "array") {
+    const array = object(evidence.array, `${label} lacks array evidence`);
+    assert(array.finalTree && typeof array.finalTree === "object",
+      `${label} lacks the final tagged array tree`);
+    assert(Array.isArray(array.retainedObjectReferences)
+      && array.retainedObjectReferences.length === 2
+      && array.retainedObjectReferences.every((retained) =>
+        typeof retained === "boolean"),
+    `${label} lacks measured retained object references`);
+    assert.equal(typeof array.childEditObserved, "boolean",
+      `${label} lacks measured moved-child edit evidence`);
+    if (["array-move-child-edit", "array-summary-tail"].includes(item.family)) {
+      assert.equal(array.childEditObserved, true,
+        `${label} lacks the targeted moved-child edit`);
+    }
+  }
 
   if (item.order !== null) {
     const first = item.order.slice(0, -"-first".length);
@@ -1557,13 +1599,51 @@ function validateMapReload(report, expected, evidence) {
   }
 }
 
+function validateArrayReload(report, expected, evidence) {
+  validateArrayResults(report.arrayReload);
+  for (const writer of implementations) {
+    for (const reader of implementations) {
+      const item = report.arrayReload[writer][reader];
+      assert.equal(item.runId, expected.runId,
+        "Array reload belongs to another run");
+      assert.equal(item.profileDigest, expected.profileDigest,
+        "Array reload uses another profile");
+      assert.equal(item.writerVersionBeforeLoad, item.writerVersion,
+        "Array reload writer head changed before load");
+      assert.equal(item.writerVersionAfterLoad, item.writerVersion,
+        "Array reload writer head changed after continuation");
+      assert(Number.isSafeInteger(item.tailSequenceNumber)
+        && item.tailSequenceNumber > item.publicationSequenceNumber,
+      "Array reload lacks a measured operation after publication");
+      artifacts(item, evidence, expected, {
+        kind: "array-reload",
+        subject: `${writer}->${reader}`,
+        documentId: item.documentId,
+      }, `Array reload ${writer}->${reader}`);
+      for (const reference of item.artifacts) {
+        const claim = evidence.get(reference).claim;
+        assert.deepEqual(claim.measured,
+          reloadMeasuredPayload(item),
+        `Array reload ${writer}->${reader} artifact differs from measured evidence`);
+        if (reader === "upstream") continue;
+        const load = object(claim.raw?.load,
+          "Array reload artifact lacks raw native load evidence");
+        assert(Array.isArray(load.handshakes) && load.handshakes.length > 0,
+          "Array reload artifact lacks native handshake evidence");
+        assert(Array.isArray(load.repairRequests),
+          "Array reload artifact lacks repair-request evidence");
+      }
+    }
+  }
+}
+
 export function validateInteropReport(report, expected) {
   object(report, "Missing interoperability report");
   object(expected, "Missing report expectations");
   assert.equal(expected.mode, "acceptance",
     "Replay mode cannot satisfy the acceptance gate");
-  assert(Number.isSafeInteger(expected.iterations) && expected.iterations >= 200,
-    "Acceptance requires at least 200 schedules");
+  assert(Number.isSafeInteger(expected.iterations) && expected.iterations >= 300,
+    "Acceptance requires at least 300 schedules");
   assert(Number.isSafeInteger(expected.seed)
     && expected.seed >= 0 && expected.seed <= 0xffff_ffff,
   "Expected seed is outside the supported range");
@@ -1648,6 +1728,10 @@ export function validateInteropReport(report, expected) {
     generated: expected.iterations,
     executed: expected.iterations,
     seed: expected.seed,
+    profiles: Object.fromEntries(["object", "map", "array"].map((profile) => [
+      profile,
+      schedulesForProfile(expected.iterations, profile),
+    ])),
   }, "Seeded producer accounting is incomplete");
   const schedules = generateSchedules({
     seed: expected.seed,
@@ -1675,6 +1759,7 @@ export function validateInteropReport(report, expected) {
 
   validateReload(report, expected, evidence);
   validateMapReload(report, expected, evidence);
+  validateArrayReload(report, expected, evidence);
   assert.deepEqual(Object.keys(report.corpus).sort(), [...nativeTargets].sort(),
     "Corpus evidence lacks a native target");
   for (const target of nativeTargets) {

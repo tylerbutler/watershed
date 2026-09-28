@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +26,11 @@ import {
   waitForRemoteNotifications,
   writeSeededFailure,
 } from "./interop-scenarios.mjs";
-import { initialMapRoot } from "./schema.mjs";
+import {
+  ArrayPoint,
+  initialArrayRoot,
+  initialMapRoot,
+} from "./schema.mjs";
 
 test("settling preserves notifications drained while polling", async () => {
   const adapters = Object.fromEntries(["upstream", "javascript", "erlang"].map(
@@ -310,6 +315,135 @@ test("map adapters preserve keys, tagged values, and canonical entries", async (
     ["mapDelete", ["items"], ""],
     ["mapKeys", ["items"]],
     ["mapEntries", ["items"]],
+  ]);
+  await native.close();
+});
+
+test("array adapters use public range methods and preserve element order", async () => {
+  const root = initialArrayRoot();
+  root.left.insertAt(0,
+    new ArrayPoint({ label: "same", x: 1 }),
+    new ArrayPoint({ label: "same", x: 1 }),
+    "tail");
+  const retained = [root.left[0], root.left[1]];
+  const session = {
+    container: {
+      connected: true,
+      clientId: "upstream-array",
+      deltaManager: {
+        on() {},
+        lastSequenceNumber: 0,
+        outbound: [],
+        inbound: [],
+      },
+    },
+    data: {
+      tree: {
+        kernel: {
+          editManager: {
+            constructor: { name: "EditManager" },
+            getLocalCommits() { return []; },
+          },
+        },
+      },
+      view: { root },
+    },
+  };
+  const upstream = upstreamAdapter(session);
+  await upstream.arrayMove(["left"], 0, 2, ["right"], 0);
+  assert.equal(root.right[0], retained[0]);
+  assert.equal(root.right[1], retained[1]);
+  await upstream.arrayInsert(["right"], 1, [
+    { kind: "string", value: "inside" },
+    { kind: "number", value: 7 },
+  ]);
+  assert.deepEqual(await upstream.arrayValues(["right"]), [
+    {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m3.Point",
+      fields: [
+        ["label", { kind: "string", value: "same" }],
+        ["x", { kind: "number", value: 1 }],
+      ],
+    },
+    { kind: "string", value: "inside" },
+    { kind: "number", value: 7 },
+    {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m3.Point",
+      fields: [
+        ["label", { kind: "string", value: "same" }],
+        ["x", { kind: "number", value: 1 }],
+      ],
+    },
+  ]);
+  await upstream.arrayRemove(["right"], 1, 3);
+  assert.deepEqual(await upstream.arrayGet(["right"], 1), {
+    present: true,
+    value: {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m3.Point",
+      fields: [
+        ["label", { kind: "string", value: "same" }],
+        ["x", { kind: "number", value: 1 }],
+      ],
+    },
+  });
+
+  const calls = [];
+  const native = await nativeAdapter("javascript", {}, {}, "", {
+    createClient: async () => ({
+      instanceId: "native-array",
+      gate: {
+        evidence() { return { held: [], delivered: [] }; },
+        hold() {},
+        async release() {},
+        async disconnect() {},
+        async reconnect() {},
+      },
+      async request({ command }) {
+        if (command === "subscribe") return { ok: true };
+        throw new Error(`Unexpected request: ${command}`);
+      },
+      async arrayGet(path, index) {
+        calls.push(["arrayGet", path, index]);
+        return { present: false };
+      },
+      async arrayValues(path) {
+        calls.push(["arrayValues", path]);
+        return [{ kind: "string", value: "value" }];
+      },
+      async arrayInsert(path, index, values) {
+        calls.push(["arrayInsert", path, index, values]);
+      },
+      async arrayRemove(path, start, end) {
+        calls.push(["arrayRemove", path, start, end]);
+      },
+      async arrayMove(sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) {
+        calls.push([
+          "arrayMove",
+          sourcePath,
+          sourceStart,
+          sourceEnd,
+          destinationPath,
+          destinationGap,
+        ]);
+      },
+      async close() {},
+    }),
+  });
+  assert.deepEqual(await native.arrayGet(["left"], 0), { present: false });
+  assert.deepEqual(await native.arrayValues(["left"]),
+    [{ kind: "string", value: "value" }]);
+  await native.arrayInsert(["left"], 0, [{ kind: "number", value: 1 }]);
+  await native.arrayRemove(["left"], 0, 1);
+  await native.arrayMove(["left"], 0, 1, ["right"], 0);
+  assert.deepEqual(calls, [
+    ["arrayGet", ["left"], 0],
+    ["arrayValues", ["left"]],
+    ["arrayInsert", ["left"], 0, [{ kind: "number", value: 1 }]],
+    ["arrayRemove", ["left"], 0, 1],
+    ["arrayMove", ["left"], 0, 1, ["right"], 0],
   ]);
   await native.close();
 });
@@ -657,7 +791,7 @@ test("replay distinguishes the failing action and actual failed-barrier roots", 
 test("failure capture reports a failed history read without hiding the original error", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "watershed-failure-capture-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const schedule = generateSchedules({ seed: 42, iterations: 1 })[0];
+  const schedule = generateSchedules({ seed: 42, iterations: 300 })[0];
   const failurePath = await writeSeededFailure({
     runId: "capture-run",
     profileDigest: "a".repeat(64),
@@ -683,7 +817,7 @@ test("failure capture reports a failed history read without hiding the original 
 test("failure artifacts persist the failing barrier rather than prior optimistic differences", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "watershed-failed-barrier-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const schedule = generateSchedules({ seed: 42, iterations: 1 })[0];
+  const schedule = generateSchedules({ seed: 42, iterations: 300 })[0];
   const action = { index: schedule.actions.length - 1, type: "checkpoint", label: "settled" };
   const error = new Error("quiescence failed");
   error.checkpoint = {
@@ -812,10 +946,20 @@ const expectedFailureIds = [
   "unknown-field:erlang",
   "wrong-schema-id:javascript",
   "wrong-schema-id:erlang",
-  "unsupported-array-schema:javascript",
-  "unsupported-array-schema:erlang",
   "unsupported-map-schema:javascript",
   "unsupported-map-schema:erlang",
+  "malformed-sequence-payload:javascript",
+  "malformed-sequence-payload:erlang",
+  "malformed-range-count:javascript",
+  "malformed-range-count:erlang",
+  "missing-range-endpoint:javascript",
+  "missing-range-endpoint:erlang",
+  "bad-child-ownership:javascript",
+  "bad-child-ownership:erlang",
+  "invalid-sequence-content:javascript",
+  "invalid-sequence-content:erlang",
+  "corrupt-retained-summary:javascript",
+  "corrupt-retained-summary:erlang",
   "unsupported-message-version:javascript",
   "unsupported-message-version:erlang",
   "unsupported-summary-version:javascript",
@@ -828,15 +972,45 @@ const expectedFailureIds = [
   "unknown-runtime-message:erlang",
 ];
 
-test("the deterministic catalogue expands every required Task 3 cell", () => {
+const arrayFamilies = [
+  ["array-independent-insert", false],
+  ["array-same-gap-insert", true],
+  ["array-insert-remove", true],
+  ["array-overlapping-remove", true],
+  ["array-move-child-edit", true],
+  ["array-move-delete", true],
+  ["array-competing-moves", true],
+  ["array-overlapping-moves", true],
+  ["array-cross-parent-move", true],
+  ["array-ancestor-replace", true],
+  ["array-recursive-map-path", true],
+];
+const implementations = ["upstream", "javascript", "erlang"];
+const orderedPairs = implementations.flatMap((first) =>
+  implementations.filter((second) => second !== first)
+    .map((second) => [first, second]));
+const expectedArrayScenarioIds = [
+  ...arrayFamilies.flatMap(([family, ordered]) =>
+    orderedPairs.flatMap((authors) =>
+      ordered
+        ? authors.map((first) => `${family}:${authors.join("->")}:${first}-first`)
+        : [`${family}:${authors.join("->")}`])),
+  ...implementations.map((author) => `array-reconnect-pending:${author}`),
+  ...implementations.map((author) => `array-summary-tail:${author}`),
+];
+
+test("the deterministic catalogue expands every required mixed-client cell", () => {
   const cells = requiredScenarioCells();
-  assert.equal(cells.length, 147);
   assert.deepEqual(cells.map(({ id }) => id), [
     ...expectedScenarioIds,
     ...expectedMapScenarioIds,
+    ...expectedArrayScenarioIds,
   ]);
-  assert(cells.slice(expectedScenarioIds.length)
+  assert(cells.slice(expectedScenarioIds.length,
+    expectedScenarioIds.length + expectedMapScenarioIds.length)
     .every(({ profile }) => profile === "map"));
+  assert(cells.slice(expectedScenarioIds.length + expectedMapScenarioIds.length)
+    .every(({ profile }) => profile === "array"));
   assert.deepEqual(cells[0], {
     id: "independent-scalar:upstream->javascript",
     family: "independent-scalar",
@@ -855,7 +1029,7 @@ test("the deterministic catalogue expands every required Task 3 cell", () => {
 
 test("the failure catalogue covers every native refusal target", () => {
   const cells = requiredFailureCells();
-  assert.equal(cells.length, 24);
+  assert.equal(cells.length, 34);
   assert.deepEqual(cells.map(({ id }) => id), expectedFailureIds);
   assert.deepEqual(cells[0], {
     id: "clear-required-title:javascript",
@@ -869,17 +1043,6 @@ test("the failure catalogue covers every native refusal target", () => {
     clientState: "ready-local",
   });
   assert.deepEqual(cells[10], {
-    id: "unsupported-array-schema:javascript",
-    caseId: "unsupported-array-schema",
-    target: "javascript",
-    kind: "stored-schema-refusal",
-    expectedStage: "resolve-view",
-    errorCode: "bootstrap-failed",
-    errorOperation: "connect",
-    diagnosticTerms: ["ExcludedArray", "unsupported field kind Sequence"],
-    clientState: "never-ready",
-  });
-  assert.deepEqual(cells[12], {
     id: "unsupported-map-schema:javascript",
     caseId: "unsupported-map-schema",
     target: "javascript",
@@ -889,6 +1052,17 @@ test("the failure catalogue covers every native refusal target", () => {
     errorOperation: "resolve-view",
     diagnosticTerms: ["root", "incompatible field schema"],
     clientState: "never-ready",
+  });
+  assert.deepEqual(cells[12], {
+    id: "malformed-sequence-payload:javascript",
+    caseId: "malformed-sequence-payload",
+    target: "javascript",
+    kind: "injected-input-refusal",
+    expectedStage: "operation-decode",
+    errorCode: "connection-failed",
+    errorOperation: "await-synced",
+    diagnosticTerms: ["sequence", "payload"],
+    clientState: "stopped-after-ready",
   });
   assert.deepEqual(cells.at(-1), {
     id: "unknown-runtime-message:erlang",
@@ -911,7 +1085,9 @@ test("catalogue callers cannot mutate later results", () => {
   const failures = requiredFailureCells();
   scenarios.pop();
   failures[0].caseId = "changed";
-  assert.equal(requiredScenarioCells().length, 147);
+  assert.equal(requiredScenarioCells().length,
+    expectedScenarioIds.length + expectedMapScenarioIds.length
+      + expectedArrayScenarioIds.length);
   assert.equal(requiredFailureCells()[0].caseId, "clear-required-title");
 });
 
@@ -1014,13 +1190,14 @@ test("the deterministic runner rejects an incomplete coordinator context", async
   );
 });
 
-test("the deterministic runner routes object and map cells to separate executors", async () => {
+test("the deterministic runner routes each profile to its executor", async () => {
   const routed = [];
   const results = await runDeterministicCases({}, {
     runId: "routing",
     profileDigest: "a".repeat(64),
     viewSchema: "object-schema",
     mapViewSchema: "map-schema",
+    arrayViewSchema: "array-schema",
     artifactDirectory: "/unused",
   }, {
     async runObject(_config, _context, cell) {
@@ -1031,11 +1208,15 @@ test("the deterministic runner routes object and map cells to separate executors
       routed.push(["map", cell.id]);
       return cell.id;
     },
+    async runArray(_config, _context, cell) {
+      routed.push(["array", cell.id]);
+      return cell.id;
+    },
   });
-  assert.equal(results.length, 147);
+  assert.equal(results.length, 279);
   assert.equal(routed.filter(([profile]) => profile === "object").length, 75);
   assert.equal(routed.filter(([profile]) => profile === "map").length, 72);
-  assert(routed.slice(75).every(([profile]) => profile === "map"));
+  assert.equal(routed.filter(([profile]) => profile === "array").length, 132);
 });
 
 test("the failure runner rejects an incomplete coordinator context", async () => {
@@ -1046,7 +1227,7 @@ test("the failure runner rejects an incomplete coordinator context", async () =>
 });
 
 test("seed 42 expands a literal three-author schedule", () => {
-  const [schedule] = generateSchedules({ seed: 42, iterations: 1 });
+  const [schedule] = generateSchedules({ seed: 42, iterations: 300 });
   assert.deepEqual(schedule, {
     formatVersion: 1,
     profile: "object",
@@ -1192,13 +1373,24 @@ test("seed 42 expands a literal three-author schedule", () => {
 });
 
 test("schedule generation is deterministic, sized, unique, and covers every author", () => {
-  const normal = generateSchedules({ seed: 42, iterations: 200 });
-  assert.equal(normal.length, 200);
-  assert.deepEqual(normal, generateSchedules({ seed: 42, iterations: 200 }));
-  assert.notDeepEqual(normal, generateSchedules({ seed: 43, iterations: 200 }));
-  assert.equal(generateSchedules({ seed: 42, iterations: 5000 }).length, 5000);
+  const normal = generateSchedules({ seed: 42, iterations: 300 });
+  assert.equal(normal.length, 300);
+  assert.deepEqual(normal, generateSchedules({ seed: 42, iterations: 300 }));
+  assert.notDeepEqual(normal, generateSchedules({ seed: 43, iterations: 300 }));
+  assert.equal(generateSchedules({ seed: 42, iterations: 7500 }).length, 7500);
   assert.deepEqual(normal.map(({ index }) => index),
-    Array.from({ length: 200 }, (_, index) => index));
+    Array.from({ length: 300 }, (_, index) => index));
+  assert.equal(
+    createHash("sha256").update(JSON.stringify(normal.slice(0, 200))).digest("hex"),
+    "21fa42785d7ba60605f269491e3e61abe0ce5c64a08acb44c86e282d71585ccb",
+  );
+  assert.deepEqual(
+    Object.fromEntries(["object", "map", "array"].map((profile) => [
+      profile,
+      normal.filter((schedule) => schedule.profile === profile).length,
+    ])),
+    { object: 100, map: 100, array: 100 },
+  );
   for (const schedule of normal) {
     assert.deepEqual([...new Set(schedule.authors)].sort(),
       ["erlang", "javascript", "upstream"]);
@@ -1206,7 +1398,10 @@ test("schedule generation is deterministic, sized, unique, and covers every auth
       preconditions && typeof preconditions === "object"));
     const actionAuthors = new Set(schedule.actions
       .filter(({ type }) =>
-        ["set", "clear", "map-set", "map-delete"].includes(type))
+        [
+          "set", "clear", "map-set", "map-delete",
+          "array-insert", "array-remove", "array-move",
+        ].includes(type))
       .map(({ author }) => author));
     assert.deepEqual([...actionAuthors].sort(),
       ["erlang", "javascript", "upstream"]);
@@ -1234,6 +1429,15 @@ test("schedule generation is deterministic, sized, unique, and covers every auth
     actions.some(({ type }) => type === "map-set")));
   assert(normal.some(({ profile, actions }) =>
     profile === "map" && actions.some(({ type }) => type === "map-delete")));
+  const arrays = normal.filter(({ profile }) => profile === "array");
+  assert.equal(arrays.length, 100);
+  assert(arrays.some(({ actions }) => actions.some(({ type, values }) =>
+    type === "array-insert" && values.length > 1)));
+  assert(arrays.some(({ actions }) => actions.some(({ type, destinationGap }) =>
+    type === "array-move" && destinationGap > 0)));
+  assert(arrays.some(({ actions }) => actions.some(({ type, path }) =>
+    type === "set" && path.length > 2)));
+  assert(arrays.some(({ actions }) => actions.some(({ type }) => type === "reconnect")));
   assert(normal.some(({ actions }) => actions.some(({ type }) => type === "reconnect")));
   for (const schedule of normal.filter(({ actions }) =>
     actions.some(({ type }) => type === "reconnect"))) {
@@ -1264,7 +1468,7 @@ test("schedule generation is deterministic, sized, unique, and covers every auth
 });
 
 function replayArtifact() {
-  const schedule = generateSchedules({ seed: 42, iterations: 1 })[0];
+  const schedule = generateSchedules({ seed: 42, iterations: 201 })[200];
   return {
     formatVersion: 1,
     kind: "seeded-failure",
@@ -1280,9 +1484,9 @@ function replayArtifact() {
       revision: "0eb493fc46d1bb9baf1151a6ccdde93544e057e7",
     },
     seed: 42,
-    index: 0,
+    index: 200,
     subSeed: schedule.subSeed,
-    profile: "object",
+    profile: "array",
     schedule,
     originalDocumentId: "document",
     identityMapping: {
@@ -1290,7 +1494,10 @@ function replayArtifact() {
       javascript: { instanceId: "j", clientIds: ["jc"], originatorIds: ["jo"] },
       erlang: { instanceId: "e", clientIds: ["ec"], originatorIds: ["eo"] },
     },
-    checkpoints: [{ label: "initial", stage: "quiescent", observations: [] }],
+    checkpoints: [
+      { label: "initial", stage: "quiescent", observations: [] },
+      { label: "optimistic", stage: "intermediate", observations: [] },
+    ],
     rawSequencedOperations: [{ sequenceNumber: 1 }],
     summaries: [],
     firstDifferencePath: "$.value.fields[0]",
@@ -1308,6 +1515,17 @@ test("replay artifacts reject malformed, stale, and incomplete records", () => {
     ["stale reference", (copy) => { copy.reference.version = "3.2.0"; }],
     ["stale service", (copy) => { copy.service.revision = "stale"; }],
     ["changed profile", (copy) => { copy.profile = "map"; }],
+    ["changed source path", (copy) => {
+      copy.schedule.actions.find(({ type }) => type === "array-move").sourcePath = ["right"];
+    }],
+    ["changed release order", (copy) => {
+      copy.schedule.actions.find(({ type }) => type === "release").order = "reverse";
+    }],
+    ["missing checkpoint", (copy) => { copy.checkpoints = []; }],
+    ["missing array intermediate checkpoint", (copy) => {
+      copy.checkpoints = copy.checkpoints.filter(({ stage }) => stage !== "intermediate");
+    }],
+    ["missing difference path", (copy) => { delete copy.firstDifferencePath; }],
     ["omitted author", (copy) => { copy.schedule.authors.pop(); }],
     ["changed expansion", (copy) => { copy.schedule.actions.pop(); }],
     ["missing operations", (copy) => { delete copy.rawSequencedOperations; }],
@@ -1332,6 +1550,7 @@ test("a replay infrastructure failure does not reproduce a saved tree divergence
     runId: "replay-run",
     profileDigest: "a".repeat(64),
     viewSchema: "schema",
+    arrayViewSchema: "array-schema",
     artifactDirectory: directory,
   }, replayArtifact());
   assert.equal(result.reproduced, false);
@@ -1345,7 +1564,7 @@ test("failure-artifact write errors do not replace the original schedule error",
   const blocked = join(directory, "not-a-directory");
   await writeFile(blocked, "not a directory");
   const original = new Error("service configuration unavailable");
-  const schedule = generateSchedules({ seed: 42, iterations: 1 })[0];
+  const schedule = generateSchedules({ seed: 42, iterations: 300 })[0];
   await assert.rejects(() => runSeededSchedule({
     get httpUrl() { throw original; },
   }, {
@@ -1361,7 +1580,7 @@ test("failure-artifact write errors do not replace the original schedule error",
 });
 
 test("the seeded runner validates context and the expanded schedule before connecting", async () => {
-  const schedule = generateSchedules({ seed: 42, iterations: 1 })[0];
+  const schedule = generateSchedules({ seed: 42, iterations: 300 })[0];
   await assert.rejects(() => runSeededSchedule({}, {}, schedule), /runId/);
   const invalid = structuredClone(schedule);
   invalid.actions[5].path = ["unknown"];
@@ -1374,7 +1593,7 @@ test("the seeded runner validates context and the expanded schedule before conne
 });
 
 test("replay validates the profile before connecting", async () => {
-  const schedule = generateSchedules({ seed: 42, iterations: 1 })[0];
+  const schedule = generateSchedules({ seed: 42, iterations: 300 })[0];
   await assert.rejects(() => replayFailure({}, {
     runId: "replay",
     profileDigest: "a".repeat(64),

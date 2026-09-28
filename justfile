@@ -199,11 +199,11 @@ shared-tree-test:
 
 # The coordinator verifies source/corpus and runs tests on both targets.
 shared-tree-interop:
-    node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 200 --seed 42
+    node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 300 --seed 42
 
 # Manual deep run; keep it out of the pull-request gate.
 shared-tree-interop-deep:
-    node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 5000 --seed 42
+    node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 7500 --seed 42
 
 # Both native creators and HTTP failure cases; no upstream SDK or live service.
 shared-tree-create-test:

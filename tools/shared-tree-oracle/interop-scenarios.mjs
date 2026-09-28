@@ -16,8 +16,21 @@ import { SharedTree } from "@fluidframework/tree/internal";
 import { Tree } from "@fluidframework/tree/internal";
 import { startClient } from "./client-driver.mjs";
 import { DeliveryGate } from "./delivery-gate.mjs";
-import { mapServiceStore, openSession, tokenProvider } from "./service.mjs";
-import { DynamicMap, MapPoint } from "./schema.mjs";
+import {
+  arrayServiceStore,
+  mapServiceStore,
+  openSession,
+  tokenProvider,
+} from "./service.mjs";
+import {
+  ArrayMap,
+  ArrayPoint,
+  ArrayRoot,
+  DynamicMap,
+  Items,
+  MapPoint,
+  Points,
+} from "./schema.mjs";
 
 const implementations = ["upstream", "javascript", "erlang"];
 const nativeTargets = ["javascript", "erlang"];
@@ -32,6 +45,12 @@ const mapSeededTemplates = [
   "map-object-conflict",
   "map-nested-conflict",
   "map-recursive-delete",
+];
+const arraySeededTemplates = [
+  "array-same-gap",
+  "array-insert-remove",
+  "array-cross-parent",
+  "array-nested-reconnect",
 ];
 const replayReference = {
   package: "@fluidframework/tree",
@@ -51,22 +70,19 @@ const invalidProfilePath = join(
 );
 
 const excludedFactory = new SchemaFactory("org.watershed.shared-tree.m1");
-const ExcludedArray = excludedFactory.array("ExcludedArray", [excludedFactory.number]);
 const ExcludedMap = excludedFactory.map("ExcludedMap", [excludedFactory.number]);
 
-function excludedStore(kind) {
-  const schema = kind === "array" ? ExcludedArray : ExcludedMap;
+function excludedStore() {
+  const schema = ExcludedMap;
   const config = new TreeViewConfiguration({ schema });
   return defineDataStore({
-    type: `org.watershed.shared-tree.m1.excluded-${kind}`,
+    type: "org.watershed.shared-tree.m1.excluded-map",
     registry: sharedObjectRegistryFromIterable([SharedMap, SharedTree]),
     async instantiateFirstTime(rootCreator, creator) {
       const bootstrap = await rootCreator.createSharedObject(SharedMap);
       const tree = await creator.createSharedObject(SharedTree);
       const view = tree.viewWith(config);
-      view.initialize(kind === "array"
-        ? new ExcludedArray([1, 2])
-        : new ExcludedMap([["key", 1]]));
+      view.initialize(new ExcludedMap([["key", 1]]));
       view.dispose();
       bootstrap.set("tree", tree.handle);
       return bootstrap;
@@ -83,8 +99,7 @@ function excludedStore(kind) {
 }
 
 const excludedStores = {
-  array: excludedStore("array"),
-  map: excludedStore("map"),
+  map: excludedStore(),
 };
 
 function parsed(value) {
@@ -192,6 +207,10 @@ function mapCells(cells) {
   return cells.map((cell) => ({ ...cell, profile: "map" }));
 }
 
+function arrayCells(cells) {
+  return cells.map((cell) => ({ ...cell, profile: "array" }));
+}
+
 const scenarioCells = [
   ...pairCells("independent-scalar"),
   ...pairCells("independent-nested"),
@@ -221,6 +240,19 @@ const scenarioCells = [
   ...mapCells(pairCells("map-recursive-conflict", true)),
   ...mapCells(authorCells("map-reconnect-pending")),
   ...mapCells(authorCells("map-summary-tail")),
+  ...arrayCells(pairCells("array-independent-insert")),
+  ...arrayCells(pairCells("array-same-gap-insert", true)),
+  ...arrayCells(pairCells("array-insert-remove", true)),
+  ...arrayCells(pairCells("array-overlapping-remove", true)),
+  ...arrayCells(pairCells("array-move-child-edit", true)),
+  ...arrayCells(pairCells("array-move-delete", true)),
+  ...arrayCells(pairCells("array-competing-moves", true)),
+  ...arrayCells(pairCells("array-overlapping-moves", true)),
+  ...arrayCells(pairCells("array-cross-parent-move", true)),
+  ...arrayCells(pairCells("array-ancestor-replace", true)),
+  ...arrayCells(pairCells("array-recursive-map-path", true)),
+  ...arrayCells(authorCells("array-reconnect-pending")),
+  ...arrayCells(authorCells("array-summary-tail")),
 ];
 
 const localRefusals = [
@@ -231,6 +263,18 @@ const localRefusals = [
   ["wrong-schema-id", "set", ["NotPoint", "node type"]],
 ];
 const injectedRefusals = [
+  ["malformed-sequence-payload", "operation-decode", "connection-failed",
+    "stopped-after-ready", ["sequence", "payload"]],
+  ["malformed-range-count", "operation-decode", "connection-failed",
+    "stopped-after-ready", ["sequence", "count"]],
+  ["missing-range-endpoint", "operation-decode", "connection-failed",
+    "stopped-after-ready", ["sequence", "endpoint"]],
+  ["bad-child-ownership", "operation-decode", "connection-failed",
+    "stopped-after-ready", ["sequence", "ownership"]],
+  ["invalid-sequence-content", "operation-decode", "connection-failed",
+    "stopped-after-ready", ["sequence", "content"]],
+  ["corrupt-retained-summary", "summary-load", "bootstrap-failed",
+    "never-ready", ["DetachedFieldIndex", "sequence"]],
   ["unsupported-message-version", "operation-decode", "connection-failed",
     "stopped-after-ready", ["Message", "999"]],
   ["unsupported-summary-version", "summary-load", "bootstrap-failed",
@@ -256,22 +300,17 @@ const failureCells = [
       diagnosticTerms,
       clientState: "ready-local",
     }))),
-  ...["array", "map"].flatMap((kind) =>
-    nativeTargets.map((target) => ({
-      id: `unsupported-${kind}-schema:${target}`,
-      caseId: `unsupported-${kind}-schema`,
+  ...nativeTargets.map((target) => ({
+      id: `unsupported-map-schema:${target}`,
+      caseId: "unsupported-map-schema",
       target,
       kind: "stored-schema-refusal",
       expectedStage: "resolve-view",
-      errorCode: kind === "array"
-        ? "bootstrap-failed"
-        : "view-resolution-failed",
-      errorOperation: kind === "array" ? "connect" : "resolve-view",
-      diagnosticTerms: kind === "array"
-        ? ["ExcludedArray", "unsupported field kind Sequence"]
-        : ["root", "incompatible field schema"],
+      errorCode: "view-resolution-failed",
+      errorOperation: "resolve-view",
+      diagnosticTerms: ["root", "incompatible field schema"],
       clientState: "never-ready",
-    }))),
+    })),
   ...injectedRefusals.flatMap(([
     caseId,
     expectedStage,
@@ -341,7 +380,7 @@ function edit(type, author, path, value, outboundHeld = false) {
     ...(type === "set" ? { value } : {}),
     preconditions: {
       ...connected(author),
-      pathType: pathTypes[path[0]],
+      pathType: pathTypes[path[0]] ?? (path.at(-1) === "x" ? "number" : undefined),
       ...(outboundHeld ? { outboundHeld: true } : {}),
     },
   };
@@ -357,6 +396,19 @@ function mapEdit(type, author, key, value, outboundHeld = false) {
     preconditions: {
       ...connected(author),
       pathType: "dynamic-map",
+      ...(outboundHeld ? { outboundHeld: true } : {}),
+    },
+  };
+}
+
+function arrayEdit(type, author, fields, outboundHeld = false) {
+  return {
+    type,
+    author,
+    ...fields,
+    preconditions: {
+      ...connected(author),
+      pathType: "array",
       ...(outboundHeld ? { outboundHeld: true } : {}),
     },
   };
@@ -641,47 +693,188 @@ function generatedMapActions(seed, index, template, roles, random) {
   return actions;
 }
 
+function arrayPoint(label, x) {
+  return {
+    kind: "object",
+    schemaId: "org.watershed.shared-tree.m3.Point",
+    fields: [
+      ["label", { kind: "string", value: label }],
+      ["x", { kind: "number", value: x }],
+    ],
+  };
+}
+
+function generatedArrayActions(seed, index, template, roles, random) {
+  const magnitude = 100 + seed + index;
+  const actions = [
+    arrayEdit("array-insert", roles.third, {
+      path: ["left"],
+      index: 0,
+      values: [
+        arrayPoint(`base-${seed}-${index}-a`, magnitude),
+        arrayPoint(`base-${seed}-${index}-b`, magnitude + 1),
+        {
+          kind: "array",
+          schemaId: "org.watershed.shared-tree.m3.Items",
+          elements: [arrayPoint(`nested-${seed}-${index}`, magnitude + 2)],
+        },
+      ],
+    }),
+    {
+      type: "checkpoint",
+      label: "initial",
+      stage: "quiescent",
+      preconditions: { connected: [...implementations] },
+    },
+  ];
+  for (const author of [roles.first, roles.second, roles.third]) {
+    actions.push(control("hold-inbound", author, false));
+    actions.push(control("hold-outbound", author, false));
+  }
+  actions.push(arrayEdit("array-insert", roles.first, {
+    path: ["left"],
+    index: 1,
+    values: [
+      { kind: "string", value: `${template}-${roles.first}` },
+      { kind: "number", value: magnitude + 3 },
+    ],
+  }, true));
+  if (template === "array-insert-remove") {
+    actions.push(arrayEdit("array-remove", roles.second, {
+      path: ["left"], start: 0, end: 2,
+    }, true));
+  } else {
+    actions.push(arrayEdit("array-move", roles.second, {
+      sourcePath: ["left"],
+      sourceStart: 0,
+      sourceEnd: 2,
+      destinationPath: ["right"],
+      destinationGap: random() % 2 + 1,
+    }, true));
+  }
+  actions.push(edit("set", roles.third, ["left", "2", "0", "x"], -magnitude, true));
+  actions.push({
+    type: "checkpoint",
+    label: "optimistic",
+    stage: "intermediate",
+    preconditions: { connected: [...implementations] },
+  });
+  const inboundOrder = random() % 2 === 0 ? "fifo" : "reverse";
+  const conflictOrder = random() % 2 === 0
+    ? [roles.first, roles.second]
+    : [roles.second, roles.first];
+  const releaseOrder = [...conflictOrder, roles.third];
+  for (const author of releaseOrder) {
+    actions.push(release(author, "outbound", "fifo", false));
+  }
+  for (const author of releaseOrder) {
+    actions.push(release(
+      author,
+      "inbound",
+      author === "upstream" ? "fifo" : inboundOrder,
+      false,
+    ));
+  }
+  if (template === "array-nested-reconnect" || (index + seed) % 5 === 4) {
+    actions.push({
+      type: "checkpoint",
+      label: "before-reconnect",
+      stage: "quiescent",
+      preconditions: { connected: [...implementations] },
+    });
+    actions.push({
+      type: "disconnect",
+      author: roles.reload,
+      preconditions: connected(roles.reload),
+    });
+    actions.push({
+      type: "reconnect",
+      author: roles.reload,
+      preconditions: { disconnected: [roles.reload] },
+    });
+  }
+  if ((index + seed) % 7 === 6) {
+    actions.push({
+      type: "checkpoint",
+      label: "before-publish",
+      stage: "quiescent",
+      preconditions: { connected: [...implementations] },
+    });
+    actions.push({
+      type: "summarize",
+      author: roles.first,
+      preconditions: { connected: [...implementations], quiescent: true },
+    });
+    actions.push({
+      type: "reload",
+      author: roles.reload,
+      preconditions: {
+        connected: [...implementations],
+        summaryAvailable: true,
+      },
+    });
+  }
+  actions.push({
+    type: "checkpoint",
+    label: "settled",
+    stage: "quiescent",
+    preconditions: { connected: [...implementations] },
+  });
+  return actions;
+}
+
+function generateSchedule({ seed, index, profile }) {
+  const subSeed = scheduleSubSeed(seed, index);
+  let state = subSeed;
+  const random = () => {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    return state >>>= 0;
+  };
+  const templates = profile === "map"
+    ? mapSeededTemplates
+    : profile === "array" ? arraySeededTemplates : seededTemplates;
+  const template = templates[random() % templates.length];
+  const rotation = (seed + index + 1) % implementations.length;
+  const authors = [
+    ...implementations.slice(rotation),
+    ...implementations.slice(0, rotation),
+  ];
+  const roles = {
+    first: authors[0],
+    second: authors[1],
+    third: authors[2],
+    reload: authors[0],
+  };
+  return {
+    formatVersion: 1,
+    profile,
+    index,
+    seed,
+    subSeed,
+    template,
+    authors: [...implementations],
+    roles,
+    actions: profile === "map"
+      ? generatedMapActions(seed, index, template, roles, random)
+      : profile === "array"
+        ? generatedArrayActions(seed, index, template, roles, random)
+        : generatedActions(seed, index, template, roles, random),
+  };
+}
+
 export function generateSchedules({ seed, iterations }) {
   assert(Number.isSafeInteger(seed) && seed >= 0 && seed <= 0xffff_ffff,
     "Schedule seed must be an unsigned 32-bit integer");
   assert(Number.isSafeInteger(iterations) && iterations >= 0,
     "Schedule iterations must be a nonnegative integer");
+  const legacyCount = 2 * Math.floor(iterations / 3);
   return Array.from({ length: iterations }, (_, index) => {
-    const subSeed = scheduleSubSeed(seed, index);
-    let state = subSeed;
-    const random = () => {
-      state ^= state << 13;
-      state ^= state >>> 17;
-      state ^= state << 5;
-      return state >>>= 0;
-    };
-    const profile = index % 2 === 0 ? "object" : "map";
-    const templates = profile === "map" ? mapSeededTemplates : seededTemplates;
-    const template = templates[random() % templates.length];
-    const rotation = (seed + index + 1) % implementations.length;
-    const authors = [
-      ...implementations.slice(rotation),
-      ...implementations.slice(0, rotation),
-    ];
-    const roles = {
-      first: authors[0],
-      second: authors[1],
-      third: authors[2],
-      reload: authors[0],
-    };
-    return {
-      formatVersion: 1,
-      profile,
-      index,
-      seed,
-      subSeed,
-      template,
-      authors: [...implementations],
-      roles,
-      actions: profile === "map"
-        ? generatedMapActions(seed, index, template, roles, random)
-        : generatedActions(seed, index, template, roles, random),
-    };
+    const profile = index < legacyCount
+      ? (index % 2 === 0 ? "object" : "map")
+      : "array";
+    return generateSchedule({ seed, index, profile });
   });
 }
 
@@ -694,10 +887,13 @@ function validateSchedule(schedule) {
   assert(Number.isSafeInteger(schedule.seed)
     && schedule.seed >= 0 && schedule.seed <= 0xffff_ffff,
   "Seeded schedule has an invalid seed");
-  const expected = generateSchedules({
+  assert(["object", "map", "array"].includes(schedule.profile),
+    "Seeded schedule has an invalid profile");
+  const expected = generateSchedule({
     seed: schedule.seed,
-    iterations: schedule.index + 1,
-  })[schedule.index];
+    index: schedule.index,
+    profile: schedule.profile,
+  });
   assert.deepEqual(schedule, expected, "Seeded schedule expansion or path is invalid");
   return schedule;
 }
@@ -734,8 +930,15 @@ export function validateReplayArtifact(artifact, expected) {
     assert(Array.isArray(identity.clientIds), "Replay identity lacks client IDs");
     assert(Array.isArray(identity.originatorIds), "Replay identity lacks originator IDs");
   }
-  assert(Array.isArray(artifact.checkpoints),
+  assert(Array.isArray(artifact.checkpoints) && artifact.checkpoints.length > 0,
     "Replay artifact lacks checkpoints");
+  if (artifact.profile === "array") {
+    assert(artifact.checkpoints.some(({ stage }) => stage === "intermediate"),
+      "Array replay artifact lacks an intermediate checkpoint");
+    assert(typeof artifact.firstDifferencePath === "string"
+      && artifact.firstDifferencePath.length > 0,
+    "Array replay artifact lacks the first difference path");
+  }
   assert(Array.isArray(artifact.rawSequencedOperations),
   "Replay artifact lacks sequenced operations");
   assert(Array.isArray(artifact.summaries), "Replay artifact lacks summaries");
@@ -805,6 +1008,56 @@ function mapRootValue(root) {
       kind: "object",
       schemaId: "org.watershed.shared-tree.m2.Root",
       fields: [["items", mapTreeValue(root.items)]],
+    },
+  };
+}
+
+function arrayTreeValue(value) {
+  if (value === null) return { kind: "null" };
+  if (typeof value === "string") return { kind: "string", value };
+  if (typeof value === "number") return { kind: "number", value };
+  if (typeof value === "boolean") return { kind: "boolean", value };
+  if (value instanceof ArrayPoint) {
+    return {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m3.Point",
+      fields: [
+        ["label", arrayTreeValue(value.label)],
+        ["x", arrayTreeValue(value.x)],
+      ],
+    };
+  }
+  if (value instanceof Items || value instanceof Points) {
+    return {
+      kind: "array",
+      schemaId: value instanceof Points
+        ? "org.watershed.shared-tree.m3.Points"
+        : "org.watershed.shared-tree.m3.Items",
+      elements: [...value].map(arrayTreeValue),
+    };
+  }
+  if (value instanceof ArrayMap) {
+    return {
+      kind: "map",
+      schemaId: "org.watershed.shared-tree.m3.ArrayMap",
+      entries: [...value.entries()].map(([key, item]) => [key, arrayTreeValue(item)]),
+    };
+  }
+  throw new TypeError("Unsupported upstream array value");
+}
+
+function arrayRootValue(root) {
+  return {
+    present: true,
+    value: {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m3.Root",
+      fields: [
+        ["byKey", arrayTreeValue(root.byKey)],
+        ["left", arrayTreeValue(root.left)],
+        ["narrow", arrayTreeValue(root.narrow)],
+        ["right", arrayTreeValue(root.right)],
+      ],
     },
   };
 }
@@ -905,6 +1158,54 @@ function upstreamMapValue(value) {
   }
 }
 
+function upstreamArrayValue(value) {
+  assert(value && typeof value === "object", "Array value must be tagged");
+  switch (value.kind) {
+    case "null":
+      return null;
+    case "string":
+    case "number":
+    case "boolean":
+      return value.value;
+    case "object": {
+      assert.equal(
+        value.schemaId,
+        "org.watershed.shared-tree.m3.Point",
+        "Unsupported array object schema",
+      );
+      const fields = Object.fromEntries(value.fields);
+      assert.deepEqual(Object.keys(fields).sort(), ["label", "x"]);
+      return new ArrayPoint({
+        label: upstreamArrayValue(fields.label),
+        x: upstreamArrayValue(fields.x),
+      });
+    }
+    case "array": {
+      const values = value.elements.map(upstreamArrayValue);
+      if (value.schemaId === "org.watershed.shared-tree.m3.Items") {
+        return new Items(values);
+      }
+      if (value.schemaId === "org.watershed.shared-tree.m3.Points") {
+        return new Points(values);
+      }
+      throw new TypeError(`Unsupported array schema: ${value.schemaId}`);
+    }
+    case "map": {
+      assert.equal(
+        value.schemaId,
+        "org.watershed.shared-tree.m3.ArrayMap",
+        "Unsupported array map schema",
+      );
+      const keys = value.entries.map(([key]) => key);
+      assert.equal(new Set(keys).size, keys.length, "Duplicate array map key");
+      return new ArrayMap(value.entries.map(([key, item]) =>
+        [key, upstreamArrayValue(item)]));
+    }
+    default:
+      throw new TypeError(`Unsupported array value kind: ${value.kind}`);
+  }
+}
+
 function mapTreeValue(value) {
   if (value === null) return { kind: "null" };
   if (typeof value === "string") return { kind: "string", value };
@@ -935,6 +1236,16 @@ function mapAt(root, path) {
   const value = path.reduce((node, segment) =>
     node instanceof DynamicMap ? node.get(segment) : node[segment], root);
   assert(value instanceof DynamicMap, `Path is not a dynamic map: ${path.join(".")}`);
+  return value;
+}
+
+function arrayAt(root, path) {
+  const value = path.reduce((node, segment) => {
+    if (node instanceof ArrayMap) return node.get(segment);
+    return node[segment];
+  }, root);
+  assert(value instanceof Items || value instanceof Points,
+    `Path is not an array: ${path.join(".")}`);
   return value;
 }
 
@@ -994,6 +1305,35 @@ export function upstreamAdapter(session) {
           .map(([key, value]) => [key, mapTreeValue(value)]),
       );
     },
+    async arrayGet(path, index) {
+      const array = arrayAt(session.data.view.root, path);
+      return index < array.length
+        ? { present: true, value: canonicalValue(arrayTreeValue(array[index])) }
+        : { present: false };
+    },
+    async arrayValues(path) {
+      return [...arrayAt(session.data.view.root, path)]
+        .map((value) => canonicalValue(arrayTreeValue(value)));
+    },
+    async arrayInsert(path, index, values) {
+      arrayAt(session.data.view.root, path).insertAt(
+        index,
+        ...values.map(upstreamArrayValue),
+      );
+    },
+    async arrayRemove(path, start, end) {
+      arrayAt(session.data.view.root, path).removeRange(start, end);
+    },
+    async arrayMove(sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) {
+      const source = arrayAt(session.data.view.root, sourcePath);
+      const destination = arrayAt(session.data.view.root, destinationPath);
+      destination.moveRangeToIndex(
+        destinationGap,
+        sourceStart,
+        sourceEnd,
+        source,
+      );
+    },
     async checkpoint() {
       if (session.container.clientId) clientIds.add(session.container.clientId);
       const captured = events.splice(0);
@@ -1003,9 +1343,13 @@ export function upstreamAdapter(session) {
         sequenceNumber: session.container.deltaManager.lastSequenceNumber,
         pendingTreeCount: pendingTreeCommits(session),
         inflightSubmissionCount: session.container.deltaManager.outbound.length,
-        wholeTree: canonicalValue(session.data.view.root.items instanceof DynamicMap
-          ? mapRootValue(session.data.view.root)
-          : rootValue(session.data.view.root)),
+        wholeTree: canonicalValue(
+          session.data.view.root instanceof ArrayRoot
+            ? arrayRootValue(session.data.view.root)
+            : session.data.view.root.items instanceof DynamicMap
+              ? mapRootValue(session.data.view.root)
+              : rootValue(session.data.view.root),
+        ),
         events: captured,
         clientId: session.container.clientId,
         connectionEvents: [...connectionEvents],
@@ -1137,6 +1481,27 @@ export async function nativeAdapter(
     },
     async mapEntries(path) {
       return canonicalMapEntries(await client.mapEntries(path));
+    },
+    async arrayGet(path, index) {
+      return canonicalValue(await client.arrayGet(path, index));
+    },
+    async arrayValues(path) {
+      return canonicalValue(await client.arrayValues(path));
+    },
+    async arrayInsert(path, index, values) {
+      await client.arrayInsert(path, index, values);
+    },
+    async arrayRemove(path, start, end) {
+      await client.arrayRemove(path, start, end);
+    },
+    async arrayMove(sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) {
+      await client.arrayMove(
+        sourcePath,
+        sourceStart,
+        sourceEnd,
+        destinationPath,
+        destinationGap,
+      );
     },
     async checkpoint() {
       const reply = success(await client.request({ command: "checkpoint" }),
@@ -2517,10 +2882,270 @@ async function runMapCell(config, context, cell) {
   }
 }
 
+async function applyArrayFamily(cell, adapters) {
+  const [first, second = first] = cell.authors;
+  const point = (label, x) => arrayPoint(`${cell.family}-${label}`, x);
+  switch (cell.family) {
+    case "array-independent-insert":
+      await adapters[first].arrayInsert(["left"], 1, [point(first, 10), point(first, 11)]);
+      await adapters[second].arrayInsert(["right"], 1, [point(second, 20), point(second, 21)]);
+      break;
+    case "array-same-gap-insert":
+      await adapters[first].arrayInsert(["left"], 1, [point(first, 10), point(first, 11)]);
+      await adapters[second].arrayInsert(["left"], 1, [point(second, 20), point(second, 21)]);
+      break;
+    case "array-insert-remove":
+      await adapters[first].arrayInsert(["left"], 1, [point(first, 10), point(first, 11)]);
+      await adapters[second].arrayRemove(["left"], 0, 2);
+      break;
+    case "array-overlapping-remove":
+      await adapters[first].arrayRemove(["left"], 0, 2);
+      await adapters[second].arrayRemove(["left"], 1, 3);
+      break;
+    case "array-move-child-edit":
+      await adapters[first].arrayMove(["left"], 0, 2, ["right"], 1);
+      await adapters[second].set(["left", "0", "x"], 42);
+      break;
+    case "array-move-delete":
+      await adapters[first].arrayMove(["left"], 0, 2, ["right"], 1);
+      await adapters[second].arrayRemove(["left"], 0, 2);
+      break;
+    case "array-competing-moves":
+      await adapters[first].arrayMove(["left"], 0, 2, ["right"], 1);
+      await adapters[second].arrayMove(["left"], 0, 2, ["right"], 2);
+      break;
+    case "array-overlapping-moves":
+      await adapters[first].arrayMove(["left"], 0, 2, ["right"], 1);
+      await adapters[second].arrayMove(["left"], 1, 3, ["right"], 1);
+      break;
+    case "array-cross-parent-move":
+      await adapters[first].arrayMove(["left"], 0, 2, ["right"], 1);
+      await adapters[second].arrayInsert(["left"], 1, [point(second, 20)]);
+      break;
+    case "array-ancestor-replace":
+      await adapters[first].arrayRemove(["left"], 2, 3);
+      await adapters[first].arrayInsert(["left"], 2, [{
+        kind: "array",
+        schemaId: "org.watershed.shared-tree.m3.Items",
+        elements: [point(first, 10)],
+      }]);
+      await adapters[second].set(["left", "2", "0", "x"], 42);
+      break;
+    case "array-recursive-map-path":
+      await adapters[first].mapSet(["byKey"], "nested", {
+        kind: "array",
+        schemaId: "org.watershed.shared-tree.m3.Items",
+        elements: [{
+          kind: "map",
+          schemaId: "org.watershed.shared-tree.m3.ArrayMap",
+          entries: [["point", point(first, 10)]],
+        }],
+      });
+      await adapters[second].mapSet(["byKey"], "", {
+        kind: "array",
+        schemaId: "org.watershed.shared-tree.m3.Items",
+        elements: [point(second, 20)],
+      });
+      break;
+    case "array-reconnect-pending":
+      await adapters[first].arrayInsert(["left"], 1, [point(first, 10), point(first, 11)]);
+      await adapters[first].disconnect();
+      await adapters[first].reconnect();
+      break;
+    case "array-summary-tail":
+      await adapters[first].arrayMove(["left"], 0, 2, ["right"], 1);
+      break;
+    default:
+      assert.fail(`Unknown array family: ${cell.family}`);
+  }
+}
+
+async function runArrayCell(config, context, cell) {
+  const containers = [];
+  const natives = [];
+  let scenarioError;
+  try {
+    const creator = await openSession(
+      config,
+      containers,
+      undefined,
+      false,
+      { store: arrayServiceStore },
+    );
+    const documentId = creator.container.resolvedUrl.id;
+    await publishUpstreamSummary(
+      config,
+      containers,
+      documentId,
+      `Task 11 ${cell.id} bootstrap`,
+      { store: arrayServiceStore },
+    );
+    const upstreamSession = await openSession(
+      config,
+      containers,
+      documentId,
+      false,
+      { store: arrayServiceStore },
+    );
+    const upstream = upstreamAdapter(upstreamSession);
+    const { jwt } = await tokenProvider(config)
+      .fetchOrdererToken(config.tenantId, documentId);
+    for (const target of nativeTargets) {
+      natives.push(await nativeAdapter(target, config, {
+        runId: context.runId,
+        documentId,
+        tenant: config.tenantId,
+        viewSchema: context.arrayViewSchema,
+      }, jwt));
+    }
+    const adapters = {
+      upstream,
+      javascript: natives[0],
+      erlang: natives[1],
+    };
+    await upstream.arrayInsert(["left"], 0, [
+      arrayPoint("duplicate", 1),
+      arrayPoint("duplicate", 1),
+      {
+        kind: "array",
+        schemaId: "org.watershed.shared-tree.m3.Items",
+        elements: [arrayPoint("nested", 2)],
+      },
+    ]);
+    await upstream.arrayInsert(["right"], 0, [
+      {
+        kind: "map",
+        schemaId: "org.watershed.shared-tree.m3.ArrayMap",
+        entries: [["inside", arrayPoint("map-child", 3)]],
+      },
+    ]);
+    await upstream.mapSet(["byKey"], "", {
+      kind: "array",
+      schemaId: "org.watershed.shared-tree.m3.Items",
+      elements: [],
+    });
+    await upstream.mapSet(["byKey"], "0", {
+      kind: "array",
+      schemaId: "org.watershed.shared-tree.m3.Items",
+      elements: [arrayPoint("numeric", 0)],
+    });
+    const initial = await settle(adapters);
+    initial.label = "initial";
+    const retained = [
+      upstreamSession.data.view.root.left[0],
+      upstreamSession.data.view.root.left[1],
+    ];
+    const authoredPrefixes = [];
+    for (const author of cell.authors) {
+      const checkpoint = await adapters[author].checkpoint();
+      authoredPrefixes.push({
+        author,
+        referenceSequenceNumber: checkpoint.sequenceNumber,
+      });
+      await adapters[author].holdOutbound();
+    }
+    await applyArrayFamily(cell, adapters);
+    const optimistic = await captureCheckpoint("optimistic", "intermediate", adapters);
+    const releaseOrder = cell.order === null
+      ? cell.authors
+      : [
+        cell.order.slice(0, -"-first".length),
+        ...cell.authors.filter((author) =>
+          author !== cell.order.slice(0, -"-first".length)),
+      ];
+    for (const author of releaseOrder) {
+      await adapters[author].releaseOutbound();
+    }
+    const settled = await settle(adapters);
+    settled.label = "settled";
+    if (cell.family === "array-summary-tail") {
+      await publishUpstreamSummary(
+        config,
+        containers,
+        documentId,
+        `Task 11 ${cell.id} selected summary`,
+        { store: arrayServiceStore },
+      );
+      await adapters[cell.authors[0]].set(["right", "1", "x"], 42);
+      await adapters[cell.authors[0]].arrayInsert(
+        ["right"],
+        3,
+        [arrayPoint("tail", 99)],
+      );
+      await settle(adapters);
+    }
+    const history = await serverHistory(creator);
+    const decoded = decodedEvidence(history, adapters, cell.authors);
+    const final = await adapters.upstream.checkpoint();
+    const movedReferences = retained.map((reference) => {
+      const root = upstreamSession.data.view.root;
+      return [...root.left, ...root.right].includes(reference);
+    });
+    const item = {
+      ...cell,
+      runId: context.runId,
+      profileDigest: context.profileDigest,
+      documentId,
+      instanceIds: Object.fromEntries(implementations.map((implementation) =>
+        [implementation, adapters[implementation].instanceId])),
+      authorCoverage: [...cell.authors],
+      checkpoints: [initial, optimistic, settled],
+      evidence: {
+        authoredPrefixes,
+        submissions: decoded.submissions,
+        notifications: {
+          intermediateLocalAuthors: [...cell.authors],
+          settledRemoteObservers: implementations.filter(
+            (implementation) => !cell.authors.includes(implementation),
+          ),
+        },
+        array: {
+          finalTree: final.wholeTree,
+          retainedObjectReferences: movedReferences,
+          childEditObserved: JSON.stringify(final.wholeTree).includes("42"),
+        },
+      },
+      artifacts: [],
+      passed: true,
+      skipped: false,
+    };
+    item.artifacts = [await writeArtifact(context, item, {
+      history,
+      decoded: decoded.decoded,
+      gates: Object.fromEntries(nativeTargets.map((target) =>
+        [target, adapters[target].evidence()])),
+    })];
+    return item;
+  } catch (error) {
+    scenarioError = error;
+    throw error;
+  } finally {
+    const cleanupErrors = [];
+    for (const native of natives.toReversed()) {
+      try {
+        await native.close();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const container of containers.toReversed()) {
+      try {
+        if (!container.closed) container.dispose();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      if (scenarioError) scenarioError.cleanupErrors = cleanupErrors;
+      else throw new AggregateError(cleanupErrors, `Cleanup failed for ${cell.id}`);
+    }
+  }
+}
+
 export async function runDeterministicCases(
   config,
   context,
-  { runObject = runCell, runMap = runMapCell } = {},
+  { runObject = runCell, runMap = runMapCell, runArray = runArrayCell } = {},
 ) {
   assert(typeof context?.runId === "string" && context.runId.length > 0,
     "runDeterministicCases context requires runId");
@@ -2530,12 +3155,17 @@ export async function runDeterministicCases(
     "runDeterministicCases context requires viewSchema");
   assert(typeof context.mapViewSchema === "string" && context.mapViewSchema.length > 0,
     "runDeterministicCases context requires mapViewSchema");
+  assert(typeof context.arrayViewSchema === "string" && context.arrayViewSchema.length > 0,
+    "runDeterministicCases context requires arrayViewSchema");
   assert(typeof context.artifactDirectory === "string"
     && context.artifactDirectory.length > 0,
   "runDeterministicCases context requires artifactDirectory");
   const results = [];
   for (const cell of requiredScenarioCells()) {
-    results.push(await (cell.profile === "map" ? runMap : runObject)(
+    const execute = cell.profile === "map"
+      ? runMap
+      : cell.profile === "array" ? runArray : runObject;
+    results.push(await execute(
       config,
       context,
       cell,
@@ -2723,8 +3353,12 @@ export async function freshReload(
     profile = "object",
   } = {},
 ) {
-  const store = profile === "map" ? mapServiceStore : undefined;
-  const viewSchema = profile === "map" ? context.mapViewSchema : context.viewSchema;
+  const store = profile === "map"
+    ? mapServiceStore
+    : profile === "array" ? arrayServiceStore : undefined;
+  const viewSchema = profile === "map"
+    ? context.mapViewSchema
+    : profile === "array" ? context.arrayViewSchema : context.viewSchema;
   if (author === "upstream") {
     const containers = [];
     let failure;
@@ -2838,6 +3472,21 @@ export async function executeScheduleAction(
   } else if (action.type === "map-delete") {
     await adapters[action.author].mapDelete(action.path, action.key);
     state.quiescent = false;
+  } else if (action.type === "array-insert") {
+    await adapters[action.author].arrayInsert(action.path, action.index, action.values);
+    state.quiescent = false;
+  } else if (action.type === "array-remove") {
+    await adapters[action.author].arrayRemove(action.path, action.start, action.end);
+    state.quiescent = false;
+  } else if (action.type === "array-move") {
+    await adapters[action.author].arrayMove(
+      action.sourcePath,
+      action.sourceStart,
+      action.sourceEnd,
+      action.destinationPath,
+      action.destinationGap,
+    );
+    state.quiescent = false;
   } else if (action.type === "hold-inbound") {
     await adapters[action.author].holdInbound();
     state.held[action.author].inbound = true;
@@ -2909,7 +3558,9 @@ export async function executeScheduleAction(
         state.containers,
         state.documentId,
         `Task 6 seeded ${schedule.index}`,
-        schedule.profile === "map" ? { store: mapServiceStore } : undefined,
+        schedule.profile === "map"
+          ? { store: mapServiceStore }
+          : schedule.profile === "array" ? { store: arrayServiceStore } : undefined,
       )
       : await adapters[action.author].summarize();
     state.summaries.push({
@@ -2944,6 +3595,11 @@ export async function runSeededSchedule(config, context, schedule) {
       && context.mapViewSchema.length > 0,
     "runSeededSchedule context requires mapViewSchema");
   }
+  if (schedule.profile === "array") {
+    assert(typeof context.arrayViewSchema === "string"
+      && context.arrayViewSchema.length > 0,
+    "runSeededSchedule context requires arrayViewSchema");
+  }
   const state = {
     adapters: undefined,
     checkpoints: [],
@@ -2966,7 +3622,9 @@ export async function runSeededSchedule(config, context, schedule) {
   };
   let scheduleError;
   try {
-    const store = schedule.profile === "map" ? mapServiceStore : undefined;
+    const store = schedule.profile === "map"
+      ? mapServiceStore
+      : schedule.profile === "array" ? arrayServiceStore : undefined;
     state.creator = await openSession(
       config,
       state.containers,
@@ -2999,7 +3657,9 @@ export async function runSeededSchedule(config, context, schedule) {
         tenant: config.tenantId,
         viewSchema: schedule.profile === "map"
           ? context.mapViewSchema
-          : context.viewSchema,
+          : schedule.profile === "array"
+            ? context.arrayViewSchema
+            : context.viewSchema,
       }, jwt));
     }
     state.adapters = {
@@ -3113,6 +3773,10 @@ export async function runSeededSchedules(config, context, schedules) {
       generated: schedules.length,
       executed: results.length,
       seed: schedules[0]?.seed,
+      profiles: Object.fromEntries(["object", "map", "array"].map((profile) => [
+        profile,
+        results.filter((result) => result.profile === profile).length,
+      ])),
     },
   };
 }
@@ -3157,6 +3821,19 @@ export async function replayFailure(config, context, artifact) {
     };
   } catch (error) {
     if (!error.failurePath) throw error;
+    if (!error.checkpoint) {
+      return {
+        mode: "replay",
+        accepted: false,
+        reproduced: false,
+        originalRunId: artifact.runId,
+        originalDocumentId: artifact.originalDocumentId,
+        originalIdentityMapping: artifact.identityMapping,
+        replayIdentityMapping: undefined,
+        diagnostic: replayError(error),
+        failurePath: error.failurePath,
+      };
+    }
     const replayArtifact = await loadReplayArtifact(error.failurePath, {
       profileDigest: context.profileDigest,
     });
@@ -3301,6 +3978,29 @@ function operationTransform(caseId, invalidProfile) {
       assert(inner, `${caseId} injection found no SharedTree message`);
       inner.changeset = structuredClone(source.message.contents.changeset);
       message.contents = encodedLike(message.contents, contents);
+    } else if ([
+      "malformed-sequence-payload",
+      "malformed-range-count",
+      "missing-range-endpoint",
+      "bad-child-ownership",
+      "invalid-sequence-content",
+    ].includes(caseId)) {
+      const contents = parsed(message.contents);
+      const inner = treeMessage(contents);
+      assert(inner, `${caseId} injection found no SharedTree message`);
+      const malformed = {
+        "malformed-sequence-payload": { sequence: "not-an-array" },
+        "malformed-range-count": { sequence: { start: 0, end: 2, count: 3 } },
+        "missing-range-endpoint": { sequence: { start: 0 } },
+        "bad-child-ownership": {
+          sequence: { start: 0, end: 1, child: { owner: "another-field" } },
+        },
+        "invalid-sequence-content": {
+          sequence: { start: 0, end: 1, content: { kind: "unknown" } },
+        },
+      };
+      inner.changeset = [malformed[caseId]];
+      message.contents = encodedLike(message.contents, contents);
     } else if (caseId === "malformed-allocation-range") {
       const source = mutations.find(({ operation }) => operation === "finalizeCreationRange");
       const original = parsed(message.contents);
@@ -3371,6 +4071,25 @@ function storageTransform(caseId) {
         status: 404,
         bytes: Buffer.from(JSON.stringify({ error: "missing forest blob" })),
       };
+    }
+    if (caseId === "corrupt-retained-summary") {
+      if (typeof body?.content !== "string") return undefined;
+      let decoded;
+      try {
+        decoded = JSON.parse(
+          Buffer.from(body.content, body.encoding ?? "base64").toString("utf8"),
+        );
+      } catch {
+        return undefined;
+      }
+      if (!decoded || typeof decoded !== "object") return undefined;
+      decoded.corruptSequenceRetainedState = {
+        field: "DetachedFieldIndex",
+        range: [2, 1],
+      };
+      body.content = Buffer.from(JSON.stringify(decoded)).toString("base64");
+      body.encoding = "base64";
+      return { ...payload, bytes: Buffer.from(JSON.stringify(body)) };
     }
     assert.fail(`Unknown storage injection: ${caseId}`);
   };
@@ -3603,7 +4322,7 @@ async function expectedStartupFailure(
 
 async function runStoredSchemaFailure(config, context, cell, control) {
   const containers = [];
-  const kind = cell.caseId === "unsupported-array-schema" ? "array" : "map";
+  const kind = "map";
   try {
     const store = excludedStores[kind];
     const creator = await openSession(config, containers, undefined, false, { store });

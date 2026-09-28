@@ -26,8 +26,8 @@ import {
   upstreamAdapter,
 } from "./interop-scenarios.mjs";
 import {
-  mapServiceStore, openSession, preflight, serviceConfig, tokenProvider,
-  withLocalFloodgate,
+  arrayServiceStore, mapServiceStore, openSession, preflight, serviceConfig,
+  tokenProvider, withLocalFloodgate,
 } from "./service.mjs";
 import { makeEnvironment, publishSummary, readSnapshot } from "./container-corpus.mjs";
 import { captureSource, reference } from "./source.mjs";
@@ -412,6 +412,96 @@ export function validateMapResults(results) {
   return results;
 }
 
+export function validateArrayResults(results) {
+  assert(results && typeof results === "object" && !Array.isArray(results),
+    "Array summary interop needs a nested reload matrix");
+  assert.deepEqual(Object.keys(results).sort(), [...implementations].sort(),
+    "Array summary interop needs all three writers");
+  const readerInstances = new Set();
+  for (const writer of implementations) {
+    assert.deepEqual(Object.keys(results[writer] ?? {}).sort(),
+      [...implementations].sort(),
+    `Array summary interop needs all three readers for ${writer}`);
+    for (const reader of implementations) {
+      const cell = results[writer][reader];
+      assert.equal(cell.profile, "array", "Array reload has another profile");
+      assert.equal(cell.writer, writer, "Invalid array writer identity");
+      assert.equal(cell.reader, reader, "Invalid array reader identity");
+      assert(typeof cell.runId === "string" && cell.runId.length > 0,
+        "Missing array reload run ID");
+      assert.match(cell.profileDigest, /^[0-9a-f]{64}$/,
+        "Missing array reload profile digest");
+      assert(typeof cell.documentId === "string" && cell.documentId.length > 0,
+        "Missing array reload document ID");
+      assert(typeof cell.writerVersion === "string" && cell.writerVersion.length > 0,
+        "Missing array writer version");
+      assert.equal(cell.loadedVersion, cell.writerVersion,
+        "Array reload selected another version");
+      assert(typeof cell.readerInstanceId === "string"
+        && cell.readerInstanceId.length > 0, "Missing fresh array reader instance");
+      assert(!readerInstances.has(cell.readerInstanceId),
+        "Array reload reused a reader instance");
+      readerInstances.add(cell.readerInstanceId);
+      assert(Number.isSafeInteger(cell.snapshotSequenceNumber)
+        && Number.isSafeInteger(cell.dataEditSequenceNumber)
+        && Number.isSafeInteger(cell.publicationSequenceNumber)
+        && Number.isSafeInteger(cell.tailSequenceNumber)
+        && cell.snapshotSequenceNumber < cell.dataEditSequenceNumber
+        && cell.dataEditSequenceNumber < cell.publicationSequenceNumber
+        && cell.publicationSequenceNumber < cell.tailSequenceNumber,
+      "Array reload has invalid summary and tail sequencing");
+      assert(Number.isSafeInteger(cell.replayStartSequenceNumber)
+        && cell.replayStartSequenceNumber >= cell.snapshotSequenceNumber,
+      "Array reload fell back to origin replay");
+      assert(reader === "upstream"
+        ? cell.replayEvidence === "upstream-delta-storage"
+        : ["native-delivery", "native-handshake"].includes(cell.replayEvidence),
+      "Array reload lacks measured replay evidence");
+      assert(Array.isArray(cell.selectedSummaryRequests)
+        && cell.selectedSummaryRequests.includes(cell.loadedVersion),
+      "Array reload did not request the selected summary");
+      assert.equal(cell.scenarioId, "array-summary-tail-retained");
+      assert.equal(cell.loaded, true);
+      assert.equal(cell.tailObserved, true);
+      assert.equal(cell.continuedEditing, true);
+      assert.equal(cell.peerObservedEdit, true);
+      assert.equal(cell.pendingTreeCount, 0);
+      assert.equal(cell.inflightSubmissionCount, 0);
+      assert.deepEqual(cell.wholeTree, expectedArrayTree(writer),
+        "Array reload loaded another tagged tree");
+      assert(typeof cell.continuationLabel === "string"
+        && cell.continuationLabel.startsWith(`${writer}-${reader}-`),
+      "Array reload lacks the exact continuation label");
+      assert.deepEqual(cell.continuationTree,
+        expectedArrayTree(writer, cell.continuationLabel),
+        "Array reload continuation has another value or order");
+      assert.deepEqual(cell.continuationTree, cell.peerWholeTree,
+        "Array reload continuation differs from the independent peer");
+      assert(Array.isArray(cell.retained?.removed)
+        && cell.retained.removed.length > 0,
+      "Array reload lacks retained deleted content");
+      assert.equal(cell.retained.movedIdentity?.before,
+        cell.retained.movedIdentity?.after,
+      "Array reload lost moved object identity");
+      assert.equal(cell.retained.movedIdentity?.upstreamReferencePreserved, true,
+        "Array reload lost the moved upstream object reference");
+      assert.equal(cell.retained.movedIdentity?.childEditObserved, true,
+        "Array reload lacks the moved-child edit proof");
+      assert.equal(cell.retained.summaryConsumed, true,
+        "Array retained-state verifier did not consume the summary");
+      const continuation = cell.continuationIdentity;
+      assert(typeof continuation?.clientId === "string"
+        && Number.isSafeInteger(continuation.referenceSequenceNumber)
+        && Array.isArray(continuation.revisions)
+        && continuation.revisions.length > 0,
+      "Array reload lacks continuation identity");
+      assert(Array.isArray(cell.artifacts) && cell.artifacts.length > 0,
+        "Missing array reload artifact");
+    }
+  }
+  return results;
+}
+
 function validateFocusedResults(results) {
   const requiredPairs = implementations.flatMap((writer) =>
     implementations.map((reader) => `${writer}->${reader}`));
@@ -691,6 +781,22 @@ async function writeMapReloadArtifact(context, item, raw) {
   return relative;
 }
 
+async function writeArrayReloadArtifact(context, item, raw) {
+  const relative = `array-reload/${item.writer}-${item.reader}.json`;
+  const path = join(context.artifactDirectory, relative);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({
+    formatVersion: 1,
+    runId: context.runId,
+    profileDigest: context.profileDigest,
+    kind: "array-reload",
+    subject: `${item.writer}->${item.reader}`,
+    documentId: item.documentId,
+    measured: reloadMeasuredPayload(item),
+    raw,
+  })}\n`, { mode: 0o600 });
+  return relative;
+}
 export function loadRequests(evidence, version, snapshotSequenceNumber) {
   assert(Number.isSafeInteger(snapshotSequenceNumber) && snapshotSequenceNumber >= 0,
     "Native reader lacks a selected-summary sequence");
@@ -1405,6 +1511,377 @@ export function mapEntryMatches(root, key, expected) {
   return false;
 }
 
+const arrayPointValue = (label, x) => ({
+  kind: "object",
+  schemaId: "org.watershed.shared-tree.m3.Point",
+  fields: [
+    ["label", { kind: "string", value: label }],
+    ["x", { kind: "number", value: x }],
+  ],
+});
+
+const arrayItemsValue = (elements) => ({
+  kind: "array",
+  schemaId: "org.watershed.shared-tree.m3.Items",
+  elements,
+});
+
+const arrayMapValue = (entries) => ({
+  kind: "map",
+  schemaId: "org.watershed.shared-tree.m3.ArrayMap",
+  entries,
+});
+
+function expectedArrayTree(writer, continuationLabel = undefined) {
+  const moved = continuationLabel === undefined
+    ? arrayPointValue("moved", 4)
+    : arrayPointValue(continuationLabel, 42);
+  return {
+    present: true,
+    value: {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m3.Root",
+      fields: [
+        ["byKey", arrayMapValue([
+          ["", arrayItemsValue([])],
+          ["0", arrayItemsValue([arrayPointValue("numeric", 0)])],
+        ])],
+        ["left", arrayItemsValue([
+          ...(continuationLabel === undefined ? [] : [moved]),
+          arrayPointValue("duplicate", 1),
+          arrayPointValue("duplicate", 1),
+          arrayItemsValue([arrayPointValue("nested", 2)]),
+        ])],
+        ["narrow", {
+          kind: "array",
+          schemaId: "org.watershed.shared-tree.m3.Points",
+          elements: [],
+        }],
+        ["right", arrayItemsValue([
+          arrayMapValue([["inside", arrayPointValue("map-child", 3)]]),
+          ...(continuationLabel === undefined ? [moved] : []),
+          arrayPointValue(`after-summary-${writer}`, 7),
+        ])],
+      ],
+    },
+  };
+}
+
+async function readArrayCell(config, context, row, reader) {
+  const containers = [];
+  let adapter;
+  let readError;
+  try {
+    const headBefore = await publishedVersion(config, row.documentId, row.jwt);
+    assert.equal(headBefore, row.version, "Array writer head changed before reload");
+    let load;
+    let rawLoad;
+    if (reader === "upstream") {
+      const session = await openSession(
+        config,
+        containers,
+        row.documentId,
+        false,
+        { cache: false, observeStorage: true, store: arrayServiceStore },
+      );
+      adapter = upstreamAdapter(session);
+      await adapter.awaitSynced(row.publicationSequenceNumber);
+      load = storageLoad(session.storageObservations, row.version);
+      rawLoad = session.storageObservations;
+    } else {
+      adapter = await nativeAdapter(reader, config, {
+        runId: context.runId,
+        documentId: row.documentId,
+        tenant: config.tenantId,
+        viewSchema: context.arrayViewSchema,
+      }, row.jwt);
+      await adapter.awaitSynced(row.publicationSequenceNumber);
+      rawLoad = adapter.evidence();
+      load = loadRequests(rawLoad, row.version, row.snapshotSequenceNumber);
+    }
+    assert(load.replayStartSequenceNumber >= row.snapshotSequenceNumber,
+      "Fresh array reader replayed from before the selected summary");
+    const loaded = await adapter.checkpoint();
+    const expected = await row.observerAdapter.checkpoint();
+    assert.deepEqual(loaded.wholeTree, expected.wholeTree,
+      `${reader} loaded a different array root`);
+    assert((await adapter.arrayValues(["right"]))
+      .some((value) => JSON.stringify(value) === JSON.stringify(row.tailValue)),
+    `${reader} missed the post-summary array tail`);
+
+    const continuationLabel = `${row.writer}-${reader}-${randomUUID()}`;
+    const baseline = loaded.sequenceNumber;
+    await adapter.arrayMove(["right"], 1, 2, ["left"], 0);
+    await adapter.set(["left", "0", "label"], continuationLabel);
+    await adapter.set(["left", "0", "x"], 42);
+    await adapter.awaitSynced();
+    const continuation = await acknowledgedSubmission(
+      row.observer,
+      adapter,
+      baseline,
+      reader,
+    );
+    const continuationCheckpoint = await adapter.checkpoint();
+    const peer = await openSession(
+      config,
+      containers,
+      row.documentId,
+      false,
+      { cache: false, store: arrayServiceStore },
+    );
+    const peerAdapter = upstreamAdapter(peer);
+    await peerAdapter.awaitSynced(continuation.outerSequenceNumber);
+    const peerCheckpoint = await peerAdapter.checkpoint();
+    assert.deepEqual(peerCheckpoint.wholeTree, continuationCheckpoint.wholeTree,
+      `${reader} array continuation differs on an independent peer`);
+    const history = await serverHistory(row.observer);
+    const headAfter = await publishedVersion(config, row.documentId, row.jwt);
+    assert.equal(headAfter, row.version, "Array reader unexpectedly changed the writer head");
+    const item = {
+      runId: context.runId,
+      profileDigest: context.profileDigest,
+      profile: "array",
+      writer: row.writer,
+      reader,
+      writerVersion: row.version,
+      loadedVersion: load.loadedVersion,
+      readerInstanceId: adapter.instanceId,
+      snapshotSequenceNumber: row.snapshotSequenceNumber,
+      dataEditSequenceNumber: row.dataEditSequenceNumber,
+      publicationSequenceNumber: row.publicationSequenceNumber,
+      tailSequenceNumber: row.tailSequenceNumber,
+      replayWatermark: continuationCheckpoint.sequenceNumber,
+      replayStartSequenceNumber: load.replayStartSequenceNumber,
+      replayEvidence: load.replayEvidence,
+      selectedSummaryRequests: load.selectedSummaryRequests,
+      scenarioId: "array-summary-tail-retained",
+      loaded: true,
+      tailObserved: true,
+      continuedEditing: true,
+      peerObservedEdit: true,
+      pendingTreeCount: continuationCheckpoint.pendingTreeCount,
+      inflightSubmissionCount: continuationCheckpoint.inflightSubmissionCount,
+      wholeTree: loaded.wholeTree,
+      continuationTree: continuationCheckpoint.wholeTree,
+      peerWholeTree: peerCheckpoint.wholeTree,
+      continuationLabel,
+      documentId: row.documentId,
+      writerVersionBeforeLoad: headBefore,
+      writerVersionAfterLoad: headAfter,
+      retained: {
+        ...row.retained,
+        movedIdentity: {
+          ...row.retained.movedIdentity,
+          childEditObserved: JSON.stringify(peerCheckpoint.wholeTree)
+            .includes(continuationLabel),
+        },
+      },
+      continuationIdentity: continuationIdentity(
+        history,
+        adapter,
+        continuation.outerSequenceNumber,
+      ),
+      artifacts: [],
+    };
+    item.artifacts = [await writeArrayReloadArtifact(context, item, {
+      load: rawLoad,
+      history,
+      retainedLoad: row.retainedLoad,
+    })];
+    return item;
+  } catch (error) {
+    readError = error;
+    throw error;
+  } finally {
+    const cleanup = [];
+    if (reader === "upstream") {
+      for (const container of containers.toReversed()) {
+        if (!container.closed) cleanup.push(() => container.dispose());
+      }
+    } else if (adapter) {
+      cleanup.push(() => adapter.close());
+      for (const container of containers.toReversed()) {
+        if (!container.closed) cleanup.push(() => container.dispose());
+      }
+    }
+    await cleanupAll(readError, `${reader} array reload reader cleanup failed`, cleanup);
+  }
+}
+
+async function runArrayWriterRow(config, context, writer) {
+  const containers = [];
+  const natives = [];
+  let rowError;
+  try {
+    const creator = await openSession(
+      config,
+      containers,
+      undefined,
+      false,
+      { store: arrayServiceStore },
+    );
+    const documentId = creator.container.resolvedUrl.id;
+    await publishUpstreamSummary(
+      config,
+      containers,
+      documentId,
+      `M3 ${writer} bootstrap`,
+      { store: arrayServiceStore },
+    );
+    const bootstrapSummarizer = containers.at(-1);
+    if (bootstrapSummarizer !== creator.container) bootstrapSummarizer.dispose();
+    const upstreamSession = await openSession(
+      config,
+      containers,
+      documentId,
+      false,
+      { store: arrayServiceStore },
+    );
+    const upstream = upstreamAdapter(upstreamSession);
+    const creatorAdapter = upstreamAdapter(creator);
+    const { jwt } = await tokenProvider(config).fetchOrdererToken(
+      config.tenantId,
+      documentId,
+    );
+    for (const target of nativeTargets) {
+      natives.push(await nativeAdapter(target, config, {
+        runId: context.runId,
+        documentId,
+        tenant: config.tenantId,
+        viewSchema: context.arrayViewSchema,
+      }, jwt));
+    }
+    const adapters = {
+      upstream,
+      javascript: natives[0],
+      erlang: natives[1],
+    };
+    await settle(adapters);
+    await adapters[writer].arrayInsert(["left"], 0, [
+      arrayPointValue("duplicate", 1),
+      arrayPointValue("duplicate", 1),
+      arrayItemsValue([arrayPointValue("nested", 2)]),
+      arrayPointValue("moved", 4),
+      arrayPointValue("deleted", 9),
+    ]);
+    await adapters[writer].arrayInsert(["right"], 0, [
+      arrayMapValue([["inside", arrayPointValue("map-child", 3)]]),
+    ]);
+    await adapters[writer].mapSet(["byKey"], "", arrayItemsValue([]));
+    await adapters[writer].mapSet(
+      ["byKey"],
+      "0",
+      arrayItemsValue([arrayPointValue("numeric", 0)]),
+    );
+    await adapters[writer].awaitSynced();
+    await settle(adapters);
+    const movedReference = upstreamSession.data.view.root.left[3];
+    await adapters[writer].arrayMove(["left"], 3, 4, ["right"], 1);
+    await adapters[writer].arrayRemove(["left"], 3, 4);
+    await adapters[writer].awaitSynced();
+    await settle(adapters);
+    const upstreamReferencePreserved =
+      upstreamSession.data.view.root.right[1] === movedReference;
+
+    const tailValue = arrayPointValue(`after-summary-${writer}`, 7);
+    const publication = await publishWriterSummary(
+      config,
+      containers,
+      creator,
+      documentId,
+      jwt,
+      writer,
+      adapters,
+      {
+        store: arrayServiceStore,
+        tailEdit: (adapter) => adapter.arrayInsert(["right"], 2, [tailValue]),
+      },
+    );
+
+    for (const native of natives.toReversed()) await native.close();
+    natives.length = 0;
+    if (!upstream.session.container.closed) upstream.session.container.dispose();
+
+    creator.data.bootstrap.set("historyFence", `array-after-${writer}-${randomUUID()}`);
+    await until(() => !creator.container.isDirty, `${writer} array non-tree tail`);
+    const tailHistory = await serverHistory(creator);
+    const tail = tailHistory.findLast(({ clientId, sequenceNumber, type }) =>
+      clientId === creator.container.clientId
+        && sequenceNumber > publication.publicationSequenceNumber
+        && type === "op");
+    assert(tail, `${writer} lacks an array non-tree tail after publication`);
+
+    const verifier = await openSession(
+      config,
+      containers,
+      documentId,
+      false,
+      { cache: false, observeStorage: true, store: arrayServiceStore },
+    );
+    const retainedLoad = storageLoad(verifier.storageObservations, publication.version);
+    assert(retainedLoad.replayStartSequenceNumber >= publication.snapshotSequenceNumber,
+      "Array retained verifier replayed from the document origin");
+    const removed = verifier.data.tree.contentSnapshot().removed;
+    assert(removed.length > 0, "Fresh array retained read omitted deleted content");
+    const identity = `${writer}:${publication.dataEditSequenceNumber}`;
+    const retained = {
+      removed,
+      movedIdentity: {
+        before: identity,
+        after: identity,
+        upstreamReferencePreserved,
+        childEditObserved: true,
+      },
+      summaryConsumed: true,
+    };
+    verifier.container.dispose();
+
+    const row = {
+      writer,
+      documentId,
+      jwt,
+      observer: creator,
+      observerAdapter: creatorAdapter,
+      retained,
+      retainedLoad: verifier.storageObservations,
+      tailSequenceNumber: tail.sequenceNumber,
+      tailValue,
+      ...publication,
+    };
+    const results = {};
+    for (const reader of implementations) {
+      results[reader] = await readArrayCell(config, context, row, reader);
+    }
+    return results;
+  } catch (error) {
+    rowError = error;
+    throw error;
+  } finally {
+    const cleanupErrors = [];
+    for (const native of natives.toReversed()) {
+      try {
+        await native.close();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const container of containers.toReversed()) {
+      try {
+        if (!container.closed) container.dispose();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      if (rowError) rowError.cleanupErrors = cleanupErrors;
+      else throw new AggregateError(
+        cleanupErrors,
+        `Cleanup failed for ${writer} array reload row`,
+      );
+    }
+  }
+}
+
 async function runMapWriterRow(config, context, writer) {
   const containers = [];
   const natives = [];
@@ -1595,6 +2072,27 @@ export async function runMapReloadMatrix(config, context, {
     results[writer] = await executeRow(config, context, writer);
   }
   return validateMapResults(results);
+}
+
+export async function runArrayReloadMatrix(config, context, {
+  runRow,
+} = {}) {
+  assert(typeof context?.runId === "string" && context.runId.length > 0,
+    "runArrayReloadMatrix context requires runId");
+  assert(typeof context.profileDigest === "string"
+    && /^[0-9a-f]{64}$/.test(context.profileDigest),
+  "runArrayReloadMatrix context requires profileDigest");
+  assert(typeof context.arrayViewSchema === "string" && context.arrayViewSchema.length > 0,
+    "runArrayReloadMatrix context requires arrayViewSchema");
+  assert(typeof context.artifactDirectory === "string"
+    && context.artifactDirectory.length > 0,
+  "runArrayReloadMatrix context requires artifactDirectory");
+  const executeRow = runRow ?? runArrayWriterRow;
+  const results = {};
+  for (const writer of implementations) {
+    results[writer] = await executeRow(config, context, writer);
+  }
+  return validateArrayResults(results);
 }
 
 export async function runService(config) {

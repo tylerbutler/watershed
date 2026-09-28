@@ -25,15 +25,15 @@ test("native gate selects both complete file suites and HTTP smokes", () => {
   ]);
 });
 
-test("acceptance delegates to the existing 200-schedule coordinator", () => {
+test("acceptance delegates to the 300-schedule mixed-profile coordinator", () => {
   assert.deepEqual(recipeCommands("shared-tree-interop"), [
-    "node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 200 --seed 42",
+    "node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 300 --seed 42",
   ]);
 });
 
-test("deep acceptance uses the same coordinator with 5000 schedules", () => {
+test("deep acceptance uses 7500 schedules for 2500 per profile", () => {
   assert.deepEqual(recipeCommands("shared-tree-interop-deep"), [
-    "node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 5000 --seed 42",
+    "node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 7500 --seed 42",
   ]);
 });
 

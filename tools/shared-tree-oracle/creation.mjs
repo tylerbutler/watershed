@@ -12,6 +12,7 @@ import {
 } from "@fluidframework/id-compressor/internal";
 import { convertSummaryTreeToWholeSummaryTree } from "@fluidframework/server-services-client";
 import {
+  arrayServiceStore,
   floodgateRevision,
   cleanupOwned,
   openSession,
@@ -43,8 +44,10 @@ const requiredTreeIndexes = [
 ];
 const creationReaders = ["javascript", "erlang", "upstream"];
 const creationTargets = ["javascript", "erlang"];
-const creationCells = creationTargets.flatMap((creator) =>
-  creationReaders.map((reader) => `${creator}:${reader}`));
+const creationProfiles = ["object", "array"];
+const creationCells = creationProfiles.flatMap((profile) =>
+  creationTargets.flatMap((creator) =>
+    creationReaders.map((reader) => `${profile}:${creator}:${reader}`)));
 
 function summaryEntry(root, path) {
   let entry = root;
@@ -424,19 +427,23 @@ export function validateCreationInteropReport(report) {
     "Creation report has no service revision");
   assert(Array.isArray(report.cells), "Creation report has no cells");
   assert.deepEqual(
-    report.cells.map(({ creator, reader }) => `${creator}:${reader}`).sort(),
+    report.cells.map(({ profile, creator, reader }) =>
+      `${profile}:${creator}:${reader}`).sort(),
     creationCells.toSorted(),
-    "Creation report does not contain the strict six-cell matrix",
+    "Creation report does not contain the strict twelve-cell matrix",
   );
   const documentIds = new Map();
   for (const cell of report.cells) {
+    assert(creationProfiles.includes(cell.profile),
+      "Creation cell has another profile");
     assert.equal(cell.runId, report.runId, "Creation cell belongs to another run");
     assert.equal(cell.profileDigest, report.profileDigest,
       "Creation cell belongs to another profile");
     assert.equal(typeof cell.documentId, "string", "Creation cell has no document ID");
     assert(cell.documentId.length > 0, "Creation cell has an empty document ID");
-    const previous = documentIds.get(cell.creator);
-    if (previous === undefined) documentIds.set(cell.creator, cell.documentId);
+    const documentKey = `${cell.profile}:${cell.creator}`;
+    const previous = documentIds.get(documentKey);
+    if (previous === undefined) documentIds.set(documentKey, cell.documentId);
     else assert.equal(cell.documentId, previous,
       "Creation reader cells do not share the creator document");
     for (const field of [
@@ -461,10 +468,10 @@ export function validateCreationInteropReport(report) {
         "Creation evidence path is outside the run directory");
     }
   }
-  assert.equal(documentIds.size, creationTargets.length,
+  assert.equal(documentIds.size, creationTargets.length * creationProfiles.length,
     "Creation report has incomplete creator targets");
-  assert.notEqual(documentIds.get("javascript"), documentIds.get("erlang"),
-    "Creation targets reused another run's document ID");
+  assert.equal(new Set(documentIds.values()).size, documentIds.size,
+    "Creation profile targets reused another document ID");
   assert.deepEqual(report.skipped, [], "Creation report contains skipped cells");
   assert.deepEqual(report.divergences, [], "Creation report contains divergences");
   return report;
@@ -503,7 +510,51 @@ function matrixTree({
   });
 }
 
-function matrixExpectedStages(creator, conflictWinner) {
+function arrayMatrixTree(creator, { continued = false } = {}) {
+  const point = (label, x) => ({
+    kind: "object",
+    schemaId: "org.watershed.shared-tree.m3.Point",
+    fields: [
+      ["label", { kind: "string", value: label }],
+      ["x", { kind: "number", value: x }],
+    ],
+  });
+  const array = (schemaId, elements) => ({ kind: "array", schemaId, elements });
+  return canonicalValue({
+    present: true,
+    value: {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m3.Root",
+      fields: [
+        ["byKey", {
+          kind: "map",
+          schemaId: "org.watershed.shared-tree.m3.ArrayMap",
+          entries: [
+            ["", array("org.watershed.shared-tree.m3.Items", [])],
+            ["0", array("org.watershed.shared-tree.m3.Items", [point("numeric", 0)])],
+          ],
+        }],
+        ["left", array("org.watershed.shared-tree.m3.Items", [
+          point(`${creator}-duplicate`, 1),
+          point(`${creator}-duplicate`, 1),
+        ])],
+        ["narrow", array("org.watershed.shared-tree.m3.Points", [])],
+        ["right", array("org.watershed.shared-tree.m3.Items", [
+          point(`${creator}-moved`, continued ? 42 : 3),
+        ])],
+      ],
+    },
+  });
+}
+
+function matrixExpectedStages(profile, creator, conflictWinner) {
+  if (profile === "array") {
+    return [
+      ["all-authors", arrayMatrixTree(creator)],
+      ["range-move", arrayMatrixTree(creator)],
+      ["nested-edit", arrayMatrixTree(creator, { continued: true })],
+    ];
+  }
   const rating = creator === "javascript" ? 31 : 32;
   return [
     ["all-authors", matrixTree({
@@ -555,6 +606,8 @@ function validateArtifactBinding(artifact, cell, kind) {
   assert.equal(artifact.runId, cell.runId, `${kind} evidence belongs to another run`);
   assert.equal(artifact.profileDigest, cell.profileDigest,
     `${kind} evidence belongs to another profile`);
+  assert.equal(artifact.profile, cell.profile,
+    `${kind} evidence has another creation profile`);
   assert.equal(artifact.creator, cell.creator,
     `${kind} evidence belongs to another creator`);
   assert.equal(artifact.documentId, cell.documentId,
@@ -597,6 +650,9 @@ export async function validateCreationInteropEvidence(
   };
 
   for (const cell of report.cells) {
+    const initialTree = cell.profile === "array"
+      ? arrayMatrixTree(cell.creator)
+      : matrixTree();
     const creation = await load(cell.evidence.creation, "creation");
     validateArtifactBinding(creation, cell, "creation");
     assert(creation.readers?.includes(cell.reader),
@@ -604,7 +660,7 @@ export async function validateCreationInteropEvidence(
     assert.equal(creation.nativeCreated, true, "creation evidence is not native");
     assert.deepEqual(
       canonicalValue({ present: true, value: creation.root }),
-      matrixTree(),
+      initialTree,
       "creation evidence has another initial tree",
     );
 
@@ -622,7 +678,7 @@ export async function validateCreationInteropEvidence(
     validateObservation(
       initial.observation,
       cell.reader,
-      matrixTree(),
+      initialTree,
       0,
       "initial-load evidence",
     );
@@ -640,7 +696,11 @@ export async function validateCreationInteropEvidence(
       allocations?.some(({ first, last }) =>
         Number.isSafeInteger(first) && Number.isSafeInteger(last) && first <= last)),
     "continuation evidence has no first-edit allocation");
-    const expectedStages = matrixExpectedStages(cell.creator, continuation.conflictWinner);
+    const expectedStages = matrixExpectedStages(
+      cell.profile,
+      cell.creator,
+      continuation.conflictWinner,
+    );
     assert.equal(continuation.stages?.length, expectedStages.length,
       "continuation evidence has incomplete edit stages");
     let sequence = initial.observation.sequenceNumber;
@@ -668,13 +728,15 @@ export async function validateCreationInteropEvidence(
     "summary-reload evidence has no sequenced tail after the native summary");
     assert.equal(reload.tailSubmission?.outerSequenceNumber, reload.tailSequenceNumber,
       "summary-reload evidence has another tail submission");
-    const tailTree = matrixTree({
-      title: continuation.conflictWinner,
-      enabled: false,
-      rating: cell.creator === "javascript" ? 31 : 32,
-      note: `${cell.creator}-after-native-summary`,
-      point: { x: 13, y: 21 },
-    });
+    const tailTree = cell.profile === "array"
+      ? arrayMatrixTree(cell.creator, { continued: true })
+      : matrixTree({
+        title: continuation.conflictWinner,
+        enabled: false,
+        rating: cell.creator === "javascript" ? 31 : 32,
+        note: `${cell.creator}-after-native-summary`,
+        point: { x: 13, y: 21 },
+      });
     assert.deepEqual(reload.expectedTree, tailTree,
       "summary-reload evidence expected another tail state");
     validateObservation(
@@ -702,13 +764,15 @@ export async function validateCreationInteropEvidence(
     validateObservation(
       upstream.observation,
       cell.reader,
-      matrixTree({
-        title: `${cell.creator}-after-upstream-summary`,
-        enabled: false,
-        rating: cell.creator === "javascript" ? 31 : 32,
-        note: `${cell.creator}-after-native-summary`,
-        point: { x: 13, y: 21 },
-      }),
+      cell.profile === "array"
+        ? tailTree
+        : matrixTree({
+          title: `${cell.creator}-after-upstream-summary`,
+          enabled: false,
+          rating: cell.creator === "javascript" ? 31 : 32,
+          note: `${cell.creator}-after-native-summary`,
+          point: { x: 13, y: 21 },
+        }),
       summarySequence + 1,
       "upstream-summary-continuation evidence",
     );
@@ -886,12 +950,23 @@ function creationInput() {
   };
 }
 
-async function creationSchema() {
-  const fixture = JSON.parse(await readFile(resolve(
+function arrayCreationInput(creator) {
+  return arrayMatrixTree(creator).value;
+}
+
+async function creationSchemas() {
+  const objectFixture = JSON.parse(await readFile(resolve(
     repository,
     "test/fixtures/shared_tree/cases/schema-profile.json",
   )));
-  return fixture.input.summary.tree.indexes.tree.Schema.tree.SchemaString.content;
+  const arrayFixture = JSON.parse(await readFile(resolve(
+    repository,
+    "test/fixtures/shared_tree/cases/array-schema-content.json",
+  )));
+  return {
+    object: objectFixture.input.summary.tree.indexes.tree.Schema.tree.SchemaString.content,
+    array: arrayFixture.input.schemas.objectArrays,
+  };
 }
 
 function probeObservation(stdout) {
@@ -994,6 +1069,7 @@ async function cleanupScenario(natives, containers, originalError) {
 }
 
 async function runCreatorMatrix(config, context, creator, schema, root) {
+  const profile = context.profile;
   const containers = [];
   const natives = [];
   let scenarioError;
@@ -1014,12 +1090,13 @@ async function runCreatorMatrix(config, context, creator, schema, root) {
     assert(documentId.length > 0);
     const creationPath = await writeRunArtifact(
       context.runDirectory,
-      `${creator}/creation.json`,
+      `${profile}/${creator}/creation.json`,
       {
         formatVersion: 1,
         kind: "creation",
         runId: context.runId,
         profileDigest: context.profileDigest,
+        profile,
         creator,
         documentId,
         readers: creationReaders,
@@ -1069,12 +1146,13 @@ async function runCreatorMatrix(config, context, creator, schema, root) {
     for (const observation of initial.observations) {
       initialPaths[observation.implementation] = await writeRunArtifact(
         context.runDirectory,
-        `${creator}/${observation.implementation}/initial-load.json`,
+        `${profile}/${creator}/${observation.implementation}/initial-load.json`,
         {
           formatVersion: 1,
           kind: "initial-load",
           runId: context.runId,
           profileDigest: context.profileDigest,
+          profile,
           creator,
           reader: observation.implementation,
           documentId,
@@ -1159,12 +1237,13 @@ async function runCreatorMatrix(config, context, creator, schema, root) {
     for (const observation of continued.observations) {
       continuationPaths[observation.implementation] = await writeRunArtifact(
         context.runDirectory,
-        `${creator}/${observation.implementation}/continuation.json`,
+        `${profile}/${creator}/${observation.implementation}/continuation.json`,
         {
           formatVersion: 1,
           kind: "continuation",
           runId: context.runId,
           profileDigest: context.profileDigest,
+          profile,
           creator,
           reader: observation.implementation,
           documentId,
@@ -1220,12 +1299,13 @@ async function runCreatorMatrix(config, context, creator, schema, root) {
         `${creator}:${reader} did not select the native summary`);
       reloadPaths[reader] = await writeRunArtifact(
         context.runDirectory,
-        `${creator}/${reader}/summary-reload.json`,
+        `${profile}/${creator}/${reader}/summary-reload.json`,
         {
           formatVersion: 1,
           kind: "summary-reload",
           runId: context.runId,
           profileDigest: context.profileDigest,
+          profile,
           creator,
           reader,
           documentId,
@@ -1265,12 +1345,13 @@ async function runCreatorMatrix(config, context, creator, schema, root) {
       upstreamContinuationPaths[observation.implementation] =
         await writeRunArtifact(
           context.runDirectory,
-          `${creator}/${observation.implementation}/upstream-summary-continuation.json`,
+          `${profile}/${creator}/${observation.implementation}/upstream-summary-continuation.json`,
           {
             formatVersion: 1,
             kind: "upstream-summary-continuation",
             runId: context.runId,
             profileDigest: context.profileDigest,
+            profile,
             creator,
             reader: observation.implementation,
             documentId,
@@ -1281,6 +1362,254 @@ async function runCreatorMatrix(config, context, creator, schema, root) {
     }
 
     return creationReaders.map((reader) => ({
+      profile,
+      creator,
+      reader,
+      runId: context.runId,
+      profileDigest: context.profileDigest,
+      documentId,
+      nativeCreated: true,
+      loadedInitialSummary: true,
+      continuedEditing: true,
+      peerObservedEdit: true,
+      reloadedSummaryAndTail: true,
+      evidence: {
+        creation: creationPath,
+        initialLoad: initialPaths[reader],
+        continuation: continuationPaths[reader],
+        summaryReload: reloadPaths[reader],
+        upstreamContinuation: upstreamContinuationPaths[reader],
+      },
+    }));
+  } catch (error) {
+    scenarioError = error;
+    throw error;
+  } finally {
+    await cleanupScenario(natives, containers, scenarioError);
+  }
+}
+
+async function runArrayCreatorMatrix(config, context, creator, schema, root) {
+  const containers = [];
+  const natives = [];
+  let scenarioError;
+  const profile = "array";
+  try {
+    const { jwt: creationToken } =
+      await tokenProvider(config).fetchStorageToken(config.tenantId);
+    const created = await runCreatorProbe(creator, {
+      baseUrl: config.httpUrl,
+      tenant: config.tenantId,
+      token: creationToken,
+      schema,
+      root,
+      expected: "success",
+    });
+    assert.equal(created.ok, true, `${creator} did not create an array document`);
+    const documentId = created.documentId;
+    assert.equal(typeof documentId, "string");
+    assert(documentId.length > 0);
+    const common = {
+      formatVersion: 1,
+      runId: context.runId,
+      profileDigest: context.profileDigest,
+      profile,
+      creator,
+      documentId,
+    };
+    const creationPath = await writeRunArtifact(
+      context.runDirectory,
+      `${profile}/${creator}/creation.json`,
+      {
+        ...common,
+        kind: "creation",
+        readers: creationReaders,
+        nativeCreated: true,
+        root,
+      },
+    );
+    const { jwt } = await tokenProvider(config).fetchOrdererToken(
+      config.tenantId,
+      documentId,
+    );
+    const upstreamSession = await openSession(
+      config,
+      containers,
+      documentId,
+      false,
+      { cache: false, observeStorage: true, store: arrayServiceStore },
+    );
+    const upstream = upstreamAdapter(upstreamSession);
+    for (const target of creationTargets) {
+      natives.push(await nativeAdapter(target, config, {
+        runId: context.runId,
+        documentId,
+        tenant: config.tenantId,
+        viewSchema: schema,
+      }, jwt));
+    }
+    const adapters = {
+      upstream,
+      javascript: natives[0],
+      erlang: natives[1],
+    };
+    const initial = await settle(adapters);
+    const expectedInitial = arrayMatrixTree(creator);
+    assertCheckpointTree(initial, expectedInitial, "array initial");
+    const stored = await inspectPersistedInitialSummary(upstreamSession);
+    const initialPaths = {};
+    for (const observation of initial.observations) {
+      initialPaths[observation.implementation] = await writeRunArtifact(
+        context.runDirectory,
+        `${profile}/${creator}/${observation.implementation}/initial-load.json`,
+        {
+          ...common,
+          kind: "initial-load",
+          reader: observation.implementation,
+          stored,
+          observation,
+        },
+      );
+    }
+
+    const temporary = {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m3.Point",
+      fields: [
+        ["label", { kind: "string", value: `${creator}-temporary` }],
+        ["x", { kind: "number", value: -1 }],
+      ],
+    };
+    await adapters.javascript.arrayInsert(["left"], 2, [temporary]);
+    await adapters.javascript.awaitSynced();
+    const historyAfterFirstEdit = decodeTreeSubmissions(
+      await serverHistory(upstreamSession),
+    );
+    assert(historyAfterFirstEdit.some(({ allocations }) => allocations.length > 0),
+      `${creator} first array edit did not allocate IDs`);
+    await adapters.erlang.arrayRemove(["left"], 2, 3);
+    await adapters.erlang.awaitSynced();
+    await adapters.upstream.arrayMove(["right"], 0, 1, ["left"], 2);
+    await adapters.upstream.arrayMove(["left"], 2, 3, ["right"], 0);
+    const allAuthors = await settle(adapters);
+    assertCheckpointTree(allAuthors, expectedInitial, "array all authors");
+
+    await adapters.javascript.arrayMove(["right"], 0, 1, ["left"], 2);
+    await adapters.javascript.awaitSynced();
+    await adapters.erlang.arrayMove(["left"], 2, 3, ["right"], 0);
+    const rangeMove = await settle(adapters);
+    assertCheckpointTree(rangeMove, expectedInitial, "array range move");
+
+    await adapters.upstream.set(["right", "0", "x"], 42);
+    const nestedEdit = await settle(adapters);
+    const expectedContinued = arrayMatrixTree(creator, { continued: true });
+    assertCheckpointTree(nestedEdit, expectedContinued, "array nested edit");
+    const conflictWinner = `${creator}-erlang-conflict`;
+    const editStages = [
+      { name: "all-authors", checkpoint: allAuthors },
+      { name: "range-move", checkpoint: rangeMove },
+      { name: "nested-edit", checkpoint: nestedEdit },
+    ];
+    const continuationHistory = await serverHistory(upstreamSession);
+    const continuationPaths = {};
+    for (const observation of nestedEdit.observations) {
+      continuationPaths[observation.implementation] = await writeRunArtifact(
+        context.runDirectory,
+        `${profile}/${creator}/${observation.implementation}/continuation.json`,
+        {
+          ...common,
+          kind: "continuation",
+          reader: observation.implementation,
+          observation,
+          conflictWinner,
+          stages: editStages.map(({ name, checkpoint }) => ({
+            name,
+            observation: checkpoint.observations.find((item) =>
+              item.implementation === observation.implementation),
+          })),
+          firstEditAllocations: historyAfterFirstEdit,
+          serviceHistory: continuationHistory,
+          treeSubmissions: decodeTreeSubmissions(continuationHistory),
+        },
+      );
+    }
+
+    const nativeSummaryReferenceSequenceNumber =
+      nestedEdit.observations[0].sequenceNumber;
+    const version = await adapters[creator].summarize();
+    const tailAuthor = creator === "javascript" ? "erlang" : "javascript";
+    await adapters[tailAuthor].set(["right", "0", "x"], 41);
+    await adapters[tailAuthor].set(["right", "0", "x"], 42);
+    const afterTail = await settle(adapters);
+    assertCheckpointTree(afterTail, expectedContinued, "array native summary tail");
+    const afterTailHistory = await serverHistory(upstreamSession);
+    const tailSubmission = decodeTreeSubmissions(afterTailHistory).find(
+      ({ outerSequenceNumber, clientId }) =>
+        outerSequenceNumber > nativeSummaryReferenceSequenceNumber
+        && adapters[tailAuthor].clientIds.has(clientId),
+    );
+    assert(tailSubmission, `${creator} has no sequenced array tail`);
+    const reloadPaths = {};
+    for (const reader of creationReaders) {
+      const reloaded = await freshReload(
+        config,
+        context,
+        documentId,
+        reader,
+        jwt,
+        expectedContinued,
+        { profile },
+      );
+      reloadPaths[reader] = await writeRunArtifact(
+        context.runDirectory,
+        `${profile}/${creator}/${reader}/summary-reload.json`,
+        {
+          ...common,
+          kind: "summary-reload",
+          reader,
+          version,
+          tailAuthor,
+          nativeSummaryReferenceSequenceNumber,
+          tailSequenceNumber: tailSubmission.outerSequenceNumber,
+          tailSubmission,
+          expectedTree: expectedContinued,
+          reloaded,
+        },
+      );
+    }
+
+    const upstreamSummary = await publishUpstreamSummary(
+      config,
+      containers,
+      documentId,
+      `Native array creation continuation ${creator}`,
+      { store: arrayServiceStore },
+    );
+    await adapters.javascript.set(["right", "0", "x"], 43);
+    await adapters.upstream.set(["right", "0", "x"], 42);
+    const upstreamContinuation = await settle(adapters);
+    assertCheckpointTree(
+      upstreamContinuation,
+      expectedContinued,
+      "array upstream summary continuation",
+    );
+    const upstreamContinuationPaths = {};
+    for (const observation of upstreamContinuation.observations) {
+      upstreamContinuationPaths[observation.implementation] =
+        await writeRunArtifact(
+          context.runDirectory,
+          `${profile}/${creator}/${observation.implementation}/upstream-summary-continuation.json`,
+          {
+            ...common,
+            kind: "upstream-summary-continuation",
+            reader: observation.implementation,
+            upstreamSummary,
+            observation,
+          },
+        );
+    }
+    return creationReaders.map((reader) => ({
+      profile,
       creator,
       reader,
       runId: context.runId,
@@ -1317,8 +1646,7 @@ export async function runCreationInterop(config, {
     "test/fixtures/shared_tree/profile.json",
   ));
   const profileDigest = createHash("sha256").update(profileBytes).digest("hex");
-  const schema = await creationSchema();
-  const root = creationInput();
+  const schemas = await creationSchemas();
   await mkdir(runDirectory, { recursive: true });
   await execute("gleam", ["build", "--target", "javascript"], {
     cwd: repository,
@@ -1330,15 +1658,51 @@ export async function runCreationInterop(config, {
   });
 
   const invalidInitializers = {};
-  for (const target of creationTargets) {
-    invalidInitializers[target] = await rejectInvalidInitializer(target, schema, root);
+  for (const profile of creationProfiles) {
+    invalidInitializers[profile] = {};
+    const root = profile === "array"
+      ? arrayCreationInput("invalid")
+      : creationInput();
+    for (const target of creationTargets) {
+      invalidInitializers[profile][target] = await rejectInvalidInitializer(
+        target,
+        schemas[profile],
+        root,
+      );
+    }
   }
   await writeRunArtifact(runDirectory, "invalid-initializers.json", invalidInitializers);
 
-  const context = { runId, runDirectory, profileDigest, viewSchema: schema };
+  const context = {
+    runId,
+    runDirectory,
+    profileDigest,
+    viewSchema: schemas.object,
+    arrayViewSchema: schemas.array,
+  };
   const cells = [];
-  for (const creator of creationTargets) {
-    cells.push(...await runCreatorMatrix(config, context, creator, schema, root));
+  for (const profile of creationProfiles) {
+    for (const creator of creationTargets) {
+      const profileContext = { ...context, profile };
+      const root = profile === "array"
+        ? arrayCreationInput(creator)
+        : creationInput();
+      cells.push(...await (profile === "array"
+        ? runArrayCreatorMatrix(
+          config,
+          profileContext,
+          creator,
+          schemas.array,
+          root,
+        )
+        : runCreatorMatrix(
+          config,
+          profileContext,
+          creator,
+          schemas.object,
+          root,
+        )));
+    }
   }
   const report = {
     formatVersion: 1,

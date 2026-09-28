@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  loadRequests, mapEntryMatches, readCell, runArtifactInterop, runMapReloadMatrix,
-  runReloadMatrix, validateMapResults, validateResults, validateSummaryArtifact,
+  loadRequests, mapEntryMatches, readCell, runArrayReloadMatrix, runArtifactInterop,
+  runMapReloadMatrix, runReloadMatrix, validateArrayResults, validateMapResults,
+  validateResults, validateSummaryArtifact,
 } from "./summary-interop.mjs";
 
 const implementations = ["upstream", "javascript", "erlang"];
@@ -125,6 +126,107 @@ const mapCells = Object.fromEntries(implementations.map((writer, writerIndex) =>
     },
   ])),
 ]));
+const arrayPoint = (label, x) => ({
+  kind: "object",
+  schemaId: "org.watershed.shared-tree.m3.Point",
+  fields: [
+    ["label", { kind: "string", value: label }],
+    ["x", { kind: "number", value: x }],
+  ],
+});
+const arrayValue = (elements) => ({
+  kind: "array",
+  schemaId: "org.watershed.shared-tree.m3.Items",
+  elements,
+});
+const arrayMap = (entries) => ({
+  kind: "map",
+  schemaId: "org.watershed.shared-tree.m3.ArrayMap",
+  entries,
+});
+const arrayTree = (writer, continuationLabel = undefined) => ({
+  present: true,
+  value: {
+    kind: "object",
+    schemaId: "org.watershed.shared-tree.m3.Root",
+    fields: [
+      ["byKey", arrayMap([
+        ["", arrayValue([])],
+        ["0", arrayValue([arrayPoint("numeric", 0)])],
+      ])],
+      ["left", arrayValue([
+        ...(continuationLabel ? [arrayPoint(continuationLabel, 42)] : []),
+        arrayPoint("duplicate", 1),
+        arrayPoint("duplicate", 1),
+        arrayValue([arrayPoint("nested", 2)]),
+      ])],
+      ["narrow", {
+        kind: "array",
+        schemaId: "org.watershed.shared-tree.m3.Points",
+        elements: [],
+      }],
+      ["right", arrayValue([
+        arrayMap([["inside", arrayPoint("map-child", 3)]]),
+        ...(continuationLabel ? [] : [arrayPoint("moved", 4)]),
+        arrayPoint(`after-summary-${writer}`, 7),
+      ])],
+    ],
+  },
+});
+const arrayCells = Object.fromEntries(implementations.map((writer, writerIndex) => [
+  writer,
+  Object.fromEntries(implementations.map((reader, readerIndex) => [
+    reader,
+    {
+      runId: "run",
+      profileDigest: "a".repeat(64),
+      profile: "array",
+      writer,
+      reader,
+      writerVersion: `${writer}-array-commit`,
+      loadedVersion: `${writer}-array-commit`,
+      readerInstanceId: `${writer}-${reader}-array-reader`,
+      snapshotSequenceNumber: 40 + writerIndex,
+      dataEditSequenceNumber: 44 + writerIndex,
+      publicationSequenceNumber: 48 + writerIndex,
+      tailSequenceNumber: 52 + writerIndex,
+      replayWatermark: 56 + readerIndex,
+      replayStartSequenceNumber: 40 + writerIndex,
+      replayEvidence: reader === "upstream"
+        ? "upstream-delta-storage"
+        : "native-handshake",
+      selectedSummaryRequests: [`${writer}-array-commit`],
+      scenarioId: "array-summary-tail-retained",
+      loaded: true,
+      tailObserved: true,
+      continuedEditing: true,
+      peerObservedEdit: true,
+      pendingTreeCount: 0,
+      inflightSubmissionCount: 0,
+      wholeTree: arrayTree(writer),
+      continuationTree: arrayTree(writer, `${writer}-${reader}-continuation`),
+      peerWholeTree: arrayTree(writer, `${writer}-${reader}-continuation`),
+      continuationLabel: `${writer}-${reader}-continuation`,
+      retained: {
+        removed: [[1027, 4, arrayPoint("deleted", 9)]],
+        movedIdentity: {
+          before: `${writer}-moved`,
+          after: `${writer}-moved`,
+          upstreamReferencePreserved: true,
+          childEditObserved: true,
+        },
+        summaryConsumed: true,
+      },
+      continuationIdentity: {
+        clientId: `${reader}-client`,
+        referenceSequenceNumber: 52 + writerIndex,
+        revisions: [{ revision: 1, originatorId: `${reader}-originator` }],
+      },
+      documentId: `${writer}-array-document`,
+      artifacts: [`array-reload/${writer}-${reader}.json`],
+    },
+  ])),
+]));
 
 test("reload matrix rejects unmeasured selected-summary loads", () => {
   assert.equal(Object.keys(validateResults(cells)).length, 3);
@@ -214,6 +316,32 @@ test("map continuation observation requires the exact value", () => {
     kind: "string",
     value: "corrupt",
   }), false);
+});
+
+test("array reload matrix requires nine exact tail and continuation cells", () => {
+  assert.equal(Object.keys(validateArrayResults(arrayCells)).length, 3);
+  for (const [label, mutation] of [
+    ["missing cell", (copy) => { delete copy.upstream.javascript; }],
+    ["wrong profile", (copy) => { copy.upstream.javascript.profile = "map"; }],
+    ["reordered array", (copy) => {
+      copy.upstream.javascript.wholeTree.value.fields[1][1].elements.reverse();
+    }],
+    ["missing tail", (copy) => { copy.upstream.javascript.tailObserved = false; }],
+    ["missing retained history", (copy) => {
+      copy.upstream.javascript.retained.removed = [];
+    }],
+    ["lost moved identity", (copy) => {
+      copy.upstream.javascript.retained.movedIdentity.after = "other";
+    }],
+    ["corrupt continuation", (copy) => {
+      copy.upstream.javascript.peerWholeTree.value.fields[3][1].elements[1]
+        .fields[1][1].value = 41;
+    }],
+  ]) {
+    const copy = structuredClone(arrayCells);
+    mutation(copy);
+    assert.throws(() => validateArrayResults(copy), undefined, label);
+  }
 });
 
 test("native replay start prefers delivered operations over stale handshake context", () => {
@@ -448,6 +576,31 @@ test("map reload runner returns one row for every writer", async () => {
       seen.push(writer);
       return structuredClone(mapCells[writer]);
     },
+  });
+
+  test("array reload runner requires the array schema and returns every writer row", async () => {
+    await assert.rejects(
+      runArrayReloadMatrix({}, {
+        runId: "run",
+        profileDigest: "a".repeat(64),
+        artifactDirectory: "/tmp",
+      }),
+      /runArrayReloadMatrix context requires arrayViewSchema/,
+    );
+    const seen = [];
+    const result = await runArrayReloadMatrix({}, {
+      runId: "run",
+      profileDigest: "a".repeat(64),
+      arrayViewSchema: "array-schema",
+      artifactDirectory: "/tmp",
+    }, {
+      runRow: async (_config, _context, writer) => {
+        seen.push(writer);
+        return structuredClone(arrayCells[writer]);
+      },
+    });
+    assert.deepEqual(seen, implementations);
+    assert.deepEqual(result, arrayCells);
   });
   assert.deepEqual(seen, implementations);
   assert.deepEqual(result, mapCells);

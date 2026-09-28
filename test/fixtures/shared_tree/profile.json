@@ -231,11 +231,13 @@
     "recursive-map-values",
     "canonical-map-iteration",
     "bootstrap-map-handle",
+    "recursive-array-values",
+    "range-array-edits",
+    "cross-array-moves",
     "grouped-batches",
     "gc-metadata"
   ],
   "excludedFeatures": [
-    "arrays",
     "schema-evolution",
     "shared-branches",
     "gc-sweep",

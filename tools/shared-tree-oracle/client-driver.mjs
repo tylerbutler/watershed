@@ -151,6 +151,33 @@ export class JsonLinesChannel {
     return this.#result({ command: "map-entries", path });
   }
 
+  arrayGet(path, index) {
+    return this.#result({ command: "array-get", path, index });
+  }
+
+  arrayValues(path) {
+    return this.#result({ command: "array-values", path });
+  }
+
+  arrayInsert(path, index, values) {
+    return this.#result({ command: "array-insert", path, index, values });
+  }
+
+  arrayRemove(path, start, end) {
+    return this.#result({ command: "array-remove", path, start, end });
+  }
+
+  arrayMove(sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) {
+    return this.#result({
+      command: "array-move",
+      sourcePath,
+      sourceStart,
+      sourceEnd,
+      destinationPath,
+      destinationGap,
+    });
+  }
+
   end() {
     this.#child.stdin.end();
   }
@@ -443,6 +470,18 @@ export async function startClient(target, descriptor, environment, options = {})
       mapDelete: (path, key) => channel.mapDelete(path, key),
       mapKeys: (path) => channel.mapKeys(path),
       mapEntries: (path) => channel.mapEntries(path),
+      arrayGet: (path, index) => channel.arrayGet(path, index),
+      arrayValues: (path) => channel.arrayValues(path),
+      arrayInsert: (path, index, values) => channel.arrayInsert(path, index, values),
+      arrayRemove: (path, start, end) => channel.arrayRemove(path, start, end),
+      arrayMove: (sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) =>
+        channel.arrayMove(
+          sourcePath,
+          sourceStart,
+          sourceEnd,
+          destinationPath,
+          destinationGap,
+        ),
       async close() {
         const cleanupErrors = [];
         try {
