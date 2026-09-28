@@ -151,3 +151,51 @@ Verification:
   `a4248573-d2bc-4058-9e3a-89573124d267`.
 - Persisted report:
   `tools/shared-tree-oracle/.output/interop/a4248573-d2bc-4058-9e3a-89573124d267/report.json`.
+
+## Fix round 3
+
+- Pending-summary evidence now captures an independent sequenced checkpoint and
+  encoder reference before publication. Native pending encoders must match the
+  same-implementation sequenced schema and forest at that capture sequence.
+  The published version is freshly loaded and must decode to the same whole
+  tree and stored schema, even when opening the publisher advances the service
+  watermark without changing SharedTree state.
+- The pinned upstream pending encoder retains the optimistic future schema.
+  The report records this as
+  `upstream-optimistic-encoder-retained-future-state` and uses the independent
+  sequenced upstream encoder as the authoritative capture. Native encoders do
+  not receive this exception.
+- Preserved the nine post-upgrade writer-reader cells and added a separate
+  nine-cell earlier-summary matrix. Every fresh reader crosses the schema
+  boundary through an upgrade-bearing tail, retains the historical peer value,
+  and records the original retained operation and replayed schema operation.
+- Reconnect validation now decodes the original pending payloads and accepted
+  wire payloads. It requires one-to-one ordered matches by semantic content and
+  originator, then compares the computed revision mapping exactly with
+  `acceptedMappings`. Empty payloads, erased changesets, duplicate matches, and
+  fictitious mappings fail validation.
+- Schema/schema rollback evidence now binds the original losing pending payload
+  to the accepted operation and binds the reconciled empty change to the same
+  original pending revision and originator. This preserves the native stable
+  revision while accepting the pinned Fluid wire sentinel only at the service
+  boundary.
+- Coordinated report and artifact mutation tests now rewrite persisted
+  artifacts and register new verified artifact maps before validation. The
+  mutations reach the deep rollback, pending-publication, reconnect, retained
+  operation, and fresh tail-history checks.
+
+Verification:
+
+- Required Node gate: 117 passed.
+- `just shared-tree-interop`: passed.
+- JavaScript SharedTree corpus: 573 passed.
+- Erlang SharedTree corpus: 584 passed.
+- Schema reload matrix: nine post-upgrade writer-reader cells.
+- Schema tail reload matrix: nine earlier-summary writer-reader cells.
+- Schema reconnect: two cases for each implementation, with two original
+  payloads, two accepted payloads, and two exact mappings per case.
+- No skipped targets or divergences.
+- Successful run:
+  `20f1bf58-690b-4cbd-b48b-722f33e28faf`.
+- Persisted report:
+  `tools/shared-tree-oracle/.output/interop/20f1bf58-690b-4cbd-b48b-722f33e28faf/report.json`.

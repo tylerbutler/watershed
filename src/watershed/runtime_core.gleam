@@ -3643,6 +3643,16 @@ pub fn tree_history_evidence(
   address: String,
 ) -> Result(Json, CoreError) {
   use state <- result.try(tree_channel(core, address))
+  let Core(compressor:, last_seen_sequence_number:, ..) = core
+  use compressor <- result.try(
+    compressor
+    |> option.to_result(TreeOperationFailed(
+      address,
+      tree_types.InvalidHistory(
+        "tree history evidence requires an ID compressor",
+      ),
+    )),
+  )
   let history.HistoryView(sequenced, pending, longest_branch_length) =
     tree_kernel.history_view(state)
   let history.HistorySnapshot(
@@ -3652,6 +3662,20 @@ pub fn tree_history_evidence(
     sequence_number,
     minimum_sequence_number,
   ) = sequenced
+  use pending <- result.try(
+    list.try_map(pending, fn(commit) {
+      use payload <- result.try(
+        tree_runtime.encode_pending_commit(
+          commit,
+          state,
+          last_seen_sequence_number,
+          compressor,
+        )
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
+      Ok(history_commit_evidence(commit, Some(payload)))
+    }),
+  )
   Ok(
     json.object([
       #(
@@ -3666,16 +3690,13 @@ pub fn tree_history_evidence(
       #("sequenceNumber", json.int(sequence_number)),
       #("minimumSequenceNumber", json.int(minimum_sequence_number)),
       #("longestBranchLength", json.int(longest_branch_length)),
-      #(
-        "pending",
-        json.array(pending, fn(commit) { history_commit_evidence(commit) }),
-      ),
+      #("pending", json.array(pending, fn(commit) { commit })),
       #(
         "trunk",
         json.array(trunk, fn(entry) {
           let history.SequencedCommit(commit, point) = entry
           json.object([
-            #("commit", history_commit_evidence(commit)),
+            #("commit", history_commit_evidence(commit, None)),
             #("point", json.string(string.inspect(point))),
           ])
         }),
@@ -3685,7 +3706,10 @@ pub fn tree_history_evidence(
   )
 }
 
-fn history_commit_evidence(commit: history.Commit) -> Json {
+fn history_commit_evidence(
+  commit: history.Commit,
+  payload: Option(Json),
+) -> Json {
   let history.Commit(revision, originator, changeset) = commit
   json.object([
     #("revision", json.string(fluid_ids.stable_id_to_string(revision))),
@@ -3698,6 +3722,10 @@ fn history_commit_evidence(commit: history.Commit) -> Json {
           json.int(list.length(shared_change.to_changes(changeset))),
         ),
         #("raw", json.string(string.inspect(changeset))),
+        ..case payload {
+          Some(value) -> [#("payload", value)]
+          None -> []
+        }
       ]),
     ),
   ])
