@@ -166,6 +166,13 @@ const arrayPoint = (label, x) => ({
     ["x", { kind: "number", value: x }],
   ],
 });
+const removedArrayPoint = () => ({
+  type: "org.watershed.shared-tree.m3.Point",
+  fields: {
+    label: [{ type: "com.fluidframework.leaf.string", value: "deleted" }],
+    x: [{ type: "com.fluidframework.leaf.number", value: 9 }],
+  },
+});
 const arrayValue = (elements) => ({
   kind: "array",
   schemaId: "org.watershed.shared-tree.m3.Items",
@@ -240,13 +247,15 @@ const arrayCells = Object.fromEntries(implementations.map((writer, writerIndex) 
       peerWholeTree: arrayTree(writer, `${writer}-${reader}-continuation`),
       continuationLabel: `${writer}-${reader}-continuation`,
       retained: {
-        removed: [[1027, 4, arrayPoint("deleted", 9)]],
-        movedIdentity: {
-          before: `${writer}-moved`,
-          after: `${writer}-moved`,
-          upstreamReferencePreserved: true,
-          childEditObserved: true,
+        removed: [[1027, 4, removedArrayPoint()]],
+        selectedVersion: `${writer}-array-commit`,
+        moveIdentity: {
+          revision: 1,
+          originatorId: `${reader}-originator`,
+          moveOut: [{ id: 0, revision: 1 }],
+          moveIn: [{ id: 0, revision: 1 }],
         },
+        childEditObserved: true,
         summaryConsumed: true,
       },
       continuationIdentity: {
@@ -362,8 +371,17 @@ test("array reload matrix requires nine exact tail and continuation cells", () =
     ["missing retained history", (copy) => {
       copy.upstream.javascript.retained.removed = [];
     }],
-    ["lost moved identity", (copy) => {
-      copy.upstream.javascript.retained.movedIdentity.after = "other";
+    ["wrong retained version", (copy) => {
+      copy.upstream.javascript.retained.selectedVersion = "other";
+    }],
+    ["missing move identity", (copy) => {
+      delete copy.upstream.javascript.retained.moveIdentity;
+    }],
+    ["mismatched move atom", (copy) => {
+      copy.upstream.javascript.retained.moveIdentity.moveIn[0].id = 1;
+    }],
+    ["missing move revision", (copy) => {
+      delete copy.upstream.javascript.retained.moveIdentity.moveOut[0].revision;
     }],
     ["corrupt continuation", (copy) => {
       copy.upstream.javascript.peerWholeTree.value.fields[3][1].elements[1]
@@ -373,6 +391,20 @@ test("array reload matrix requires nine exact tail and continuation cells", () =
     const copy = structuredClone(arrayCells);
     mutation(copy);
     assert.throws(() => validateArrayResults(copy), undefined, label);
+  }
+});
+
+test("array reload retained evidence is required for every reader", () => {
+  for (const writer of implementations) {
+    for (const reader of implementations) {
+      const copy = structuredClone(arrayCells);
+      copy[writer][reader].retained.removed = [];
+      assert.throws(
+        () => validateArrayResults(copy),
+        /retained deleted content/i,
+        `${writer}->${reader}`,
+      );
+    }
   }
 });
 

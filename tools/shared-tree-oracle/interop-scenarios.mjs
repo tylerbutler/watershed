@@ -725,6 +725,16 @@ function generatedArrayActions(seed, index, template, roles, random) {
           schemaId: "org.watershed.shared-tree.m3.Items",
           elements: [arrayPoint(`nested-${seed}-${index}`, magnitude + 2)],
         },
+        arrayPoint(`base-${seed}-${index}-c`, magnitude + 3),
+      ],
+    }),
+    arrayEdit("array-insert", roles.third, {
+      path: ["right"],
+      index: 0,
+      values: [
+        arrayPoint(`right-${seed}-${index}-a`, magnitude + 4),
+        arrayPoint(`right-${seed}-${index}-b`, magnitude + 5),
+        arrayPoint(`right-${seed}-${index}-c`, magnitude + 6),
       ],
     }),
     {
@@ -743,21 +753,45 @@ function generatedArrayActions(seed, index, template, roles, random) {
     index: 1,
     values: [
       { kind: "string", value: `${template}-${roles.first}` },
-      { kind: "number", value: magnitude + 3 },
+      { kind: "number", value: magnitude + 7 },
     ],
   }, true));
-  if (template === "array-insert-remove") {
-    actions.push(arrayEdit("array-remove", roles.second, {
-      path: ["left"], start: 0, end: 2,
-    }, true));
-  } else {
-    actions.push(arrayEdit("array-move", roles.second, {
-      sourcePath: ["left"],
-      sourceStart: 0,
-      sourceEnd: 2,
-      destinationPath: ["right"],
-      destinationGap: 0,
-    }, true));
+  switch (template) {
+    case "array-same-gap":
+      actions.push(arrayEdit("array-insert", roles.second, {
+        path: ["left"],
+        index: 1,
+        values: [
+          { kind: "string", value: `${template}-${roles.second}` },
+          { kind: "number", value: magnitude + 8 },
+        ],
+      }, true));
+      break;
+    case "array-insert-remove":
+      actions.push(arrayEdit("array-remove", roles.second, {
+        path: ["left"], start: 0, end: 2,
+      }, true));
+      break;
+    case "array-cross-parent":
+      actions.push(arrayEdit("array-move", roles.second, {
+        sourcePath: ["left"],
+        sourceStart: 0,
+        sourceEnd: 2,
+        destinationPath: ["right"],
+        destinationGap: 1,
+      }, true));
+      break;
+    case "array-nested-reconnect":
+      actions.push(arrayEdit("array-move", roles.second, {
+        sourcePath: ["left"],
+        sourceStart: 0,
+        sourceEnd: 2,
+        destinationPath: ["left"],
+        destinationGap: 3,
+      }, true));
+      break;
+    default:
+      assert.fail(`Unknown array seeded template: ${template}`);
   }
   actions.push(edit("set", roles.third, ["left", "2", "0", "x"], -magnitude, true));
   actions.push({
@@ -939,12 +973,24 @@ export function validateReplayArtifact(artifact, expected) {
   }
   assert(Array.isArray(artifact.checkpoints) && artifact.checkpoints.length > 0,
     "Replay artifact lacks checkpoints");
+  const actionFailure = artifact.failedCheckpoint === null
+    && artifact.failedAction
+    && typeof artifact.failedAction === "object"
+    && !Array.isArray(artifact.failedAction)
+    && Number.isSafeInteger(artifact.failedAction.index)
+    && typeof artifact.failedAction.type === "string"
+    && artifact.failedAction.type !== "checkpoint";
   if (artifact.profile === "array") {
-    assert(artifact.checkpoints.some(({ stage }) => stage === "intermediate"),
-      "Array replay artifact lacks an intermediate checkpoint");
-    assert(typeof artifact.firstDifferencePath === "string"
-      && artifact.firstDifferencePath.length > 0,
-    "Array replay artifact lacks the first difference path");
+    if (actionFailure) {
+      assert.equal(artifact.firstDifferencePath, null,
+        "Array action failure has a difference path");
+    } else {
+      assert(artifact.checkpoints.some(({ stage }) => stage === "intermediate"),
+        "Array replay artifact lacks an intermediate checkpoint");
+      assert(typeof artifact.firstDifferencePath === "string"
+        && artifact.firstDifferencePath.length > 0,
+      "Array replay artifact lacks the first difference path");
+    }
   }
   assert(Array.isArray(artifact.rawSequencedOperations),
   "Replay artifact lacks sequenced operations");

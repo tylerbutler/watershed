@@ -872,6 +872,17 @@ function exactAuthors(values, authors, label) {
   assert.equal(values.length, authors.length, `${label} repeats an author`);
 }
 
+function expectedRetainedObjectReferences(item) {
+  if (["array-insert-remove", "array-overlapping-remove"].includes(item.family)) {
+    return [false, false];
+  }
+  if (item.family === "array-move-delete") {
+    const deleter = item.authors[1];
+    return [item.order === `${deleter}-first`, item.order === `${deleter}-first`];
+  }
+  return [true, true];
+}
+
 function restoredDetachedPoints(removed) {
   return removed.flatMap((entry) => {
     if (!Array.isArray(entry) || entry.length !== 3) return [];
@@ -944,6 +955,11 @@ function deterministicEvidence(item, authors, label) {
       && array.retainedObjectReferences.every((retained) =>
         typeof retained === "boolean"),
     `${label} lacks measured retained object references`);
+    assert.deepEqual(
+      array.retainedObjectReferences,
+      expectedRetainedObjectReferences(item),
+      `${label} has incorrect retained object references`,
+    );
     assert.equal(typeof array.childEditObserved, "boolean",
       `${label} lacks measured moved-child edit evidence`);
     if (["array-move-child-edit", "array-summary-tail"].includes(item.family)) {

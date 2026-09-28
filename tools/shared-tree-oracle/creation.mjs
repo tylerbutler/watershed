@@ -1588,9 +1588,8 @@ async function runArrayCreatorMatrix(config, context, creator, schema, root) {
       `Native array creation continuation ${creator}`,
       { store: arrayServiceStore },
     );
-    await adapters.javascript.set(["right", "0", "x"], 43);
-    await adapters.upstream.set(["right", "0", "x"], 42);
-    const upstreamContinuation = await settle(adapters);
+    const upstreamContinuation =
+      await continueArrayAfterUpstreamSummary(adapters, () => settle(adapters));
     const expectedUpstreamContinuation = arrayMatrixTree(creator, { x: 43 });
     assertCheckpointTree(
       upstreamContinuation,
@@ -1638,6 +1637,12 @@ async function runArrayCreatorMatrix(config, context, creator, schema, root) {
   } finally {
     await cleanupScenario(natives, containers, scenarioError);
   }
+}
+
+export async function continueArrayAfterUpstreamSummary(adapters, settleAdapters) {
+  await adapters.javascript.set(["right", "0", "x"], 43);
+  await adapters.javascript.awaitSynced();
+  return settleAdapters();
 }
 
 export async function runCreationInterop(config, {

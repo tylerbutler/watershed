@@ -955,6 +955,37 @@ test("failure artifacts persist the failing barrier rather than prior optimistic
   assert.deepEqual(artifact.failedCheckpoint, error.checkpoint);
 });
 
+test("native array-move action failures round-trip without a difference path", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "watershed-array-move-failure-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const schedule = generateSchedules({ seed: 42, iterations: 300 })
+    .find(({ profile, actions }) =>
+      profile === "array" && actions.some(({ type }) => type === "array-move"));
+  const actionIndex = schedule.actions.findIndex(({ type }) => type === "array-move");
+  const currentAction = { index: actionIndex, ...schedule.actions[actionIndex] };
+  const path = await writeSeededFailure({
+    runId: "array-move-run",
+    profileDigest: "a".repeat(64),
+    artifactDirectory: directory,
+  }, schedule, {
+    currentAction,
+    checkpoints: [{
+      label: "initial",
+      stage: "quiescent",
+      observations: [],
+    }],
+    summaries: [],
+  }, new Error("native array-move command failed"));
+  const artifact = JSON.parse(await readFile(path, "utf8"));
+  assert.equal(artifact.firstDifferencePath, null);
+  assert.equal(artifact.failedCheckpoint, null);
+  assert.deepEqual(artifact.failedAction, currentAction);
+  assert.equal(
+    validateReplayArtifact(artifact, { profileDigest: "a".repeat(64) }),
+    artifact,
+  );
+});
+
 const expectedScenarioIds = [
   "independent-scalar:upstream->javascript",
   "independent-scalar:upstream->erlang",
@@ -1644,11 +1675,11 @@ test("seed 42 expands a literal three-author schedule", () => {
   });
 });
 
-test("seeded cross-parent array moves target the initial empty destination", () => {
+test("seeded cross-parent array moves target an interior destination", () => {
   const schedule = generateSchedules({ seed: 42, iterations: 300 })
     .find(({ index }) => index === 200);
   const move = schedule.actions.find(({ type }) => type === "array-move");
-  assert.equal(move.destinationGap, 0);
+  assert.equal(move.destinationGap, 1);
 });
 
 test("schedule generation is deterministic, sized, unique, and covers every author", () => {
@@ -1710,14 +1741,43 @@ test("schedule generation is deterministic, sized, unique, and covers every auth
     profile === "map" && actions.some(({ type }) => type === "map-delete")));
   const arrays = normal.filter(({ profile }) => profile === "array");
   assert.equal(arrays.length, 100);
-  assert(arrays.some(({ actions }) => actions.some(({ type, values }) =>
-    type === "array-insert" && values.length > 1)));
-  assert(arrays.filter(({ actions }) => actions.some(({ type }) => type === "array-move"))
-    .every(({ actions }) => actions.some(({ type, destinationGap }) =>
-      type === "array-move" && destinationGap === 0)));
-  assert(arrays.some(({ actions }) => actions.some(({ type, path }) =>
-    type === "set" && path.length > 2)));
-  assert(arrays.some(({ actions }) => actions.some(({ type }) => type === "reconnect")));
+  for (const schedule of arrays) {
+    const edits = schedule.actions.filter(({ type }) =>
+      ["array-insert", "array-remove", "array-move", "set"].includes(type));
+    assert(edits.some(({ type, path }) =>
+      type === "set" && path.length > 2), `${schedule.template} lacks a nested edit`);
+    if (schedule.template === "array-same-gap") {
+      const inserts = edits.filter(({ type, author }) =>
+        type === "array-insert"
+          && [schedule.roles.first, schedule.roles.second].includes(author));
+      assert.equal(inserts.length, 2);
+      assert.deepEqual(
+        inserts.map(({ path, index }) => ({ path, index })),
+        [{ path: ["left"], index: 1 }, { path: ["left"], index: 1 }],
+      );
+      assert(inserts.every(({ values }) => values.length > 1));
+    } else if (schedule.template === "array-insert-remove") {
+      const insert = edits.find(({ type, author }) =>
+        type === "array-insert" && author === schedule.roles.first);
+      const remove = edits.find(({ type, author }) =>
+        type === "array-remove" && author === schedule.roles.second);
+      assert(insert.values.length > 1);
+      assert(remove.end - remove.start > 1);
+    } else if (schedule.template === "array-cross-parent") {
+      const move = edits.find(({ type }) => type === "array-move");
+      assert.notDeepEqual(move.sourcePath, move.destinationPath);
+      assert(move.sourceEnd - move.sourceStart > 1);
+      assert(move.destinationGap > 0 && move.destinationGap < 3);
+    } else if (schedule.template === "array-nested-reconnect") {
+      const move = edits.find(({ type }) => type === "array-move");
+      assert.deepEqual(move.sourcePath, move.destinationPath);
+      assert(move.sourceEnd - move.sourceStart > 1);
+      assert(move.destinationGap > 0 && move.destinationGap < 4);
+      assert(schedule.actions.some(({ type }) => type === "reconnect"));
+    } else {
+      assert.fail(`Unknown array schedule template: ${schedule.template}`);
+    }
+  }
   assert(normal.some(({ actions }) => actions.some(({ type }) => type === "reconnect")));
   for (const schedule of normal.filter(({ actions }) =>
     actions.some(({ type }) => type === "reconnect"))) {

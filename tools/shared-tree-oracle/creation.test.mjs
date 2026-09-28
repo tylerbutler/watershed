@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  continueArrayAfterUpstreamSummary,
   inspectCreationSummary,
   runCreationCommand,
   validateCreationCapture,
@@ -197,6 +198,35 @@ function completeInteropReport() {
     divergences: [],
   };
 }
+
+test("array upstream-summary continuation waits for the JavaScript edit", async () => {
+  const calls = [];
+  const adapters = {
+    javascript: {
+      async set(path, value) {
+        calls.push(["set", path, value]);
+      },
+      async awaitSynced() {
+        calls.push(["awaitSynced"]);
+      },
+    },
+    upstream: {
+      async set() {
+        assert.fail("The stale upstream assignment must not run");
+      },
+    },
+  };
+  const settled = { observations: [] };
+  assert.equal(await continueArrayAfterUpstreamSummary(adapters, async () => {
+    calls.push(["settle"]);
+    return settled;
+  }), settled);
+  assert.deepEqual(calls, [
+    ["set", ["right", "0", "x"], 43],
+    ["awaitSynced"],
+    ["settle"],
+  ]);
+});
 
 function matrixTree(creator, {
   title = "native creation",

@@ -480,12 +480,34 @@ export function validateArrayResults(results) {
       assert(Array.isArray(cell.retained?.removed)
         && cell.retained.removed.length > 0,
       "Array reload lacks retained deleted content");
-      assert.equal(cell.retained.movedIdentity?.before,
-        cell.retained.movedIdentity?.after,
-      "Array reload lost moved object identity");
-      assert.equal(cell.retained.movedIdentity?.upstreamReferencePreserved, true,
-        "Array reload lost the moved upstream object reference");
-      assert.equal(cell.retained.movedIdentity?.childEditObserved, true,
+      assert(cell.retained.removed.some((entry) => {
+        const node = Array.isArray(entry) ? entry[2] : undefined;
+        return node?.type === "org.watershed.shared-tree.m3.Point"
+          && node.fields?.label?.[0]?.value === "deleted"
+          && node.fields?.x?.[0]?.value === 9;
+      }), "Array reload retained the wrong deleted content");
+      assert.equal(cell.retained.selectedVersion, cell.loadedVersion,
+        "Array reload retained content came from another summary");
+      const moveIdentity = cell.retained.moveIdentity;
+      assert(Number.isSafeInteger(moveIdentity?.revision)
+        && typeof moveIdentity.originatorId === "string"
+        && moveIdentity.originatorId.length > 0
+        && Array.isArray(moveIdentity.moveOut)
+        && moveIdentity.moveOut.length === 1
+        && Array.isArray(moveIdentity.moveIn)
+        && moveIdentity.moveIn.length === 1,
+      "Array reload lacks persisted move identity");
+      const [moveOut] = moveIdentity.moveOut;
+      const [moveIn] = moveIdentity.moveIn;
+      assert(Number.isSafeInteger(moveOut.id)
+        && Number.isSafeInteger(moveOut.revision)
+        && Number.isSafeInteger(moveIn.id)
+        && Number.isSafeInteger(moveIn.revision)
+        && moveOut.id === moveIn.id
+        && moveOut.revision === moveIdentity.revision
+        && moveIn.revision === moveIdentity.revision,
+      "Array reload has invalid persisted move atoms");
+      assert.equal(cell.retained.childEditObserved, true,
         "Array reload lacks the moved-child edit proof");
       assert.equal(cell.retained.summaryConsumed, true,
         "Array retained-state verifier did not consume the summary");
@@ -916,6 +938,41 @@ function continuationIdentity(history, adapter, sequenceNumber) {
       revision,
       originatorId,
     })),
+  };
+}
+
+function moveIdentity(submission) {
+  const endpoints = { moveOut: [], moveIn: [] };
+  function collect(value, revision) {
+    if (Array.isArray(value)) {
+      for (const item of value) collect(item, revision);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    for (const [key, item] of Object.entries(value)) {
+      if (key === "moveOut" || key === "moveIn") {
+        assert(Number.isSafeInteger(item?.id), "Reader move endpoint lacks an atom ID");
+        const endpointRevision = item.revision ?? revision;
+        assert(Number.isSafeInteger(endpointRevision),
+          "Reader move endpoint lacks a revision");
+        endpoints[key].push({ id: item.id, revision: endpointRevision });
+      }
+      collect(item, revision);
+    }
+  }
+  for (const commit of submission.commits) {
+    collect(commit.changeset, commit.revision);
+  }
+  assert.equal(endpoints.moveOut.length, 1,
+    "Reader continuation lacks one persisted move-out atom");
+  assert.equal(endpoints.moveIn.length, 1,
+    "Reader continuation lacks one persisted move-in atom");
+  const [commit] = submission.commits;
+  assert(commit, "Reader continuation lacks a persisted move commit");
+  return {
+    revision: commit.revision,
+    originatorId: commit.originatorId,
+    ...endpoints,
   };
 }
 
@@ -1621,6 +1678,11 @@ async function readArrayCell(config, context, row, reader) {
       .some((value) => JSON.stringify(value) === JSON.stringify(row.tailValue)),
     `${reader} missed the post-summary array tail`);
 
+    const retainedReader = row.retainedReaders[reader];
+    const peer = retainedReader.peer;
+    const retainedLoad = retainedReader.load;
+    const removed = retainedReader.removed;
+
     const continuationLabel = `${row.writer}-${reader}-${randomUUID()}`;
     const baseline = loaded.sequenceNumber;
     await continueArrayReader(adapter, continuationLabel);
@@ -1632,13 +1694,6 @@ async function readArrayCell(config, context, row, reader) {
       reader,
     );
     const continuationCheckpoint = await adapter.checkpoint();
-    const peer = await openSession(
-      config,
-      containers,
-      row.documentId,
-      false,
-      { cache: false, store: arrayServiceStore },
-    );
     const peerAdapter = upstreamAdapter(peer);
     await peerAdapter.awaitSynced(continuation.outerSequenceNumber);
     const peerCheckpoint = await peerAdapter.checkpoint();
@@ -1679,12 +1734,12 @@ async function readArrayCell(config, context, row, reader) {
       writerVersionBeforeLoad: headBefore,
       writerVersionAfterLoad: headAfter,
       retained: {
-        ...row.retained,
-        movedIdentity: {
-          ...row.retained.movedIdentity,
-          childEditObserved: JSON.stringify(peerCheckpoint.wholeTree)
-            .includes(continuationLabel),
-        },
+        removed,
+        selectedVersion: retainedLoad.loadedVersion,
+        moveIdentity: moveIdentity(continuation),
+        childEditObserved: JSON.stringify(peerCheckpoint.wholeTree)
+          .includes(continuationLabel),
+        summaryConsumed: true,
       },
       continuationIdentity: continuationIdentity(
         history,
@@ -1696,7 +1751,7 @@ async function readArrayCell(config, context, row, reader) {
     item.artifacts = [await writeArrayReloadArtifact(context, item, {
       load: rawLoad,
       history,
-      retainedLoad: row.retainedLoad,
+      retainedLoad: retainedReader.storageObservations,
     })];
     await restoreArrayReader(adapter);
     await adapter.awaitSynced();
@@ -1787,14 +1842,10 @@ async function runArrayWriterRow(config, context, writer) {
     );
     await adapters[writer].awaitSynced();
     await settle(adapters);
-    const movedReference = upstreamSession.data.view.root.left[3];
     await adapters[writer].arrayMove(["left"], 3, 4, ["right"], 1);
     await adapters[writer].arrayRemove(["left"], 3, 4);
     await adapters[writer].awaitSynced();
     await settle(adapters);
-    const upstreamReferencePreserved =
-      upstreamSession.data.view.root.right[1] === movedReference;
-
     const tailValue = arrayPointValue(`after-summary-${writer}`, 7);
     const publication = await publishWriterSummary(
       config,
@@ -1823,43 +1874,37 @@ async function runArrayWriterRow(config, context, writer) {
         && type === "op");
     assert(tail, `${writer} lacks an array non-tree tail after publication`);
 
-    const verifier = await openSession(
-      config,
-      containers,
-      documentId,
-      false,
-      { cache: false, observeStorage: true, store: arrayServiceStore },
-    );
-    const retainedLoad = storageLoad(verifier.storageObservations, publication.version);
-    assert(retainedLoad.replayStartSequenceNumber >= publication.snapshotSequenceNumber,
-      "Array retained verifier replayed from the document origin");
-    const removed = verifier.data.tree.contentSnapshot().removed;
-    assert(removed.length > 0, "Fresh array retained read omitted deleted content");
-    const identity = `${writer}:${publication.dataEditSequenceNumber}`;
-    const retained = {
-      removed,
-      movedIdentity: {
-        before: identity,
-        after: identity,
-        upstreamReferencePreserved,
-        childEditObserved: true,
-      },
-      summaryConsumed: true,
-    };
-    verifier.container.dispose();
-
     const row = {
       writer,
       documentId,
       jwt,
       observer: creator,
       observerAdapter: creatorAdapter,
-      retained,
-      retainedLoad: verifier.storageObservations,
       tailSequenceNumber: tail.sequenceNumber,
       tailValue,
       ...publication,
     };
+    row.retainedReaders = {};
+    for (const reader of implementations) {
+      const peer = await openSession(
+        config,
+        containers,
+        documentId,
+        false,
+        { cache: false, observeStorage: true, store: arrayServiceStore },
+      );
+      const load = storageLoad(peer.storageObservations, publication.version);
+      assert(load.replayStartSequenceNumber >= publication.snapshotSequenceNumber,
+        `${reader} retained peer replayed from the document origin`);
+      const removed = peer.data.tree.contentSnapshot().removed;
+      assert(removed.length > 0, `${reader} retained peer omitted deleted content`);
+      row.retainedReaders[reader] = {
+        peer,
+        load,
+        removed,
+        storageObservations: peer.storageObservations,
+      };
+    }
     const results = {};
     for (const reader of implementations) {
       results[reader] = await readArrayCell(config, context, row, reader);

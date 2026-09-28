@@ -230,9 +230,13 @@ function deterministicEvidence(cell) {
     }));
   }
   if (cell.profile === "array") {
+    const deleted = ["array-insert-remove", "array-overlapping-remove"]
+      .includes(cell.family)
+      || (cell.family === "array-move-delete"
+        && cell.order !== `${cell.authors[1]}-first`);
     evidence.array = {
       finalTree: { present: true, value: { kind: "object", fields: [] } },
-      retainedObjectReferences: [true, true],
+      retainedObjectReferences: [!deleted, !deleted],
       childEditObserved: ["array-move-child-edit", "array-summary-tail"]
         .includes(cell.family),
     };
@@ -689,6 +693,13 @@ async function validFixture() {
       ["x", { kind: "number", value: x }],
     ],
   });
+  const removedArrayPoint = () => ({
+    type: "org.watershed.shared-tree.m3.Point",
+    fields: {
+      label: [{ type: "com.fluidframework.leaf.string", value: "deleted" }],
+      x: [{ type: "com.fluidframework.leaf.number", value: 9 }],
+    },
+  });
   const array = (schemaId, elements) => ({ kind: "array", schemaId, elements });
   const arrayTree = (writer, continuation) => ({
     present: true,
@@ -760,13 +771,15 @@ async function validFixture() {
         peerWholeTree: arrayTree(writer, continuation),
         continuationLabel: continuation,
         retained: {
-          removed: [[0, 1, arrayPoint("deleted", 9)]],
-          movedIdentity: {
-            before: `${writer}-moved`,
-            after: `${writer}-moved`,
-            upstreamReferencePreserved: true,
-            childEditObserved: true,
+          removed: [[0, 1, removedArrayPoint()]],
+          selectedVersion: `${writer}-array-version`,
+          moveIdentity: {
+            revision: 1,
+            originatorId: `${reader}-array-origin`,
+            moveOut: [{ id: 0, revision: 1 }],
+            moveIn: [{ id: 0, revision: 1 }],
           },
+          childEditObserved: true,
           summaryConsumed: true,
         },
         continuationIdentity: {
@@ -965,6 +978,25 @@ test("deterministic service order ignores submissions before each authored prefi
   const claim = expected.artifacts.get(item.artifacts[0]).claim;
   claim.measured.evidence = structuredClone(item.evidence);
   assert.equal(validateInteropReport(report, expected), report);
+});
+
+test("array move families require exact retained object survival", async () => {
+  for (const [id, retainedObjectReferences] of [
+    ["array-move-child-edit:upstream->javascript:upstream-first", [false, false]],
+    ["array-move-delete:upstream->javascript:javascript-first", [false, false]],
+    ["array-move-delete:upstream->javascript:upstream-first", [true, true]],
+  ]) {
+    const { expected, report } = await validFixture();
+    const item = report.deterministic.find((candidate) => candidate.id === id);
+    item.evidence.array.retainedObjectReferences = retainedObjectReferences;
+    expected.artifacts.get(item.artifacts[0]).claim.measured.evidence =
+      structuredClone(item.evidence);
+    assert.throws(
+      () => validateInteropReport(report, expected),
+      /retained object references/i,
+      id,
+    );
+  }
 });
 
 test("the acceptance report requires all nine map reload cells", async () => {
