@@ -548,6 +548,9 @@ test("upstream checkpoint identifies schema-compatible array roots by profile", 
     },
     data: {
       tree: {
+        contentSnapshot() {
+          return { removed: [[1, 0, { type: "retained" }]] };
+        },
         kernel: {
           editManager: {
             constructor: { name: "EditManager" },
@@ -563,6 +566,8 @@ test("upstream checkpoint identifies schema-compatible array roots by profile", 
 
   assert.equal(checkpoint.wholeTree.value.schemaId,
     "org.watershed.shared-tree.m3.Root");
+  assert.deepEqual(checkpoint.retained.removed,
+    [[1, 0, { type: "retained" }]]);
 });
 
 test("native reconnect retries one transient transport timeout", async () => {
@@ -984,6 +989,132 @@ test("native array-move action failures round-trip without a difference path", a
     validateReplayArtifact(artifact, { profileDigest: "a".repeat(64) }),
     artifact,
   );
+});
+
+test("replay reproduces an identical saved native array-move action failure", async (t) => {
+  const originalDirectory =
+    await mkdtemp(join(tmpdir(), "watershed-array-move-original-"));
+  const replayDirectory =
+    await mkdtemp(join(tmpdir(), "watershed-array-move-replay-"));
+  t.after(() => Promise.all([
+    rm(originalDirectory, { recursive: true, force: true }),
+    rm(replayDirectory, { recursive: true, force: true }),
+  ]));
+  const schedule = generateSchedules({ seed: 42, iterations: 300 })
+    .find(({ profile, actions }) =>
+      profile === "array" && actions.some(({ type }) => type === "array-move"));
+  const actionIndex = schedule.actions.findIndex(({ type }) => type === "array-move");
+  const currentAction = { index: actionIndex, ...schedule.actions[actionIndex] };
+  const state = {
+    currentAction,
+    checkpoints: [{ label: "initial", stage: "quiescent", observations: [] }],
+    summaries: [],
+  };
+  const commandError = () => {
+    const error = new Error("javascript array-move command failed");
+    error.name = "NativeCommandError";
+    error.code = "native-command";
+    return error;
+  };
+  const originalPath = await writeSeededFailure({
+    runId: "original-run",
+    profileDigest: "a".repeat(64),
+    artifactDirectory: originalDirectory,
+  }, schedule, state, commandError());
+  const artifact = JSON.parse(await readFile(originalPath, "utf8"));
+  const context = {
+    runId: "replay-run",
+    profileDigest: "a".repeat(64),
+    viewSchema: "schema",
+    arrayViewSchema: "array-schema",
+    artifactDirectory: replayDirectory,
+  };
+  const result = await replayFailure({}, context, artifact, {
+    async runSchedule(_config, replayContext, replaySchedule) {
+      const error = commandError();
+      error.failurePath = await writeSeededFailure(
+        replayContext,
+        replaySchedule,
+        state,
+        error,
+      );
+      throw error;
+    },
+  });
+  assert.equal(result.reproduced, true);
+  assert.equal(result.replayIdentityMapping.erlang.instanceId, null);
+});
+
+test("replay rejects a different action failure and an infrastructure failure", async (t) => {
+  const originalDirectory =
+    await mkdtemp(join(tmpdir(), "watershed-array-move-negative-original-"));
+  const replayDirectory =
+    await mkdtemp(join(tmpdir(), "watershed-array-move-negative-replay-"));
+  t.after(() => Promise.all([
+    rm(originalDirectory, { recursive: true, force: true }),
+    rm(replayDirectory, { recursive: true, force: true }),
+  ]));
+  const schedule = generateSchedules({ seed: 42, iterations: 300 })
+    .find(({ profile, actions }) =>
+      profile === "array" && actions.some(({ type }) => type === "array-move"));
+  const actionIndex = schedule.actions.findIndex(({ type }) => type === "array-move");
+  const currentAction = { index: actionIndex, ...schedule.actions[actionIndex] };
+  const originalError = new Error("javascript array-move command failed");
+  originalError.name = "NativeCommandError";
+  originalError.code = "native-command";
+  const originalPath = await writeSeededFailure({
+    runId: "original-run",
+    profileDigest: "a".repeat(64),
+    artifactDirectory: originalDirectory,
+  }, schedule, {
+    currentAction,
+    checkpoints: [{ label: "initial", stage: "quiescent", observations: [] }],
+    summaries: [],
+  }, originalError);
+  const artifact = JSON.parse(await readFile(originalPath, "utf8"));
+  const context = {
+    runId: "replay-run",
+    profileDigest: "a".repeat(64),
+    viewSchema: "schema",
+    arrayViewSchema: "array-schema",
+    artifactDirectory: replayDirectory,
+  };
+  const different = await replayFailure({}, context, artifact, {
+    async runSchedule(_config, replayContext, replaySchedule) {
+      const error = new Error("javascript array-move command failed");
+      error.name = "NativeCommandError";
+      error.code = "native-command";
+      error.failurePath = await writeSeededFailure(
+        replayContext,
+        replaySchedule,
+        {
+          currentAction: { ...currentAction, index: currentAction.index + 1 },
+          checkpoints: [{ label: "initial", stage: "quiescent", observations: [] }],
+          summaries: [],
+        },
+        error,
+      );
+      throw error;
+    },
+  });
+  assert.equal(different.reproduced, false);
+  const infrastructure = await replayFailure({}, {
+    ...context,
+    artifactDirectory: join(replayDirectory, "infrastructure"),
+  }, artifact, {
+    async runSchedule(_config, replayContext, replaySchedule) {
+      const error = new Error("service configuration unavailable");
+      error.failurePath = await writeSeededFailure(
+        replayContext,
+        replaySchedule,
+        { checkpoints: [], summaries: [] },
+        error,
+      );
+      throw error;
+    },
+  });
+  assert.equal(infrastructure.reproduced, false);
+  assert.equal(infrastructure.diagnostic.message, "service configuration unavailable");
 });
 
 const expectedScenarioIds = [

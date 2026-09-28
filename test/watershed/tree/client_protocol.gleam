@@ -490,12 +490,17 @@ pub fn encode_checkpoint(
   root: Json,
   values: List(#(String, Json)),
   events: List(Json),
+  retained: Option(Json),
 ) -> Json {
-  json.object([
+  let fields = [
     #("root", root),
     #("values", json.object(values)),
     #("events", json.array(events, fn(event) { event })),
-  ])
+  ]
+  json.object(case retained {
+    None -> fields
+    Some(retained) -> list.append(fields, [#("retained", retained)])
+  })
 }
 
 pub fn encode_startup_error(

@@ -437,6 +437,10 @@ pub type Msg {
     path: tree_types.FieldPath,
     reply: Subject(Result(Option(tree_types.TreeValue), String)),
   )
+  TreeRetainedSnapshot(
+    address: String,
+    reply: Subject(Result(runtime_core.TreeRetainedSnapshot, String)),
+  )
   TreeMapGet(
     address: String,
     path: tree_types.FieldPath,
@@ -955,6 +959,18 @@ pub fn tree_read(
     runtime,
     waiting: connect_timeout_milliseconds,
     sending: fn(reply) { TreeRead(address, path, reply) },
+  )
+}
+
+@target(erlang)
+pub fn tree_retained_snapshot(
+  runtime: Subject(Msg),
+  address: String,
+) -> Result(runtime_core.TreeRetainedSnapshot, String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { TreeRetainedSnapshot(address, reply) },
   )
 }
 
@@ -1676,6 +1692,20 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
           Error("tree read requires a ready document connection"),
           fn(core) {
             runtime_core.tree_read(core, address, path)
+            |> result.map_error(string.inspect)
+          },
+        ),
+      )
+      actor.continue(state)
+    }
+    TreeRetainedSnapshot(address, reply) -> {
+      process.send(
+        reply,
+        read(
+          state,
+          Error("tree retained snapshot requires a ready document connection"),
+          fn(core) {
+            runtime_core.tree_retained_snapshot(core, address)
             |> result.map_error(string.inspect)
           },
         ),

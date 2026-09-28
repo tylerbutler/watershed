@@ -1417,6 +1417,9 @@ export function upstreamAdapter(session) {
     async checkpoint() {
       if (session.container.clientId) clientIds.add(session.container.clientId);
       const captured = events.splice(0);
+      const arrayRetained = hasSchema(session.data.view.root, ArrayRoot)
+        ? { removed: session.data.tree.contentSnapshot().removed }
+        : undefined;
       return {
         implementation: "upstream",
         instanceId,
@@ -1433,6 +1436,7 @@ export function upstreamAdapter(session) {
         events: captured,
         clientId: session.container.clientId,
         connectionEvents: [...connectionEvents],
+        ...(arrayRetained ? { retained: arrayRetained } : {}),
       };
     },
     async holdInbound() {
@@ -1597,6 +1601,7 @@ export async function nativeAdapter(
         events: reply.result.events,
         clientId: reply.observation.clientId,
         reconnectRetries: structuredClone(reconnectRetries),
+        ...(reply.result.retained ? { retained: reply.result.retained } : {}),
       };
     },
     async holdInbound() {
@@ -3891,11 +3896,16 @@ export function sameReplayFailure(original, replayed) {
     && original.error.message === replayed.error.message;
 }
 
-export async function replayFailure(config, context, artifact) {
+export async function replayFailure(
+  config,
+  context,
+  artifact,
+  { runSchedule = runSeededSchedule } = {},
+) {
   validateRunnerContext("replayFailure", context);
   validateReplayArtifact(artifact, { profileDigest: context.profileDigest });
   try {
-    const result = await runSeededSchedule(config, context, artifact.schedule);
+    const result = await runSchedule(config, context, artifact.schedule);
     return {
       mode: "replay",
       accepted: false,
@@ -3908,7 +3918,12 @@ export async function replayFailure(config, context, artifact) {
     };
   } catch (error) {
     if (!error.failurePath) throw error;
-    if (!error.checkpoint) {
+    let replayArtifact;
+    try {
+      replayArtifact = await loadReplayArtifact(error.failurePath, {
+        profileDigest: context.profileDigest,
+      });
+    } catch (artifactError) {
       return {
         mode: "replay",
         accepted: false,
@@ -3918,12 +3933,10 @@ export async function replayFailure(config, context, artifact) {
         originalIdentityMapping: artifact.identityMapping,
         replayIdentityMapping: undefined,
         diagnostic: replayError(error),
+        artifactDiagnostic: replayError(artifactError),
         failurePath: error.failurePath,
       };
     }
-    const replayArtifact = await loadReplayArtifact(error.failurePath, {
-      profileDigest: context.profileDigest,
-    });
     return {
       mode: "replay",
       accepted: false,

@@ -42,6 +42,7 @@ pub fn shared_tree_client_encodes_full_root_checkpoint_test() -> Nil {
     ),
     [#("title", client_protocol.encode_read(Some(StringValue("hello"))))],
     [json.object([#("local", json.bool(True))])],
+    None,
   )
   |> json.to_string
   |> expect.to_equal(

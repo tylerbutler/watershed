@@ -15,6 +15,8 @@ import watershed/runtime_core
 @target(erlang)
 import watershed/tree/client_protocol as protocol
 @target(erlang)
+import watershed/tree/client_retained_evidence
+@target(erlang)
 import watershed/tree/types.{ObjectValue}
 @target(erlang)
 import watershed/tree_kernel.{TreeChanged}
@@ -415,7 +417,23 @@ fn checkpoint(
     Some(subject), True -> drain(subject, [])
     _, _ -> []
   }
-  Ok(protocol.encode_checkpoint(root, values, changes))
+  use retained <- result.try(case root_value {
+    Some(ObjectValue("org.watershed.shared-tree.m3.Root", _)) -> {
+      use snapshot <- result.try(
+        watershed.tree_retained_snapshot(tree)
+        |> result.map_error(fn(reason) {
+          protocol.ProtocolError("facade-error", "checkpoint", reason)
+        }),
+      )
+      client_retained_evidence.encode(snapshot)
+      |> result.map(Some)
+      |> result.map_error(fn(reason) {
+        protocol.ProtocolError("facade-error", "checkpoint", reason)
+      })
+    }
+    _ -> Ok(None)
+  })
+  Ok(protocol.encode_checkpoint(root, values, changes, retained))
 }
 
 @target(erlang)

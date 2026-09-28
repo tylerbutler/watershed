@@ -772,7 +772,23 @@ async function validFixture() {
         continuationLabel: continuation,
         retained: {
           removed: [[0, 1, removedArrayPoint()]],
+          reader,
+          readerInstanceId: `array-reload-${writer}-${reader}`,
+          source: reader === "upstream"
+            ? "upstream-runtime-and-wire"
+            : "native-runtime-snapshot",
+          loadedVersion: `${writer}-array-version`,
+          snapshotSequenceNumber: 110 + writerIndex,
+          sequenceNumber: 110 + writerIndex,
           selectedVersion: `${writer}-array-version`,
+          history: [{
+            revision: 1,
+            originatorId: `${reader}-array-origin`,
+            changes: [{
+              moveOut: { id: 0 },
+              moveIn: { id: 0 },
+            }],
+          }],
           moveIdentity: {
             revision: 1,
             originatorId: `${reader}-array-origin`,

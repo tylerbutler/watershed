@@ -510,6 +510,14 @@ pub fn tree_get(
 }
 
 @target(javascript)
+/// The retained SharedTree summary state for interop diagnostics.
+pub fn tree_retained_snapshot(
+  tree: SharedTree,
+) -> Result(runtime_core.TreeRetainedSnapshot, String) {
+  runtime.tree_retained_snapshot(tree.runtime, tree.address)
+}
+
+@target(javascript)
 /// Set a field after schema validation. The document must be ready.
 /// An invalid edit does not change the tree.
 pub fn tree_set(

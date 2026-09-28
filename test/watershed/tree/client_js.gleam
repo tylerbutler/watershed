@@ -19,6 +19,8 @@ import watershed/transport_js.{type Cell}
 @target(javascript)
 import watershed/tree/client_protocol as protocol
 @target(javascript)
+import watershed/tree/client_retained_evidence
+@target(javascript)
 import watershed/tree/types.{ObjectValue}
 @target(javascript)
 import watershed/tree_kernel.{TreeChanged}
@@ -370,7 +372,19 @@ fn checkpoint(
   })
   let changes = list.reverse(transport_js.get_cell(events))
   transport_js.set_cell(events, [])
-  Ok(protocol.encode_checkpoint(root, values, changes))
+  use retained <- result.try(case root_value {
+    Some(ObjectValue("org.watershed.shared-tree.m3.Root", _)) -> {
+      use snapshot <- result.try(
+        watershed.tree_retained_snapshot(tree)
+        |> result.map_error(fn(reason) { facade("checkpoint", reason) }),
+      )
+      client_retained_evidence.encode(snapshot)
+      |> result.map(Some)
+      |> result.map_error(fn(reason) { facade("checkpoint", reason) })
+    }
+    _ -> Ok(None)
+  })
+  Ok(protocol.encode_checkpoint(root, values, changes, retained))
 }
 
 @target(javascript)

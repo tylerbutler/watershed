@@ -173,6 +173,14 @@ const removedArrayPoint = () => ({
     x: [{ type: "com.fluidframework.leaf.number", value: 9 }],
   },
 });
+const nativeRemovedArrayPoint = () => ({
+  kind: "object",
+  schemaId: "org.watershed.shared-tree.m3.Point",
+  fields: [
+    ["label", { kind: "string", value: "deleted" }],
+    ["x", { kind: "number", value: 9 }],
+  ],
+});
 const arrayValue = (elements) => ({
   kind: "array",
   schemaId: "org.watershed.shared-tree.m3.Items",
@@ -247,8 +255,26 @@ const arrayCells = Object.fromEntries(implementations.map((writer, writerIndex) 
       peerWholeTree: arrayTree(writer, `${writer}-${reader}-continuation`),
       continuationLabel: `${writer}-${reader}-continuation`,
       retained: {
-        removed: [[1027, 4, removedArrayPoint()]],
+        removed: [[1027, 4, reader === "upstream"
+          ? removedArrayPoint()
+          : nativeRemovedArrayPoint()]],
+        reader: reader,
+        readerInstanceId: `${writer}-${reader}-array-reader`,
+        source: reader === "upstream"
+          ? "upstream-runtime-and-wire"
+          : "native-runtime-snapshot",
+        loadedVersion: `${writer}-array-commit`,
+        snapshotSequenceNumber: 40 + writerIndex,
+        sequenceNumber: 56 + readerIndex,
         selectedVersion: `${writer}-array-commit`,
+        history: [{
+          revision: 1,
+          originatorId: `${reader}-originator`,
+          changes: [{
+            moveOut: { id: 0 },
+            moveIn: { id: 0 },
+          }],
+        }],
         moveIdentity: {
           revision: 1,
           originatorId: `${reader}-originator`,
@@ -397,14 +423,46 @@ test("array reload matrix requires nine exact tail and continuation cells", () =
 test("array reload retained evidence is required for every reader", () => {
   for (const writer of implementations) {
     for (const reader of implementations) {
-      const copy = structuredClone(arrayCells);
-      copy[writer][reader].retained.removed = [];
-      assert.throws(
-        () => validateArrayResults(copy),
-        /retained deleted content/i,
-        `${writer}->${reader}`,
-      );
+      for (const [label, mutation, message] of [
+        ["removed content", (retained) => { retained.removed = []; },
+          /retained deleted content/i],
+        ["persisted history", (retained) => { retained.history = []; },
+          /retained summary history/i],
+      ]) {
+        const copy = structuredClone(arrayCells);
+        mutation(copy[writer][reader].retained);
+        assert.throws(
+          () => validateArrayResults(copy),
+          message,
+          `${writer}->${reader} ${label}`,
+        );
+      }
     }
+  }
+});
+
+test("array reload binds retained evidence to the loaded reader and summary", () => {
+  for (const [label, mutation] of [
+    ["wrong reader", (cell) => { cell.retained.reader = "upstream"; }],
+    ["wrong reader instance", (cell) => {
+      cell.retained.readerInstanceId = "another-reader";
+    }],
+    ["wrong evidence source", (cell) => {
+      cell.retained.source = "upstream-runtime-snapshot";
+    }],
+    ["wrong loaded version", (cell) => {
+      cell.retained.loadedVersion = "another-version";
+    }],
+    ["wrong snapshot sequence", (cell) => {
+      cell.retained.snapshotSequenceNumber -= 1;
+    }],
+    ["evidence before load checkpoint", (cell) => {
+      cell.retained.sequenceNumber = cell.snapshotSequenceNumber - 1;
+    }],
+  ]) {
+    const copy = structuredClone(arrayCells);
+    mutation(copy.upstream.javascript);
+    assert.throws(() => validateArrayResults(copy), undefined, label);
   }
 });
 

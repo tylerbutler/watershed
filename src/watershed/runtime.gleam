@@ -2062,6 +2062,21 @@ pub fn tree_read(
 }
 
 @target(javascript)
+pub fn tree_retained_snapshot(
+  runtime: Runtime,
+  address: String,
+) -> Result(runtime_core.TreeRetainedSnapshot, String) {
+  read(
+    runtime.cell,
+    Error("tree retained snapshot requires a ready document connection"),
+    fn(core) {
+      runtime_core.tree_retained_snapshot(core, address)
+      |> result.map_error(string.inspect)
+    },
+  )
+}
+
+@target(javascript)
 pub fn tree_map_get(
   runtime: Runtime,
   address: String,

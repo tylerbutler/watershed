@@ -58,6 +58,65 @@ async function within(promise, label, milliseconds = 60_000) {
   }
 }
 
+function retainedMoveIdentity(history) {
+  assert(Array.isArray(history) && history.length > 0,
+    "Array reload lacks retained summary history");
+  const endpoints = { moveOut: [], moveIn: [] };
+  function collect(value, revision) {
+    if (Array.isArray(value)) {
+      for (const item of value) collect(item, revision);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    for (const [key, item] of Object.entries(value)) {
+      if (key === "moveOut" || key === "moveIn") {
+        assert(Number.isSafeInteger(item?.id),
+          "Retained move endpoint lacks an atom ID");
+        const endpointRevision = item.revision ?? revision;
+        assert(Number.isSafeInteger(endpointRevision),
+          "Retained move endpoint lacks a revision");
+        endpoints[key].push({ id: item.id, revision: endpointRevision });
+      }
+      collect(item, revision);
+    }
+  }
+  const moves = history.filter((entry) => {
+    const before = endpoints.moveOut.length + endpoints.moveIn.length;
+    collect(entry.changes, entry.revision);
+    return endpoints.moveOut.length + endpoints.moveIn.length > before;
+  });
+  assert.equal(moves.length, 1, "Array reload lacks one retained move commit");
+  const [move] = moves;
+  return {
+    revision: move.revision,
+    originatorId: move.originatorId,
+    ...endpoints,
+  };
+}
+
+function submissionHistory(submission) {
+  return submission.commits.map(({ revision, originatorId, changeset }) => ({
+    revision,
+    originatorId,
+    changes: [changeset],
+  }));
+}
+
+function retainedDeletedPoint(entry) {
+  if (!Array.isArray(entry)) return false;
+  const node = entry[2];
+  if (!node || typeof node !== "object") return false;
+  if (node.type === "org.watershed.shared-tree.m3.Point") {
+    return node.fields?.label?.[0]?.value === "deleted"
+      && node.fields?.x?.[0]?.value === 9;
+  }
+  if (node.kind !== "object"
+    || node.schemaId !== "org.watershed.shared-tree.m3.Point"
+    || !Array.isArray(node.fields)) return false;
+  const fields = Object.fromEntries(node.fields);
+  return fields.label?.value === "deleted" && fields.x?.value === 9;
+}
+
 async function observed(predicate, label) {
   await within((async () => {
     while (!await predicate()) await delay(25);
@@ -480,15 +539,32 @@ export function validateArrayResults(results) {
       assert(Array.isArray(cell.retained?.removed)
         && cell.retained.removed.length > 0,
       "Array reload lacks retained deleted content");
-      assert(cell.retained.removed.some((entry) => {
-        const node = Array.isArray(entry) ? entry[2] : undefined;
-        return node?.type === "org.watershed.shared-tree.m3.Point"
-          && node.fields?.label?.[0]?.value === "deleted"
-          && node.fields?.x?.[0]?.value === 9;
-      }), "Array reload retained the wrong deleted content");
+      assert(cell.retained.removed.some(retainedDeletedPoint),
+        "Array reload retained the wrong deleted content");
       assert.equal(cell.retained.selectedVersion, cell.loadedVersion,
         "Array reload retained content came from another summary");
+      assert.equal(cell.retained.reader, reader,
+        "Array reload retained evidence came from another reader");
+      assert.equal(cell.retained.readerInstanceId, cell.readerInstanceId,
+        "Array reload retained evidence came from another reader instance");
+      assert.equal(cell.retained.source, reader === "upstream"
+        ? "upstream-runtime-and-wire"
+        : "native-runtime-snapshot",
+      "Array reload retained evidence has another source");
+      assert.equal(cell.retained.loadedVersion, cell.loadedVersion,
+        "Array reload retained evidence has another loaded version");
+      assert.equal(cell.retained.snapshotSequenceNumber, cell.snapshotSequenceNumber,
+        "Array reload retained evidence has another snapshot sequence");
+      assert(Number.isSafeInteger(cell.retained.sequenceNumber)
+        && cell.retained.sequenceNumber >= cell.snapshotSequenceNumber
+        && cell.retained.sequenceNumber <= cell.replayWatermark,
+      "Array reload retained evidence is outside the loaded snapshot sequence");
+      assert(Array.isArray(cell.retained.history)
+        && cell.retained.history.length > 0,
+      "Array reload lacks retained summary history");
       const moveIdentity = cell.retained.moveIdentity;
+      assert.deepEqual(moveIdentity, retainedMoveIdentity(cell.retained.history),
+        "Array reload move identity differs from retained summary history");
       assert(Number.isSafeInteger(moveIdentity?.revision)
         && typeof moveIdentity.originatorId === "string"
         && moveIdentity.originatorId.length > 0
@@ -938,41 +1014,6 @@ function continuationIdentity(history, adapter, sequenceNumber) {
       revision,
       originatorId,
     })),
-  };
-}
-
-function moveIdentity(submission) {
-  const endpoints = { moveOut: [], moveIn: [] };
-  function collect(value, revision) {
-    if (Array.isArray(value)) {
-      for (const item of value) collect(item, revision);
-      return;
-    }
-    if (!value || typeof value !== "object") return;
-    for (const [key, item] of Object.entries(value)) {
-      if (key === "moveOut" || key === "moveIn") {
-        assert(Number.isSafeInteger(item?.id), "Reader move endpoint lacks an atom ID");
-        const endpointRevision = item.revision ?? revision;
-        assert(Number.isSafeInteger(endpointRevision),
-          "Reader move endpoint lacks a revision");
-        endpoints[key].push({ id: item.id, revision: endpointRevision });
-      }
-      collect(item, revision);
-    }
-  }
-  for (const commit of submission.commits) {
-    collect(commit.changeset, commit.revision);
-  }
-  assert.equal(endpoints.moveOut.length, 1,
-    "Reader continuation lacks one persisted move-out atom");
-  assert.equal(endpoints.moveIn.length, 1,
-    "Reader continuation lacks one persisted move-in atom");
-  const [commit] = submission.commits;
-  assert(commit, "Reader continuation lacks a persisted move commit");
-  return {
-    revision: commit.revision,
-    originatorId: commit.originatorId,
-    ...endpoints,
   };
 }
 
@@ -1678,10 +1719,22 @@ async function readArrayCell(config, context, row, reader) {
       .some((value) => JSON.stringify(value) === JSON.stringify(row.tailValue)),
     `${reader} missed the post-summary array tail`);
 
-    const retainedReader = row.retainedReaders[reader];
-    const peer = retainedReader.peer;
-    const retainedLoad = retainedReader.load;
-    const removed = retainedReader.removed;
+    const retained = loaded.retained;
+    assert(retained && Array.isArray(retained.removed),
+      `${reader} array checkpoint lacks reader-owned removed content`);
+    const removed = retained.removed;
+    assert(removed.length > 0, `${reader} array checkpoint omitted deleted content`);
+    const retainedHistory = reader === "upstream"
+      ? row.selectedMoveHistory
+      : retained.history;
+    const persistedMoveIdentity = retainedMoveIdentity(retainedHistory);
+    const peer = await openSession(
+      config,
+      containers,
+      row.documentId,
+      false,
+      { cache: false, store: arrayServiceStore },
+    );
 
     const continuationLabel = `${row.writer}-${reader}-${randomUUID()}`;
     const baseline = loaded.sequenceNumber;
@@ -1735,8 +1788,17 @@ async function readArrayCell(config, context, row, reader) {
       writerVersionAfterLoad: headAfter,
       retained: {
         removed,
-        selectedVersion: retainedLoad.loadedVersion,
-        moveIdentity: moveIdentity(continuation),
+        reader,
+        readerInstanceId: adapter.instanceId,
+        source: reader === "upstream"
+          ? "upstream-runtime-and-wire"
+          : "native-runtime-snapshot",
+        loadedVersion: load.loadedVersion,
+        snapshotSequenceNumber: row.snapshotSequenceNumber,
+        sequenceNumber: loaded.sequenceNumber,
+        selectedVersion: load.loadedVersion,
+        history: retainedHistory,
+        moveIdentity: persistedMoveIdentity,
         childEditObserved: JSON.stringify(peerCheckpoint.wholeTree)
           .includes(continuationLabel),
         summaryConsumed: true,
@@ -1751,7 +1813,7 @@ async function readArrayCell(config, context, row, reader) {
     item.artifacts = [await writeArrayReloadArtifact(context, item, {
       load: rawLoad,
       history,
-      retainedLoad: retainedReader.storageObservations,
+      retained,
     })];
     await restoreArrayReader(adapter);
     await adapter.awaitSynced();
@@ -1842,7 +1904,15 @@ async function runArrayWriterRow(config, context, writer) {
     );
     await adapters[writer].awaitSynced();
     await settle(adapters);
+    const moveBaseline = (await adapters[writer].checkpoint()).sequenceNumber;
     await adapters[writer].arrayMove(["left"], 3, 4, ["right"], 1);
+    await adapters[writer].awaitSynced();
+    const selectedMove = await acknowledgedSubmission(
+      creator,
+      adapters[writer],
+      moveBaseline,
+      writer,
+    );
     await adapters[writer].arrayRemove(["left"], 3, 4);
     await adapters[writer].awaitSynced();
     await settle(adapters);
@@ -1882,29 +1952,9 @@ async function runArrayWriterRow(config, context, writer) {
       observerAdapter: creatorAdapter,
       tailSequenceNumber: tail.sequenceNumber,
       tailValue,
+      selectedMoveHistory: submissionHistory(selectedMove),
       ...publication,
     };
-    row.retainedReaders = {};
-    for (const reader of implementations) {
-      const peer = await openSession(
-        config,
-        containers,
-        documentId,
-        false,
-        { cache: false, observeStorage: true, store: arrayServiceStore },
-      );
-      const load = storageLoad(peer.storageObservations, publication.version);
-      assert(load.replayStartSequenceNumber >= publication.snapshotSequenceNumber,
-        `${reader} retained peer replayed from the document origin`);
-      const removed = peer.data.tree.contentSnapshot().removed;
-      assert(removed.length > 0, `${reader} retained peer omitted deleted content`);
-      row.retainedReaders[reader] = {
-        peer,
-        load,
-        removed,
-        storageObservations: peer.storageObservations,
-      };
-    }
     const results = {};
     for (const reader of implementations) {
       results[reader] = await readArrayCell(config, context, row, reader);

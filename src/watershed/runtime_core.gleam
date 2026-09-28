@@ -166,6 +166,13 @@ pub type ConnectionObservation {
   )
 }
 
+pub type TreeRetainedSnapshot {
+  TreeRetainedSnapshot(
+    snapshot: tree_kernel.TreeSnapshot,
+    compressor: Option(fluid_ids.Compressor),
+  )
+}
+
 pub fn connection_observation(
   core: Option(Core),
   phase: String,
@@ -3444,6 +3451,18 @@ pub fn tree_read(
   use state <- result.try(tree_channel(core, address))
   tree_kernel.read(state, path)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+pub fn tree_retained_snapshot(
+  core: Core,
+  address: String,
+) -> Result(TreeRetainedSnapshot, CoreError) {
+  use state <- result.try(tree_channel(core, address))
+  use snapshot <- result.try(
+    tree_kernel.snapshot(state)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  Ok(TreeRetainedSnapshot(snapshot, core.compressor))
 }
 
 pub fn tree_map_get(
