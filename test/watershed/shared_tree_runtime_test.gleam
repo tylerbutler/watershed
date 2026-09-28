@@ -679,6 +679,52 @@ pub fn shared_tree_upgrade_retry_ack_uses_its_authored_schema_test() -> Nil {
   |> expect.to_equal(Ok(Nil))
 }
 
+pub fn shared_tree_upgrade_retry_after_schema_race_uses_its_authored_schema_test() -> Nil {
+  let assert Ok(local) = runtime_fixture.routed_core()
+  let remote = remote_writer_core()
+  let address = "A/_C"
+  let first_view = optional_title_view(local, address)
+  let competing_view = upgraded_view(remote, address, "Optional")
+  let #(first_pending, _, first_outbounds) =
+    runtime_core.submit_tree_upgrade(local, address, first_view)
+    |> expect.to_be_ok()
+  let assert [first_outbound] = first_outbounds
+  let #(remote_pending, _, remote_outbounds) =
+    runtime_core.submit_tree_upgrade(remote, address, competing_view)
+    |> expect.to_be_ok()
+  let assert [remote_outbound] = remote_outbounds
+  let #(lost, _) =
+    runtime_core.handle_sequenced(
+      first_pending,
+      map_message(remote_pending, remote_outbound, 3),
+    )
+    |> expect.to_be_ok()
+  let retry_view = optional_title_view(lost, address)
+  let #(retry_pending, _, retry_outbounds) =
+    runtime_core.submit_tree_upgrade(lost, address, retry_view)
+    |> expect.to_be_ok()
+  let assert [retry_outbound] = retry_outbounds
+  let first_acked =
+    runtime_core.handle_sequenced(
+      retry_pending,
+      map_message(retry_pending, first_outbound, 4),
+    )
+    |> expect.to_be_ok()
+    |> fn(result) { result.0 }
+  let settled =
+    runtime_core.handle_sequenced(
+      first_acked,
+      map_message(first_acked, retry_outbound, 5),
+    )
+    |> expect.to_be_ok()
+    |> fn(result) { result.0 }
+  let assert Ok(channel.TreeState(tree)) = dict.get(settled.channels, address)
+
+  tree_kernel.history_view(tree).pending |> expect.to_equal([])
+  tree_schema.can_view(tree_kernel.stored_schema(tree), retry_view)
+  |> expect.to_equal(Ok(Nil))
+}
+
 pub fn shared_tree_upgrade_reconnects_with_dependent_data_test() -> Nil {
   let assert Ok(core) = runtime_fixture.routed_core()
   let assert Ok(reader) =
