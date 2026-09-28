@@ -910,6 +910,23 @@ test("replay distinguishes the failing action and actual failed-barrier roots", 
   anotherValue.failedCheckpoint.observations[0].wholeTree.value = 9;
   assert.equal(sameReplayFailure(original, anotherValue), false);
 });
+
+test("legacy action failures without a structured cause retain replay compatibility", () => {
+  const original = {
+    error: { name: "Error", message: "Native array-move failed" },
+    firstDifferencePath: null,
+    failedAction: { index: 3, type: "array-move" },
+    failedCheckpoint: null,
+  };
+  const replayed = structuredClone(original);
+  replayed.error.cause = {
+    code: "connection-failed",
+    operation: "array-move",
+    message: "tree A is unavailable",
+  };
+  assert.equal(sameReplayFailure(original, replayed), true);
+});
+
 test("failure capture reports a failed history read without hiding the original error", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "watershed-failure-capture-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -980,18 +997,31 @@ test("native array-move action failures round-trip without a difference path", a
       observations: [],
     }],
     summaries: [],
-  }, new Error("native array-move command failed"));
+  }, new Error("Native array-move failed", {
+    cause: {
+      code: "connection-failed",
+      operation: "array-move",
+      message: "tree A is unavailable",
+      stack: "not persisted",
+      tree: "A",
+    },
+  }));
   const artifact = JSON.parse(await readFile(path, "utf8"));
   assert.equal(artifact.firstDifferencePath, null);
   assert.equal(artifact.failedCheckpoint, null);
   assert.deepEqual(artifact.failedAction, currentAction);
+  assert.deepEqual(artifact.error.cause, {
+    code: "connection-failed",
+    operation: "array-move",
+    message: "tree A is unavailable",
+  });
   assert.equal(
     validateReplayArtifact(artifact, { profileDigest: "a".repeat(64) }),
     artifact,
   );
 });
 
-test("replay reproduces an identical saved native array-move action failure", async (t) => {
+test("replay classifies native array-move failures by structured protocol cause", async (t) => {
   const originalDirectory =
     await mkdtemp(join(tmpdir(), "watershed-array-move-original-"));
   const replayDirectory =
@@ -1010,17 +1040,18 @@ test("replay reproduces an identical saved native array-move action failure", as
     checkpoints: [{ label: "initial", stage: "quiescent", observations: [] }],
     summaries: [],
   };
-  const commandError = () => {
-    const error = new Error("javascript array-move command failed");
-    error.name = "NativeCommandError";
-    error.code = "native-command";
-    return error;
-  };
+  const commandError = (message) => new Error("Native array-move failed", {
+    cause: {
+      code: "connection-failed",
+      operation: "array-move",
+      message,
+    },
+  });
   const originalPath = await writeSeededFailure({
     runId: "original-run",
     profileDigest: "a".repeat(64),
     artifactDirectory: originalDirectory,
-  }, schedule, state, commandError());
+  }, schedule, state, commandError("tree A is unavailable"));
   const artifact = JSON.parse(await readFile(originalPath, "utf8"));
   const context = {
     runId: "replay-run",
@@ -1029,9 +1060,11 @@ test("replay reproduces an identical saved native array-move action failure", as
     arrayViewSchema: "array-schema",
     artifactDirectory: replayDirectory,
   };
-  const result = await replayFailure({}, context, artifact, {
+  const replay = async (error, artifactDirectory) => replayFailure({}, {
+    ...context,
+    artifactDirectory,
+  }, artifact, {
     async runSchedule(_config, replayContext, replaySchedule) {
-      const error = commandError();
       error.failurePath = await writeSeededFailure(
         replayContext,
         replaySchedule,
@@ -1041,62 +1074,16 @@ test("replay reproduces an identical saved native array-move action failure", as
       throw error;
     },
   });
-  assert.equal(result.reproduced, true);
-  assert.equal(result.replayIdentityMapping.erlang.instanceId, null);
-});
-
-test("replay rejects a different action failure and an infrastructure failure", async (t) => {
-  const originalDirectory =
-    await mkdtemp(join(tmpdir(), "watershed-array-move-negative-original-"));
-  const replayDirectory =
-    await mkdtemp(join(tmpdir(), "watershed-array-move-negative-replay-"));
-  t.after(() => Promise.all([
-    rm(originalDirectory, { recursive: true, force: true }),
-    rm(replayDirectory, { recursive: true, force: true }),
-  ]));
-  const schedule = generateSchedules({ seed: 42, iterations: 300 })
-    .find(({ profile, actions }) =>
-      profile === "array" && actions.some(({ type }) => type === "array-move"));
-  const actionIndex = schedule.actions.findIndex(({ type }) => type === "array-move");
-  const currentAction = { index: actionIndex, ...schedule.actions[actionIndex] };
-  const originalError = new Error("javascript array-move command failed");
-  originalError.name = "NativeCommandError";
-  originalError.code = "native-command";
-  const originalPath = await writeSeededFailure({
-    runId: "original-run",
-    profileDigest: "a".repeat(64),
-    artifactDirectory: originalDirectory,
-  }, schedule, {
-    currentAction,
-    checkpoints: [{ label: "initial", stage: "quiescent", observations: [] }],
-    summaries: [],
-  }, originalError);
-  const artifact = JSON.parse(await readFile(originalPath, "utf8"));
-  const context = {
-    runId: "replay-run",
-    profileDigest: "a".repeat(64),
-    viewSchema: "schema",
-    arrayViewSchema: "array-schema",
-    artifactDirectory: replayDirectory,
-  };
-  const different = await replayFailure({}, context, artifact, {
-    async runSchedule(_config, replayContext, replaySchedule) {
-      const error = new Error("javascript array-move command failed");
-      error.name = "NativeCommandError";
-      error.code = "native-command";
-      error.failurePath = await writeSeededFailure(
-        replayContext,
-        replaySchedule,
-        {
-          currentAction: { ...currentAction, index: currentAction.index + 1 },
-          checkpoints: [{ label: "initial", stage: "quiescent", observations: [] }],
-          summaries: [],
-        },
-        error,
-      );
-      throw error;
-    },
-  });
+  const identical = await replay(
+    commandError("tree A is unavailable"),
+    replayDirectory,
+  );
+  assert.equal(identical.reproduced, true);
+  assert.equal(identical.replayIdentityMapping.erlang.instanceId, null);
+  const different = await replay(
+    commandError("tree B is unavailable"),
+    join(replayDirectory, "different"),
+  );
   assert.equal(different.reproduced, false);
   const infrastructure = await replayFailure({}, {
     ...context,
@@ -2001,6 +1988,13 @@ test("replay artifacts reject malformed, stale, and incomplete records", () => {
     ["changed expansion", (copy) => { copy.schedule.actions.pop(); }],
     ["missing operations", (copy) => { delete copy.rawSequencedOperations; }],
     ["missing identities", (copy) => { delete copy.identityMapping.erlang; }],
+    ["malformed structured cause", (copy) => {
+      copy.error.cause = {
+        code: "connection-failed",
+        operation: "array-move",
+        message: 17,
+      };
+    }],
   ]) {
     const copy = structuredClone(valid);
     mutate(copy);

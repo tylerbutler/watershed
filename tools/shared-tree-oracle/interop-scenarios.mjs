@@ -1002,6 +1002,15 @@ export function validateReplayArtifact(artifact, expected) {
   assert(typeof artifact.error?.name === "string"
     && typeof artifact.error?.message === "string",
   "Replay artifact lacks the original error");
+  if (artifact.error.cause !== undefined) {
+    assert(artifact.error.cause
+      && typeof artifact.error.cause === "object"
+      && !Array.isArray(artifact.error.cause)
+      && typeof artifact.error.cause.code === "string"
+      && typeof artifact.error.cause.operation === "string"
+      && typeof artifact.error.cause.message === "string",
+    "Replay artifact has an invalid structured error cause");
+  }
   return artifact;
 }
 
@@ -3353,11 +3362,32 @@ function identityMapping(adapters, decoded) {
   }));
 }
 
+function structuredNativeCause(error) {
+  const seen = new Set();
+  let current = error?.cause;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    if (typeof current.code === "string"
+      && typeof current.operation === "string"
+      && typeof current.message === "string") {
+      return {
+        code: current.code,
+        operation: current.operation,
+        message: current.message,
+      };
+    }
+    current = current.cause;
+  }
+  return undefined;
+}
+
 function replayError(error) {
+  const cause = structuredNativeCause(error);
   return {
     name: error?.name ?? "Error",
     message: error?.message ?? String(error),
     ...(error?.code === undefined ? {} : { code: error.code }),
+    ...(cause === undefined ? {} : { cause }),
     ...(error?.stack === undefined ? {} : { stack: error.stack }),
   };
 }
@@ -3888,12 +3918,18 @@ export function sameReplayFailure(original, replayed) {
     ({ implementation, wholeTree, pendingTreeCount, inflightSubmissionCount }) =>
       ({ implementation, wholeTree, pendingTreeCount, inflightSubmissionCount }),
   );
+  const actionFailure = original.failedCheckpoint === null
+    && original.failedAction
+    && original.failedAction?.type !== "checkpoint";
   return original.firstDifferencePath === replayed.firstDifferencePath
     && JSON.stringify(original.failedAction) === JSON.stringify(replayed.failedAction)
     && JSON.stringify(observations(original)) === JSON.stringify(observations(replayed))
     && original.error.name === replayed.error.name
     && original.error.code === replayed.error.code
-    && original.error.message === replayed.error.message;
+    && original.error.message === replayed.error.message
+    && (!actionFailure
+      || original.error.cause === undefined
+      || JSON.stringify(original.error.cause) === JSON.stringify(replayed.error.cause));
 }
 
 export async function replayFailure(
