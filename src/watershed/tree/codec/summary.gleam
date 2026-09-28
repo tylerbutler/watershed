@@ -580,19 +580,42 @@ fn decode_commits(
   stored: HistorySchemaContext,
   location: String,
 ) -> Result(#(List(SummaryCommit), HistorySchemaContext), TreeError) {
-  use #(commits, stored) <- result.try(
+  use #(commits, stored, _) <- result.try(
     list.try_fold(
       list.index_map(values, fn(value, index) { #(value, index) }),
-      #([], stored),
+      #([], stored, []),
       fn(state, entry) {
+        let item_location = location <> "[" <> int.to_string(entry.1) <> "]"
+        use #(structural, _) <- result.try(decode_commit(
+          entry.0,
+          sequenced,
+          context,
+          UnknownHistorySchema,
+          item_location,
+        ))
+        let revision = revision_id(structural)
+        let previous = list.key_find(state.2, revision)
+        let authoring = result.unwrap(previous, state.1)
         use #(commit, next) <- result.try(decode_commit(
           entry.0,
           sequenced,
           context,
-          state.1,
-          location <> "[" <> int.to_string(entry.1) <> "]",
+          authoring,
+          item_location,
         ))
-        Ok(#([commit, ..state.0], next))
+        Ok(
+          #(
+            [commit, ..state.0],
+            case previous {
+              Ok(_) -> state.1
+              Error(Nil) -> next
+            },
+            case previous {
+              Ok(_) -> state.2
+              Error(Nil) -> [#(revision, authoring), ..state.2]
+            },
+          ),
+        )
       },
     ),
   )
@@ -792,19 +815,34 @@ fn encode_commits(
   stored: HistorySchemaContext,
   location: String,
 ) -> Result(#(List(Json), HistorySchemaContext), TreeError) {
-  use #(encoded, stored) <- result.try(
+  use #(encoded, stored, _) <- result.try(
     list.try_fold(
       list.index_map(commits, fn(commit, index) { #(commit, index) }),
-      #([], stored),
+      #([], stored, []),
       fn(state, entry) {
+        let revision = revision_id(entry.0)
+        let previous = list.key_find(state.2, revision)
+        let authoring = result.unwrap(previous, state.1)
         use #(commit, next) <- result.try(encode_commit(
           entry.0,
           sequenced,
           context,
-          state.1,
+          authoring,
           location <> "[" <> int.to_string(entry.1) <> "]",
         ))
-        Ok(#([commit, ..state.0], next))
+        Ok(
+          #(
+            [commit, ..state.0],
+            case previous {
+              Ok(_) -> state.1
+              Error(Nil) -> next
+            },
+            case previous {
+              Ok(_) -> state.2
+              Error(Nil) -> [#(revision, authoring), ..state.2]
+            },
+          ),
+        )
       },
     ),
   )
@@ -1292,7 +1330,7 @@ fn validate_history(
     }),
   )
   use _ <- result.try(validate_sequence_order(trunk))
-  use _ <- result.try(unique_commit_revisions(trunk))
+  use _ <- result.try(validate_replayed_commits(trunk))
   use _ <- result.try(
     list.try_each(branches, fn(branch) {
       use _ <- result.try(
@@ -1415,6 +1453,33 @@ fn unique_commit_revisions(
         True -> Error(CorruptData("editManager", "duplicate commit revision"))
         False -> unique_commit_revisions(rest)
       }
+    }
+  }
+}
+
+fn validate_replayed_commits(
+  commits: List(SummaryCommit),
+) -> Result(Nil, TreeError) {
+  case commits {
+    [] -> Ok(Nil)
+    [commit, ..rest] -> {
+      let revision = revision_id(commit)
+      use _ <- result.try(
+        list.try_each(
+          list.filter(rest, fn(other) { revision_id(other) == revision }),
+          fn(other) {
+            case other.commit == commit.commit {
+              True -> Ok(Nil)
+              False ->
+                Error(CorruptData(
+                  "editManager.trunk",
+                  "replayed commit contents do not match",
+                ))
+            }
+          },
+        ),
+      )
+      validate_replayed_commits(rest)
     }
   }
 }

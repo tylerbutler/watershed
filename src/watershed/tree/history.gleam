@@ -72,7 +72,11 @@ pub type MintRevision(state) =
     Result(#(fluid_ids.StableId, change.IdentityOrder, state), TreeError)
 
 type LocalCommit {
-  LocalCommit(original: BranchCommit, current: BranchCommit)
+  LocalCommit(
+    original: BranchCommit,
+    current: BranchCommit,
+    authoring_context: List(Commit),
+  )
 }
 
 type BranchCommit {
@@ -188,9 +192,15 @@ pub fn rebind_identity_order(
         entry.current.commit,
         identity_order,
       ))
+      use authoring_context <- result.try(
+        list.try_map(entry.authoring_context, fn(commit) {
+          rebind_commit(commit, identity_order)
+        }),
+      )
       Ok(LocalCommit(
         BranchCommit(..entry.original, commit: original),
         BranchCommit(..entry.current, commit: current),
+        authoring_context,
       ))
     }),
   )
@@ -242,7 +252,11 @@ pub fn identity_revisions(state: History) -> List(fluid_ids.StableId) {
         }),
         list.append(
           list.flat_map(state.pending, fn(entry) {
-            [entry.original.commit, entry.current.commit]
+            [
+              entry.original.commit,
+              entry.current.commit,
+              ..entry.authoring_context
+            ]
           }),
           state.local_authored_context,
         ),
@@ -300,10 +314,17 @@ pub fn append_local(
   ))
   use effects <- result.try(shared_change.effects(tagged_commit(commit)))
   let node = BranchCommit(state.next_node_id, commit)
+  let authoring_context = case list.last(state.pending) {
+    Ok(previous) ->
+      list.append(previous.authoring_context, [previous.current.commit])
+    Error(Nil) -> state.local_authored_context
+  }
   let next =
     History(
       ..state,
-      pending: list.append(state.pending, [LocalCommit(node, node)]),
+      pending: list.append(state.pending, [
+        LocalCommit(node, node, authoring_context),
+      ]),
       local_base: case state.pending {
         [] -> Some(trunk_head(state.trunk))
         _ -> state.local_base
@@ -503,7 +524,7 @@ fn receive_local(
 ) -> Result(#(HistoryUpdate, allocation), TreeError) {
   case state.pending {
     [] -> Error(InvalidHistory("local acknowledgement has no pending commit"))
-    [LocalCommit(original, current), ..rest] -> {
+    [LocalCommit(original, current, _), ..rest] -> {
       use _ <- result.try(check(
         original.commit.revision == commit.revision,
         "local acknowledgement is not for the oldest pending commit",
@@ -1073,7 +1094,7 @@ fn replace_current_pending(
         "rebased pending revision does not match its original commit",
       ))
       use rest <- result.try(replace_current_pending(pending, current))
-      Ok([LocalCommit(local.original, commit), ..rest])
+      Ok([LocalCommit(local.original, commit, local.authoring_context), ..rest])
     }
     _, _ -> Error(InvalidHistory("rebase changed the pending commit count"))
   }
@@ -1127,14 +1148,72 @@ pub fn authoring_commits(
   reference_sequence_number: Int,
   revision: fluid_ids.StableId,
 ) -> Result(List(Commit), TreeError) {
-  case
-    originator == state.local_session,
-    pending_commits_before(state.pending, revision, [])
-  {
-    True, Some(pending) ->
-      Ok(list.append(state.local_authored_context, pending))
-    _, _ ->
-      remote_authoring_commits(state, originator, reference_sequence_number)
+  case replayed_authoring_commits(state, originator, revision) {
+    Some(context) -> Ok(context)
+    None ->
+      case
+        originator == state.local_session,
+        pending_authoring_context(state.pending, revision)
+      {
+        True, Some(context) -> Ok(context)
+        _, _ ->
+          remote_authoring_commits(state, originator, reference_sequence_number)
+      }
+  }
+}
+
+fn replayed_authoring_commits(
+  state: History,
+  originator: fluid_ids.SessionId,
+  revision: fluid_ids.StableId,
+) -> Option(List(Commit)) {
+  use before <- option.then(commits_before_revision(state.trunk, revision, []))
+  case peer_state(state.peers, originator) {
+    Some(peer) ->
+      case branch_commits_before_revision(peer.commits, revision, []) {
+        Some(commits) ->
+          case commits_through_base(state.trunk, peer.base) {
+            Ok(ancestry) -> Some(list.append(ancestry, commits))
+            Error(_) -> Some(before)
+          }
+        None -> Some(before)
+      }
+    None -> Some(before)
+  }
+}
+
+fn commits_before_revision(
+  commits: List(SequencedCommit),
+  revision: fluid_ids.StableId,
+  before: List(Commit),
+) -> Option(List(Commit)) {
+  case commits {
+    [] -> None
+    [first, ..rest] ->
+      case first.commit.revision == revision {
+        True -> Some(list.reverse(before))
+        False ->
+          commits_before_revision(rest, revision, [first.commit, ..before])
+      }
+  }
+}
+
+fn branch_commits_before_revision(
+  commits: List(BranchCommit),
+  revision: fluid_ids.StableId,
+  before: List(Commit),
+) -> Option(List(Commit)) {
+  case commits {
+    [] -> None
+    [first, ..rest] ->
+      case first.commit.revision == revision {
+        True -> Some(list.reverse(before))
+        False ->
+          branch_commits_before_revision(rest, revision, [
+            first.commit,
+            ..before
+          ])
+      }
   }
 }
 
@@ -1191,21 +1270,16 @@ fn remote_authoring_commits(
   }
 }
 
-fn pending_commits_before(
+fn pending_authoring_context(
   pending: List(LocalCommit),
   revision: fluid_ids.StableId,
-  before: List(Commit),
 ) -> Option(List(Commit)) {
   case pending {
     [] -> None
     [first, ..rest] ->
       case first.original.commit.revision == revision {
-        True -> Some(list.reverse(before))
-        False ->
-          pending_commits_before(rest, revision, [
-            first.original.commit,
-            ..before
-          ])
+        True -> Some(first.authoring_context)
+        False -> pending_authoring_context(rest, revision)
       }
   }
 }

@@ -8,15 +8,20 @@ import gleam/string
 import spillway/types
 import startest/expect
 import watershed/channel
+
 import watershed/fluid_ids
 import watershed/handle
 import watershed/map_kernel
 import watershed/runtime_core
+import watershed/tree/change as tree_change
+import watershed/tree/codec
+import watershed/tree/codec/summary as tree_summary_codec
 import watershed/tree/fixtures
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/runtime_fixture
 import watershed/tree/schema as tree_schema
 import watershed/tree/shared_change
+import watershed/tree/summary as tree_summary
 import watershed/tree/types as tree_types
 import watershed/tree_kernel
 import watershed/wire
@@ -548,6 +553,130 @@ pub fn shared_tree_upgrade_duplicate_ack_is_ignored_test() -> Nil {
   received.events |> expect.to_equal([])
   duplicate.channels |> expect.to_equal(settled.channels)
   duplicate.in_flight |> expect.to_equal([])
+}
+
+pub fn shared_tree_upgrade_replay_summary_round_trips_and_continues_test() -> Nil {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let writer = remote_writer_core()
+  let address = "A/_C"
+  let view = upgraded_view(writer, address, "Optional")
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.submit_tree_upgrade(writer, address, view)
+  let settled = case
+    runtime_core.handle_sequenced(core, map_message(pending, outbound, 3))
+  {
+    Ok(#(value, _)) -> value
+    Error(error) -> panic as { "ack: " <> string.inspect(error) }
+  }
+  let assert Ok(batch) =
+    fluid_container.decode(outbound.contents, outbound.metadata)
+  let assert [
+    fluid_container.ContainerMessage(fluid_container.IdAllocation(_), _, _),
+    fluid_container.ContainerMessage(operation, _, _),
+  ] = batch.messages
+  let replay_message =
+    types.SequencedDocumentMessage(
+      ..batch_message([operation]),
+      client_id: Some(pending.client_id),
+      sequence_number: 4,
+      client_sequence_number: outbound.client_sequence_number,
+      reference_sequence_number: outbound.reference_sequence_number,
+    )
+  let #(replayed, replay) = case
+    runtime_core.handle_sequenced(settled, replay_message)
+  {
+    Ok(value) -> value
+    Error(error) -> panic as { "replay: " <> string.inspect(error) }
+  }
+  replay.events |> expect.to_equal([])
+  let assert Ok(channel.TreeState(tree)) = dict.get(replayed.channels, address)
+  let assert Some(compressor) = replayed.compressor
+  let snapshot = tree_kernel.snapshot(tree) |> expect.to_be_ok()
+  let wire = tree_summary.to_wire(snapshot) |> expect.to_be_ok()
+  let encoded =
+    tree_summary_codec.encode(
+      wire,
+      fluid_ids.local_session(compressor),
+      codec.EncodeContext(
+        codec.Fluid310,
+        compressor,
+        Some(tree_kernel.stored_schema(tree)),
+      ),
+    )
+    |> expect.to_be_ok()
+  let decoded =
+    tree_summary_codec.decode(
+      encoded,
+      None,
+      fluid_ids.local_session(compressor),
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+    |> expect.to_be_ok()
+  let assert Ok(next_revision) =
+    fluid_ids.stable_id("70000000-0000-4000-8000-000000000007")
+  let restored_snapshot =
+    tree_summary.from_wire(
+      decoded,
+      next_revision,
+      compressor,
+      replayed.last_seen_sequence_number,
+      replayed.minimum_sequence_number,
+    )
+    |> expect.to_be_ok()
+  let restored =
+    tree_kernel.restore(
+      restored_snapshot,
+      next_revision,
+      fluid_ids.local_session(compressor),
+      view,
+    )
+    |> expect.to_be_ok()
+  let order =
+    tree_change.identity_order([#(next_revision, -1)]) |> expect.to_be_ok()
+  let _ =
+    tree_kernel.apply_local(
+      restored,
+      next_revision,
+      order,
+      tree_types.SetField(["score"], tree_types.NumberValue(9.0)),
+    )
+    |> expect.to_be_ok()
+  Nil
+}
+
+pub fn shared_tree_upgrade_retry_ack_uses_its_authored_schema_test() -> Nil {
+  let assert Ok(local) = runtime_fixture.routed_core()
+  let remote = remote_writer_core()
+  let address = "A/_C"
+  let view = upgraded_view(local, address, "Optional")
+  let assert Ok(#(first_pending, _, [first_outbound])) =
+    runtime_core.submit_tree_upgrade(local, address, view)
+  let assert Ok(#(remote_pending, _, [remote_outbound])) =
+    runtime_core.submit_tree_edits(remote, address, [
+      tree_types.SetField(["title"], tree_types.StringValue("competing")),
+    ])
+  let assert Ok(#(lost, _)) =
+    runtime_core.handle_sequenced(
+      first_pending,
+      map_message(remote_pending, remote_outbound, 3),
+    )
+  let assert Ok(#(retry_pending, _, [retry_outbound])) =
+    runtime_core.submit_tree_upgrade(lost, address, view)
+  let assert Ok(#(first_acked, _)) =
+    runtime_core.handle_sequenced(
+      retry_pending,
+      map_message(retry_pending, first_outbound, 4),
+    )
+  let assert Ok(#(settled, _)) =
+    runtime_core.handle_sequenced(
+      first_acked,
+      map_message(first_acked, retry_outbound, 5),
+    )
+  let assert Ok(channel.TreeState(tree)) = dict.get(settled.channels, address)
+
+  tree_kernel.history_view(tree).pending |> expect.to_equal([])
+  tree_schema.can_view(tree_kernel.stored_schema(tree), view)
+  |> expect.to_equal(Ok(Nil))
 }
 
 pub fn shared_tree_upgrade_reconnects_with_dependent_data_test() -> Nil {
