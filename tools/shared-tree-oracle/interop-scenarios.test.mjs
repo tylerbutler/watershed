@@ -365,6 +365,30 @@ test("native persisted data diagnostics decode exponential numbers", () => {
   );
 });
 
+test("native persisted diagnostics reject operation-shaped arbitrary text", () => {
+  assert.throws(
+    () => decodeReconnectPayload(
+      'Changeset([DataChange(invented #("score", OptionalField) '
+        + "NumberValue(1000))])",
+    ),
+    /invalid|unsupported|exactly|operation/i,
+  );
+});
+
+test("native schema diagnostics retain escaped quotes while scanning arguments", () => {
+  assert.deepEqual(
+    decodeReconnectPayload(
+      'Changeset([SchemaChange(FixedSchema(#("ti\\"tle, old", Required)), '
+        + 'FixedSchema(#("ti\\"tle, new", Optional)), False)])',
+    ),
+    {
+      kind: "schema",
+      old: 'FixedSchema(#("ti\\"tle,old",Required))',
+      new: 'FixedSchema(#("ti\\"tle,new",Optional))',
+    },
+  );
+});
+
 test("reconnect schema matching canonicalizes runtime and stored schema forms", () => {
   const runtimeSchema = (includeScore) => ({
     nodeSchema: {
