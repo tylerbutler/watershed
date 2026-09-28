@@ -282,6 +282,130 @@ function decodedGraphs(decoded: unknown, id: string): unknown[] {
 		.map(({ innerChange }) => encodeModularGraph(innerChange as ModularChangeset));
 }
 
+function normalizeGraphRevisions(value: unknown, idCompressor: IIdCompressor): unknown {
+	if (Array.isArray(value)) {
+		return value.map((child) => normalizeGraphRevisions(child, idCompressor));
+	}
+	if (value === null || typeof value !== "object") return value;
+	return Object.fromEntries(
+		Object.entries(value).map(([key, child]) => [
+			key,
+			(key === "revision" || key === "rollbackOf") && typeof child === "number"
+				? idCompressor.decompress(child as SessionSpaceCompressedId)
+				: normalizeGraphRevisions(child, idCompressor),
+		]),
+	);
+}
+
+function assertAdvancedGraphs(
+	actual: unknown[],
+	expected: unknown[],
+	native: unknown[],
+	idCompressor: IIdCompressor,
+	id: string,
+): void {
+	const normalized = normalizeGraphRevisions(actual, idCompressor);
+	assert.deepEqual(
+		normalized,
+		normalizeGraphRevisions(expected, idCompressor),
+		`${id}: decoded modular graphs match source expectations`,
+	);
+	assert.deepEqual(
+		normalized,
+		normalizeGraphRevisions(native, idCompressor),
+		`${id}: decoded modular graphs match native graphs`,
+	);
+}
+
+function graphRecord(graphs: unknown[], id: string): Record<string, unknown> {
+	const messages = graphs[0];
+	assert(Array.isArray(messages), `${id}: first graph message`);
+	const graph = messages[0];
+	assert(graph !== null && typeof graph === "object" && !Array.isArray(graph),
+		`${id}: first modular graph`);
+	return graph as Record<string, unknown>;
+}
+
+function graphRevisions(value: unknown): number[] {
+	if (Array.isArray(value)) return value.flatMap(graphRevisions);
+	if (value === null || typeof value !== "object") return [];
+	return Object.entries(value).flatMap(([key, child]) =>
+		key === "revision" && typeof child === "number"
+			? [child]
+			: graphRevisions(child));
+}
+
+function assertAdvancedGraphRegressions(
+	actual: unknown[],
+	item: ArtifactItem,
+	idCompressor: IIdCompressor,
+): void {
+	assert(Array.isArray(item.expectedGraphs), `${item.id}: expected graph regressions`);
+	assert(Array.isArray(item.nativeGraphs), `${item.id}: native graph regressions`);
+	const expectedGraphs = item.expectedGraphs;
+	const nativeGraphs = item.nativeGraphs;
+	const rejects = (
+		mutate: (graph: Record<string, unknown>) => void,
+		label: string,
+	) => {
+		const expected = structuredClone(expectedGraphs);
+		const native = structuredClone(nativeGraphs);
+		mutate(graphRecord(expected, `${item.id}: ${label} expected`));
+		mutate(graphRecord(native, `${item.id}: ${label} native`));
+		assert.throws(
+			() => assertAdvancedGraphs(actual, expected, native, idCompressor, item.id),
+			`${item.id}: ${label} corruption must reject`,
+		);
+	};
+	if (item.id === "message-array-advanced-rename") {
+		rejects((graph) => {
+			delete graph.nodes;
+			delete graph.parents;
+		}, "node and parent tables");
+		rejects((graph) => {
+			assert(Array.isArray(graph.nodes) && graph.nodes.length > 0,
+				`${item.id}: node table`);
+			graph.nodes.pop();
+		}, "node table");
+		rejects((graph) => {
+			assert(Array.isArray(graph.parents) && graph.parents.length > 0,
+				`${item.id}: parent table`);
+			graph.parents.pop();
+		}, "parent table");
+		rejects((graph) => {
+			assert(Array.isArray(graph.revisions) && graph.revisions.length > 0,
+				`${item.id}: revision table`);
+			const revision = graph.revisions[0] as Record<string, unknown>;
+			const otherRevision = graphRevisions(graph.fields)
+				.find((candidate) => candidate !== revision.revision);
+			assert(otherRevision !== undefined, `${item.id}: distinct revision identity`);
+			revision.revision = otherRevision;
+		}, "revision identity");
+	}
+	if (item.id === "message-array-advanced-move-in-remove") {
+		rejects((graph) => {
+			assert(Array.isArray(graph.crossFieldKeys) && graph.crossFieldKeys.length > 0,
+				`${item.id}: ownership table`);
+			const counted = graph.crossFieldKeys.find((entry) =>
+				typeof entry === "object" && entry !== null && Reflect.get(entry, "count") === 2);
+			assert(counted !== undefined, `${item.id}: counted ownership`);
+			Reflect.set(counted, "count", 1);
+		}, "ownership count");
+		rejects((graph) => {
+			assert(Array.isArray(graph.crossFieldKeys) && graph.crossFieldKeys.length > 0,
+				`${item.id}: ownership table`);
+			const ownership = graph.crossFieldKeys[0];
+			assert(ownership !== null && typeof ownership === "object",
+				`${item.id}: ownership entry`);
+			Reflect.set(
+				ownership,
+				"target",
+				Reflect.get(ownership, "target") === "source" ? "destination" : "source",
+			);
+		}, "ownership");
+	}
+}
+
 function advancedEffect(
 	decodedMessages: unknown[],
 	idCompressor: IIdCompressor,
@@ -621,7 +745,29 @@ async function consume(item: ArtifactItem) {
 					decodeMessage(message, { idCompressor }));
 				const graphs = decoded.map((message) => decodedGraphs(message, item.id));
 				const advanced = item.id.startsWith("message-array-advanced-");
-				if (!advanced) {
+				if (advanced) {
+					assert(Array.isArray(item.nativeGraphs)
+						&& item.nativeGraphs.length === item.encoded.length,
+					`${item.id}: native graph evidence`);
+					assertAdvancedGraphs(
+						graphs,
+						item.expectedGraphs,
+						item.nativeGraphs,
+						idCompressor,
+						item.id,
+					);
+					assertAdvancedGraphRegressions(graphs, item, idCompressor);
+					if (
+						item.id === "message-array-advanced-aad"
+						|| item.id === "message-array-advanced-move-in-remove"
+					) {
+						assert.notDeepEqual(
+							graphs,
+							item.expectedGraphs,
+							`${item.id}: equivalent revision representations differ before normalization`,
+						);
+					}
+				} else {
 					assert.deepEqual(
 						graphs,
 						item.expectedGraphs,
