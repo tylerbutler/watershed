@@ -11,6 +11,7 @@
 //// in `watershed/channel`. The sequencing discipline itself does not know the
 //// kernels.
 
+import gleam/bool
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
 import gleam/int
@@ -3497,9 +3498,15 @@ pub fn submit_tree_edits(
         tree_runtime.author_edit(state, edit, compressor)
         |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
       )
-      Ok(#(state, compressor, list.append(commits, [commit])))
+      Ok(
+        #(state, compressor, case commit {
+          Some(commit) -> list.append(commits, [commit])
+          None -> commits
+        }),
+      )
     }),
   )
+  use <- bool.guard(list.is_empty(commits), Ok(#(core, [], [])))
   let #(compressor, range) = fluid_ids.take_creation_range(compressor)
   use allocation <- result.try(case range {
     Some(range) -> Ok(range)

@@ -210,7 +210,7 @@ pub fn shared_tree_bridge_authors_without_finalizing_and_round_trips_test() {
   let state = tree_state()
   let assert Ok(session) =
     fluid_ids.session_id("00000000-0000-4000-8000-000000000001")
-  let assert Ok(#(edited, commit, _, compressor)) =
+  let assert Ok(#(edited, Some(commit), _, compressor)) =
     tree_runtime.author_edit(
       state,
       SetField(["x"], NumberValue(2.0)),
@@ -243,7 +243,7 @@ pub fn shared_tree_bridge_rebases_pending_with_allocated_rollback_identity_test(
       SetField(["x"], NumberValue(2.0)),
       fluid_ids.new(local),
     )
-  let assert Ok(#(_, remote_commit, _, remote_compressor)) =
+  let assert Ok(#(_, Some(remote_commit), _, remote_compressor)) =
     tree_runtime.author_edit(
       peer,
       SetField(["x"], NumberValue(3.0)),
@@ -304,13 +304,13 @@ fn concurrent_snapshot() -> #(tree_kernel.TreeSnapshot, fluid_ids.Compressor) {
   let assert Ok(view) = schema.view_from_string(schema_text)
   let assert Ok(snapshot) = tree_kernel.snapshot(state)
   let assert Ok(peer) = tree_kernel.restore(snapshot, view_id, remote, view)
-  let assert Ok(#(pending, first, _, compressor)) =
+  let assert Ok(#(pending, Some(first), _, compressor)) =
     tree_runtime.author_edit(
       state,
       SetField(["x"], NumberValue(2.0)),
       fluid_ids.new(local),
     )
-  let assert Ok(#(_, second, _, remote_compressor)) =
+  let assert Ok(#(_, Some(second), _, remote_compressor)) =
     tree_runtime.author_edit(
       peer,
       SetField(["x"], NumberValue(3.0)),

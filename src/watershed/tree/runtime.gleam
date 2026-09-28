@@ -1,8 +1,9 @@
 //// Contextual SharedTree wire and kernel operations. The document owns the compressor.
 
+import gleam/bool
 import gleam/json.{type Json}
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import watershed/fluid_ids
@@ -179,6 +180,7 @@ pub fn advance_document(
   )
 }
 
+/// Valid empty array edits return no commit and preserve the compressor.
 pub fn author_edit(
   state: tree_kernel.TreeState,
   edit: Edit,
@@ -186,12 +188,20 @@ pub fn author_edit(
 ) -> Result(
   #(
     tree_kernel.TreeState,
-    history.Commit,
+    Option(history.Commit),
     List(tree_kernel.TreeEvent),
     fluid_ids.Compressor,
   ),
   TreeError,
 ) {
+  use _ <- result.try(tree_kernel.validate_edit(state, edit))
+  let empty = case edit {
+    types.ArrayInsert(_, _, []) -> True
+    types.ArrayRemove(_, start, end) | types.ArrayMove(_, start, end, _, _) ->
+      start == end
+    _ -> False
+  }
+  use <- bool.guard(empty, Ok(#(state, None, [], compressor)))
   use #(compressor, id) <- result.try(
     fluid_ids.generate(compressor)
     |> result.map_error(fn(error) {
@@ -215,7 +225,7 @@ pub fn author_edit(
     order,
     edit,
   ))
-  Ok(#(state, commit, events, compressor))
+  Ok(#(state, Some(commit), events, compressor))
 }
 
 fn mint_revision(
