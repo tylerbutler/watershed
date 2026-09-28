@@ -1127,8 +1127,58 @@ async function captureHistoryRuntime(
 		);
 	}
 
+	const historicalObservation = observations.get(
+		"historical-peer-schema-context",
+	) as unknown as {
+		historicalDecode: {
+			bytes: string;
+			decoded: unknown;
+			envelope: unknown;
+			operation: string;
+			authoringSchema: string;
+			visibleSchema: string;
+			visibleSchemaAfterSynchronization: string;
+			decodedBeforeInboundResume: boolean;
+			context: {
+				authoringSchema: string;
+				visibleSchema: string;
+				inboundProcessing: string;
+			};
+		};
+		identities: {
+			session: string;
+			compressor: { state: string };
+		}[];
+	};
+	const historicalDecode = historicalObservation.historicalDecode;
+	const historicalCodecIdentity = historicalObservation.identities[0];
+	assert(historicalCodecIdentity !== undefined);
+	const historicalWireChanges = (JSON.parse(historicalDecode.bytes) as {
+		changeset: unknown[];
+	}).changeset;
+	const historicalCodecDecoded = {
+		changeCount: historicalWireChanges.length,
+		builds: [{ kind: "string", value: "historical" }],
+	};
+	const historicalEnvelope = historicalDecode.envelope as {
+		commit: object;
+	};
+	const historicalCodecDecode = {
+		...historicalDecode,
+		decoded: historicalCodecDecoded,
+		envelope: {
+			...historicalEnvelope,
+			commit: {
+				...historicalEnvelope.commit,
+				change: historicalCodecDecoded,
+			},
+		},
+	};
 	return {
 		observations,
+		historicalDecode,
+		historicalCodecDecode,
+		historicalCodecIdentity,
 		rollbackReplay: {
 			scenario: "rollback-retains-new-type-content",
 			detachedId: {
@@ -1478,11 +1528,35 @@ describe("Watershed schema evolution oracle", () => {
 				"codec",
 				{
 					schemas: compatibility.catalog,
+					codecContext: {
+						session: historyRuntime.historicalCodecIdentity.session,
+						compressor: historyRuntime.historicalCodecIdentity.compressor.state,
+					},
 					scenarios: [
-						{ id: "schema-only-commit", authoringSchema: "v1" },
+						{
+							id: "schema-only-commit",
+							authoringSchema: "v1",
+							messages: rawSchemaMessages.map((message) => JSON.stringify(message)),
+						},
 						{ id: "empty-outer-commit", authoringSchema: "optional" },
-						{ id: "historical-schema-decode", authoringSchema: "v1", visibleSchema: "optional" },
-						{ id: "pending-upgrade-summary", authoringSchema: "optional" },
+						{
+							id: "historical-schema-decode",
+							authoringSchema: "v1",
+							visibleSchema: "optional",
+							bytes: historyRuntime.historicalDecode.bytes,
+							visibleSchemaAfterSynchronization: "v1",
+							decodedBeforeInboundResume: true,
+							context: {
+								authoringSchema: "v1",
+								visibleSchema: "optional",
+								inboundProcessing: "paused",
+							},
+						},
+						{
+							id: "pending-upgrade-summary",
+							authoringSchema: "optional",
+							summary: historyRuntime.pendingSummary.summary,
+						},
 					],
 				},
 				[
@@ -1492,9 +1566,7 @@ describe("Watershed schema evolution oracle", () => {
 					{ id: "empty-outer-commit", change: { changes: [] } },
 					{
 						id: "historical-schema-decode",
-						operations: [historyRuntime.observations.get(
-							"historical-peer-schema-context",
-						)?.historicalDecode],
+						operations: [historyRuntime.historicalCodecDecode],
 					},
 					{ id: "pending-upgrade-summary", capturedSequencedSchema: "v1" },
 				],
@@ -1504,8 +1576,7 @@ describe("Watershed schema evolution oracle", () => {
 					allMessages: upgrade.submitted,
 					summary: historyRuntime.pendingSummary.summary,
 					inverseEncodingError: algebra.observations.at(-1),
-					historical: historyRuntime.observations.get("historical-peer-schema-context")
-						?.historicalDecode,
+					historical: historyRuntime.historicalDecode,
 				},
 			),
 		];

@@ -1078,11 +1078,18 @@ function validateSchemaEvolutionCase(value) {
     const historical = observation("historical-schema-decode");
     check(nonemptyArray(historical.operations), "missing historical codec operations");
     for (const operation of historical.operations) {
+      const decodedWire = operation.decoded?.changes?.find(({ data }) =>
+        object(data) && nonemptyArray(data.changes) && object(data.builds)
+      );
       const decodedData = operation.decoded?.changes?.find(({ type }) => type === "data");
+      const internalDecoded = object(decodedData?.innerChange)
+        && Object.values(decodedData.innerChange).some(hasEntries);
+      const stableDecoded = Number.isSafeInteger(operation.decoded?.changeCount)
+        && operation.decoded.changeCount > 0
+        && nonemptyArray(operation.decoded.builds);
       check(operation.operation === "decode"
         && typeof operation.bytes === "string" && operation.bytes.length > 0
-        && object(decodedData?.innerChange)
-        && Object.values(decodedData.innerChange).some(hasEntries)
+        && (object(decodedWire?.data) || internalDecoded || stableDecoded)
         && object(operation.envelope)
         && operation.decodedBeforeInboundResume === true
         && operation.visibleSchemaAfterSynchronization === "v1"

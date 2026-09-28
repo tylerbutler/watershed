@@ -18,6 +18,29 @@ pub fn shared_tree_schema_evolution_codecs_test() -> Nil {
   )
 }
 
+pub fn shared_tree_schema_evolution_codecs_require_input_scenarios_test() -> Nil {
+  let assert Ok(fixtures.Case(input: input, ..)) =
+    fixtures.load("schema-evolution-codecs")
+  let assert Ok(original) = schema_evolution_fixture.run_codecs(input)
+  let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(input))
+  let assert Ok(VArray(scenarios)) = list.key_find(root, "scenarios")
+  let remaining =
+    list.filter(scenarios, fn(scenario) {
+      case scenario {
+        VObject(fields) ->
+          list.key_find(fields, "id") != Ok(VString("historical-schema-decode"))
+        _ -> True
+      }
+    })
+  let changed =
+    VObject(list.key_set(root, "scenarios", VArray(remaining)))
+    |> json_ot.to_json
+  case schema_evolution_fixture.run_codecs(changed) {
+    Error(_) -> Nil
+    Ok(observation) -> expect.to_be_false(observation == original)
+  }
+}
+
 pub fn shared_tree_codec_fixture_rejects_missing_input_test() -> Nil {
   let _ = codec_fixture.run(json.object([])) |> expect.to_be_error
   Nil
