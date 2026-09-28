@@ -1646,7 +1646,7 @@ application project.
 - Produces: an accurate supported profile and a release record tied to the
   implemented revision, profile digest, local artifacts, and hosted run.
 
-- [ ] **Step 1: Regenerate and publish the supported profile.**
+- [x] **Step 1: Regenerate and publish the supported profile.**
 
 In `service.mjs`, add positive array schema/range edit/move capabilities and
 remove only their old exclusions. Preserve M1/M2 capabilities and deferred
@@ -1669,7 +1669,7 @@ the remaining unsupported features
 Retain source-scope STE comments and normal Markdown prose. Keep website
 copy outside this backend milestone.
 
-- [ ] **Step 2: Keep the workflow split and require current M3 evidence.**
+- [x] **Step 2: Keep the workflow split and require current M3 evidence.**
 
 The fast native workflow remains automatic on pull requests and `main`.
 The source/service interoperability workflow remains manually dispatched.
@@ -1702,7 +1702,7 @@ baseline in an isolated worktree and report the evidence. M3 release remains
 open until the required gate passes or the user approves an explicit change
 to its acceptance criteria.
 
-- [ ] **Step 4: Audit production boundaries and the final diff.**
+- [x] **Step 4: Audit production boundaries and the final diff.**
 
 ```sh
 rg -n '@fluidframework|fluid-framework|shared-tree-oracle|\.reference/FluidFramework' src watershed_lustre
@@ -1743,12 +1743,57 @@ Download and inspect the current-run array artifacts; a green older M2 run
 is not M3 evidence. Do not push or merge merely to satisfy this planning
 document without the normal integration approval.
 
-- [ ] **Step 6: Commit profile documentation and release evidence.**
+- [x] **Step 6: Commit profile documentation and release evidence.**
 
 Use `git commit -m "docs(tree): publish array and move interoperability"`.
 Mark the acceptance checklist below only after its corresponding evidence
 exists. Update the parent roadmap to link this completed milestone; do not
 mark M4 or the remaining M7 work complete.
+
+#### Task 12 local execution record
+
+The local implementation revision is
+`0d5497e9521c948449407093139b75dcd7bc10db`, with the Task 12 documentation
+and workflow changes in this commit. Hosted evidence was not requested and
+remains pending an approved integration and push.
+
+The existing preflight/profile path regenerated
+`/tmp/watershed-m3-profile/profile.json`. It matched
+`test/fixtures/shared_tree/profile.json` byte-for-byte. The SHA-256 digest is
+`d0cc4a5e3fd47dc942cbaeb56604160fb75f5ba18c704b356b89d22e65747112`.
+The other preflight artifacts are
+`/tmp/watershed-m3-profile/result.json` and
+`/tmp/watershed-m3-profile/capture.json`.
+
+The first preflight attempt failed because the ignored upstream checkout held
+a stale injected `watershedCodecs.spec.ts`. Removing that single generated
+injection and rerunning `source:prepare` restored the pinned checkout; source
+verification then confirmed Fluid commit
+`c3c5bf0ecd313362e83fe8a02b7d39e7e0736960` and all packages at 3.1.0. The
+second preflight passed every required operation and produced the profile
+match above.
+
+| Command | Exit/result | Counts and evidence |
+| --- | --- | --- |
+| `just shared-tree-oracle-check` | 0 | All 38 committed source cases regenerated and matched. |
+| `just shared-tree-test` | 0 | 660 Erlang and 649 JavaScript tests passed; storage, bootstrap, and creation smokes passed. |
+| `npm --prefix tools/shared-tree-oracle test` | 0 | 248 passed, zero failed or skipped; includes M3 report and array-artifact validators. |
+| `just shared-tree-interop` | 1 | Preflight and corpus passed: 643 Erlang and 632 JavaScript corpus tests. Deterministic execution then failed at `runArrayCell`: `Path is not a dynamic map: byKey`. Evidence is under `tools/shared-tree-oracle/.output/interop/eb969b1d-442d-40b5-a0fa-4f6216d1c902/`, with the exact failure in `failure.json`. The M3 array scenario calls the M2-only `DynamicMap` helper for the declared `ArrayMap`; this scoped Task 11 harness defect prevents the deterministic catalogue, three reload matrices, and 300 schedules from completing. |
+| `just shared-tree-create-interop` | 1 | Native prerequisites passed: 26 Erlang and 25 JavaScript creation/storage/facade tests. The service matrix then failed on the first array checkpoint with `TreeOperationFailed("A/_C", InvalidEdit(["title"], "field is not an optional field"))`. Partial current-run evidence is under `tools/shared-tree-oracle/.output/creation/0e55c6ed-9882-4e79-b6d8-d5973718e85b/`; `invalid-initializers.json` proves all four object/array and JavaScript/Erlang invalid initializers were rejected before network access. The twelve-cell report was not published. |
+| `just test` | 0 | Main package: 2,214 Erlang and 2,480 JavaScript tests. The other package, website, compile-fail, smoke, and browser suites passed. |
+| `just build` | 0 | Erlang, JavaScript, and serial bundle builds passed. |
+| `just lint` | blocked | `trellis run format --check` produced no package result and did not finish after 16 minutes. A retry with the ignored upstream checkout moved aside also produced no package result and was stopped after 13 minutes; the checkout was restored. No lint acceptance is claimed. |
+
+The automatic/native and manual/service workflow split is unchanged. Both
+workflows now name M1/M2/M3 acceptance explicitly, and the manual workflow runs
+the oracle/report/artifact validator suite before source and service work. The
+manual workflow still preserves interop and creation output on success or
+failure.
+
+The production-boundary search found no Fluid SDK, oracle, or pinned-checkout
+reference under `src` or `watershed_lustre`. `actionlint` passed both workflow
+files. `git diff --check` passed, generated website/cache files are not staged,
+and the final status contains only the seven Task 12 files.
 
 ---
 
@@ -1773,21 +1818,21 @@ mark M4 or the remaining M7 work complete.
 | No M1/M2 or other DDS regression | 2-12 | Retained old cases, 100 old schedules per profile, full gates. |
 | Accurate scope and permanent evidence | 12 | Regenerated profile, documentation, local and hosted release record. |
 
-- [ ] The proposed M3 design and Task 1 source contract received review.
-- [ ] All nine required source cases have native semantic runners on both targets.
-- [ ] Array values preserve order and distinguish equal-valued element identities.
-- [ ] Existing object/map paths and APIs retain their behavior.
-- [ ] Moves preserve nodes and descendants across compatible arrays.
-- [ ] Sequence composition, inversion, rebase, repair, and codecs match upstream.
-- [ ] Invalid operations leave state, allocation, events, and output unchanged.
-- [ ] Pending chains and reconnect preserve revision/batch identity and content.
+- [x] The proposed M3 design and Task 1 source contract received review.
+- [x] All nine required source cases have native semantic runners on both targets.
+- [x] Array values preserve order and distinguish equal-valued element identities.
+- [x] Existing object/map paths and APIs retain their behavior.
+- [x] Moves preserve nodes and descendants across compatible arrays.
+- [x] Sequence composition, inversion, rebase, repair, and codecs match upstream.
+- [x] Invalid operations leave state, allocation, events, and output unchanged.
+- [x] Pending chains and reconnect preserve revision/batch identity and content.
 - [ ] All object/map/array summary cells load and continue editing.
 - [ ] All three client implementations author real-service array operations.
 - [ ] The default run preserves 100 object and 100 map schedules and adds 100 array schedules.
 - [ ] Native creation supports the declared array schema profile.
 - [ ] No required target, source, corpus, service, or persistence result is skipped.
 - [ ] Full repository gates and the required hosted gates pass for the integrated revision.
-- [ ] Documentation names the exact supported profile and remaining exclusions.
+- [x] Documentation names the exact supported profile and remaining exclusions.
 
 ## 5. Stop conditions
 

@@ -63,12 +63,12 @@ npm --prefix tools/shared-tree-oracle run client:interop -- --local-floodgate
 just shared-tree-interop
 ```
 
-The final command is the combined Task 15 acceptance gate. It verifies the
+The final command is the combined M1/M2/M3 acceptance gate. It verifies the
 committed profile and pinned source, starts an isolated pinned Floodgate,
-executes the native corpus on both targets, then runs 147 deterministic cases,
-12 focused reconnect cases, 24 refusal cases, separate nine-cell object and
-map summary reload matrices, and 200 generated object/map schedules. The
-recipe uses
+executes the native corpus on both targets, then runs 279 deterministic cases,
+12 focused reconnect cases, 24 refusal cases, separate nine-cell object, map,
+and array summary reload matrices, and 300 generated schedules: 100 for each
+profile. The recipe uses
 `test/fixtures/shared_tree/profile.json` and seed `42`, matching the coordinator's
 defaults, so this is equivalent:
 
@@ -89,11 +89,11 @@ machine-readable result to stdout.
 
 Each run uses `.output/interop/<run-id>/`. `status.json` records the current
 phase. Corpus, preflight, deterministic, reconnect, refusal, object reload, map
-reload, and seeded evidence stay in separate artifacts. A successful
-`report.json` is published only after every artifact is reopened and validated
-and all run-owned clients and the local service are stopped. The report is
-evidence only for the exact pinned Fluid release, Floodgate revision, profile
-digest, schemas, seed, and schedule count that it records. It is not an
+reload, array reload, and seeded evidence stay in separate artifacts. A
+successful `report.json` is published only after every artifact is reopened and
+validated and all run-owned clients and the local service are stopped. The
+report is evidence only for the exact pinned Fluid release, Floodgate revision,
+profile digest, schemas, seed, and schedule count that it records. It is not an
 arbitrary Fluid document or service compatibility claim.
 
 On failure, the command exits nonzero and prints the preserved `failure.json`
@@ -114,10 +114,12 @@ run uses the same coordinator and report validator:
 just shared-tree-interop-deep
 ```
 
-The normal acceptance gate requires 200 schedules. The generator alternates
-the fixed-object and dynamic-map profiles. Map actions keep `path` and `key`
-separate, and failure artifacts retain the full action, checkpoint, first
-difference path, and replay command. The 5,000-schedule command is optional.
+The normal acceptance gate requires 300 schedules. The generator rotates
+through the fixed-object, dynamic-map, and array profiles. Map actions keep
+`path` and `key` separate. Array actions preserve the half-open range and
+pre-edit destination-gap contract. Failure artifacts retain the full action,
+checkpoint, first difference path, and replay command. The 7,500-schedule
+command is optional.
 
 The M2 deterministic catalogue covers independent keys, same-key set/set,
 set/delete, nested-object replacement, nested delete/edit, recursive-map
@@ -132,8 +134,8 @@ entries. Every fresh reader consumes the selected summary, observes the
 post-summary tail, keeps the deleted entry absent, and authors a continuation
 that a connected peer observes.
 
-The generated manifest requires `map-schema-content`, `map-field-algebra`, and
-`map-history-codecs` in the JavaScript and Erlang native semantic-runner lists.
+The generated manifest requires the M1/M2 cases and all nine M3 array cases in
+the JavaScript and Erlang native semantic-runner lists.
 
 ### M3 array source contract
 
@@ -209,11 +211,45 @@ continuation and an independent fresh peer applies both envelopes. Equal-valued
 and interior moves still emit commits and change events even when their visible
 values do not change.
 
-Pinned upstream removal clamps an end beyond the array length. The planned
-native API deliberately rejects that invalid range. The nine M3 fixtures are
-source evidence only; they are absent from `nativeSemanticRunners` until
-input-only runners pass on JavaScript and BEAM. Task 1 remains pending
-independent review.
+Pinned upstream removal clamps an end beyond the array length. The native API
+deliberately rejects that invalid range. All nine M3 fixtures now have native
+semantic runners on JavaScript and BEAM. The source contract and native
+signature review are complete.
+
+### Supported M3 service profile
+
+The published profile is Fluid Framework 3.1.0 at commit
+`c3c5bf0ecd313362e83fe8a02b7d39e7e0736960`, Floodgate at commit
+`0eb493fc46d1bb9baf1151a6ccdde93544e057e7`, and the fixed bootstrap-map/tree
+container layout recorded in `test/fixtures/shared_tree/profile.json`. The
+profile digest is
+`d0cc4a5e3fd47dc942cbaeb56604160fb75f5ba18c704b356b89d22e65747112`.
+
+The M3 schema adds `ArrayRoot`, recursive `Items` and `ArrayMap` nodes,
+`ArrayPoint`, and the narrower `Points` array. Arrays can contain ordered
+primitive leaves, fixed objects, nested arrays, and nested maps where the
+declared schema permits them. Duplicate-valued elements retain distinct
+identity.
+
+Paths stay `List(String)`. Decimal segments are contextual array indices only
+while traversal is inside an array. Object field names and map keys remain
+literal strings, including decimal-looking keys. Removal and movement use
+half-open `[start, end)` ranges. A move destination is a gap in the pre-edit
+array. Compatible arrays in the same tree can exchange a range atomically
+without replacing the moved nodes or their descendants.
+
+Both native facades expose the same five operations: `tree_array_get`,
+`tree_array_values`, `tree_array_insert`, `tree_array_remove`, and
+`tree_array_move`. The service gate covers identity, concurrent edits and
+moves, pending chains, reconnect, full-summary publication, fresh summary
+loading, continuation, and native creation for the declared array profile.
+
+The profile still excludes schema evolution, shared branches, GC sweep,
+compressed operations, and chunked operations. The product also does not claim
+map-wide clear, handle-valued tree leaves, transactions, undo/redo, local
+branching, incremental summaries, arbitrary container layouts, live channel
+attachment, P2P SharedTree, SharedTree Lustre bindings, or disk recovery of
+pending edits.
 
 ### Permanent gates
 
@@ -228,27 +264,30 @@ pushes to `main`, and manual dispatch. It runs the Oracle Node tests and
 Administrators can require the native check in branch protection or a ruleset.
 The workflow files do not configure that policy. Both workflows fail on missing
 prerequisites; the manual service workflow cannot pass by skipping a target,
-corpus, service, or matrix. The M1+M2 coordinator runs the source verification
-and fixture regeneration check itself, so CI does not repeat that expensive
-check.
+corpus, service, or matrix. Both run the M1/M2/M3 oracle and
+artifact-validator tests. The coordinator runs source verification and the
+fixture regeneration check itself, so the workflow does not repeat that
+expensive check.
 
 | Local command | Scope |
 | --- | --- |
 | `just shared-tree-test` | Native suites and HTTP smokes on both targets. |
 | `npm --prefix tools/shared-tree-oracle test` | Oracle/report/recipe tests. |
 | `just shared-tree-oracle-check` | Regenerate from the pinned source and compare committed fixtures. |
-| `just shared-tree-interop` | Real-service M1+M2 matrices and 200 object/map seeded schedules. |
-| `just shared-tree-create-interop` | Six native-creator/fresh-reader cells and continued editing. |
-| `just shared-tree-interop-deep` | Manual 5,000-schedule acceptance through the same runner. |
+| `just shared-tree-interop` | Real-service M1/M2/M3 matrices and 300 object/map/array seeded schedules. |
+| `just shared-tree-create-interop` | Twelve object/array native-creator and fresh-reader cells with continued editing. |
+| `just shared-tree-interop-deep` | Manual 7,500-schedule acceptance through the same runner. |
 
 The service job uploads `.output/interop/` and `.output/creation/` on success or
 failure as `shared-tree-evidence-<run-id>-<run-attempt>`. It includes the hidden
 `.output` directory but excludes source checkouts, service databases, and other
 output directories. Each runner verifies its own current-run artifacts; an
 older `report.json` cannot turn a failed command into success. Cleanup failure
-also fails the command. The reports establish separate claims: M1's nine
-object-summary cells, M2's nine map-summary cells, and native creation's six
-creator/reader cells.
+also fails the command. The report validator reopens the preflight,
+deterministic, reconnect, refusal, seeded, corpus, and all three reload-matrix
+artifact families. The reports establish separate claims: M1's nine object
+summary cells, M2's nine map summary cells, M3's nine array summary cells, and
+native creation's twelve object/array creator/reader cells.
 
 The workflow starts no shared development server. The existing service wrapper
 verifies Floodgate commit `0eb493fc46d1bb9baf1151a6ccdde93544e057e7`, allocates a
@@ -273,13 +312,13 @@ container bytes.
 `shared-tree-create-test` runs both native targets and the owned HTTP
 failure-injection smoke without a live service or upstream npm dependencies.
 `shared-tree-create-interop` adds `creation:interop -- --local-floodgate`.
-That gate calls the production creation facade on JavaScript and BEAM, closes
-each creator, and opens fresh JavaScript, BEAM, and upstream readers from the
-initial stored summary before publishing a replacement summary. It checks edits,
-peer observations, native summaries with a later operation tail, and upstream
-continuation. A missing creator, reader, service, or evidence cell fails the run.
-Run artifacts live under `.output/creation/<run-id>/`; they contain no tokens
-or tenant secrets.
+That gate calls the production creation facade on JavaScript and BEAM for the
+object and array profiles, closes each creator, and opens fresh JavaScript,
+BEAM, and upstream readers from the initial stored summary before publishing a
+replacement summary. It checks edits, peer observations, native summaries with
+a later operation tail, and upstream continuation. A missing profile, creator,
+reader, service, or evidence cell fails the run. Run artifacts live under
+`.output/creation/<run-id>/`; they contain no tokens or tenant secrets.
 
 The supported layout is root alias `root` -> `A`, map `/A/root`, and tree `/A/_C`.
 The create request sends the inline application tree and sequence-zero code
@@ -331,7 +370,7 @@ other error still fails the schedule.
 The TCP gate forwards unmodified bytes; for these two cases it inspects
 WebSocket frame boundaries and decoded payloads to pause after the handshake
 and capture withheld submissions. It does not fabricate service messages.
-The permanent service job runs this focused gate through the combined M1+M2
+The permanent service job runs this focused gate through the combined M1/M2/M3
 coordinator; CI does not repeat it as a separate command.
 
 The default summary gate exports all four input-only `summary-writer-matrix`
@@ -439,10 +478,11 @@ These values come from the captured codec graph and compressor header, not from
 the npm major version. The raw message list includes ID allocations. The summary
 is a DDS summary, not a complete Fluid container summary.
 
-`schema.mjs` defines the M1 fixed-object schema and the M2 `MapRoot`,
-`DynamicMap`, and `MapPoint` schema. Its tree-only `rootStore` is an oracle
-health check. The service profile creates a real SharedMap bootstrap channel
-with a `"tree"` handle and selects the object or map tree schema for each
+`schema.mjs` defines the M1 fixed-object schema, the M2 `MapRoot`, `DynamicMap`,
+and `MapPoint` schema, and the M3 `ArrayRoot`, `Items`, `ArrayMap`,
+`ArrayPoint`, and `Points` schema. Its tree-only `rootStore` is an oracle health
+check. The service profile creates a real SharedMap bootstrap channel with a
+`"tree"` handle and selects the object, map, or array tree schema for each
 scenario.
 
 ## Real-service preflight
@@ -531,7 +571,7 @@ gleam test --target erlang -- --test-name-filter=shared_tree
 gleam test --target javascript -- --test-name-filter=shared_tree
 ```
 
-`generate` produces all 26 named cases under `test/fixtures/shared_tree/cases/`
+`generate` produces all 38 named cases under `test/fixtures/shared_tree/cases/`
 and their manifest. `check` regenerates them in an owned temporary directory and
 compares the complete file set and every byte without changing the fixtures.
 Missing files, extra files, incomplete observations, and changed outputs fail.

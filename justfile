@@ -179,7 +179,7 @@ relay-test:
     gleam test --target javascript
     node tools/relay/test.mjs
 
-# Pinned upstream-only fixtures, not native SharedTree acceptance.
+# Pinned upstream M1/M2/M3 fixtures, not native SharedTree acceptance.
 shared-tree-oracle:
     npm --prefix tools/shared-tree-oracle run generate
 
@@ -189,7 +189,7 @@ shared-tree-oracle-check:
 shared-tree-codec-interop:
     npm --prefix tools/shared-tree-oracle run codec:interop
 
-# Native corpus, facade/storage coverage, and owned HTTP smokes; no live service.
+# Native M1/M2/M3 corpus, facade/storage coverage, and owned HTTP smokes.
 shared-tree-test:
     gleam test --target erlang -- shared_tree git_storage facade_parity
     gleam test --target javascript -- shared_tree git_storage facade_parity
@@ -197,7 +197,7 @@ shared-tree-test:
     node smoke/shared_tree_bootstrap.mjs
     node smoke/shared_tree_creation.mjs
 
-# The coordinator verifies source/corpus and runs tests on both targets.
+# The coordinator verifies the M1/M2/M3 profile, source, corpus, and both targets.
 shared-tree-interop:
     node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 300 --seed 42
 
@@ -211,7 +211,7 @@ shared-tree-create-test:
     gleam test --target javascript -- shared_tree_creation git_storage facade_parity
     node smoke/shared_tree_creation.mjs
 
-# Native-created documents, fresh JS/BEAM/upstream readers, and continuation.
+# Object and array documents from both native creators, with three fresh readers.
 shared-tree-create-interop: shared-tree-create-test
     node tools/shared-tree-oracle/creation.mjs interop --local-floodgate
 
