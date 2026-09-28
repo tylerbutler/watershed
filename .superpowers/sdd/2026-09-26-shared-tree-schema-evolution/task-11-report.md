@@ -299,3 +299,46 @@ Validation passed:
 - `just shared-tree-interop`: run
   `a1b1e191-aa6f-4f34-9bab-a183ced80e3e`, 573 JavaScript corpus cases,
   584 Erlang corpus cases, no skips or divergences
+
+## Final whole-branch fix wave
+
+Complete.
+
+The final review found four blockers. All four now have regressions and
+end-to-end fixes.
+
+1. Every local submission retains the schema/history context that existed when
+   it was authored. A retry authored after a competing change no longer derives
+   its acknowledgement from the obsolete original pending predecessor.
+2. Replayed trunk revisions remain distinct sequence points, but summary
+   encoding and decoding use the first occurrence's authoring context and apply
+   its semantic schema transition once. Duplicate revisions are accepted only
+   when their commit contents match.
+3. Native history diagnostics require the genuine `AtomId`, `FieldChange`, and
+   nine-field `ChangeData` constructors. Optional/value replacements must name
+   a detached source with a matching build. Fabricated shortcut payloads fail
+   both direct parsing and coordinated report validation.
+4. The schema-evolution codec runner consumes only its input. Replay bytes,
+   compressor context, and the pending summary are carried in the case input;
+   historical observations come from the native decoder and decoded build
+   values. The runner never reads oracle raw or expected data, and removing the
+   historical scenario fails or changes its output.
+
+Final validation:
+
+- focused runtime tests: Erlang 112 passed; JavaScript 101 passed
+- focused summary codec tests: 17 passed on each target
+- focused schema-evolution codec fixture tests: 7 passed on each target
+- `npm --prefix tools/shared-tree-oracle test`: 251 passed
+- `npm --prefix tools/shared-tree-oracle run check`: passed
+- `just shared-tree-test`: Erlang 604 passed; JavaScript 593 passed
+- `just shared-tree-codec-interop`: two targets, 20 items each
+- `just shared-tree-interop`: run
+  `8f93cd08-cea3-40a3-aac3-4306997777e8`; 147 deterministic cases,
+  12 reconnect cases, 200 seeded schedules, 27 schema race cells, all nine
+  writer-reader cells in both reload matrices, 576 JavaScript corpus cases,
+  587 Erlang corpus cases, no skips, and no divergences
+- `git diff --check`: passed
+
+Floodgate emitted the existing transport-control decoder warnings during the
+real-service run. They did not skip or weaken any gate.
