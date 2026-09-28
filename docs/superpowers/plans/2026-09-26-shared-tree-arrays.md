@@ -1753,7 +1753,7 @@ mark M4 or the remaining M7 work complete.
 #### Task 12 local execution record
 
 The local implementation and service evidence end at
-`b9dc01b5a75e45435077369f2d3aced1ca86a3c1`. The profile and workflow
+`df67063`. The profile and workflow
 publication is `c9d4249d16c446b63dd4e4f679ae38c04b688112`. Four later fixes close
 the service harness defects found by the release gates:
 
@@ -1763,6 +1763,9 @@ the service harness defects found by the release gates:
   continuation expectations, and related service sequencing.
 - `b9dc01b5a75e45435077369f2d3aced1ca86a3c1` makes each malformed Sequence V3
   refusal reach its intended invariant.
+- `df67063` adds family-aware retained identity checks, reader-specific
+  persisted reload evidence, deterministic creation sequencing, action-failure
+  replay validation, and operation-level seeded array conflicts.
 
 Hosted evidence remains pending an approved integration and push.
 
@@ -1786,9 +1789,9 @@ match above.
 | --- | --- | --- |
 | `just shared-tree-oracle-check` | 0 | All 38 committed source cases regenerated and matched. |
 | `just shared-tree-test` | 0 | 660 Erlang and 649 JavaScript tests passed; storage, bootstrap, and creation smokes passed. |
-| `npm --prefix tools/shared-tree-oracle test` | 0 | 259 passed, zero failed or skipped; includes the final M3 report, artifact, adapter, continuation, and distinct Sequence-refusal validators. |
-| `just shared-tree-interop` | 0 | Run `720bfbba-45f8-495b-8642-f1316670aed7`; report at `tools/shared-tree-oracle/.output/interop/720bfbba-45f8-495b-8642-f1316670aed7/report.json`. The real-service run completed 279 deterministic cells (75 object, 72 map, 132 array), 12 reconnect results, 34 refusal results, nine object/map/array reload cells each, and 300/300 schedules with 100 per profile. Corpus results were 644 Erlang and 633 JavaScript. The report references 654 artifacts and records zero skips or divergences. |
-| `just shared-tree-create-interop` | 0 | Run `726623f6-5648-4649-82a6-c3778690b500`; report at `tools/shared-tree-oracle/.output/creation/726623f6-5648-4649-82a6-c3778690b500/report.json`. All twelve object/array creator-reader cells loaded the initial summary, continued editing, reloaded summary plus tail, and produced zero skips or divergences. |
+| `npm --prefix tools/shared-tree-oracle test` | 0 | 264 passed, zero failed or skipped; includes the final M3 report, artifact, adapter, continuation, action-failure replay, retained-identity, and distinct Sequence-refusal validators. |
+| `just shared-tree-interop` | 0 | Run `4eebef1e-9404-4e9b-8b53-4590e982f8f7`; report at `tools/shared-tree-oracle/.output/interop/4eebef1e-9404-4e9b-8b53-4590e982f8f7/report.json`. The real-service run completed 279 deterministic cells (75 object, 72 map, 132 array), 12 reconnect results, 34 refusal results, nine object/map/array reload cells each, and 300/300 schedules with 100 per profile. Corpus results were 644 Erlang and 633 JavaScript. The report references 654 artifacts and records zero skips or divergences. |
+| `just shared-tree-create-interop` | 0 | Run `7f337b33-9417-4740-805e-7cacfbc4e672`; report at `tools/shared-tree-oracle/.output/creation/7f337b33-9417-4740-805e-7cacfbc4e672/report.json`. All twelve object/array creator-reader cells loaded the initial summary, continued editing, reloaded summary plus tail, and produced zero skips or divergences. |
 | `just test` | 0 | Main package: 2,214 Erlang and 2,480 JavaScript tests. The other package, website, compile-fail, smoke, and browser suites passed. |
 | `just build` | 0 | Erlang, JavaScript, and serial bundle builds passed. |
 | `just lint` | 0 | The root formatter now checks `src` and `test` directly, then Trellis checks all 26 auto-discovered non-root members. This avoids scanning the ignored Fluid reference checkout while preserving all repository Gleam sources. All 27 checks passed. |
