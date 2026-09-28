@@ -471,3 +471,47 @@ existing constructor and provenance validators.
 
 No code concern remains from the local review. Validation is local; no hosted
 CI workflow was run.
+
+### Fix round 1
+
+Complete.
+
+The optional replacement validator erased the difference between an absent
+source and `Some(Active)`: both became `undefined`. It then used the detach ID
+as attachment provenance whenever `was_empty` was true. That accepted two
+native no-op shapes when an unrelated build happened to use the detach ID.
+
+Register validation now returns distinct active and detached variants while an
+absent option remains absent. Only `Some(Detached(id))` supplies attachment
+provenance. `Some(Active)` is always rejected as non-substantive. An absent
+source with `was_empty: true` is rejected as non-substantive, while an absent
+source with `was_empty: false` is recognized as a clear that does not attach a
+built value.
+
+The valid `was_empty: true` fixture now uses the shape produced by
+`optional_field.set`: `Some(Detached(fill))` names the built value and the
+separate detach ID records the replacement destination. The regressions cover
+the positional Erlang form for absent and detached sources and the named
+JavaScript form for `Some(Active)`.
+
+RED:
+
+- `node --test --test-name-pattern='native (persisted diagnostics reject empty replacement without source|named diagnostics reject replacement from active register|persisted diagnostics accept optional insertion from detached register)' tools/shared-tree-oracle/interop-scenarios.test.mjs`:
+  1 passed, 2 failed. Both matching-build no-op payloads were accepted without
+  throwing; the genuine detached-source insertion passed.
+
+GREEN:
+
+- The same focused command: 3 passed.
+- `node --test tools/shared-tree-oracle/interop-scenarios.test.mjs`: 59 passed.
+- `npm --prefix tools/shared-tree-oracle test`: 256 passed.
+- `git diff --check`: passed.
+
+Files changed:
+
+- `tools/shared-tree-oracle/interop-scenarios.mjs`
+- `tools/shared-tree-oracle/interop-scenarios.test.mjs`
+
+Commit: `c47c637d` (`fix(interop): validate optional attachment sources`)
+
+No code concern remains. Validation is local; no hosted CI workflow was run.
