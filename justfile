@@ -179,7 +179,7 @@ relay-test:
     gleam test --target javascript
     node tools/relay/test.mjs
 
-# Pinned upstream M1/M2/M3 fixtures, not native SharedTree acceptance.
+# Pinned upstream-only fixtures, not native SharedTree acceptance.
 shared-tree-oracle:
     npm --prefix tools/shared-tree-oracle run generate
 
@@ -189,7 +189,7 @@ shared-tree-oracle-check:
 shared-tree-codec-interop:
     npm --prefix tools/shared-tree-oracle run codec:interop
 
-# Native M1/M2/M3 corpus, facade/storage coverage, and owned HTTP smokes.
+# Native corpus, facade/storage coverage, and owned HTTP smokes; no live service.
 shared-tree-test:
     gleam test --target erlang -- shared_tree git_storage facade_parity
     gleam test --target javascript -- shared_tree git_storage facade_parity
@@ -197,13 +197,13 @@ shared-tree-test:
     node smoke/shared_tree_bootstrap.mjs
     node smoke/shared_tree_creation.mjs
 
-# The coordinator verifies the M1/M2/M3 profile, source, corpus, and both targets.
+# The coordinator verifies source/corpus and runs tests on both targets.
 shared-tree-interop:
-    node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 300 --seed 42
+    node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 200 --seed 42
 
 # Manual deep run; keep it out of the pull-request gate.
 shared-tree-interop-deep:
-    node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 7500 --seed 42
+    node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 5000 --seed 42
 
 # Both native creators and HTTP failure cases; no upstream SDK or live service.
 shared-tree-create-test:
@@ -211,7 +211,7 @@ shared-tree-create-test:
     gleam test --target javascript -- shared_tree_creation git_storage facade_parity
     node smoke/shared_tree_creation.mjs
 
-# Object and array documents from both native creators, with three fresh readers.
+# Native-created documents, fresh JS/BEAM/upstream readers, and continuation.
 shared-tree-create-interop: shared-tree-create-test
     node tools/shared-tree-oracle/creation.mjs interop --local-floodgate
 
@@ -307,12 +307,12 @@ p2p-down:
 format:
     trellis run format
 
-# Run linter — the same fan-out, in check mode. A member left unformatted
-# fails here, which is how `tools/website-samples` is kept honest: the website
-# quotes its source verbatim, so its formatting is published prose.
+# Check every tracked Gleam source file. Explicit paths keep the formatter out
+# of generated dependency trees while still covering every workspace member.
+# This keeps `tools/website-samples` honest: the website quotes its source
+# verbatim, so its formatting is published prose.
 lint:
-    gleam format --check src test
-    trellis run format --check $(trellis list | awk '$1 != "watershed" { print $1 }')
+    git ls-files -z '*.gleam' | xargs -0 gleam format --check
 
 # Remove build artifacts, in every member rather than just the root package
 clean:

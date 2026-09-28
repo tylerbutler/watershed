@@ -85,13 +85,13 @@ guide](https://watershed.tylerbutler.com/guide/connect) for both.
 
 ## SharedTree runtime (experimental)
 
-Watershed supports fixed objects, dynamic maps, and named recursive arrays on
-JavaScript and BEAM, with interoperability coverage against Fluid Framework
-**3.1.0** and the pinned Floodgate service. The gate compares upstream,
-JavaScript, and BEAM authors, reconnects pending edits, and loads and continues
-editing across separate nine-cell object, map, and array summary matrices. This
-claim applies to the declared profile, not arbitrary Fluid documents or
-services.
+Watershed supports fixed objects, dynamic maps, and explicit schema evolution
+for that object/map subset on JavaScript and BEAM. Interoperability coverage
+uses Fluid Framework **3.1.0** and the pinned Floodgate service. The gate
+compares upstream, JavaScript, and BEAM authors, reconnects pending edits, and
+loads and continues editing across object, map, and schema-evolution summary
+matrices. This claim applies to the declared profile, not arbitrary Fluid
+documents, services, or package versions.
 
 The [profile manifest](test/fixtures/shared_tree/profile.json) records upstream
 commit `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960` and Floodgate commit
@@ -101,17 +101,11 @@ The layout uses alias `root` -> datastore `A`, a bootstrap map at `/A/root`
 with a `"tree"` handle, and a tree at `/A/_C`.
 
 The schema subset includes nested objects, required and optional fields,
-dynamic maps, named and recursive arrays, and string, finite number, boolean,
-and null leaves. The M2 profile uses `MapRoot`, `DynamicMap`, and `MapPoint`.
-Map values can contain leaves, fixed objects, and nested `DynamicMap` nodes.
-Map keys are arbitrary strings, including empty, Unicode, numeric-looking, and
-prototype-like keys. Key and entry reads use canonical UTF-8 key order.
-
-The M3 profile uses `ArrayRoot`, recursive `Items` and `ArrayMap` nodes,
-fixed-shape `ArrayPoint` objects, and the narrower `Points` array. Array values
-retain order and element identity, including duplicate-valued objects. Paths
-remain `List(String)`: a decimal segment is an array index only while traversing
-an array, and the same text remains a literal object field or map key elsewhere.
+dynamic maps, and string, finite number, boolean, and null leaves. The M2
+profile uses `MapRoot`, `DynamicMap`, and `MapPoint`. Map values can contain
+leaves, fixed objects, and nested `DynamicMap` nodes. Map keys are arbitrary
+strings, including empty, Unicode, numeric-looking, and prototype-like keys.
+Key and entry reads use canonical UTF-8 key order.
 
 Ordinary connections can load published upstream SharedTree summaries for this
 fixed container and schema profile without a caller-supplied seed. The checked
@@ -128,7 +122,8 @@ resolution requires an absolute marker. Use
 its source channel's datastore.
 
 After readiness, use `resolve_root(document)`, `get(root, "tree")`, and
-`resolve_tree(document, handle, view)` to reach an existing tree.
+`resolve_tree(document, handle, view)` to reach an existing tree when the
+stored schema already admits the strict view.
 `tree_get(tree, path)` returns `Result(Option(TreeValue), String)`: `None` is
 an absent optional field, not a null leaf. `tree_set` and `tree_clear` check
 the stored schema before changing the optimistic value; required fields cannot
@@ -138,18 +133,59 @@ can use `schema.TreeChannel` with `set_tree_field` and
 `subscribe_tree(tree, handler)` returns a `SubscriptionToken` for `unsubscribe`;
 BEAM's `subscribe_tree(tree)` returns `Subject(TreeEvent)`.
 
+To inspect or upgrade an incompatible view, use `open_tree` first:
+
+```gleam
+let assert Ok(candidate) = watershed.open_tree(document, handle, next_view)
+let assert Ok(status) = watershed.tree_compatibility(candidate)
+
+case status.can_view {
+  True -> Nil
+  False -> {
+    let assert Ok(Nil) = watershed.tree_upgrade_schema(candidate)
+  }
+}
+
+let assert Ok(tree) = watershed.resolve_tree(document, handle, next_view)
+```
+
+`can_view`, `can_upgrade`, and `is_equivalent` answer different questions.
+An ordinary wider view is not readable until its explicit upgrade applies.
+An equivalent upgrade is a no-op: it allocates no revision or IDs, submits no
+message, and emits no event. Unsupported or invalid local upgrades leave state
+unchanged.
+
+Each tree handle keeps the view passed to `open_tree` or `resolve_tree`.
+Reads and writes recheck that view against the current visible schema. A handle
+that was valid can become unavailable after another client applies an
+incompatible upgrade. The document stays usable, and a fresh compatible handle
+can continue editing.
+
+`subscribe_tree` reports `SchemaChanged(local)` for a visible schema change and
+keeps `TreeChanged(local)` for data changes. If one completed transition changes
+both, subscribers receive the schema event first and observe the final state.
+Summaries pair the sequenced schema with the sequenced forest, history, and
+compressor state, so a pending local upgrade does not leak into a published
+snapshot.
+
+Schema upgrades participate in the same sequenced conflict rules as data.
+A concurrent data edit can win and reduce the local upgrade to an acknowledged
+empty change. Watershed does not merge or retry losing schemas. Inspect
+compatibility again and request a new upgrade from the current stored schema.
+
+The supported authoring profile permits additive object/map changes: optional
+object fields, wider allowed types for existing object fields and map entries,
+required-to-optional field or root changes, wider root types, and definitions
+needed by those transitions. Upstream `can_upgrade` describes the schema
+relation; Watershed's authoring restrictions can still reject a transition
+such as a node-kind replacement. This profile covers initialized documents and
+does not broaden creation or initialization.
+
 Use `tree_map_get`, `tree_map_set`, `tree_map_delete`, `tree_map_keys`, and
 `tree_map_entries` on either facade. Each operation takes a path to the map;
 single-entry operations take the key as a separate argument. Per-key edits,
 recursive map values, reconnect, and full-summary reload are part of the M2
 profile.
-
-Use `tree_array_get`, `tree_array_values`, `tree_array_insert`,
-`tree_array_remove`, and `tree_array_move` on either facade. Insert positions
-are gaps. Remove and move use half-open `[start, end)` ranges, and move
-destinations are gaps in the pre-edit array. Moves can cross compatible arrays
-in the same tree and preserve the moved nodes and descendants. Array edits,
-identity, reconnect, and full-summary reload are part of the M3 profile.
 
 Unsupported versions, incompatible schemas, and corrupt input return explicit
 errors. Failed bootstrap does not expose a writable partial document. Invalid
@@ -185,11 +221,13 @@ depends on attached and retained detached content, pending edits, and the
 collaboration window. History can trim as the minimum sequence advances, but
 there is no published capacity, throughput, or bounded-memory guarantee.
 
-Map-wide clear, schema evolution, handle-valued tree leaves, transactions,
-undo/redo, branching, shared branches, GC sweep, compressed and chunked
-operations, and incremental summaries remain deferred. Fixed-layout creation is
-available below; broader container layouts, live attachment, SharedTree Lustre
-bindings, P2P SharedTree, and disk recovery of pending edits are not.
+Map-wide clear, arrays and moves, array schema evolution, staged upgrades,
+unknown-field adapters, data migration, handle-valued tree leaves, public
+transactions, undo/redo, branching, and incremental summaries remain deferred.
+The compatibility claim also excludes additional upstream package versions.
+Fixed-layout creation is available below; broader container layouts, live
+attachment, SharedTree Lustre bindings, and disk recovery of pending edits are
+not.
 
 Recreate documents written with earlier Watershed development encodings.
 There is no legacy reader or migration path. This format change does not
@@ -203,7 +241,7 @@ returns `Result(String, String)`. Pass a
 `container.CreateConfig(base_url, tenant, token)`, a checked `StoredSchema`,
 and an `Option(TreeValue)` initial root. Use `None` only with an optional root
 schema. You can supply your own namespace and fields within the supported
-fixed-schema object and array profiles.
+fixed-schema object profile.
 
 Creation sends one authenticated POST to the pinned Floodgate service and
 returns its assigned document ID. It does not start a WebSocket connection or
@@ -233,16 +271,16 @@ The `SharedTree native` CI job runs on pull requests and pushes to `main`. The
 long-running `SharedTree interoperability` workflow runs only by manual
 dispatch. The native job needs no live service or upstream source build; the
 manual interoperability workflow owns an isolated pinned Floodgate and requires
-the M1, M2, and M3 matrices plus the native-creation matrix.
+the M1 and M2 matrices plus the native-creation matrix.
 
 | Command | Checks |
 | --- | --- |
 | `just shared-tree-test` | Both native suites, storage/facade coverage, and HTTP/bootstrap/creation smokes. |
 | `npm --prefix tools/shared-tree-oracle test` | Oracle, report-validator, and recipe contracts. |
 | `just shared-tree-oracle-check` | Pinned upstream regeneration against committed fixtures. |
-| `just shared-tree-interop` | 279 deterministic cases, 12 reconnect cases, 24 refusal cases, three nine-cell reload matrices, and 300 object/map/array seeded schedules. |
-| `just shared-tree-create-interop` | Object and array profiles from two native creators, each with fresh JavaScript, BEAM, and upstream readers: twelve cells. |
-| `just shared-tree-interop-deep` | Manual 7,500-schedule run through the same coordinator. |
+| `just shared-tree-interop` | 147 deterministic cases, 12 reconnect cases, 24 refusal cases, two nine-cell reload matrices, and 200 object/map seeded schedules. |
+| `just shared-tree-create-interop` | Two native creators, each with fresh JavaScript, BEAM, and upstream readers: six cells. |
+| `just shared-tree-interop-deep` | Manual 5,000-schedule run through the same coordinator. |
 
 See the [oracle README](tools/shared-tree-oracle/README.md#run) for prerequisites,
 evidence artifacts, and failure replay. These checks prove the declared profile;

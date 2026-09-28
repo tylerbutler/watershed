@@ -365,6 +365,19 @@ test("native persisted data diagnostics decode exponential numbers", () => {
   );
 });
 
+test("native named data diagnostics decode complete changesets", () => {
+  assert.deepEqual(
+    decodeReconnectPayload(
+      "Changeset([DataChange(Changeset("
+        + "data: ChangeData(max_local_id: 2, "
+        + 'fields: [#("score", OptionalField(FieldChange()))], '
+        + "builds: [Build(AtomId(1), [NumberValue(1000)])]), "
+        + "identity_order: IdentityOrder([])))])",
+    ),
+    { kind: "data", field: "score", value: 1000 },
+  );
+});
+
 test("native persisted diagnostics reject operation-shaped arbitrary text", () => {
   assert.throws(
     () => decodeReconnectPayload(
@@ -385,6 +398,20 @@ test("native schema diagnostics retain escaped quotes while scanning arguments",
       kind: "schema",
       old: 'FixedSchema(#("ti\\"tle,old",Required))',
       new: 'FixedSchema(#("ti\\"tle,new",Optional))',
+    },
+  );
+});
+
+test("native named outer changesets decode schema operations", () => {
+  assert.deepEqual(
+    decodeReconnectPayload(
+      'Changeset(changes: [SchemaChange(FixedSchema(#("title", Required)), '
+        + 'FixedSchema([#("title", Required), #("score", Optional)]), False)])',
+    ),
+    {
+      kind: "schema",
+      old: 'FixedSchema(#("title",Required))',
+      new: 'FixedSchema([#("title",Required),#("score",Optional)])',
     },
   );
 });

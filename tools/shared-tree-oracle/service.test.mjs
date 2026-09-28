@@ -13,11 +13,28 @@ import {
   preflight,
   observedDocumentServiceFactory,
   mapServiceStore,
+  excludedFeatures,
   serviceConfig,
   serviceStore,
+  supportedFeatures,
   runServiceCommand,
   validatePreflight,
 } from "./service.mjs";
+
+test("service profile names the restricted schema evolution support", () => {
+  assert(supportedFeatures.includes("strict-view-object-map-schema-evolution"));
+  assert(!excludedFeatures.includes("schema-evolution"));
+  for (const feature of [
+    "staged-schema-upgrades",
+    "array-schema-evolution",
+    "unknown-field-view-adapters",
+    "data-migrations",
+    "public-transactions",
+    "additional-upstream-versions",
+  ]) {
+    assert(excludedFeatures.includes(feature), `Missing exclusion: ${feature}`);
+  }
+});
 
 test("cleanup attempts every resource and attaches failures to the scenario error", () => {
   const calls = [];

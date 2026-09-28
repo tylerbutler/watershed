@@ -229,7 +229,11 @@
       "sequence-field-editor",
       "sequence-compose-invert",
       "sequence-rebase",
-      "array-modular-algebra"
+      "array-modular-algebra",
+      "schema-evolution-compatibility",
+      "schema-evolution-algebra",
+      "schema-evolution-history",
+      "schema-evolution-codecs"
     ],
     "erlang": [
       "id-ranges",
@@ -252,7 +256,11 @@
       "sequence-field-editor",
       "sequence-compose-invert",
       "sequence-rebase",
-      "array-modular-algebra"
+      "array-modular-algebra",
+      "schema-evolution-compatibility",
+      "schema-evolution-algebra",
+      "schema-evolution-history",
+      "schema-evolution-codecs"
     ]
   },
   "cases": [

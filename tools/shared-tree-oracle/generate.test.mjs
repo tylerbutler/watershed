@@ -2028,6 +2028,8 @@ test("manifest records complete native runners and actual wire field kinds", asy
       "map-schema-content", "map-field-algebra", "map-history-codecs",
       "array-schema-content", "array-forest-delta", "sequence-field-editor",
       "sequence-compose-invert", "sequence-rebase", "array-modular-algebra",
+      "schema-evolution-compatibility", "schema-evolution-algebra",
+      "schema-evolution-history", "schema-evolution-codecs",
     ]);
   }
 });

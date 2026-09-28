@@ -5,6 +5,12 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 const repository = resolve(import.meta.dirname, "../..");
+const schemaEvolutionCaseIds = [
+  "schema-evolution-compatibility",
+  "schema-evolution-algebra",
+  "schema-evolution-history",
+  "schema-evolution-codecs",
+];
 
 function recipeCommands(name) {
   const result = spawnSync("just", [
@@ -25,22 +31,30 @@ test("native gate selects both complete file suites and HTTP smokes", () => {
   ]);
 });
 
-test("acceptance delegates to the 300-schedule mixed-profile coordinator", () => {
+test("acceptance delegates to the existing 200-schedule coordinator", () => {
   assert.deepEqual(recipeCommands("shared-tree-interop"), [
-    "node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 300 --seed 42",
+    "node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 200 --seed 42",
   ]);
 });
 
-test("deep acceptance uses 7500 schedules for 2500 per profile", () => {
+test("committed corpus gates source and both native schema evolution coverage", () => {
+  const manifest = JSON.parse(readFileSync(
+    resolve(repository, "test/fixtures/shared_tree/manifest.json"),
+    "utf8",
+  ));
+  const sourceCases = new Set(manifest.cases.map(({ id }) => id));
+  for (const id of schemaEvolutionCaseIds) {
+    assert(sourceCases.has(id), `Source corpus lacks ${id}`);
+    for (const target of ["javascript", "erlang"]) {
+      assert(manifest.nativeSemanticRunners[target].includes(id),
+        `${target} native coverage lacks ${id}`);
+    }
+  }
+});
+
+test("deep acceptance uses the same coordinator with 5000 schedules", () => {
   assert.deepEqual(recipeCommands("shared-tree-interop-deep"), [
-    "node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 7500 --seed 42",
-  ]);
-});
-
-test("lint excludes ignored external source from the root formatter", () => {
-  assert.deepEqual(recipeCommands("lint"), [
-    "gleam format --check src test",
-    "trellis run format --check $(trellis list | awk '$1 != \"watershed\" { print $1 }')",
+    "node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 5000 --seed 42",
   ]);
 });
 
@@ -94,18 +108,4 @@ test("BEAM reconnect command restarts the native transport", () => {
     client,
     /protocol\.Reconnect -> \{\s+watershed\.force_reconnect\(document\)/,
   );
-});
-
-test("native array checkpoints skip object-profile field reads", () => {
-  for (const target of ["client_js.gleam", "client_beam.gleam"]) {
-    const client = readFileSync(
-      resolve(repository, "test/watershed/tree", target),
-      "utf8",
-    );
-    assert.match(
-      client,
-      /Some\(ObjectValue\("org\.watershed\.shared-tree\.m3\.Root", _\)\) -> Ok\(\[\]\)/,
-      `${target} does not handle array checkpoints separately`,
-    );
-  }
 });

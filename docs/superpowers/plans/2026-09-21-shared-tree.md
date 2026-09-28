@@ -2216,9 +2216,14 @@ revision.
 M4 has a separate
 [schema evolution design](../specs/2026-09-26-shared-tree-schema-evolution-design.md)
 and [detailed implementation plan](2026-09-26-shared-tree-schema-evolution.md).
-Its approved scope covers objects and dynamic maps, with M3 coordination rather
-than an array prerequisite. Review the written design and source contract before
-native implementation; M4 is not complete.
+M4 is complete for the approved strict-view object and dynamic-map subset.
+The implementation covers compatibility inspection, explicit monotonic
+upgrades, schema/data conflict behavior, reconnect, summaries, both native
+targets, upstream interchange, and permanent gates. Staged upgrades,
+unknown-field adapters, arrays and array schema evolution, migrations, public
+transactions, and additional upstream versions remain outside the claim.
+M3 coordination remains necessary for shared schema and codec surfaces; M3 is
+not complete.
 
 Use the specification's M2-M8 roadmap. Write each feature's own design and
 implementation plan when scheduled, using the working M1 oracle and real-service
