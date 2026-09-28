@@ -6,6 +6,7 @@
 import { strict as assert } from "node:assert";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import {
 	createIdCompressor,
@@ -1295,6 +1296,23 @@ function normalizedDecodedMessage(value: unknown) {
 	};
 }
 
+function normalizeGraphRevisions(value: unknown, idCompressor: IIdCompressor): unknown {
+	if (Array.isArray(value)) {
+		return value.map((child) => normalizeGraphRevisions(child, idCompressor));
+	}
+	if (value !== null && typeof value === "object") {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, child]) => [
+				key,
+				key === "revision" && Number.isSafeInteger(child)
+					? Number(idCompressor.normalizeToOpSpace(child as SessionSpaceCompressedId))
+					: normalizeGraphRevisions(child, idCompressor),
+			]),
+		);
+	}
+	return value;
+}
+
 export async function replayArrayCodecInput(input: Record<string, unknown>): Promise<unknown> {
 	assert(typeof input.operation === "string", "Codec replay needs an operation.");
 	if (
@@ -1337,12 +1355,72 @@ export async function replayArrayCodecInput(input: Record<string, unknown>): Pro
 		const advancedMessages = Array.isArray(input.advancedMessages)
 			? input.advancedMessages
 			: [];
-		const advanced = Array.isArray(input.advancedExpected) ? copy(input.advancedExpected) : [];
-		assert.equal(
-			advanced.length,
-			advancedMessages.length,
-			`${input.operation}: advanced expected graphs`,
-		);
+		let advanced: unknown[] = [];
+		if (advancedMessages.length > 0) {
+			assert(
+				input.advancedDecodeContext !== null &&
+					typeof input.advancedDecodeContext === "object",
+				`${input.operation}: advanced decode context`,
+			);
+			const advancedContext = input.advancedDecodeContext as {
+				compressor: string;
+				sessionId: string;
+			};
+			assert(
+				typeof advancedContext.compressor === "string",
+				`${input.operation}: advanced compressor`,
+			);
+			assert(
+				typeof advancedContext.sessionId === "string",
+				`${input.operation}: advanced session`,
+			);
+			const advancedCompressor = deserializeIdCompressor(
+				advancedContext.compressor as SerializedIdCompressorWithOngoingSession,
+			);
+			assert.equal(
+				advancedCompressor.localSessionId,
+				assertIsSessionId(advancedContext.sessionId),
+				`${input.operation}: advanced compressor session`,
+			);
+			const advancedRuntime = new MockFluidDataStoreRuntime({
+				idCompressor: advancedCompressor,
+			});
+			const advancedTree = treeFactory().create(
+				advancedRuntime,
+				`array-advanced-${input.operation}`,
+			);
+			const advancedKernel = Reflect.get(advancedTree, "kernel") as {
+				messageCodec: {
+					decode(value: unknown, context: { idCompressor: IIdCompressor }): unknown;
+				};
+			};
+			advanced = advancedMessages.map((message) => {
+				assert(
+					message !== null && typeof message === "object",
+					`${input.operation}: advanced message`,
+				);
+				const encoded = message as {
+					revision: number;
+					changeset: { data?: unknown }[];
+				};
+				assert(
+					Number.isSafeInteger(encoded.revision) && Array.isArray(encoded.changeset),
+					`${input.operation}: advanced message envelope`,
+				);
+				for (const change of encoded.changeset) {
+					if (change.data !== undefined) {
+						decodeModularV5(change.data, advancedCompressor, encoded.revision);
+					}
+				}
+				return normalizedDecodedMessage(
+					advancedKernel.messageCodec.decode(message, {
+						idCompressor: advancedCompressor,
+					}),
+				)
+					.changes.filter(({ type }) => type === "data")
+					.map(({ data }) => normalizeGraphRevisions(data, advancedCompressor));
+			});
+		}
 		return input.operation === "sequence-v3"
 			? {
 					encoded: copy(input.encodedMessages),
@@ -3742,6 +3820,34 @@ async function makeCases() {
 			detach: { moveOut: { id: -1, idOverride: rename.idOverride } },
 		},
 	};
+	const moveInRemoveWire = copy(reservedRenameWire);
+	const moveInRemoveMark = moveInRemoveWire.changes
+		.flatMap(({ change }) => change)
+		.find(({ effect }) => effect !== undefined && "attachAndDetach" in effect);
+	assert(
+		moveInRemoveMark?.effect !== undefined,
+		"Advanced wire must contain reserved attach-and-detach.",
+	);
+	(
+		moveInRemoveMark.effect.attachAndDetach as {
+			detach: Record<string, unknown>;
+		}
+	).detach = {
+		remove: { id: 2, idOverride: rename.idOverride },
+	};
+	const insertMoveOutWire = copy(reservedRenameWire);
+	const insertMoveOutMark = insertMoveOutWire.changes
+		.flatMap(({ change }) => change)
+		.find(({ effect }) => effect !== undefined && "attachAndDetach" in effect);
+	assert(
+		insertMoveOutMark?.effect !== undefined,
+		"Advanced wire must contain reserved attach-and-detach.",
+	);
+	(
+		insertMoveOutMark.effect.attachAndDetach as {
+			attach: Record<string, unknown>;
+		}
+	).attach = { insert: { id: -1 } };
 	const openAttachAndDetachWire = copy(attachAndDetachCodec.encoded) as {
 		changes: { change: { effect?: Record<string, unknown> }[] }[];
 	};
@@ -3751,25 +3857,9 @@ async function makeCases() {
 	assert(pairedMark?.effect !== undefined, "Advanced wire must contain attach-and-detach.");
 	const paired = pairedMark.effect.attachAndDetach as Record<string, unknown>;
 	paired.extra = true;
-	const reservedGraph = decodeModularV5(reservedRenameWire, ownershipCompressor, 513);
-	const openPairedGraph = decodeModularV5(openAttachAndDetachWire, ownershipCompressor, 513);
 	const advancedWireRevision = Number(
 		ownershipCompressor.normalizeToOpSpace(advancedRevision),
 	);
-	const normalizeAdvancedRevision = (value: unknown): unknown => {
-		if (Array.isArray(value)) return value.map(normalizeAdvancedRevision);
-		if (value !== null && typeof value === "object") {
-			return Object.fromEntries(
-				Object.entries(value).map(([key, child]) => [
-					key,
-					key === "revision" && child === Number(advancedRevision)
-						? advancedWireRevision
-						: normalizeAdvancedRevision(child),
-				]),
-			);
-		}
-		return value;
-	};
 	const advancedMessage = {
 		revision: advancedWireRevision,
 		originatorId: ownershipCompressor.localSessionId,
@@ -3779,6 +3869,14 @@ async function makeCases() {
 	const attachAndDetachMessage = {
 		...advancedMessage,
 		changeset: [{ data: openAttachAndDetachWire }],
+	};
+	const moveInRemoveMessage = {
+		...advancedMessage,
+		changeset: [{ data: moveInRemoveWire }],
+	};
+	const insertMoveOutMessage = {
+		...advancedMessage,
+		changeset: [{ data: insertMoveOutWire }],
 	};
 	const summaryInput = (operation: string, encodedSummary: unknown, compressor: string) => ({
 		operation,
@@ -3807,15 +3905,16 @@ async function makeCases() {
 	const codecInputs: Record<string, Record<string, unknown>> = {
 		"sequence-v3": {
 			...messageInput("sequence-v3", publicEvidence.operationMessages),
-			advancedMessages: [advancedMessage, attachAndDetachMessage],
+			advancedMessages: [
+				advancedMessage,
+				attachAndDetachMessage,
+				moveInRemoveMessage,
+				insertMoveOutMessage,
+			],
 			advancedDecodeContext: {
 				compressor: advancedCompressor,
 				sessionId: ownershipCompressor.localSessionId,
 			},
-			advancedExpected: [
-				[normalizeAdvancedRevision(reservedGraph)],
-				[normalizeAdvancedRevision(openPairedGraph)],
-			],
 		},
 		"message-v7": messageInput("message-v7", publicEvidence.operationMessages),
 		builds: messageInput("builds", publicEvidence.operationMessages),
@@ -3846,6 +3945,115 @@ async function makeCases() {
 		const output = await replayArrayCodecInput(copy(input));
 		codecScenarios.push({ id, input, observation: {}, output });
 	}
+	const validAdvancedOutput = codecScenarios.find(({ id }) => id === "sequence-v3")?.output;
+	assert(validAdvancedOutput !== undefined, "Missing valid advanced codec control.");
+	const invalidAdvancedPayload = copy(codecInputs["sequence-v3"]);
+	(
+		invalidAdvancedPayload.advancedMessages as {
+			changeset: { data: unknown }[];
+		}[]
+	)[0].changeset[0].data = { invalid: true };
+	invalidAdvancedPayload.advancedExpected = [
+		{ marker: "payload-bypass" },
+		{ marker: "payload-bypass" },
+	];
+	const invalidAdvancedContext = copy(codecInputs["sequence-v3"]);
+	invalidAdvancedContext.advancedDecodeContext = {
+		compressor: "invalid",
+		sessionId: "invalid",
+	};
+	invalidAdvancedContext.advancedExpected = [
+		{ marker: "context-bypass" },
+		{ marker: "context-bypass" },
+	];
+	const changedAdvancedOperand = copy(codecInputs["sequence-v3"]);
+	const changedAdvancedData = (
+		changedAdvancedOperand.advancedMessages as {
+			changeset: { data: { maxId: number } }[];
+		}[]
+	)[0].changeset[0].data;
+	changedAdvancedData.maxId += 1;
+	const poisonedAdvancedExpected = copy(codecInputs["sequence-v3"]);
+	poisonedAdvancedExpected.advancedExpected = [{ marker: "poison" }, { marker: "poison" }];
+	poisonedAdvancedExpected.expected = { marker: "ignored" };
+	poisonedAdvancedExpected.raw = { marker: "ignored" };
+	const missingRenameOverride = copy(codecInputs["sequence-v3"]);
+	const missingOverrideEffect = (
+		missingRenameOverride.advancedMessages as {
+			changeset: {
+				data: {
+					changes: { change: { effect?: Record<string, unknown> }[] }[];
+				};
+			}[];
+		}[]
+	)[2].changeset[0].data.changes
+		.flatMap(({ change }) => change)
+		.find(({ effect }) => effect !== undefined && "attachAndDetach" in effect)?.effect
+		?.attachAndDetach as {
+		detach: { remove: Record<string, unknown> };
+	};
+	delete missingOverrideEffect.detach.remove.idOverride;
+	const nestedAttachExtra = copy(codecInputs["sequence-v3"]);
+	const nestedExtraEffect = (
+		nestedAttachExtra.advancedMessages as {
+			changeset: {
+				data: {
+					changes: { change: { effect?: Record<string, unknown> }[] }[];
+				};
+			}[];
+		}[]
+	)[3].changeset[0].data.changes
+		.flatMap(({ change }) => change)
+		.find(({ effect }) => effect !== undefined && "attachAndDetach" in effect)?.effect
+		?.attachAndDetach as {
+		attach: { insert: Record<string, unknown> };
+	};
+	nestedExtraEffect.attach.insert.extra = true;
+	const [
+		invalidPayloadResult,
+		invalidContextResult,
+		changedOperandResult,
+		poisonedExpectedResult,
+		missingOverrideResult,
+		nestedExtraResult,
+	] = await Promise.all([
+		executedAsync(() => replayArrayCodecInput(invalidAdvancedPayload)),
+		executedAsync(() => replayArrayCodecInput(invalidAdvancedContext)),
+		executedAsync(() => replayArrayCodecInput(changedAdvancedOperand)),
+		executedAsync(() => replayArrayCodecInput(poisonedAdvancedExpected)),
+		executedAsync(() => replayArrayCodecInput(missingRenameOverride)),
+		executedAsync(() => replayArrayCodecInput(nestedAttachExtra)),
+	]);
+	assert.equal(
+		invalidPayloadResult.accepted,
+		false,
+		"Malformed advanced bytes must reach the source parent decoder.",
+	);
+	assert.equal(
+		invalidContextResult.accepted,
+		false,
+		"Malformed advanced compressor context must fail source replay.",
+	);
+	assert(
+		changedOperandResult.accepted === false ||
+			!isDeepStrictEqual(changedOperandResult.value, validAdvancedOutput),
+		"A valid advanced operand mutation must change source output or fail.",
+	);
+	assert(
+		poisonedExpectedResult.accepted === true &&
+			isDeepStrictEqual(poisonedExpectedResult.value, validAdvancedOutput),
+		"Caller expected and raw fields must not alter source replay.",
+	);
+	assert.equal(
+		missingOverrideResult.accepted,
+		false,
+		"Reserved Rename without an override must fail source parent decode.",
+	);
+	assert.equal(
+		nestedExtraResult.accepted,
+		false,
+		"Nested attach extras must fail source parent schema validation.",
+	);
 	const decodedBuild = (
 		Reflect.get(
 			codecScenarios.find(({ id }) => id === "builds")?.output as object,

@@ -1946,6 +1946,20 @@ export function validateArrayCase(value, requiredIds = arrayScenarioIds[value?.i
       check(JSON.stringify(scenario.encodedMessages) !== JSON.stringify(output.get(id)),
         `${id} decoded output must not be used as encoded input`);
     }
+    const advanced = input.get("sequence-v3");
+    check(!Object.hasOwn(advanced, "advancedExpected"),
+      "sequence-v3 advanced expected data must not be replay input");
+    check(nonemptyArray(advanced.advancedMessages)
+      && advanced.advancedMessages.every((message) =>
+        object(message) && message.version === 7),
+    "sequence-v3 advanced messages");
+    check(typeof advanced.advancedDecodeContext?.compressor === "string"
+      && advanced.advancedDecodeContext.compressor.length > 0
+      && typeof advanced.advancedDecodeContext?.sessionId === "string",
+    "sequence-v3 advanced compressor context");
+    check(Array.isArray(output.get("sequence-v3").advanced)
+      && output.get("sequence-v3").advanced.length === advanced.advancedMessages.length,
+    "sequence-v3 advanced source decode");
     for (const id of ["empty-arrays", "retained-history", "detached-index", "full-summary"]) {
       const scenario = input.get(id);
       check(summary(scenario.encodedSummary), `${id} encoded summary`);

@@ -771,279 +771,322 @@
               }
             ],
             "version": 7
+          },
+          {
+            "revision": 513,
+            "originatorId": "57b377e0-3799-4cec-8d5a-1b204655d87e",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 50,
+                  "revisions": [
+                    {
+                      "revision": 513
+                    }
+                  ],
+                  "changes": [
+                    {
+                      "fieldKey": "right",
+                      "fieldKind": "Sequence",
+                      "change": [
+                        {
+                          "count": 1,
+                          "effect": {
+                            "moveIn": {
+                              "revision": 513,
+                              "finalEndpoint": [
+                                41,
+                                513
+                              ],
+                              "id": 44
+                            }
+                          },
+                          "cellId": [
+                            46,
+                            513
+                          ]
+                        },
+                        {
+                          "count": 1,
+                          "effect": {
+                            "moveIn": {
+                              "revision": 513,
+                              "id": 45
+                            }
+                          },
+                          "cellId": [
+                            47,
+                            513
+                          ]
+                        },
+                        {
+                          "count": 1,
+                          "effect": {
+                            "moveIn": {
+                              "revision": 513,
+                              "id": 40
+                            }
+                          },
+                          "cellId": [
+                            42,
+                            513
+                          ]
+                        },
+                        {
+                          "count": 1,
+                          "effect": {
+                            "attachAndDetach": {
+                              "attach": {
+                                "moveIn": {
+                                  "id": -1
+                                }
+                              },
+                              "detach": {
+                                "remove": {
+                                  "id": 2,
+                                  "idOverride": [
+                                    44,
+                                    513
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "cellId": [
+                            43,
+                            513
+                          ]
+                        },
+                        {
+                          "count": 1,
+                          "effect": {
+                            "moveOut": {
+                              "revision": 513,
+                              "id": 45
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "fieldKey": "left",
+                      "fieldKind": "Sequence",
+                      "change": [
+                        {
+                          "count": 2,
+                          "effect": {
+                            "moveIn": {
+                              "revision": 513,
+                              "id": 48
+                            }
+                          },
+                          "cellId": [
+                            50,
+                            513
+                          ]
+                        },
+                        {
+                          "count": 1,
+                          "effect": {
+                            "moveOut": {
+                              "revision": 513,
+                              "id": 40
+                            }
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "effect": {
+                            "moveOut": {
+                              "revision": 513,
+                              "finalEndpoint": [
+                                44,
+                                513
+                              ],
+                              "id": 41
+                            }
+                          }
+                        },
+                        {
+                          "count": 1
+                        },
+                        {
+                          "count": 2,
+                          "effect": {
+                            "moveOut": {
+                              "revision": 513,
+                              "id": 48
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "version": 7
+          },
+          {
+            "revision": 513,
+            "originatorId": "57b377e0-3799-4cec-8d5a-1b204655d87e",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 50,
+                  "revisions": [
+                    {
+                      "revision": 513
+                    }
+                  ],
+                  "changes": [
+                    {
+                      "fieldKey": "right",
+                      "fieldKind": "Sequence",
+                      "change": [
+                        {
+                          "count": 1,
+                          "effect": {
+                            "moveIn": {
+                              "revision": 513,
+                              "finalEndpoint": [
+                                41,
+                                513
+                              ],
+                              "id": 44
+                            }
+                          },
+                          "cellId": [
+                            46,
+                            513
+                          ]
+                        },
+                        {
+                          "count": 1,
+                          "effect": {
+                            "moveIn": {
+                              "revision": 513,
+                              "id": 45
+                            }
+                          },
+                          "cellId": [
+                            47,
+                            513
+                          ]
+                        },
+                        {
+                          "count": 1,
+                          "effect": {
+                            "moveIn": {
+                              "revision": 513,
+                              "id": 40
+                            }
+                          },
+                          "cellId": [
+                            42,
+                            513
+                          ]
+                        },
+                        {
+                          "count": 1,
+                          "effect": {
+                            "attachAndDetach": {
+                              "attach": {
+                                "insert": {
+                                  "id": -1
+                                }
+                              },
+                              "detach": {
+                                "moveOut": {
+                                  "id": -1,
+                                  "idOverride": [
+                                    44,
+                                    513
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "cellId": [
+                            43,
+                            513
+                          ]
+                        },
+                        {
+                          "count": 1,
+                          "effect": {
+                            "moveOut": {
+                              "revision": 513,
+                              "id": 45
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "fieldKey": "left",
+                      "fieldKind": "Sequence",
+                      "change": [
+                        {
+                          "count": 2,
+                          "effect": {
+                            "moveIn": {
+                              "revision": 513,
+                              "id": 48
+                            }
+                          },
+                          "cellId": [
+                            50,
+                            513
+                          ]
+                        },
+                        {
+                          "count": 1,
+                          "effect": {
+                            "moveOut": {
+                              "revision": 513,
+                              "id": 40
+                            }
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "effect": {
+                            "moveOut": {
+                              "revision": 513,
+                              "finalEndpoint": [
+                                44,
+                                513
+                              ],
+                              "id": 41
+                            }
+                          }
+                        },
+                        {
+                          "count": 1
+                        },
+                        {
+                          "count": 2,
+                          "effect": {
+                            "moveOut": {
+                              "revision": 513,
+                              "id": 48
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "version": 7
           }
         ],
         "advancedDecodeContext": {
           "compressor": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAABAAAAAAAAAAEB+2FVGIBtaDTtn3oDfzV4BBksS6NfMVcf92w0m+FY+AgAAAAAAAPA/AAAAAAAIgEAAAAAAAAAUQAAAAAAAAAAAAAAAAAAIgEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8=",
           "sessionId": "57b377e0-3799-4cec-8d5a-1b204655d87e"
-        },
-        "advancedExpected": [
-          [
-            {
-              "maxLocalId": 50,
-              "revisions": [
-                {
-                  "revision": 513,
-                  "rollbackOf": null
-                }
-              ],
-              "fields": [
-                [
-                  "right",
-                  {
-                    "kind": "Sequence",
-                    "change": [
-                      {
-                        "count": 1,
-                        "type": "MoveIn",
-                        "id": 44,
-                        "revision": 513,
-                        "finalEndpoint": {
-                          "localId": 41,
-                          "revision": 513
-                        },
-                        "cellId": {
-                          "localId": 46,
-                          "revision": 513
-                        }
-                      },
-                      {
-                        "count": 1,
-                        "type": "MoveIn",
-                        "id": 45,
-                        "revision": 513,
-                        "cellId": {
-                          "localId": 47,
-                          "revision": 513
-                        }
-                      },
-                      {
-                        "count": 1,
-                        "type": "MoveIn",
-                        "id": 40,
-                        "revision": 513,
-                        "cellId": {
-                          "localId": 42,
-                          "revision": 513
-                        }
-                      },
-                      {
-                        "count": 1,
-                        "type": "Rename",
-                        "idOverride": {
-                          "localId": 44,
-                          "revision": 513
-                        },
-                        "cellId": {
-                          "localId": 43,
-                          "revision": 513
-                        }
-                      },
-                      {
-                        "count": 1,
-                        "type": "MoveOut",
-                        "id": 45,
-                        "revision": 513
-                      }
-                    ]
-                  }
-                ],
-                [
-                  "left",
-                  {
-                    "kind": "Sequence",
-                    "change": [
-                      {
-                        "count": 2,
-                        "type": "MoveIn",
-                        "id": 48,
-                        "revision": 513,
-                        "cellId": {
-                          "localId": 50,
-                          "revision": 513
-                        }
-                      },
-                      {
-                        "count": 1,
-                        "type": "MoveOut",
-                        "id": 40,
-                        "revision": 513
-                      },
-                      {
-                        "count": 1,
-                        "type": "MoveOut",
-                        "id": 41,
-                        "revision": 513,
-                        "finalEndpoint": {
-                          "localId": 44,
-                          "revision": 513
-                        }
-                      },
-                      {
-                        "count": 1
-                      },
-                      {
-                        "count": 2,
-                        "type": "MoveOut",
-                        "id": 48,
-                        "revision": 513
-                      }
-                    ]
-                  }
-                ]
-              ],
-              "nodes": [],
-              "parents": [],
-              "aliases": [],
-              "crossFieldKeys": [
-                {
-                  "target": "source",
-                  "revision": 513,
-                  "localId": 40,
-                  "count": 1,
-                  "field": {
-                    "node": null,
-                    "field": "left"
-                  }
-                },
-                {
-                  "target": "source",
-                  "revision": 513,
-                  "localId": 41,
-                  "count": 1,
-                  "field": {
-                    "node": null,
-                    "field": "left"
-                  }
-                },
-                {
-                  "target": "source",
-                  "revision": 513,
-                  "localId": 45,
-                  "count": 1,
-                  "field": {
-                    "node": null,
-                    "field": "right"
-                  }
-                },
-                {
-                  "target": "source",
-                  "revision": 513,
-                  "localId": 48,
-                  "count": 2,
-                  "field": {
-                    "node": null,
-                    "field": "left"
-                  }
-                },
-                {
-                  "target": "destination",
-                  "revision": 513,
-                  "localId": 40,
-                  "count": 1,
-                  "field": {
-                    "node": null,
-                    "field": "right"
-                  }
-                },
-                {
-                  "target": "destination",
-                  "revision": 513,
-                  "localId": 44,
-                  "count": 1,
-                  "field": {
-                    "node": null,
-                    "field": "right"
-                  }
-                },
-                {
-                  "target": "destination",
-                  "revision": 513,
-                  "localId": 45,
-                  "count": 1,
-                  "field": {
-                    "node": null,
-                    "field": "right"
-                  }
-                },
-                {
-                  "target": "destination",
-                  "revision": 513,
-                  "localId": 48,
-                  "count": 2,
-                  "field": {
-                    "node": null,
-                    "field": "left"
-                  }
-                }
-              ],
-              "builds": [],
-              "refreshers": [],
-              "destroys": []
-            }
-          ],
-          [
-            {
-              "maxLocalId": 60,
-              "revisions": [
-                {
-                  "revision": 513,
-                  "rollbackOf": null
-                }
-              ],
-              "fields": [
-                [
-                  "left",
-                  {
-                    "kind": "Sequence",
-                    "change": [
-                      {
-                        "count": 1,
-                        "type": "AttachAndDetach",
-                        "attach": {
-                          "type": "MoveIn",
-                          "id": 56,
-                          "revision": 513
-                        },
-                        "detach": {
-                          "type": "Remove",
-                          "id": 57,
-                          "revision": 513,
-                          "idOverride": {
-                            "localId": 58,
-                            "revision": 513
-                          }
-                        },
-                        "cellId": {
-                          "localId": 55,
-                          "revision": 513
-                        }
-                      }
-                    ]
-                  }
-                ]
-              ],
-              "nodes": [],
-              "parents": [],
-              "aliases": [],
-              "crossFieldKeys": [
-                {
-                  "target": "destination",
-                  "revision": 513,
-                  "localId": 56,
-                  "count": 1,
-                  "field": {
-                    "node": null,
-                    "field": "left"
-                  }
-                }
-              ],
-              "builds": [],
-              "refreshers": [],
-              "destroys": []
-            }
-          ]
-        ]
+        }
       },
       {
         "id": "message-v7",
@@ -3867,6 +3910,414 @@
                     "revision": 513,
                     "localId": 56,
                     "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  }
+                ],
+                "builds": [],
+                "refreshers": [],
+                "destroys": []
+              }
+            ],
+            [
+              {
+                "maxLocalId": 50,
+                "revisions": [
+                  {
+                    "revision": 513,
+                    "rollbackOf": null
+                  }
+                ],
+                "fields": [
+                  [
+                    "right",
+                    {
+                      "kind": "Sequence",
+                      "change": [
+                        {
+                          "count": 1,
+                          "type": "MoveIn",
+                          "id": 44,
+                          "revision": 513,
+                          "finalEndpoint": {
+                            "localId": 41,
+                            "revision": 513
+                          },
+                          "cellId": {
+                            "localId": 46,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveIn",
+                          "id": 45,
+                          "revision": 513,
+                          "cellId": {
+                            "localId": 47,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveIn",
+                          "id": 40,
+                          "revision": 513,
+                          "cellId": {
+                            "localId": 42,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "Rename",
+                          "idOverride": {
+                            "localId": 44,
+                            "revision": 513
+                          },
+                          "cellId": {
+                            "localId": 43,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveOut",
+                          "id": 45,
+                          "revision": 513
+                        }
+                      ]
+                    }
+                  ],
+                  [
+                    "left",
+                    {
+                      "kind": "Sequence",
+                      "change": [
+                        {
+                          "count": 2,
+                          "type": "MoveIn",
+                          "id": 48,
+                          "revision": 513,
+                          "cellId": {
+                            "localId": 50,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveOut",
+                          "id": 40,
+                          "revision": 513
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveOut",
+                          "id": 41,
+                          "revision": 513,
+                          "finalEndpoint": {
+                            "localId": 44,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1
+                        },
+                        {
+                          "count": 2,
+                          "type": "MoveOut",
+                          "id": 48,
+                          "revision": 513
+                        }
+                      ]
+                    }
+                  ]
+                ],
+                "nodes": [],
+                "parents": [],
+                "aliases": [],
+                "crossFieldKeys": [
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 40,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 41,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 45,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 48,
+                    "count": 2,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 40,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 44,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 45,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 48,
+                    "count": 2,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  }
+                ],
+                "builds": [],
+                "refreshers": [],
+                "destroys": []
+              }
+            ],
+            [
+              {
+                "maxLocalId": 50,
+                "revisions": [
+                  {
+                    "revision": 513,
+                    "rollbackOf": null
+                  }
+                ],
+                "fields": [
+                  [
+                    "right",
+                    {
+                      "kind": "Sequence",
+                      "change": [
+                        {
+                          "count": 1,
+                          "type": "MoveIn",
+                          "id": 44,
+                          "revision": 513,
+                          "finalEndpoint": {
+                            "localId": 41,
+                            "revision": 513
+                          },
+                          "cellId": {
+                            "localId": 46,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveIn",
+                          "id": 45,
+                          "revision": 513,
+                          "cellId": {
+                            "localId": 47,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveIn",
+                          "id": 40,
+                          "revision": 513,
+                          "cellId": {
+                            "localId": 42,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "Rename",
+                          "idOverride": {
+                            "localId": 44,
+                            "revision": 513
+                          },
+                          "cellId": {
+                            "localId": 43,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveOut",
+                          "id": 45,
+                          "revision": 513
+                        }
+                      ]
+                    }
+                  ],
+                  [
+                    "left",
+                    {
+                      "kind": "Sequence",
+                      "change": [
+                        {
+                          "count": 2,
+                          "type": "MoveIn",
+                          "id": 48,
+                          "revision": 513,
+                          "cellId": {
+                            "localId": 50,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveOut",
+                          "id": 40,
+                          "revision": 513
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveOut",
+                          "id": 41,
+                          "revision": 513,
+                          "finalEndpoint": {
+                            "localId": 44,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1
+                        },
+                        {
+                          "count": 2,
+                          "type": "MoveOut",
+                          "id": 48,
+                          "revision": 513
+                        }
+                      ]
+                    }
+                  ]
+                ],
+                "nodes": [],
+                "parents": [],
+                "aliases": [],
+                "crossFieldKeys": [
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 40,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 41,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 45,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 48,
+                    "count": 2,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 40,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 44,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 45,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 48,
+                    "count": 2,
                     "field": {
                       "node": null,
                       "field": "left"
@@ -8334,279 +8785,322 @@
                 }
               ],
               "version": 7
+            },
+            {
+              "revision": 513,
+              "originatorId": "57b377e0-3799-4cec-8d5a-1b204655d87e",
+              "changeset": [
+                {
+                  "data": {
+                    "maxId": 50,
+                    "revisions": [
+                      {
+                        "revision": 513
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "right",
+                        "fieldKind": "Sequence",
+                        "change": [
+                          {
+                            "count": 1,
+                            "effect": {
+                              "moveIn": {
+                                "revision": 513,
+                                "finalEndpoint": [
+                                  41,
+                                  513
+                                ],
+                                "id": 44
+                              }
+                            },
+                            "cellId": [
+                              46,
+                              513
+                            ]
+                          },
+                          {
+                            "count": 1,
+                            "effect": {
+                              "moveIn": {
+                                "revision": 513,
+                                "id": 45
+                              }
+                            },
+                            "cellId": [
+                              47,
+                              513
+                            ]
+                          },
+                          {
+                            "count": 1,
+                            "effect": {
+                              "moveIn": {
+                                "revision": 513,
+                                "id": 40
+                              }
+                            },
+                            "cellId": [
+                              42,
+                              513
+                            ]
+                          },
+                          {
+                            "count": 1,
+                            "effect": {
+                              "attachAndDetach": {
+                                "attach": {
+                                  "moveIn": {
+                                    "id": -1
+                                  }
+                                },
+                                "detach": {
+                                  "remove": {
+                                    "id": 2,
+                                    "idOverride": [
+                                      44,
+                                      513
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            "cellId": [
+                              43,
+                              513
+                            ]
+                          },
+                          {
+                            "count": 1,
+                            "effect": {
+                              "moveOut": {
+                                "revision": 513,
+                                "id": 45
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "fieldKey": "left",
+                        "fieldKind": "Sequence",
+                        "change": [
+                          {
+                            "count": 2,
+                            "effect": {
+                              "moveIn": {
+                                "revision": 513,
+                                "id": 48
+                              }
+                            },
+                            "cellId": [
+                              50,
+                              513
+                            ]
+                          },
+                          {
+                            "count": 1,
+                            "effect": {
+                              "moveOut": {
+                                "revision": 513,
+                                "id": 40
+                              }
+                            }
+                          },
+                          {
+                            "count": 1,
+                            "effect": {
+                              "moveOut": {
+                                "revision": 513,
+                                "finalEndpoint": [
+                                  44,
+                                  513
+                                ],
+                                "id": 41
+                              }
+                            }
+                          },
+                          {
+                            "count": 1
+                          },
+                          {
+                            "count": 2,
+                            "effect": {
+                              "moveOut": {
+                                "revision": 513,
+                                "id": 48
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "version": 7
+            },
+            {
+              "revision": 513,
+              "originatorId": "57b377e0-3799-4cec-8d5a-1b204655d87e",
+              "changeset": [
+                {
+                  "data": {
+                    "maxId": 50,
+                    "revisions": [
+                      {
+                        "revision": 513
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "right",
+                        "fieldKind": "Sequence",
+                        "change": [
+                          {
+                            "count": 1,
+                            "effect": {
+                              "moveIn": {
+                                "revision": 513,
+                                "finalEndpoint": [
+                                  41,
+                                  513
+                                ],
+                                "id": 44
+                              }
+                            },
+                            "cellId": [
+                              46,
+                              513
+                            ]
+                          },
+                          {
+                            "count": 1,
+                            "effect": {
+                              "moveIn": {
+                                "revision": 513,
+                                "id": 45
+                              }
+                            },
+                            "cellId": [
+                              47,
+                              513
+                            ]
+                          },
+                          {
+                            "count": 1,
+                            "effect": {
+                              "moveIn": {
+                                "revision": 513,
+                                "id": 40
+                              }
+                            },
+                            "cellId": [
+                              42,
+                              513
+                            ]
+                          },
+                          {
+                            "count": 1,
+                            "effect": {
+                              "attachAndDetach": {
+                                "attach": {
+                                  "insert": {
+                                    "id": -1
+                                  }
+                                },
+                                "detach": {
+                                  "moveOut": {
+                                    "id": -1,
+                                    "idOverride": [
+                                      44,
+                                      513
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            "cellId": [
+                              43,
+                              513
+                            ]
+                          },
+                          {
+                            "count": 1,
+                            "effect": {
+                              "moveOut": {
+                                "revision": 513,
+                                "id": 45
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "fieldKey": "left",
+                        "fieldKind": "Sequence",
+                        "change": [
+                          {
+                            "count": 2,
+                            "effect": {
+                              "moveIn": {
+                                "revision": 513,
+                                "id": 48
+                              }
+                            },
+                            "cellId": [
+                              50,
+                              513
+                            ]
+                          },
+                          {
+                            "count": 1,
+                            "effect": {
+                              "moveOut": {
+                                "revision": 513,
+                                "id": 40
+                              }
+                            }
+                          },
+                          {
+                            "count": 1,
+                            "effect": {
+                              "moveOut": {
+                                "revision": 513,
+                                "finalEndpoint": [
+                                  44,
+                                  513
+                                ],
+                                "id": 41
+                              }
+                            }
+                          },
+                          {
+                            "count": 1
+                          },
+                          {
+                            "count": 2,
+                            "effect": {
+                              "moveOut": {
+                                "revision": 513,
+                                "id": 48
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ],
+              "version": 7
             }
           ],
           "advancedDecodeContext": {
             "compressor": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAABAAAAAAAAAAEB+2FVGIBtaDTtn3oDfzV4BBksS6NfMVcf92w0m+FY+AgAAAAAAAPA/AAAAAAAIgEAAAAAAAAAUQAAAAAAAAAAAAAAAAAAIgEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8=",
             "sessionId": "57b377e0-3799-4cec-8d5a-1b204655d87e"
-          },
-          "advancedExpected": [
-            [
-              {
-                "maxLocalId": 50,
-                "revisions": [
-                  {
-                    "revision": 513,
-                    "rollbackOf": null
-                  }
-                ],
-                "fields": [
-                  [
-                    "right",
-                    {
-                      "kind": "Sequence",
-                      "change": [
-                        {
-                          "count": 1,
-                          "type": "MoveIn",
-                          "id": 44,
-                          "revision": 513,
-                          "finalEndpoint": {
-                            "localId": 41,
-                            "revision": 513
-                          },
-                          "cellId": {
-                            "localId": 46,
-                            "revision": 513
-                          }
-                        },
-                        {
-                          "count": 1,
-                          "type": "MoveIn",
-                          "id": 45,
-                          "revision": 513,
-                          "cellId": {
-                            "localId": 47,
-                            "revision": 513
-                          }
-                        },
-                        {
-                          "count": 1,
-                          "type": "MoveIn",
-                          "id": 40,
-                          "revision": 513,
-                          "cellId": {
-                            "localId": 42,
-                            "revision": 513
-                          }
-                        },
-                        {
-                          "count": 1,
-                          "type": "Rename",
-                          "idOverride": {
-                            "localId": 44,
-                            "revision": 513
-                          },
-                          "cellId": {
-                            "localId": 43,
-                            "revision": 513
-                          }
-                        },
-                        {
-                          "count": 1,
-                          "type": "MoveOut",
-                          "id": 45,
-                          "revision": 513
-                        }
-                      ]
-                    }
-                  ],
-                  [
-                    "left",
-                    {
-                      "kind": "Sequence",
-                      "change": [
-                        {
-                          "count": 2,
-                          "type": "MoveIn",
-                          "id": 48,
-                          "revision": 513,
-                          "cellId": {
-                            "localId": 50,
-                            "revision": 513
-                          }
-                        },
-                        {
-                          "count": 1,
-                          "type": "MoveOut",
-                          "id": 40,
-                          "revision": 513
-                        },
-                        {
-                          "count": 1,
-                          "type": "MoveOut",
-                          "id": 41,
-                          "revision": 513,
-                          "finalEndpoint": {
-                            "localId": 44,
-                            "revision": 513
-                          }
-                        },
-                        {
-                          "count": 1
-                        },
-                        {
-                          "count": 2,
-                          "type": "MoveOut",
-                          "id": 48,
-                          "revision": 513
-                        }
-                      ]
-                    }
-                  ]
-                ],
-                "nodes": [],
-                "parents": [],
-                "aliases": [],
-                "crossFieldKeys": [
-                  {
-                    "target": "source",
-                    "revision": 513,
-                    "localId": 40,
-                    "count": 1,
-                    "field": {
-                      "node": null,
-                      "field": "left"
-                    }
-                  },
-                  {
-                    "target": "source",
-                    "revision": 513,
-                    "localId": 41,
-                    "count": 1,
-                    "field": {
-                      "node": null,
-                      "field": "left"
-                    }
-                  },
-                  {
-                    "target": "source",
-                    "revision": 513,
-                    "localId": 45,
-                    "count": 1,
-                    "field": {
-                      "node": null,
-                      "field": "right"
-                    }
-                  },
-                  {
-                    "target": "source",
-                    "revision": 513,
-                    "localId": 48,
-                    "count": 2,
-                    "field": {
-                      "node": null,
-                      "field": "left"
-                    }
-                  },
-                  {
-                    "target": "destination",
-                    "revision": 513,
-                    "localId": 40,
-                    "count": 1,
-                    "field": {
-                      "node": null,
-                      "field": "right"
-                    }
-                  },
-                  {
-                    "target": "destination",
-                    "revision": 513,
-                    "localId": 44,
-                    "count": 1,
-                    "field": {
-                      "node": null,
-                      "field": "right"
-                    }
-                  },
-                  {
-                    "target": "destination",
-                    "revision": 513,
-                    "localId": 45,
-                    "count": 1,
-                    "field": {
-                      "node": null,
-                      "field": "right"
-                    }
-                  },
-                  {
-                    "target": "destination",
-                    "revision": 513,
-                    "localId": 48,
-                    "count": 2,
-                    "field": {
-                      "node": null,
-                      "field": "left"
-                    }
-                  }
-                ],
-                "builds": [],
-                "refreshers": [],
-                "destroys": []
-              }
-            ],
-            [
-              {
-                "maxLocalId": 60,
-                "revisions": [
-                  {
-                    "revision": 513,
-                    "rollbackOf": null
-                  }
-                ],
-                "fields": [
-                  [
-                    "left",
-                    {
-                      "kind": "Sequence",
-                      "change": [
-                        {
-                          "count": 1,
-                          "type": "AttachAndDetach",
-                          "attach": {
-                            "type": "MoveIn",
-                            "id": 56,
-                            "revision": 513
-                          },
-                          "detach": {
-                            "type": "Remove",
-                            "id": 57,
-                            "revision": 513,
-                            "idOverride": {
-                              "localId": 58,
-                              "revision": 513
-                            }
-                          },
-                          "cellId": {
-                            "localId": 55,
-                            "revision": 513
-                          }
-                        }
-                      ]
-                    }
-                  ]
-                ],
-                "nodes": [],
-                "parents": [],
-                "aliases": [],
-                "crossFieldKeys": [
-                  {
-                    "target": "destination",
-                    "revision": 513,
-                    "localId": 56,
-                    "count": 1,
-                    "field": {
-                      "node": null,
-                      "field": "left"
-                    }
-                  }
-                ],
-                "builds": [],
-                "refreshers": [],
-                "destroys": []
-              }
-            ]
-          ]
+          }
         },
         "output": {
           "encoded": [
@@ -9978,6 +10472,414 @@
                     "revision": 513,
                     "localId": 56,
                     "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  }
+                ],
+                "builds": [],
+                "refreshers": [],
+                "destroys": []
+              }
+            ],
+            [
+              {
+                "maxLocalId": 50,
+                "revisions": [
+                  {
+                    "revision": 513,
+                    "rollbackOf": null
+                  }
+                ],
+                "fields": [
+                  [
+                    "right",
+                    {
+                      "kind": "Sequence",
+                      "change": [
+                        {
+                          "count": 1,
+                          "type": "MoveIn",
+                          "id": 44,
+                          "revision": 513,
+                          "finalEndpoint": {
+                            "localId": 41,
+                            "revision": 513
+                          },
+                          "cellId": {
+                            "localId": 46,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveIn",
+                          "id": 45,
+                          "revision": 513,
+                          "cellId": {
+                            "localId": 47,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveIn",
+                          "id": 40,
+                          "revision": 513,
+                          "cellId": {
+                            "localId": 42,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "Rename",
+                          "idOverride": {
+                            "localId": 44,
+                            "revision": 513
+                          },
+                          "cellId": {
+                            "localId": 43,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveOut",
+                          "id": 45,
+                          "revision": 513
+                        }
+                      ]
+                    }
+                  ],
+                  [
+                    "left",
+                    {
+                      "kind": "Sequence",
+                      "change": [
+                        {
+                          "count": 2,
+                          "type": "MoveIn",
+                          "id": 48,
+                          "revision": 513,
+                          "cellId": {
+                            "localId": 50,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveOut",
+                          "id": 40,
+                          "revision": 513
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveOut",
+                          "id": 41,
+                          "revision": 513,
+                          "finalEndpoint": {
+                            "localId": 44,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1
+                        },
+                        {
+                          "count": 2,
+                          "type": "MoveOut",
+                          "id": 48,
+                          "revision": 513
+                        }
+                      ]
+                    }
+                  ]
+                ],
+                "nodes": [],
+                "parents": [],
+                "aliases": [],
+                "crossFieldKeys": [
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 40,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 41,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 45,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 48,
+                    "count": 2,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 40,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 44,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 45,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 48,
+                    "count": 2,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  }
+                ],
+                "builds": [],
+                "refreshers": [],
+                "destroys": []
+              }
+            ],
+            [
+              {
+                "maxLocalId": 50,
+                "revisions": [
+                  {
+                    "revision": 513,
+                    "rollbackOf": null
+                  }
+                ],
+                "fields": [
+                  [
+                    "right",
+                    {
+                      "kind": "Sequence",
+                      "change": [
+                        {
+                          "count": 1,
+                          "type": "MoveIn",
+                          "id": 44,
+                          "revision": 513,
+                          "finalEndpoint": {
+                            "localId": 41,
+                            "revision": 513
+                          },
+                          "cellId": {
+                            "localId": 46,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveIn",
+                          "id": 45,
+                          "revision": 513,
+                          "cellId": {
+                            "localId": 47,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveIn",
+                          "id": 40,
+                          "revision": 513,
+                          "cellId": {
+                            "localId": 42,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "Rename",
+                          "idOverride": {
+                            "localId": 44,
+                            "revision": 513
+                          },
+                          "cellId": {
+                            "localId": 43,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveOut",
+                          "id": 45,
+                          "revision": 513
+                        }
+                      ]
+                    }
+                  ],
+                  [
+                    "left",
+                    {
+                      "kind": "Sequence",
+                      "change": [
+                        {
+                          "count": 2,
+                          "type": "MoveIn",
+                          "id": 48,
+                          "revision": 513,
+                          "cellId": {
+                            "localId": 50,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveOut",
+                          "id": 40,
+                          "revision": 513
+                        },
+                        {
+                          "count": 1,
+                          "type": "MoveOut",
+                          "id": 41,
+                          "revision": 513,
+                          "finalEndpoint": {
+                            "localId": 44,
+                            "revision": 513
+                          }
+                        },
+                        {
+                          "count": 1
+                        },
+                        {
+                          "count": 2,
+                          "type": "MoveOut",
+                          "id": 48,
+                          "revision": 513
+                        }
+                      ]
+                    }
+                  ]
+                ],
+                "nodes": [],
+                "parents": [],
+                "aliases": [],
+                "crossFieldKeys": [
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 40,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 41,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 45,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "source",
+                    "revision": 513,
+                    "localId": 48,
+                    "count": 2,
+                    "field": {
+                      "node": null,
+                      "field": "left"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 40,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 44,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 45,
+                    "count": 1,
+                    "field": {
+                      "node": null,
+                      "field": "right"
+                    }
+                  },
+                  {
+                    "target": "destination",
+                    "revision": 513,
+                    "localId": 48,
+                    "count": 2,
                     "field": {
                       "node": null,
                       "field": "left"

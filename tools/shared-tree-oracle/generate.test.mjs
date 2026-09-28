@@ -1057,6 +1057,14 @@ test("array codec validation rejects decoded outputs and incomplete decode conte
       delete copy.input.scenarios[6].encodedSummary;
       delete copy.raw.scenarios[6].input.encodedSummary;
     }, /full-summary.*encoded summary/i],
+    [(copy) => {
+      copy.input.scenarios[0].advancedExpected = [{ marker: "poison" }];
+      copy.raw.scenarios[0].input.advancedExpected = [{ marker: "poison" }];
+    }, /sequence-v3.*advanced expected/i],
+    [(copy) => {
+      delete copy.input.scenarios[0].advancedDecodeContext.compressor;
+      delete copy.raw.scenarios[0].input.advancedDecodeContext.compressor;
+    }, /sequence-v3.*advanced compressor/i],
   ]) {
     const broken = structuredClone(value);
     mutate(broken);
