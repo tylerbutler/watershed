@@ -39,6 +39,11 @@ const requiredItemIds = [
   "summary-map-restored",
   "message-array-sequence",
   "message-array-native-authored",
+  "message-array-advanced-rename",
+  "message-array-advanced-aad",
+  "message-array-advanced-move-in-remove",
+  "message-array-advanced-insert-move-out",
+  "message-array-advanced-nested",
   "summary-array-retained-history",
   "summary-array-full-summary",
   "summary-array-peer-history",
@@ -370,6 +375,11 @@ export function validateNativeArtifact(artifact) {
         requireValue(Array.isArray(item.expectedGraphs)
           && item.expectedGraphs.length === item.encoded.length,
         `${item.id} expected graphs`);
+        if (item.id.startsWith("message-array-advanced-")) {
+          requireValue(Array.isArray(item.nativeGraphs)
+            && item.nativeGraphs.length === item.encoded.length,
+          `${item.id} native graphs`);
+        }
       } else {
         for (const field of [
           "sequenceNumber", "referenceSequenceNumber", "minimumSequenceNumber",
@@ -447,8 +457,7 @@ export function validateConsumerOutput(
       requireValue(observation.continued === true,
         "summary-map-restored continuation");
     }
-    if (observation.id === "message-array-sequence"
-      || observation.id === "message-array-native-authored") {
+    if (observation.id.startsWith("message-array-")) {
       requireValue(observation.decoded === true, `${observation.id} decoded`);
       requireValue(Array.isArray(observation.graphs)
         && observation.graphs.length === item.encoded.length,
@@ -468,6 +477,11 @@ export function validateConsumerOutput(
         && typeof observation.continuation.compressor === "string"
         && typeof observation.continuation.session === "string",
       `${observation.id} continuation wire evidence`);
+      if (observation.id.startsWith("message-array-advanced-")) {
+        requireValue(Array.isArray(observation.features)
+          && observation.features.length > 0,
+        `${observation.id} advanced features`);
+      }
     }
     if (observation.id === "summary-array-retained-history"
       || observation.id === "summary-array-full-summary"

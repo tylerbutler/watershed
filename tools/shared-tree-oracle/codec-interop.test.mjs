@@ -121,6 +121,11 @@ test("array message artifacts require sequence and graph evidence", async () => 
       new RegExp(field === "expectedGraphs" ? "expected graphs" : field),
     );
   }
+  value.items[0].id = "message-array-advanced-nested";
+  value.items[0].nativeGraphs = [[]];
+  assert.doesNotThrow(() => validateNativeArtifact(value));
+  delete value.items[0].nativeGraphs;
+  assert.throws(() => validateNativeArtifact(value), /native graphs/);
 });
 
 test("codec interop produces and consumes fresh artifacts for both targets", async (t) => {

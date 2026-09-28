@@ -68,6 +68,8 @@ type ArtifactItem = {
 		minimumSequenceNumber: number;
 	}[];
 	expectedGraphs?: unknown[];
+	nativeGraphs?: unknown[];
+	features?: string[];
 };
 
 type NativeArtifact = {
@@ -447,6 +449,43 @@ async function consume(item: ArtifactItem) {
 					decodeMessage(message, { idCompressor }));
 				const graphs = decoded.map((message) => decodedGraphs(message, item.id));
 				assert.deepEqual(graphs, item.expectedGraphs, `${item.id}: decoded modular graphs`);
+				if (item.id.startsWith("message-array-advanced-")) {
+					assert.deepEqual(
+						graphs,
+						item.nativeGraphs,
+						`${item.id}: native post-codec graphs`,
+					);
+					const expectedFeatures = {
+						"message-array-advanced-rename": [
+							"finalEndpoint", "idOverride", "rename",
+						],
+						"message-array-advanced-aad": ["idOverride", "attachAndDetach"],
+						"message-array-advanced-move-in-remove": [
+							"idOverride", "rename", "moveInRemove",
+						],
+						"message-array-advanced-insert-move-out": [
+							"idOverride", "rename", "insertMoveOut",
+						],
+						"message-array-advanced-nested": ["nestedChanges"],
+					}[item.id];
+					assert.deepEqual(item.features, expectedFeatures, `${item.id}: feature list`);
+					const graphText = JSON.stringify(graphs);
+					for (const feature of item.features ?? []) {
+						const encodedFeature = {
+							finalEndpoint: "finalEndpoint",
+							idOverride: "idOverride",
+							rename: "\"type\":\"Rename\"",
+							attachAndDetach: "\"type\":\"AttachAndDetach\"",
+							moveInRemove: "\"type\":\"Rename\"",
+							insertMoveOut: "\"type\":\"Rename\"",
+							nestedChanges: "\"nodes\":[[",
+						}[feature];
+						assert(
+							encodedFeature !== undefined && graphText.includes(encodedFeature),
+							`${item.id}: decoded ${feature}`,
+						);
+					}
+				}
 				const view = tree.viewWith(arrayConfiguration);
 				const beforeApply = visibleArray(view.root);
 				for (const [index, message] of item.encoded.entries()) {
@@ -485,6 +524,7 @@ async function consume(item: ArtifactItem) {
 					kind: item.kind,
 					decoded: true,
 					graphs,
+					...(item.features === undefined ? {} : { features: item.features }),
 					beforeApply,
 					afterApply,
 					continued,
