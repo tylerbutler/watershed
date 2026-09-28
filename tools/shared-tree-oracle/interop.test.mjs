@@ -912,6 +912,25 @@ test("a complete current-run report satisfies the Task 15 coverage gate", async 
   assert.equal(validateInteropReport(report, expected), report);
 });
 
+test("deterministic service order ignores submissions before each authored prefix", async () => {
+  const { expected, report } = await validFixture();
+  const item = report.deterministic.find(
+    ({ id }) => id === "array-same-gap-insert:upstream->javascript:javascript-first",
+  );
+  item.evidence.submissions.unshift({
+    author: "upstream",
+    outerSequenceNumber: 7,
+    innerIndex: 0,
+    referenceSequenceNumber: 6,
+    revision: 99,
+    originatorId: "bootstrap-upstream",
+    allocations: [],
+  });
+  const claim = expected.artifacts.get(item.artifacts[0]).claim;
+  claim.measured.evidence = structuredClone(item.evidence);
+  assert.equal(validateInteropReport(report, expected), report);
+});
+
 test("the acceptance report requires all nine map reload cells", async () => {
   const { expected, report } = await validFixture();
   delete report.mapReload.upstream.javascript;

@@ -18,6 +18,7 @@ import {
   replayFailure,
   sameReplayFailure,
   settle,
+  storageTransform,
   upstreamAdapter,
   runDeterministicCases,
   runFailureCases,
@@ -449,7 +450,6 @@ test("array adapters use public range methods and preserve element order", async
   await native.close();
 });
 
-test("native reconnect retries one transient transport timeout", async () => {
 test("upstream array adapter resolves recursive map paths with array values", async () => {
   const root = initialArrayRoot();
   const session = {
@@ -564,6 +564,7 @@ test("upstream checkpoint identifies schema-compatible array roots by profile", 
     "org.watershed.shared-tree.m3.Root");
 });
 
+test("native reconnect retries one transient transport timeout", async () => {
   let reconnects = 0;
   let syncs = 0;
   const gate = {
@@ -1142,6 +1143,45 @@ test("the deterministic catalogue expands every required mixed-client cell", () 
   });
 });
 
+test("competing array moves use valid pre-edit destination gaps", async () => {
+  const source = await readFile(new URL("./interop-scenarios.mjs", import.meta.url), "utf8");
+  const family = source.match(
+    /case "array-competing-moves":(?<body>[\s\S]*?)break;/,
+  );
+  assert(family?.groups?.body);
+  assert.doesNotMatch(family.groups.body, /destinationGap: 2|,\s*2\);/);
+});
+
+test("ordered deterministic array cells wait for each released submission", async () => {
+  const source = await readFile(new URL("./interop-scenarios.mjs", import.meta.url), "utf8");
+  const runner = source.match(/async function runArrayCell[\s\S]*?\n}\n\nexport async function/);
+  assert(runner);
+  assert.match(
+    runner[0],
+    /releaseOutbound\(\);\s+await waitForAuthorSubmission\(/,
+  );
+});
+
+test("retained-summary injection targets only the detached-field index", () => {
+  const transform = storageTransform("corrupt-retained-summary");
+  const response = (content) => ({
+    status: 200,
+    bytes: Buffer.from(JSON.stringify({
+      content: Buffer.from(JSON.stringify(content)).toString("base64"),
+      encoding: "base64",
+    })),
+  });
+  assert.equal(transform(response({ version: 2, nodes: {}, root: {} })), undefined);
+  const mutated = transform(response({ version: 2, data: [], maxId: 0 }));
+  assert(mutated);
+  const body = JSON.parse(mutated.bytes.toString("utf8"));
+  const content = JSON.parse(Buffer.from(body.content, "base64").toString("utf8"));
+  assert.deepEqual(content.corruptSequenceRetainedState, {
+    field: "DetachedFieldIndex",
+    range: [2, 1],
+  });
+});
+
 test("the failure catalogue covers every native refusal target", () => {
   const cells = requiredFailureCells();
   assert.equal(cells.length, 34);
@@ -1487,6 +1527,13 @@ test("seed 42 expands a literal three-author schedule", () => {
   });
 });
 
+test("seeded cross-parent array moves target the initial empty destination", () => {
+  const schedule = generateSchedules({ seed: 42, iterations: 300 })
+    .find(({ index }) => index === 200);
+  const move = schedule.actions.find(({ type }) => type === "array-move");
+  assert.equal(move.destinationGap, 0);
+});
+
 test("schedule generation is deterministic, sized, unique, and covers every author", () => {
   const normal = generateSchedules({ seed: 42, iterations: 300 });
   assert.equal(normal.length, 300);
@@ -1548,8 +1595,9 @@ test("schedule generation is deterministic, sized, unique, and covers every auth
   assert.equal(arrays.length, 100);
   assert(arrays.some(({ actions }) => actions.some(({ type, values }) =>
     type === "array-insert" && values.length > 1)));
-  assert(arrays.some(({ actions }) => actions.some(({ type, destinationGap }) =>
-    type === "array-move" && destinationGap > 0)));
+  assert(arrays.filter(({ actions }) => actions.some(({ type }) => type === "array-move"))
+    .every(({ actions }) => actions.some(({ type, destinationGap }) =>
+      type === "array-move" && destinationGap === 0)));
   assert(arrays.some(({ actions }) => actions.some(({ type, path }) =>
     type === "set" && path.length > 2)));
   assert(arrays.some(({ actions }) => actions.some(({ type }) => type === "reconnect")));

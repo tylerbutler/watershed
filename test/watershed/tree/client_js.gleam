@@ -345,6 +345,7 @@ fn checkpoint(
       ))
       Ok([#("keys", keys), #("entries", entries)])
     }
+    Some(ObjectValue("org.watershed.shared-tree.m3.Root", _)) -> Ok([])
     _ ->
       list.try_map(
         [

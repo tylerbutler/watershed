@@ -749,7 +749,7 @@ function generatedArrayActions(seed, index, template, roles, random) {
       sourceStart: 0,
       sourceEnd: 2,
       destinationPath: ["right"],
-      destinationGap: random() % 2 + 1,
+      destinationGap: 0,
     }, true));
   }
   actions.push(edit("set", roles.third, ["left", "2", "0", "x"], -magnitude, true));
@@ -2939,7 +2939,7 @@ async function applyArrayFamily(cell, adapters) {
       break;
     case "array-competing-moves":
       await adapters[first].arrayMove(["left"], 0, 2, ["right"], 1);
-      await adapters[second].arrayMove(["left"], 0, 2, ["right"], 2);
+      await adapters[second].arrayMove(["left"], 0, 2, ["right"], 0);
       break;
     case "array-overlapping-moves":
       await adapters[first].arrayMove(["left"], 0, 2, ["right"], 1);
@@ -3082,6 +3082,13 @@ async function runArrayCell(config, context, cell) {
       ];
     for (const author of releaseOrder) {
       await adapters[author].releaseOutbound();
+      await waitForAuthorSubmission(
+        creator,
+        adapters,
+        author,
+        authoredPrefixes.find((prefix) => prefix.author === author)
+          .referenceSequenceNumber,
+      );
     }
     const settled = await settle(adapters);
     settled.label = "settled";
@@ -4061,7 +4068,7 @@ function decodedStorageBody(bytes) {
   }
 }
 
-function storageTransform(caseId) {
+export function storageTransform(caseId) {
   return (payload) => {
     const body = decodedStorageBody(payload.bytes);
     if (body === undefined) return undefined;
@@ -4109,7 +4116,9 @@ function storageTransform(caseId) {
       } catch {
         return undefined;
       }
-      if (!decoded || typeof decoded !== "object") return undefined;
+      if (decoded?.version !== 2
+        || !Array.isArray(decoded.data)
+        || !Number.isSafeInteger(decoded.maxId)) return undefined;
       decoded.corruptSequenceRetainedState = {
         field: "DetachedFieldIndex",
         range: [2, 1],

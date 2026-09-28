@@ -88,3 +88,17 @@ test("BEAM reconnect command restarts the native transport", () => {
     /protocol\.Reconnect -> \{\s+watershed\.force_reconnect\(document\)/,
   );
 });
+
+test("native array checkpoints skip object-profile field reads", () => {
+  for (const target of ["client_js.gleam", "client_beam.gleam"]) {
+    const client = readFileSync(
+      resolve(repository, "test/watershed/tree", target),
+      "utf8",
+    );
+    assert.match(
+      client,
+      /Some\(ObjectValue\("org\.watershed\.shared-tree\.m3\.Root", _\)\) -> Ok\(\[\]\)/,
+      `${target} does not handle array checkpoints separately`,
+    );
+  }
+});

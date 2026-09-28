@@ -510,7 +510,10 @@ function matrixTree({
   });
 }
 
-function arrayMatrixTree(creator, { continued = false } = {}) {
+function arrayMatrixTree(creator, {
+  continued = false,
+  x = continued ? 42 : 3,
+} = {}) {
   const point = (label, x) => ({
     kind: "object",
     schemaId: "org.watershed.shared-tree.m3.Point",
@@ -540,7 +543,7 @@ function arrayMatrixTree(creator, { continued = false } = {}) {
         ])],
         ["narrow", array("org.watershed.shared-tree.m3.Points", [])],
         ["right", array("org.watershed.shared-tree.m3.Items", [
-          point(`${creator}-moved`, continued ? 42 : 3),
+          point(`${creator}-moved`, x),
         ])],
       ],
     },
@@ -765,7 +768,7 @@ export async function validateCreationInteropEvidence(
       upstream.observation,
       cell.reader,
       cell.profile === "array"
-        ? tailTree
+        ? arrayMatrixTree(cell.creator, { x: 43 })
         : matrixTree({
           title: `${cell.creator}-after-upstream-summary`,
           enabled: false,
@@ -1588,9 +1591,10 @@ async function runArrayCreatorMatrix(config, context, creator, schema, root) {
     await adapters.javascript.set(["right", "0", "x"], 43);
     await adapters.upstream.set(["right", "0", "x"], 42);
     const upstreamContinuation = await settle(adapters);
+    const expectedUpstreamContinuation = arrayMatrixTree(creator, { x: 43 });
     assertCheckpointTree(
       upstreamContinuation,
-      expectedContinued,
+      expectedUpstreamContinuation,
       "array upstream summary continuation",
     );
     const upstreamContinuationPaths = {};

@@ -1567,6 +1567,18 @@ function expectedArrayTree(writer, continuationLabel = undefined) {
   };
 }
 
+export async function continueArrayReader(adapter, label) {
+  await adapter.arrayMove(["right"], 1, 2, ["left"], 0);
+  await adapter.set(["left", "0", "label"], label);
+  await adapter.set(["left", "0", "x"], 42);
+}
+
+export async function restoreArrayReader(adapter) {
+  await adapter.set(["left", "0", "label"], "moved");
+  await adapter.set(["left", "0", "x"], 4);
+  await adapter.arrayMove(["left"], 0, 1, ["right"], 1);
+}
+
 async function readArrayCell(config, context, row, reader) {
   const containers = [];
   let adapter;
@@ -1611,9 +1623,7 @@ async function readArrayCell(config, context, row, reader) {
 
     const continuationLabel = `${row.writer}-${reader}-${randomUUID()}`;
     const baseline = loaded.sequenceNumber;
-    await adapter.arrayMove(["right"], 1, 2, ["left"], 0);
-    await adapter.set(["left", "0", "label"], continuationLabel);
-    await adapter.set(["left", "0", "x"], 42);
+    await continueArrayReader(adapter, continuationLabel);
     await adapter.awaitSynced();
     const continuation = await acknowledgedSubmission(
       row.observer,
@@ -1688,6 +1698,8 @@ async function readArrayCell(config, context, row, reader) {
       history,
       retainedLoad: row.retainedLoad,
     })];
+    await restoreArrayReader(adapter);
+    await adapter.awaitSynced();
     return item;
   } catch (error) {
     readError = error;

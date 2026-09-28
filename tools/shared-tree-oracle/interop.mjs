@@ -954,8 +954,18 @@ function deterministicEvidence(item, authors, label) {
 
   if (item.order !== null) {
     const first = item.order.slice(0, -"-first".length);
-    const ordered = [...evidence.submissions]
+    const prefixes = new Map(evidence.authoredPrefixes.map(
+      ({ author, referenceSequenceNumber }) => [author, referenceSequenceNumber],
+    ));
+    const ordered = evidence.submissions
+      .filter(({ author, outerSequenceNumber }) =>
+        outerSequenceNumber > prefixes.get(author))
       .sort((left, right) => left.outerSequenceNumber - right.outerSequenceNumber);
+    exactAuthors(
+      [...new Set(ordered.map(({ author }) => author))],
+      authors,
+      `${label} ordered submissions`,
+    );
     assert.equal(ordered[0].author, first, `${label} used another service order`);
   }
   if (item.family === "grouped-commits") {

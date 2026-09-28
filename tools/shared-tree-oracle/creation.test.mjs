@@ -229,7 +229,10 @@ function matrixTree(creator, {
   };
 }
 
-function arrayMatrixTree(creator, { continued = false } = {}) {
+function arrayMatrixTree(creator, {
+  continued = false,
+  x = continued ? 42 : 3,
+} = {}) {
   const point = (label, x) => ({
     kind: "object",
     schemaId: "org.watershed.shared-tree.m3.Point",
@@ -259,7 +262,7 @@ function arrayMatrixTree(creator, { continued = false } = {}) {
         ])],
         ["narrow", array("org.watershed.shared-tree.m3.Points", [])],
         ["right", array("org.watershed.shared-tree.m3.Items", [
-          point(`${creator}-moved`, continued ? 42 : 3),
+          point(`${creator}-moved`, x),
         ])],
       ],
     },
@@ -398,7 +401,9 @@ async function writeInteropEvidence(directory, report) {
           sequenceNumber: 13,
           pendingTreeCount: 0,
           inflightSubmissionCount: 0,
-          wholeTree: profile === "array" ? tail : matrixTree(creator, {
+          wholeTree: profile === "array"
+            ? arrayMatrixTree(creator, { x: 43 })
+            : matrixTree(creator, {
             title: `${creator}-after-upstream-summary`,
             enabled: false,
             rating,

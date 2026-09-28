@@ -1,10 +1,42 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  continueArrayReader,
   loadRequests, mapEntryMatches, readCell, runArrayReloadMatrix, runArtifactInterop,
+  restoreArrayReader,
   runMapReloadMatrix, runReloadMatrix, validateArrayResults, validateMapResults,
   validateResults, validateSummaryArtifact,
 } from "./summary-interop.mjs";
+
+test("array reader continuation preserves pre-existing right-side tail values", async () => {
+  const initial = {
+    left: [
+      { label: "duplicate", x: 1 },
+      { label: "duplicate", x: 1 },
+      [{ label: "nested", x: 2 }],
+    ],
+    right: [
+      { inside: { label: "map-child", x: 3 } },
+      { label: "moved", x: 4 },
+      { label: "after-summary", x: 7 },
+    ],
+  };
+  const state = structuredClone(initial);
+  const adapter = {
+    async arrayMove(sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) {
+      const source = state[sourcePath[0]];
+      const destination = state[destinationPath[0]];
+      destination.splice(destinationGap, 0, ...source.splice(sourceStart, sourceEnd - sourceStart));
+    },
+    async set(path, value) {
+      state[path[0]][Number(path[1])][path[2]] = value;
+    },
+  };
+  await continueArrayReader(adapter, "continued");
+  assert.deepEqual(state.right.at(-1), initial.right.at(-1));
+  await restoreArrayReader(adapter);
+  assert.deepEqual(state, initial);
+});
 
 const implementations = ["upstream", "javascript", "erlang"];
 const reference = {
