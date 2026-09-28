@@ -235,3 +235,37 @@ Verification:
   `a626db57-e6bc-4204-8e6b-2bbf6c68d5a4`.
 - Persisted report:
   `tools/shared-tree-oracle/.output/interop/a626db57-e6bc-4204-8e6b-2bbf6c68d5a4/report.json`.
+
+## Fix round 5
+
+- Post-upgrade fresh-reader history validation now decodes every persisted
+  outer change instead of accepting arrays, object envelopes, or constructor
+  names as sufficient evidence.
+- Every changeset must contain known schema or data operations, have nonempty
+  content, and match its declared `changeCount` exactly. Empty raw arrays,
+  invented structured and textual changes, and count mismatches fail.
+- Post-upgrade cells must retain the accepted schema upgrade or a decoded data
+  edit to a field introduced by that exact upgrade. Unrelated but
+  operation-shaped history cannot satisfy the gate.
+- Native textual decoding now accepts persisted exponential number notation,
+  which appears in real BEAM history.
+- Coordinated report and production-shaped artifact regressions cover all four
+  remaining false-positive forms. The persisted real-service result passes the
+  same semantic validator.
+
+Verification:
+
+- Required Node gate: 124 passed.
+- `just shared-tree-interop`: passed.
+- JavaScript SharedTree corpus: 573 passed.
+- Erlang SharedTree corpus: 584 passed.
+- Schema races: 27.
+- Schema reconnect rows: 3.
+- Schema reload matrix: nine post-upgrade writer-reader cells.
+- Schema tail reload matrix: nine earlier-summary writer-reader cells.
+- Seeded schedules: 200 generated and executed with seed 42.
+- No skipped targets or divergences.
+- Successful run:
+  `e6980ba7-48fb-4718-9ca5-2c295b7744f7`.
+- Persisted report:
+  `tools/shared-tree-oracle/.output/interop/e6980ba7-48fb-4718-9ca5-2c295b7744f7/report.json`.

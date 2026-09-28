@@ -354,6 +354,17 @@ test("native named outer changesets decode schema operations", () => {
   );
 });
 
+test("native persisted data diagnostics decode exponential numbers", () => {
+  assert.deepEqual(
+    decodeReconnectPayload(
+      'Changeset([DataChange(Changeset(ChangeData('
+        + '[#("score", OptionalField(FieldChange()))], '
+        + '[Build(AtomId(1), [NumberValue(1.0e3)])])))])',
+    ),
+    { kind: "data", field: "score", value: 1000 },
+  );
+});
+
 test("reconnect schema matching canonicalizes runtime and stored schema forms", () => {
   const runtimeSchema = (includeScore) => ({
     nodeSchema: {
