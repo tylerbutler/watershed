@@ -388,6 +388,17 @@ test("native persisted diagnostics reject operation-shaped arbitrary text", () =
   );
 });
 
+test("native persisted diagnostics reject unknown nested constructors", () => {
+  assert.throws(
+    () => decodeReconnectPayload(
+      'Changeset([DataChange(Changeset(ChangeData('
+        + 'Invented(#("score", OptionalField(Bogus())), NumberValue(1000))'
+        + ")))])",
+    ),
+    /invalid|unsupported|constructor|operation/i,
+  );
+});
+
 test("native schema diagnostics retain escaped quotes while scanning arguments", () => {
   assert.deepEqual(
     decodeReconnectPayload(

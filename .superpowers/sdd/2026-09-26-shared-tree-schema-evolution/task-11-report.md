@@ -276,3 +276,26 @@ dependency trees; the lint recipe now checks only tracked Gleam files.
 The final `just test` retry was blocked by the Hex API rate limit after caches
 were intentionally cleaned while investigating lint. Hosted CI still needs to
 provide the independent release signal.
+
+## Fix round 1
+
+Complete.
+
+The native history parser now validates the complete parsed constructor tree
+before extracting schema or data semantics. Its whitelist covers the
+positional Erlang and named JavaScript forms for changesets, revisions,
+identities, field changes, builds, tree values, and stored schemas. Unknown
+constructors and invalid arity, nesting, tuple/list shape, or argument placement
+are rejected.
+
+The exact payload
+`Changeset([DataChange(Changeset(ChangeData(Invented(#("score", OptionalField(Bogus())), NumberValue(1000)))))])`
+is covered by a direct parser regression and a coordinated report/artifact
+regression. Escaped quotes remain accepted.
+
+Validation passed:
+
+- `npm --prefix tools/shared-tree-oracle test`: 249 passed
+- `just shared-tree-interop`: run
+  `a1b1e191-aa6f-4f34-9bab-a183ced80e3e`, 573 JavaScript corpus cases,
+  584 Erlang corpus cases, no skips or divergences
