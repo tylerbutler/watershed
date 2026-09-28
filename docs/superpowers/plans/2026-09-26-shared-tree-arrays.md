@@ -412,7 +412,7 @@ If `source:verify` reports absent dependencies or checkout, use the documented
 `npm ci` / `source:prepare` workflow and repeat. A capture without the real
 source execution does not pass.
 
-- [ ] **Step 7: Review the contract before native implementation.**
+- [x] **Step 7: Review the contract before native implementation.**
 
 Record in this task's execution notes the confirmed schema shape, primary
 field key, Sequence V3 variants, field-batch shapes, no-op semantics,
@@ -518,7 +518,7 @@ Use `git commit -m "test(tree): capture array and sequence contracts"`.
   `array_fixture.view_id() -> StableId`. Read the named raw schemas from
   Task 1; do not copy fixture bytes into a second schema constant.
 
-- [ ] **Step 1: Write path and ordered-content regressions.**
+- [x] **Step 1: Write path and ordered-content regressions.**
 
 Use these assertions in the new forest test, with the usual
 `gleam/option`, `startest/expect`, forest, types, and array-fixture imports:
@@ -550,7 +550,7 @@ pub fn shared_tree_array_forest_reads_ordered_elements_test() {
 Add the same traversal under a map with keys `"0"`, `"01"`, and `""`;
 only the hop after reaching an `ArrayValue` interprets an index.
 
-- [ ] **Step 2: Run the targeted tests and observe the missing array boundary.**
+- [x] **Step 2: Run the targeted tests and observe the missing array boundary.**
 
 ```sh
 gleam test --target erlang -- shared_tree_array_schema shared_tree_array_forest
@@ -560,7 +560,7 @@ gleam test --target javascript -- shared_tree_array_schema shared_tree_array_for
 The initial failure should name the missing array constructor/read interface,
 not an unrelated dependency failure.
 
-- [ ] **Step 3: Implement schema-aware arrays and preserve full content lists.**
+- [x] **Step 3: Implement schema-aware arrays and preserve full content lists.**
 
 Add `ArrayValue` before adding array edits. Extend node allocation,
 materialization, cycle/ownership checks, import/export, and schema
@@ -592,7 +592,7 @@ Implement one contextual path walker. Parse an array index by requiring
 `int.to_string(parsed) == segment`, nonnegativity, and the safe-integer bound.
 Do not apply that parser while visiting an object or map.
 
-- [ ] **Step 4: Add schema/content fixture execution and refusal tests.**
+- [x] **Step 4: Add schema/content fixture execution and refusal tests.**
 
 ```gleam
 pub fn shared_tree_array_schema_matches_upstream_test() {
@@ -610,7 +610,7 @@ Update exhaustive `TreeValue` matches in test helpers in this commit. Preserve
 their old profile contracts; use the common tagged-value codec for new array
 observations rather than adding another object-only JSON encoder.
 
-- [ ] **Step 5: Verify old and new read/content behavior.**
+- [x] **Step 5: Verify old and new read/content behavior.**
 
 ```sh
 gleam test --target erlang -- shared_tree_array shared_tree_map_schema shared_tree_map_forest shared_tree_field_batch shared_tree_schema
@@ -620,7 +620,7 @@ gleam test --target javascript -- shared_tree_array shared_tree_map_schema share
 Expect nonzero execution on both targets and unchanged object/map observations.
 Register `array-schema-content` as native-covered only now.
 
-- [ ] **Step 6: Commit this read-only deliverable.**
+- [x] **Step 6: Commit this read-only deliverable.**
 
 Stage the named files and generated coverage update.
 Use `git commit -m "feat(tree): add array schemas and read-only content"`.
@@ -637,7 +637,7 @@ Create `test/watershed/tree/array_forest_fixture.gleam`.
   `read_node`, `is_attached`, and `export_data`.
 - Produces: `array_forest_fixture.run(Json) -> Result(Json, String)`.
 
-- [ ] **Step 1: Add the counted-delta fixture and identity tests.**
+- [x] **Step 1: Add the counted-delta fixture and identity tests.**
 
 ```gleam
 pub fn shared_tree_array_forest_counted_delta_matches_upstream_test() {
@@ -651,14 +651,14 @@ Attach both into a different array in the same delta. Assert that `locate` at
 the new paths equals the original references, the source length decreases by
 two, and editing a retained child changes the moved node.
 
-- [ ] **Step 2: Run both array-forest suites and require failure on count two.**
+- [x] **Step 2: Run both array-forest suites and require failure on count two.**
 
 ```sh
 gleam test --target erlang -- shared_tree_array_forest
 gleam test --target javascript -- shared_tree_array_forest
 ```
 
-- [ ] **Step 3: Implement counted range handling through both delta passes.**
+- [x] **Step 3: Implement counted range handling through both delta passes.**
 
 Replace the global count-one rule with positive safe counts; nested child
 fields still target one node per child-change mark. Check singleton field
@@ -684,7 +684,7 @@ atom local IDs for each range element, with overflow checks. Validate input
 bounds before expanding ranges. Keep the entire operation on candidate
 forest state until all phases and schema checks succeed.
 
-- [ ] **Step 4: Cover interval overlap, repair, and rollback safety.**
+- [x] **Step 4: Cover interval overlap, repair, and rollback safety.**
 
 Add direct tests for attach ranges `[id=0,count=2]` and `[id=1,count=2]`;
 different start IDs do not make these disjoint. Repeat for detach, rename,
@@ -696,7 +696,7 @@ Test move destinations encountered before their source field in traversal.
 Test duplicate-valued elements using reference equality, not labels alone.
 On each invalid delta, compare the original `ForestData` and references.
 
-- [ ] **Step 5: Run the forest regression boundary and commit.**
+- [x] **Step 5: Run the forest regression boundary and commit.**
 
 ```sh
 gleam test --target erlang -- shared_tree_array_forest shared_tree_forest shared_tree_map_forest
@@ -791,7 +791,7 @@ Result(List(#(String, forest.FieldDelta)), TreeError)) ->
 Result(DeltaResult, TreeError)` translates the captured
 `sequenceFieldToDelta.ts` behavior. It must not import `change.gleam`.
 
-- [ ] **Step 1: Write editor fixture and mark-splitting tests.**
+- [x] **Step 1: Write editor fixture and mark-splitting tests.**
 
 ```gleam
 pub fn shared_tree_sequence_editor_matches_upstream_test() {
@@ -811,7 +811,7 @@ native editors, and returns normalized marks, allocation ranges, and deltas.
 Use the empty mark list for an empty changeset. Cover an editor returning an
 empty changeset without permitting a zero-count serialized mark.
 
-- [ ] **Step 2: Run the focused suite, then implement one editor at a time.**
+- [x] **Step 2: Run the focused suite, then implement one editor at a time.**
 
 ```sh
 gleam test --target erlang -- shared_tree_sequence_field
@@ -825,7 +825,7 @@ identifies the removed cells. A move pairs endpoint identities and uses
 pre-edit gaps, including split source marks for an interior destination. Child
 edits emit a skip to each nonzero index.
 
-- [ ] **Step 3: Implement splitting and normalization checks.**
+- [x] **Step 3: Implement splitting and normalization checks.**
 
 Split cell IDs, effect IDs, detach overrides, and final endpoints by the
 same range offset. Do not copy a single child change across a multi-node
@@ -842,7 +842,7 @@ Test every effect through split/rejoin and reject `split <= 0`,
 `split >= count`, unsafe IDs, missing required empty-cell identities, and
 multi-node child changes. Observe allocation watermarks as well as marks.
 
-- [ ] **Step 4: Verify editor evidence and commit.**
+- [x] **Step 4: Verify editor evidence and commit.**
 
 Run both focused suites, register `sequence-field-editor`, and use
 `git commit -m "feat(tree): add checked sequence marks and editors"`.
@@ -950,7 +950,7 @@ context. The fixture runner supplies the captured equivalents. Keep identity
 ordering and revision chronology separate; use the callback that the pinned
 algorithm requires at each comparison.
 
-- [ ] **Step 1: Add composition/inversion oracle assertions.**
+- [x] **Step 1: Add composition/inversion oracle assertions.**
 
 ```gleam
 pub fn shared_tree_sequence_compose_invert_matches_upstream_test() {
@@ -968,7 +968,7 @@ stored basis. Add relocation tests that move a child to a different parent,
 move a source key during rebase, normalize a moved child alias during compose,
 and reject a compose-time key relocation.
 
-- [ ] **Step 2: Run the focused suite and implement counted composition.**
+- [x] **Step 2: Run the focused suite and implement counted composition.**
 
 Use aligned mark queues. Split at the next input/output range boundary using
 Task 4 helpers; do not expand marks into positional JSON edits.
@@ -986,7 +986,7 @@ Take these rows through red/green:
 | Move-in then move-out | Required rename form and endpoint effects. |
 | Partial-overlap ranges | Correct split IDs and effect-table ranges. |
 
-- [ ] **Step 3: Implement inversion and revision-sensitive helpers.**
+- [x] **Step 3: Implement inversion and revision-sensitive helpers.**
 
 Invert effects, cell identities, overrides, and move endpoints according to
 Task 1. Rollback restores the original empty-cell identity; ordinary
@@ -998,7 +998,7 @@ sequence module. Each must visit cell IDs, both attach/detach effects, final
 endpoints, overrides, and child IDs. Collect every required element of a
 removed range, not only its first ID.
 
-- [ ] **Step 4: Compare full observations and conservation properties.**
+- [x] **Step 4: Compare full observations and conservation properties.**
 
 For each valid invertible fixture, apply the original delta then its inverse
 to a forest and compare attached values and captured retained identities.
@@ -1006,7 +1006,7 @@ Also compare normalized changesets with upstream: round-trip values alone
 cannot expose a lost cell ID. Test nonlexical revision order and an inverse
 allocation at the safe-integer boundary.
 
-- [ ] **Step 5: Verify and commit.**
+- [x] **Step 5: Verify and commit.**
 
 Run the focused sequence suite on both targets and the old optional-field
 suite. Register `sequence-compose-invert`.
@@ -1028,7 +1028,7 @@ sequence helpers, input-only runner, and sequence tests.
   Result(#(Option(AtomId), state), TreeError)`.
 - Produces: `sequence_field_fixture.run_rebase(Json) -> Result(Json, String)`.
 
-- [ ] **Step 1: Add the upstream rebase case and mutation guard.**
+- [x] **Step 1: Add the upstream rebase case and mutation guard.**
 
 ```gleam
 pub fn shared_tree_sequence_rebase_matches_upstream_test() {
@@ -1041,7 +1041,7 @@ inputs. Assert that the runner's output changes or returns a located error.
 This prevents a runner from replaying expected final arrays instead of using
 its operation arguments.
 
-- [ ] **Step 2: Implement occupied/empty cell alignment.**
+- [x] **Step 2: Implement occupied/empty cell alignment.**
 
 Run the sequence suite red before implementation. Handle same-gap inserts,
 insert/remove, overlapping removals, and edits on already empty cells first.
@@ -1053,7 +1053,7 @@ intermediate states and the final order. The pinned guide describes later
 sequenced insertion groups preceding earlier groups; the source fixture is
 the acceptance oracle.
 
-- [ ] **Step 3: Implement move-related rebase rows.**
+- [x] **Step 3: Implement move-related rebase rows.**
 
 Take one row through red/green at a time:
 
@@ -1075,14 +1075,14 @@ until no dependency remains unresolved; do not stop after an arbitrary
 number of passes. Reject malformed endpoint references rather than returning
 an unchanged successful changeset.
 
-- [ ] **Step 4: Verify detached-state and child-callback observations.**
+- [x] **Step 4: Verify detached-state and child-callback observations.**
 
 Compare the complete normalized rebase result, callback inputs/outputs,
 retained roots, move effects, and resulting forest. Include equal-valued
 elements whose reference identities differ. Native convergence is an
 additional property, not the expected-output source.
 
-- [ ] **Step 5: Verify and commit.**
+- [x] **Step 5: Verify and commit.**
 
 Run both sequence suites, register `sequence-rebase`, and use
 `git commit -m "feat(tree): rebase sequence moves and child edits"`.
@@ -1106,7 +1106,7 @@ test helpers. Create
   results at the modular level as the existing optional branch does.
 - Produce `array_change_fixture.run(Json) -> Result(Json, String)`.
 
-- [ ] **Step 1: Add modular-array fixture and nonzero-index regressions.**
+- [x] **Step 1: Add modular-array fixture and nonzero-index regressions.**
 
 ```gleam
 pub fn shared_tree_array_modular_algebra_matches_upstream_test() {
@@ -1119,7 +1119,7 @@ Assert that only the third point changes and that the generic ancestor
 contains index `2` under `""`. Repeat with an array under map key `"01"` and
 with a map entry inside an array element.
 
-- [ ] **Step 2: Add every closed-sum dispatch branch.**
+- [x] **Step 2: Add every closed-sum dispatch branch.**
 
 Run the change suites red. Add Sequence support to validation, identity
 revision discovery, child enumeration, compose/rebase/invert, alias
@@ -1131,7 +1131,7 @@ For Generic/Sequence interaction, convert generic indexed children with
 For pure generic deltas, emit explicit skips between child positions.
 Do not retain the current index-dropping mapping.
 
-- [ ] **Step 3: Share cross-field effects at the modular operation level.**
+- [x] **Step 3: Share cross-field effects at the modular operation level.**
 
 Initialize one move context for a complete modular compose, invert, or rebase
 operation, not one per field. Track stable field identities through parent
@@ -1153,7 +1153,7 @@ twice when an invalidated field is processed again.
 Preserve the existing public `change` API and `IdentityOrder`. Use the move
 context as internal state; do not add a production field-kind registry.
 
-- [ ] **Step 4: Author inserts and removals from validated destinations.**
+- [x] **Step 4: Author inserts and removals from validated destinations.**
 
 Check target kind, index/range, allowed element types, and allocation
 capacity before producing a commit. Resolve array ancestry with
@@ -1164,7 +1164,7 @@ Reject `SetField`/`ClearField` targeting a numeric array slot; permit those
 operations below the slot on ordinary fields. Preserve whole-array
 replacement at an object/map field.
 
-- [ ] **Step 5: Author one changeset for a cross-array move.**
+- [x] **Step 5: Author one changeset for a cross-array move.**
 
 Resolve source and destination against the same pre-edit forest. Check
 destination compatibility for each moved node, not schema-identifier
@@ -1177,7 +1177,7 @@ into one modular graph. If the destination's positional path changes when
 the source detaches, retain the originally resolved destination identity.
 Do not locate the destination again using its old string path.
 
-- [ ] **Step 6: Assert atomicity and old-profile behavior.**
+- [x] **Step 6: Assert atomicity and old-profile behavior.**
 
 For each invalid range, incompatible element, cycle, stale target, and
 exhausted allocation, compare the accepted forest, pending history, next
@@ -1212,7 +1212,7 @@ their tests. Create `test/watershed/shared_tree_array_codec_test.gleam`.
   state types; use polymorphic callback state to avoid an import cycle.
 - Produce `array_codec_fixture.run(Json) -> Result(Json, String)`.
 
-- [ ] **Step 1: Add the codec fixture and unsupported-version tests.**
+- [x] **Step 1: Add the codec fixture and unsupported-version tests.**
 
 ```gleam
 pub fn shared_tree_array_codecs_match_upstream_test() {
@@ -1224,7 +1224,7 @@ Begin with one source-generated insert message containing more than one
 element, one cross-array move, and one moved child change. Run both array
 codec suites and confirm `"Sequence"` dispatch is the failing boundary.
 
-- [ ] **Step 2: Implement the exact V3 wire grammar.**
+- [x] **Step 2: Implement the exact V3 wire grammar.**
 
 Use captured `formatV3.ts`/`sequenceFieldCodecV3.ts` behavior for counts,
 cell IDs, revisions, endpoints, overrides, rename, attach-and-detach, and
@@ -1236,7 +1236,7 @@ malformed atom tuples, duplicate child ownership, missing referenced nodes,
 and unsupported field versions with their JSON location. Follow the pinned
 codec's extra-property tolerance; do not impose a new blanket policy.
 
-- [ ] **Step 3: Exercise full summary data, not only message round trips.**
+- [x] **Step 3: Exercise full summary data, not only message round trips.**
 
 Decode and encode retained sequence commits in edit-manager trunk and peer
 branches, detached array elements, range indexes, refreshed moved content,
@@ -1247,7 +1247,7 @@ protocol/container metadata.
 Assert that a summary excludes unacknowledged local array edits. Preserve the
 snapshot sequence even when publication happens later.
 
-- [ ] **Step 4: Prove both codec directions through upstream.**
+- [x] **Step 4: Prove both codec directions through upstream.**
 
 Extend the existing exporter and `codec-interop.mjs` so actual upstream
 decoders consume native array messages and retained-history summaries.
@@ -1261,7 +1261,7 @@ npm --prefix tools/shared-tree-oracle run codec:interop
 npm --prefix tools/shared-tree-oracle run runtime:interop
 ```
 
-- [ ] **Step 5: Register coverage and commit.**
+- [x] **Step 5: Register coverage and commit.**
 
 Register `array-codecs` only after both native runs and bidirectional
 upstream consumption pass.
@@ -1284,7 +1284,7 @@ or repair change. Create `test/watershed/tree/array_history_fixture.gleam`,
 - Produce the two input-only runners, each with
   `run(Json) -> Result(Json, String)`.
 
-- [ ] **Step 1: Add history and invalid-input oracle cases.**
+- [x] **Step 1: Add history and invalid-input oracle cases.**
 
 ```gleam
 pub fn shared_tree_array_history_matches_upstream_test() {
@@ -1300,7 +1300,7 @@ Run the new kernel suites on both targets before changing history.
 Reuse existing pending/peer sequencing drivers; do not write a second
 sequencer or pass expected observations into a driver.
 
-- [ ] **Step 2: Exercise pending chains and move repair.**
+- [x] **Step 2: Exercise pending chains and move repair.**
 
 Create at least three local pending commits: insert several nodes, move a
 subrange to another array, then edit one moved child. Deliver a remote
@@ -1312,7 +1312,7 @@ creation ranges when sequencing allocation messages, including the author's
 delivery, and derive identity order from the receiving compressor. Do not
 finalize a local creation range merely because an edit was authored.
 
-- [ ] **Step 3: Verify reconnect with original identities and repair content.**
+- [x] **Step 3: Verify reconnect with original identities and repair content.**
 
 Cover accepted-before-ack, never-submitted, interleaved pending moves, and a
 second interruption during catch-up. Compare original and resubmitted
@@ -1324,7 +1324,7 @@ Advance the collaboration window while peers and pending commits still
 reference moved/removed nodes. Retain required history and repair content.
 Do not add reclamation heuristics in M3.
 
-- [ ] **Step 4: Verify events and full error atomicity.**
+- [x] **Step 4: Verify events and full error atomicity.**
 
 For invalid edits compare visible and sequenced state, pending commits,
 allocation watermarks, compressor serialization, emitted events, and output
@@ -1341,7 +1341,7 @@ event. Malformed remote sequence data must stop the affected document through
 its existing error path before partial readiness or partial batch state
 appears.
 
-- [ ] **Step 5: Run the regression boundary and commit.**
+- [x] **Step 5: Run the regression boundary and commit.**
 
 ```sh
 gleam test --target erlang -- shared_tree_array_kernel shared_tree_history shared_tree_kernel shared_tree_runtime shared_tree_map_kernel
@@ -1377,7 +1377,7 @@ Create `test/watershed/shared_tree_array_facade_test.gleam`.
   `ArrayRemove(FieldPath, Int, Int)`, and
   `ArrayMove(FieldPath, Int, Int, FieldPath, Int)`.
 
-- [ ] **Step 1: Add protocol decoding and round-trip tests.**
+- [x] **Step 1: Add protocol decoding and round-trip tests.**
 
 Use this exact command shape:
 
@@ -1402,7 +1402,7 @@ Test missing fields, noninteger numbers, unsafe integers, negative indices,
 invalid values, empty arrays, and nested map/array values. Preserve array
 order and distinguish a missing element from `NullValue`.
 
-- [ ] **Step 2: Implement facade wrappers after tests fail.**
+- [x] **Step 2: Implement facade wrappers after tests fail.**
 
 The JavaScript move wrapper is:
 
@@ -1434,7 +1434,7 @@ Implement the BEAM wrapper through `runtime_beam.tree_edit` using its
 existing handle field names. Add only the two new read request/reply paths;
 do not add separate endpoint messages for a cross-array move.
 
-- [ ] **Step 3: Extend both command clients through public APIs.**
+- [x] **Step 3: Extend both command clients through public APIs.**
 
 Map each command to the respective public facade. Preserve request
 correlation, connection observations, `await-synced`, and error reporting.
@@ -1445,7 +1445,7 @@ already supported by the tree API. Do not reject keys before node context
 is known; the production path walker decides whether a segment is a valid
 array index. Retain numeric map keys as strings.
 
-- [ ] **Step 4: Prove facade parity and lifecycle behavior.**
+- [x] **Step 4: Prove facade parity and lifecycle behavior.**
 
 Test disconnected/not-ready handles, valid root and nested arrays, array
 elements under maps, move compatibility, and both target subscriptions.
@@ -1458,7 +1458,7 @@ gleam test --target javascript -- shared_tree_array_facade shared_tree_client fa
 npm --prefix tools/shared-tree-oracle test
 ```
 
-- [ ] **Step 5: Commit the public boundary.**
+- [x] **Step 5: Commit the public boundary.**
 
 Use `git commit -m "feat(tree): expose array operations on both targets"`.
 
@@ -1480,7 +1480,7 @@ or adding a new creator.
 - Keep `requiredScenarioCells`, `generateSchedules`, replay validation, and
   the combined coordinator as the single acceptance path.
 
-- [ ] **Step 1: Require the deterministic family catalogue before execution.**
+- [x] **Step 1: Require the deterministic family catalogue before execution.**
 
 Add the following family IDs:
 
@@ -1510,7 +1510,7 @@ Add a test that removes one required array cell from a report and requires
 rejection. Derive the exact required cell set from the catalogue; do not
 accept a report solely because its total case count is large enough.
 
-- [ ] **Step 2: Add public upstream and native array adapters.**
+- [x] **Step 2: Add public upstream and native array adapters.**
 
 For the upstream adapter, call the actual view methods:
 
@@ -1533,7 +1533,7 @@ afterwards. Where process-local native references are not exposed through
 the facade, combine pure-kernel identity evidence with wire atom
 relationships and a later targeted child edit.
 
-- [ ] **Step 3: Add seeded arrays without reducing M1/M2 coverage.**
+- [x] **Step 3: Add seeded arrays without reducing M1/M2 coverage.**
 
 Make default `iterations = 300`. Preserve the existing object/map schedule
 prefix and append the array schedules. Select the profile in the collection
@@ -1562,7 +1562,7 @@ total. Validate profile membership before dispatch. An array replay artifact
 must retain both paths, all indices, release order, intermediate checkpoints,
 and the first difference path.
 
-- [ ] **Step 4: Extend refusal scenarios without rejecting supported arrays.**
+- [x] **Step 4: Extend refusal scenarios without rejecting supported arrays.**
 
 The old excluded-array schema is no longer a valid refusal case. Replace
 its semantic role with a genuinely unsupported sequence placement or
@@ -1571,7 +1571,7 @@ version refusals. Test malformed range counts, missing endpoints, bad child
 ownership, invalid schema/content, and corrupt retained summaries.
 Assert typed error and stopped document state, not just process exit.
 
-- [ ] **Step 5: Implement the nine-cell array persistence matrix.**
+- [x] **Step 5: Implement the nine-cell array persistence matrix.**
 
 Use each of upstream, JavaScript, and BEAM as writer and reader. Each written
 state contains empty/nested arrays, a moved object, a deleted range with
@@ -1601,7 +1601,7 @@ Key creation results by profile, creator, and reader so one profile cannot
 stand in for another. Reuse the current creation harness and strict
 creator/reader validation; require twelve cells in its combined report.
 
-- [ ] **Step 6: Run the complete real-service gate.**
+- [x] **Step 6: Run the complete real-service gate.**
 
 Before the combined service run, update the supported/excluded capability
 declarations and regenerate `test/fixtures/shared_tree/profile.json` through
@@ -1625,7 +1625,7 @@ Reopen and validate current-run artifacts before publishing `report.json`.
 Include array artifacts in upload discovery and current-run identity checks.
 Cleanup failure remains a failed run.
 
-- [ ] **Step 7: Commit the evidence path.**
+- [x] **Step 7: Commit the evidence path.**
 
 Stage only the named oracle/smoke/recipe changes and regenerated fixtures.
 Use `git commit -m "test(tree): prove mixed-client array interoperability"`.
@@ -1679,7 +1679,7 @@ Update the service step name to M1/M2/M3, its test expectations, and the
 artifact validator coverage. Preserve the creation gate and evidence upload
 on success or failure.
 
-- [ ] **Step 3: Run the release commands from the final integrated tree.**
+- [x] **Step 3: Run the release commands from the final integrated tree.**
 
 ```sh
 just shared-tree-oracle-check
@@ -1752,10 +1752,19 @@ mark M4 or the remaining M7 work complete.
 
 #### Task 12 local execution record
 
-The local implementation revision is
-`0d5497e9521c948449407093139b75dcd7bc10db`, with the Task 12 documentation
-and workflow changes in this commit. Hosted evidence was not requested and
-remains pending an approved integration and push.
+The local implementation and service evidence end at
+`b9dc01b5a75e45435077369f2d3aced1ca86a3c1`. The profile and workflow
+publication is `c9d4249d16c446b63dd4e4f679ae38c04b688112`. Four later fixes close
+the service harness defects found by the release gates:
+
+- `243401c8f8eb9b7a2dcf6c458859dd76fec5d8b2` classifies M2 and M3 adapter
+  nodes by stored schema instead of constructor identity.
+- `9d4d61bf20500d9097dd6fe3a62e6f491d21db65` fixes array schedule evidence,
+  continuation expectations, and related service sequencing.
+- `b9dc01b5a75e45435077369f2d3aced1ca86a3c1` makes each malformed Sequence V3
+  refusal reach its intended invariant.
+
+Hosted evidence remains pending an approved integration and push.
 
 The existing preflight/profile path regenerated
 `/tmp/watershed-m3-profile/profile.json`. It matched
@@ -1777,12 +1786,12 @@ match above.
 | --- | --- | --- |
 | `just shared-tree-oracle-check` | 0 | All 38 committed source cases regenerated and matched. |
 | `just shared-tree-test` | 0 | 660 Erlang and 649 JavaScript tests passed; storage, bootstrap, and creation smokes passed. |
-| `npm --prefix tools/shared-tree-oracle test` | 0 | 248 passed, zero failed or skipped; includes M3 report and array-artifact validators. |
-| `just shared-tree-interop` | 1 | Preflight and corpus passed: 643 Erlang and 632 JavaScript corpus tests. Deterministic execution then failed at `runArrayCell`: `Path is not a dynamic map: byKey`. Evidence is under `tools/shared-tree-oracle/.output/interop/eb969b1d-442d-40b5-a0fa-4f6216d1c902/`, with the exact failure in `failure.json`. The M3 array scenario calls the M2-only `DynamicMap` helper for the declared `ArrayMap`; this scoped Task 11 harness defect prevents the deterministic catalogue, three reload matrices, and 300 schedules from completing. |
-| `just shared-tree-create-interop` | 1 | Native prerequisites passed: 26 Erlang and 25 JavaScript creation/storage/facade tests. The service matrix then failed on the first array checkpoint with `TreeOperationFailed("A/_C", InvalidEdit(["title"], "field is not an optional field"))`. Partial current-run evidence is under `tools/shared-tree-oracle/.output/creation/0e55c6ed-9882-4e79-b6d8-d5973718e85b/`; `invalid-initializers.json` proves all four object/array and JavaScript/Erlang invalid initializers were rejected before network access. The twelve-cell report was not published. |
+| `npm --prefix tools/shared-tree-oracle test` | 0 | 259 passed, zero failed or skipped; includes the final M3 report, artifact, adapter, continuation, and distinct Sequence-refusal validators. |
+| `just shared-tree-interop` | 0 | Run `720bfbba-45f8-495b-8642-f1316670aed7`; report at `tools/shared-tree-oracle/.output/interop/720bfbba-45f8-495b-8642-f1316670aed7/report.json`. The real-service run completed 279 deterministic cells (75 object, 72 map, 132 array), 12 reconnect results, 34 refusal results, nine object/map/array reload cells each, and 300/300 schedules with 100 per profile. Corpus results were 644 Erlang and 633 JavaScript. The report references 654 artifacts and records zero skips or divergences. |
+| `just shared-tree-create-interop` | 0 | Run `726623f6-5648-4649-82a6-c3778690b500`; report at `tools/shared-tree-oracle/.output/creation/726623f6-5648-4649-82a6-c3778690b500/report.json`. All twelve object/array creator-reader cells loaded the initial summary, continued editing, reloaded summary plus tail, and produced zero skips or divergences. |
 | `just test` | 0 | Main package: 2,214 Erlang and 2,480 JavaScript tests. The other package, website, compile-fail, smoke, and browser suites passed. |
 | `just build` | 0 | Erlang, JavaScript, and serial bundle builds passed. |
-| `just lint` | blocked | `trellis run format --check` produced no package result and did not finish after 16 minutes. A retry with the ignored upstream checkout moved aside also produced no package result and was stopped after 13 minutes; the checkout was restored. No lint acceptance is claimed. |
+| `just lint` | 0 | The root formatter now checks `src` and `test` directly, then Trellis checks all 26 auto-discovered non-root members. This avoids scanning the ignored Fluid reference checkout while preserving all repository Gleam sources. All 27 checks passed. |
 
 The automatic/native and manual/service workflow split is unchanged. Both
 workflows now name M1/M2/M3 acceptance explicitly, and the manual workflow runs
@@ -1793,7 +1802,7 @@ failure.
 The production-boundary search found no Fluid SDK, oracle, or pinned-checkout
 reference under `src` or `watershed_lustre`. `actionlint` passed both workflow
 files. `git diff --check` passed, generated website/cache files are not staged,
-and the final status contains only the seven Task 12 files.
+and the final worktree is clean after each commit.
 
 ---
 
@@ -1826,11 +1835,11 @@ and the final status contains only the seven Task 12 files.
 - [x] Sequence composition, inversion, rebase, repair, and codecs match upstream.
 - [x] Invalid operations leave state, allocation, events, and output unchanged.
 - [x] Pending chains and reconnect preserve revision/batch identity and content.
-- [ ] All object/map/array summary cells load and continue editing.
-- [ ] All three client implementations author real-service array operations.
-- [ ] The default run preserves 100 object and 100 map schedules and adds 100 array schedules.
-- [ ] Native creation supports the declared array schema profile.
-- [ ] No required target, source, corpus, service, or persistence result is skipped.
+- [x] All object/map/array summary cells load and continue editing.
+- [x] All three client implementations author real-service array operations.
+- [x] The default run preserves 100 object and 100 map schedules and adds 100 array schedules.
+- [x] Native creation supports the declared array schema profile.
+- [x] No required target, source, corpus, service, or persistence result is skipped.
 - [ ] Full repository gates and the required hosted gates pass for the integrated revision.
 - [x] Documentation names the exact supported profile and remaining exclusions.
 
