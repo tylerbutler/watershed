@@ -283,9 +283,9 @@ test("native persisted diagnostics accept optional insertion from detached regis
   );
 });
 
-test("native persisted diagnostics accept optional insertion without source", () => {
-  assert.deepEqual(
-    decodeReconnectPayload(
+test("native persisted diagnostics reject empty replacement without source", () => {
+  assert.throws(
+    () => decodeReconnectPayload(
       'Changeset([DataChange(Changeset(ChangeData('
         + '1, [], [#("score", OptionalField(FieldChange([], [], '
         + "Some(Replacement(True, None, AtomId(None, 0))))))], "
@@ -293,19 +293,39 @@ test("native persisted diagnostics accept optional insertion without source", ()
         + "[Build(AtomId(None, 0), [NumberValue(1000)])], [], []), "
         + "IdentityOrder([])))])",
     ),
-    { kind: "data", field: "score", value: 1000 },
+    /non-substantive|attach|built value/i,
   );
 });
 
-test("native persisted diagnostics reject non-substantive replacement", () => {
+test("native named diagnostics reject replacement from active register", () => {
   assert.throws(
     () => decodeReconnectPayload(
-      'Changeset([DataChange(Changeset(ChangeData('
-        + '1, [], [#("score", OptionalField(FieldChange([], [], '
-        + "Some(Replacement(True, None, AtomId(None, 0))))))], "
-        + "[], [], [], [], [], []), IdentityOrder([])))])",
+      "Changeset([DataChange(Changeset("
+        + "data: ChangeData(max_local_id: 1, revisions: [], "
+        + 'fields: [#("score", OptionalField(FieldChange(moves: [], '
+        + "child_changes: [], replacement: Some(Replacement(was_empty: True, "
+        + "source: Some(Active), "
+        + "detach_id: AtomId(revision: None, local_id: 0))))))], "
+        + "nodes: [], parents: [], aliases: [], "
+        + "builds: [Build(id: AtomId(revision: None, local_id: 0), "
+        + "trees: [NumberValue(1000)])], destroys: [], refreshers: []), "
+        + "identity_order: IdentityOrder([])))])",
     ),
-    /non-substantive|built value/i,
+    /non-substantive|attach|built value/i,
+  );
+});
+
+test("native persisted diagnostics accept optional insertion from detached register", () => {
+  assert.deepEqual(
+    decodeReconnectPayload(
+      'Changeset([DataChange(Changeset(ChangeData('
+        + '2, [], [#("score", OptionalField(FieldChange([], [], '
+        + "Some(Replacement(True, Some(Detached(AtomId(None, 0))), "
+        + "AtomId(None, 1))))))], [], [], [], "
+        + "[Build(AtomId(None, 0), [NumberValue(1000)])], [], []), "
+        + "IdentityOrder([])))])",
+    ),
+    { kind: "data", field: "score", value: 1000 },
   );
 });
 
