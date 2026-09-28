@@ -262,17 +262,24 @@ const localRefusals = [
   ["unknown-field", "set", ["notAField", "unknown field"]],
   ["wrong-schema-id", "set", ["NotPoint", "node type"]],
 ];
+const sequenceRefusalCases = new Set([
+  "malformed-sequence-payload",
+  "malformed-range-count",
+  "missing-range-endpoint",
+  "bad-child-ownership",
+  "invalid-sequence-content",
+]);
 const injectedRefusals = [
   ["malformed-sequence-payload", "operation-decode", "connection-failed",
-    "stopped-after-ready", ["sequence", "payload"]],
+    "stopped-after-ready", ["changes[0].change", "expected an array"]],
   ["malformed-range-count", "operation-decode", "connection-failed",
-    "stopped-after-ready", ["sequence", "count"]],
+    "stopped-after-ready", ["change[0].count", "positive integer"]],
   ["missing-range-endpoint", "operation-decode", "connection-failed",
-    "stopped-after-ready", ["sequence", "endpoint"]],
+    "stopped-after-ready", ["finalEndpoint", "atom"]],
   ["bad-child-ownership", "operation-decode", "connection-failed",
-    "stopped-after-ready", ["sequence", "ownership"]],
+    "stopped-after-ready", ["cross-field ownership", "overlap"]],
   ["invalid-sequence-content", "operation-decode", "connection-failed",
-    "stopped-after-ready", ["sequence", "content"]],
+    "stopped-after-ready", [".change[0].changes", "unknown property content"]],
   ["corrupt-retained-summary", "summary-load", "bootstrap-failed",
     "never-ready", ["DetachedFieldIndex", "sequence"]],
   ["unsupported-message-version", "operation-decode", "connection-failed",
@@ -3992,7 +3999,53 @@ function treeMessage(value) {
   return undefined;
 }
 
-function operationTransform(caseId, invalidProfile) {
+function collectSequenceFields(value, fields = []) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectSequenceFields(item, fields);
+  } else if (value && typeof value === "object") {
+    if (value.fieldKind === "Sequence" && Object.hasOwn(value, "change")) {
+      fields.push(value);
+    }
+    for (const item of Object.values(value)) collectSequenceFields(item, fields);
+  }
+  return fields;
+}
+
+function corruptSequenceChange(caseId, data) {
+  const fields = collectSequenceFields(data.changes);
+  assert(fields.length > 0, `${caseId} injection found no Sequence V3 field`);
+  const first = fields[0];
+  switch (caseId) {
+    case "malformed-sequence-payload":
+      first.change = "not-an-array";
+      break;
+    case "malformed-range-count":
+      first.change[0].count = 0;
+      break;
+    case "missing-range-endpoint": {
+      const mark = fields.flatMap(({ change }) => change)
+        .find(({ effect }) => effect?.moveIn);
+      assert(mark, `${caseId} injection found no move-in endpoint`);
+      mark.effect.moveIn.finalEndpoint = [];
+      break;
+    }
+    case "bad-child-ownership": {
+      const field = fields.find(({ change }) =>
+        change.some(({ effect }) => effect?.moveOut));
+      const index = field?.change.findIndex(({ effect }) => effect?.moveOut);
+      assert(field && index >= 0, `${caseId} injection found no owned range`);
+      field.change.splice(index + 1, 0, structuredClone(field.change[index]));
+      break;
+    }
+    case "invalid-sequence-content":
+      first.change[0].changes = { content: { kind: "unknown" } };
+      break;
+    default:
+      assert.fail(`Unknown sequence injection: ${caseId}`);
+  }
+}
+
+export function operationTransform(caseId, invalidProfile) {
   const mutations = invalidProfile.input.mutations;
   return (payload) => {
     const message = sequencedMessage(payload);
@@ -4012,28 +4065,17 @@ function operationTransform(caseId, invalidProfile) {
       assert(inner, `${caseId} injection found no SharedTree message`);
       inner.changeset = structuredClone(source.message.contents.changeset);
       message.contents = encodedLike(message.contents, contents);
-    } else if ([
-      "malformed-sequence-payload",
-      "malformed-range-count",
-      "missing-range-endpoint",
-      "bad-child-ownership",
-      "invalid-sequence-content",
-    ].includes(caseId)) {
+    } else if (sequenceRefusalCases.has(caseId)) {
       const contents = parsed(message.contents);
       const inner = treeMessage(contents);
       assert(inner, `${caseId} injection found no SharedTree message`);
-      const malformed = {
-        "malformed-sequence-payload": { sequence: "not-an-array" },
-        "malformed-range-count": { sequence: { start: 0, end: 2, count: 3 } },
-        "missing-range-endpoint": { sequence: { start: 0 } },
-        "bad-child-ownership": {
-          sequence: { start: 0, end: 1, child: { owner: "another-field" } },
-        },
-        "invalid-sequence-content": {
-          sequence: { start: 0, end: 1, content: { kind: "unknown" } },
-        },
-      };
-      inner.changeset = [malformed[caseId]];
+      const dataChange = inner.changeset.find(
+        (change) => change && typeof change === "object" && !Array.isArray(change)
+          && change.data && typeof change.data === "object"
+          && !Array.isArray(change.data),
+      );
+      assert(dataChange, `${caseId} injection found no ModularChange payload`);
+      corruptSequenceChange(caseId, dataChange.data);
       message.contents = encodedLike(message.contents, contents);
     } else if (caseId === "malformed-allocation-range") {
       const source = mutations.find(({ operation }) => operation === "finalizeCreationRange");
@@ -4413,10 +4455,42 @@ async function runInjectedFailure(config, context, cell, control, invalidProfile
   let rawClient;
   let failure;
   try {
-    const creator = await openSession(config, containers);
+    const sequenceRefusal = sequenceRefusalCases.has(cell.caseId);
+    const sessionOptions = sequenceRefusal ? { store: arrayServiceStore } : undefined;
+    const creator = await openSession(
+      config,
+      containers,
+      undefined,
+      false,
+      sessionOptions,
+    );
     const documentId = creator.container.resolvedUrl.id;
-    await publishUpstreamSummary(config, containers, documentId, `Task 5 ${cell.id}`);
-    const upstream = await openSession(config, containers, documentId);
+    if (sequenceRefusal) {
+      const creatorAdapter = upstreamAdapter(creator);
+      await creatorAdapter.arrayInsert(["left"], 0, [
+        { kind: "string", value: "sequence-control" },
+        { kind: "string", value: "sequence-control-tail" },
+      ]);
+      await creatorAdapter.arrayInsert(["right"], 0, [
+        { kind: "string", value: "sequence-destination" },
+      ]);
+      await creatorAdapter.awaitSynced();
+    }
+    await publishUpstreamSummary(
+      config,
+      containers,
+      documentId,
+      `Task 5 ${cell.id}`,
+      sessionOptions,
+    );
+    const upstreamSession = await openSession(
+      config,
+      containers,
+      documentId,
+      false,
+      sessionOptions,
+    );
+    const upstream = upstreamAdapter(upstreamSession);
     const { jwt } = await tokenProvider(config).fetchOrdererToken(
       config.tenantId,
       documentId,
@@ -4463,7 +4537,7 @@ async function runInjectedFailure(config, context, cell, control, invalidProfile
       runId: context.runId,
       documentId,
       tenant: config.tenantId,
-      viewSchema: context.viewSchema,
+      viewSchema: sequenceRefusal ? context.arrayViewSchema : context.viewSchema,
     }, jwt);
     await native.awaitSynced();
     const before = await native.checkpoint();
@@ -4475,8 +4549,15 @@ async function runInjectedFailure(config, context, cell, control, invalidProfile
       kind: "op",
       transform: operationTransform(cell.caseId, invalidProfile),
     });
-    upstream.data.view.root.title = `trigger-${randomUUID()}`;
-    await until(() => !upstream.container.isDirty, `${cell.id} trigger sequencing`);
+    if (sequenceRefusal) {
+      await upstream.arrayMove(["left"], 0, 1, ["right"], 0);
+    } else {
+      upstreamSession.data.view.root.title = `trigger-${randomUUID()}`;
+    }
+    await until(
+      () => !upstreamSession.container.isDirty,
+      `${cell.id} trigger sequencing`,
+    );
     await until(
       () => native.evidence().injections.length === 1,
       `${cell.id} injected operation delivery`,

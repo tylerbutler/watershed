@@ -912,6 +912,42 @@ test("a complete current-run report satisfies the Task 15 coverage gate", async 
   assert.equal(validateInteropReport(report, expected), report);
 });
 
+test("sequence refusals require distinct diagnostics and a stopped document", async () => {
+  const { expected, report } = await validFixture();
+  const diagnostics = new Map([
+    ["malformed-sequence-payload",
+      "message.changeset[0].data.changes[0].change expected an array"],
+    ["malformed-range-count",
+      "message.changeset[0].data.changes[0].change[0].count expected a positive integer"],
+    ["missing-range-endpoint",
+      "message.changeset[0].data.changes[0].change[0].effect.moveIn.finalEndpoint atom"],
+    ["bad-child-ownership", "cross-field ownership owned ranges overlap"],
+    ["invalid-sequence-content",
+      "message.changeset[0].data.changes[0].change[0].changes unknown property content"],
+  ]);
+  const cases = report.failures.filter(({ target, caseId }) =>
+    target === "javascript" && diagnostics.has(caseId));
+  assert.equal(cases.length, diagnostics.size);
+  for (const item of cases) {
+    item.typedError.message = diagnostics.get(item.caseId);
+    assert.equal(item.clientState, "stopped-after-ready", item.caseId);
+    assert.equal(item.writableTreeExposedAfterRefusal, false, item.caseId);
+  }
+  assert.equal(validateInteropReport(report, expected), report);
+
+  for (const item of cases) {
+    const diagnostic = item.typedError.message;
+    item.typedError.message =
+      "message.changeset[0] change must contain exactly one data or schema member";
+    assert.throws(
+      () => validateInteropReport(report, expected),
+      /Failure diagnostic lacks source reason or location/,
+      item.caseId,
+    );
+    item.typedError.message = diagnostic;
+  }
+});
+
 test("deterministic service order ignores submissions before each authored prefix", async () => {
   const { expected, report } = await validFixture();
   const item = report.deterministic.find(

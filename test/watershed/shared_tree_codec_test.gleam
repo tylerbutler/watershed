@@ -364,6 +364,65 @@ pub fn shared_tree_codec_rejects_unknown_message_version_test() {
   Nil
 }
 
+pub fn shared_tree_codec_sequence_refusal_diagnostics_test() {
+  let owner = session(session_a)
+  let assert Ok(#(compressor, local)) =
+    fluid_ids.new(owner) |> fluid_ids.generate
+  let assert #(compressor, Some(range)) =
+    fluid_ids.take_creation_range(compressor)
+  let assert Ok(compressor) = fluid_ids.finalize(compressor, range)
+  let assert Ok(revision) = fluid_ids.to_op(compressor, local)
+  let prefix =
+    "{\"revision\":"
+    <> int.to_string(fluid_ids.op_id_to_int(revision))
+    <> ",\"originatorId\":\""
+    <> session_a
+    <> "\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":"
+  let suffix = "}}],\"version\":7}"
+  [
+    #(
+      "malformed-sequence-payload",
+      "[{\"fieldKey\":\"sequencePayload\",\"fieldKind\":\"Sequence\",\"change\":\"not-an-array\"}]",
+      ["changes[0].change", "expected an array"],
+    ),
+    #(
+      "malformed-range-count",
+      "[{\"fieldKey\":\"sequenceCount\",\"fieldKind\":\"Sequence\",\"change\":[{\"count\":0}]}]",
+      ["change[0].count", "positive integer"],
+    ),
+    #(
+      "missing-range-endpoint",
+      "[{\"fieldKey\":\"sequenceEndpoint\",\"fieldKind\":\"Sequence\",\"change\":[{\"count\":1,\"cellId\":0,\"effect\":{\"moveIn\":{\"id\":0,\"finalEndpoint\":[]}}}]}]",
+      ["finalEndpoint", "atom"],
+    ),
+    #(
+      "bad-child-ownership",
+      "[{\"fieldKey\":\"sequenceOwnership\",\"fieldKind\":\"Sequence\",\"change\":[{\"count\":1,\"effect\":{\"moveOut\":{\"id\":0}}},{\"count\":1,\"effect\":{\"moveOut\":{\"id\":0}}}]}]",
+      ["cross-field ownership", "overlap"],
+    ),
+    #(
+      "invalid-sequence-content",
+      "[{\"fieldKey\":\"sequenceContent\",\"fieldKind\":\"Sequence\",\"change\":[{\"count\":1,\"changes\":{\"content\":{\"kind\":\"unknown\"}}}]}]",
+      [".change[0].changes", "unknown property content"],
+    ),
+  ]
+  |> list.each(fn(entry) {
+    let assert Error(error) =
+      codec.decode_message(
+        prefix <> entry.1 <> suffix,
+        codec.DecodeContext(codec.Fluid310, compressor),
+      )
+    let diagnostic = string.inspect(error)
+    entry.2
+    |> list.each(fn(term) {
+      case string.contains(diagnostic, term) {
+        True -> Nil
+        False -> panic as { entry.0 <> ": " <> diagnostic }
+      }
+    })
+  })
+}
+
 fn scenario_message(
   id: String,
   message_index: Int,

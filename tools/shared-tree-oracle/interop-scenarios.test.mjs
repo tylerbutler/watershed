@@ -13,6 +13,7 @@ import {
   interceptedTreeMessageCount,
   generateSchedules,
   nativeAdapter,
+  operationTransform,
   requiredFailureCells,
   requiredScenarioCells,
   replayFailure,
@@ -1216,7 +1217,7 @@ test("the failure catalogue covers every native refusal target", () => {
     expectedStage: "operation-decode",
     errorCode: "connection-failed",
     errorOperation: "await-synced",
-    diagnosticTerms: ["sequence", "payload"],
+    diagnosticTerms: ["changes[0].change", "expected an array"],
     clientState: "stopped-after-ready",
   });
   assert.deepEqual(cells.at(-1), {
@@ -1233,6 +1234,122 @@ test("the failure catalogue covers every native refusal target", () => {
     ],
     clientState: "stopped-after-ready",
   });
+  const sequenceDiagnostics = new Map([
+    ["malformed-sequence-payload", ["changes[0].change", "expected an array"]],
+    ["malformed-range-count", ["change[0].count", "positive integer"]],
+    ["missing-range-endpoint", ["finalEndpoint", "atom"]],
+    ["bad-child-ownership", ["cross-field ownership", "overlap"]],
+    ["invalid-sequence-content", [".change[0].changes", "unknown property content"]],
+  ]);
+  for (const [caseId, diagnosticTerms] of sequenceDiagnostics) {
+    assert.deepEqual(
+      cells.find((cell) => cell.caseId === caseId)?.diagnosticTerms,
+      diagnosticTerms,
+      caseId,
+    );
+  }
+});
+
+test("sequence refusal fixtures preserve the wire envelope and isolate one inner invariant", () => {
+  const controlData = {
+    maxId: 2,
+    changes: [
+      {
+        fieldKey: "left",
+        fieldKind: "Sequence",
+        change: [{
+          count: 1,
+          effect: { moveOut: { id: 0, revision: -1 } },
+        }],
+      },
+      {
+        fieldKey: "right",
+        fieldKind: "Sequence",
+        change: [{
+          count: 1,
+          cellId: 0,
+          effect: { moveIn: { id: 0, revision: -1 } },
+        }],
+      },
+    ],
+  };
+  const controlMessage = {
+    revision: -1,
+    originatorId: "30179d01-dadb-4a28-803d-eb57c47b0592",
+    changeset: [{ data: controlData }],
+    version: 7,
+  };
+  const payload = [{
+    type: "op",
+    sequenceNumber: 6,
+    contents: {
+      type: "component",
+      contents: {
+        revision: controlMessage.revision,
+        originatorId: controlMessage.originatorId,
+        changeset: structuredClone(controlMessage.changeset),
+        version: controlMessage.version,
+      },
+    },
+  }];
+  for (const caseId of [
+    "malformed-sequence-payload",
+    "malformed-range-count",
+    "missing-range-endpoint",
+    "bad-child-ownership",
+    "invalid-sequence-content",
+  ]) {
+    const transformed = operationTransform(caseId, {
+      input: { mutations: [] },
+    })(structuredClone(payload));
+    const inner = transformed[0].contents.contents;
+    assert.equal(inner.version, 7, caseId);
+    assert.equal(inner.revision, controlMessage.revision, caseId);
+    assert.equal(inner.originatorId, controlMessage.originatorId, caseId);
+    assert.equal(inner.changeset.length, 1, caseId);
+    assert.deepEqual(
+      Object.keys(inner.changeset[0]),
+      ["data"],
+      caseId,
+    );
+    const data = inner.changeset[0].data;
+    assert.equal(data.maxId, controlData.maxId, caseId);
+    assert.equal(data.changes.length, 2, caseId);
+    assert.deepEqual(
+      data.changes.map(({ fieldKey, fieldKind }) => ({ fieldKey, fieldKind })),
+      [
+        { fieldKey: "left", fieldKind: "Sequence" },
+        { fieldKey: "right", fieldKind: "Sequence" },
+      ],
+      caseId,
+    );
+    if (caseId === "malformed-sequence-payload") {
+      assert.equal(data.changes[0].change, "not-an-array");
+      assert.deepEqual(data.changes[1], controlData.changes[1]);
+    } else if (caseId === "malformed-range-count") {
+      assert.equal(data.changes[0].change[0].count, 0);
+      assert.deepEqual(data.changes[1], controlData.changes[1]);
+    } else if (caseId === "missing-range-endpoint") {
+      assert.deepEqual(
+        data.changes[1].change[0].effect.moveIn.finalEndpoint,
+        [],
+      );
+      assert.deepEqual(data.changes[0], controlData.changes[0]);
+    } else if (caseId === "bad-child-ownership") {
+      assert.equal(data.changes[0].change.length, 2);
+      assert.deepEqual(data.changes[0].change[0], data.changes[0].change[1]);
+      assert.equal(
+        data.changes[0].change.reduce((count, mark) => count + mark.count, 0),
+        2,
+      );
+      assert.deepEqual(data.changes[1], controlData.changes[1]);
+    } else {
+      assert.deepEqual(data.changes[0].change[0].changes, {
+        content: { kind: "unknown" },
+      });
+      assert.deepEqual(data.changes[1], controlData.changes[1]);
+    }
+  }
 });
 
 test("catalogue callers cannot mutate later results", () => {
