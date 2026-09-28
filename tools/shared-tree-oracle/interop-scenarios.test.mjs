@@ -283,6 +283,32 @@ test("native persisted diagnostics accept optional insertion from detached regis
   );
 });
 
+test("native persisted diagnostics accept optional insertion without source", () => {
+  assert.deepEqual(
+    decodeReconnectPayload(
+      'Changeset([DataChange(Changeset(ChangeData('
+        + '1, [], [#("score", OptionalField(FieldChange([], [], '
+        + "Some(Replacement(True, None, AtomId(None, 0))))))], "
+        + "[], [], [], "
+        + "[Build(AtomId(None, 0), [NumberValue(1000)])], [], []), "
+        + "IdentityOrder([])))])",
+    ),
+    { kind: "data", field: "score", value: 1000 },
+  );
+});
+
+test("native persisted diagnostics reject non-substantive replacement", () => {
+  assert.throws(
+    () => decodeReconnectPayload(
+      'Changeset([DataChange(Changeset(ChangeData('
+        + '1, [], [#("score", OptionalField(FieldChange([], [], '
+        + "Some(Replacement(True, None, AtomId(None, 0))))))], "
+        + "[], [], [], [], [], []), IdentityOrder([])))])",
+    ),
+    /non-substantive|built value/i,
+  );
+});
+
 test("native persisted diagnostics reject one-argument data changesets", () => {
   assert.throws(
     () => decodeReconnectPayload(
