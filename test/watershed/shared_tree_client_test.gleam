@@ -5,7 +5,8 @@ import startest/expect
 import watershed/runtime_core
 import watershed/tree/client_protocol
 import watershed/tree/types.{
-  BooleanValue, MapValue, NullValue, NumberValue, ObjectValue, StringValue,
+  ArrayValue, BooleanValue, MapValue, NullValue, NumberValue, ObjectValue,
+  StringValue,
 }
 
 pub fn shared_tree_client_rejects_unknown_command_test() -> Nil {
@@ -107,7 +108,6 @@ pub fn shared_tree_client_decodes_every_value_and_rejects_bad_input_test() -> Ni
     [
       "{\"requestId\":7,\"command\":\"set\",\"path\":[\"title\"],\"value\":{\"kind\":\"surprise\"}}",
       "{\"requestId\":7,\"command\":\"set\",\"path\":[\"title\"],\"value\":{\"kind\":\"number\",\"value\":\"two\"}}",
-      "{\"requestId\":7,\"command\":\"read\",\"path\":[\"\"]}",
       "{\"requestId\":7,\"command\":\"clear\",\"path\":[2]}",
       "{\"requestId\":-1,\"command\":\"checkpoint\"}",
       "{\"requestId\":7,\"command\":\"await-synced\",\"minimumSequenceNumber\":-1}",
@@ -117,6 +117,70 @@ pub fn shared_tree_client_decodes_every_value_and_rejects_bad_input_test() -> Ni
     fn(raw) { client_protocol.decode_request(raw) |> expect.to_be_error() },
   )
   Nil
+}
+
+pub fn shared_tree_client_decodes_array_commands_test() -> Nil {
+  client_protocol.decode_request(
+    "{\"requestId\":1,\"command\":\"array-get\",\"path\":[\"items\"],\"index\":2}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(1, client_protocol.ArrayGet(["items"], 2))),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":2,\"command\":\"array-values\",\"path\":[\"byKey\",\"0\"]}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(2, client_protocol.ArrayValues(["byKey", "0"]))),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":3,\"command\":\"array-insert\",\"path\":[\"items\"],\"index\":1,\"values\":[{\"kind\":\"array\",\"schemaId\":\"org.example.Items\",\"elements\":[{\"kind\":\"string\",\"value\":\"nested\"}]}]}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(
+      3,
+      client_protocol.ArrayInsert(["items"], 1, [
+        ArrayValue("org.example.Items", [StringValue("nested")]),
+      ]),
+    )),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":4,\"command\":\"array-remove\",\"path\":[\"items\"],\"start\":1,\"end\":3}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(4, client_protocol.ArrayRemove(["items"], 1, 3))),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":7,\"command\":\"array-move\",\"sourcePath\":[\"left\"],\"sourceStart\":1,\"sourceEnd\":3,\"destinationPath\":[\"byKey\",\"0\"],\"destinationGap\":0}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(
+      7,
+      client_protocol.ArrayMove(["left"], 1, 3, ["byKey", "0"], 0),
+    )),
+  )
+  client_protocol.decode_request(
+    "{\"requestId\":8,\"command\":\"read\",\"path\":[\"byKey\",\"\"]}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(8, client_protocol.Read(["byKey", ""]))),
+  )
+}
+
+pub fn shared_tree_client_rejects_invalid_array_commands_test() -> Nil {
+  list.each(
+    [
+      "{\"requestId\":1,\"command\":\"array-get\",\"path\":[],\"index\":-1}",
+      "{\"requestId\":1,\"command\":\"array-get\",\"path\":[],\"index\":9007199254740992}",
+      "{\"requestId\":1,\"command\":\"array-get\",\"path\":[],\"index\":1.5}",
+      "{\"requestId\":1,\"command\":\"array-insert\",\"path\":[],\"index\":0}",
+      "{\"requestId\":1,\"command\":\"array-insert\",\"path\":[],\"index\":0,\"values\":{}}",
+      "{\"requestId\":1,\"command\":\"array-remove\",\"path\":[],\"start\":0}",
+      "{\"requestId\":1,\"command\":\"array-remove\",\"path\":[],\"start\":0,\"end\":-1}",
+      "{\"requestId\":1,\"command\":\"array-move\",\"sourcePath\":[],\"sourceStart\":0,\"sourceEnd\":1,\"destinationPath\":[]}",
+      "{\"requestId\":1,\"command\":\"array-move\",\"sourcePath\":[],\"sourceStart\":0,\"sourceEnd\":1,\"destinationPath\":[],\"destinationGap\":9007199254740992}",
+    ],
+    fn(raw) { client_protocol.decode_request(raw) |> expect.to_be_error() },
+  )
 }
 
 pub fn shared_tree_client_decodes_map_commands_test() -> Nil {

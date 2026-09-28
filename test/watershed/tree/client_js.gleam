@@ -215,6 +215,49 @@ fn execute(
             watershed.tree_map_entries(tree, path),
             protocol.encode_map_entries,
           )
+        protocol.ArrayGet(path, index) ->
+          map_result(
+            "array-get",
+            watershed.tree_array_get(tree, path, index),
+            protocol.encode_read,
+          )
+        protocol.ArrayValues(path) ->
+          map_result(
+            "array-values",
+            watershed.tree_array_values(tree, path),
+            protocol.encode_array_values,
+          )
+        protocol.ArrayInsert(path, index, values) ->
+          map_result(
+            "array-insert",
+            watershed.tree_array_insert(tree, path, index, values),
+            fn(_) { json.null() },
+          )
+        protocol.ArrayRemove(path, start, end) ->
+          map_result(
+            "array-remove",
+            watershed.tree_array_remove(tree, path, start, end),
+            fn(_) { json.null() },
+          )
+        protocol.ArrayMove(
+          source_path,
+          source_start,
+          source_end,
+          destination_path,
+          destination_gap,
+        ) ->
+          map_result(
+            "array-move",
+            watershed.tree_array_move(
+              tree,
+              source_path,
+              source_start,
+              source_end,
+              destination_path,
+              destination_gap,
+            ),
+            fn(_) { json.null() },
+          )
         protocol.Checkpoint -> checkpoint(tree, events)
         protocol.Disconnect -> {
           watershed.go_offline(document)

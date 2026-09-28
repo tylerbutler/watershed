@@ -262,7 +262,22 @@ pub fn routed_map_seed_input(
   schema_name: String,
   root: tree_types.TreeValue,
 ) -> Result(runtime_core.BootstrapSeedInput, String) {
-  use fixture <- result.try(fixtures.load("map-schema-content"))
+  routed_schema_seed_input("map-schema-content", schema_name, root)
+}
+
+pub fn routed_array_seed_input(
+  schema_name: String,
+  root: tree_types.TreeValue,
+) -> Result(runtime_core.BootstrapSeedInput, String) {
+  routed_schema_seed_input("array-schema-content", schema_name, root)
+}
+
+fn routed_schema_seed_input(
+  fixture_name: String,
+  schema_name: String,
+  root: tree_types.TreeValue,
+) -> Result(runtime_core.BootstrapSeedInput, String) {
+  use fixture <- result.try(fixtures.load(fixture_name))
   use schemas <- result.try(field(fixture.input, "schemas"))
   use raw <- result.try(read_field(schemas, schema_name, decode.string))
   use stored <- result.try(

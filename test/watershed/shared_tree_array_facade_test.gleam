@@ -1,0 +1,193 @@
+@target(erlang)
+import gleam/erlang/process
+import gleam/json
+import gleam/option.{type Option, None, Some}
+import startest/expect
+@target(javascript)
+import watershed
+@target(javascript)
+import watershed/runtime
+@target(erlang)
+import watershed/runtime_beam
+import watershed/runtime_core
+import watershed/sluice/frame
+@target(javascript)
+import watershed/transport_js
+import watershed/tree/runtime_fixture
+import watershed/tree/types
+@target(erlang)
+import watershed_beam
+
+const items_type = "org.watershed.shared-tree.m3.Items"
+
+fn input() -> runtime_core.BootstrapSeedInput {
+  runtime_fixture.routed_array_seed_input(
+    "rootArray",
+    types.ArrayValue(items_type, [
+      types.StringValue("A"),
+      types.StringValue("B"),
+      types.StringValue("C"),
+    ]),
+  )
+  |> expect.to_be_ok()
+}
+
+fn connected(client: String) -> json.Json {
+  frame.encode_connected(
+    client_id: client,
+    tenant_id: "default",
+    document_id: "tree",
+    scopes: ["doc:read", "doc:write"],
+    checkpoint_sequence_number: 0,
+    initial_clients: [client],
+    initial_messages: [],
+    timestamp: 0,
+    presence_v1: False,
+  )
+}
+
+fn assert_array_operations(
+  get: fn(List(String), Int) -> Result(Option(types.TreeValue), String),
+  values: fn(List(String)) -> Result(List(types.TreeValue), String),
+  insert: fn(List(String), Int, List(types.TreeValue)) -> Result(Nil, String),
+  remove: fn(List(String), Int, Int) -> Result(Nil, String),
+  move: fn(List(String), Int, Int, List(String), Int) -> Result(Nil, String),
+) -> Nil {
+  values([])
+  |> expect.to_equal(
+    Ok([
+      types.StringValue("A"),
+      types.StringValue("B"),
+      types.StringValue("C"),
+    ]),
+  )
+  get([], 1) |> expect.to_equal(Ok(Some(types.StringValue("B"))))
+  get([], 3) |> expect.to_equal(Ok(None))
+  insert([], 1, [types.StringValue("X"), types.StringValue("Y")])
+  |> expect.to_equal(Ok(Nil))
+  move([], 1, 3, [], 5) |> expect.to_equal(Ok(Nil))
+  remove([], 1, 2) |> expect.to_equal(Ok(Nil))
+  values([])
+  |> expect.to_equal(
+    Ok([
+      types.StringValue("A"),
+      types.StringValue("C"),
+      types.StringValue("X"),
+      types.StringValue("Y"),
+    ]),
+  )
+  get([], -1) |> expect.to_be_error()
+  insert([], 5, []) |> expect.to_be_error()
+  remove([], 3, 2) |> expect.to_be_error()
+  Nil
+}
+
+@target(javascript)
+pub fn shared_tree_array_facade_js_operations_test() {
+  let input = input()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let callbacks = transport_js.new_cell(None)
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(_, _) { Nil },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    connected("reader") |> json.to_string,
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let tree =
+    watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
+  assert_array_operations(
+    fn(path, index) { watershed.tree_array_get(tree, path, index) },
+    fn(path) { watershed.tree_array_values(tree, path) },
+    fn(path, index, values) {
+      watershed.tree_array_insert(tree, path, index, values)
+    },
+    fn(path, start, end) { watershed.tree_array_remove(tree, path, start, end) },
+    fn(source_path, source_start, source_end, destination_path, destination_gap) {
+      watershed.tree_array_move(
+        tree,
+        source_path,
+        source_start,
+        source_end,
+        destination_path,
+        destination_gap,
+      )
+    },
+  )
+  watershed.close(document)
+}
+
+@target(erlang)
+pub fn shared_tree_array_facade_beam_operations_test() {
+  let input = input()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let connections = process.new_subject()
+  let document =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+    |> expect.to_be_ok()
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event("connect_document_success", connected("reader"))
+  runtime_beam.await_ready(watershed_beam.runtime_subject(document))
+  |> expect.to_equal(Ok(Nil))
+  let root = watershed_beam.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let tree =
+    watershed_beam.resolve_tree(document, marker, view.view)
+    |> expect.to_be_ok()
+  assert_array_operations(
+    fn(path, index) { watershed_beam.tree_array_get(tree, path, index) },
+    fn(path) { watershed_beam.tree_array_values(tree, path) },
+    fn(path, index, values) {
+      watershed_beam.tree_array_insert(tree, path, index, values)
+    },
+    fn(path, start, end) {
+      watershed_beam.tree_array_remove(tree, path, start, end)
+    },
+    fn(source_path, source_start, source_end, destination_path, destination_gap) {
+      watershed_beam.tree_array_move(
+        tree,
+        source_path,
+        source_start,
+        source_end,
+        destination_path,
+        destination_gap,
+      )
+    },
+  )
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}

@@ -714,6 +714,79 @@ pub fn tree_map_entries(
 }
 
 @target(erlang)
+/// Read an element from the tree array node at `path`.
+/// An index at or beyond the array length returns `None`.
+pub fn tree_array_get(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+  index: Int,
+) -> Result(Option(tree_types.TreeValue), String) {
+  runtime_beam.tree_array_get(tree.runtime, tree.address, path, index)
+}
+
+@target(erlang)
+/// Read the ordered values of the tree array node at `path`.
+pub fn tree_array_values(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+) -> Result(List(tree_types.TreeValue), String) {
+  runtime_beam.tree_array_values(tree.runtime, tree.address, path)
+}
+
+@target(erlang)
+/// Insert values at an array gap.
+pub fn tree_array_insert(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+  index: Int,
+  values: List(tree_types.TreeValue),
+) -> Result(Nil, String) {
+  runtime_beam.tree_edit(
+    tree.runtime,
+    tree.address,
+    tree_types.ArrayInsert(path, index, values),
+  )
+}
+
+@target(erlang)
+/// Remove the half-open range `[start, end)`.
+pub fn tree_array_remove(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+  start: Int,
+  end: Int,
+) -> Result(Nil, String) {
+  runtime_beam.tree_edit(
+    tree.runtime,
+    tree.address,
+    tree_types.ArrayRemove(path, start, end),
+  )
+}
+
+@target(erlang)
+/// Move a half-open range to a pre-edit destination gap.
+pub fn tree_array_move(
+  tree: SharedTree,
+  source_path: tree_types.FieldPath,
+  source_start: Int,
+  source_end: Int,
+  destination_path: tree_types.FieldPath,
+  destination_gap: Int,
+) -> Result(Nil, String) {
+  runtime_beam.tree_edit(
+    tree.runtime,
+    tree.address,
+    tree_types.ArrayMove(
+      source_path,
+      source_start,
+      source_end,
+      destination_path,
+      destination_gap,
+    ),
+  )
+}
+
+@target(erlang)
 fn resolve_handle_address(
   document: Document(root),
   value: Json,

@@ -592,6 +592,79 @@ pub fn tree_map_entries(
   runtime.tree_map_entries(tree.runtime, tree.address, path)
 }
 
+@target(javascript)
+/// Read an element from the tree array node at `path`.
+/// An index at or beyond the array length returns `None`.
+pub fn tree_array_get(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+  index: Int,
+) -> Result(Option(tree_types.TreeValue), String) {
+  runtime.tree_array_get(tree.runtime, tree.address, path, index)
+}
+
+@target(javascript)
+/// Read the ordered values of the tree array node at `path`.
+pub fn tree_array_values(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+) -> Result(List(tree_types.TreeValue), String) {
+  runtime.tree_array_values(tree.runtime, tree.address, path)
+}
+
+@target(javascript)
+/// Insert values at an array gap.
+pub fn tree_array_insert(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+  index: Int,
+  values: List(tree_types.TreeValue),
+) -> Result(Nil, String) {
+  runtime.tree_edit(
+    tree.runtime,
+    tree.address,
+    tree_types.ArrayInsert(path, index, values),
+  )
+}
+
+@target(javascript)
+/// Remove the half-open range `[start, end)`.
+pub fn tree_array_remove(
+  tree: SharedTree,
+  path: tree_types.FieldPath,
+  start: Int,
+  end: Int,
+) -> Result(Nil, String) {
+  runtime.tree_edit(
+    tree.runtime,
+    tree.address,
+    tree_types.ArrayRemove(path, start, end),
+  )
+}
+
+@target(javascript)
+/// Move a half-open range to a pre-edit destination gap.
+pub fn tree_array_move(
+  tree: SharedTree,
+  source_path: tree_types.FieldPath,
+  source_start: Int,
+  source_end: Int,
+  destination_path: tree_types.FieldPath,
+  destination_gap: Int,
+) -> Result(Nil, String) {
+  runtime.tree_edit(
+    tree.runtime,
+    tree.address,
+    tree_types.ArrayMove(
+      source_path,
+      source_start,
+      source_end,
+      destination_path,
+      destination_gap,
+    ),
+  )
+}
+
 // docs:snippet-start watershed-create-map
 @target(javascript)
 /// Create a new map channel. The map starts *detached*, which means that it is

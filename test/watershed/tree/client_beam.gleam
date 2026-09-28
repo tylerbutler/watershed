@@ -252,6 +252,69 @@ fn execute(
           active,
           False,
         )
+        protocol.ArrayGet(path, index) -> #(
+          map_result(
+            "array-get",
+            watershed.tree_array_get(tree, path, index),
+            protocol.encode_read,
+          ),
+          events,
+          active,
+          False,
+        )
+        protocol.ArrayValues(path) -> #(
+          map_result(
+            "array-values",
+            watershed.tree_array_values(tree, path),
+            protocol.encode_array_values,
+          ),
+          events,
+          active,
+          False,
+        )
+        protocol.ArrayInsert(path, index, values) -> #(
+          map_result(
+            "array-insert",
+            watershed.tree_array_insert(tree, path, index, values),
+            fn(_) { json.null() },
+          ),
+          events,
+          active,
+          False,
+        )
+        protocol.ArrayRemove(path, start, end) -> #(
+          map_result(
+            "array-remove",
+            watershed.tree_array_remove(tree, path, start, end),
+            fn(_) { json.null() },
+          ),
+          events,
+          active,
+          False,
+        )
+        protocol.ArrayMove(
+          source_path,
+          source_start,
+          source_end,
+          destination_path,
+          destination_gap,
+        ) -> #(
+          map_result(
+            "array-move",
+            watershed.tree_array_move(
+              tree,
+              source_path,
+              source_start,
+              source_end,
+              destination_path,
+              destination_gap,
+            ),
+            fn(_) { json.null() },
+          ),
+          events,
+          active,
+          False,
+        )
         protocol.Checkpoint -> #(
           checkpoint(tree, events, active),
           events,

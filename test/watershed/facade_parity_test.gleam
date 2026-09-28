@@ -51,7 +51,9 @@ fn kinds() -> List(Kind) {
       ["resolve_tree", "tree_handle_of", "set_tree_field", "resolve_tree_field"],
       [
         "tree_get", "tree_set", "tree_clear", "tree_map_get", "tree_map_set",
-        "tree_map_delete", "tree_map_keys", "tree_map_entries",
+        "tree_map_delete", "tree_map_keys", "tree_map_entries", "tree_array_get",
+        "tree_array_values", "tree_array_insert", "tree_array_remove",
+        "tree_array_move",
       ],
       ["subscribe_tree"],
     ),

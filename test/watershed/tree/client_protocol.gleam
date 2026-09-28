@@ -75,6 +75,11 @@ pub type Command {
   MapDelete(FieldPath, String)
   MapKeys(FieldPath)
   MapEntries(FieldPath)
+  ArrayGet(FieldPath, Int)
+  ArrayValues(FieldPath)
+  ArrayInsert(FieldPath, Int, List(TreeValue))
+  ArrayRemove(FieldPath, Int, Int)
+  ArrayMove(FieldPath, Int, Int, FieldPath, Int)
   AwaitSynced(Int)
   Checkpoint
   Summarize
@@ -162,6 +167,49 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
     }
     "map-keys" -> decode_path(data) |> result.map(MapKeys)
     "map-entries" -> decode_path(data) |> result.map(MapEntries)
+    "array-get" -> {
+      use path <- result.try(decode_path(data))
+      use index <- result.try(decode_safe_index(data, "index"))
+      Ok(ArrayGet(path, index))
+    }
+    "array-values" -> decode_path(data) |> result.map(ArrayValues)
+    "array-insert" -> {
+      use path <- result.try(decode_path(data))
+      use index <- result.try(decode_safe_index(data, "index"))
+      use values <- result.try(required(
+        data,
+        "values",
+        decode.list(decode.dynamic),
+      ))
+      use values <- result.try(list.try_map(values, decode_value))
+      Ok(ArrayInsert(path, index, values))
+    }
+    "array-remove" -> {
+      use path <- result.try(decode_path(data))
+      use start <- result.try(decode_safe_index(data, "start"))
+      use end <- result.try(decode_safe_index(data, "end"))
+      Ok(ArrayRemove(path, start, end))
+    }
+    "array-move" -> {
+      use source_path <- result.try(decode_named_path(data, "sourcePath"))
+      use source_start <- result.try(decode_safe_index(data, "sourceStart"))
+      use source_end <- result.try(decode_safe_index(data, "sourceEnd"))
+      use destination_path <- result.try(decode_named_path(
+        data,
+        "destinationPath",
+      ))
+      use destination_gap <- result.try(decode_safe_index(
+        data,
+        "destinationGap",
+      ))
+      Ok(ArrayMove(
+        source_path,
+        source_start,
+        source_end,
+        destination_path,
+        destination_gap,
+      ))
+    }
     "await-synced" -> {
       use watermark <- result.try(required(
         data,
@@ -186,10 +234,24 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
 }
 
 fn decode_path(data: Dynamic) -> Result(FieldPath, ProtocolError) {
-  use path <- result.try(required(data, "path", decode.list(decode.string)))
-  case list.all(path, fn(segment) { !string.is_empty(segment) }) {
-    True -> Ok(path)
-    False -> Error(invalid("path", "path contains an empty field name"))
+  decode_named_path(data, "path")
+}
+
+fn decode_named_path(
+  data: Dynamic,
+  name: String,
+) -> Result(FieldPath, ProtocolError) {
+  required(data, name, decode.list(decode.string))
+}
+
+fn decode_safe_index(
+  data: Dynamic,
+  name: String,
+) -> Result(Int, ProtocolError) {
+  use value <- result.try(required(data, name, decode.int))
+  case value >= 0 && value <= max_safe_integer {
+    True -> Ok(value)
+    False -> Error(invalid(name, name <> " is not a safe nonnegative integer"))
   }
 }
 
@@ -407,6 +469,10 @@ pub fn encode_map_entries(entries: List(#(String, TreeValue))) -> Json {
     ])
   })
   |> json.preprocessed_array
+}
+
+pub fn encode_array_values(values: List(TreeValue)) -> Json {
+  values |> list.map(encode_value) |> json.preprocessed_array
 }
 
 pub fn encode_read(value: Option(TreeValue)) -> Json {
