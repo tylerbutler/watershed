@@ -37,6 +37,13 @@ test("deep acceptance uses 7500 schedules for 2500 per profile", () => {
   ]);
 });
 
+test("lint excludes ignored external source from the root formatter", () => {
+  assert.deepEqual(recipeCommands("lint"), [
+    "gleam format --check src test",
+    "trellis run format --check $(trellis list | awk '$1 != \"watershed\" { print $1 }')",
+  ]);
+});
+
 test("creation acceptance retains native checks and pinned-service proof", () => {
   assert.deepEqual(recipeCommands("shared-tree-create-interop"), [
     "gleam test --target erlang -- shared_tree_creation git_storage facade_parity",

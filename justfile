@@ -311,7 +311,8 @@ format:
 # fails here, which is how `tools/website-samples` is kept honest: the website
 # quotes its source verbatim, so its formatting is published prose.
 lint:
-    trellis run format --check
+    gleam format --check src test
+    trellis run format --check $(trellis list | awk '$1 != "watershed" { print $1 }')
 
 # Remove build artifacts, in every member rather than just the root package
 clean:
