@@ -58,6 +58,8 @@ follows the existing browser-example structure:
 - `index.html` hosts the application;
 - `src/shared_tree_checklist_lustre.gleam` owns the Lustre model, update, and
   view;
+- `src/shared_tree_checklist_lustre_ffi.mjs` reads optional query parameters
+  and replaces the current URL after native creation;
 - `src/shared_tree_checklist_lustre/schema.gleam` owns the stored/view schema
   and initial tree;
 - `src/shared_tree_checklist_lustre/checklist.gleam` decodes snapshots and
@@ -161,7 +163,8 @@ When `document` is absent:
 1. Mint a tenant-write development token with an empty document ID.
 2. Call the adapter's `create` effect with the checklist schema and initial
    root.
-3. Replace the current URL with the returned document ID.
+3. Call the example's browser FFI to replace the current URL with the returned
+   document ID while preserving the other query parameters.
 4. Mint a document token for that ID.
 5. Connect and resolve the SharedTree.
 
