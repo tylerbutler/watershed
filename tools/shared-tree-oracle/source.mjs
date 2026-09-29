@@ -30,6 +30,7 @@ export const reference = {
     "@fluidframework/container-loader",
     "@fluidframework/container-runtime",
     "@fluidframework/driver-definitions",
+    "@fluidframework/id-compressor",
     "@fluidframework/tree",
     "@fluidframework/local-driver",
     "@fluidframework/map",

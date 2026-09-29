@@ -718,10 +718,10 @@ The four `transaction-*` cases pin the synchronous transaction foundation:
 
 | Case | Captured contract |
 | --- | --- |
-| `transaction-callbacks` | Object, map, array, and move edits are immediately visible to callback reads. A successful outer scope produces one commit and one public `changed` event after the final state is installed. Intermediate edits, inner scopes, aborted scopes, and no-op scopes produce no public event. |
-| `transaction-constraints` | `nodeInDocument` follows node identity through same-array and cross-array moves. An already-detached node prevents callback execution. A concurrent removal that sequences first records one explicit violation and suppresses the constrained field edits while retaining required created builds. |
-| `transaction-wire` | ModularChange V5 encodes apply-time node-existence constraints and the aggregate violation count. It omits internal revert-only constraints. Inversion exchanges apply-time and revert-time constraint state, and explicit violation remains distinct from an empty outer change. |
-| `transaction-history` | One pending composed transaction reconnects and acknowledges without duplicate effects. Sequenced summary state excludes pending local work, and a fresh reader can apply the operation tail and continue editing. The summary is captured from the sequenced peer, not the client with pending transaction work. |
+| `transaction-callbacks` | Object set/delete, map set/delete, array insert/remove/replace, and same-array and cross-array moves are immediately visible to callback reads. Every success, abort, nested, no-op, and invalid-edit result records final node identifiers, retained detached content, history, and exact compressor/allocation bytes. The invalid-edit case performs and reads a valid edit, attempts a negative-index array removal through the public simple-tree API, captures the exact error, and explicitly rolls back. Tree, identity, summary compressor, history, event, commit, and message state are unchanged. The pinned runtime advances its ongoing local compressor state, but emits no allocation range. A successful outer scope produces one commit and one public `changed` event after the final state is installed. Intermediate edits, inner scopes, aborted scopes, no-op scopes, and failed scopes produce no public event. |
+| `transaction-constraints` | `nodeInDocument` follows node identity through same-array and cross-array moves. An already-detached node prevents callback execution. A concurrent removal that sequences first records one explicit violation, suppresses the constrained field edits on both clients, converges, and retains the required created builds. |
+| `transaction-wire` | The fixture input contains executable nonviolated and explicitly violated Message V7 bytes, the compressor and codec context, and compose, invert, and rebase operands. The bytes cover nested paths, duplicate constraints, builds, refreshers, revision information, and the SharedTreeChange V5 and ModularChange V5 forms. Rebase decodes the captured violated transaction and concurrent removal with the recorded compressor context, then executes on those decoded wire changes and records both operands beside the raw result. Inversion exchanges apply-time and revert-time constraint state; the wire omits internal revert-only constraints. |
+| `transaction-history` | A pending composed transaction rebases over a sequenced concurrent removal, records one explicit violation, resubmits once, and acknowledges without duplicate effects. The summary comes from the sequenced peer and excludes pending local work. Fresh runtimes restore that summary-point compressor, finalize the captured tail allocation ranges in wire order, then apply the tail. Replay without those ranges fails. The reader preserves the remaining node identifiers, authors a continuation, and has an independently loaded peer observe the same final state and identities. Every checkpoint records detached content, history, identifiers, and compressor/allocation state. |
 
 The capture follows these pinned files under `packages/dds/tree/src/`:
 
@@ -744,6 +744,10 @@ Nested transactions are savepoints within one outer transaction. Inner success
 keeps its changes in the outer scope. Inner abort restores its savepoint and
 lets the outer callback continue. Only outer success submits the composed
 change. Outer abort restores the original state without a commit or event.
+The capture records compressor bytes instead of claiming that rollback rewinds
+the compressor. The pinned outer-abort probe restores visible node identities
+and retains no detached content; the no-op probe also leaves the ongoing
+compressor bytes unchanged.
 
 The supported constraint is the stable `nodeInDocument` constraint. It binds
 to node identity, not the path used to select the node. Local validation rejects

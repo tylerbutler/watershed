@@ -93,7 +93,7 @@ function cases(exclude = []) {
 }
 
 function transactionCaseFixture(id, domain) {
-  return {
+  const value = {
     formatVersion: 1,
     reference: {
       package: "@fluidframework/tree",
@@ -112,6 +112,252 @@ function transactionCaseFixture(id, domain) {
       messages: [{ version: 7, changeset: { changes: [] } }],
     },
   };
+  if (id === "transaction-callbacks") {
+    value.input.scenarios = [
+      {
+        id: "success-all-fields",
+        operations: [
+          "object-set", "object-delete", "map-set", "map-delete",
+          "array-insert", "array-remove", "array-replace",
+          "same-array-move", "cross-array-move",
+        ],
+      },
+      { id: "outer-rollback" },
+      { id: "nested-success" },
+      { id: "nested-rollback" },
+      { id: "no-op" },
+      { id: "invalid-edit-rollback", operation: "array-remove-negative-index" },
+    ];
+    value.expected.observations = value.input.scenarios.map(({ id: scenario }) => ({
+      id: scenario,
+      identity: { nodes: ["node"], before: ["node"], preserved: ["node"] },
+      allocation: {
+        before: {
+          sessionId: "session",
+          ongoing: "before",
+        },
+        after: {
+          sessionId: "session",
+          ongoing: "after",
+        },
+      },
+      compressor: "state",
+      reads: scenario === "success-all-fields"
+        ? [
+          "object-set", "object-delete", "map-set", "map-delete",
+          "array-insert", "array-remove", "array-replace",
+          "same-array-move", "cross-array-move",
+        ].map((step) => ({ step }))
+        : [{
+          step: scenario === "invalid-edit-rollback" ? "valid-edit-before-invalid" : "inside",
+          ...(scenario === "invalid-edit-rollback"
+            ? { value: { title: "before-invalid" } }
+            : {}),
+        }],
+      final: { state: scenario },
+      retainedDetached: [],
+      history: { pending: [], trunk: [] },
+      events: ["outer-rollback", "no-op", "invalid-edit-rollback"].includes(scenario)
+        ? []
+        : [{ kind: "changed" }],
+      commitCount: ["outer-rollback", "no-op", "invalid-edit-rollback"].includes(scenario) ? 0 : 1,
+      pendingCommitCount: ["outer-rollback", "no-op", "invalid-edit-rollback"].includes(scenario)
+        ? 0
+        : 1,
+      submittedMessages: ["outer-rollback", "no-op", "invalid-edit-rollback"].includes(scenario)
+        ? []
+        : [{ version: 7 }],
+      ...(scenario === "invalid-edit-rollback" ? {
+        error: "Error: Expected non-negative index passed to TreeArrayNode.removeAt, got -1.",
+        transactionResult: "rollback",
+        localCompressorAdvanced: true,
+        state: {
+          before: {
+            visible: { state: "unchanged" },
+            identities: ["node"],
+            retainedDetached: [],
+            compressor: "state",
+            allocation: { sessionId: "session", ongoing: "state" },
+            history: { pending: [], trunk: [] },
+          },
+          after: {
+            visible: { state: "unchanged" },
+            identities: ["node"],
+            retainedDetached: [],
+            compressor: "state",
+            allocation: { sessionId: "session", ongoing: "state" },
+            history: { pending: [], trunk: [] },
+          },
+        },
+      } : {}),
+    }));
+    value.raw.scenarios = structuredClone(value.expected.observations);
+    value.raw.messages = value.expected.observations.flatMap(
+      ({ submittedMessages }) => submittedMessages,
+    );
+  }
+  if (id === "transaction-constraints") {
+    value.expected.observations = [{
+      id: "node-in-document",
+      clients: { writer: { state: "same" }, peer: { state: "same" } },
+      converged: true,
+      constraintViolationCount: 1,
+      retainedBuilds: [{ id: "build" }],
+      refusal: { callbackRan: false, error: "not currently in the document" },
+      withinMove: { identityPreserved: true },
+      crossMove: { identityPreserved: true },
+    }];
+  }
+  if (id === "transaction-wire") {
+    const nonviolatedChangeset = [{ data: { change: 1 } }];
+    const violatedChangeset = [{ data: { change: 2 } }];
+    const overChangeset = [{ data: { changes: [{ fieldKey: "left" }] } }];
+    value.input.scenarios[0].duplicates = 2;
+    value.input.messageBytes = {
+      nonviolated: JSON.stringify({
+        version: 7,
+        originatorId: "author-session",
+        changeset: nonviolatedChangeset,
+        nodeExistsConstraint: { violated: false },
+        builds: {},
+        left: { label: "value" },
+      }),
+      violated: JSON.stringify({
+        version: 7,
+        changeset: violatedChangeset,
+        nodeExistsConstraint: { violated: true },
+        violations: 1,
+        builds: {},
+        refreshers: {},
+      }),
+      over: JSON.stringify({
+        version: 7,
+        changeset: overChangeset,
+      }),
+    };
+    value.input.compressor = JSON.parse(readFileSync(
+      new URL(
+        "../../test/fixtures/shared_tree/cases/transaction-wire.json",
+        import.meta.url,
+      ),
+      "utf8",
+    )).input.compressor;
+    value.input.context = {
+      message: 7,
+      sharedTreeChange: 5,
+      modularChange: 5,
+      minVersionForCollab: "2.117.0",
+    };
+    value.input.operands = {
+      nonviolated: { revision: "r", changeset: nonviolatedChangeset },
+      violated: { revision: "r", changeset: violatedChangeset },
+      compose: { changes: [{ revision: "r", changeset: nonviolatedChangeset }] },
+      invert: {
+        change: { revision: "r", changeset: nonviolatedChangeset },
+        isRollback: false,
+      },
+      rebase: {
+        change: {
+          revision: "r",
+          changeset: violatedChangeset,
+          decoded: [{ change: { constraintViolationCount: 1 } }],
+        },
+        over: { revision: "o", changeset: overChangeset, decoded: [{ change: ["over"] }] },
+        revisionMetadata: [
+          { revision: "r", rollbackOf: null },
+          { revision: "o", rollbackOf: null },
+        ],
+      },
+    };
+    value.input.operands.invert.inverseRevision = "inverse";
+    value.expected.observations = [{
+      id: "modular-v5-shared-tree-v5",
+      nonviolated: { revision: "r", changes: [{ change: [1] }] },
+      violated: { revision: "r", changes: [{ change: [2] }] },
+      composed: [{ change: [3] }],
+      inverted: [{ change: [4] }],
+      rebased: { changes: [{ change: [5] }] },
+    }];
+    value.raw.algebra = {
+      nonviolatedOperand: {
+        revision: value.expected.observations[0].nonviolated.revision,
+        changes: value.expected.observations[0].nonviolated.changes,
+      },
+      composed: value.expected.observations[0].composed,
+      inverted: value.expected.observations[0].inverted,
+      rebaseOperands: {
+        change: {
+          revision: "r",
+          changes: value.input.operands.rebase.change.decoded,
+        },
+        over: {
+          revision: "o",
+          changes: value.input.operands.rebase.over.decoded,
+        },
+      },
+      rebased: value.expected.observations[0].rebased.changes,
+    };
+  }
+  if (id === "transaction-history") {
+    value.input.summary = { tree: {} };
+    value.input.compressor = { serialized: "summary-compressor", sessionId: "session" };
+    value.input.tailEnvelope = { contents: { version: 7, changeset: [{ data: {} }] } };
+    value.input.tailAllocationRanges = [{
+      sessionId: "tail-session",
+      ids: {
+        firstGenCount: 1,
+        count: 1,
+        requestedClusterSize: 512,
+        localIdRanges: [[1, 1]],
+      },
+    }];
+    value.input.continuation = {
+      edits: [{ op: "insert" }],
+      creationRange: {
+        sessionId: "continuation-session",
+        ids: {
+          firstGenCount: 1,
+          count: 1,
+          requestedClusterSize: 512,
+          localIdRanges: [[1, 1]],
+        },
+      },
+    };
+    value.expected.observations = [{
+      id: "reconnect-summary-history",
+      pending: { state: "pending" },
+      pendingViolation: { change: { constraintViolationCount: 1 } },
+      pendingCompressor: "summary-compressor",
+      missingTailAllocationError: "Error: unknown compressed ID",
+      loaded: { state: "loaded" },
+      afterTail: { state: "tail" },
+      afterContinuation: { state: "continued" },
+      peer: { state: "continued" },
+      checkpoints: [
+        "pending", "sequenced-summary", "acknowledged-violation", "loaded-summary",
+        "after-tail", "after-continuation", "peer-after-continuation",
+      ].map((checkpoint) => ({
+        id: checkpoint,
+        identities: ["node"],
+        retainedDetached: [],
+        compressor: "state",
+        allocation: { sessionId: "session", ongoing: "captured" },
+        history: { pending: [], trunk: [] },
+        visible: { state: checkpoint },
+      })),
+    }];
+    value.expected.observations[0].afterContinuation = {
+      visible: { state: "continued" },
+      identities: ["node"],
+    };
+    value.expected.observations[0].peer = {
+      visible: { state: "continued" },
+      identities: ["node"],
+    };
+    value.raw.tailAllocationRanges = structuredClone(value.input.tailAllocationRanges);
+    value.raw.observation = structuredClone(value.expected.observations[0]);
+  }
+  return value;
 }
 
 function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
@@ -1700,6 +1946,363 @@ test("transaction cases require complete source-backed contracts", () => {
       assert.throws(() => validateCases(corpus), new RegExp(id));
     }
     assert.throws(() => validateCases(cases([id])), new RegExp(`Missing case: ${id}`));
+  }
+});
+
+function transactionCorpus(id) {
+  const corpus = cases();
+  const index = corpus.findIndex((value) => value.id === id);
+  corpus[index] = JSON.parse(readFileSync(
+    new URL(`../../test/fixtures/shared_tree/cases/${id}.json`, import.meta.url),
+    "utf8",
+  ));
+  return corpus;
+}
+
+test("transaction wire requires executable codec and algebra inputs and results", () => {
+  const mutations = [
+    (value) => { delete value.input.messageBytes; },
+    (value) => { delete value.input.messageBytes.over; },
+    (value) => { value.input.messageBytes.nonviolated = "{}"; },
+    (value) => { value.input.messageBytes.violated = "{}"; },
+    (value) => { delete value.input.compressor; },
+    (value) => { delete value.input.compressor.violated; },
+    (value) => { value.input.compressor.nonviolated.sessionId = "not-a-session"; },
+    (value) => { value.input.compressor.nonviolated.serialized = "not-a-compressor"; },
+    (value) => {
+      value.input.compressor.nonviolated.sessionId =
+        JSON.parse(value.input.messageBytes.nonviolated).originatorId;
+    },
+    (value) => { delete value.input.context; },
+    (value) => { value.input.context.message = 6; },
+    (value) => { delete value.input.operands.nonviolated; },
+    (value) => { delete value.input.operands.violated; },
+    (value) => { delete value.input.operands.compose; },
+    (value) => { delete value.input.operands.invert; },
+    (value) => { delete value.input.operands.rebase; },
+    (value) => { delete value.input.operands.rebase.change; },
+    (value) => { delete value.input.operands.rebase.change.decoded; },
+    (value) => { delete value.input.operands.rebase.over.decoded; },
+    (value) => { delete value.input.operands.nonviolated.revision; },
+    (value) => { delete value.input.operands.compose.changes[0].revision; },
+    (value) => { delete value.input.operands.invert.inverseRevision; },
+    (value) => { value.input.operands.invert.inverseRevision = ""; },
+    (value) => { delete value.input.operands.invert.isRollback; },
+    (value) => { value.input.operands.invert.isRollback = "false"; },
+    (value) => { delete value.input.operands.rebase.revisionMetadata[0].revision; },
+    (value) => { delete value.input.operands.rebase.revisionMetadata[0].rollbackOf; },
+    (value) => {
+      value.input.operands.rebase.revisionMetadata[0].revision =
+        "00000000-0000-4000-8000-000000000000";
+    },
+    (value) => { delete value.expected.observations[0].nonviolated; },
+    (value) => { delete value.expected.observations[0].violated; },
+    (value) => { delete value.expected.observations[0].composed; },
+    (value) => { delete value.expected.observations[0].inverted; },
+    (value) => { value.expected.observations[0].inverted = [{ garbage: true }]; },
+    (value) => { delete value.expected.observations[0].rebased; },
+    (value) => { delete value.raw.messages; },
+    (value) => { delete value.raw.algebra; },
+    (value) => { delete value.raw.algebra.nonviolatedOperand; },
+    (value) => { value.raw.algebra.composed = [{ corrupted: true }]; },
+    (value) => { value.raw.algebra.inverted = [{ corrupted: true }]; },
+    (value) => { delete value.raw.algebra.rebaseOperands; },
+    (value) => { value.raw.algebra.rebased = [{ corrupted: true }]; },
+  ];
+  for (const [mutationIndex, mutate] of mutations.entries()) {
+    const corpus = transactionCorpus("transaction-wire");
+    const value = corpus.find(({ id }) => id === "transaction-wire");
+    value.input.messageBytes ??= {
+      nonviolated: value.expected.observations[0].messageBytes,
+      violated: value.expected.observations[0].messageBytes,
+      over: value.expected.observations[0].messageBytes,
+    };
+    value.input.compressor ??= {
+      nonviolated: { serialized: "compressor", sessionId: "session" },
+      violated: { serialized: "compressor", sessionId: "session" },
+      over: { serialized: "compressor", sessionId: "session" },
+    };
+    value.input.context ??= {
+      message: 7,
+      sharedTreeChange: 5,
+      modularChange: 5,
+      minVersionForCollab: "2.117.0",
+    };
+    value.input.operands ??= {
+      nonviolated: { changeset: [1] },
+      violated: { changeset: [2] },
+      compose: { changes: ["nonviolated", "nonviolated"] },
+      invert: { change: "nonviolated" },
+      rebase: { change: "nonviolated", over: "violated", revisionMetadata: [{ revision: "r" }] },
+    };
+    value.expected.observations[0].nonviolated ??= { changes: [1] };
+    value.expected.observations[0].violated ??= { changes: [2] };
+    value.expected.observations[0].rebased ??= { changes: [3] };
+    assert.doesNotThrow(() => validateCases(corpus));
+    mutate(value);
+    assert.throws(() => validateCases(corpus), /transaction-wire/);
+  }
+});
+
+test("transaction rebase input uses the captured violated change", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/transaction-wire.json", import.meta.url),
+    "utf8",
+  ));
+  const violated = JSON.parse(value.input.messageBytes.violated);
+  assert.deepEqual(value.input.operands.rebase.change.changeset, violated.changeset);
+  assert.deepEqual(
+    value.raw.algebra.rebaseOperands.change,
+    {
+      revision: value.input.operands.rebase.change.revision,
+      changes: value.input.operands.rebase.change.decoded,
+    },
+  );
+  assert.deepEqual(
+    value.raw.algebra.rebased,
+    value.expected.observations[0].rebased.changes,
+  );
+
+  value.input.operands.rebase.change.changeset =
+    JSON.parse(value.input.messageBytes.nonviolated).changeset;
+  assert.throws(() => validateCases(cases().map((item) =>
+    item.id === value.id ? value : item)), /transaction-wire.*rebase change/i);
+});
+
+test("transaction history replays from the summary compressor with captured tail ranges", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/transaction-history.json", import.meta.url),
+    "utf8",
+  ));
+  assert.equal(value.input.compressor.serialized, value.expected.observations[0].pendingCompressor);
+  assert(value.input.tailAllocationRanges.length > 0);
+});
+
+test("transaction callbacks capture invalid-edit rollback and every field-operation read", () => {
+  const value = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/transaction-callbacks.json", import.meta.url),
+    "utf8",
+  ));
+  const success = value.expected.observations.find(({ id }) => id === "success-all-fields");
+  assert.deepEqual(success.reads.map(({ step }) => step), [
+    "object-set", "object-delete", "map-set", "map-delete",
+    "array-insert", "array-remove", "array-replace",
+    "same-array-move", "cross-array-move",
+  ]);
+  const invalid = value.expected.observations.find(({ id }) => id === "invalid-edit-rollback");
+  assert(invalid, "missing invalid-edit rollback scenario");
+  assert.deepEqual(invalid.reads.map(({ step }) => step), ["valid-edit-before-invalid"]);
+  assert.equal(invalid.reads[0].value.title, "before-invalid");
+  assert.equal(invalid.transactionResult, "rollback");
+  assert.match(invalid.error, /Expected non-negative index/);
+  for (const field of ["visible", "identities", "retainedDetached", "compressor", "history"]) {
+    assert.deepEqual(invalid.state.after[field], invalid.state.before[field]);
+  }
+  assert.notEqual(invalid.allocation.after.ongoing, invalid.allocation.before.ongoing);
+  assert.equal(invalid.localCompressorAdvanced, true);
+  assert.deepEqual(invalid.events, []);
+  assert.equal(invalid.commitCount, 0);
+  assert.equal(invalid.pendingCommitCount, 0);
+  assert.deepEqual(invalid.submittedMessages, []);
+});
+
+test("transaction history requires replayable summary continuation checkpoints", () => {
+  const mutations = [
+    (value) => { delete value.input.summary; },
+    (value) => { value.input.summary = {}; },
+    (value) => { delete value.input.compressor; },
+    (value) => { value.input.compressor.serialized = ""; },
+    (value) => { delete value.input.tailEnvelope; },
+    (value) => { value.input.tailEnvelope.contents = {}; },
+    (value) => { delete value.input.tailEnvelope.contents.changeset; },
+    (value) => { delete value.input.tailAllocationRanges; },
+    (value) => { value.input.tailAllocationRanges = []; },
+    (value) => { delete value.input.tailAllocationRanges[0].sessionId; },
+    (value) => { delete value.input.tailAllocationRanges[0].ids.firstGenCount; },
+    (value) => { value.input.tailAllocationRanges[0].ids.count = 0; },
+    (value) => { value.input.tailAllocationRanges[0].ids.localIdRanges = [[1]]; },
+    (value) => { delete value.input.continuation; },
+    (value) => { value.input.continuation.edits = []; },
+    (value) => { delete value.input.continuation.creationRange; },
+    (value) => { delete value.expected.observations[0].pending; },
+    (value) => { delete value.expected.observations[0].pendingViolation; },
+    (value) => { delete value.expected.observations[0].missingTailAllocationError; },
+    (value) => { delete value.expected.observations[0].loaded; },
+    (value) => { delete value.expected.observations[0].afterTail; },
+    (value) => { delete value.expected.observations[0].afterContinuation; },
+    (value) => { delete value.expected.observations[0].peer; },
+    (value) => { delete value.expected.observations[0].checkpoints; },
+    (value) => { value.expected.observations[0].checkpoints[0].identities = []; },
+    (value) => { delete value.expected.observations[0].checkpoints[0].retainedDetached; },
+    (value) => { value.expected.observations[0].checkpoints[0].compressor = ""; },
+    (value) => { value.expected.observations[0].checkpoints[0].allocation = {}; },
+    (value) => { delete value.expected.observations[0].checkpoints[0].history; },
+    (value) => { delete value.expected.observations[0].checkpoints[0].visible; },
+    (value) => { value.expected.observations[0].peer.visible = { corrupted: true }; },
+  ];
+  for (const mutate of mutations) {
+    const corpus = transactionCorpus("transaction-history");
+    const value = corpus.find(({ id }) => id === "transaction-history");
+    value.input.summary ??= value.expected.observations[0].pendingSummary;
+    value.input.compressor ??= {
+      serialized: value.expected.observations[0].pendingCompressor,
+      sessionId: "session",
+    };
+    value.input.tailEnvelope ??= { contents: value.expected.observations[0].summaryPlusTail.tailMessages[0] };
+    value.input.continuation ??= { op: "transaction", edits: [{ op: "set" }] };
+    value.input.tailAllocationRanges ??= [{
+      sessionId: "tail-session",
+      ids: {
+        firstGenCount: 1,
+        count: 1,
+        requestedClusterSize: 512,
+        localIdRanges: [[1, 1]],
+      },
+    }];
+    value.expected.observations[0].pendingViolation ??= {
+      change: { constraintViolationCount: 1 },
+    };
+    value.expected.observations[0].loaded ??= { final: "loaded" };
+    value.expected.observations[0].afterTail ??= { final: "tail" };
+    value.expected.observations[0].afterContinuation ??= { final: "continued" };
+    value.expected.observations[0].peer ??= { final: "continued" };
+    value.expected.observations[0].checkpoints ??= [{
+      retainedDetached: ["content"],
+      identities: ["node"],
+      compressor: "state",
+      allocation: { state: "captured" },
+    }];
+    assert.doesNotThrow(() => validateCases(corpus));
+    mutate(value);
+    assert.throws(() => validateCases(corpus), /transaction-history/);
+  }
+});
+
+test("transaction callbacks require field coverage and exact state checkpoints", () => {
+  const mutations = [
+    (value) => { value.input.scenarios[0].operations.pop(); },
+    (value) => {
+      value.expected.observations
+        .find(({ id }) => id === "success-all-fields").reads.pop();
+    },
+    (value) => {
+      value.input.scenarios = value.input.scenarios.filter(
+        ({ id }) => id !== "invalid-edit-rollback",
+      );
+    },
+    (value) => {
+      value.expected.observations = value.expected.observations.filter(
+        ({ id }) => id !== "invalid-edit-rollback",
+      );
+    },
+    ...Array.from({ length: 6 }, (_, index) => [
+      (value) => { value.expected.observations[index].identity.nodes = []; },
+      (value) => { value.expected.observations[index].allocation = {}; },
+      (value) => { value.expected.observations[index].compressor = ""; },
+    ]).flat(),
+    (value) => { value.expected.observations[0].events = []; },
+    (value) => { value.expected.observations[1].submittedMessages = [{}]; },
+    (value) => { delete value.expected.observations[0].reads; },
+    (value) => { delete value.expected.observations[0].final; },
+    (value) => { delete value.expected.observations[0].retainedDetached; },
+    (value) => { delete value.expected.observations[0].history; },
+    (value) => {
+      delete value.expected.observations
+        .find(({ id }) => id === "invalid-edit-rollback").error;
+    },
+    (value) => {
+      delete value.expected.observations
+        .find(({ id }) => id === "invalid-edit-rollback").localCompressorAdvanced;
+    },
+    (value) => {
+      value.expected.observations
+        .find(({ id }) => id === "invalid-edit-rollback").events = [{ kind: "changed" }];
+    },
+    (value) => {
+      value.expected.observations
+        .find(({ id }) => id === "invalid-edit-rollback").state.after.visible = {
+          state: "changed",
+        };
+    },
+    (value) => { delete value.raw.scenarios; },
+  ];
+  for (const [mutationIndex, mutate] of mutations.entries()) {
+    const corpus = transactionCorpus("transaction-callbacks");
+    const value = corpus.find(({ id }) => id === "transaction-callbacks");
+    const complete = transactionCaseFixture("transaction-callbacks", "tree");
+    if (!value.input.scenarios.some(({ id }) => id === "invalid-edit-rollback")) {
+      value.input.scenarios.push(structuredClone(
+        complete.input.scenarios.find(({ id }) => id === "invalid-edit-rollback"),
+      ));
+      value.expected.observations.push(structuredClone(
+        complete.expected.observations.find(({ id }) => id === "invalid-edit-rollback"),
+      ));
+    }
+    value.raw.scenarios ??= structuredClone(value.expected.observations);
+    value.raw.messages ??= value.expected.observations.flatMap(
+      ({ submittedMessages }) => submittedMessages,
+    );
+    value.input.scenarios[0].operations ??= [
+      "object-set", "object-delete", "map-set", "map-delete",
+      "array-insert", "array-remove", "array-replace",
+      "same-array-move", "cross-array-move",
+    ];
+    for (const observation of value.expected.observations) {
+      observation.identity ??= { nodes: ["node"] };
+      observation.allocation ??= { before: "a", after: "b" };
+      observation.compressor ??= "state";
+    }
+    assert.doesNotThrow(() => validateCases(corpus));
+    mutate(value);
+    assert.throws(
+      () => validateCases(corpus),
+      /transaction-callbacks/,
+      `mutation ${mutationIndex}`,
+    );
+  }
+});
+
+test("transaction callbacks reject missing rollback checkpoints in expected and raw", () => {
+  const corpus = transactionCorpus("transaction-callbacks");
+  const value = corpus.find(({ id }) => id === "transaction-callbacks");
+  value.expected.observations
+    .find(({ id }) => id === "invalid-edit-rollback").state.before = {};
+  value.raw.scenarios
+    .find(({ id }) => id === "invalid-edit-rollback").state.before = {};
+  assert.deepEqual(
+    value.expected.observations
+      .find(({ id }) => id === "invalid-edit-rollback").state.before,
+    {},
+  );
+  assert.throws(() => generator.validateTransactionCallbacks(value), /transaction-callbacks/);
+});
+
+test("transaction constraints require converged client outcomes and retained evidence", () => {
+  const mutations = [
+    (value) => { delete value.expected.observations[0].clients; },
+    (value) => { value.expected.observations[0].clients.peer = { corrupted: true }; },
+    (value) => { value.expected.observations[0].clients = {
+      writer: { created: true },
+      peer: { created: true },
+    }; },
+    (value) => { delete value.expected.observations[0].converged; },
+    (value) => { delete value.expected.observations[0].constraintViolationCount; },
+    (value) => { delete value.expected.observations[0].retainedBuilds; },
+    (value) => { delete value.expected.observations[0].refusal; },
+    (value) => { delete value.expected.observations[0].withinMove.identityPreserved; },
+    (value) => { delete value.expected.observations[0].crossMove.identityPreserved; },
+  ];
+  for (const mutate of mutations) {
+    const corpus = transactionCorpus("transaction-constraints");
+    const value = corpus.find(({ id }) => id === "transaction-constraints");
+    const observation = value.expected.observations[0];
+    observation.clients ??= { writer: observation.final, peer: observation.final };
+    observation.converged ??= true;
+    observation.withinMove.identityPreserved ??= observation.withinMove.targetAtEnd;
+    observation.crossMove.identityPreserved ??= observation.crossMove.targetAtEnd;
+    assert.doesNotThrow(() => validateCases(corpus));
+    mutate(value);
+    assert.throws(() => validateCases(corpus), /transaction-constraints/);
   }
 });
 

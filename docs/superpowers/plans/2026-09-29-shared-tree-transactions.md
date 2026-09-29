@@ -257,7 +257,8 @@ pub fn abort(
 
 `finish` composes authored changes, adds constraints, and appends one local
 commit. `NoCommit` restores the base compressor. `abort` restores the base tree
-and compressor. Intermediate edits and abort emit no public data event.
+and summary compressor state while retaining pinned ongoing local compressor
+advancement. Intermediate edits and abort emit no public data event.
 `finish` returns the one outer event when committed visible data changed.
 
 ### Runtime-core API, owned by Task 5
@@ -616,8 +617,9 @@ git commit -m "feat(tree): enforce node constraints"
 Start from a tree and compressor, apply two edits, and assert callback-visible
 state without public events. Before finish, assert normal pending history is
 unchanged. Finish must append one pending commit and return one final event.
-Abort must restore tree, history, identity, and compressor equality without an
-event.
+Abort must restore tree, history, identity, and summary compressor equality
+without an event. After an authored edit, preserve the pinned advancement of
+the ongoing local compressor state without emitting an allocation range.
 
 - [ ] **Step 2: Split edit authoring from history append.**
 
@@ -655,7 +657,8 @@ only current isolated state, records the change, and suppresses preview events.
 
 Test two nested levels, inner success, inner abort, outer continuation, and
 outer abort after inner success. Each savepoint stores current tree,
-compressor, authored-change length, and event position.
+authored-change length, and event position. Aborting a savepoint preserves
+ongoing local compressor advancement.
 
 - [ ] **Step 5: Compose and append the outer success.**
 
@@ -726,13 +729,15 @@ returns `TreeOperationFailed` with a literal cross-tree error.
 Resolve `NodeInDocument` paths before invoking `transaction.begin`. Nested
 begin requires the same address and view. Inner commit/abort update only active
 state. Outer commit calls existing `submit_tree_commits` once. Outer abort
-restores the core tree/compressor and returns no events.
+restores the core tree and summary compressor state, retains pinned ongoing
+local compressor advancement, and returns no events.
 
 - [ ] **Step 5: Preserve batch and allocation invariants.**
 
 Assert one outer commit produces one tree operation plus its required
 allocation item in one container batch. No-op and abort produce no allocation
-or outbound operation. Existing ordinary edit batching remains unchanged.
+message or outbound operation. An abort after authored edits can retain local
+compressor advancement. Existing ordinary edit batching remains unchanged.
 
 - [ ] **Step 6: Add schema and reconnect guards.**
 
@@ -1148,7 +1153,8 @@ behavior. Do not create an empty closure commit.
 ## 5. Acceptance checklist
 
 - [ ] One outer success produces one composed SharedTree commit.
-- [ ] Outer abort restores values, identities, history, and compressor state.
+- [ ] Outer abort restores values, identities, history, and summary compressor
+      state while preserving pinned ongoing local compressor advancement.
 - [ ] Nested success and abort match the pinned upstream observations.
 - [ ] One outer commit event and no abort event match the pinned upstream model.
 - [ ] Node-existence constraints use identity and survive node moves.
@@ -1157,7 +1163,9 @@ behavior. Do not create an empty closure commit.
 - [ ] Constraint codec bytes match ModularChange V5.
 - [ ] Object, map, array, and move edits work in one transaction.
 - [ ] Schema upgrades and cross-tree transactions fail without partial state.
-- [ ] No-op and aborted transactions allocate and submit nothing.
+- [ ] No-op transactions do not allocate or submit. Aborted transactions
+      preserve pinned local compressor advancement but emit no allocation range
+      or outbound operation.
 - [ ] JavaScript and BEAM expose matching generic callback APIs.
 - [ ] BEAM defers remote operations until the synchronous outer scope ends.
 - [ ] Reconnect resubmits one transaction without duplicate effects.

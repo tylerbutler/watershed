@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { deserializeIdCompressor } from "@fluidframework/id-compressor/internal";
 import { reference, runSource, validateCapture } from "./source.mjs";
 import { validateContainerFoundationsCase } from "./container-foundations.mjs";
 import { validateSummaryFoundationsCase } from "./summary-foundations.mjs";
@@ -3363,6 +3364,416 @@ export function validateRuntimeCase(value) {
   }
 }
 
+export function validateTransactionCallbacks(value) {
+  const label = value.id;
+  assert.equal(
+    new Set(value.input.scenarios.map(({ id }) => id)).size,
+    value.input.scenarios.length,
+    `${label}: duplicate input scenario`,
+  );
+  assert.equal(
+    new Set(value.expected.observations.map(({ id }) => id)).size,
+    value.expected.observations.length,
+    `${label}: duplicate observation`,
+  );
+  const requiredOperations = [
+    "object-set", "object-delete", "map-set", "map-delete",
+    "array-insert", "array-remove", "array-replace",
+    "same-array-move", "cross-array-move",
+  ];
+  const operations = value.input.scenarios.find(({ id }) => id === "success-all-fields")?.operations;
+  assert(requiredOperations.every((operation) => operations?.includes(operation)),
+    `${label}: incomplete field coverage`);
+  assert(value.input.scenarios.some(({ id, operation }) =>
+    id === "invalid-edit-rollback" && operation === "array-remove-negative-index"),
+  `${label}: missing invalid-edit scenario`);
+  for (const observation of value.expected.observations) {
+    assert(nonemptyArray(observation.reads), `${label}: missing ${observation.id} callback reads`);
+    assert(object(observation.final), `${label}: missing ${observation.id} final state`);
+    assert(object(observation.identity)
+      && nonemptyArray(observation.identity.nodes)
+      && nonemptyArray(observation.identity.before)
+      && Array.isArray(observation.identity.preserved),
+      `${label}: missing ${observation.id} identity state`);
+    assertAllocationCheckpoint(observation.allocation?.before,
+      `${label}: ${observation.id} allocation before`);
+    assertAllocationCheckpoint(observation.allocation?.after,
+      `${label}: ${observation.id} allocation after`);
+    assert(object(observation.history)
+      && Array.isArray(observation.history.pending)
+      && Array.isArray(observation.history.trunk),
+    `${label}: missing ${observation.id} history state`);
+    assert(Array.isArray(observation.retainedDetached),
+      `${label}: missing ${observation.id} retained state`);
+    assert(object(observation.allocation),
+      `${label}: missing ${observation.id} allocation state`);
+    assert(typeof observation.compressor === "string" && observation.compressor.length > 0,
+      `${label}: missing ${observation.id} compressor state`);
+  }
+  const byId = new Map(value.expected.observations.map((observation) => [
+    observation.id,
+    observation,
+  ]));
+  assert.deepEqual(byId.get("success-all-fields")?.reads.map(({ step }) => step),
+    requiredOperations, `${label}: missing field-operation callback read`);
+  for (const id of ["success-all-fields", "nested-success", "nested-rollback"]) {
+    const observation = byId.get(id);
+    assert(observation?.events?.length === 1
+      && observation.commitCount === 1
+      && observation.pendingCommitCount === 1
+      && observation.submittedMessages?.length === 1,
+    `${label}: incorrect ${id} outer event contract`);
+  }
+  for (const id of ["outer-rollback", "no-op", "invalid-edit-rollback"]) {
+    const observation = byId.get(id);
+    assert(observation?.events?.length === 0
+      && observation.commitCount === 0
+      && observation.pendingCommitCount === 0
+      && observation.submittedMessages?.length === 0,
+    `${label}: incorrect ${id} empty outcome`);
+  }
+  const invalid = byId.get("invalid-edit-rollback");
+  assert(typeof invalid?.error === "string"
+    && invalid.error.includes("Expected non-negative index passed to TreeArrayNode.removeAt")
+    && invalid.transactionResult === "rollback"
+    && invalid.reads?.length === 1
+    && invalid.reads[0].step === "valid-edit-before-invalid"
+    && invalid.reads[0].value?.title === "before-invalid"
+    && invalid.localCompressorAdvanced === true
+    && object(invalid.state?.before)
+    && object(invalid.state?.after),
+  `${label}: missing invalid-edit error or rollback evidence`);
+  for (const [name, checkpoint] of Object.entries(invalid.state)) {
+    assert(object(checkpoint)
+      && ["visible", "identities", "retainedDetached", "compressor", "history"]
+        .every((field) => Object.hasOwn(checkpoint, field))
+      && object(checkpoint.visible)
+      && nonemptyArray(checkpoint.identities)
+      && Array.isArray(checkpoint.retainedDetached)
+      && typeof checkpoint.compressor === "string"
+      && checkpoint.compressor.length > 0
+      && object(checkpoint.history)
+      && Array.isArray(checkpoint.history.pending)
+      && Array.isArray(checkpoint.history.trunk),
+    `${label}: incomplete invalid-edit ${name} checkpoint`);
+  }
+  for (const field of ["visible", "identities", "retainedDetached", "compressor", "history"]) {
+    assert.deepEqual(invalid.state.after[field], invalid.state.before[field],
+      `${label}: invalid edit changed ${field}`);
+  }
+  assert.equal(invalid.allocation.after.sessionId, invalid.allocation.before.sessionId,
+    `${label}: invalid edit changed compressor session`);
+  assert.notEqual(invalid.allocation.after.ongoing, invalid.allocation.before.ongoing,
+    `${label}: invalid edit did not capture local compressor advancement`);
+  assert.deepEqual(value.raw.scenarios, value.expected.observations,
+    `${label}: callback observations differ from raw execution`);
+  assert.deepEqual(value.raw.messages,
+    value.expected.observations.flatMap(({ submittedMessages }) => submittedMessages),
+    `${label}: callback messages differ from raw execution`);
+}
+
+function validateTransactionConstraints(value) {
+  const label = value.id;
+  const observation = value.expected.observations[0];
+  assert(object(observation.clients)
+    && object(observation.clients.writer)
+    && object(observation.clients.peer),
+  `${label}: missing converged client states`);
+  assert.equal(observation.converged, true, `${label}: clients did not converge`);
+  assert.deepEqual(observation.clients.writer, observation.clients.peer,
+    `${label}: client states differ`);
+  assert.equal(observation.constraintViolationCount, 1,
+    `${label}: missing explicit violation count`);
+  assert(nonemptyArray(observation.retainedBuilds), `${label}: missing retained builds`);
+  assert.equal(observation.withinMove?.identityPreserved, true,
+    `${label}: same-array identity was not preserved`);
+  assert.equal(observation.crossMove?.identityPreserved, true,
+    `${label}: cross-array identity was not preserved`);
+  assert(observation.refusal?.callbackRan === false
+    && typeof observation.refusal.error === "string"
+    && observation.refusal.error.includes("not currently in the document"),
+  `${label}: missing detached refusal evidence`);
+  assert(!JSON.stringify(observation.clients).includes("suppressed")
+    && !JSON.stringify(observation.clients).includes("created"),
+    `${label}: constrained effects remained visible`);
+}
+
+function validateTransactionWire(value) {
+  const label = value.id;
+  assert(typeof value.input.messageBytes?.nonviolated === "string"
+    && value.input.messageBytes.nonviolated.length > 0
+    && typeof value.input.messageBytes?.violated === "string"
+    && value.input.messageBytes.violated.length > 0
+    && typeof value.input.messageBytes?.over === "string"
+    && value.input.messageBytes.over.length > 0,
+    `${label}: missing executable Message V7 bytes`);
+  assert(object(value.input.compressor), `${label}: missing compressor input`);
+  for (const name of ["nonviolated", "violated", "over"]) {
+    const compressor = value.input.compressor[name];
+    assert(object(compressor)
+      && typeof compressor.serialized === "string"
+      && compressor.serialized.length > 0
+      && typeof compressor.sessionId === "string"
+      && compressor.sessionId.length > 0,
+    `${label}: missing ${name} compressor input`);
+    assert.doesNotThrow(
+      () => deserializeIdCompressor(compressor.serialized, compressor.sessionId),
+      `${label}: unrestorable ${name} compressor input`,
+    );
+  }
+  assert.deepEqual(value.input.context, {
+    message: 7,
+    sharedTreeChange: 5,
+    modularChange: 5,
+    minVersionForCollab: "2.117.0",
+  }, `${label}: incomplete codec context`);
+  for (const name of ["nonviolated", "violated", "compose", "invert", "rebase"]) {
+    assert(object(value.input.operands?.[name])
+      && Object.keys(value.input.operands[name]).length > 0,
+    `${label}: missing ${name} operand`);
+  }
+  assert(nonemptyArray(value.input.operands.rebase.revisionMetadata),
+    `${label}: missing rebase revision metadata`);
+  const nonviolatedMessage = JSON.parse(value.input.messageBytes.nonviolated);
+  const violatedMessage = JSON.parse(value.input.messageBytes.violated);
+  const overMessage = JSON.parse(value.input.messageBytes.over);
+  const observation = value.expected.observations[0];
+  assert.equal(nonviolatedMessage.version, 7, `${label}: nonviolated message version`);
+  assert.equal(violatedMessage.version, 7, `${label}: violated message version`);
+  assert.equal(overMessage.version, 7, `${label}: rebase-over message version`);
+  assert.notEqual(
+    value.input.compressor.nonviolated.sessionId,
+    nonviolatedMessage.originatorId,
+    `${label}: nonviolated compressor resumes the existing author session`,
+  );
+  const nonviolatedBytes = JSON.stringify(nonviolatedMessage);
+  const violatedBytes = JSON.stringify(violatedMessage);
+  for (const evidence of ["nodeExistsConstraint", "\"builds\"", "\"left\"", "\"label\""]) {
+    assert(nonviolatedBytes.includes(evidence), `${label}: missing nonviolated ${evidence}`);
+  }
+  for (const evidence of [
+    "\"violated\":true", "\"violations\":1", "\"builds\"", "\"refreshers\"",
+  ]) {
+    assert(violatedBytes.includes(evidence), `${label}: missing violated ${evidence}`);
+  }
+  assert.equal(value.input.scenarios[0]?.duplicates, 2,
+    `${label}: missing duplicate constraint inputs`);
+  for (const name of ["nonviolated", "violated"]) {
+    assert(nonemptyArray(value.input.operands[name].changeset),
+      `${label}: incomplete ${name} changeset`);
+  }
+  assert(nonemptyArray(value.input.operands.compose.changes)
+    && value.input.operands.compose.changes.every(({ changeset }) => nonemptyArray(changeset)),
+  `${label}: incomplete compose operands`);
+  assert(nonemptyArray(value.input.operands.invert.change?.changeset),
+    `${label}: incomplete invert operand`);
+  assert(typeof value.input.operands.invert.inverseRevision === "string"
+    && value.input.operands.invert.inverseRevision.length > 0,
+  `${label}: missing invert inverseRevision`);
+  assert(typeof value.input.operands.invert.isRollback === "boolean",
+    `${label}: missing invert rollback mode`);
+  assert(nonemptyArray(value.input.operands.rebase.change?.changeset)
+    && nonemptyArray(value.input.operands.rebase.over?.changeset),
+  `${label}: incomplete rebase operands`);
+  for (const [index, metadata] of value.input.operands.rebase.revisionMetadata.entries()) {
+    assert(object(metadata)
+      && typeof metadata.revision === "string"
+      && metadata.revision.length > 0
+      && Object.hasOwn(metadata, "rollbackOf")
+      && (metadata.rollbackOf === null
+        || (typeof metadata.rollbackOf === "string" && metadata.rollbackOf.length > 0)),
+    `${label}: malformed rebase revisionMetadata ${index}`);
+  }
+  assert.deepEqual(
+    value.input.operands.nonviolated.changeset,
+    nonviolatedMessage.changeset,
+    `${label}: nonviolated operand differs from captured message`,
+  );
+  assert.deepEqual(
+    value.input.operands.violated.changeset,
+    violatedMessage.changeset,
+    `${label}: violated operand differs from captured message`,
+  );
+  assert.equal(
+    value.input.operands.nonviolated.revision,
+    value.raw.algebra?.nonviolatedOperand?.revision,
+    `${label}: nonviolated revision differs from decoded wire operand`,
+  );
+  assert.equal(
+    value.input.operands.violated.revision,
+    observation.violated?.revision,
+    `${label}: violated revision differs from decoded wire operand`,
+  );
+  assert(value.input.operands.compose.changes.every(({ changeset }) =>
+    JSON.stringify(changeset) === JSON.stringify(nonviolatedMessage.changeset)),
+  `${label}: compose operand differs from captured message`);
+  assert(value.input.operands.compose.changes.every(({ revision }) =>
+    revision === value.input.operands.nonviolated.revision),
+  `${label}: compose revision differs from decoded wire operand`);
+  assert.deepEqual(
+    value.input.operands.invert.change.changeset,
+    nonviolatedMessage.changeset,
+    `${label}: invert operand differs from captured message`,
+  );
+  assert.equal(
+    value.input.operands.invert.change.revision,
+    value.input.operands.nonviolated.revision,
+    `${label}: invert revision differs from decoded wire operand`,
+  );
+  assert.deepEqual(
+    value.input.operands.rebase.change.changeset,
+    violatedMessage.changeset,
+    `${label}: rebase change differs from captured violated message`,
+  );
+  assert.deepEqual(
+    value.input.operands.rebase.over.changeset,
+    overMessage.changeset,
+    `${label}: rebase base differs from captured concurrent message`,
+  );
+  for (const name of ["nonviolated", "violated", "composed", "inverted", "rebased"]) {
+    assert(
+      (object(observation[name]) && Object.keys(observation[name]).length > 0)
+        || nonemptyArray(observation[name]),
+      `${label}: missing ${name} result`);
+    assert(JSON.stringify(observation[name]).includes("\"change\""),
+      `${label}: lossy ${name} result`);
+  }
+  assert(nonemptyArray(value.raw.messages) && object(value.raw.algebra),
+    `${label}: missing raw wire or algebra evidence`);
+  assert(object(value.raw.algebra.rebaseOperands?.change)
+    && object(value.raw.algebra.rebaseOperands?.over),
+  `${label}: missing decoded rebase operands`);
+  assert.deepEqual(value.raw.algebra.nonviolatedOperand, {
+    revision: observation.nonviolated.revision,
+    changes: observation.nonviolated.changes,
+  }, `${label}: nonviolated result differs from decoded wire operand`);
+  assert.deepEqual(value.raw.algebra.composed, observation.composed,
+    `${label}: compose result differs from decoded-wire execution`);
+  assert.deepEqual(value.raw.algebra.inverted, observation.inverted,
+    `${label}: invert result differs from decoded-wire execution`);
+  assert.deepEqual(value.raw.algebra.rebaseOperands.change, {
+    revision: value.input.operands.rebase.change.revision,
+    changes: value.input.operands.rebase.change.decoded,
+  }, `${label}: decoded rebase change differs from captured wire operand`);
+  assert.deepEqual(value.raw.algebra.rebaseOperands.over, {
+    revision: value.input.operands.rebase.over.revision,
+    changes: value.input.operands.rebase.over.decoded,
+  }, `${label}: decoded rebase base differs from captured wire operand`);
+  assert.deepEqual(
+    value.input.operands.rebase.revisionMetadata,
+    [
+      { revision: value.input.operands.rebase.change.revision, rollbackOf: null },
+      { revision: value.input.operands.rebase.over.revision, rollbackOf: null },
+    ],
+    `${label}: rebase metadata differs from decoded wire operands`,
+  );
+  assert(JSON.stringify(value.input.operands.rebase.change.decoded)
+    .includes("\"constraintViolationCount\":1"),
+  `${label}: decoded rebase change is not explicitly violated`);
+  assert.deepEqual(value.raw.algebra.rebased, observation.rebased.changes,
+    `${label}: rebase result differs from raw decoded-wire execution`);
+}
+
+function assertAllocationCheckpoint(value, label) {
+  assert(object(value)
+    && typeof value.sessionId === "string"
+    && value.sessionId.length > 0
+    && typeof value.ongoing === "string"
+    && value.ongoing.length > 0,
+  `${label}: malformed allocation checkpoint`);
+}
+
+function assertCreationRange(value, label) {
+  assert(object(value)
+    && typeof value.sessionId === "string"
+    && value.sessionId.length > 0
+    && object(value.ids)
+    && Number.isSafeInteger(value.ids.firstGenCount)
+    && value.ids.firstGenCount > 0
+    && Number.isSafeInteger(value.ids.count)
+    && value.ids.count > 0
+    && Number.isSafeInteger(value.ids.requestedClusterSize)
+    && value.ids.requestedClusterSize > 0
+    && Array.isArray(value.ids.localIdRanges)
+    && value.ids.localIdRanges.every((range) =>
+      Array.isArray(range)
+      && range.length === 2
+      && Number.isSafeInteger(range[0])
+      && range[0] > 0
+      && Number.isSafeInteger(range[1])
+      && range[1] > 0),
+  `${label}: malformed creation range`);
+}
+
+function validateTransactionHistory(value) {
+  const label = value.id;
+  assert(object(value.input.summary) && Object.keys(value.input.summary).length > 0,
+    `${label}: missing replay summary`);
+  assert(object(value.input.compressor)
+    && typeof value.input.compressor.serialized === "string"
+    && value.input.compressor.serialized.length > 0
+    && typeof value.input.compressor.sessionId === "string"
+    && value.input.compressor.sessionId.length > 0,
+  `${label}: missing replay compressor`);
+  assert(object(value.input.tailEnvelope) && object(value.input.tailEnvelope.contents),
+    `${label}: missing tail envelope`);
+  assert.equal(value.input.tailEnvelope.contents.version, 7,
+    `${label}: invalid tail message version`);
+  assert(nonemptyArray(value.input.tailEnvelope.contents.changeset),
+    `${label}: missing tail changeset`);
+  assert(nonemptyArray(value.input.tailAllocationRanges),
+    `${label}: missing tail allocation ranges`);
+  value.input.tailAllocationRanges.forEach((range, index) =>
+    assertCreationRange(range, `${label}: tail allocation range ${index}`));
+  assert(object(value.input.continuation) && nonemptyArray(value.input.continuation.edits),
+    `${label}: missing continuation input`);
+  assertCreationRange(value.input.continuation.creationRange,
+    `${label}: continuation creation range`);
+  const observation = value.expected.observations[0];
+  for (const name of [
+    "pending", "pendingViolation", "loaded", "afterTail", "afterContinuation", "peer",
+  ]) {
+    assert(object(observation[name]) && Object.keys(observation[name]).length > 0,
+      `${label}: missing ${name} checkpoint`);
+  }
+  assert(nonemptyArray(observation.checkpoints), `${label}: missing history checkpoints`);
+  assert(JSON.stringify(observation.pendingViolation).includes("\"constraintViolationCount\":1"),
+    `${label}: pending rebase was not explicitly violated`);
+  assert(typeof observation.missingTailAllocationError === "string"
+    && observation.missingTailAllocationError.length > 0,
+  `${label}: missing allocation-free replay failure`);
+  const checkpointIds = new Set(observation.checkpoints.map(({ id }) => id));
+  for (const id of [
+    "pending", "sequenced-summary", "acknowledged-violation", "loaded-summary",
+    "after-tail", "after-continuation", "peer-after-continuation",
+  ]) {
+    assert(checkpointIds.has(id), `${label}: missing ${id} checkpoint`);
+  }
+  for (const checkpoint of observation.checkpoints) {
+    assert(nonemptyArray(checkpoint.identities)
+      && Array.isArray(checkpoint.retainedDetached)
+      && typeof checkpoint.compressor === "string"
+      && checkpoint.compressor.length > 0
+      && object(checkpoint.history)
+      && Array.isArray(checkpoint.history.pending)
+      && Array.isArray(checkpoint.history.trunk)
+      && object(checkpoint.visible),
+    `${label}: incomplete ${checkpoint.id ?? "history"} checkpoint`);
+    assertAllocationCheckpoint(checkpoint.allocation,
+      `${label}: ${checkpoint.id ?? "history"} allocation`);
+  }
+  assert.deepEqual(observation.peer.visible, observation.afterContinuation.visible,
+    `${label}: continuation did not converge`);
+  assert.deepEqual(observation.peer.identities, observation.afterContinuation.identities,
+    `${label}: continuation identity did not converge`);
+  assert.equal(value.input.compressor.serialized, observation.pendingCompressor,
+    `${label}: replay compressor is not the summary-point compressor`);
+  assert.deepEqual(value.raw.tailAllocationRanges, value.input.tailAllocationRanges,
+    `${label}: tail allocation ranges differ from raw execution`);
+  assert.deepEqual(value.raw.observation, observation,
+    `${label}: history observation differs from raw execution`);
+}
+
 export function validateCases(cases) {
   assert(Array.isArray(cases) && cases.length > 0, "The corpus is empty");
   const ids = new Set();
@@ -3458,6 +3869,10 @@ export function validateCases(cases) {
       assert(nonemptyArray(value.input.scenarios), `${value.id}: missing transaction scenarios`);
       assert(nonemptyArray(value.raw.messages), `${value.id}: missing transaction wire evidence`);
     }
+    if (value.id === "transaction-callbacks") validateTransactionCallbacks(value);
+    if (value.id === "transaction-constraints") validateTransactionConstraints(value);
+    if (value.id === "transaction-wire") validateTransactionWire(value);
+    if (value.id === "transaction-history") validateTransactionHistory(value);
     if (value.id === "summary-writer-matrix") validateSummaryPersistence(value);
     if (value.id === "id-ranges") {
       assert(object(value.input.sessions) && typeof value.input.sessions.summaryRestoration === "string"

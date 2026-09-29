@@ -201,9 +201,10 @@ first layer and record the authored change. This keeps edit validation,
 identity allocation, forest updates, schema checks, and array move behavior
 shared between ordinary and transactional edits.
 
-Each nested savepoint records the current isolated tree, compressor, authored
-change count, and event position. Inner abort restores those values. Inner
-success removes only the savepoint.
+Each nested savepoint records the current isolated tree, authored change count,
+and event position. Inner abort restores those values. It retains any
+advancement in the ongoing local compressor state, matching pinned Fluid 3.1.0.
+Inner success removes only the savepoint.
 
 The transaction must use the same identity ordering rules as ordinary edits.
 Do not infer ordering from UUIDs or allocation time.
@@ -235,6 +236,9 @@ from the callback-visible data, do not publish a public tree-change event.
 An inner abort does not end the outer transaction. An outer abort removes the
 active transaction state completely. It leaves no pending commit, receipt,
 peer branch, allocation range, outbound operation, or summary change.
+Authored edits can advance the ongoing local compressor state even when the
+scope aborts. Preserve that local advancement. The summary compressor state
+and all document-visible state remain unchanged.
 
 The runtime must remain usable after every reported transaction error. Do not
 use a broad catch that converts internal faults into successful aborts.
@@ -318,7 +322,7 @@ The corpus must include:
 | Case | Required observations |
 | --- | --- |
 | Single commit | Intermediate callback reads, one outer local event, one final commit, one operation, and exact final tree and identity state. |
-| Outer abort | Intermediate callback reads, no public event, restored tree and identity state, no submitted commit, and no retained allocation. |
+| Outer abort | Intermediate callback reads, no public event, restored tree, identity, history, and summary compressor state, no submitted commit or allocation range, and the measured ongoing local compressor advancement. |
 | Nested success | Inner reads, one outer event, one outer commit, and author-order composition. |
 | Nested abort | Inner rollback to its savepoint, continued outer edits, and one final outer commit. |
 | No-op | No commit, allocation, operation, or additional event. |
@@ -356,7 +360,8 @@ The implementation plan must name exact commands and expected outputs for:
 Acceptance requires:
 
 - [ ] One outer success produces one composed SharedTree commit.
-- [ ] Outer abort restores values, identities, history, and compressor state.
+- [ ] Outer abort restores values, identities, history, and summary compressor
+      state while preserving pinned ongoing local compressor advancement.
 - [ ] Nested success and abort match the pinned upstream observations.
 - [ ] One outer commit event and no abort event match the pinned upstream model.
 - [ ] Node-existence constraints use identity and survive node moves.

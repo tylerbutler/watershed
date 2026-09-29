@@ -11,10 +11,22 @@ import type {
 	IIdCompressor,
 	SessionSpaceCompressedId,
 } from "@fluidframework/id-compressor";
-import { serializeIdCompressor } from "@fluidframework/id-compressor/internal";
+import {
+	createSessionId,
+	deserializeIdCompressor,
+	serializeIdCompressor,
+	toIdCompressorWithCore,
+	type IdCreationRange,
+} from "@fluidframework/id-compressor/internal";
+import {
+	MockDeltaConnection,
+	MockFluidDataStoreRuntime,
+	MockSharedObjectServices,
+} from "@fluidframework/test-runtime-utils/internal";
 
 import { FluidClientVersion } from "../codec/index.js";
 import {
+	revisionMetadataSourceFromInfo,
 	tagChange,
 	type GraphCommit,
 	type RevisionTag,
@@ -44,6 +56,7 @@ const reference = {
 
 const sf = new SchemaFactory("org.watershed.shared-tree.transactions");
 class Point extends sf.object("Point", {
+	id: sf.identifier,
 	label: sf.string,
 	x: sf.number,
 }) {}
@@ -51,6 +64,7 @@ class Items extends sf.array("Items", [sf.string, Point]) {}
 class NamedMap extends sf.map("NamedMap", [sf.string, Point, Items]) {}
 class Root extends sf.object("Root", {
 	title: sf.string,
+	note: sf.optional(sf.string),
 	count: sf.number,
 	left: Items,
 	right: Items,
@@ -70,6 +84,7 @@ function treeFactory() {
 function initialRoot() {
 	return new Root({
 		title: "base",
+		note: "seed",
 		count: 0,
 		left: new Items([
 			new Point({ label: "left-a", x: 1 }),
@@ -91,9 +106,10 @@ function caseFile(id: string, domain: string, input: object, observations: objec
 
 function visible(root: Root) {
 	const value = (item: string | Point): unknown =>
-		item instanceof Point ? { id: item.label, label: item.label, x: item.x } : item;
+		item instanceof Point ? { id: item.id, label: item.label, x: item.x } : item;
 	return {
 		title: root.title,
+		note: root.note ?? null,
 		count: root.count,
 		left: [...root.left].map(value),
 		right: [...root.right].map(value),
@@ -105,6 +121,45 @@ function visible(root: Root) {
 					? [...item].map(value)
 					: item,
 		]),
+	};
+}
+
+function contentState(tree: TreeInstance, view: TransactionView) {
+	const snapshot = Reflect.get(tree, "contentSnapshot") as () => { removed: unknown[] };
+	return {
+		visible: visible(view.root),
+		identities: [
+			...[...view.root.left, ...view.root.right]
+				.filter((item): item is Point => item instanceof Point)
+				.map((item) => item.id),
+			...[...view.root.byKey.values()]
+				.filter((item): item is Point => item instanceof Point)
+				.map((item) => item.id),
+		],
+		retainedDetached: copy(snapshot.call(tree).removed),
+	};
+}
+
+function compressorState(compressor: IIdCompressor) {
+	return {
+		sessionId: compressor.localSessionId,
+		ongoing: serializeIdCompressor(compressor, true),
+		summary: serializeIdCompressor(compressor, false),
+	};
+}
+
+function checkpoint(tree: TreeInstance, view: TransactionView, compressor: IIdCompressor, id: string) {
+	const content = contentState(tree, view);
+	const state = compressorState(compressor);
+	return {
+		id,
+		...content,
+		compressor: state.summary,
+		allocation: {
+			sessionId: state.sessionId,
+			ongoing: state.ongoing,
+		},
+		history: managerState(tree, compressor),
 	};
 }
 
@@ -145,6 +200,87 @@ function interceptProcessed(provider: TestTreeProviderLite, client = 0): unknown
 	return processed;
 }
 
+function treeEnvelopesIn(value: unknown): Record<string, unknown>[] {
+	const envelopes: Record<string, unknown>[] = [];
+	function visit(item: unknown) {
+		if (Array.isArray(item)) {
+			for (const child of item) visit(child);
+		} else if (item !== null && typeof item === "object") {
+			const object = item as Record<string, unknown>;
+			if (
+				typeof object.sequenceNumber === "number"
+				&& object.contents !== null
+				&& typeof object.contents === "object"
+				&& Reflect.get(object.contents, "version") === 7
+			) {
+				envelopes.push(copy(object));
+				return;
+			}
+			for (const child of Object.values(object)) visit(child);
+		}
+	}
+	visit(value);
+	return envelopes;
+}
+
+function allocationRangesIn(value: unknown): IdCreationRange[] {
+	const ranges = new Map<string, IdCreationRange>();
+	function visit(item: unknown) {
+		if (Array.isArray(item)) {
+			for (const child of item) visit(child);
+		} else if (item !== null && typeof item === "object") {
+			const object = item as Record<string, unknown>;
+			const contents = object.contents as Record<string, unknown> | undefined;
+			if (
+				typeof object.sequenceNumber === "number"
+				&& contents?.type === "idAllocation"
+				&& contents.contents !== null
+				&& typeof contents.contents === "object"
+			) {
+				const range = copy(contents.contents as IdCreationRange);
+				ranges.set(JSON.stringify(range), range);
+				return;
+			}
+			for (const child of Object.values(object)) visit(child);
+		}
+	}
+	visit(value);
+	return [...ranges.values()];
+}
+
+function deliver(tree: TreeInstance, envelope: Record<string, unknown>) {
+	const kernel = Reflect.get(tree, "kernel") as {
+		processMessagesCore(batch: unknown, local: boolean): void;
+	};
+	kernel.processMessagesCore(
+		{
+			envelope: {
+				clientId: String(envelope.clientId),
+				clientSequenceNumber: Number(envelope.clientSequenceNumber),
+				contents: envelope.contents,
+				referenceSequenceNumber: Number(envelope.referenceSequenceNumber),
+				sequenceNumber: Number(envelope.sequenceNumber),
+				minimumSequenceNumber: Number(envelope.minimumSequenceNumber),
+				timestamp: 0,
+				type: "op",
+			},
+			messagesContent: [{
+				contents: envelope.contents,
+				localOpMetadata: undefined,
+				clientSequenceNumber: Number(envelope.clientSequenceNumber),
+			}],
+		},
+		false,
+	);
+}
+
+function decodeMessage(tree: TreeInstance, encoded: unknown, compressor: IIdCompressor) {
+	const codec = Reflect.get(tree.kernel, "messageCodec") as {
+		decode(value: unknown, context: { idCompressor: IIdCompressor }): unknown;
+	};
+	return codec.decode(encoded, { idCompressor: compressor });
+}
+
 function revision(value: RevisionTag | undefined, compressor: IIdCompressor): string | null {
 	return value === undefined
 		? null
@@ -162,6 +298,7 @@ function fieldChanges(value: ModularChangeset["fieldChanges"]) {
 	return [...value].map(([field, change]) => ({
 		field,
 		kind: change.fieldKind,
+		change: copy(change.change),
 	}));
 }
 
@@ -267,7 +404,7 @@ function captureEvents(view: TransactionView) {
 
 async function callbackScenario(
 	id: string,
-	run: (view: TransactionView, reads: object[]) => void,
+	run: (view: TransactionView, reads: object[]) => object | void,
 ) {
 	const provider = new TestTreeProviderLite(2, treeFactory());
 	const processed = interceptProcessed(provider);
@@ -275,10 +412,13 @@ async function callbackScenario(
 	view.initialize(initialRoot());
 	provider.synchronizeMessages();
 	const beforeMessages = processed.length;
+	const compressor = provider.getCompressor(provider.trees[0]);
+	const before = checkpoint(provider.trees[0], view, compressor, "before");
 	const reads: object[] = [];
 	const events = captureEvents(view);
-	run(view, reads);
+	const outcome = run(view, reads);
 	const pending = managerState(provider.trees[0], provider.getCompressor(provider.trees[0]));
+	const after = checkpoint(provider.trees[0], view, compressor, "after");
 	provider.synchronizeMessages();
 	const result = {
 		id,
@@ -288,7 +428,28 @@ async function callbackScenario(
 		pendingCommitCount: pending.pending.length,
 		submittedMessages: messagesIn(processed.slice(beforeMessages)),
 		final: visible(view.root),
+		identity: {
+			nodes: after.identities,
+			before: before.identities,
+			preserved: before.identities.filter((identity) => after.identities.includes(identity)),
+		},
+		allocation: {
+			before: before.allocation,
+			after: after.allocation,
+		},
+		compressor: after.compressor,
+		retainedDetached: after.retainedDetached,
+		history: after.history,
 		depth: transactionDepth(view),
+		...(outcome ?? {}),
+		...(id === "invalid-edit-rollback"
+			? {
+				state: {
+					before: { ...before, id: undefined },
+					after: { ...after, id: undefined },
+				},
+			}
+			: {}),
 	};
 	events.stop();
 	return result;
@@ -300,20 +461,31 @@ async function captureCallbacks() {
 			Tree.runTransaction(view, () => {
 				assert.equal(transactionDepth(view), 1);
 				view.root.title = "object";
-				reads.push({ step: "object", value: visible(view.root) });
+				reads.push({ step: "object-set", value: visible(view.root) });
+				view.root.note = undefined;
+				reads.push({ step: "object-delete", value: visible(view.root) });
 				view.root.byKey.set("added", "map");
-				reads.push({ step: "map", value: visible(view.root) });
-				view.root.left.insertAtEnd("array");
-				reads.push({ step: "array", value: visible(view.root) });
-				view.root.right.moveRangeToEnd(0, 1, view.root.left);
-				reads.push({ step: "move", value: visible(view.root) });
+				reads.push({ step: "map-set", value: visible(view.root) });
+				view.root.byKey.delete("seed");
+				reads.push({ step: "map-delete", value: visible(view.root) });
+				view.root.left.insertAtEnd("inserted");
+				reads.push({ step: "array-insert", value: visible(view.root) });
+				view.root.left.removeAt(view.root.left.length - 1);
+				reads.push({ step: "array-remove", value: visible(view.root) });
+				view.root.left.removeAt(1);
+				view.root.left.insertAt(1, new Point({ label: "replacement", x: 4 }));
+				reads.push({ step: "array-replace", value: visible(view.root) });
+				view.root.left.moveToEnd(0);
+				reads.push({ step: "same-array-move", value: visible(view.root) });
+				view.root.right.moveRangeToEnd(1, 2, view.root.left);
+				reads.push({ step: "cross-array-move", value: visible(view.root) });
 			});
 		}),
 		await callbackScenario("outer-rollback", (view, reads) => {
 			const before = visible(view.root);
 			const result = Tree.runTransaction(view, () => {
 				view.root.title = "rolled-back";
-				view.root.left.insertAtEnd("temporary");
+				view.root.left.insertAtEnd(new Point({ label: "temporary", x: 99 }));
 				reads.push({ step: "before-rollback", value: visible(view.root) });
 				return Tree.runTransaction.rollback;
 			});
@@ -355,9 +527,27 @@ async function captureCallbacks() {
 	];
 	for (const scenario of scenarios) {
 		assert.equal(scenario.depth, 0, `${scenario.id}: transaction depth`);
-		if (scenario.id === "outer-rollback" || scenario.id === "no-op") {
+		if (
+			scenario.id === "outer-rollback"
+			|| scenario.id === "no-op"
+		) {
 			assert.equal(scenario.pendingCommitCount, 0, `${scenario.id}: pending commits`);
 			assert.equal(scenario.submittedMessages.length, 0, `${scenario.id}: messages`);
+			assert.equal(scenario.commitCount, 0, `${scenario.id}: commits`);
+			assert.equal(scenario.events.length, 0, `${scenario.id}: events`);
+			assert.deepEqual(
+				scenario.identity.nodes,
+				scenario.identity.before,
+				`${scenario.id}: identity state`,
+			);
+			assert.equal(scenario.retainedDetached.length, 0, `${scenario.id}: detached content`);
+			if (scenario.id === "no-op") {
+				assert.deepEqual(
+					scenario.allocation.after,
+					scenario.allocation.before,
+					`${scenario.id}: allocation state`,
+				);
+			}
 		} else {
 			assert.equal(scenario.pendingCommitCount, 1, `${scenario.id}: pending commits`);
 			assert.equal(scenario.commitCount, 1, `${scenario.id}: commit count`);
@@ -367,10 +557,58 @@ async function captureCallbacks() {
 	return caseFile(
 		"transaction-callbacks",
 		"tree",
-		{ scenarios: scenarios.map(({ id }) => ({ id, api: "Tree.runTransaction" })) },
+		{
+			scenarios: scenarios.map(({ id }) => ({
+				id,
+				api: "Tree.runTransaction",
+				...(id === "success-all-fields"
+					? {
+						operations: [
+							"object-set", "object-delete", "map-set", "map-delete",
+							"array-insert", "array-remove", "array-replace",
+							"same-array-move", "cross-array-move",
+						],
+					}
+					: {}),
+			})),
+		},
 		scenarios,
 		{ scenarios, messages: scenarios.flatMap(({ submittedMessages }) => submittedMessages) },
 	);
+}
+
+async function captureInvalidEditCallback() {
+	const scenario = await callbackScenario("invalid-edit-rollback", (view, reads) => {
+		let error = "";
+		const result = Tree.runTransaction(view, () => {
+			view.root.title = "before-invalid";
+			reads.push({ step: "valid-edit-before-invalid", value: visible(view.root) });
+			try {
+				view.root.left.removeAt(-1);
+			} catch (caught) {
+				error = String(caught);
+				return Tree.runTransaction.rollback;
+			}
+		});
+		assert.match(error, /Expected non-negative index passed to TreeArrayNode\.removeAt/);
+		assert.equal(result, Tree.runTransaction.rollback);
+		return { error, transactionResult: "rollback" };
+	});
+	assert.equal(scenario.pendingCommitCount, 0);
+	assert.equal(scenario.submittedMessages.length, 0);
+	assert.equal(scenario.commitCount, 0);
+	assert.equal(scenario.events.length, 0);
+	assert.deepEqual(scenario.identity.nodes, scenario.identity.before);
+	assert.equal(scenario.retainedDetached.length, 0);
+	assert(scenario.state !== undefined);
+	assert.deepEqual(scenario.state.after.visible, scenario.state.before.visible);
+	assert.deepEqual(scenario.state.after.identities, scenario.state.before.identities);
+	assert.deepEqual(scenario.state.after.retainedDetached, scenario.state.before.retainedDetached);
+	assert.deepEqual(scenario.state.after.history, scenario.state.before.history);
+	assert.equal(scenario.state.after.compressor, scenario.state.before.compressor);
+	assert.equal(scenario.allocation.after.sessionId, scenario.allocation.before.sessionId);
+	assert.notEqual(scenario.allocation.after.ongoing, scenario.allocation.before.ongoing);
+	return { ...scenario, localCompressorAdvanced: true };
 }
 
 async function captureConstraints() {
@@ -391,6 +629,8 @@ async function captureConstraints() {
 	moveProvider.synchronizeMessages();
 	const withinMove = {
 		targetAtEnd: moveView.root.left.at(-1) === target,
+		identityPreserved: moveView.root.left.at(-1) === target,
+		identity: target.id,
 		value: visible(moveView.root),
 	};
 	Tree.runTransaction(
@@ -405,6 +645,8 @@ async function captureConstraints() {
 	moveProvider.synchronizeMessages();
 	const crossMove = {
 		targetAtEnd: moveView.root.right.at(-1) === target,
+		identityPreserved: moveView.root.right.at(-1) === target,
+		identity: target.id,
 		value: visible(moveView.root),
 	};
 
@@ -465,6 +707,14 @@ async function captureConstraints() {
 	const retainedBuilds = constraintCommit.changes.flatMap((change) =>
 		change.type === "data" ? change.change.builds : []);
 	assert(retainedBuilds.length > 0, "Violated transactions must retain created content.");
+	const writerFinal = visible(view.root);
+	const peerFinal = visible(peer.root);
+	assert.deepEqual(writerFinal, peerFinal, "Violated transactions must converge.");
+	assert.equal(
+		JSON.stringify(writerFinal).includes("suppressed"),
+		false,
+		"Violated field effects must be suppressed on every client.",
+	);
 	const observation = {
 		id: "node-in-document",
 		refusal: { callbackRan, error: refusal },
@@ -472,7 +722,9 @@ async function captureConstraints() {
 		crossMove,
 		pending,
 		settled,
-		final: visible(view.root),
+		final: writerFinal,
+		clients: { writer: writerFinal, peer: peerFinal },
+		converged: true,
 		constraintViolationCount: 1,
 		retainedBuilds,
 		reconnectMessages: messagesIn(processed.slice(beforeMessages)),
@@ -523,6 +775,11 @@ async function captureWire() {
 					isRollback: boolean,
 					revision: RevisionTag,
 				): SharedTreeChange;
+				rebase(
+					change: TaggedChange<SharedTreeChange>,
+					over: TaggedChange<SharedTreeChange>,
+					metadata: ReturnType<typeof revisionMetadataSourceFromInfo>,
+				): SharedTreeChange;
 			};
 		};
 	};
@@ -532,20 +789,158 @@ async function captureWire() {
 	const local = manager.getLocalCommits("main");
 	assert.equal(local.length, 1);
 	const compressor = provider.getCompressor(provider.trees[0]);
-	const inverseRevision = compressor.generateCompressedId() as RevisionTag;
-	const tagged = tagChange(local[0].change, local[0].revision);
-	const composed = checkout.changeFamily.rebaser.compose([tagged, tagged]);
-	const inverted = checkout.changeFamily.rebaser.invert(tagged, false, inverseRevision);
 	provider.synchronizeMessages();
 	const messages = messagesIn(processed.slice(start));
 	assert.equal(messages.length, 1);
+
+	const violatedProvider = new TestTreeProviderLite(2, treeFactory());
+	const violatedProcessed = interceptProcessed(violatedProvider);
+	const violatedView = violatedProvider.trees[0].viewWith(
+		new TreeViewConfiguration({ schema: Root }),
+	);
+	violatedView.initialize(initialRoot());
+	violatedProvider.synchronizeMessages();
+	const violatedPeer = violatedProvider.trees[1].viewWith(
+		new TreeViewConfiguration({ schema: Root }),
+	);
+	const violatedTarget = violatedView.root.left[0];
+	assert(violatedTarget instanceof Point);
+	violatedProvider.trees[0].containerRuntime.connected = false;
+	const violatedStart = violatedProcessed.length;
+	Tree.runTransaction(
+		violatedView,
+		() => {
+			violatedTarget.label = "violated-wire";
+			violatedView.root.right.insertAtEnd(
+				new Point({ label: "violated-created", x: 20 }),
+			);
+		},
+		[
+			{ type: "nodeInDocument", node: violatedTarget },
+			{ type: "nodeInDocument", node: violatedTarget },
+		],
+	);
+	const violatedManager = Reflect.get(violatedProvider.trees[0].kernel, "editManager") as {
+		getLocalCommits(branch: string): Commit[];
+		getTrunkCommits(branch: string): Commit[];
+	};
+	const original = violatedManager.getLocalCommits("main")[0];
+	assert(original !== undefined);
+	violatedPeer.root.left.removeAt(0);
+	violatedProvider.synchronizeMessages();
+	violatedProvider.trees[0].containerRuntime.connected = true;
+	violatedProvider.synchronizeMessages();
+	const violatedCompressor = violatedProvider.getCompressor(violatedProvider.trees[0]);
+	const trunk = violatedManager.getTrunkCommits("main");
+	const violatedCommit = trunk.find((commit) =>
+		sharedChange(commit.change, violatedCompressor).some((change) =>
+			change.type === "data" && change.change.constraintViolationCount === 1));
+	assert(violatedCommit !== undefined, "Expected a violated wire commit.");
+	const over = trunk.find((commit) =>
+		commit.revision !== violatedCommit.revision
+		&& commit.revision !== original.revision
+		&& sharedChange(commit.change, violatedCompressor).some((change) => change.type === "data"));
+	assert(over !== undefined, "Expected the concurrent removal commit.");
+	const violatedCheckout = Reflect.get(violatedView, "checkout") as typeof checkout;
+	const violatedMessages = messagesIn(violatedProcessed.slice(violatedStart))
+		.filter((message) =>
+			message.originatorId === violatedCompressor.localSessionId);
+	assert.equal(violatedMessages.length, 1);
+	const overMessages = [
+		...new Map(
+			messagesIn(violatedProcessed.slice(violatedStart))
+				.filter((message) =>
+					message.originatorId !== violatedCompressor.localSessionId)
+				.map((message) => [JSON.stringify(message), message]),
+		).values(),
+	];
+	assert.equal(overMessages.length, 1);
+	const nonviolatedReplaySession = createSessionId();
+	const nonviolatedReplayCompressor = deserializeIdCompressor(
+		serializeIdCompressor(compressor, false),
+		nonviolatedReplaySession,
+	);
+	const decodedNonviolated = decodeMessage(
+		provider.trees[0],
+		messages[0],
+		nonviolatedReplayCompressor,
+	) as { commit: Commit };
+	const inverseRevision = nonviolatedReplayCompressor.generateCompressedId() as RevisionTag;
+	const decodedTagged = tagChange(
+		decodedNonviolated.commit.change,
+		decodedNonviolated.commit.revision,
+	);
+	const composed = checkout.changeFamily.rebaser.compose([decodedTagged, decodedTagged]);
+	const inverted = checkout.changeFamily.rebaser.invert(
+		decodedTagged,
+		false,
+		inverseRevision,
+	);
+	const violatedReplayCompressor = deserializeIdCompressor(
+		serializeIdCompressor(violatedCompressor, false),
+		createSessionId(),
+	);
+	const decodedViolated = decodeMessage(
+		violatedProvider.trees[0],
+		violatedMessages[0],
+		violatedReplayCompressor,
+	) as { commit: Commit };
+	const decodedOver = decodeMessage(
+		violatedProvider.trees[0],
+		overMessages[0],
+		violatedReplayCompressor,
+	) as { commit: Commit };
+	const revisionMetadata = [
+		{ revision: decodedViolated.commit.revision },
+		{ revision: decodedOver.commit.revision },
+	];
+	const rebased = violatedCheckout.changeFamily.rebaser.rebase(
+		tagChange(decodedViolated.commit.change, decodedViolated.commit.revision),
+		tagChange(decodedOver.commit.change, decodedOver.commit.revision),
+		revisionMetadataSourceFromInfo(revisionMetadata),
+	);
+	const nonviolatedResult = sharedChange(
+		decodedNonviolated.commit.change,
+		nonviolatedReplayCompressor,
+	);
+	const violatedResult = sharedChange(
+		decodedViolated.commit.change,
+		violatedReplayCompressor,
+	);
+	const rebasedResult = sharedChange(rebased, violatedReplayCompressor);
+	const nonviolatedOperand = {
+		revision: revision(
+			decodedNonviolated.commit.revision,
+			nonviolatedReplayCompressor,
+		),
+		changes: nonviolatedResult,
+	};
+	const rebaseOperands = {
+		change: {
+			revision: revision(decodedViolated.commit.revision, violatedReplayCompressor),
+			changes: sharedChange(decodedViolated.commit.change, violatedReplayCompressor),
+		},
+		over: {
+			revision: revision(decodedOver.commit.revision, violatedReplayCompressor),
+			changes: sharedChange(decodedOver.commit.change, violatedReplayCompressor),
+		},
+	};
 	const observation = {
 		id: "modular-v5-shared-tree-v5",
 		message: messages[0],
 		messageBytes: JSON.stringify(messages[0]),
 		pending,
-		composed: sharedChange(composed, compressor),
-		inverted: sharedChange(inverted, compressor),
+		nonviolated: {
+			revision: nonviolatedOperand.revision,
+			changes: nonviolatedResult,
+		},
+		violated: {
+			revision: revision(decodedViolated.commit.revision, violatedReplayCompressor),
+			changes: violatedResult,
+		},
+		composed: sharedChange(composed, nonviolatedReplayCompressor),
+		inverted: sharedChange(inverted, nonviolatedReplayCompressor),
+		rebased: { changes: rebasedResult },
 	};
 	const inverseData = observation.inverted.find((change) => change.type === "data");
 	assert(inverseData !== undefined);
@@ -555,6 +950,77 @@ async function captureWire() {
 		"transaction-wire",
 		"codec",
 		{
+			messageBytes: {
+				nonviolated: JSON.stringify(messages[0]),
+				violated: JSON.stringify(violatedMessages[0]),
+				over: JSON.stringify(overMessages[0]),
+			},
+			compressor: {
+				nonviolated: {
+					serialized: serializeIdCompressor(compressor, false),
+					sessionId: nonviolatedReplaySession,
+				},
+				violated: {
+					serialized: serializeIdCompressor(violatedCompressor, false),
+					sessionId: violatedReplayCompressor.localSessionId,
+				},
+				over: {
+					serialized: serializeIdCompressor(violatedCompressor, false),
+					sessionId: violatedReplayCompressor.localSessionId,
+				},
+			},
+			context: {
+				message: 7,
+				sharedTreeChange: 5,
+				modularChange: 5,
+				minVersionForCollab: "2.117.0",
+			},
+			operands: {
+				nonviolated: {
+					revision: observation.nonviolated.revision,
+					changeset: messages[0].changeset,
+				},
+				violated: {
+					revision: observation.violated.revision,
+					changeset: violatedMessages[0].changeset,
+				},
+				compose: {
+					changes: [
+						{
+							revision: observation.nonviolated.revision,
+							changeset: messages[0].changeset,
+						},
+						{
+							revision: observation.nonviolated.revision,
+							changeset: messages[0].changeset,
+						},
+					],
+				},
+				invert: {
+					change: {
+						revision: observation.nonviolated.revision,
+						changeset: messages[0].changeset,
+					},
+					inverseRevision: revision(inverseRevision, nonviolatedReplayCompressor),
+					isRollback: false,
+				},
+				rebase: {
+					change: {
+						revision: rebaseOperands.change.revision,
+						changeset: violatedMessages[0].changeset,
+						decoded: rebaseOperands.change.changes,
+					},
+					over: {
+						revision: rebaseOperands.over.revision,
+						changeset: overMessages[0].changeset,
+						decoded: rebaseOperands.over.changes,
+					},
+					revisionMetadata: revisionMetadata.map(({ revision: tag }) => ({
+						revision: revision(tag, violatedReplayCompressor),
+						rollbackOf: null,
+					})),
+				},
+			},
 			scenarios: [{
 				id: "modular-v5-shared-tree-v5",
 				duplicates: 2,
@@ -564,7 +1030,20 @@ async function captureWire() {
 			}],
 		},
 		[observation],
-		{ messages, messageBytes: observation.messageBytes, algebra: { composed, inverted } },
+		{
+			messages: [...messages, ...violatedMessages],
+			messageBytes: {
+				nonviolated: observation.messageBytes,
+				violated: JSON.stringify(violatedMessages[0]),
+			},
+			algebra: {
+				nonviolatedOperand,
+				composed: sharedChange(composed, nonviolatedReplayCompressor),
+				inverted: sharedChange(inverted, nonviolatedReplayCompressor),
+				rebaseOperands,
+				rebased: rebasedResult,
+			},
+		},
 	);
 }
 
@@ -574,6 +1053,7 @@ async function captureHistory() {
 	const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
 	view.initialize(initialRoot());
 	provider.synchronizeMessages();
+	const peer = provider.trees[1].viewWith(new TreeViewConfiguration({ schema: Root }));
 	const target = view.root.left[0];
 	assert(target instanceof Point);
 	provider.trees[0].containerRuntime.connected = false;
@@ -586,65 +1066,209 @@ async function captureHistory() {
 		},
 		[{ type: "nodeInDocument", node: target }],
 	);
-	const pending = managerState(provider.trees[0], provider.getCompressor(provider.trees[0]));
+	const authorCompressor = provider.getCompressor(provider.trees[0]);
+	const pending = checkpoint(provider.trees[0], view, authorCompressor, "pending");
+	peer.root.left.removeAt(0);
+	provider.synchronizeMessages();
 	const pendingSummary = (await provider.trees[1].summarize(true)).summary;
-	const pendingCompressor = serializeIdCompressor(
-		provider.getCompressor(provider.trees[0]),
+	const peerCompressor = provider.getCompressor(provider.trees[1]);
+	const pendingCompressor = compressorState(peerCompressor);
+	const summaryState = checkpoint(
+		provider.trees[1],
+		peer,
+		peerCompressor,
+		"sequenced-summary",
+	);
+	assert.equal(
+		JSON.stringify(summaryState.visible).includes("pending"),
 		false,
+		"Sequenced summary state must exclude pending local work.",
 	);
 	provider.trees[0].containerRuntime.connected = true;
 	provider.synchronizeMessages();
-	const acknowledged = managerState(
+	const acknowledged = checkpoint(
 		provider.trees[0],
-		provider.getCompressor(provider.trees[0]),
+		view,
+		authorCompressor,
+		"acknowledged-violation",
 	);
-	const reconnectMessages = messagesIn(processed.slice(start));
-	assert.equal(pending.pending.length, 1);
-	assert.equal(acknowledged.pending.length, 0);
+	const reconnectMessages = messagesIn(processed.slice(start))
+		.filter((message) => message.originatorId === authorCompressor.localSessionId);
+	const tailEnvelope = treeEnvelopesIn(processed.slice(start)).find((envelope) =>
+		messagesIn(envelope).some((message) =>
+			message.originatorId === authorCompressor.localSessionId));
+	assert(tailEnvelope !== undefined, "Expected the captured tail envelope.");
+	assert.equal(pending.history.pending.length, 1);
+	assert.equal(acknowledged.history.pending.length, 0);
 	assert.equal(reconnectMessages.length, 1);
-
-	const tailProvider = new TestTreeProviderLite(2, treeFactory());
-	const tailProcessed = interceptProcessed(tailProvider, 1);
-	const tailView = tailProvider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
-	tailView.initialize(initialRoot());
-	tailProvider.synchronizeMessages();
-	const tailStart = tailProcessed.length;
-	const snapshot = (await tailProvider.trees[0].summarize(true)).summary;
-	const tailTarget = tailView.root.left[0];
-	assert(tailTarget instanceof Point);
-	Tree.runTransaction(
-		tailView,
-		() => {
-			tailTarget.label = "tail";
-			tailView.root.right.insertAtEnd(new Point({ label: "tail-created", x: 12 }));
-		},
-		[{ type: "nodeInDocument", node: tailTarget }],
+	const violated = acknowledged.history.trunk.find((commit) =>
+		commit.changes.some((change) =>
+			change.type === "data" && change.change.constraintViolationCount === 1));
+	assert(violated !== undefined, "Pending rebase must record an explicit violation.");
+	const tailAllocationRanges = allocationRangesIn(processed.slice(start))
+		.filter((range) => Reflect.get(range, "sessionId") === authorCompressor.localSessionId);
+	assert(tailAllocationRanges.length > 0, "Expected tail ID allocation ranges.");
+	const factory = treeFactory();
+	const missingRangeRuntime = new MockFluidDataStoreRuntime({
+		idCompressor: deserializeIdCompressor(pendingCompressor.summary, createSessionId()),
+	});
+	const missingRangeTree = await factory.load(
+		missingRangeRuntime,
+		"watershed-transaction-history-missing-range",
+		MockSharedObjectServices.createFromSummary(pendingSummary),
+		factory.attributes,
 	);
-	tailProvider.synchronizeMessages();
-	const tailMessages = messagesIn(tailProcessed.slice(tailStart));
-	assert.equal(tailMessages.length, 1);
+	let missingTailAllocationError = "";
+	try {
+		deliver(missingRangeTree as TreeInstance, tailEnvelope);
+	} catch (error) {
+		missingTailAllocationError = String(error);
+	}
+	assert.notEqual(
+		missingTailAllocationError,
+		"",
+		"Tail replay without captured allocation ranges must fail.",
+	);
+
+	const readerSession = createSessionId();
+	const readerRuntime = new MockFluidDataStoreRuntime({
+		idCompressor: deserializeIdCompressor(pendingCompressor.summary, readerSession),
+	});
+	assert(readerRuntime.idCompressor !== undefined);
+	for (const range of tailAllocationRanges) {
+		toIdCompressorWithCore(readerRuntime.idCompressor).finalizeCreationRange(range);
+	}
+	const continuationSubmitted: unknown[] = [];
+	const readerServices = MockSharedObjectServices.createFromSummary(pendingSummary);
+	readerServices.deltaConnection = new MockDeltaConnection(
+		(message) => {
+			continuationSubmitted.push(copy(message));
+			return Number(tailEnvelope.sequenceNumber) + 1;
+		},
+		() => {},
+	);
+	const readerTree = await factory.load(
+		readerRuntime,
+		"watershed-transaction-history-reader",
+		readerServices,
+		factory.attributes,
+	);
+	const readerView = readerTree.viewWith(new TreeViewConfiguration({ schema: Root }));
+	const loaded = checkpoint(
+		readerTree as TreeInstance,
+		readerView,
+		readerRuntime.idCompressor,
+		"loaded-summary",
+	);
+	assert.deepEqual(loaded.visible, summaryState.visible);
+	deliver(readerTree as TreeInstance, tailEnvelope);
+	const afterTail = checkpoint(
+		readerTree as TreeInstance,
+		readerView,
+		readerRuntime.idCompressor,
+		"after-tail",
+	);
+	assert.deepEqual(afterTail.visible, acknowledged.visible);
+	assert.deepEqual(afterTail.identities, acknowledged.identities);
+
+	Tree.runTransaction(readerView, () => {
+		readerView.root.right.insertAtEnd(
+			new Point({ label: "reader-continuation", x: 12 }),
+		);
+	});
+	const afterContinuation = checkpoint(
+		readerTree as TreeInstance,
+		readerView,
+		readerRuntime.idCompressor,
+		"after-continuation",
+	);
+	const continuationMessages = messagesIn(continuationSubmitted);
+	assert.equal(continuationMessages.length, 1);
+	const continuationRange = toIdCompressorWithCore(
+		readerRuntime.idCompressor,
+	).takeNextCreationRange();
+	const continuationEnvelope = {
+		clientId: readerRuntime.idCompressor.localSessionId,
+		clientSequenceNumber: 1,
+		referenceSequenceNumber: Number(tailEnvelope.sequenceNumber),
+		sequenceNumber: Number(tailEnvelope.sequenceNumber) + 1,
+		minimumSequenceNumber: Number(tailEnvelope.minimumSequenceNumber),
+		contents: continuationMessages[0],
+	};
+
+	const peerSession = createSessionId();
+	const loadedPeerRuntime = new MockFluidDataStoreRuntime({
+		idCompressor: deserializeIdCompressor(pendingCompressor.summary, peerSession),
+	});
+	assert(loadedPeerRuntime.idCompressor !== undefined);
+	for (const range of tailAllocationRanges) {
+		toIdCompressorWithCore(loadedPeerRuntime.idCompressor).finalizeCreationRange(range);
+	}
+	toIdCompressorWithCore(loadedPeerRuntime.idCompressor).finalizeCreationRange(continuationRange);
+	const loadedPeerTree = await factory.load(
+		loadedPeerRuntime,
+		"watershed-transaction-history-peer",
+		MockSharedObjectServices.createFromSummary(pendingSummary),
+		factory.attributes,
+	);
+	const loadedPeerView = loadedPeerTree.viewWith(new TreeViewConfiguration({ schema: Root }));
+	deliver(loadedPeerTree as TreeInstance, tailEnvelope);
+	deliver(loadedPeerTree as TreeInstance, continuationEnvelope);
+	const peerAfterContinuation = checkpoint(
+		loadedPeerTree as TreeInstance,
+		loadedPeerView,
+		loadedPeerRuntime.idCompressor,
+		"peer-after-continuation",
+	);
+	assert.deepEqual(peerAfterContinuation.visible, afterContinuation.visible);
+	assert.deepEqual(peerAfterContinuation.identities, afterContinuation.identities);
+
+	const checkpoints = [
+		pending,
+		summaryState,
+		acknowledged,
+		loaded,
+		afterTail,
+		afterContinuation,
+		peerAfterContinuation,
+	];
 	const observation = {
 		id: "reconnect-summary-history",
 		pending,
+		pendingViolation: violated,
 		pendingSummary,
-		pendingCompressor,
+		pendingCompressor: pendingCompressor.summary,
+		missingTailAllocationError,
 		reconnectMessages,
 		acknowledged,
-		final: visible(view.root),
-		summaryPlusTail: {
-			snapshot,
-			tailMessages,
-			final: visible(tailView.root),
-			history: managerState(
-				tailProvider.trees[0],
-				tailProvider.getCompressor(tailProvider.trees[0]),
-			),
-		},
+		loaded,
+		afterTail,
+		afterContinuation,
+		peer: peerAfterContinuation,
+		checkpoints,
+		final: acknowledged.visible,
 	};
 	return caseFile(
 		"transaction-history",
 		"history",
 		{
+			summary: pendingSummary,
+			compressor: {
+				serialized: pendingCompressor.summary,
+				sessionId: readerSession,
+			},
+			tailEnvelope,
+			tailAllocationRanges,
+			continuation: {
+				edits: [{
+					op: "array-insert",
+					path: ["right"],
+					values: [{ label: "reader-continuation", x: 12 }],
+				}],
+				envelope: continuationEnvelope,
+				creationRange: copy(continuationRange),
+				peerSessionId: peerSession,
+			},
 			scenarios: [{
 				id: "reconnect-summary-history",
 				actions: [
@@ -653,12 +1277,22 @@ async function captureHistory() {
 					{ op: "summary" },
 					{ op: "reconnect" },
 					{ op: "acknowledge" },
-					{ op: "summary-plus-tail" },
+					{ op: "load-summary" },
+					{ op: "apply-tail" },
+					{ op: "continue" },
+					{ op: "peer-observe" },
 				],
 			}],
 		},
 		[observation],
-		{ messages: reconnectMessages, summary: pendingSummary, observation },
+		{
+			messages: [...reconnectMessages, ...continuationMessages],
+			summary: pendingSummary,
+			tailEnvelope,
+			tailAllocationRanges,
+			continuationEnvelope,
+			observation,
+		},
 	);
 }
 
@@ -668,12 +1302,18 @@ describe("Watershed transaction oracle", () => {
 		assert(output !== undefined && isAbsolute(output), "WATERSHED_ORACLE_OUTPUT must be absolute");
 		assert.equal(process.env.WATERSHED_ORACLE_COMMIT, reference.commit);
 		mkdirSync(output, { recursive: true });
-		const cases = [
-			await captureCallbacks(),
-			await captureConstraints(),
-			await captureWire(),
-			await captureHistory(),
-		];
+		const callbacks = await captureCallbacks();
+		const cases = [callbacks, await captureConstraints(), await captureWire(), await captureHistory()];
+		const invalid = await captureInvalidEditCallback();
+		const callbackInput = callbacks.input as { scenarios: object[] };
+		const callbackRaw = callbacks.raw as { scenarios: object[] };
+		callbackInput.scenarios.push({
+			id: invalid.id,
+			api: "Tree.runTransaction",
+			operation: "array-remove-negative-index",
+		});
+		callbacks.expected.observations = [...callbacks.expected.observations, invalid];
+		callbackRaw.scenarios = [...callbackRaw.scenarios, invalid];
 		writeFileSync(
 			join(output, "transaction-cases.json"),
 			`${JSON.stringify(cases, undefined, 2)}\n`,

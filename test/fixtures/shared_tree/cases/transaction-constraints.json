@@ -40,24 +40,27 @@
         },
         "withinMove": {
           "targetAtEnd": true,
+          "identityPreserved": true,
+          "identity": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
           "value": {
             "title": "base",
+            "note": "seed",
             "count": 0,
             "left": [
               {
-                "id": "left-b",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
                 "label": "left-b",
                 "x": 2
               },
               {
-                "id": "within-move",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
                 "label": "within-move",
                 "x": 1
               }
             ],
             "right": [
               {
-                "id": "right-a",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
                 "label": "right-a",
                 "x": 3
               }
@@ -72,24 +75,27 @@
         },
         "crossMove": {
           "targetAtEnd": true,
+          "identityPreserved": true,
+          "identity": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
           "value": {
             "title": "base",
+            "note": "seed",
             "count": 0,
             "left": [
               {
-                "id": "left-b",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
                 "label": "left-b",
                 "x": 2
               }
             ],
             "right": [
               {
-                "id": "right-a",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
                 "label": "right-a",
                 "x": 3
               },
               {
-                "id": "cross-move",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
                 "label": "cross-move",
                 "x": 1
               }
@@ -105,7 +111,7 @@
         "pending": {
           "pending": [
             {
-              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
               "changes": [
                 {
                   "type": "data",
@@ -113,27 +119,56 @@
                     "maxId": 13,
                     "revisions": [
                       {
-                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                         "rollbackOf": null
                       }
                     ],
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "ModularEditBuilder.Generic"
+                        "kind": "ModularEditBuilder.Generic",
+                        "change": {
+                          "_root": {
+                            "keys": [
+                              0
+                            ],
+                            "values": [
+                              {
+                                "localId": 2,
+                                "revision": 4
+                              }
+                            ]
+                          },
+                          "_maxNodeSize": 32
+                        }
                       }
                     ],
                     "nodes": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "label",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "change": {
+                                "moves": [],
+                                "childChanges": [],
+                                "valueReplace": {
+                                  "isEmpty": false,
+                                  "src": {
+                                    "localId": 6,
+                                    "revision": 4
+                                  },
+                                  "dst": {
+                                    "localId": 7,
+                                    "revision": 4
+                                  }
+                                }
+                              }
                             }
                           ],
                           "nodeExistsConstraint": {
@@ -144,14 +179,28 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "",
-                              "kind": "ModularEditBuilder.Generic"
+                              "kind": "ModularEditBuilder.Generic",
+                              "change": {
+                                "_root": {
+                                  "keys": [
+                                    0
+                                  ],
+                                  "values": [
+                                    {
+                                      "localId": 0,
+                                      "revision": 4
+                                    }
+                                  ]
+                                },
+                                "_maxNodeSize": 32
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -160,18 +209,46 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "ModularEditBuilder.Generic"
+                              "kind": "ModularEditBuilder.Generic",
+                              "change": {
+                                "_root": {
+                                  "keys": [
+                                    0
+                                  ],
+                                  "values": [
+                                    {
+                                      "localId": 1,
+                                      "revision": 4
+                                    }
+                                  ]
+                                },
+                                "_maxNodeSize": 32
+                              }
                             },
                             {
                               "field": "right",
-                              "kind": "ModularEditBuilder.Generic"
+                              "kind": "ModularEditBuilder.Generic",
+                              "change": {
+                                "_root": {
+                                  "keys": [
+                                    0
+                                  ],
+                                  "values": [
+                                    {
+                                      "localId": 12,
+                                      "revision": 4
+                                    }
+                                  ]
+                                },
+                                "_maxNodeSize": 32
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -180,14 +257,29 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 12
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "count": 1
+                                },
+                                {
+                                  "type": "Insert",
+                                  "id": 11,
+                                  "count": 1,
+                                  "cellId": {
+                                    "localId": 11,
+                                    "revision": 4
+                                  },
+                                  "revision": 4
+                                }
+                              ]
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -198,29 +290,29 @@
                     "parents": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         },
                         "parent": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         },
                         "field": ""
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         },
                         "parent": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         },
                         "field": "left"
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         },
                         "parent": null,
@@ -228,11 +320,11 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 12
                         },
                         "parent": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 13
                         },
                         "field": "right"
@@ -241,71 +333,71 @@
                     "aliases": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 3
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 4
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 5
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 8
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 9
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 10
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 13
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 10
                         }
                       }
@@ -313,7 +405,7 @@
                     "builds": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 6
                         },
                         "trees": [
@@ -325,13 +417,19 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 11
                         },
                         "trees": [
                           {
                             "type": "org.watershed.shared-tree.transactions.Point",
                             "fields": {
+                              "id": [
+                                {
+                                  "type": "com.fluidframework.leaf.string",
+                                  "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0b"
+                                }
+                              ],
                               "label": [
                                 {
                                   "type": "com.fluidframework.leaf.string",
@@ -358,7 +456,7 @@
           ],
           "trunk": [
             {
-              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
               "changes": [
                 {
                   "type": "schema",
@@ -434,14 +532,29 @@
                     "maxId": 1,
                     "revisions": [
                       {
-                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
                         "rollbackOf": null
                       }
                     ],
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "change": {
+                          "moves": [],
+                          "childChanges": [],
+                          "valueReplace": {
+                            "isEmpty": true,
+                            "src": {
+                              "localId": 1,
+                              "revision": -4
+                            },
+                            "dst": {
+                              "localId": 0,
+                              "revision": -4
+                            }
+                          }
+                        }
                       }
                     ],
                     "nodes": [],
@@ -450,7 +563,7 @@
                     "builds": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
                           "localId": 1
                         },
                         "trees": [
@@ -461,6 +574,12 @@
                                 {
                                   "type": "com.fluidframework.leaf.string",
                                   "value": "base"
+                                }
+                              ],
+                              "note": [
+                                {
+                                  "type": "com.fluidframework.leaf.string",
+                                  "value": "seed"
                                 }
                               ],
                               "count": [
@@ -477,6 +596,12 @@
                                       {
                                         "type": "org.watershed.shared-tree.transactions.Point",
                                         "fields": {
+                                          "id": [
+                                            {
+                                              "type": "com.fluidframework.leaf.string",
+                                              "value": "8f95be09-8376-4ff7-8755-ccd7e8124b08"
+                                            }
+                                          ],
                                           "label": [
                                             {
                                               "type": "com.fluidframework.leaf.string",
@@ -494,6 +619,12 @@
                                       {
                                         "type": "org.watershed.shared-tree.transactions.Point",
                                         "fields": {
+                                          "id": [
+                                            {
+                                              "type": "com.fluidframework.leaf.string",
+                                              "value": "8f95be09-8376-4ff7-8755-ccd7e8124b07"
+                                            }
+                                          ],
                                           "label": [
                                             {
                                               "type": "com.fluidframework.leaf.string",
@@ -520,6 +651,12 @@
                                       {
                                         "type": "org.watershed.shared-tree.transactions.Point",
                                         "fields": {
+                                          "id": [
+                                            {
+                                              "type": "com.fluidframework.leaf.string",
+                                              "value": "8f95be09-8376-4ff7-8755-ccd7e8124b06"
+                                            }
+                                          ],
                                           "label": [
                                             {
                                               "type": "com.fluidframework.leaf.string",
@@ -647,7 +784,22 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "ModularEditBuilder.Generic"
+                        "kind": "ModularEditBuilder.Generic",
+                        "change": {
+                          "_root": {
+                            "keys": [
+                              0
+                            ],
+                            "values": [
+                              {
+                                "revision": 516,
+                                "localId": 3
+                              }
+                            ],
+                            "isShared": true
+                          },
+                          "_maxNodeSize": 32
+                        }
                       }
                     ],
                     "nodes": [
@@ -660,7 +812,22 @@
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "ModularEditBuilder.Generic"
+                              "kind": "ModularEditBuilder.Generic",
+                              "change": {
+                                "_root": {
+                                  "keys": [
+                                    0
+                                  ],
+                                  "values": [
+                                    {
+                                      "revision": 516,
+                                      "localId": 4
+                                    }
+                                  ],
+                                  "isShared": true
+                                },
+                                "_maxNodeSize": 32
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -676,7 +843,15 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "count": 1,
+                                  "type": "Remove",
+                                  "id": 0,
+                                  "revision": 516
+                                }
+                              ]
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -714,7 +889,7 @@
               ]
             },
             {
-              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
               "changes": [
                 {
                   "type": "data",
@@ -722,27 +897,56 @@
                     "maxId": 13,
                     "revisions": [
                       {
-                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                         "rollbackOf": null
                       }
                     ],
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "ModularEditBuilder.Generic"
+                        "kind": "ModularEditBuilder.Generic",
+                        "change": {
+                          "_root": {
+                            "keys": [
+                              0
+                            ],
+                            "values": [
+                              {
+                                "localId": 2,
+                                "revision": 4
+                              }
+                            ]
+                          },
+                          "_maxNodeSize": 32
+                        }
                       }
                     ],
                     "nodes": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "label",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "change": {
+                                "moves": [],
+                                "childChanges": [],
+                                "valueReplace": {
+                                  "isEmpty": false,
+                                  "src": {
+                                    "localId": 6,
+                                    "revision": 4
+                                  },
+                                  "dst": {
+                                    "localId": 7,
+                                    "revision": 4
+                                  }
+                                }
+                              }
                             }
                           ],
                           "nodeExistsConstraint": {
@@ -753,14 +957,27 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "count": 1,
+                                  "changes": {
+                                    "localId": 0,
+                                    "revision": 4
+                                  },
+                                  "cellId": {
+                                    "revision": 516,
+                                    "localId": 0
+                                  }
+                                }
+                              ]
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -769,18 +986,46 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "ModularEditBuilder.Generic"
+                              "kind": "ModularEditBuilder.Generic",
+                              "change": {
+                                "_root": {
+                                  "keys": [
+                                    0
+                                  ],
+                                  "values": [
+                                    {
+                                      "localId": 1,
+                                      "revision": 4
+                                    }
+                                  ]
+                                },
+                                "_maxNodeSize": 32
+                              }
                             },
                             {
                               "field": "right",
-                              "kind": "ModularEditBuilder.Generic"
+                              "kind": "ModularEditBuilder.Generic",
+                              "change": {
+                                "_root": {
+                                  "keys": [
+                                    0
+                                  ],
+                                  "values": [
+                                    {
+                                      "localId": 12,
+                                      "revision": 4
+                                    }
+                                  ]
+                                },
+                                "_maxNodeSize": 32
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -789,14 +1034,29 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 12
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "count": 1
+                                },
+                                {
+                                  "type": "Insert",
+                                  "id": 11,
+                                  "count": 1,
+                                  "cellId": {
+                                    "localId": 11,
+                                    "revision": 4
+                                  },
+                                  "revision": 4
+                                }
+                              ]
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -807,29 +1067,29 @@
                     "parents": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         },
                         "parent": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         },
                         "field": ""
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         },
                         "parent": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         },
                         "field": "left"
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         },
                         "parent": null,
@@ -837,11 +1097,11 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 12
                         },
                         "parent": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 13
                         },
                         "field": "right"
@@ -850,71 +1110,71 @@
                     "aliases": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 3
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 4
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 5
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 8
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 9
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 10
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 13
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 10
                         }
                       }
@@ -922,7 +1182,7 @@
                     "builds": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 6
                         },
                         "trees": [
@@ -934,13 +1194,19 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 11
                         },
                         "trees": [
                           {
                             "type": "org.watershed.shared-tree.transactions.Point",
                             "fields": {
+                              "id": [
+                                {
+                                  "type": "com.fluidframework.leaf.string",
+                                  "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0b"
+                                }
+                              ],
                               "label": [
                                 {
                                   "type": "com.fluidframework.leaf.string",
@@ -968,17 +1234,18 @@
         },
         "final": {
           "title": "base",
+          "note": "seed",
           "count": 0,
           "left": [
             {
-              "id": "left-b",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
               "label": "left-b",
               "x": 2
             }
           ],
           "right": [
             {
-              "id": "right-a",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
               "label": "right-a",
               "x": 3
             }
@@ -990,11 +1257,64 @@
             ]
           ]
         },
+        "clients": {
+          "writer": {
+            "title": "base",
+            "note": "seed",
+            "count": 0,
+            "left": [
+              {
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                "label": "left-b",
+                "x": 2
+              }
+            ],
+            "right": [
+              {
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "right-a",
+                "x": 3
+              }
+            ],
+            "byKey": [
+              [
+                "seed",
+                "value"
+              ]
+            ]
+          },
+          "peer": {
+            "title": "base",
+            "note": "seed",
+            "count": 0,
+            "left": [
+              {
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                "label": "left-b",
+                "x": 2
+              }
+            ],
+            "right": [
+              {
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "right-a",
+                "x": 3
+              }
+            ],
+            "byKey": [
+              [
+                "seed",
+                "value"
+              ]
+            ]
+          }
+        },
+        "converged": true,
         "constraintViolationCount": 1,
         "retainedBuilds": [
           {
             "id": {
-              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
               "localId": 6
             },
             "trees": [
@@ -1006,13 +1326,19 @@
           },
           {
             "id": {
-              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
               "localId": 11
             },
             "trees": [
               {
                 "type": "org.watershed.shared-tree.transactions.Point",
                 "fields": {
+                  "id": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0b"
+                    }
+                  ],
                   "label": [
                     {
                       "type": "com.fluidframework.leaf.string",
@@ -1140,7 +1466,7 @@
             "version": 7
           },
           {
-            "revision": 1,
+            "revision": 4,
             "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
             "changeset": [
               {
@@ -1171,7 +1497,7 @@
                                               "count": 1,
                                               "cellId": [
                                                 0,
-                                                513
+                                                516
                                               ],
                                               "changes": {
                                                 "fieldChanges": [
@@ -1253,11 +1579,13 @@
                     ],
                     "trees": {
                       "version": 2,
-                      "identifiers": [],
+                      "identifiers": [
+                        "com.fluidframework.leaf.string"
+                      ],
                       "shapes": [
                         {
                           "c": {
-                            "type": "com.fluidframework.leaf.string",
+                            "type": 0,
                             "value": true
                           }
                         },
@@ -1267,14 +1595,24 @@
                             "value": false,
                             "fields": [
                               [
+                                "id",
+                                2
+                              ],
+                              [
                                 "label",
                                 0
                               ],
                               [
                                 "x",
-                                2
+                                3
                               ]
                             ]
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": 0,
+                            "value": 0
                           }
                         },
                         {
@@ -1291,6 +1629,7 @@
                         ],
                         [
                           1,
+                          5,
                           "created",
                           9
                         ]
@@ -1306,12 +1645,14 @@
                             0
                           ]
                         ],
-                        513
+                        516
                       ]
                     ],
                     "trees": {
                       "version": 2,
-                      "identifiers": [],
+                      "identifiers": [
+                        "com.fluidframework.leaf.string"
+                      ],
                       "shapes": [
                         {
                           "c": {
@@ -1319,19 +1660,29 @@
                             "value": false,
                             "fields": [
                               [
-                                "label",
+                                "id",
                                 1
                               ],
                               [
-                                "x",
+                                "label",
                                 2
+                              ],
+                              [
+                                "x",
+                                3
                               ]
                             ]
                           }
                         },
                         {
                           "c": {
-                            "type": "com.fluidframework.leaf.string",
+                            "type": 0,
+                            "value": 0
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": 0,
                             "value": true
                           }
                         },
@@ -1345,6 +1696,7 @@
                       "data": [
                         [
                           0,
+                          2,
                           "left-a",
                           1
                         ]
@@ -1371,24 +1723,27 @@
         },
         "withinMove": {
           "targetAtEnd": true,
+          "identityPreserved": true,
+          "identity": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
           "value": {
             "title": "base",
+            "note": "seed",
             "count": 0,
             "left": [
               {
-                "id": "left-b",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
                 "label": "left-b",
                 "x": 2
               },
               {
-                "id": "within-move",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
                 "label": "within-move",
                 "x": 1
               }
             ],
             "right": [
               {
-                "id": "right-a",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
                 "label": "right-a",
                 "x": 3
               }
@@ -1403,24 +1758,27 @@
         },
         "crossMove": {
           "targetAtEnd": true,
+          "identityPreserved": true,
+          "identity": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
           "value": {
             "title": "base",
+            "note": "seed",
             "count": 0,
             "left": [
               {
-                "id": "left-b",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
                 "label": "left-b",
                 "x": 2
               }
             ],
             "right": [
               {
-                "id": "right-a",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
                 "label": "right-a",
                 "x": 3
               },
               {
-                "id": "cross-move",
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
                 "label": "cross-move",
                 "x": 1
               }
@@ -1436,7 +1794,7 @@
         "pending": {
           "pending": [
             {
-              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
               "changes": [
                 {
                   "type": "data",
@@ -1444,27 +1802,56 @@
                     "maxId": 13,
                     "revisions": [
                       {
-                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                         "rollbackOf": null
                       }
                     ],
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "ModularEditBuilder.Generic"
+                        "kind": "ModularEditBuilder.Generic",
+                        "change": {
+                          "_root": {
+                            "keys": [
+                              0
+                            ],
+                            "values": [
+                              {
+                                "localId": 2,
+                                "revision": 4
+                              }
+                            ]
+                          },
+                          "_maxNodeSize": 32
+                        }
                       }
                     ],
                     "nodes": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "label",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "change": {
+                                "moves": [],
+                                "childChanges": [],
+                                "valueReplace": {
+                                  "isEmpty": false,
+                                  "src": {
+                                    "localId": 6,
+                                    "revision": 4
+                                  },
+                                  "dst": {
+                                    "localId": 7,
+                                    "revision": 4
+                                  }
+                                }
+                              }
                             }
                           ],
                           "nodeExistsConstraint": {
@@ -1475,14 +1862,28 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "",
-                              "kind": "ModularEditBuilder.Generic"
+                              "kind": "ModularEditBuilder.Generic",
+                              "change": {
+                                "_root": {
+                                  "keys": [
+                                    0
+                                  ],
+                                  "values": [
+                                    {
+                                      "localId": 0,
+                                      "revision": 4
+                                    }
+                                  ]
+                                },
+                                "_maxNodeSize": 32
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -1491,18 +1892,46 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "ModularEditBuilder.Generic"
+                              "kind": "ModularEditBuilder.Generic",
+                              "change": {
+                                "_root": {
+                                  "keys": [
+                                    0
+                                  ],
+                                  "values": [
+                                    {
+                                      "localId": 1,
+                                      "revision": 4
+                                    }
+                                  ]
+                                },
+                                "_maxNodeSize": 32
+                              }
                             },
                             {
                               "field": "right",
-                              "kind": "ModularEditBuilder.Generic"
+                              "kind": "ModularEditBuilder.Generic",
+                              "change": {
+                                "_root": {
+                                  "keys": [
+                                    0
+                                  ],
+                                  "values": [
+                                    {
+                                      "localId": 12,
+                                      "revision": 4
+                                    }
+                                  ]
+                                },
+                                "_maxNodeSize": 32
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -1511,14 +1940,29 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 12
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "count": 1
+                                },
+                                {
+                                  "type": "Insert",
+                                  "id": 11,
+                                  "count": 1,
+                                  "cellId": {
+                                    "localId": 11,
+                                    "revision": 4
+                                  },
+                                  "revision": 4
+                                }
+                              ]
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -1529,29 +1973,29 @@
                     "parents": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         },
                         "parent": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         },
                         "field": ""
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         },
                         "parent": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         },
                         "field": "left"
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         },
                         "parent": null,
@@ -1559,11 +2003,11 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 12
                         },
                         "parent": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 13
                         },
                         "field": "right"
@@ -1572,71 +2016,71 @@
                     "aliases": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 3
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 4
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 5
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 8
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 9
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 10
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 13
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 10
                         }
                       }
@@ -1644,7 +2088,7 @@
                     "builds": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 6
                         },
                         "trees": [
@@ -1656,13 +2100,19 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 11
                         },
                         "trees": [
                           {
                             "type": "org.watershed.shared-tree.transactions.Point",
                             "fields": {
+                              "id": [
+                                {
+                                  "type": "com.fluidframework.leaf.string",
+                                  "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0b"
+                                }
+                              ],
                               "label": [
                                 {
                                   "type": "com.fluidframework.leaf.string",
@@ -1689,7 +2139,7 @@
           ],
           "trunk": [
             {
-              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
               "changes": [
                 {
                   "type": "schema",
@@ -1765,14 +2215,29 @@
                     "maxId": 1,
                     "revisions": [
                       {
-                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
                         "rollbackOf": null
                       }
                     ],
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "change": {
+                          "moves": [],
+                          "childChanges": [],
+                          "valueReplace": {
+                            "isEmpty": true,
+                            "src": {
+                              "localId": 1,
+                              "revision": -4
+                            },
+                            "dst": {
+                              "localId": 0,
+                              "revision": -4
+                            }
+                          }
+                        }
                       }
                     ],
                     "nodes": [],
@@ -1781,7 +2246,7 @@
                     "builds": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
                           "localId": 1
                         },
                         "trees": [
@@ -1792,6 +2257,12 @@
                                 {
                                   "type": "com.fluidframework.leaf.string",
                                   "value": "base"
+                                }
+                              ],
+                              "note": [
+                                {
+                                  "type": "com.fluidframework.leaf.string",
+                                  "value": "seed"
                                 }
                               ],
                               "count": [
@@ -1808,6 +2279,12 @@
                                       {
                                         "type": "org.watershed.shared-tree.transactions.Point",
                                         "fields": {
+                                          "id": [
+                                            {
+                                              "type": "com.fluidframework.leaf.string",
+                                              "value": "8f95be09-8376-4ff7-8755-ccd7e8124b08"
+                                            }
+                                          ],
                                           "label": [
                                             {
                                               "type": "com.fluidframework.leaf.string",
@@ -1825,6 +2302,12 @@
                                       {
                                         "type": "org.watershed.shared-tree.transactions.Point",
                                         "fields": {
+                                          "id": [
+                                            {
+                                              "type": "com.fluidframework.leaf.string",
+                                              "value": "8f95be09-8376-4ff7-8755-ccd7e8124b07"
+                                            }
+                                          ],
                                           "label": [
                                             {
                                               "type": "com.fluidframework.leaf.string",
@@ -1851,6 +2334,12 @@
                                       {
                                         "type": "org.watershed.shared-tree.transactions.Point",
                                         "fields": {
+                                          "id": [
+                                            {
+                                              "type": "com.fluidframework.leaf.string",
+                                              "value": "8f95be09-8376-4ff7-8755-ccd7e8124b06"
+                                            }
+                                          ],
                                           "label": [
                                             {
                                               "type": "com.fluidframework.leaf.string",
@@ -1978,7 +2467,22 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "ModularEditBuilder.Generic"
+                        "kind": "ModularEditBuilder.Generic",
+                        "change": {
+                          "_root": {
+                            "keys": [
+                              0
+                            ],
+                            "values": [
+                              {
+                                "revision": 516,
+                                "localId": 3
+                              }
+                            ],
+                            "isShared": true
+                          },
+                          "_maxNodeSize": 32
+                        }
                       }
                     ],
                     "nodes": [
@@ -1991,7 +2495,22 @@
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "ModularEditBuilder.Generic"
+                              "kind": "ModularEditBuilder.Generic",
+                              "change": {
+                                "_root": {
+                                  "keys": [
+                                    0
+                                  ],
+                                  "values": [
+                                    {
+                                      "revision": 516,
+                                      "localId": 4
+                                    }
+                                  ],
+                                  "isShared": true
+                                },
+                                "_maxNodeSize": 32
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -2007,7 +2526,15 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "count": 1,
+                                  "type": "Remove",
+                                  "id": 0,
+                                  "revision": 516
+                                }
+                              ]
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -2045,7 +2572,7 @@
               ]
             },
             {
-              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
               "changes": [
                 {
                   "type": "data",
@@ -2053,27 +2580,56 @@
                     "maxId": 13,
                     "revisions": [
                       {
-                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                         "rollbackOf": null
                       }
                     ],
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "ModularEditBuilder.Generic"
+                        "kind": "ModularEditBuilder.Generic",
+                        "change": {
+                          "_root": {
+                            "keys": [
+                              0
+                            ],
+                            "values": [
+                              {
+                                "localId": 2,
+                                "revision": 4
+                              }
+                            ]
+                          },
+                          "_maxNodeSize": 32
+                        }
                       }
                     ],
                     "nodes": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "label",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "change": {
+                                "moves": [],
+                                "childChanges": [],
+                                "valueReplace": {
+                                  "isEmpty": false,
+                                  "src": {
+                                    "localId": 6,
+                                    "revision": 4
+                                  },
+                                  "dst": {
+                                    "localId": 7,
+                                    "revision": 4
+                                  }
+                                }
+                              }
                             }
                           ],
                           "nodeExistsConstraint": {
@@ -2084,14 +2640,27 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "count": 1,
+                                  "changes": {
+                                    "localId": 0,
+                                    "revision": 4
+                                  },
+                                  "cellId": {
+                                    "revision": 516,
+                                    "localId": 0
+                                  }
+                                }
+                              ]
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -2100,18 +2669,46 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "ModularEditBuilder.Generic"
+                              "kind": "ModularEditBuilder.Generic",
+                              "change": {
+                                "_root": {
+                                  "keys": [
+                                    0
+                                  ],
+                                  "values": [
+                                    {
+                                      "localId": 1,
+                                      "revision": 4
+                                    }
+                                  ]
+                                },
+                                "_maxNodeSize": 32
+                              }
                             },
                             {
                               "field": "right",
-                              "kind": "ModularEditBuilder.Generic"
+                              "kind": "ModularEditBuilder.Generic",
+                              "change": {
+                                "_root": {
+                                  "keys": [
+                                    0
+                                  ],
+                                  "values": [
+                                    {
+                                      "localId": 12,
+                                      "revision": 4
+                                    }
+                                  ]
+                                },
+                                "_maxNodeSize": 32
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -2120,14 +2717,29 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 12
                         },
                         "change": {
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "change": [
+                                {
+                                  "count": 1
+                                },
+                                {
+                                  "type": "Insert",
+                                  "id": 11,
+                                  "count": 1,
+                                  "cellId": {
+                                    "localId": 11,
+                                    "revision": 4
+                                  },
+                                  "revision": 4
+                                }
+                              ]
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -2138,29 +2750,29 @@
                     "parents": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         },
                         "parent": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         },
                         "field": ""
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         },
                         "parent": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         },
                         "field": "left"
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         },
                         "parent": null,
@@ -2168,11 +2780,11 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 12
                         },
                         "parent": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 13
                         },
                         "field": "right"
@@ -2181,71 +2793,71 @@
                     "aliases": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 3
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 4
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 5
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 8
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 0
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 9
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 1
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 10
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 2
                         }
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 13
                         },
                         "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 10
                         }
                       }
@@ -2253,7 +2865,7 @@
                     "builds": [
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 6
                         },
                         "trees": [
@@ -2265,13 +2877,19 @@
                       },
                       {
                         "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 11
                         },
                         "trees": [
                           {
                             "type": "org.watershed.shared-tree.transactions.Point",
                             "fields": {
+                              "id": [
+                                {
+                                  "type": "com.fluidframework.leaf.string",
+                                  "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0b"
+                                }
+                              ],
                               "label": [
                                 {
                                   "type": "com.fluidframework.leaf.string",
@@ -2299,17 +2917,18 @@
         },
         "final": {
           "title": "base",
+          "note": "seed",
           "count": 0,
           "left": [
             {
-              "id": "left-b",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
               "label": "left-b",
               "x": 2
             }
           ],
           "right": [
             {
-              "id": "right-a",
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
               "label": "right-a",
               "x": 3
             }
@@ -2321,11 +2940,64 @@
             ]
           ]
         },
+        "clients": {
+          "writer": {
+            "title": "base",
+            "note": "seed",
+            "count": 0,
+            "left": [
+              {
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                "label": "left-b",
+                "x": 2
+              }
+            ],
+            "right": [
+              {
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "right-a",
+                "x": 3
+              }
+            ],
+            "byKey": [
+              [
+                "seed",
+                "value"
+              ]
+            ]
+          },
+          "peer": {
+            "title": "base",
+            "note": "seed",
+            "count": 0,
+            "left": [
+              {
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                "label": "left-b",
+                "x": 2
+              }
+            ],
+            "right": [
+              {
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "right-a",
+                "x": 3
+              }
+            ],
+            "byKey": [
+              [
+                "seed",
+                "value"
+              ]
+            ]
+          }
+        },
+        "converged": true,
         "constraintViolationCount": 1,
         "retainedBuilds": [
           {
             "id": {
-              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
               "localId": 6
             },
             "trees": [
@@ -2337,13 +3009,19 @@
           },
           {
             "id": {
-              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
               "localId": 11
             },
             "trees": [
               {
                 "type": "org.watershed.shared-tree.transactions.Point",
                 "fields": {
+                  "id": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0b"
+                    }
+                  ],
                   "label": [
                     {
                       "type": "com.fluidframework.leaf.string",
@@ -2471,7 +3149,7 @@
             "version": 7
           },
           {
-            "revision": 1,
+            "revision": 4,
             "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
             "changeset": [
               {
@@ -2502,7 +3180,7 @@
                                               "count": 1,
                                               "cellId": [
                                                 0,
-                                                513
+                                                516
                                               ],
                                               "changes": {
                                                 "fieldChanges": [
@@ -2584,11 +3262,13 @@
                     ],
                     "trees": {
                       "version": 2,
-                      "identifiers": [],
+                      "identifiers": [
+                        "com.fluidframework.leaf.string"
+                      ],
                       "shapes": [
                         {
                           "c": {
-                            "type": "com.fluidframework.leaf.string",
+                            "type": 0,
                             "value": true
                           }
                         },
@@ -2598,14 +3278,24 @@
                             "value": false,
                             "fields": [
                               [
+                                "id",
+                                2
+                              ],
+                              [
                                 "label",
                                 0
                               ],
                               [
                                 "x",
-                                2
+                                3
                               ]
                             ]
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": 0,
+                            "value": 0
                           }
                         },
                         {
@@ -2622,6 +3312,7 @@
                         ],
                         [
                           1,
+                          5,
                           "created",
                           9
                         ]
@@ -2637,12 +3328,14 @@
                             0
                           ]
                         ],
-                        513
+                        516
                       ]
                     ],
                     "trees": {
                       "version": 2,
-                      "identifiers": [],
+                      "identifiers": [
+                        "com.fluidframework.leaf.string"
+                      ],
                       "shapes": [
                         {
                           "c": {
@@ -2650,19 +3343,29 @@
                             "value": false,
                             "fields": [
                               [
-                                "label",
+                                "id",
                                 1
                               ],
                               [
-                                "x",
+                                "label",
                                 2
+                              ],
+                              [
+                                "x",
+                                3
                               ]
                             ]
                           }
                         },
                         {
                           "c": {
-                            "type": "com.fluidframework.leaf.string",
+                            "type": 0,
+                            "value": 0
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": 0,
                             "value": true
                           }
                         },
@@ -2676,6 +3379,7 @@
                       "data": [
                         [
                           0,
+                          2,
                           "left-a",
                           1
                         ]
@@ -2801,7 +3505,7 @@
         "version": 7
       },
       {
-        "revision": 1,
+        "revision": 4,
         "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
         "changeset": [
           {
@@ -2832,7 +3536,7 @@
                                           "count": 1,
                                           "cellId": [
                                             0,
-                                            513
+                                            516
                                           ],
                                           "changes": {
                                             "fieldChanges": [
@@ -2914,11 +3618,13 @@
                 ],
                 "trees": {
                   "version": 2,
-                  "identifiers": [],
+                  "identifiers": [
+                    "com.fluidframework.leaf.string"
+                  ],
                   "shapes": [
                     {
                       "c": {
-                        "type": "com.fluidframework.leaf.string",
+                        "type": 0,
                         "value": true
                       }
                     },
@@ -2928,14 +3634,24 @@
                         "value": false,
                         "fields": [
                           [
+                            "id",
+                            2
+                          ],
+                          [
                             "label",
                             0
                           ],
                           [
                             "x",
-                            2
+                            3
                           ]
                         ]
+                      }
+                    },
+                    {
+                      "c": {
+                        "type": 0,
+                        "value": 0
                       }
                     },
                     {
@@ -2952,6 +3668,7 @@
                     ],
                     [
                       1,
+                      5,
                       "created",
                       9
                     ]
@@ -2967,12 +3684,14 @@
                         0
                       ]
                     ],
-                    513
+                    516
                   ]
                 ],
                 "trees": {
                   "version": 2,
-                  "identifiers": [],
+                  "identifiers": [
+                    "com.fluidframework.leaf.string"
+                  ],
                   "shapes": [
                     {
                       "c": {
@@ -2980,19 +3699,29 @@
                         "value": false,
                         "fields": [
                           [
-                            "label",
+                            "id",
                             1
                           ],
                           [
-                            "x",
+                            "label",
                             2
+                          ],
+                          [
+                            "x",
+                            3
                           ]
                         ]
                       }
                     },
                     {
                       "c": {
-                        "type": "com.fluidframework.leaf.string",
+                        "type": 0,
+                        "value": 0
+                      }
+                    },
+                    {
+                      "c": {
+                        "type": 0,
                         "value": true
                       }
                     },
@@ -3006,6 +3735,7 @@
                   "data": [
                     [
                       0,
+                      2,
                       "left-a",
                       1
                     ]
