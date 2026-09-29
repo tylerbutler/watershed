@@ -1,10 +1,14 @@
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
+import gleam/string
 import lustre
 import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
+import lustre/event
 import shared_tree_checklist_lustre/checklist
 import shared_tree_checklist_lustre/schema as document_schema
 import watershed
@@ -42,8 +46,19 @@ type Model {
     tree: Option(watershed.SharedTree),
     subscription: Option(watershed.SubscriptionToken),
     checklist: checklist.Checklist,
+    draft: String,
+    pending: Int,
     errors: List(String),
   )
+}
+
+pub type Action {
+  Add(id: String, text: String)
+  Edit(id: String, text: String)
+  Toggle(id: String)
+  Delete(id: String)
+  MoveUp(id: String)
+  MoveDown(id: String)
 }
 
 type Msg {
@@ -54,6 +69,14 @@ type Msg {
   Subscribed(watershed.SubscriptionToken)
   TreeChanged(tree_kernel.TreeEvent)
   Read(Result(Option(types.TreeValue), String))
+  DraftChanged(String)
+  AddClicked
+  EditCommitted(id: String, text: String)
+  ToggleClicked(id: String)
+  DeleteClicked(id: String)
+  MoveUpClicked(id: String)
+  MoveDownClicked(id: String)
+  MutationFinished(Result(Nil, String))
 }
 
 @external(javascript, "./shared_tree_checklist_lustre_ffi.mjs", "queryParameter")
@@ -104,6 +127,8 @@ fn init(_argument: Nil) -> #(Model, Effect(Msg)) {
       tree: None,
       subscription: None,
       checklist: checklist.empty(),
+      draft: "",
+      pending: 0,
       errors: [],
     )
   case document_id {
@@ -173,7 +198,7 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         Some(shared_tree) -> #(model, tree.read_root(shared_tree, Read))
         None -> #(model, effect.none())
       }
-    Read(Error(detail)) -> fail(model, detail)
+    Read(Error(detail)) -> #(append_error(model, detail), effect.none())
     Read(Ok(None)) -> fail(model, "The SharedTree root is absent")
     Read(Ok(Some(value))) ->
       case checklist.decode(value) {
@@ -183,6 +208,85 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         )
         Error(detail) -> fail(model, "Invalid checklist snapshot: " <> detail)
       }
+    DraftChanged(draft) -> #(Model(..model, draft: draft), effect.none())
+    AddClicked ->
+      mutate(Model(..model, draft: ""), Add(id.uuid_v4(), model.draft))
+    EditCommitted(item_id, text) -> mutate(model, Edit(item_id, text))
+    ToggleClicked(item_id) -> mutate(model, Toggle(item_id))
+    DeleteClicked(item_id) -> mutate(model, Delete(item_id))
+    MoveUpClicked(item_id) -> mutate(model, MoveUp(item_id))
+    MoveDownClicked(item_id) -> mutate(model, MoveDown(item_id))
+    MutationFinished(outcome) -> {
+      let pending = case model.pending > 0 {
+        True -> model.pending - 1
+        False -> 0
+      }
+      let model = Model(..model, pending: pending)
+      let model = case outcome {
+        Ok(Nil) -> model
+        Error(detail) -> append_error(model, detail)
+      }
+      case model.tree {
+        Some(shared_tree) -> #(model, tree.read_root(shared_tree, Read))
+        None -> #(model, effect.none())
+      }
+    }
+  }
+}
+
+pub fn prepare(
+  value: checklist.Checklist,
+  action: Action,
+) -> Result(Option(types.Edit), String) {
+  case action {
+    Add(item_id, text) ->
+      checklist.add(value, item_id, text) |> result.map(Some)
+    Edit(item_id, text) ->
+      checklist.edit(value, item_id, text) |> result.map(Some)
+    Toggle(item_id) -> checklist.toggle(value, item_id) |> result.map(Some)
+    Delete(item_id) -> checklist.delete(value, item_id) |> result.map(Some)
+    MoveUp(item_id) -> checklist.move_up(value, item_id)
+    MoveDown(item_id) -> checklist.move_down(value, item_id)
+  }
+}
+
+fn mutate(model: Model, action: Action) -> #(Model, Effect(Msg)) {
+  case model.tree {
+    None -> #(append_error(model, "SharedTree is not ready"), effect.none())
+    Some(shared_tree) ->
+      case prepare(model.checklist, action) {
+        Error(detail) -> #(append_error(model, detail), effect.none())
+        Ok(None) -> #(model, effect.none())
+        Ok(Some(edit)) -> #(
+          Model(..model, pending: model.pending + 1),
+          tree.perform(fn() { operation(shared_tree, edit) }, MutationFinished),
+        )
+      }
+  }
+}
+
+fn operation(
+  shared_tree: watershed.SharedTree,
+  edit: types.Edit,
+) -> Result(Nil, String) {
+  case edit {
+    types.SetField(path, value) -> watershed.tree_set(shared_tree, path, value)
+    types.ClearField(path) -> watershed.tree_clear(shared_tree, path)
+    types.ArrayInsert(path, index, values) ->
+      watershed.tree_array_insert(shared_tree, path, index, values)
+    types.ArrayRemove(path, start, end) ->
+      watershed.tree_array_remove(shared_tree, path, start, end)
+    types.ArrayMove(source, start, end, destination, gap) ->
+      watershed.tree_array_move(
+        shared_tree,
+        source,
+        start,
+        end,
+        destination,
+        gap,
+      )
+    types.MapSet(_, _, _) -> Error("checklist does not use map edits")
+    types.MapDelete(_, _) -> Error("checklist does not use map edits")
   }
 }
 
@@ -193,9 +297,18 @@ fn fail(model: Model, detail: String) -> #(Model, Effect(Msg)) {
   )
 }
 
+fn append_error(model: Model, detail: String) -> Model {
+  Model(..model, errors: [detail, ..model.errors])
+}
+
 fn view(model: Model) -> Element(Msg) {
+  let checklist.Checklist(title: title, items: items) = model.checklist
+  let ready = case model.phase {
+    Ready -> True
+    _ -> False
+  }
   html.main([], [
-    html.h1([], [html.text("watershed · SharedTree checklist")]),
+    html.h1([], [html.text(title)]),
     html.p(
       [
         attribute.attribute("data-runtime-status", phase_name(model.phase)),
@@ -207,6 +320,34 @@ fn view(model: Model) -> Element(Msg) {
         attribute.attribute("data-document-id", model.document_id),
       ],
       [html.text("document: " <> model.document_id)],
+    ),
+    html.form([event.on_submit(fn(_) { AddClicked })], [
+      html.input([
+        attribute.attribute("data-new-item", "true"),
+        attribute.placeholder("New checklist item"),
+        attribute.value(model.draft),
+        attribute.disabled(!ready),
+        event.on_input(DraftChanged),
+      ]),
+      html.button(
+        [
+          attribute.disabled(!ready || string.trim(model.draft) == ""),
+          attribute.type_("submit"),
+        ],
+        [html.text("Add")],
+      ),
+    ]),
+    html.ul(
+      [],
+      list.index_map(items, fn(item, index) {
+        item_view(item, index, list.length(items), ready)
+      }),
+    ),
+    html.p(
+      [
+        attribute.attribute("data-pending", int.to_string(model.pending)),
+      ],
+      [html.text(int.to_string(model.pending) <> " pending")],
     ),
     html.p([attribute.attribute("data-development-auth", "true")], [
       html.text(
@@ -220,6 +361,62 @@ fn view(model: Model) -> Element(Msg) {
       }),
     ),
   ])
+}
+
+fn item_view(
+  item: checklist.Item,
+  index: Int,
+  length: Int,
+  ready: Bool,
+) -> Element(Msg) {
+  html.li(
+    [
+      attribute.attribute("data-item-id", item.id),
+      attribute.attribute("data-item-completed", bool_string(item.completed)),
+    ],
+    [
+      html.input([
+        attribute.type_("checkbox"),
+        attribute.checked(item.completed),
+        attribute.disabled(!ready),
+        attribute.aria_label("Toggle " <> item.text),
+        attribute.attribute("data-action", "toggle"),
+        event.on_check(fn(_) { ToggleClicked(item.id) }),
+      ]),
+      html.input([
+        attribute.type_("text"),
+        attribute.value(item.text),
+        attribute.disabled(!ready),
+        attribute.aria_label("Edit " <> item.text),
+        attribute.attribute("data-action", "edit"),
+        event.on_change(fn(text) { EditCommitted(item.id, text) }),
+      ]),
+      html.button(
+        [
+          attribute.disabled(!ready || index == 0),
+          attribute.attribute("data-action", "move-up"),
+          event.on_click(MoveUpClicked(item.id)),
+        ],
+        [html.text("Up")],
+      ),
+      html.button(
+        [
+          attribute.disabled(!ready || index == length - 1),
+          attribute.attribute("data-action", "move-down"),
+          event.on_click(MoveDownClicked(item.id)),
+        ],
+        [html.text("Down")],
+      ),
+      html.button(
+        [
+          attribute.disabled(!ready),
+          attribute.attribute("data-action", "delete"),
+          event.on_click(DeleteClicked(item.id)),
+        ],
+        [html.text("Delete")],
+      ),
+    ],
+  )
 }
 
 fn phase_name(phase: Phase) -> String {
@@ -237,5 +434,12 @@ fn phase_label(phase: Phase) -> String {
     Connecting -> "connecting"
     Ready -> "ready"
     Failed(detail) -> "failed: " <> detail
+  }
+}
+
+fn bool_string(value: Bool) -> String {
+  case value {
+    True -> "true"
+    False -> "false"
   }
 }

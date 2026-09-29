@@ -87,3 +87,54 @@ pub fn browser_configuration_and_creation_uncertainty_are_explicit_test() {
   let assert "Creation failed. The service might have created a document whose ID this browser did not receive: lost response" =
     shared_tree_checklist_lustre.creation_error("lost response")
 }
+
+pub fn browser_actions_prepare_id_addressed_edits_test() {
+  let root =
+    document_schema.checklist_value([
+      #("a", "first", False),
+      #("b", "second", True),
+      #("c", "third", False),
+    ])
+  let assert Ok(value) = checklist.decode(root)
+  let assert Ok(Some(types.ArrayInsert(["items"], 3, [_]))) =
+    shared_tree_checklist_lustre.prepare(
+      value,
+      shared_tree_checklist_lustre.Add("d", "fourth"),
+    )
+  let assert Ok(Some(types.SetField(
+    ["items", "1", "text"],
+    types.StringValue("renamed"),
+  ))) =
+    shared_tree_checklist_lustre.prepare(
+      value,
+      shared_tree_checklist_lustre.Edit("b", "renamed"),
+    )
+  let assert Ok(Some(types.SetField(
+    ["items", "1", "completed"],
+    types.BooleanValue(False),
+  ))) =
+    shared_tree_checklist_lustre.prepare(
+      value,
+      shared_tree_checklist_lustre.Toggle("b"),
+    )
+  let assert Ok(Some(types.ArrayRemove(["items"], 1, 2))) =
+    shared_tree_checklist_lustre.prepare(
+      value,
+      shared_tree_checklist_lustre.Delete("b"),
+    )
+  let assert Ok(Some(types.ArrayMove(["items"], 1, 2, ["items"], 0))) =
+    shared_tree_checklist_lustre.prepare(
+      value,
+      shared_tree_checklist_lustre.MoveUp("b"),
+    )
+  let assert Ok(Some(types.ArrayMove(["items"], 1, 2, ["items"], 3))) =
+    shared_tree_checklist_lustre.prepare(
+      value,
+      shared_tree_checklist_lustre.MoveDown("b"),
+    )
+  let assert Ok(None) =
+    shared_tree_checklist_lustre.prepare(
+      value,
+      shared_tree_checklist_lustre.MoveUp("a"),
+    )
+}
