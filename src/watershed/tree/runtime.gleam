@@ -95,15 +95,10 @@ pub fn decode_sequenced_message(
     reference_sequence_number,
     revision,
   ))
-  use structural <- result.try(codec.decode_message(raw, context))
-  use final_schema <- result.try(tree_kernel.advance_authoring_schema(
-    stored,
-    structural.commit.changes,
-  ))
   use message <- result.try(codec.decode_message_with_schema_state(
     raw,
     context,
-    final_schema,
+    stored,
   ))
   use commit <- result.try(wire_to_commit(message.commit))
   use _ <- result.try(identity_order(state, commit, compressor))
