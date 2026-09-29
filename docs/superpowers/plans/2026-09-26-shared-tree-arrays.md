@@ -1716,7 +1716,7 @@ Confirm generated corpus changes have generator sources, no generated
 website/cache file is staged, and unrelated `apm.lock.yaml` changes remain
 untouched.
 
-- [ ] **Step 5: Obtain hosted evidence for the integrated revision.**
+- [x] **Step 5: Obtain hosted evidence for the integrated revision.**
 
 After the approved integration/push workflow, run the existing manual
 interoperability workflow for that revision and inspect its run:
@@ -1767,7 +1767,25 @@ the service harness defects found by the release gates:
   persisted reload evidence, deterministic creation sequencing, action-failure
   replay validation, and operation-level seeded array conflicts.
 
-Hosted evidence remains pending an approved integration and push.
+#### Task 12 hosted execution record
+
+Revision `0f553444d6ea4389aecfd86b51b627a5dfecafff` was pushed to `main`.
+Both hosted workflows ran against that exact `headSha` and passed:
+
+- Automatic native workflow:
+  [run 36499511047](https://github.com/tylerbutler/watershed/actions/runs/36499511047).
+  The `SharedTree native` job passed the M1/M2/M3 oracle validators and native
+  acceptance.
+- Manually dispatched interoperability workflow:
+  [run 36499521249](https://github.com/tylerbutler/watershed/actions/runs/36499521249).
+  The `SharedTree interoperability` job passed source verification,
+  three-client M1/M2/M3 acceptance, and M1/M3 native-container creation
+  acceptance.
+
+The manual run uploaded
+`shared-tree-evidence-36499521249-1` (6,078,876 bytes). The artifact is current,
+not expired, and contains the interoperability and creation evidence preserved
+by the workflow.
 
 The existing preflight/profile path regenerated
 `/tmp/watershed-m3-profile/profile.json`. It matched
@@ -1843,7 +1861,7 @@ and the final worktree is clean after each commit.
 - [x] The default run preserves 100 object and 100 map schedules and adds 100 array schedules.
 - [x] Native creation supports the declared array schema profile.
 - [x] No required target, source, corpus, service, or persistence result is skipped.
-- [ ] Full repository gates and the required hosted gates pass for the integrated revision.
+- [x] Full repository gates and the required hosted gates pass for the integrated revision.
 - [x] Documentation names the exact supported profile and remaining exclusions.
 
 ## 5. Stop conditions

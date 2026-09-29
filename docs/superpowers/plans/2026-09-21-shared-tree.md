@@ -2209,8 +2209,9 @@ M3 arrays and moves are implemented. Its
 [detailed implementation and acceptance record](2026-09-26-shared-tree-arrays.md)
 cover the published profile, native APIs, source corpus, mixed-client service
 matrices, and fixed-layout creation. All local profile, native, service,
-creation, full-test, build, and lint gates pass. Hosted acceptance remains
-pending the approved integration and manual workflow run.
+creation, full-test, build, and lint gates pass. The automatic native and
+manually dispatched interoperability workflows also pass for the integrated
+revision.
 
 M4 has a separate
 [schema evolution design](../specs/2026-09-26-shared-tree-schema-evolution-design.md)
@@ -2227,7 +2228,7 @@ the interface prerequisites below do not replace that gate. In particular:
 | Next area | Earliest prerequisite | Additional proof |
 | --- | --- | --- |
 | Dynamic maps | M1 | Per-key set/delete, nested values, iteration and summary parity. |
-| Arrays and moves | M1 | Implemented in M3; all local release gates pass and hosted acceptance remains pending. |
+| Arrays and moves | M1 | Implemented in M3; local and hosted release acceptance pass. |
 | Schema evolution | M1 | Stored/view compatibility and schema/data races across supported client profiles. |
 | Transactions and undo/redo | M1 plus each supported edited field kind | Constraints, atomic abort, selective undo, redo after remote changes, retained repair data. |
 | Local branching | M1 plus working modular history | Fork/rebase/merge and branch lifetime without prematurely reclaiming history. |
@@ -2250,7 +2251,7 @@ After M2, use these parallel lanes:
 
 | Lane | Work that can proceed | Coordination requirement |
 | --- | --- | --- |
-| M3 arrays and moves | Implemented; all local acceptance gates pass and hosted acceptance remains open. | Keep M4 changes compatible with the published sequence-field and codec dispatch. |
+| M3 arrays and moves | Implemented; local and hosted acceptance pass. | Keep M4 changes compatible with the published sequence-field and codec dispatch. |
 | M4 schema evolution | Stored/view compatibility and schema/data race evidence for object and map fields. | Coordinate each schema change with every field kind that it supports. |
 | Selected M7 consumers | Lustre bindings, examples, and richer typed APIs that use the stable native facade. | Consume the existing facade; do not change attach, alias, or bootstrap contracts from this lane. |
 
