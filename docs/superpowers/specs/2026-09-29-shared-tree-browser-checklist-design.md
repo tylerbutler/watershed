@@ -38,7 +38,8 @@ delivers each callback through a microtask, matching the existing
 The adapter exposes effects for:
 
 - creating a native tree container;
-- connecting and resolving the fixed-layout SharedTree;
+- resolving the fixed-layout SharedTree after the existing Lustre connection
+  effect reports readiness;
 - subscribing to tree events;
 - refreshing the application snapshot; and
 - running set, clear, array insert, array remove, and array move operations.
@@ -104,10 +105,18 @@ pub fn create(
   created: fn(Result(String, String)) -> msg,
 ) -> Effect(msg)
 
-pub fn connect(
-  config: watershed.WatershedConfig,
+pub fn create_dev(
+  base_url: String,
+  tenant: String,
+  secret: String,
+  stored: tree_schema.StoredSchema,
+  initial_root: Option(tree_types.TreeValue),
+  created: fn(Result(String, String)) -> msg,
+) -> Effect(msg)
+
+pub fn open(
+  document: watershed.Document(root),
   view: tree_schema.ViewSchema,
-  got_document: fn(watershed.Document(root)) -> msg,
   opened: fn(Result(watershed.SharedTree, String)) -> msg,
 ) -> Effect(msg)
 
@@ -132,14 +141,18 @@ pub fn perform(
 ) -> Effect(msg)
 ```
 
-`connect` calls the existing `watershed.connect`. After readiness, it resolves
-the bootstrap root, reads its `"tree"` handle, and calls
-`watershed.resolve_tree` with the supplied view schema. It returns the document
-as soon as `watershed.connect` creates it so the application can close or
-inspect the connection if tree resolution fails.
+The application reuses `watershed_lustre.connect_dev` for its local-development
+connection. After readiness, `open` resolves the bootstrap root, reads its
+`"tree"` handle, and calls `watershed.resolve_tree` with the supplied view
+schema.
 
-`subscribe`, `read_root`, and `perform` defer their results. A mutation does not
-dispatch a success message from inside the Lustre update call stack.
+`create_dev` mints a tenant-write development token with an empty document ID,
+then delegates to `create`. Production applications call `create` with a token
+issued by their backend.
+
+`create`, `create_dev`, `open`, `subscribe`, `read_root`, and `perform` defer
+their results. A mutation does not dispatch a success message from inside the
+Lustre update call stack.
 
 The adapter returns the existing facade errors as strings. It does not replace
 specific failures with generic messages.
@@ -160,9 +173,9 @@ The application reads these query parameters:
 
 When `document` is absent:
 
-1. Mint a tenant-write development token with an empty document ID.
-2. Call the adapter's `create` effect with the checklist schema and initial
-   root.
+1. Call the adapter's `create_dev` effect with the checklist schema and initial
+   root. The effect mints a tenant-write development token with an empty
+   document ID.
 3. Call the example's browser FFI to replace the current URL with the returned
    document ID while preserving the other query parameters.
 4. Mint a document token for that ID.
@@ -176,12 +189,13 @@ document whose ID the browser did not receive.
 
 When `document` is present:
 
-1. Mint a development token scoped to the document.
-2. Connect to Floodgate.
-3. Resolve `root`, read its `"tree"` handle, and open the SharedTree with the
-   checklist view schema.
-4. Subscribe to `TreeChanged` and `SchemaChanged`.
-5. Read and decode the complete root value.
+1. Call `watershed_lustre.connect_dev`, which mints a development token scoped
+   to the document and connects to Floodgate.
+2. After readiness, call the tree adapter's `open` effect to resolve `root`,
+   read its `"tree"` handle, and open the SharedTree with the checklist view
+   schema.
+3. Subscribe to `TreeChanged` and `SchemaChanged`.
+4. Read and decode the complete root value.
 
 The application treats `SchemaChanged` as a refresh trigger even though the
 demo does not author schema upgrades. An incompatible schema produces the
