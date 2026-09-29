@@ -1,0 +1,19 @@
+{
+  "name": "shared_tree_checklist_lustre",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Native SharedTree collaborative checklist browser demo",
+  "scripts": {
+    "build": "gleam build --target javascript && esbuild build/dev/javascript/shared_tree_checklist_lustre/shared_tree_checklist_lustre.mjs --bundle --format=esm --outfile=dist/shared_tree_checklist_lustre.mjs",
+    "serve": "python3 -m http.server 8080"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.1",
+    "phoenix": "^1.8.8"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
+  },
+  "packageManager": "pnpm@11.13.1"
+}

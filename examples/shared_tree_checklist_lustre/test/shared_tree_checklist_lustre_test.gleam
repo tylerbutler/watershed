@@ -1,5 +1,6 @@
 import gleam/option.{None, Some}
 import gleeunit
+import shared_tree_checklist_lustre
 import shared_tree_checklist_lustre/checklist
 import shared_tree_checklist_lustre/schema as document_schema
 import watershed/tree/schema
@@ -76,4 +77,13 @@ pub fn decoder_rejects_duplicate_ids_and_malformed_items_test() {
       ),
     ])
   let assert Error(_) = checklist.decode(malformed)
+}
+
+pub fn browser_configuration_and_creation_uncertainty_are_explicit_test() {
+  let assert "http://example.test:4100" =
+    shared_tree_checklist_lustre.base_url("example.test", "4100")
+  let assert "ws://example.test:4100/socket/websocket?vsn=2.0.0" =
+    shared_tree_checklist_lustre.socket_url("example.test", "4100")
+  let assert "Creation failed. The service might have created a document whose ID this browser did not receive: lost response" =
+    shared_tree_checklist_lustre.creation_error("lost response")
 }
