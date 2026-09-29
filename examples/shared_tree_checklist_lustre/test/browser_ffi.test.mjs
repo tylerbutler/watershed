@@ -29,4 +29,17 @@ test("replaceDocument preserves configuration parameters", async () => {
   assert.equal(url.searchParams.get("secret"), "s");
   assert.equal(browser.queryParameter("host", "fallback"), "example.test");
   assert.equal(browser.queryParameter("missing", "fallback"), "fallback");
+  assert.equal(browser.currentOrigin(), "http://localhost:8080");
+
+  let fetched = null;
+  globalThis.fetch = async (input) => {
+    fetched = String(input);
+    return new Response(null, { status: 204 });
+  };
+  browser.proxyFloodgateHttp("http://example.test:4100");
+  await fetch("http://example.test:4100/repos/t/git/commits/c?x=1");
+  assert.equal(
+    fetched,
+    "http://localhost:8080/repos/t/git/commits/c?x=1",
+  );
 });

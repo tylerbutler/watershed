@@ -232,6 +232,12 @@ project-room-smoke:
     cd examples/project_room_lustre && pnpm run build
     node smoke/project_room.mjs
 
+# Native SharedTree browser demo: browser creation plus two-context checklist
+# convergence. Requires local Floodgate and skips only when Chromium is absent.
+shared-tree-checklist:
+    cd examples/shared_tree_checklist_lustre && corepack pnpm run build
+    node examples/shared_tree_checklist_lustre/smoke/browser.mjs
+
 # === INTEGRATION (live floodgate server) ===
 
 # Start a floodgate dev server in Docker, built from the levee repo's

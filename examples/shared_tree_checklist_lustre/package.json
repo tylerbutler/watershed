@@ -6,7 +6,7 @@
   "description": "Native SharedTree collaborative checklist browser demo",
   "scripts": {
     "build": "gleam build --target javascript && esbuild build/dev/javascript/shared_tree_checklist_lustre/shared_tree_checklist_lustre.mjs --bundle --format=esm --outfile=dist/shared_tree_checklist_lustre.mjs",
-    "serve": "python3 -m http.server 8080"
+    "serve": "node serve.mjs"
   },
   "dependencies": {
     "esbuild": "^0.28.1",
