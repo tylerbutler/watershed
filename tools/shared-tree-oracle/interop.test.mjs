@@ -230,6 +230,18 @@ function deterministicEvidence(cell) {
       restoredAfter: `${cell.id}-before-${index}`,
     }));
   }
+  if (cell.profile === "array") {
+    const deleted = ["array-insert-remove", "array-overlapping-remove"]
+      .includes(cell.family)
+      || (cell.family === "array-move-delete"
+        && cell.order !== `${cell.authors[1]}-first`);
+    evidence.array = {
+      finalTree: { present: true, value: { kind: "object", fields: [] } },
+      retainedObjectReferences: [!deleted, !deleted],
+      childEditObserved: ["array-move-child-edit", "array-summary-tail"]
+        .includes(cell.family),
+    };
+  }
   return evidence;
 }
 
@@ -387,7 +399,7 @@ async function validFixture() {
       writableTreeExposedAfterRefusal: false,
     }),
   }));
-  const seeded = generateSchedules({ seed: 42, iterations: 200 })
+  const seeded = generateSchedules({ seed: 42, iterations: 300 })
     .map((schedule, index) => {
     const prefix = `seeded-${index}`;
     const item = {
@@ -1256,6 +1268,155 @@ async function validFixture() {
       )];
     }
   }
+  const arrayPoint = (label, x) => ({
+    kind: "object",
+    schemaId: "org.watershed.shared-tree.m3.Point",
+    fields: [
+      ["label", { kind: "string", value: label }],
+      ["x", { kind: "number", value: x }],
+    ],
+  });
+  const removedArrayPoint = () => ({
+    type: "org.watershed.shared-tree.m3.Point",
+    fields: {
+      label: [{ type: "com.fluidframework.leaf.string", value: "deleted" }],
+      x: [{ type: "com.fluidframework.leaf.number", value: 9 }],
+    },
+  });
+  const array = (schemaId, elements) => ({ kind: "array", schemaId, elements });
+  const arrayTree = (writer, continuation) => ({
+    present: true,
+    value: {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.m3.Root",
+      fields: [
+        ["byKey", {
+          kind: "map",
+          schemaId: "org.watershed.shared-tree.m3.ArrayMap",
+          entries: [
+            ["", array("org.watershed.shared-tree.m3.Items", [])],
+            ["0", array("org.watershed.shared-tree.m3.Items", [
+              arrayPoint("numeric", 0),
+            ])],
+          ],
+        }],
+        ["left", array("org.watershed.shared-tree.m3.Items", [
+          ...(continuation ? [arrayPoint(continuation, 42)] : []),
+          arrayPoint("duplicate", 1),
+          arrayPoint("duplicate", 1),
+          array("org.watershed.shared-tree.m3.Items", [arrayPoint("nested", 2)]),
+        ])],
+        ["narrow", array("org.watershed.shared-tree.m3.Points", [])],
+        ["right", array("org.watershed.shared-tree.m3.Items", [
+          {
+            kind: "map",
+            schemaId: "org.watershed.shared-tree.m3.ArrayMap",
+            entries: [["inside", arrayPoint("map-child", 3)]],
+          },
+          ...(continuation ? [] : [arrayPoint("moved", 4)]),
+          arrayPoint(`after-summary-${writer}`, 7),
+        ])],
+      ],
+    },
+  });
+  const arrayReload = Object.fromEntries(implementations.map((writer, writerIndex) => [
+    writer,
+    Object.fromEntries(implementations.map((reader, readerIndex) => {
+      const continuation = `${writer}-${reader}-continuation`;
+      const item = {
+        runId: "current",
+        profileDigest: loaded.profileDigest,
+        profile: "array",
+        writer,
+        reader,
+        writerVersion: `${writer}-array-version`,
+        loadedVersion: `${writer}-array-version`,
+        readerInstanceId: `array-reload-${writer}-${reader}`,
+        snapshotSequenceNumber: 110 + writerIndex,
+        dataEditSequenceNumber: 120 + writerIndex,
+        publicationSequenceNumber: 130 + writerIndex,
+        tailSequenceNumber: 140 + writerIndex,
+        replayWatermark: 150 + readerIndex,
+        replayStartSequenceNumber: 110 + writerIndex,
+        replayEvidence: reader === "upstream"
+          ? "upstream-delta-storage"
+          : "native-handshake",
+        selectedSummaryRequests: [`${writer}-array-version`],
+        scenarioId: "array-summary-tail-retained",
+        loaded: true,
+        tailObserved: true,
+        continuedEditing: true,
+        peerObservedEdit: true,
+        pendingTreeCount: 0,
+        inflightSubmissionCount: 0,
+        wholeTree: arrayTree(writer),
+        continuationTree: arrayTree(writer, continuation),
+        peerWholeTree: arrayTree(writer, continuation),
+        continuationLabel: continuation,
+        retained: {
+          removed: [[0, 1, removedArrayPoint()]],
+          reader,
+          readerInstanceId: `array-reload-${writer}-${reader}`,
+          source: reader === "upstream"
+            ? "upstream-runtime-and-wire"
+            : "native-runtime-snapshot",
+          loadedVersion: `${writer}-array-version`,
+          snapshotSequenceNumber: 110 + writerIndex,
+          sequenceNumber: 110 + writerIndex,
+          selectedVersion: `${writer}-array-version`,
+          history: [{
+            revision: 1,
+            originatorId: `${reader}-array-origin`,
+            changes: [{
+              moveOut: { id: 0 },
+              moveIn: { id: 0 },
+            }],
+          }],
+          moveIdentity: {
+            revision: 1,
+            originatorId: `${reader}-array-origin`,
+            moveOut: [{ id: 0, revision: 1 }],
+            moveIn: [{ id: 0, revision: 1 }],
+          },
+          childEditObserved: true,
+          summaryConsumed: true,
+        },
+        continuationIdentity: {
+          clientId: `${reader}-array-client`,
+          referenceSequenceNumber: 150,
+          revisions: [{ revision: 1, originatorId: `${reader}-array-origin` }],
+        },
+        documentId: `array-reload-${writer}`,
+        writerVersionBeforeLoad: `${writer}-array-version`,
+        writerVersionAfterLoad: `${writer}-array-version`,
+        artifacts: [],
+      };
+      item.artifacts = [artifact(
+        "array-reload",
+        `${writer}->${reader}`,
+        item.documentId,
+        {
+          measured: reloadMeasuredPayload(item),
+          ...(reader === "upstream" ? {} : {
+            raw: {
+              load: {
+                handshakes: [{
+                  checkpointSequenceNumber: item.snapshotSequenceNumber,
+                  summarySequenceNumber: item.snapshotSequenceNumber,
+                  initialMessageSequenceNumbers: [
+                    1,
+                    item.snapshotSequenceNumber + 1,
+                  ],
+                }],
+                repairRequests: [],
+              },
+            },
+          }),
+        },
+      )];
+      return [reader, item];
+    })),
+  ]));
   const report = {
     formatVersion: 1,
     runId: "current",
@@ -1276,12 +1437,13 @@ async function validFixture() {
     realService: true,
     mode: "acceptance",
     seed: 42,
-    iterations: 200,
+    iterations: 300,
     seededAccounting: {
-      requested: 200,
-      generated: 200,
-      executed: 200,
+      requested: 300,
+      generated: 300,
+      executed: 300,
       seed: 42,
+      profiles: { object: 75, map: 75, schema: 75, array: 75 },
     },
     deterministic,
     reconnect,
@@ -1294,6 +1456,7 @@ async function validFixture() {
     schemaReconnect,
     schemaReloadMatrix,
     schemaTailReloadMatrix,
+    arrayReload,
     corpus: Object.fromEntries(implementations.slice(1).map((target) => {
       const output = "Running 1 tests\nTests: 1 passed (1)";
       return [target, {
@@ -1322,7 +1485,7 @@ async function validFixture() {
     profileDigest: loaded.profileDigest,
     profile: loaded.profile,
     seed: 42,
-    iterations: 200,
+    iterations: 300,
     mode: "acceptance",
     artifactDirectory: owned,
     artifacts,
@@ -1347,12 +1510,14 @@ test("an empty result cannot prove interoperability", async () => {
     realService: true,
     mode: "acceptance",
     seed: 42,
-    iterations: 200,
+    iterations: 300,
     deterministic: [],
     reconnect: [],
     failures: [],
     seeded: [],
     reload: {},
+    mapReload: {},
+    arrayReload: {},
     corpus: {},
     skipped: [],
     divergences: [],
@@ -1362,6 +1527,80 @@ test("an empty result cannot prove interoperability", async () => {
 test("a complete current-run report satisfies the Task 15 coverage gate", async () => {
   const { expected, report } = await validFixture();
   assert.equal(validateInteropReport(report, expected), report);
+});
+
+test("sequence refusals require distinct diagnostics and a stopped document", async () => {
+  const { expected, report } = await validFixture();
+  const diagnostics = new Map([
+    ["malformed-sequence-payload",
+      "message.changeset[0].data.changes[0].change expected an array"],
+    ["malformed-range-count",
+      "message.changeset[0].data.changes[0].change[0].count expected a positive integer"],
+    ["missing-range-endpoint",
+      "message.changeset[0].data.changes[0].change[0].effect.moveIn.finalEndpoint atom"],
+    ["bad-child-ownership", "cross-field ownership owned ranges overlap"],
+    ["invalid-sequence-content",
+      "message.changeset[0].data.changes[0].change[0].changes unknown property content"],
+  ]);
+  const cases = report.failures.filter(({ target, caseId }) =>
+    target === "javascript" && diagnostics.has(caseId));
+  assert.equal(cases.length, diagnostics.size);
+  for (const item of cases) {
+    item.typedError.message = diagnostics.get(item.caseId);
+    assert.equal(item.clientState, "stopped-after-ready", item.caseId);
+    assert.equal(item.writableTreeExposedAfterRefusal, false, item.caseId);
+  }
+  assert.equal(validateInteropReport(report, expected), report);
+
+  for (const item of cases) {
+    const diagnostic = item.typedError.message;
+    item.typedError.message =
+      "message.changeset[0] change must contain exactly one data or schema member";
+    assert.throws(
+      () => validateInteropReport(report, expected),
+      /Failure diagnostic lacks source reason or location/,
+      item.caseId,
+    );
+    item.typedError.message = diagnostic;
+  }
+});
+
+test("deterministic service order ignores submissions before each authored prefix", async () => {
+  const { expected, report } = await validFixture();
+  const item = report.deterministic.find(
+    ({ id }) => id === "array-same-gap-insert:upstream->javascript:javascript-first",
+  );
+  item.evidence.submissions.unshift({
+    author: "upstream",
+    outerSequenceNumber: 7,
+    innerIndex: 0,
+    referenceSequenceNumber: 6,
+    revision: 99,
+    originatorId: "bootstrap-upstream",
+    allocations: [],
+  });
+  const claim = expected.artifacts.get(item.artifacts[0]).claim;
+  claim.measured.evidence = structuredClone(item.evidence);
+  assert.equal(validateInteropReport(report, expected), report);
+});
+
+test("array move families require exact retained object survival", async () => {
+  for (const [id, retainedObjectReferences] of [
+    ["array-move-child-edit:upstream->javascript:upstream-first", [false, false]],
+    ["array-move-delete:upstream->javascript:javascript-first", [false, false]],
+    ["array-move-delete:upstream->javascript:upstream-first", [true, true]],
+  ]) {
+    const { expected, report } = await validFixture();
+    const item = report.deterministic.find((candidate) => candidate.id === id);
+    item.evidence.array.retainedObjectReferences = retainedObjectReferences;
+    expected.artifacts.get(item.artifacts[0]).claim.measured.evidence =
+      structuredClone(item.evidence);
+    assert.throws(
+      () => validateInteropReport(report, expected),
+      /retained object references/i,
+      id,
+    );
+  }
 });
 
 test("the acceptance report requires all nine map reload cells", async () => {
@@ -1606,6 +1845,37 @@ for (const [label, changeset] of [
     );
   });
 }
+
+test("the acceptance report requires all nine array reload cells", async () => {
+  const { expected, report } = await validFixture();
+  delete report.arrayReload.upstream.javascript;
+  assert.throws(() => validateInteropReport(report, expected),
+    /array summary interop needs all three readers/i);
+});
+
+test("array scenarios cannot bypass evidence checks by changing profile", async () => {
+  const { expected, report } = await validFixture();
+  const item = report.deterministic.find(
+    ({ id }) => id === "array-move-child-edit:upstream->javascript:upstream-first",
+  );
+  item.profile = "object";
+  item.evidence.array.retainedObjectReferences = [false, false];
+  expected.artifacts.get(item.artifacts[0]).claim.measured.evidence =
+    structuredClone(item.evidence);
+  assert.throws(
+    () => validateInteropReport(report, expected),
+    /deterministic profile changed/i,
+  );
+});
+
+test("the acceptance report rejects one missing required array scenario cell", async () => {
+  const { expected, report } = await validFixture();
+  const index = report.deterministic.findIndex(({ profile }) => profile === "array");
+  assert(index >= 0);
+  report.deterministic.splice(index, 1);
+  assert.throws(() => validateInteropReport(report, expected),
+    /deterministic results/i);
+});
 
 test("single-author algebra cells do not invent pending state", async () => {
   const { expected, report } = await validFixture();
@@ -1910,7 +2180,7 @@ test("partial, stale, and synthetic-shaped evidence cannot pass", async () => {
     ["duplicate seeded index", (copy) => { copy.seeded[1].index = 0; }],
     ["fewer seeded schedules", (copy) => { copy.seeded.pop(); }],
     ["incomplete seeded producer", (copy) => {
-      copy.seededAccounting.executed = 199;
+      copy.seededAccounting.executed = 299;
     }],
     ["missing seeded accounting", (copy) => {
       delete copy.seededAccounting;
@@ -2000,7 +2270,7 @@ test("the committed profile is hashed and every compatibility pin is validated",
   assert.match(loaded.profileDigest, /^[0-9a-f]{64}$/);
   assert.equal(
     loaded.profileDigest,
-    "6410448d2e0abcb1dc905a67f6d6ad197003805e92151b9e9ff8795963229bf5",
+    "e998806cdd3c9b6a25e5e4ef306b6d4c9376ff3dd5d4418f8a16024d4e04b55e",
   );
   assert.deepEqual(loaded.profile.reference, reference);
   assert.deepEqual(
@@ -2020,12 +2290,14 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "recursive-map-values",
     "canonical-map-iteration",
     "bootstrap-map-handle",
+    "recursive-array-values",
+    "range-array-edits",
+    "cross-array-moves",
     "grouped-batches",
     "gc-metadata",
     "strict-view-object-map-schema-evolution",
   ]);
   assert.deepEqual(loaded.profile.excludedFeatures, [
-    "arrays",
     "array-schema-evolution",
     "staged-schema-upgrades",
     "unknown-field-view-adapters",
@@ -2037,6 +2309,7 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "compressed-ops",
     "chunked-ops",
   ]);
+  assert(!loaded.profile.excludedFeatures.includes("arrays"));
   assert(!loaded.profile.excludedFeatures.includes("maps-in-tree"));
   const directory = await mkdtemp(join(tmpdir(), "watershed-profile-"));
   const profile = JSON.parse(await readFile(profilePath, "utf8"));
@@ -2069,7 +2342,7 @@ test("CLI options accept only bounded acceptance or replay invocations", () => {
   assert.deepEqual(parseInteropOptions([], { cwd: repository }), {
     mode: "acceptance",
     profilePath,
-    iterations: 200,
+    iterations: 300,
     seed: 42,
     outputDirectory: join(repository, "tools/shared-tree-oracle/.output/interop"),
     replayPath: undefined,
@@ -2077,14 +2350,14 @@ test("CLI options accept only bounded acceptance or replay invocations", () => {
   });
   assert.deepEqual(parseInteropOptions([
     "--profile", "test/fixtures/shared_tree/profile.json",
-    "--iterations", "200",
+    "--iterations", "300",
     "--seed", "42",
     "--output", "artifacts",
     "--external-floodgate",
   ], { cwd: repository }), {
     mode: "acceptance",
     profilePath,
-    iterations: 200,
+    iterations: 300,
     seed: 42,
     outputDirectory: join(repository, "artifacts"),
     replayPath: undefined,
@@ -2093,7 +2366,7 @@ test("CLI options accept only bounded acceptance or replay invocations", () => {
   assert.deepEqual(parseInteropOptions([], { cwd: oracleDirectory }), {
     mode: "acceptance",
     profilePath,
-    iterations: 200,
+    iterations: 300,
     seed: 42,
     outputDirectory: join(repository, "tools/shared-tree-oracle/.output/interop"),
     replayPath: undefined,
@@ -2112,16 +2385,16 @@ test("CLI options accept only bounded acceptance or replay invocations", () => {
     externalFloodgate: false,
   });
   for (const args of [
-    ["--profile", "profile.json", "--iterations", "199", "--seed", "42"],
+    ["--profile", "profile.json", "--iterations", "299", "--seed", "42"],
     ["--profile", "profile.json", "--iterations", "0", "--seed", "42"],
     ["--profile", "profile.json", "--iterations", "-1", "--seed", "42"],
-    ["--profile", "profile.json", "--iterations", "200.5", "--seed", "42"],
+    ["--profile", "profile.json", "--iterations", "300.5", "--seed", "42"],
     ["--profile", "profile.json", "--iterations", "abc", "--seed", "42"],
-    ["--profile", "profile.json", "--iterations", "200", "--seed", "-1"],
-    ["--profile", "profile.json", "--iterations", "200", "--seed", "4294967296"],
-    ["--profile", "profile.json", "--iterations", "200", "--seed", "1.5"],
-    ["--profile", "profile.json", "--iterations", "200", "--seed", "42", "--unknown"],
-    ["--replay", "failure.json", "--iterations", "200"],
+    ["--profile", "profile.json", "--iterations", "300", "--seed", "-1"],
+    ["--profile", "profile.json", "--iterations", "300", "--seed", "4294967296"],
+    ["--profile", "profile.json", "--iterations", "300", "--seed", "1.5"],
+    ["--profile", "profile.json", "--iterations", "300", "--seed", "42", "--unknown"],
+    ["--replay", "failure.json", "--iterations", "300"],
     ["--replay", "failure.json", "--profile", "profile.json"],
     ["--replay", "failure.json", "--external-floodgate"],
   ]) {
@@ -2142,7 +2415,7 @@ test("the coordinator routes parsed defaults to the acceptance gate", async () =
   });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].profilePath, profilePath);
-  assert.equal(calls[0].iterations, 200);
+  assert.equal(calls[0].iterations, 300);
   assert.equal(calls[0].seed, 42);
   assert.equal(calls[0].externalFloodgate, false);
   assert.deepEqual(JSON.parse(output.join("")), {

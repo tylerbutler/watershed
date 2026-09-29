@@ -15,6 +15,8 @@ import watershed/runtime_core
 @target(erlang)
 import watershed/tree/client_protocol as protocol
 @target(erlang)
+import watershed/tree/client_retained_evidence
+@target(erlang)
 import watershed/tree/types.{ObjectValue}
 @target(erlang)
 import watershed/tree_kernel.{SchemaChanged, TreeChanged}
@@ -358,6 +360,74 @@ fn execute(
                 Ok(opened) -> #(Ok(json.null()), opened, events, active, False)
               }
           }
+        protocol.ArrayGet(path, index) -> #(
+          map_result(
+            "array-get",
+            watershed.tree_array_get(tree, path, index),
+            protocol.encode_read,
+          ),
+          tree,
+          events,
+          active,
+          False,
+        )
+        protocol.ArrayValues(path) -> #(
+          map_result(
+            "array-values",
+            watershed.tree_array_values(tree, path),
+            protocol.encode_array_values,
+          ),
+          tree,
+          events,
+          active,
+          False,
+        )
+        protocol.ArrayInsert(path, index, values) -> #(
+          map_result(
+            "array-insert",
+            watershed.tree_array_insert(tree, path, index, values),
+            fn(_) { json.null() },
+          ),
+          tree,
+          events,
+          active,
+          False,
+        )
+        protocol.ArrayRemove(path, start, end) -> #(
+          map_result(
+            "array-remove",
+            watershed.tree_array_remove(tree, path, start, end),
+            fn(_) { json.null() },
+          ),
+          tree,
+          events,
+          active,
+          False,
+        )
+        protocol.ArrayMove(
+          source_path,
+          source_start,
+          source_end,
+          destination_path,
+          destination_gap,
+        ) -> #(
+          map_result(
+            "array-move",
+            watershed.tree_array_move(
+              tree,
+              source_path,
+              source_start,
+              source_end,
+              destination_path,
+              destination_gap,
+            ),
+            fn(_) { json.null() },
+          ),
+          tree,
+          events,
+          active,
+          False,
+        )
         protocol.Checkpoint -> #(
           checkpoint(tree, events, active),
           tree,
@@ -443,6 +513,7 @@ fn checkpoint(
         changes,
         history,
         Some(reason),
+        None,
       ))
     Ok(root_value) -> {
       let root = protocol.encode_read(root_value)
@@ -460,6 +531,7 @@ fn checkpoint(
           ))
           Ok([#("keys", keys), #("entries", entries)])
         }
+        Some(ObjectValue("org.watershed.shared-tree.m3.Root", _)) -> Ok([])
         _ ->
           Ok(
             [
@@ -481,7 +553,30 @@ fn checkpoint(
             }),
           )
       })
-      Ok(protocol.encode_checkpoint(root, values, changes, history, None))
+      use retained <- result.try(case root_value {
+        Some(ObjectValue("org.watershed.shared-tree.m3.Root", _)) -> {
+          use snapshot <- result.try(
+            watershed.tree_retained_snapshot(tree)
+            |> result.map_error(fn(reason) {
+              protocol.ProtocolError("facade-error", "checkpoint", reason)
+            }),
+          )
+          client_retained_evidence.encode(snapshot)
+          |> result.map(Some)
+          |> result.map_error(fn(reason) {
+            protocol.ProtocolError("facade-error", "checkpoint", reason)
+          })
+        }
+        _ -> Ok(None)
+      })
+      Ok(protocol.encode_checkpoint(
+        root,
+        values,
+        changes,
+        history,
+        None,
+        retained,
+      ))
     }
   }
 }

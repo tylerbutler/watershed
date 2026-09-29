@@ -66,9 +66,9 @@ just shared-tree-interop
 The final command is the combined SharedTree acceptance gate. It verifies the
 committed profile and pinned source, starts an isolated pinned Floodgate,
 executes the native corpus on both targets, then runs deterministic object,
-map, and schema cases; focused reconnect and refusal cases; separate nine-cell
-object, map, post-upgrade schema, and upgrade-tail schema reload matrices; and
-200 generated schedules. The
+map, array, and schema cases; focused reconnect and refusal cases; separate
+nine-cell object, map, array, post-upgrade schema, and upgrade-tail schema
+reload matrices; and 300 generated schedules across all four profiles. The
 recipe uses
 `test/fixtures/shared_tree/profile.json` and seed `42`, matching the coordinator's
 defaults, so this is equivalent:
@@ -118,7 +118,7 @@ just shared-tree-interop-deep
 The normal acceptance gate requires 200 schedules. The generator alternates
 the fixed-object and dynamic-map profiles. Map actions keep `path` and `key`
 separate, and failure artifacts retain the full action, checkpoint, first
-difference path, and replay command. The 5,000-schedule command is optional.
+difference path, and replay command. The 7,500-schedule command is optional.
 
 The M2 deterministic catalogue covers independent keys, same-key set/set,
 set/delete, nested-object replacement, nested delete/edit, recursive-map
@@ -286,7 +286,7 @@ check.
 | `just shared-tree-oracle-check` | Regenerate from the pinned source and compare committed fixtures. |
 | `just shared-tree-interop` | Real-service object, map, and schema-evolution matrices plus 200 seeded schedules. |
 | `just shared-tree-create-interop` | Six native-creator/fresh-reader cells and continued editing. |
-| `just shared-tree-interop-deep` | Manual 5,000-schedule acceptance through the same runner. |
+| `just shared-tree-interop-deep` | Manual 7,500-schedule acceptance through the same runner. |
 
 The service job uploads `.output/interop/` and `.output/creation/` on success or
 failure as `shared-tree-evidence-<run-id>-<run-attempt>`. It includes the hidden
@@ -578,7 +578,7 @@ gleam test --target erlang -- --test-name-filter=shared_tree
 gleam test --target javascript -- --test-name-filter=shared_tree
 ```
 
-`generate` produces all 33 named cases under `test/fixtures/shared_tree/cases/`
+`generate` produces all 42 named cases under `test/fixtures/shared_tree/cases/`
 and their manifest. `check` regenerates them in an owned temporary directory and
 compares the complete file set and every byte without changing the fixtures.
 Missing files, extra files, incomplete observations, and changed outputs fail.

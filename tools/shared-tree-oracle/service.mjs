@@ -80,12 +80,14 @@ export const supportedFeatures = [
   "recursive-map-values",
   "canonical-map-iteration",
   "bootstrap-map-handle",
+  "recursive-array-values",
+  "range-array-edits",
+  "cross-array-moves",
   "grouped-batches",
   "gc-metadata",
   "strict-view-object-map-schema-evolution",
 ];
 export const excludedFeatures = [
-  "arrays",
   "array-schema-evolution",
   "staged-schema-upgrades",
   "unknown-field-view-adapters",

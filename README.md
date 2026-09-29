@@ -85,8 +85,9 @@ guide](https://watershed.tylerbutler.com/guide/connect) for both.
 
 ## SharedTree runtime (experimental)
 
-Watershed supports fixed objects, dynamic maps, and explicit schema evolution
-for that object/map subset on JavaScript and BEAM. Interoperability coverage
+Watershed supports fixed objects, dynamic maps, named recursive arrays, and
+explicit schema evolution for the object/map subset on JavaScript and BEAM.
+Interoperability coverage
 uses Fluid Framework **3.1.0** and the pinned Floodgate service. The gate
 compares upstream, JavaScript, and BEAM authors, reconnects pending edits, and
 loads and continues editing across object, map, and schema-evolution summary
@@ -221,7 +222,7 @@ depends on attached and retained detached content, pending edits, and the
 collaboration window. History can trim as the minimum sequence advances, but
 there is no published capacity, throughput, or bounded-memory guarantee.
 
-Map-wide clear, arrays and moves, array schema evolution, staged upgrades,
+Map-wide clear, array schema evolution, staged upgrades,
 unknown-field adapters, data migration, handle-valued tree leaves, public
 transactions, undo/redo, branching, and incremental summaries remain deferred.
 The compatibility claim also excludes additional upstream package versions.
@@ -280,7 +281,7 @@ the M1 and M2 matrices plus the native-creation matrix.
 | `just shared-tree-oracle-check` | Pinned upstream regeneration against committed fixtures. |
 | `just shared-tree-interop` | 147 deterministic cases, 12 reconnect cases, 24 refusal cases, two nine-cell reload matrices, and 200 object/map seeded schedules. |
 | `just shared-tree-create-interop` | Two native creators, each with fresh JavaScript, BEAM, and upstream readers: six cells. |
-| `just shared-tree-interop-deep` | Manual 5,000-schedule run through the same coordinator. |
+| `just shared-tree-interop-deep` | Manual 7,500-schedule run through the same coordinator. |
 
 See the [oracle README](tools/shared-tree-oracle/README.md#run) for prerequisites,
 evidence artifacts, and failure replay. These checks prove the declared profile;
