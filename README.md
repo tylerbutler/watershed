@@ -227,8 +227,8 @@ unknown-field adapters, data migration, handle-valued tree leaves, public
 transactions, undo/redo, branching, and incremental summaries remain deferred.
 The compatibility claim also excludes additional upstream package versions.
 Fixed-layout creation is available below; broader container layouts, live
-attachment, SharedTree Lustre bindings, and disk recovery of pending edits are
-not.
+attachment, richer SharedTree Lustre bindings, and disk recovery of pending
+edits are not.
 
 Recreate documents written with earlier Watershed development encodings.
 There is no legacy reader or migration path. This format change does not
@@ -265,6 +265,12 @@ JavaScript, edits it on BEAM, and reopens it without an SDK seed. Local token
 minting in that example is for development; applications supply service-issued
 tokens. Run `just shared-tree-create-test` for the native and HTTP checks, or
 `just shared-tree-create-interop` for the pinned-service creation matrix.
+
+The [browser checklist example](examples/shared_tree_checklist_lustre) creates
+the same fixed-layout container from a Lustre application, then edits an
+object-and-array schema in two browser contexts. It mints development tokens
+in the browser for the local Floodgate stack; production applications must
+obtain tenant-write and document tokens from a backend.
 
 ### SharedTree checks
 

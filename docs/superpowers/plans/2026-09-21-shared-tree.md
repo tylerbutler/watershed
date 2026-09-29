@@ -2264,6 +2264,13 @@ Further M7 container lifecycle work can overlap the consumer lane after its
 contracts stabilize, but it needs one owner for attach, alias, bootstrap, and
 handle behavior.
 
+**Pulled-forward M7 browser slice:** The thin `watershed_lustre/tree` adapter
+and `shared_tree_checklist_lustre` example cover browser-native creation,
+fixed-layout resolution, subscriptions, object/array edits, and a two-context
+Chromium gate. They do not close M7. Production token services, arbitrary
+layouts, live attachment, handle-valued leaves, richer typed APIs, and pending
+state recovery remain open.
+
 The fixed-layout creation slice now has a standalone dual-target example at
 `examples/shared_tree_cli`. It uses caller-authored schema and initial content,
 returns the assigned ID before opening, and has no SDK seed step. Creation
