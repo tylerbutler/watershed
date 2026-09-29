@@ -27,8 +27,6 @@ then copy the full URL into a second tab.
 The local server serves the bundle and proxies Floodgate HTTP requests through
 the app origin. This avoids browser CORS restrictions on document creation and
 summary storage. The Phoenix socket still connects to Floodgate on port 4000.
-Use `?host=...&port=...` to point the socket and proxy at another local
-Floodgate service.
 
 ## Schema and edits
 

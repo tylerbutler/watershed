@@ -6,7 +6,7 @@ test("replaceDocument preserves configuration parameters", async () => {
   Object.defineProperty(globalThis, "location", {
     configurable: true,
     value: {
-      href: "http://localhost:8080/?host=example.test&port=4100&tenant=t&secret=s&document=old",
+      href: "http://localhost:8080/?tenant=t&secret=s&document=old",
     },
   });
   Object.defineProperty(globalThis, "history", {
@@ -23,11 +23,9 @@ test("replaceDocument preserves configuration parameters", async () => {
 
   const url = new URL(replaced);
   assert.equal(url.searchParams.get("document"), "doc-1");
-  assert.equal(url.searchParams.get("host"), "example.test");
-  assert.equal(url.searchParams.get("port"), "4100");
   assert.equal(url.searchParams.get("tenant"), "t");
   assert.equal(url.searchParams.get("secret"), "s");
-  assert.equal(browser.queryParameter("host", "fallback"), "example.test");
+  assert.equal(browser.queryParameter("tenant", "fallback"), "t");
   assert.equal(browser.queryParameter("missing", "fallback"), "fallback");
   assert.equal(browser.currentOrigin(), "http://localhost:8080");
 
@@ -36,8 +34,8 @@ test("replaceDocument preserves configuration parameters", async () => {
     fetched = String(input);
     return new Response(null, { status: 204 });
   };
-  browser.proxyFloodgateHttp("http://example.test:4100");
-  await fetch("http://example.test:4100/repos/t/git/commits/c?x=1");
+  browser.proxyFloodgateHttp("http://127.0.0.1:4000");
+  await fetch("http://127.0.0.1:4000/repos/t/git/commits/c?x=1");
   assert.equal(
     fetched,
     "http://localhost:8080/repos/t/git/commits/c?x=1",

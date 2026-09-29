@@ -208,6 +208,8 @@ async function main() {
               "the edit and reorder race to converge",
               (value) =>
                 value.items.length === 3 &&
+                value.items[0].id === originalIds[1] &&
+                value.items[1].id === originalIds[0] &&
                 value.items.find((item) => item.id === editedId)?.text ===
                   "edited during reorder" &&
                 sameMembers(

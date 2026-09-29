@@ -85,11 +85,7 @@ fn query_parameter(name: String, fallback: String) -> String
 @external(javascript, "./shared_tree_checklist_lustre_ffi.mjs", "currentOrigin")
 fn current_origin() -> String
 
-@external(
-  javascript,
-  "./shared_tree_checklist_lustre_ffi.mjs",
-  "proxyFloodgateHttp",
-)
+@external(javascript, "./shared_tree_checklist_lustre_ffi.mjs", "proxyFloodgateHttp")
 fn proxy_floodgate_http(upstream: String) -> Nil
 
 @external(javascript, "./shared_tree_checklist_lustre_ffi.mjs", "replaceDocument")
@@ -115,13 +111,12 @@ pub fn creation_error(detail: String) -> String {
 }
 
 fn init(_argument: Nil) -> #(Model, Effect(Msg)) {
-  let host = query_parameter("host", default_host)
-  let port = query_parameter("port", default_port)
-  proxy_floodgate_http(base_url(host, port))
+  let floodgate_url = base_url(default_host, default_port)
+  proxy_floodgate_http(floodgate_url)
   let config =
     Config(
       base_url: query_parameter("base", current_origin()),
-      socket_url: socket_url(host, port),
+      socket_url: socket_url(default_host, default_port),
       tenant: query_parameter("tenant", default_tenant),
       secret: query_parameter("secret", default_secret),
     )
