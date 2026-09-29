@@ -880,7 +880,7 @@
             "referenceSequenceNumber": 4,
             "minimumSequenceNumber": 2,
             "clientSequenceNumber": 1,
-            "clientId": "0f8fc858-f2df-461d-8225-b73317c40e20",
+            "clientId": "b646f13a-b592-495e-928f-125f4a3ee4fd",
             "indexInBatch": 0
           },
           {
@@ -888,7 +888,7 @@
             "referenceSequenceNumber": 4,
             "minimumSequenceNumber": 2,
             "clientSequenceNumber": 1,
-            "clientId": "0f8fc858-f2df-461d-8225-b73317c40e20",
+            "clientId": "b646f13a-b592-495e-928f-125f4a3ee4fd",
             "indexInBatch": 0
           }
         ]
@@ -1365,7 +1365,7 @@
             "referenceSequenceNumber": 2,
             "minimumSequenceNumber": 2,
             "clientSequenceNumber": 1,
-            "clientId": "a4b21172-8424-440a-a154-bbf07ed336e0",
+            "clientId": "6aa640b3-bb02-43c9-9e9d-3cbb19d79a86",
             "indexInBatch": 0
           },
           {
@@ -1373,7 +1373,7 @@
             "referenceSequenceNumber": 2,
             "minimumSequenceNumber": 2,
             "clientSequenceNumber": 1,
-            "clientId": "a4b21172-8424-440a-a154-bbf07ed336e0",
+            "clientId": "6aa640b3-bb02-43c9-9e9d-3cbb19d79a86",
             "indexInBatch": 0
           }
         ]
@@ -1454,7 +1454,7 @@
             "referenceSequenceNumber": 3,
             "minimumSequenceNumber": 3,
             "clientSequenceNumber": 1,
-            "clientId": "61dbaafc-4509-402f-ba4f-3eb4c753f4dc",
+            "clientId": "a311db4b-9c22-4cf8-892e-f2eef4586c90",
             "indexInBatch": 0
           }
         ]
@@ -4718,7 +4718,7 @@
         "replay": {
           "submitted": 1,
           "bytes": [
-            "{\"clientSequenceNumber\":1,\"contents\":{\"revision\":1,\"originatorId\":\"8f95be09-8376-4ff7-8755-ccd7e8124b06\",\"changeset\":[{\"schema\":{\"new\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}},\"old\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}}}],\"version\":7},\"referenceSequenceNumber\":3,\"type\":\"op\",\"clientId\":\"61dbaafc-4509-402f-ba4f-3eb4c753f4dc\",\"sequenceNumber\":5,\"minimumSequenceNumber\":3,\"indexInBatch\":0}"
+            "{\"clientSequenceNumber\":1,\"contents\":{\"revision\":1,\"originatorId\":\"8f95be09-8376-4ff7-8755-ccd7e8124b06\",\"changeset\":[{\"schema\":{\"new\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}},\"old\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}}}],\"version\":7},\"referenceSequenceNumber\":3,\"type\":\"op\",\"clientId\":\"a311db4b-9c22-4cf8-892e-f2eef4586c90\",\"sequenceNumber\":5,\"minimumSequenceNumber\":3,\"indexInBatch\":0}"
           ],
           "originalRevision": 1,
           "replayRevisions": [
@@ -11538,7 +11538,7 @@
             "referenceSequenceNumber": 4,
             "minimumSequenceNumber": 2,
             "clientSequenceNumber": 1,
-            "clientId": "0f8fc858-f2df-461d-8225-b73317c40e20",
+            "clientId": "b646f13a-b592-495e-928f-125f4a3ee4fd",
             "indexInBatch": 0
           },
           {
@@ -11546,7 +11546,7 @@
             "referenceSequenceNumber": 4,
             "minimumSequenceNumber": 2,
             "clientSequenceNumber": 1,
-            "clientId": "0f8fc858-f2df-461d-8225-b73317c40e20",
+            "clientId": "b646f13a-b592-495e-928f-125f4a3ee4fd",
             "indexInBatch": 0
           }
         ],
@@ -11816,7 +11816,7 @@
             },
             "referenceSequenceNumber": 4,
             "type": "op",
-            "clientId": "0f8fc858-f2df-461d-8225-b73317c40e20",
+            "clientId": "b646f13a-b592-495e-928f-125f4a3ee4fd",
             "sequenceNumber": 5,
             "minimumSequenceNumber": 2,
             "indexInBatch": 0
@@ -11831,7 +11831,7 @@
             },
             "referenceSequenceNumber": 4,
             "type": "op",
-            "clientId": "0f8fc858-f2df-461d-8225-b73317c40e20",
+            "clientId": "b646f13a-b592-495e-928f-125f4a3ee4fd",
             "sequenceNumber": 6,
             "minimumSequenceNumber": 2,
             "indexInBatch": 0
@@ -14373,7 +14373,7 @@
             "referenceSequenceNumber": 2,
             "minimumSequenceNumber": 2,
             "clientSequenceNumber": 1,
-            "clientId": "a4b21172-8424-440a-a154-bbf07ed336e0",
+            "clientId": "6aa640b3-bb02-43c9-9e9d-3cbb19d79a86",
             "indexInBatch": 0
           },
           {
@@ -14381,7 +14381,7 @@
             "referenceSequenceNumber": 2,
             "minimumSequenceNumber": 2,
             "clientSequenceNumber": 1,
-            "clientId": "a4b21172-8424-440a-a154-bbf07ed336e0",
+            "clientId": "6aa640b3-bb02-43c9-9e9d-3cbb19d79a86",
             "indexInBatch": 0
           }
         ],
@@ -14427,7 +14427,7 @@
             },
             "referenceSequenceNumber": 2,
             "type": "op",
-            "clientId": "a4b21172-8424-440a-a154-bbf07ed336e0",
+            "clientId": "6aa640b3-bb02-43c9-9e9d-3cbb19d79a86",
             "sequenceNumber": 3,
             "minimumSequenceNumber": 2,
             "indexInBatch": 0
@@ -14613,7 +14613,7 @@
             },
             "referenceSequenceNumber": 2,
             "type": "op",
-            "clientId": "a4b21172-8424-440a-a154-bbf07ed336e0",
+            "clientId": "6aa640b3-bb02-43c9-9e9d-3cbb19d79a86",
             "sequenceNumber": 4,
             "minimumSequenceNumber": 2,
             "indexInBatch": 0
@@ -14741,7 +14741,7 @@
             "referenceSequenceNumber": 3,
             "minimumSequenceNumber": 3,
             "clientSequenceNumber": 1,
-            "clientId": "61dbaafc-4509-402f-ba4f-3eb4c753f4dc",
+            "clientId": "a311db4b-9c22-4cf8-892e-f2eef4586c90",
             "indexInBatch": 0
           }
         ],
@@ -15159,7 +15159,7 @@
             },
             "referenceSequenceNumber": 3,
             "type": "op",
-            "clientId": "61dbaafc-4509-402f-ba4f-3eb4c753f4dc",
+            "clientId": "a311db4b-9c22-4cf8-892e-f2eef4586c90",
             "sequenceNumber": 5,
             "minimumSequenceNumber": 3,
             "indexInBatch": 0
@@ -15172,7 +15172,7 @@
         "replay": {
           "submitted": 1,
           "bytes": [
-            "{\"clientSequenceNumber\":1,\"contents\":{\"revision\":1,\"originatorId\":\"8f95be09-8376-4ff7-8755-ccd7e8124b06\",\"changeset\":[{\"schema\":{\"new\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}},\"old\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}}}],\"version\":7},\"referenceSequenceNumber\":3,\"type\":\"op\",\"clientId\":\"61dbaafc-4509-402f-ba4f-3eb4c753f4dc\",\"sequenceNumber\":5,\"minimumSequenceNumber\":3,\"indexInBatch\":0}"
+            "{\"clientSequenceNumber\":1,\"contents\":{\"revision\":1,\"originatorId\":\"8f95be09-8376-4ff7-8755-ccd7e8124b06\",\"changeset\":[{\"schema\":{\"new\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}},\"old\":{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m4.Items\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"org.watershed.shared-tree.m4.Point\"]}}},\"org.watershed.shared-tree.m4.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m4.Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Items\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Point\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m4.Root\"]}}}}],\"version\":7},\"referenceSequenceNumber\":3,\"type\":\"op\",\"clientId\":\"a311db4b-9c22-4cf8-892e-f2eef4586c90\",\"sequenceNumber\":5,\"minimumSequenceNumber\":3,\"indexInBatch\":0}"
           ],
           "originalRevision": 1,
           "replayRevisions": [
