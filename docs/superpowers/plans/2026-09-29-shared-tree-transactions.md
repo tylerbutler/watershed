@@ -1,0 +1,1193 @@
+# SharedTree Transaction Foundations Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use
+> superpowers:subagent-driven-development (recommended) or
+> superpowers:executing-plans to implement this plan task-by-task. Steps use
+> checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Add synchronous single-tree transactions with nested commit/abort and
+sequenced node-existence constraints to the native SharedTree facades.
+
+**Architecture:** Author callback edits against an isolated transaction-local
+tree and compressor state, deliver upstream-compatible local events, and append
+one composed commit only when the outer scope succeeds. Extend the existing
+modular change algebra and V5 codec with node-existence constraints so every
+client can suppress a transaction whose constrained node was removed before
+sequencing.
+
+**Tech Stack:** Dual-target Gleam; startest; Node test runner;
+`@fluidframework/tree` 3.1.0 published-package and source oracles; pinned
+Floodgate; existing `just` and GitHub Actions gates.
+
+**Spec:** [SharedTree transaction foundations](../specs/2026-09-29-shared-tree-transactions-design.md).
+Also read the [parent design](../specs/2026-09-21-shared-tree-design.md),
+[arrays design](../specs/2026-09-26-shared-tree-arrays-design.md), and
+[schema evolution design](../specs/2026-09-26-shared-tree-schema-evolution-design.md).
+
+## Global Constraints
+
+- Production SharedTree semantics must run in pure Gleam on JavaScript and BEAM.
+- Upstream TypeScript packages remain development and test dependencies.
+- Use `@fluidframework/tree` version `3.1.0`.
+- Use Fluid Framework commit `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960` (`client_v3.1.0`).
+- Use Floodgate commit `0eb493fc46d1bb9baf1151a6ccdde93544e057e7`.
+- Keep `minVersionForCollab` at `2.117.0`.
+- Keep Message V7, SharedTreeChange V5, ModularChange V5, and Schema V2.
+- Preserve the existing fixed container layout.
+- Preserve M1-M4 behavior and interoperability evidence.
+- Reject unsupported operations instead of approximating their meaning.
+- Apply ASD-STE100 to Gleam comments and error strings, not to Markdown prose.
+- Do not edit generated files, `.code-map/`, or apm-managed files.
+
+---
+
+## 1. Starting point and execution rules
+
+Planning baseline: `2a33f6a` (`docs(tree): define transaction foundations`).
+The worktree was clean after that commit. Record the execution worktree and
+starting revision before Task 1. Do not edit the pinned Fluid checkout except
+through the existing source-injection and capture commands.
+
+Use an isolated worktree for execution. Restore dependencies only after a
+relevant command reports that they are missing. Use existing lockfiles.
+
+Each task ends with a testable deliverable and a commit. Use test-first steps:
+add one named failing case, run it, implement the smallest complete behavior,
+and run it again before adding the next row in the matrix. Do not stage
+unrelated files.
+
+This plan implements only the approved transaction-foundation slice. Undo,
+redo, `noChange`, revert constraints, schema upgrades in transactions,
+asynchronous transactions, custom metadata, post-processors, and cross-tree
+atomicity remain deferred.
+
+### Current constraints to remove
+
+| Source at planning time | Required change |
+| --- | --- |
+| `tree/change.gleam:40-65` | Store node-existence constraints and aggregate explicit violation state. |
+| `tree/change.gleam:1745-2100` | Compose, invert, and rebase constraints with the existing object/map/sequence algebra. |
+| `tree/change.gleam:1731-1743` | Suppress constrained field effects after explicit violation while preserving required builds. |
+| `tree/codec.gleam:742-775` | Decode nonzero `violations` instead of rejecting it. Keep `noChangeConstraint` unsupported. |
+| `tree/codec.gleam:1266-1281` | Decode `nodeExistsConstraint` and preserve its violated flag. |
+| `tree/codec.gleam:1448-1785` | Encode violation counts and node constraints in ModularChange V5. |
+| `tree/runtime.gleam:247-283` | Split edit authoring from normal history append so transaction-local edits can reuse validation and allocation. |
+| `tree_kernel.gleam:518-575` | Append one composed outer transaction change and expose constraint-target helpers. |
+| `runtime_core.gleam:3763-3935` | Route edits to active transaction state and submit only the outer commit. |
+| `runtime.gleam:2255-2355` | Add begin/commit/abort wrappers and callback-safe transaction routing. |
+| `runtime_beam.gleam:212-510,1800-2145` | Add internal transaction messages and defer remote delivery until the outer scope ends. |
+| `watershed.gleam:486-735` and `watershed_beam.gleam:600-875` | Add the public generic callback API and stable constraint type. |
+
+Line numbers identify the planning baseline. Locate the named declarations
+again before editing.
+
+### Dependency order
+
+```text
+1 pinned transaction oracle and source-contract review
+                         |
+2 modular constraint model and V5 codec
+                         |
+3 constraint compose/invert/rebase/application semantics
+                         |
+4 pure transaction-local state and edit authoring split
+                         |
+5 kernel and runtime-core transaction integration
+                    /         \
+6 JavaScript callback       7 BEAM callback and deferral
+                    \         /
+8 reconnect, summary, and native facade parity
+                         |
+9 mixed-client and real-service proof
+                         |
+10 permanent gates and supported-profile closure
+                         |
+11 full regression closure
+```
+
+Tasks 6 and 7 can proceed in parallel after Task 5 if they have separate file
+ownership. Keep Tasks 2-5 under one integration owner because they share the
+change, codec, kernel, and runtime-core contracts.
+
+## 2. File map
+
+| File or group | Responsibility |
+| --- | --- |
+| `src/watershed/tree/change.gleam` | Modular constraint types, authoring, compose, invert, rebase, explicit-violation outcome. |
+| `src/watershed/tree/codec.gleam` | ModularChange V5 constraint and violation encoding/decoding. |
+| `src/watershed/tree/transaction.gleam` (new) | Pure nested transaction state, savepoints, authored changes, compressor snapshots, and commit/abort results. |
+| `src/watershed/tree/runtime.gleam` | Reusable edit authoring without history append; outer transaction commit authoring. |
+| `src/watershed/tree_kernel.gleam` | Constraint target resolution and one composed local history append. |
+| `src/watershed/runtime_core.gleam` | Active transaction storage, transaction-aware reads/edits, outer submission, and state evidence. |
+| `src/watershed/runtime.gleam` | JavaScript begin/commit/abort operations, cell routing, event fan-out, and outbound submission. |
+| `src/watershed/runtime_beam.gleam` | BEAM transaction messages, actor state, deferred remote messages, event fan-out, and outbound submission. |
+| `src/watershed.gleam`, `src/watershed_beam.gleam` | Public constraint/error types and callback API. |
+| `tools/shared-tree-oracle/upstream-transaction.spec.ts` (new) | Pinned source capture for transaction, constraint, event, wire, and history behavior. |
+| Existing oracle source/generate/schema/client/interop/service files | Register, validate, run, and gate the transaction corpus and clients. |
+| `test/watershed/tree/transaction_fixture.gleam` (new) | Input-only native corpus runners. |
+| `test/watershed/shared_tree_transaction_test.gleam` (new) | Pure transaction state and nested scope tests. |
+| Existing change, codec, history, kernel, runtime, facade, summary, and array tests | Add focused constraint and integration coverage at existing boundaries. |
+
+Do not introduce a second history implementation, a transaction-specific edit
+DSL, or a generic runtime plugin framework.
+
+## 3. Shared interfaces
+
+Add declarations only when their owning task starts.
+
+### Constraint data, owned by Task 2
+
+```gleam
+pub type NodeExistsConstraint {
+  NodeExistsConstraint(violated: Bool)
+}
+
+pub type NodeChange {
+  NodeChange(
+    fields: List(#(String, FieldChange)),
+    node_exists_constraint: Option(NodeExistsConstraint),
+    node_exists_constraint_on_revert: Option(NodeExistsConstraint),
+  )
+}
+
+pub type ChangeData {
+  ChangeData(
+    max_local_id: Int,
+    revisions: List(RevisionInfo),
+    fields: List(#(String, FieldChange)),
+    nodes: List(#(AtomId, NodeChange)),
+    parents: List(#(AtomId, ParentField)),
+    aliases: List(#(AtomId, AtomId)),
+    builds: List(forest.Build),
+    destroys: List(forest.Destroy),
+    refreshers: List(forest.Build),
+    cross_field_keys: List(CrossFieldKey),
+    constraint_violation_count: Int,
+  )
+}
+```
+
+Keep `noChangeConstraint` absent from the native type. Decoding it remains an
+`UnsupportedFeature`.
+
+### Constraint authoring, owned by Task 3
+
+```gleam
+pub type ConstraintTarget {
+  ConstraintTarget(reference: forest.NodeRef, path: FieldPath)
+}
+
+pub fn resolve_constraint(
+  visible: forest.Forest,
+  path: FieldPath,
+) -> Result(ConstraintTarget, TreeError)
+
+pub fn add_node_exists_constraints(
+  value: Changeset,
+  visible: forest.Forest,
+  targets: List(ConstraintTarget),
+) -> Result(Changeset, TreeError)
+```
+
+`resolve_constraint` requires an attached node. `add_node_exists_constraints`
+must verify that each stored reference still resolves to the same base node,
+then add a nonviolated constraint to the node change identified by the base
+path. Duplicate targets collapse to one constraint.
+
+### Preview application, owned by Task 4
+
+```gleam
+pub fn apply_local_preview(
+  state: TreeState,
+  revision: fluid_ids.StableId,
+  order: change.IdentityOrder,
+  outer: shared_change.Changeset,
+) -> Result(#(TreeState, ChangeEvents), TreeError)
+```
+
+This function rebinds and applies one local outer change to visible state,
+updates `next_local_id`, and does not append normal history or local authoring
+context. Ordinary `apply_local_change` reuses it before appending history.
+
+### Pure transaction state, owned by Task 4
+
+```gleam
+pub opaque type Transaction
+
+pub type Finish {
+  NoCommit
+  Commit(
+    state: tree_kernel.TreeState,
+    compressor: fluid_ids.Compressor,
+    commit: history.Commit,
+  )
+}
+
+pub fn begin(
+  state: tree_kernel.TreeState,
+  compressor: fluid_ids.Compressor,
+  constraints: List(change.ConstraintTarget),
+) -> Transaction
+
+pub fn begin_nested(value: Transaction) -> Transaction
+
+pub fn state(value: Transaction) -> tree_kernel.TreeState
+
+pub fn compressor(value: Transaction) -> fluid_ids.Compressor
+
+pub fn apply_edit(
+  value: Transaction,
+  edit: tree_types.Edit,
+) -> Result(#(Transaction, tree_kernel.ChangeEvents), TreeError)
+
+pub fn commit_nested(value: Transaction) -> Result(Transaction, TreeError)
+
+pub fn abort_nested(
+  value: Transaction,
+) -> Result(#(Transaction, tree_kernel.ChangeEvents), TreeError)
+
+pub fn finish(
+  value: Transaction,
+) -> Result(#(Finish, tree_kernel.ChangeEvents), TreeError)
+
+pub fn abort(
+  value: Transaction,
+) -> Result(#(tree_kernel.TreeState, fluid_ids.Compressor, tree_kernel.ChangeEvents), TreeError)
+```
+
+`finish` composes authored changes, adds constraints, and appends one local
+commit. `NoCommit` restores the base compressor. `abort` restores the base tree
+and compressor. Local per-edit events come from `apply_edit`; finish emits no
+duplicate data event.
+
+### Runtime-core API, owned by Task 5
+
+```gleam
+pub fn begin_tree_transaction(
+  core: Core,
+  address: String,
+  view: tree_schema.ViewSchema,
+  constraints: List(tree_types.FieldPath),
+) -> Result(Core, CoreError)
+
+pub fn commit_tree_transaction(
+  core: Core,
+  address: String,
+) -> Result(#(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)), CoreError)
+
+pub fn abort_tree_transaction(
+  core: Core,
+  address: String,
+) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError)
+
+pub fn tree_transaction_depth(core: Core) -> Int
+```
+
+Existing tree read functions select the isolated state when the address matches
+the active transaction. Existing tree edit submission routes matching edits to
+`transaction.apply_edit`, returns local events, and returns no outbound
+operation until outer commit. Another tree address and schema upgrades return a
+typed error while a transaction is active.
+
+### Public API, owned by Tasks 6 and 7
+
+```gleam
+pub type TreeTransactionConstraint {
+  NodeInDocument(path: tree_types.FieldPath)
+}
+
+pub type TreeTransactionError(callback_error) {
+  Aborted(callback_error)
+  TransactionFailed(String)
+}
+
+pub fn tree_transaction(
+  tree: SharedTree,
+  constraints: List(TreeTransactionConstraint),
+  callback: fn(SharedTree) -> Result(value, callback_error),
+) -> Result(value, TreeTransactionError(callback_error))
+```
+
+## 4. Implementation tasks
+
+### Task 1: Capture the pinned transaction and constraint contract
+
+**Files:**
+- Create: `tools/shared-tree-oracle/upstream-transaction.spec.ts`
+- Modify: `tools/shared-tree-oracle/source.mjs`
+- Modify: `tools/shared-tree-oracle/source.test.mjs`
+- Modify: `tools/shared-tree-oracle/generate.mjs`
+- Modify: `tools/shared-tree-oracle/generate.test.mjs`
+- Modify: `tools/shared-tree-oracle/README.md`
+- Generate: transaction corpus files, `manifest.json`, and capture metadata
+
+**Interfaces:**
+- Consumes: pinned Fluid source, existing source injection, schema catalog,
+  corpus manifest, and observation normalization.
+- Produces: exact transaction, constraint, event, wire, and history
+  observations used by Tasks 2-9.
+
+- [ ] **Step 1: Add failing source-registration and corpus-completeness tests.**
+
+Export:
+
+```javascript
+export const transactionInjectedTestPath =
+  "packages/dds/tree/src/test/watershedTransaction.spec.ts";
+```
+
+Require these corpus case IDs:
+
+```javascript
+const requiredTransactionCases = [
+  "transaction-callbacks",
+  "transaction-constraints",
+  "transaction-wire",
+  "transaction-history",
+];
+```
+
+For each case, test rejection after removing the case, clearing observations,
+removing `input`, or changing the pinned source commit.
+
+Run:
+
+```bash
+node --test tools/shared-tree-oracle/source.test.mjs tools/shared-tree-oracle/generate.test.mjs
+```
+
+Expected red: missing transaction injection and missing required-case checks.
+
+- [ ] **Step 2: Capture callback, nesting, and event behavior.**
+
+Use the ordinary simple-tree `runTransaction` API. Record:
+
+- successful object, map, array, and move edits;
+- callback reads after each edit;
+- local changed events in order;
+- outer rollback event and restored values;
+- inner success followed by outer success;
+- inner rollback followed by continued outer edits;
+- a no-op callback;
+- one final branch commit and submitted operation for each outer success.
+
+Assert the nested transaction depth and commit count in the injected source
+test, not only in normalized output.
+
+- [ ] **Step 3: Capture stable node-existence constraints.**
+
+Create a constraint from a real `TreeNode`. Capture:
+
+- local refusal when the node is already detached;
+- success after the node moves within an array;
+- success after a cross-array move;
+- explicit violation when a concurrent removal sequences first;
+- the resulting `constraintViolationCount`;
+- retained created content and no visible constrained field effects.
+
+Do not include alpha `noChange` or revert preconditions.
+
+- [ ] **Step 4: Capture exact ModularChange V5 and SharedTreeChange V5 bytes.**
+
+Record nonviolated and violated node constraints, nested node paths, duplicate
+constraint inputs, builds, refreshers, and revision information. Capture
+compose, invert, and rebase outcomes. The expected inverse must exchange
+apply-time and revert-time node constraints even though public undo is absent.
+
+- [ ] **Step 5: Capture reconnect, summary, and mixed-history behavior.**
+
+Record one pending composed transaction, resubmission, acknowledgement, a
+summary taken while it is pending, summary-plus-tail replay, and explicit
+constraint violation during pending rebase. Include node identities and
+retained detached content in every checkpoint.
+
+- [ ] **Step 6: Regenerate and verify the source corpus.**
+
+```bash
+npm --prefix tools/shared-tree-oracle run source:verify
+npm --prefix tools/shared-tree-oracle run source:capture
+npm --prefix tools/shared-tree-oracle run generate
+npm --prefix tools/shared-tree-oracle run check
+node --test tools/shared-tree-oracle/source.test.mjs tools/shared-tree-oracle/generate.test.mjs
+```
+
+Expected green: all four transaction cases, exact pins, nonempty raw wire
+evidence, and deterministic regeneration.
+
+- [ ] **Step 7: Review and document the source contract.**
+
+Document the exact source paths, event order, nested behavior, explicit
+violation outcome, wire fields, and retained-build rule in the oracle README.
+Resolve any mismatch with the approved spec before native implementation.
+
+- [ ] **Step 8: Commit the oracle deliverable.**
+
+```bash
+git add tools/shared-tree-oracle test/fixtures/shared_tree
+git commit -m "test(tree): capture transaction contract"
+```
+
+### Task 2: Add modular constraint types and V5 codec support
+
+**Files:**
+- Modify: `src/watershed/tree/change.gleam`
+- Modify: `src/watershed/tree/codec.gleam`
+- Create: `test/watershed/tree/transaction_fixture.gleam`
+- Create: `test/watershed/shared_tree_transaction_test.gleam`
+- Modify: `test/watershed/shared_tree_change_test.gleam`
+- Modify: `test/watershed/shared_tree_codec_test.gleam`
+- Modify: `test/watershed/shared_tree_codec_fixture_test.gleam`
+
+**Interfaces:**
+- Consumes: Task 1 transaction wire inputs.
+- Produces: the section-3 constraint data model and lossless ModularChange V5
+  encode/decode support.
+
+- [ ] **Step 1: Add input-only codec fixture tests.**
+
+Add:
+
+```gleam
+pub fn run_wire(input: Json) -> Result(Json, String)
+```
+
+It decodes only fixture input, runs native decode/encode, and returns
+normalized constraint fields. Add tests for nonviolated, violated, nested,
+duplicate, and malformed constraints.
+
+Run:
+
+```bash
+gleam test --target erlang -- shared_tree_transaction shared_tree_codec
+gleam test --target javascript -- shared_tree_transaction shared_tree_codec
+```
+
+Expected red: nonzero `violations` and `nodeExistsConstraint` are unsupported.
+
+- [ ] **Step 2: Add constraint fields with explicit defaults.**
+
+Extend `NodeChange` and `ChangeData` with the interfaces in section 3. Update
+every constructor and pattern match. Use:
+
+```gleam
+NodeChange(
+  fields: fields,
+  node_exists_constraint: None,
+  node_exists_constraint_on_revert: None,
+)
+```
+
+and set `constraint_violation_count: 0` for existing changes.
+
+- [ ] **Step 3: Decode V5 constraint fields.**
+
+Decode:
+
+```json
+{"nodeExistsConstraint":{"violated":false}}
+```
+
+Reject extra keys and non-Boolean `violated`. Decode top-level `violations` as
+a nonnegative integer and preserve it. Continue to reject
+`noChangeConstraint`.
+
+- [ ] **Step 4: Encode V5 constraint fields.**
+
+Emit `nodeExistsConstraint` only when present. Emit `violations` only when the
+count is greater than zero. Do not encode `node_exists_constraint_on_revert`;
+the pinned V5 codec omits revert-only constraints.
+
+- [ ] **Step 5: Add malformed and round-trip tests.**
+
+Cover negative/fractional violation counts, missing `violated`, extra keys,
+constraint-only node changes, aliases, nested arrays, and violated changes with
+builds. Assert exact JSON, not only semantic equality.
+
+- [ ] **Step 6: Run focused dual-target tests.**
+
+```bash
+gleam format --check src test
+gleam test --target erlang -- shared_tree_transaction shared_tree_change shared_tree_codec shared_tree_codec_fixture
+gleam test --target javascript -- shared_tree_transaction shared_tree_change shared_tree_codec shared_tree_codec_fixture
+```
+
+- [ ] **Step 7: Commit the codec boundary.**
+
+```bash
+git add src/watershed/tree/change.gleam src/watershed/tree/codec.gleam test/watershed
+git commit -m "feat(tree): decode transaction constraints"
+```
+
+### Task 3: Implement constraint authoring and algebra
+
+**Files:**
+- Modify: `src/watershed/tree/change.gleam`
+- Modify: `src/watershed/tree/forest.gleam` only for a focused identity helper if existing `NodeRef` access is insufficient
+- Modify: `test/watershed/shared_tree_transaction_test.gleam`
+- Modify: `test/watershed/shared_tree_change_test.gleam`
+- Modify: `test/watershed/shared_tree_array_change_test.gleam`
+- Modify: `test/watershed/shared_tree_change_fixture_test.gleam`
+
+**Interfaces:**
+- Consumes: Task 2 constraint data.
+- Produces: `resolve_constraint`, `add_node_exists_constraints`, and complete
+  compose/invert/rebase/application semantics.
+
+- [ ] **Step 1: Add failing local target-resolution tests.**
+
+Test an attached object, map, array element, moved node, duplicate path,
+missing path, detached reference, and reference from another forest. The last
+three return `InvalidEdit` without changing state.
+
+- [ ] **Step 2: Author constraint-only node paths.**
+
+Use `forest.node_path` and the existing ancestor wrapping logic to construct a
+node change at the constrained base node. Merge it into the composed
+transaction change without replacing existing field changes. Verify that the
+stored `NodeRef` still identifies the base node before adding the constraint.
+
+- [ ] **Step 3: Add failing compose and invert tests.**
+
+Require:
+
+- constraints survive composition with edits before and after them;
+- duplicate constraints collapse;
+- violation counts equal the number of violated constraints;
+- inversion exchanges `node_exists_constraint` and
+  `node_exists_constraint_on_revert`;
+- existing data-only compose/invert output is unchanged.
+
+- [ ] **Step 4: Implement compose and invert propagation.**
+
+Thread constraint fields through node merge, alias resolution, pruning, and
+inverse construction. Recompute the aggregate count from node constraints
+after each operation instead of incrementally trusting stale input.
+
+- [ ] **Step 5: Add failing rebase cases from the corpus.**
+
+Cover unchanged node, same-node edit, move, remove, replace, remove-then-restore,
+cross-array move, concurrent insert around the node, nested constrained node,
+and already-violated input.
+
+- [ ] **Step 6: Implement rebase violation updates.**
+
+Port the pinned modular constraint update rule into the existing rebase state.
+A move preserves the constraint. A detach without reattachment marks it
+violated. A restored same identity clears a violation only when the pinned
+source does. Recompute `constraint_violation_count` after rebase.
+
+- [ ] **Step 7: Suppress visible field effects after explicit violation.**
+
+When `constraint_violation_count > 0`, `into_delta` must preserve builds and
+refreshers required by history but omit constrained field effects. Keep this
+outcome distinct from an empty outer change and from schema conflict.
+
+- [ ] **Step 8: Run algebra and array identity tests on both targets.**
+
+```bash
+gleam test --target erlang -- shared_tree_transaction shared_tree_change shared_tree_array_change shared_tree_change_fixture
+gleam test --target javascript -- shared_tree_transaction shared_tree_change shared_tree_array_change shared_tree_change_fixture
+```
+
+- [ ] **Step 9: Commit constraint semantics.**
+
+```bash
+git add src/watershed/tree/change.gleam src/watershed/tree/forest.gleam test/watershed
+git commit -m "feat(tree): enforce node constraints"
+```
+
+### Task 4: Add pure nested transaction state
+
+**Files:**
+- Create: `src/watershed/tree/transaction.gleam`
+- Modify: `src/watershed/tree/runtime.gleam`
+- Modify: `src/watershed/tree_kernel.gleam`
+- Modify: `test/watershed/shared_tree_transaction_test.gleam`
+- Modify: `test/watershed/shared_tree_kernel_test.gleam`
+- Modify: `test/watershed/shared_tree_array_kernel_test.gleam`
+
+**Interfaces:**
+- Consumes: Task 3 constraint algebra, existing edit validation, identity
+  allocation, and local history append.
+- Produces: the pure transaction API in section 3 and reusable edit authoring.
+
+- [ ] **Step 1: Add failing single-scope commit and abort tests.**
+
+Start from a tree and compressor, apply two edits, and assert callback-visible
+state and events. Before finish, assert normal pending history is unchanged.
+Finish must append one pending commit. Abort must restore tree, history,
+identity, and compressor equality.
+
+- [ ] **Step 2: Split edit authoring from history append.**
+
+Add an internal authoring result:
+
+```gleam
+pub type AuthoredEdit {
+  AuthoredEdit(
+    state: tree_kernel.TreeState,
+    change: shared_change.Changeset,
+    events: tree_kernel.ChangeEvents,
+    compressor: fluid_ids.Compressor,
+  )
+}
+
+pub fn author_edit_change(
+  state: tree_kernel.TreeState,
+  edit: Edit,
+  compressor: fluid_ids.Compressor,
+) -> Result(Option(AuthoredEdit), TreeError)
+```
+
+`author_edit_change` allocates a revision and calls
+`tree_kernel.apply_local_preview`. Ordinary `author_edit` then appends the
+returned change through `tree_kernel.apply_local_change` from the pre-edit
+state. Empty edits return `None` and preserve the compressor.
+
+- [ ] **Step 3: Implement outer transaction state.**
+
+Store base/current tree and compressor, authored outer changes, constraint
+targets, and a savepoint stack. `apply_edit` uses `author_edit_change`, updates
+only current isolated state, records the change, and returns its local events.
+
+- [ ] **Step 4: Add and implement nested savepoints.**
+
+Test two nested levels, inner success, inner abort, outer continuation, and
+outer abort after inner success. Each savepoint stores current tree,
+compressor, authored-change length, and event position.
+
+- [ ] **Step 5: Compose and append the outer success.**
+
+`finish` composes authored changes in order, adds constraints against the base
+forest, and appends one commit. If there is no effective data change, return
+`NoCommit` with the base compressor and no pending history.
+
+- [ ] **Step 6: Reject unsupported transaction operations.**
+
+Add tests for schema upgrades, a constraint that becomes detached before the
+callback starts, and commit/abort at depth zero. Use typed errors and leave
+state usable.
+
+- [ ] **Step 7: Run pure transaction and kernel tests.**
+
+```bash
+gleam test --target erlang -- shared_tree_transaction shared_tree_kernel shared_tree_array_kernel
+gleam test --target javascript -- shared_tree_transaction shared_tree_kernel shared_tree_array_kernel
+```
+
+- [ ] **Step 8: Commit the pure transaction engine.**
+
+```bash
+git add src/watershed/tree/transaction.gleam src/watershed/tree/runtime.gleam src/watershed/tree_kernel.gleam test/watershed
+git commit -m "feat(tree): add nested transactions"
+```
+
+### Task 5: Integrate transactions with runtime core
+
+**Files:**
+- Modify: `src/watershed/runtime_core.gleam`
+- Modify: `src/watershed/channel.gleam` if exhaustive evidence or event handling requires it
+- Modify: `test/watershed/shared_tree_runtime_test.gleam`
+- Modify: `test/watershed/shared_tree_array_kernel_test.gleam`
+- Modify: `test/watershed/shared_tree_schema_evolution_test.gleam`
+
+**Interfaces:**
+- Consumes: Task 4 pure transaction API.
+- Produces: the runtime-core API in section 3 and transaction-aware existing
+  tree read/edit functions.
+
+- [ ] **Step 1: Add failing runtime-core lifecycle tests.**
+
+Test begin, per-edit reads/events, nested begin/abort, outer commit, outer
+abort, no-op, wrong address, wrong view, schema upgrade rejection, and calls
+outside an active transaction.
+
+- [ ] **Step 2: Store one active single-tree transaction in `Core`.**
+
+Add:
+
+```gleam
+active_tree_transaction:
+  Option(#(String, tree_schema.ViewSchema, tree_transaction.Transaction))
+```
+
+Initialize it to `None` in every core constructor and restore path.
+
+- [ ] **Step 3: Route reads and edits through active state.**
+
+When the address matches, existing reads use `tree_transaction.state`.
+Matching edits call `tree_transaction.apply_edit`, replace the active
+transaction, return local events, and return `[]` outbound. Another address
+returns `TreeOperationFailed` with a literal cross-tree error.
+
+- [ ] **Step 4: Implement begin, nested begin, commit, and abort.**
+
+Resolve `NodeInDocument` paths before invoking `transaction.begin`. Nested
+begin requires the same address and view. Inner commit/abort update only active
+state. Outer commit calls existing `submit_tree_commits` once. Outer abort
+restores the core tree/compressor and returns the rollback events.
+
+- [ ] **Step 5: Preserve batch and allocation invariants.**
+
+Assert one outer commit produces one tree operation plus its required
+allocation item in one container batch. No-op and abort produce no allocation
+or outbound operation. Existing ordinary edit batching remains unchanged.
+
+- [ ] **Step 6: Add schema and reconnect guards.**
+
+`submit_tree_upgrade`, summary creation, reconnect transition, and resubmission
+must reject or defer while a transaction is active. The pure core does not
+silently discard active transaction state.
+
+- [ ] **Step 7: Run runtime-core and schema regression tests.**
+
+```bash
+gleam test --target erlang -- shared_tree_runtime shared_tree_transaction shared_tree_array_kernel shared_tree_schema_evolution
+gleam test --target javascript -- shared_tree_runtime shared_tree_transaction shared_tree_array_kernel shared_tree_schema_evolution
+```
+
+- [ ] **Step 8: Commit runtime-core integration.**
+
+```bash
+git add src/watershed/runtime_core.gleam src/watershed/channel.gleam test/watershed
+git commit -m "feat(tree): submit atomic transactions"
+```
+
+### Task 6: Expose the JavaScript callback API
+
+**Files:**
+- Modify: `src/watershed/runtime.gleam`
+- Modify: `src/watershed.gleam`
+- Modify: `test/watershed/shared_tree_runtime_js_test.gleam`
+- Modify: `test/watershed/shared_tree_array_facade_test.gleam`
+- Modify: `test/watershed/shared_tree_map_facade_test.gleam`
+- Modify: `test/facade_parity_test.gleam`
+
+**Interfaces:**
+- Consumes: Task 5 runtime-core lifecycle.
+- Produces: the JavaScript public API in section 3.
+
+- [ ] **Step 1: Add failing facade type and callback tests.**
+
+Cover success value, typed callback error, setup error, nested success, nested
+abort handled by the outer callback, per-edit subscriber reads, rollback
+subscriber reads, no-op, wrong tree, and schema-upgrade rejection.
+
+- [ ] **Step 2: Add runtime begin/commit/abort wrappers.**
+
+Each wrapper reads the runtime cell, requires ready state, calls the matching
+runtime-core function, updates the cell before fan-out, and sends outbound only
+for outer commit.
+
+- [ ] **Step 3: Implement the generic public callback.**
+
+Use this control flow:
+
+```gleam
+use <- result.try(
+  runtime.begin_tree_transaction(tree.runtime, tree.address, tree.view, paths)
+  |> result.map_error(TransactionFailed),
+)
+case callback(tree) {
+  Ok(value) ->
+    runtime.commit_tree_transaction(tree.runtime, tree.address)
+    |> result.map(fn(_) { value })
+    |> result.map_error(TransactionFailed)
+  Error(error) ->
+    case runtime.abort_tree_transaction(tree.runtime, tree.address) {
+      Ok(_) -> Error(Aborted(error))
+      Error(runtime_error) -> Error(TransactionFailed(runtime_error))
+    }
+}
+```
+
+If abort itself fails, return `TransactionFailed` rather than hiding the runtime
+error behind `Aborted`.
+
+- [ ] **Step 4: Verify synchronous event reentrancy.**
+
+Subscriber callbacks must read isolated state after each edit and restored
+state after abort. A subscriber edit on the same tree participates in the
+active transaction. A subscriber edit on another tree fails explicitly.
+
+- [ ] **Step 5: Run JavaScript facade and parity tests.**
+
+```bash
+gleam test --target javascript -- shared_tree_runtime_js shared_tree_array_facade shared_tree_map_facade facade_parity
+```
+
+- [ ] **Step 6: Commit the JavaScript facade.**
+
+```bash
+git add src/watershed/runtime.gleam src/watershed.gleam test/watershed test/facade_parity_test.gleam
+git commit -m "feat(tree): expose JS transactions"
+```
+
+### Task 7: Expose the BEAM callback API and defer remote delivery
+
+**Files:**
+- Modify: `src/watershed/runtime_beam.gleam`
+- Modify: `src/watershed_beam.gleam`
+- Modify: `test/watershed/shared_tree_runtime_beam_test.gleam`
+- Modify: `test/watershed/shared_tree_array_facade_test.gleam`
+- Modify: `test/watershed/shared_tree_map_facade_test.gleam`
+- Modify: `test/facade_parity_test.gleam`
+
+**Interfaces:**
+- Consumes: Task 5 runtime-core lifecycle.
+- Produces: the BEAM public API in section 3 and ordered deferred remote
+  delivery.
+
+- [ ] **Step 1: Add failing BEAM callback and interleaving tests.**
+
+Mirror Task 6 cases. Add a controlled remote operation between two callback
+edits. The callback must not see it. After outer commit or abort, the actor
+applies the remote operation in arrival order.
+
+- [ ] **Step 2: Add internal actor messages.**
+
+Add:
+
+```gleam
+TreeTransactionBegin(address, view, constraints, reply)
+TreeTransactionCommit(address, reply)
+TreeTransactionAbort(address, reply)
+```
+
+The replies use existing `Result` and outbound/event types. These constructors
+remain internal to `runtime_beam`.
+
+- [ ] **Step 3: Track deferred remote messages.**
+
+Extend actor state with a FIFO list for sequenced remote delivery received
+while `tree_transaction_depth(core) > 0`. Do not defer local transaction
+messages, subscriber calls, shutdown, or the transaction timeout path.
+
+- [ ] **Step 4: Drain deferred delivery after outer completion.**
+
+After outer commit or abort, process deferred remote messages through the same
+handler used during normal operation. Preserve arrival order. Stop and enter
+the repository-standard failed/suspended state if replay reports a semantic or
+transport error.
+
+- [ ] **Step 5: Implement the BEAM public callback.**
+
+Call begin through `process.call`, run the callback in the caller process, then
+call commit or abort. Map callback and runtime errors exactly as in Task 6.
+
+- [ ] **Step 6: Run BEAM facade and parity tests.**
+
+```bash
+gleam test --target erlang -- shared_tree_runtime_beam shared_tree_array_facade shared_tree_map_facade facade_parity
+```
+
+- [ ] **Step 7: Commit the BEAM facade.**
+
+```bash
+git add src/watershed/runtime_beam.gleam src/watershed_beam.gleam test/watershed test/facade_parity_test.gleam
+git commit -m "feat(tree): expose BEAM transactions"
+```
+
+### Task 8: Prove reconnect, summary, and native facade parity
+
+**Files:**
+- Modify: `test/watershed/shared_tree_history_resubmit_test.gleam`
+- Modify: `test/watershed/shared_tree_summary_test.gleam`
+- Modify: `test/watershed/shared_tree_document_summary_test.gleam`
+- Modify: `test/watershed/shared_tree_client_test.gleam`
+- Modify: `test/watershed/shared_tree_runtime_js_test.gleam`
+- Modify: `test/watershed/shared_tree_runtime_beam_test.gleam`
+- Modify: `test/watershed/shared_tree_fixture_test.gleam`
+- Modify: `test/watershed/tree/transaction_fixture.gleam`
+
+**Interfaces:**
+- Consumes: Tasks 2-7 complete native behavior.
+- Produces: dual-target corpus parity, reconnect evidence, and summary
+  continuation before service work.
+
+- [ ] **Step 1: Add corpus runners for callbacks, constraints, and history.**
+
+Add:
+
+```gleam
+pub fn run_callbacks(input: Json) -> Result(Json, String)
+pub fn run_constraints(input: Json) -> Result(Json, String)
+pub fn run_history(input: Json) -> Result(Json, String)
+```
+
+They must use fixture input only and report complete observations.
+
+- [ ] **Step 2: Add pending resubmit tests.**
+
+Author one multi-edit transaction, disconnect before acknowledgement, reconnect,
+and assert one resubmitted commit, one acknowledgement, no duplicate local
+event, and stable node identity.
+
+- [ ] **Step 3: Add summary-plus-tail tests.**
+
+Take a summary while a transaction is pending. Assert the summary contains
+sequenced state only. Load it in a fresh runtime, apply the tail transaction,
+and continue editing. Repeat for a transaction that later becomes explicitly
+violated.
+
+- [ ] **Step 4: Add accepted-before-drop tests.**
+
+Deliver the transaction to the service, drop the sender before local
+acknowledgement, reconnect, and assert deduplication by revision and one visible
+effect.
+
+- [ ] **Step 5: Run native corpus and persistence gates.**
+
+```bash
+gleam test --target erlang -- shared_tree_transaction shared_tree_history_resubmit shared_tree_summary shared_tree_document_summary shared_tree_client shared_tree_fixture
+gleam test --target javascript -- shared_tree_transaction shared_tree_history_resubmit shared_tree_summary shared_tree_document_summary shared_tree_client shared_tree_fixture
+just shared-tree-codec-interop
+just shared-tree-test
+```
+
+- [ ] **Step 6: Commit native persistence proof.**
+
+```bash
+git add test/watershed
+git commit -m "test(tree): prove transaction recovery"
+```
+
+### Task 9: Prove mixed-client transactions through Floodgate
+
+**Files:**
+- Modify: `tools/shared-tree-oracle/client-driver.mjs`
+- Modify: `tools/shared-tree-oracle/client-driver.test.mjs`
+- Modify: `test/watershed/tree/client_js.gleam`
+- Modify: `test/watershed/tree/client_beam.gleam`
+- Modify: `tools/shared-tree-oracle/interop-scenarios.mjs`
+- Modify: `tools/shared-tree-oracle/schema.mjs`
+- Modify: `tools/shared-tree-oracle/client-interop.mjs`
+- Modify: `tools/shared-tree-oracle/client-interop.test.mjs`
+- Modify: `tools/shared-tree-oracle/summary-interop.mjs`
+- Modify: `tools/shared-tree-oracle/summary-interop.test.mjs`
+- Modify: `tools/shared-tree-oracle/interop.mjs`
+- Modify: `tools/shared-tree-oracle/interop.test.mjs`
+- Modify: `tools/shared-tree-oracle/service.mjs`
+- Modify: `tools/shared-tree-oracle/service.test.mjs`
+
+**Interfaces:**
+- Consumes: native public APIs and Task 1 upstream scenario definitions.
+- Produces: required transaction sections in local and hosted interop reports.
+
+- [ ] **Step 1: Add failing command-protocol tests.**
+
+Add explicit actions:
+
+```json
+{"op":"transaction","edits":[...],"constraints":[{"type":"nodeInDocument","path":["items","0"]}],"result":"commit"}
+{"op":"transaction","edits":[...],"constraints":[],"result":"abort"}
+```
+
+Clients return callback observations, events, commit revision, outbound count,
+and final tree. Coordinators must not author changes for clients.
+
+- [ ] **Step 2: Require transaction report sections.**
+
+Require:
+
+```javascript
+const requiredTransactionSections = [
+  "transactionCallbacks",
+  "transactionConstraints",
+  "transactionReconnect",
+  "transactionReloadMatrix",
+];
+```
+
+Test rejection after removing a section, target, race ordering, reload cell, or
+observation.
+
+- [ ] **Step 3: Run deterministic mixed-client scenarios.**
+
+Use JS/upstream, BEAM/upstream, and JS/BEAM pairs. Each implementation authors
+commit and abort cases. Run concurrent constrained transaction versus node
+remove in both sequencing orders. Include same-array and cross-array node
+moves as nonviolating controls.
+
+- [ ] **Step 4: Run reconnect and nine writer/reader cells.**
+
+For each writer in `upstream`, `javascript`, `erlang`, publish a summary after
+a constrained transaction. Each reader loads it, verifies history and node
+identity, authors another transaction, and exposes the result to a peer.
+
+- [ ] **Step 5: Extend seeded schedules.**
+
+Add transaction start/edit/commit/abort, nested scopes, node moves, constrained
+removals, disconnects, acknowledgements, and summary reloads. Keep the seed,
+schedule, constraints, callback result, and event trace in failure artifacts.
+Run 300 schedules with seed 42 in the required gate.
+
+- [ ] **Step 6: Run local real-service gates.**
+
+```bash
+node --test tools/shared-tree-oracle/client-driver.test.mjs tools/shared-tree-oracle/client-interop.test.mjs tools/shared-tree-oracle/summary-interop.test.mjs tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/service.test.mjs
+just shared-tree-interop
+```
+
+Expected: pinned service identity; all three implementations; both constraint
+race orders; reconnect evidence; nine reload cells; no skipped required target,
+service, or corpus.
+
+- [ ] **Step 7: Commit interoperability proof.**
+
+```bash
+git add tools/shared-tree-oracle test/fixtures/shared_tree
+git commit -m "test(tree): prove transaction interoperability"
+```
+
+### Task 10: Close permanent gates and document the transaction profile
+
+**Files:**
+- Modify: `tools/shared-tree-oracle/generate.mjs`, `interop.mjs`, `service.mjs`
+- Modify: their tests and `tools/shared-tree-oracle/gates.test.mjs`
+- Generate: `test/fixtures/shared_tree/profile.json`, `manifest.json`, capture metadata
+- Modify: `tools/shared-tree-oracle/README.md`
+- Modify: `README.md`
+- Modify: `.github/workflows/shared-tree.yml`
+- Modify: `.github/workflows/shared-tree-interop.yml`
+- Modify: `justfile` only if existing commands do not select the new required cases
+- Modify: `docs/superpowers/plans/2026-09-21-shared-tree.md`
+
+**Interfaces:**
+- Consumes: Tasks 1-9 passing evidence.
+- Produces: an accurate supported transaction claim and permanent enforcement.
+
+- [ ] **Step 1: Add failing profile and gate assertions.**
+
+Require support labels for synchronous single-tree transactions and stable
+node-existence constraints. Keep undo/redo, async, cross-tree, schema-in-
+transaction, `noChange`, metadata, and post-processors explicit exclusions.
+
+- [ ] **Step 2: Regenerate profile metadata.**
+
+```bash
+npm --prefix tools/shared-tree-oracle run generate
+npm --prefix tools/shared-tree-oracle run check
+```
+
+Preserve every version, codec, layout, and M1-M4 feature claim.
+
+- [ ] **Step 3: Document the public API and limits.**
+
+Show one committed callback, one aborted callback with typed error, and a
+`NodeInDocument` constraint. Explain nested scopes, local events, one outer
+network commit, sequenced constraint checks, and deferred features.
+
+- [ ] **Step 4: Update the parent roadmap.**
+
+Mark only the transaction-boundary and stable-constraint portion of M5
+complete. Keep undo/redo and revertible lifetime open. Link the design and this
+plan.
+
+- [ ] **Step 5: Run permanent gate tests.**
+
+```bash
+npm --prefix tools/shared-tree-oracle test
+just shared-tree-test
+just shared-tree-codec-interop
+just shared-tree-interop
+```
+
+- [ ] **Step 6: Commit profile and documentation closure.**
+
+```bash
+git add tools/shared-tree-oracle test/fixtures/shared_tree README.md .github/workflows justfile docs/superpowers/plans/2026-09-21-shared-tree.md
+git commit -m "docs(tree): define transaction support"
+```
+
+### Task 11: Run full regression closure
+
+**Files:**
+- Modify only files required to fix regressions caused by Tasks 1-10.
+- Do not change unrelated failing tests or baseline behavior.
+
+**Interfaces:**
+- Consumes: all transaction implementation and permanent gates.
+- Produces: final M5 transaction-foundation acceptance evidence.
+
+- [ ] **Step 1: Run formatting and focused gates.**
+
+```bash
+gleam format --check src test
+npm --prefix tools/shared-tree-oracle test
+just shared-tree-test
+just shared-tree-codec-interop
+```
+
+- [ ] **Step 2: Run service, creation, and complete repository gates.**
+
+```bash
+just shared-tree-interop
+just shared-tree-create-interop
+just test
+just build
+just lint
+```
+
+Investigate each failure against the execution base. A known baseline report is
+not evidence until the unchanged base reproduces the same failure.
+
+- [ ] **Step 3: Verify the acceptance matrix.**
+
+Check every item in section 5 against a named test, corpus observation, or
+interop report cell. Do not close an item from final-value equality alone.
+
+- [ ] **Step 4: Commit only regression fixes, if any.**
+
+Use a focused Conventional Commit message that names the corrected transaction
+behavior. Do not create an empty closure commit.
+
+## 5. Acceptance checklist
+
+- [ ] One outer success produces one composed SharedTree commit.
+- [ ] Outer abort restores values, identities, history, and compressor state.
+- [ ] Nested success and abort match the pinned upstream observations.
+- [ ] Local edit and rollback events match the supported upstream event model.
+- [ ] Node-existence constraints use identity and survive node moves.
+- [ ] A concurrent node removal suppresses constrained edits on every client.
+- [ ] Explicit violation remains distinct from an empty or implicit-conflict change.
+- [ ] Constraint codec bytes match ModularChange V5.
+- [ ] Object, map, array, and move edits work in one transaction.
+- [ ] Schema upgrades and cross-tree transactions fail without partial state.
+- [ ] No-op and aborted transactions allocate and submit nothing.
+- [ ] JavaScript and BEAM expose matching generic callback APIs.
+- [ ] BEAM defers remote operations until the synchronous outer scope ends.
+- [ ] Reconnect resubmits one transaction without duplicate effects.
+- [ ] Summaries use sequenced state and continue with transaction tail ops.
+- [ ] Upstream, native JavaScript, and native BEAM clients author and continue constrained transactions through pinned Floodgate.
+- [ ] All nine summary writer/reader combinations continue editing.
+- [ ] Required gates fail on missing artifacts, targets, scenarios, or service.
+- [ ] Existing M1-M4 behavior and native container creation remain intact.
+- [ ] Documentation does not claim undo/redo or other deferred M5 features.
+
+## 6. Review matrix and stop conditions
+
+| Design requirement | Owning tasks |
+| --- | --- |
+| Callback, nesting, local events, and abort | 1, 4, 6, 7 |
+| Stable node-existence constraints | 1, 2, 3, 5 |
+| Exact V5 wire behavior | 1, 2, 8 |
+| One outer commit and no-op allocation rule | 4, 5, 6, 7 |
+| Object, map, array, and move coverage | 1, 3, 4, 8, 9 |
+| Reconnect and summary continuation | 1, 8, 9 |
+| JS/BEAM facade parity | 6, 7, 8 |
+| Real-service and cross-writer proof | 9 |
+| Permanent profile and CI gates | 10, 11 |
+
+Stop and revise the design before continuing if the pinned source shows any of
+these results:
+
+- a stable constraint other than `nodeInDocument` is required for ordinary
+  transaction correctness;
+- node movement violates `nodeInDocument`;
+- explicit violation is encoded as an empty outer change;
+- the V5 codec writes revert-only node constraints;
+- nested abort closes the outer transaction;
+- asynchronous delivery is required to implement the synchronous callback;
+- a valid data-only transaction requires schema changes in the same outer
+  commit.
