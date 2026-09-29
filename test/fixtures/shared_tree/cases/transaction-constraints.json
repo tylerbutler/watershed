@@ -1,0 +1,3023 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "transaction-constraints",
+  "domain": "modular",
+  "input": {
+    "scenarios": [
+      {
+        "id": "detached-refusal",
+        "constraint": "nodeInDocument"
+      },
+      {
+        "id": "same-array-move",
+        "constraint": "nodeInDocument"
+      },
+      {
+        "id": "cross-array-move",
+        "constraint": "nodeInDocument"
+      },
+      {
+        "id": "concurrent-removal",
+        "constraints": [
+          "nodeInDocument",
+          "nodeInDocument"
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "node-in-document",
+        "refusal": {
+          "callbackRan": false,
+          "error": "Error: Attempted to add a \"nodeInDocument\" constraint, but the node is not currently in the document. Node status: 1"
+        },
+        "withinMove": {
+          "targetAtEnd": true,
+          "value": {
+            "title": "base",
+            "count": 0,
+            "left": [
+              {
+                "id": "left-b",
+                "label": "left-b",
+                "x": 2
+              },
+              {
+                "id": "within-move",
+                "label": "within-move",
+                "x": 1
+              }
+            ],
+            "right": [
+              {
+                "id": "right-a",
+                "label": "right-a",
+                "x": 3
+              }
+            ],
+            "byKey": [
+              [
+                "seed",
+                "value"
+              ]
+            ]
+          }
+        },
+        "crossMove": {
+          "targetAtEnd": true,
+          "value": {
+            "title": "base",
+            "count": 0,
+            "left": [
+              {
+                "id": "left-b",
+                "label": "left-b",
+                "x": 2
+              }
+            ],
+            "right": [
+              {
+                "id": "right-a",
+                "label": "right-a",
+                "x": 3
+              },
+              {
+                "id": "cross-move",
+                "label": "cross-move",
+                "x": 1
+              }
+            ],
+            "byKey": [
+              [
+                "seed",
+                "value"
+              ]
+            ]
+          }
+        },
+        "pending": {
+          "pending": [
+            {
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "changes": [
+                {
+                  "type": "data",
+                  "change": {
+                    "maxId": 13,
+                    "revisions": [
+                      {
+                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                        "rollbackOf": null
+                      }
+                    ],
+                    "fields": [
+                      {
+                        "field": "rootFieldKey",
+                        "kind": "ModularEditBuilder.Generic"
+                      }
+                    ],
+                    "nodes": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "label",
+                              "kind": "Value"
+                            }
+                          ],
+                          "nodeExistsConstraint": {
+                            "violated": false
+                          },
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "",
+                              "kind": "ModularEditBuilder.Generic"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "left",
+                              "kind": "ModularEditBuilder.Generic"
+                            },
+                            {
+                              "field": "right",
+                              "kind": "ModularEditBuilder.Generic"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 12
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "",
+                              "kind": "Sequence"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      }
+                    ],
+                    "parents": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        },
+                        "parent": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        },
+                        "field": ""
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        },
+                        "parent": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        },
+                        "field": "left"
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        },
+                        "parent": null,
+                        "field": "rootFieldKey"
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 12
+                        },
+                        "parent": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 13
+                        },
+                        "field": "right"
+                      }
+                    ],
+                    "aliases": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 3
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 4
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 5
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 8
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 9
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 10
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 13
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 10
+                        }
+                      }
+                    ],
+                    "builds": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 6
+                        },
+                        "trees": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "suppressed"
+                          }
+                        ]
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 11
+                        },
+                        "trees": [
+                          {
+                            "type": "org.watershed.shared-tree.transactions.Point",
+                            "fields": {
+                              "label": [
+                                {
+                                  "type": "com.fluidframework.leaf.string",
+                                  "value": "created"
+                                }
+                              ],
+                              "x": [
+                                {
+                                  "type": "com.fluidframework.leaf.number",
+                                  "value": 9
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    "refreshers": [],
+                    "constraintViolationCount": 0
+                  }
+                }
+              ]
+            }
+          ],
+          "trunk": [
+            {
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "changes": [
+                {
+                  "type": "schema",
+                  "change": {
+                    "schema": {
+                      "new": {
+                        "nodeSchema": {},
+                        "rootFieldSchema": {
+                          "kind": "Optional",
+                          "types": {}
+                        }
+                      },
+                      "old": {
+                        "nodeSchemaData": {
+                          "_root": {
+                            "keys": [],
+                            "values": [
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null
+                            ],
+                            "isShared": true
+                          },
+                          "_maxNodeSize": 32
+                        },
+                        "rootFieldSchemaData": {
+                          "kind": "Forbidden",
+                          "types": {}
+                        },
+                        "_events": {
+                          "listeners": {}
+                        },
+                        "events": {
+                          "listeners": {}
+                        }
+                      }
+                    },
+                    "isInverse": false
+                  }
+                },
+                {
+                  "type": "data",
+                  "change": {
+                    "maxId": 1,
+                    "revisions": [
+                      {
+                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                        "rollbackOf": null
+                      }
+                    ],
+                    "fields": [
+                      {
+                        "field": "rootFieldKey",
+                        "kind": "Optional"
+                      }
+                    ],
+                    "nodes": [],
+                    "parents": [],
+                    "aliases": [],
+                    "builds": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                          "localId": 1
+                        },
+                        "trees": [
+                          {
+                            "type": "org.watershed.shared-tree.transactions.Root",
+                            "fields": {
+                              "title": [
+                                {
+                                  "type": "com.fluidframework.leaf.string",
+                                  "value": "base"
+                                }
+                              ],
+                              "count": [
+                                {
+                                  "type": "com.fluidframework.leaf.number",
+                                  "value": 0
+                                }
+                              ],
+                              "left": [
+                                {
+                                  "type": "org.watershed.shared-tree.transactions.Items",
+                                  "fields": {
+                                    "": [
+                                      {
+                                        "type": "org.watershed.shared-tree.transactions.Point",
+                                        "fields": {
+                                          "label": [
+                                            {
+                                              "type": "com.fluidframework.leaf.string",
+                                              "value": "left-a"
+                                            }
+                                          ],
+                                          "x": [
+                                            {
+                                              "type": "com.fluidframework.leaf.number",
+                                              "value": 1
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "type": "org.watershed.shared-tree.transactions.Point",
+                                        "fields": {
+                                          "label": [
+                                            {
+                                              "type": "com.fluidframework.leaf.string",
+                                              "value": "left-b"
+                                            }
+                                          ],
+                                          "x": [
+                                            {
+                                              "type": "com.fluidframework.leaf.number",
+                                              "value": 2
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              ],
+                              "right": [
+                                {
+                                  "type": "org.watershed.shared-tree.transactions.Items",
+                                  "fields": {
+                                    "": [
+                                      {
+                                        "type": "org.watershed.shared-tree.transactions.Point",
+                                        "fields": {
+                                          "label": [
+                                            {
+                                              "type": "com.fluidframework.leaf.string",
+                                              "value": "right-a"
+                                            }
+                                          ],
+                                          "x": [
+                                            {
+                                              "type": "com.fluidframework.leaf.number",
+                                              "value": 3
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              ],
+                              "byKey": [
+                                {
+                                  "type": "org.watershed.shared-tree.transactions.NamedMap",
+                                  "fields": {
+                                    "seed": [
+                                      {
+                                        "type": "com.fluidframework.leaf.string",
+                                        "value": "value"
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    "refreshers": [],
+                    "constraintViolationCount": 0
+                  }
+                },
+                {
+                  "type": "schema",
+                  "change": {
+                    "schema": {
+                      "new": {
+                        "nodeSchema": {},
+                        "rootFieldSchema": {
+                          "kind": "Value",
+                          "types": {}
+                        }
+                      },
+                      "old": {
+                        "nodeSchemaData": {
+                          "_root": {
+                            "keys": [
+                              "com.fluidframework.leaf.number",
+                              "com.fluidframework.leaf.string",
+                              "org.watershed.shared-tree.transactions.Items",
+                              "org.watershed.shared-tree.transactions.NamedMap",
+                              "org.watershed.shared-tree.transactions.Point",
+                              "org.watershed.shared-tree.transactions.Root"
+                            ],
+                            "values": [
+                              {
+                                "leafValue": 0
+                              },
+                              {
+                                "leafValue": 1
+                              },
+                              {
+                                "objectNodeFields": {}
+                              },
+                              {
+                                "mapFields": {
+                                  "kind": "Optional",
+                                  "types": {}
+                                }
+                              },
+                              {
+                                "objectNodeFields": {}
+                              },
+                              {
+                                "objectNodeFields": {}
+                              }
+                            ],
+                            "isShared": true
+                          },
+                          "_maxNodeSize": 32
+                        },
+                        "rootFieldSchemaData": {
+                          "kind": "Optional",
+                          "types": {}
+                        },
+                        "_events": {
+                          "listeners": {}
+                        },
+                        "events": {
+                          "listeners": {}
+                        }
+                      }
+                    },
+                    "isInverse": false
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "settled": {
+          "pending": [],
+          "trunk": [
+            {
+              "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+              "changes": [
+                {
+                  "type": "data",
+                  "change": {
+                    "maxId": 2,
+                    "revisions": [
+                      {
+                        "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                        "rollbackOf": null
+                      }
+                    ],
+                    "fields": [
+                      {
+                        "field": "rootFieldKey",
+                        "kind": "ModularEditBuilder.Generic"
+                      }
+                    ],
+                    "nodes": [
+                      {
+                        "id": {
+                          "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                          "localId": 3
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "left",
+                              "kind": "ModularEditBuilder.Generic"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                          "localId": 4
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "",
+                              "kind": "Sequence"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      }
+                    ],
+                    "parents": [
+                      {
+                        "id": {
+                          "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                          "localId": 3
+                        },
+                        "parent": null,
+                        "field": "rootFieldKey"
+                      },
+                      {
+                        "id": {
+                          "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                          "localId": 4
+                        },
+                        "parent": {
+                          "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                          "localId": 3
+                        },
+                        "field": "left"
+                      }
+                    ],
+                    "aliases": [],
+                    "builds": [],
+                    "refreshers": [],
+                    "constraintViolationCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "changes": [
+                {
+                  "type": "data",
+                  "change": {
+                    "maxId": 13,
+                    "revisions": [
+                      {
+                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                        "rollbackOf": null
+                      }
+                    ],
+                    "fields": [
+                      {
+                        "field": "rootFieldKey",
+                        "kind": "ModularEditBuilder.Generic"
+                      }
+                    ],
+                    "nodes": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "label",
+                              "kind": "Value"
+                            }
+                          ],
+                          "nodeExistsConstraint": {
+                            "violated": true
+                          },
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "",
+                              "kind": "Sequence"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "left",
+                              "kind": "ModularEditBuilder.Generic"
+                            },
+                            {
+                              "field": "right",
+                              "kind": "ModularEditBuilder.Generic"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 12
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "",
+                              "kind": "Sequence"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      }
+                    ],
+                    "parents": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        },
+                        "parent": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        },
+                        "field": ""
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        },
+                        "parent": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        },
+                        "field": "left"
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        },
+                        "parent": null,
+                        "field": "rootFieldKey"
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 12
+                        },
+                        "parent": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 13
+                        },
+                        "field": "right"
+                      }
+                    ],
+                    "aliases": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 3
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 4
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 5
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 8
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 9
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 10
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 13
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 10
+                        }
+                      }
+                    ],
+                    "builds": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 6
+                        },
+                        "trees": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "suppressed"
+                          }
+                        ]
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 11
+                        },
+                        "trees": [
+                          {
+                            "type": "org.watershed.shared-tree.transactions.Point",
+                            "fields": {
+                              "label": [
+                                {
+                                  "type": "com.fluidframework.leaf.string",
+                                  "value": "created"
+                                }
+                              ],
+                              "x": [
+                                {
+                                  "type": "com.fluidframework.leaf.number",
+                                  "value": 9
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    "refreshers": [],
+                    "constraintViolationCount": 1
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "final": {
+          "title": "base",
+          "count": 0,
+          "left": [
+            {
+              "id": "left-b",
+              "label": "left-b",
+              "x": 2
+            }
+          ],
+          "right": [
+            {
+              "id": "right-a",
+              "label": "right-a",
+              "x": 3
+            }
+          ],
+          "byKey": [
+            [
+              "seed",
+              "value"
+            ]
+          ]
+        },
+        "constraintViolationCount": 1,
+        "retainedBuilds": [
+          {
+            "id": {
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "localId": 6
+            },
+            "trees": [
+              {
+                "type": "com.fluidframework.leaf.string",
+                "value": "suppressed"
+              }
+            ]
+          },
+          {
+            "id": {
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "localId": 11
+            },
+            "trees": [
+              {
+                "type": "org.watershed.shared-tree.transactions.Point",
+                "fields": {
+                  "label": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "created"
+                    }
+                  ],
+                  "x": [
+                    {
+                      "type": "com.fluidframework.leaf.number",
+                      "value": 9
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "reconnectMessages": [
+          {
+            "revision": -1,
+            "originatorId": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 2,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
+                          {
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "left",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "remove": {
+                                                  "id": 0
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "version": 7
+          },
+          {
+            "revision": -1,
+            "originatorId": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 2,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
+                          {
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "left",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "remove": {
+                                                  "id": 0
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "version": 7
+          },
+          {
+            "revision": 1,
+            "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 13,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
+                          {
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "left",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1,
+                                              "cellId": [
+                                                0,
+                                                513
+                                              ],
+                                              "changes": {
+                                                "fieldChanges": [
+                                                  {
+                                                    "fieldKey": "label",
+                                                    "fieldKind": "Value",
+                                                    "change": {
+                                                      "r": {
+                                                        "e": false,
+                                                        "d": 7,
+                                                        "s": 6
+                                                      }
+                                                    }
+                                                  }
+                                                ],
+                                                "nodeExistsConstraint": {
+                                                  "violated": true
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              },
+                              {
+                                "fieldKey": "right",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "insert": {
+                                                  "id": 11
+                                                }
+                                              },
+                                              "cellId": 11
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  "builds": {
+                    "builds": [
+                      [
+                        [
+                          [
+                            6,
+                            0
+                          ],
+                          [
+                            11,
+                            1
+                          ]
+                        ]
+                      ]
+                    ],
+                    "trees": {
+                      "version": 2,
+                      "identifiers": [],
+                      "shapes": [
+                        {
+                          "c": {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": true
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": "org.watershed.shared-tree.transactions.Point",
+                            "value": false,
+                            "fields": [
+                              [
+                                "label",
+                                0
+                              ],
+                              [
+                                "x",
+                                2
+                              ]
+                            ]
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": true
+                          }
+                        }
+                      ],
+                      "data": [
+                        [
+                          0,
+                          "suppressed"
+                        ],
+                        [
+                          1,
+                          "created",
+                          9
+                        ]
+                      ]
+                    }
+                  },
+                  "refreshers": {
+                    "builds": [
+                      [
+                        [
+                          [
+                            0,
+                            0
+                          ]
+                        ],
+                        513
+                      ]
+                    ],
+                    "trees": {
+                      "version": 2,
+                      "identifiers": [],
+                      "shapes": [
+                        {
+                          "c": {
+                            "type": "org.watershed.shared-tree.transactions.Point",
+                            "value": false,
+                            "fields": [
+                              [
+                                "label",
+                                1
+                              ],
+                              [
+                                "x",
+                                2
+                              ]
+                            ]
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": true
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": true
+                          }
+                        }
+                      ],
+                      "data": [
+                        [
+                          0,
+                          "left-a",
+                          1
+                        ]
+                      ]
+                    }
+                  },
+                  "violations": 1
+                }
+              }
+            ],
+            "version": 7
+          }
+        ]
+      }
+    ]
+  },
+  "raw": {
+    "scenarios": [
+      {
+        "id": "node-in-document",
+        "refusal": {
+          "callbackRan": false,
+          "error": "Error: Attempted to add a \"nodeInDocument\" constraint, but the node is not currently in the document. Node status: 1"
+        },
+        "withinMove": {
+          "targetAtEnd": true,
+          "value": {
+            "title": "base",
+            "count": 0,
+            "left": [
+              {
+                "id": "left-b",
+                "label": "left-b",
+                "x": 2
+              },
+              {
+                "id": "within-move",
+                "label": "within-move",
+                "x": 1
+              }
+            ],
+            "right": [
+              {
+                "id": "right-a",
+                "label": "right-a",
+                "x": 3
+              }
+            ],
+            "byKey": [
+              [
+                "seed",
+                "value"
+              ]
+            ]
+          }
+        },
+        "crossMove": {
+          "targetAtEnd": true,
+          "value": {
+            "title": "base",
+            "count": 0,
+            "left": [
+              {
+                "id": "left-b",
+                "label": "left-b",
+                "x": 2
+              }
+            ],
+            "right": [
+              {
+                "id": "right-a",
+                "label": "right-a",
+                "x": 3
+              },
+              {
+                "id": "cross-move",
+                "label": "cross-move",
+                "x": 1
+              }
+            ],
+            "byKey": [
+              [
+                "seed",
+                "value"
+              ]
+            ]
+          }
+        },
+        "pending": {
+          "pending": [
+            {
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "changes": [
+                {
+                  "type": "data",
+                  "change": {
+                    "maxId": 13,
+                    "revisions": [
+                      {
+                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                        "rollbackOf": null
+                      }
+                    ],
+                    "fields": [
+                      {
+                        "field": "rootFieldKey",
+                        "kind": "ModularEditBuilder.Generic"
+                      }
+                    ],
+                    "nodes": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "label",
+                              "kind": "Value"
+                            }
+                          ],
+                          "nodeExistsConstraint": {
+                            "violated": false
+                          },
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "",
+                              "kind": "ModularEditBuilder.Generic"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "left",
+                              "kind": "ModularEditBuilder.Generic"
+                            },
+                            {
+                              "field": "right",
+                              "kind": "ModularEditBuilder.Generic"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 12
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "",
+                              "kind": "Sequence"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      }
+                    ],
+                    "parents": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        },
+                        "parent": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        },
+                        "field": ""
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        },
+                        "parent": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        },
+                        "field": "left"
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        },
+                        "parent": null,
+                        "field": "rootFieldKey"
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 12
+                        },
+                        "parent": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 13
+                        },
+                        "field": "right"
+                      }
+                    ],
+                    "aliases": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 3
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 4
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 5
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 8
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 9
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 10
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 13
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 10
+                        }
+                      }
+                    ],
+                    "builds": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 6
+                        },
+                        "trees": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "suppressed"
+                          }
+                        ]
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 11
+                        },
+                        "trees": [
+                          {
+                            "type": "org.watershed.shared-tree.transactions.Point",
+                            "fields": {
+                              "label": [
+                                {
+                                  "type": "com.fluidframework.leaf.string",
+                                  "value": "created"
+                                }
+                              ],
+                              "x": [
+                                {
+                                  "type": "com.fluidframework.leaf.number",
+                                  "value": 9
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    "refreshers": [],
+                    "constraintViolationCount": 0
+                  }
+                }
+              ]
+            }
+          ],
+          "trunk": [
+            {
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "changes": [
+                {
+                  "type": "schema",
+                  "change": {
+                    "schema": {
+                      "new": {
+                        "nodeSchema": {},
+                        "rootFieldSchema": {
+                          "kind": "Optional",
+                          "types": {}
+                        }
+                      },
+                      "old": {
+                        "nodeSchemaData": {
+                          "_root": {
+                            "keys": [],
+                            "values": [
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null,
+                              null
+                            ],
+                            "isShared": true
+                          },
+                          "_maxNodeSize": 32
+                        },
+                        "rootFieldSchemaData": {
+                          "kind": "Forbidden",
+                          "types": {}
+                        },
+                        "_events": {
+                          "listeners": {}
+                        },
+                        "events": {
+                          "listeners": {}
+                        }
+                      }
+                    },
+                    "isInverse": false
+                  }
+                },
+                {
+                  "type": "data",
+                  "change": {
+                    "maxId": 1,
+                    "revisions": [
+                      {
+                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                        "rollbackOf": null
+                      }
+                    ],
+                    "fields": [
+                      {
+                        "field": "rootFieldKey",
+                        "kind": "Optional"
+                      }
+                    ],
+                    "nodes": [],
+                    "parents": [],
+                    "aliases": [],
+                    "builds": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                          "localId": 1
+                        },
+                        "trees": [
+                          {
+                            "type": "org.watershed.shared-tree.transactions.Root",
+                            "fields": {
+                              "title": [
+                                {
+                                  "type": "com.fluidframework.leaf.string",
+                                  "value": "base"
+                                }
+                              ],
+                              "count": [
+                                {
+                                  "type": "com.fluidframework.leaf.number",
+                                  "value": 0
+                                }
+                              ],
+                              "left": [
+                                {
+                                  "type": "org.watershed.shared-tree.transactions.Items",
+                                  "fields": {
+                                    "": [
+                                      {
+                                        "type": "org.watershed.shared-tree.transactions.Point",
+                                        "fields": {
+                                          "label": [
+                                            {
+                                              "type": "com.fluidframework.leaf.string",
+                                              "value": "left-a"
+                                            }
+                                          ],
+                                          "x": [
+                                            {
+                                              "type": "com.fluidframework.leaf.number",
+                                              "value": 1
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "type": "org.watershed.shared-tree.transactions.Point",
+                                        "fields": {
+                                          "label": [
+                                            {
+                                              "type": "com.fluidframework.leaf.string",
+                                              "value": "left-b"
+                                            }
+                                          ],
+                                          "x": [
+                                            {
+                                              "type": "com.fluidframework.leaf.number",
+                                              "value": 2
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              ],
+                              "right": [
+                                {
+                                  "type": "org.watershed.shared-tree.transactions.Items",
+                                  "fields": {
+                                    "": [
+                                      {
+                                        "type": "org.watershed.shared-tree.transactions.Point",
+                                        "fields": {
+                                          "label": [
+                                            {
+                                              "type": "com.fluidframework.leaf.string",
+                                              "value": "right-a"
+                                            }
+                                          ],
+                                          "x": [
+                                            {
+                                              "type": "com.fluidframework.leaf.number",
+                                              "value": 3
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              ],
+                              "byKey": [
+                                {
+                                  "type": "org.watershed.shared-tree.transactions.NamedMap",
+                                  "fields": {
+                                    "seed": [
+                                      {
+                                        "type": "com.fluidframework.leaf.string",
+                                        "value": "value"
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    "refreshers": [],
+                    "constraintViolationCount": 0
+                  }
+                },
+                {
+                  "type": "schema",
+                  "change": {
+                    "schema": {
+                      "new": {
+                        "nodeSchema": {},
+                        "rootFieldSchema": {
+                          "kind": "Value",
+                          "types": {}
+                        }
+                      },
+                      "old": {
+                        "nodeSchemaData": {
+                          "_root": {
+                            "keys": [
+                              "com.fluidframework.leaf.number",
+                              "com.fluidframework.leaf.string",
+                              "org.watershed.shared-tree.transactions.Items",
+                              "org.watershed.shared-tree.transactions.NamedMap",
+                              "org.watershed.shared-tree.transactions.Point",
+                              "org.watershed.shared-tree.transactions.Root"
+                            ],
+                            "values": [
+                              {
+                                "leafValue": 0
+                              },
+                              {
+                                "leafValue": 1
+                              },
+                              {
+                                "objectNodeFields": {}
+                              },
+                              {
+                                "mapFields": {
+                                  "kind": "Optional",
+                                  "types": {}
+                                }
+                              },
+                              {
+                                "objectNodeFields": {}
+                              },
+                              {
+                                "objectNodeFields": {}
+                              }
+                            ],
+                            "isShared": true
+                          },
+                          "_maxNodeSize": 32
+                        },
+                        "rootFieldSchemaData": {
+                          "kind": "Optional",
+                          "types": {}
+                        },
+                        "_events": {
+                          "listeners": {}
+                        },
+                        "events": {
+                          "listeners": {}
+                        }
+                      }
+                    },
+                    "isInverse": false
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "settled": {
+          "pending": [],
+          "trunk": [
+            {
+              "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+              "changes": [
+                {
+                  "type": "data",
+                  "change": {
+                    "maxId": 2,
+                    "revisions": [
+                      {
+                        "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                        "rollbackOf": null
+                      }
+                    ],
+                    "fields": [
+                      {
+                        "field": "rootFieldKey",
+                        "kind": "ModularEditBuilder.Generic"
+                      }
+                    ],
+                    "nodes": [
+                      {
+                        "id": {
+                          "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                          "localId": 3
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "left",
+                              "kind": "ModularEditBuilder.Generic"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                          "localId": 4
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "",
+                              "kind": "Sequence"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      }
+                    ],
+                    "parents": [
+                      {
+                        "id": {
+                          "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                          "localId": 3
+                        },
+                        "parent": null,
+                        "field": "rootFieldKey"
+                      },
+                      {
+                        "id": {
+                          "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                          "localId": 4
+                        },
+                        "parent": {
+                          "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                          "localId": 3
+                        },
+                        "field": "left"
+                      }
+                    ],
+                    "aliases": [],
+                    "builds": [],
+                    "refreshers": [],
+                    "constraintViolationCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "changes": [
+                {
+                  "type": "data",
+                  "change": {
+                    "maxId": 13,
+                    "revisions": [
+                      {
+                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                        "rollbackOf": null
+                      }
+                    ],
+                    "fields": [
+                      {
+                        "field": "rootFieldKey",
+                        "kind": "ModularEditBuilder.Generic"
+                      }
+                    ],
+                    "nodes": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "label",
+                              "kind": "Value"
+                            }
+                          ],
+                          "nodeExistsConstraint": {
+                            "violated": true
+                          },
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "",
+                              "kind": "Sequence"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "left",
+                              "kind": "ModularEditBuilder.Generic"
+                            },
+                            {
+                              "field": "right",
+                              "kind": "ModularEditBuilder.Generic"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 12
+                        },
+                        "change": {
+                          "fields": [
+                            {
+                              "field": "",
+                              "kind": "Sequence"
+                            }
+                          ],
+                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraintOnRevert": null
+                        }
+                      }
+                    ],
+                    "parents": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        },
+                        "parent": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        },
+                        "field": ""
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        },
+                        "parent": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        },
+                        "field": "left"
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        },
+                        "parent": null,
+                        "field": "rootFieldKey"
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 12
+                        },
+                        "parent": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 13
+                        },
+                        "field": "right"
+                      }
+                    ],
+                    "aliases": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 3
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 4
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 5
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 8
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 0
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 9
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 1
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 10
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 2
+                        }
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 13
+                        },
+                        "target": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 10
+                        }
+                      }
+                    ],
+                    "builds": [
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 6
+                        },
+                        "trees": [
+                          {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": "suppressed"
+                          }
+                        ]
+                      },
+                      {
+                        "id": {
+                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+                          "localId": 11
+                        },
+                        "trees": [
+                          {
+                            "type": "org.watershed.shared-tree.transactions.Point",
+                            "fields": {
+                              "label": [
+                                {
+                                  "type": "com.fluidframework.leaf.string",
+                                  "value": "created"
+                                }
+                              ],
+                              "x": [
+                                {
+                                  "type": "com.fluidframework.leaf.number",
+                                  "value": 9
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    "refreshers": [],
+                    "constraintViolationCount": 1
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "final": {
+          "title": "base",
+          "count": 0,
+          "left": [
+            {
+              "id": "left-b",
+              "label": "left-b",
+              "x": 2
+            }
+          ],
+          "right": [
+            {
+              "id": "right-a",
+              "label": "right-a",
+              "x": 3
+            }
+          ],
+          "byKey": [
+            [
+              "seed",
+              "value"
+            ]
+          ]
+        },
+        "constraintViolationCount": 1,
+        "retainedBuilds": [
+          {
+            "id": {
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "localId": 6
+            },
+            "trees": [
+              {
+                "type": "com.fluidframework.leaf.string",
+                "value": "suppressed"
+              }
+            ]
+          },
+          {
+            "id": {
+              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "localId": 11
+            },
+            "trees": [
+              {
+                "type": "org.watershed.shared-tree.transactions.Point",
+                "fields": {
+                  "label": [
+                    {
+                      "type": "com.fluidframework.leaf.string",
+                      "value": "created"
+                    }
+                  ],
+                  "x": [
+                    {
+                      "type": "com.fluidframework.leaf.number",
+                      "value": 9
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "reconnectMessages": [
+          {
+            "revision": -1,
+            "originatorId": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 2,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
+                          {
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "left",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "remove": {
+                                                  "id": 0
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "version": 7
+          },
+          {
+            "revision": -1,
+            "originatorId": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 2,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
+                          {
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "left",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "remove": {
+                                                  "id": 0
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "version": 7
+          },
+          {
+            "revision": 1,
+            "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 13,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
+                          {
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "left",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1,
+                                              "cellId": [
+                                                0,
+                                                513
+                                              ],
+                                              "changes": {
+                                                "fieldChanges": [
+                                                  {
+                                                    "fieldKey": "label",
+                                                    "fieldKind": "Value",
+                                                    "change": {
+                                                      "r": {
+                                                        "e": false,
+                                                        "d": 7,
+                                                        "s": 6
+                                                      }
+                                                    }
+                                                  }
+                                                ],
+                                                "nodeExistsConstraint": {
+                                                  "violated": true
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              },
+                              {
+                                "fieldKey": "right",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "insert": {
+                                                  "id": 11
+                                                }
+                                              },
+                                              "cellId": 11
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  "builds": {
+                    "builds": [
+                      [
+                        [
+                          [
+                            6,
+                            0
+                          ],
+                          [
+                            11,
+                            1
+                          ]
+                        ]
+                      ]
+                    ],
+                    "trees": {
+                      "version": 2,
+                      "identifiers": [],
+                      "shapes": [
+                        {
+                          "c": {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": true
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": "org.watershed.shared-tree.transactions.Point",
+                            "value": false,
+                            "fields": [
+                              [
+                                "label",
+                                0
+                              ],
+                              [
+                                "x",
+                                2
+                              ]
+                            ]
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": true
+                          }
+                        }
+                      ],
+                      "data": [
+                        [
+                          0,
+                          "suppressed"
+                        ],
+                        [
+                          1,
+                          "created",
+                          9
+                        ]
+                      ]
+                    }
+                  },
+                  "refreshers": {
+                    "builds": [
+                      [
+                        [
+                          [
+                            0,
+                            0
+                          ]
+                        ],
+                        513
+                      ]
+                    ],
+                    "trees": {
+                      "version": 2,
+                      "identifiers": [],
+                      "shapes": [
+                        {
+                          "c": {
+                            "type": "org.watershed.shared-tree.transactions.Point",
+                            "value": false,
+                            "fields": [
+                              [
+                                "label",
+                                1
+                              ],
+                              [
+                                "x",
+                                2
+                              ]
+                            ]
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": "com.fluidframework.leaf.string",
+                            "value": true
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": "com.fluidframework.leaf.number",
+                            "value": true
+                          }
+                        }
+                      ],
+                      "data": [
+                        [
+                          0,
+                          "left-a",
+                          1
+                        ]
+                      ]
+                    }
+                  },
+                  "violations": 1
+                }
+              }
+            ],
+            "version": 7
+          }
+        ]
+      }
+    ],
+    "messages": [
+      {
+        "revision": -1,
+        "originatorId": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+        "changeset": [
+          {
+            "data": {
+              "maxId": 2,
+              "changes": [
+                {
+                  "fieldKey": "rootFieldKey",
+                  "fieldKind": "ModularEditBuilder.Generic",
+                  "change": [
+                    [
+                      0,
+                      {
+                        "fieldChanges": [
+                          {
+                            "fieldKey": "left",
+                            "fieldKind": "ModularEditBuilder.Generic",
+                            "change": [
+                              [
+                                0,
+                                {
+                                  "fieldChanges": [
+                                    {
+                                      "fieldKey": "",
+                                      "fieldKind": "Sequence",
+                                      "change": [
+                                        {
+                                          "count": 1,
+                                          "effect": {
+                                            "remove": {
+                                              "id": 0
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "version": 7
+      },
+      {
+        "revision": -1,
+        "originatorId": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+        "changeset": [
+          {
+            "data": {
+              "maxId": 2,
+              "changes": [
+                {
+                  "fieldKey": "rootFieldKey",
+                  "fieldKind": "ModularEditBuilder.Generic",
+                  "change": [
+                    [
+                      0,
+                      {
+                        "fieldChanges": [
+                          {
+                            "fieldKey": "left",
+                            "fieldKind": "ModularEditBuilder.Generic",
+                            "change": [
+                              [
+                                0,
+                                {
+                                  "fieldChanges": [
+                                    {
+                                      "fieldKey": "",
+                                      "fieldKind": "Sequence",
+                                      "change": [
+                                        {
+                                          "count": 1,
+                                          "effect": {
+                                            "remove": {
+                                              "id": 0
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "version": 7
+      },
+      {
+        "revision": 1,
+        "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        "changeset": [
+          {
+            "data": {
+              "maxId": 13,
+              "changes": [
+                {
+                  "fieldKey": "rootFieldKey",
+                  "fieldKind": "ModularEditBuilder.Generic",
+                  "change": [
+                    [
+                      0,
+                      {
+                        "fieldChanges": [
+                          {
+                            "fieldKey": "left",
+                            "fieldKind": "ModularEditBuilder.Generic",
+                            "change": [
+                              [
+                                0,
+                                {
+                                  "fieldChanges": [
+                                    {
+                                      "fieldKey": "",
+                                      "fieldKind": "Sequence",
+                                      "change": [
+                                        {
+                                          "count": 1,
+                                          "cellId": [
+                                            0,
+                                            513
+                                          ],
+                                          "changes": {
+                                            "fieldChanges": [
+                                              {
+                                                "fieldKey": "label",
+                                                "fieldKind": "Value",
+                                                "change": {
+                                                  "r": {
+                                                    "e": false,
+                                                    "d": 7,
+                                                    "s": 6
+                                                  }
+                                                }
+                                              }
+                                            ],
+                                            "nodeExistsConstraint": {
+                                              "violated": true
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "fieldKey": "right",
+                            "fieldKind": "ModularEditBuilder.Generic",
+                            "change": [
+                              [
+                                0,
+                                {
+                                  "fieldChanges": [
+                                    {
+                                      "fieldKey": "",
+                                      "fieldKind": "Sequence",
+                                      "change": [
+                                        {
+                                          "count": 1
+                                        },
+                                        {
+                                          "count": 1,
+                                          "effect": {
+                                            "insert": {
+                                              "id": 11
+                                            }
+                                          },
+                                          "cellId": 11
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "builds": {
+                "builds": [
+                  [
+                    [
+                      [
+                        6,
+                        0
+                      ],
+                      [
+                        11,
+                        1
+                      ]
+                    ]
+                  ]
+                ],
+                "trees": {
+                  "version": 2,
+                  "identifiers": [],
+                  "shapes": [
+                    {
+                      "c": {
+                        "type": "com.fluidframework.leaf.string",
+                        "value": true
+                      }
+                    },
+                    {
+                      "c": {
+                        "type": "org.watershed.shared-tree.transactions.Point",
+                        "value": false,
+                        "fields": [
+                          [
+                            "label",
+                            0
+                          ],
+                          [
+                            "x",
+                            2
+                          ]
+                        ]
+                      }
+                    },
+                    {
+                      "c": {
+                        "type": "com.fluidframework.leaf.number",
+                        "value": true
+                      }
+                    }
+                  ],
+                  "data": [
+                    [
+                      0,
+                      "suppressed"
+                    ],
+                    [
+                      1,
+                      "created",
+                      9
+                    ]
+                  ]
+                }
+              },
+              "refreshers": {
+                "builds": [
+                  [
+                    [
+                      [
+                        0,
+                        0
+                      ]
+                    ],
+                    513
+                  ]
+                ],
+                "trees": {
+                  "version": 2,
+                  "identifiers": [],
+                  "shapes": [
+                    {
+                      "c": {
+                        "type": "org.watershed.shared-tree.transactions.Point",
+                        "value": false,
+                        "fields": [
+                          [
+                            "label",
+                            1
+                          ],
+                          [
+                            "x",
+                            2
+                          ]
+                        ]
+                      }
+                    },
+                    {
+                      "c": {
+                        "type": "com.fluidframework.leaf.string",
+                        "value": true
+                      }
+                    },
+                    {
+                      "c": {
+                        "type": "com.fluidframework.leaf.number",
+                        "value": true
+                      }
+                    }
+                  ],
+                  "data": [
+                    [
+                      0,
+                      "left-a",
+                      1
+                    ]
+                  ]
+                }
+              },
+              "violations": 1
+            }
+          }
+        ],
+        "version": 7
+      }
+    ]
+  }
+}

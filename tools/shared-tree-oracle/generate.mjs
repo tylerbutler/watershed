@@ -53,6 +53,17 @@ export const requiredCases = [
   ["schema-evolution-algebra", "tree"],
   ["schema-evolution-history", "history"],
   ["schema-evolution-codecs", "codec"],
+  ["transaction-callbacks", "tree"],
+  ["transaction-constraints", "modular"],
+  ["transaction-wire", "codec"],
+  ["transaction-history", "history"],
+];
+
+export const requiredTransactionCases = [
+  "transaction-callbacks",
+  "transaction-constraints",
+  "transaction-wire",
+  "transaction-history",
 ];
 
 export const arrayScenarioIds = {
@@ -3427,7 +3438,9 @@ export function validateCases(cases) {
     if (value.id === "container-foundations") validateContainerFoundationsCase(value);
     if (value.id === "summary-foundations") validateSummaryFoundationsCase(value);
     if ((value.domain === "field" || value.domain === "modular")
-      && value.id !== "map-field-algebra" && arrayScenarioIds[value.id] === undefined) {
+      && value.id !== "map-field-algebra"
+      && arrayScenarioIds[value.id] === undefined
+      && !requiredTransactionCases.includes(value.id)) {
       assert(object(value.input.changes) && Object.keys(value.input.changes).length > 0
         && object(value.raw.encoded) && Object.keys(value.raw.encoded).length > 0,
       `${value.id}: missing algebra inputs or encoded outputs`);
@@ -3441,6 +3454,10 @@ export function validateCases(cases) {
     if (value.id === "map-history-codecs") validateMapHistoryCase(value);
     if (arrayScenarioIds[value.id] !== undefined) validateArrayCase(value);
     if (schemaEvolutionCaseIds.includes(value.id)) validateSchemaEvolutionCase(value);
+    if (requiredTransactionCases.includes(value.id)) {
+      assert(nonemptyArray(value.input.scenarios), `${value.id}: missing transaction scenarios`);
+      assert(nonemptyArray(value.raw.messages), `${value.id}: missing transaction wire evidence`);
+    }
     if (value.id === "summary-writer-matrix") validateSummaryPersistence(value);
     if (value.id === "id-ranges") {
       assert(object(value.input.sessions) && typeof value.input.sessions.summaryRestoration === "string"
@@ -3745,6 +3762,7 @@ export async function generate({ check = false } = {}) {
       ...await read(join(source, "array-cases.json")),
       ...await read(join(source, "sequence-cases.json")),
       ...await read(join(source, "schema-evolution-cases.json")),
+      ...await read(join(source, "transaction-cases.json")),
       ...await read(join(container, "container-cases.json")),
     ];
     const malformed = cases.find((item) => item.id === "id-ranges")?.raw.malformedAllocation;

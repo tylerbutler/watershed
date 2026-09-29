@@ -19,6 +19,7 @@ const arraySupportSource = join(directory, "upstream-array-support.ts");
 const sequenceSource = join(directory, "upstream-sequence.spec.ts");
 const replaySource = join(directory, "upstream-replay.spec.ts");
 const schemaEvolutionSource = join(directory, "upstream-schema-evolution.spec.ts");
+const transactionSource = join(directory, "upstream-transaction.spec.ts");
 
 export const reference = {
   version: "3.1.0",
@@ -51,6 +52,8 @@ export const sequenceInjectedTestPath = "packages/dds/tree/src/test/watershedSeq
 export const replayInjectedTestPath = "packages/dds/tree/src/test/watershedReplay.spec.ts";
 export const schemaEvolutionInjectedTestPath =
   "packages/dds/tree/src/test/watershedSchemaEvolution.spec.ts";
+export const transactionInjectedTestPath =
+  "packages/dds/tree/src/test/watershedTransaction.spec.ts";
 const injections = new Map([
   [injectedTestPath, oracleSource],
   ["packages/dds/tree/src/test/watershedAlgebra.spec.ts", join(directory, "upstream-algebra.spec.ts")],
@@ -64,6 +67,7 @@ const injections = new Map([
   [sequenceInjectedTestPath, sequenceSource],
   [replayInjectedTestPath, replaySource],
   [schemaEvolutionInjectedTestPath, schemaEvolutionSource],
+  [transactionInjectedTestPath, transactionSource],
 ]);
 
 export async function verifyPackages(root = directory) {
@@ -221,6 +225,25 @@ export async function publishCapture(output, produce) {
   }
 }
 
+export function sourceTestBatches(corpus) {
+  if (!corpus) {
+    return [["lib/test/watershedOracle.spec.js"]];
+  }
+  return [
+    [
+      "lib/test/watershedOracle.spec.js",
+      "lib/test/watershedAlgebra.spec.js",
+      "lib/test/watershedForest.spec.js",
+      "lib/test/watershedSchemaEvolution.spec.js",
+    ],
+    ["lib/test/watershedTransaction.spec.js"],
+    [
+      "lib/test/watershedSequence.spec.js",
+      "lib/test/watershedArray.spec.js",
+    ],
+  ];
+}
+
 export async function runSource(output, { corpus = false } = {}) {
   await verifyPackages();
   await verifyCheckout();
@@ -241,23 +264,10 @@ export async function runSource(output, { corpus = false } = {}) {
     "--node-option", "conditions=allow-ff-test-exports",
     "--node-option", `import=${pathToFileURL(join(directory, "determinism.mjs")).href}`,
   ];
-  await pnpm([
-    ...mocha,
-    "lib/test/watershedOracle.spec.js",
-    ...(corpus
-      ? [
-          "lib/test/watershedAlgebra.spec.js",
-          "lib/test/watershedForest.spec.js",
-          "lib/test/watershedSchemaEvolution.spec.js",
-        ]
-      : []),
-  ], tree, environment, 90_000);
+  for (const tests of sourceTestBatches(corpus)) {
+    await pnpm([...mocha, ...tests], tree, environment, 90_000);
+  }
   if (corpus) {
-    await pnpm([
-      ...mocha,
-      "lib/test/watershedSequence.spec.js",
-      "lib/test/watershedArray.spec.js",
-    ], tree, environment, 90_000);
     await pnpm([...mocha, "lib/test/watershedMap.spec.js"], tree, {
       ...environment,
       WATERSHED_ORACLE_CORPUS: "map",

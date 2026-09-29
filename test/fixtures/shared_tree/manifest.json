@@ -473,6 +473,26 @@
       "id": "schema-evolution-codecs",
       "domain": "codec",
       "file": "cases/schema-evolution-codecs.json"
+    },
+    {
+      "id": "transaction-callbacks",
+      "domain": "tree",
+      "file": "cases/transaction-callbacks.json"
+    },
+    {
+      "id": "transaction-constraints",
+      "domain": "modular",
+      "file": "cases/transaction-constraints.json"
+    },
+    {
+      "id": "transaction-wire",
+      "domain": "codec",
+      "file": "cases/transaction-wire.json"
+    },
+    {
+      "id": "transaction-history",
+      "domain": "history",
+      "file": "cases/transaction-history.json"
     }
   ]
 }

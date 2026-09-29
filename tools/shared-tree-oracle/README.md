@@ -578,7 +578,7 @@ gleam test --target erlang -- --test-name-filter=shared_tree
 gleam test --target javascript -- --test-name-filter=shared_tree
 ```
 
-`generate` produces all 42 named cases under `test/fixtures/shared_tree/cases/`
+`generate` produces all 46 named cases under `test/fixtures/shared_tree/cases/`
 and their manifest. `check` regenerates them in an owned temporary directory and
 compares the complete file set and every byte without changing the fixtures.
 Missing files, extra files, incomplete observations, and changed outputs fail.
@@ -711,6 +711,51 @@ The production conversion must follow these pinned-source contracts:
 Tree source paths above are relative to `packages/dds/tree/src/`; container
 runtime paths are relative to `packages/runtime/container-runtime/src/`. All
 references use the pinned source commit, not the currently released package.
+
+### Transaction source contract
+
+The four `transaction-*` cases pin the synchronous transaction foundation:
+
+| Case | Captured contract |
+| --- | --- |
+| `transaction-callbacks` | Object, map, array, and move edits are immediately visible to callback reads. A successful outer scope produces one commit and one public `changed` event after the final state is installed. Intermediate edits, inner scopes, aborted scopes, and no-op scopes produce no public event. |
+| `transaction-constraints` | `nodeInDocument` follows node identity through same-array and cross-array moves. An already-detached node prevents callback execution. A concurrent removal that sequences first records one explicit violation and suppresses the constrained field edits while retaining required created builds. |
+| `transaction-wire` | ModularChange V5 encodes apply-time node-existence constraints and the aggregate violation count. It omits internal revert-only constraints. Inversion exchanges apply-time and revert-time constraint state, and explicit violation remains distinct from an empty outer change. |
+| `transaction-history` | One pending composed transaction reconnects and acknowledges without duplicate effects. Sequenced summary state excludes pending local work, and a fresh reader can apply the operation tail and continue editing. The summary is captured from the sequenced peer, not the client with pending transaction work. |
+
+The capture follows these pinned files under `packages/dds/tree/src/`:
+
+- `simple-tree/api/tree.ts`
+- `simple-tree/api/transactionTypes.ts`
+- `shared-tree-core/transaction.ts`
+- `shared-tree/tree.ts`
+- `shared-tree/treeCheckout.ts`
+- `feature-libraries/modular-schema/modularChangeTypes.ts`
+- `feature-libraries/modular-schema/modularChangeFamily.ts`
+- `feature-libraries/modular-schema/modularChangeCodecV1.ts`
+- `feature-libraries/modular-schema/invert.ts`
+- `shared-tree/sharedTreeChangeFamily.ts`
+- `core/rebase/types.ts`
+- `test/shared-tree-core/transaction.spec.ts`
+- `test/shared-tree/treeCheckout.spec.ts`
+- `test/simple-tree/api/transactionTypes.spec.ts`
+
+Nested transactions are savepoints within one outer transaction. Inner success
+keeps its changes in the outer scope. Inner abort restores its savepoint and
+lets the outer callback continue. Only outer success submits the composed
+change. Outer abort restores the original state without a commit or event.
+
+The supported constraint is the stable `nodeInDocument` constraint. It binds
+to node identity, not the path used to select the node. Local validation rejects
+a detached node before the callback, but the encoded constraint is still
+required so rebase can detect a concurrent removal that sequences first.
+Created detached content and repair data remain available when that explicit
+violation suppresses the transaction's visible field effects.
+
+The transaction suite runs in its own deterministic Mocha process. Importing
+the upstream test constructs identities before tests execute, so sharing the
+older corpus process would shift existing fixture UUIDs even if the transaction
+test ran last.
 
 ### Native runtime interoperability
 

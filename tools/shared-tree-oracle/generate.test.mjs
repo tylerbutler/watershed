@@ -78,11 +78,40 @@ function cases(exclude = []) {
       ["schema-only-commit", "empty-outer-commit", "historical-schema-decode",
         "pending-upgrade-summary"],
     ),
+    "transaction-callbacks": () => transactionCaseFixture("transaction-callbacks", "tree"),
+    "transaction-constraints": () => transactionCaseFixture(
+      "transaction-constraints",
+      "modular",
+    ),
+    "transaction-wire": () => transactionCaseFixture("transaction-wire", "codec"),
+    "transaction-history": () => transactionCaseFixture("transaction-history", "history"),
   };
   return requiredCases.filter(([id]) => !exclude.includes(id)).map(([id]) =>
     synthetic[id]?.() ?? JSON.parse(readFileSync(
       new URL(`../../test/fixtures/shared_tree/cases/${id}.json`, import.meta.url), "utf8",
     )));
+}
+
+function transactionCaseFixture(id, domain) {
+  return {
+    formatVersion: 1,
+    reference: {
+      package: "@fluidframework/tree",
+      version: "3.1.0",
+      commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+    },
+    id,
+    domain,
+    input: {
+      scenarios: [{ id: `${id}-source`, actions: [{ op: "capture" }] }],
+    },
+    expected: {
+      observations: [{ id: `${id}-source`, captured: true }],
+    },
+    raw: {
+      messages: [{ version: 7, changeset: { changes: [] } }],
+    },
+  };
 }
 
 function schemaEvolutionCaseFixture(id, domain, scenarioIds) {
@@ -1022,7 +1051,7 @@ test("tree codec case validator rejects missing context and observations", () =>
 });
 
 test("corpus requires the tree codecs case", () => {
-  assert.equal(requiredCases.length, 42);
+  assert.equal(requiredCases.length, 46);
   assert(requiredCases.some(([id, domain]) => id === "tree-codecs" && domain === "codec"));
 });
 
@@ -1641,6 +1670,39 @@ test("schema evolution cases require complete source-backed contracts", () => {
   }
 });
 
+test("corpus requires every transaction case", () => {
+  assert.deepEqual(generator.requiredTransactionCases, [
+    "transaction-callbacks",
+    "transaction-constraints",
+    "transaction-wire",
+    "transaction-history",
+  ]);
+  for (const id of generator.requiredTransactionCases) {
+    assert(requiredCases.some(([caseId]) => caseId === id));
+  }
+});
+
+test("transaction cases require complete source-backed contracts", () => {
+  const required = [
+    "transaction-callbacks",
+    "transaction-constraints",
+    "transaction-wire",
+    "transaction-history",
+  ];
+  for (const id of required) {
+    for (const mutate of [
+      (value) => { value.reference.commit = "other"; },
+      (value) => { delete value.input; },
+      (value) => { value.expected.observations = []; },
+    ]) {
+      const corpus = cases();
+      mutate(corpus.find((value) => value.id === id));
+      assert.throws(() => validateCases(corpus), new RegExp(id));
+    }
+    assert.throws(() => validateCases(cases([id])), new RegExp(`Missing case: ${id}`));
+  }
+});
+
 test("M3 invalid cases execute source controls and exact malformed operands", () => {
   const value = JSON.parse(readFileSync(
     new URL("../../test/fixtures/shared_tree/cases/array-invalid.json", import.meta.url),
@@ -2035,7 +2097,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
 });
 
 test("corpus validation requires every named case and nonempty observations", () => {
-  assert.equal(requiredCases.length, 42);
+  assert.equal(requiredCases.length, 46);
   assert.doesNotThrow(() => validateCases(cases()));
   assert.throws(() => validateCases([]), /empty|missing/i);
   assert.throws(() => validateCases(cases().slice(1)), /schema-profile/);

@@ -201,6 +201,40 @@ test("source runner declares the owned schema evolution injection", () => {
   );
 });
 
+test("source runner declares the owned transaction injection", () => {
+  assert.equal(
+    source.transactionInjectedTestPath,
+    "packages/dds/tree/src/test/watershedTransaction.spec.ts",
+  );
+});
+
+test("source runner isolates transaction entropy from the existing corpus", () => {
+  assert.deepEqual(source.sourceTestBatches(true), [
+    [
+      "lib/test/watershedOracle.spec.js",
+      "lib/test/watershedAlgebra.spec.js",
+      "lib/test/watershedForest.spec.js",
+      "lib/test/watershedSchemaEvolution.spec.js",
+    ],
+    ["lib/test/watershedTransaction.spec.js"],
+    [
+      "lib/test/watershedSequence.spec.js",
+      "lib/test/watershedArray.spec.js",
+    ],
+  ]);
+});
+
+test("source verification byte-checks the owned transaction injection", async (t) => {
+  const { directory, commit } = await checkoutFixture(t);
+  const target = join(directory, source.transactionInjectedTestPath);
+  const contents = await readFile(new URL("./upstream-transaction.spec.ts", import.meta.url));
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, contents);
+  await verifyCheckout(directory, commit);
+  await writeFile(target, "// unexpected replacement\n");
+  await assert.rejects(verifyCheckout(directory, commit), /injected/);
+});
+
 test("source verification byte-checks the owned schema evolution injection", async (t) => {
   const { directory, commit } = await checkoutFixture(t);
   const target = join(directory, schemaEvolutionInjectedTestPath);
