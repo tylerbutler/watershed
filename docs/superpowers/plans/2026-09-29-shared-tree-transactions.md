@@ -9,8 +9,8 @@
 sequenced node-existence constraints to the native SharedTree facades.
 
 **Architecture:** Author callback edits against an isolated transaction-local
-tree and compressor state, deliver upstream-compatible local events, and append
-one composed commit only when the outer scope succeeds. Extend the existing
+tree and compressor state, emit one public change event after outer success,
+and append one composed commit only when the outer scope succeeds. Extend the existing
 modular change algebra and V5 codec with node-existence constraints so every
 client can suppress a transaction whose constrained node was removed before
 sequencing.
@@ -238,13 +238,13 @@ pub fn compressor(value: Transaction) -> fluid_ids.Compressor
 pub fn apply_edit(
   value: Transaction,
   edit: tree_types.Edit,
-) -> Result(#(Transaction, tree_kernel.ChangeEvents), TreeError)
+) -> Result(Transaction, TreeError)
 
 pub fn commit_nested(value: Transaction) -> Result(Transaction, TreeError)
 
 pub fn abort_nested(
   value: Transaction,
-) -> Result(#(Transaction, tree_kernel.ChangeEvents), TreeError)
+) -> Result(Transaction, TreeError)
 
 pub fn finish(
   value: Transaction,
@@ -252,13 +252,13 @@ pub fn finish(
 
 pub fn abort(
   value: Transaction,
-) -> Result(#(tree_kernel.TreeState, fluid_ids.Compressor, tree_kernel.ChangeEvents), TreeError)
+) -> Result(#(tree_kernel.TreeState, fluid_ids.Compressor), TreeError)
 ```
 
 `finish` composes authored changes, adds constraints, and appends one local
 commit. `NoCommit` restores the base compressor. `abort` restores the base tree
-and compressor. Local per-edit events come from `apply_edit`; finish emits no
-duplicate data event.
+and compressor. Intermediate edits and abort emit no public data event.
+`finish` returns the one outer event when committed visible data changed.
 
 ### Runtime-core API, owned by Task 5
 
@@ -285,7 +285,7 @@ pub fn tree_transaction_depth(core: Core) -> Int
 
 Existing tree read functions select the isolated state when the address matches
 the active transaction. Existing tree edit submission routes matching edits to
-`transaction.apply_edit`, returns local events, and returns no outbound
+`transaction.apply_edit`, returns no local events, and returns no outbound
 operation until outer commit. Another tree address and schema upgrades return a
 typed error while a transaction is active.
 
@@ -364,8 +364,8 @@ Use the ordinary simple-tree `runTransaction` API. Record:
 
 - successful object, map, array, and move edits;
 - callback reads after each edit;
-- local changed events in order;
-- outer rollback event and restored values;
+- one local changed event after outer success;
+- no changed event after outer rollback;
 - inner success followed by outer success;
 - inner rollback followed by continued outer edits;
 - a no-op callback;
@@ -614,9 +614,10 @@ git commit -m "feat(tree): enforce node constraints"
 - [ ] **Step 1: Add failing single-scope commit and abort tests.**
 
 Start from a tree and compressor, apply two edits, and assert callback-visible
-state and events. Before finish, assert normal pending history is unchanged.
-Finish must append one pending commit. Abort must restore tree, history,
-identity, and compressor equality.
+state without public events. Before finish, assert normal pending history is
+unchanged. Finish must append one pending commit and return one final event.
+Abort must restore tree, history, identity, and compressor equality without an
+event.
 
 - [ ] **Step 2: Split edit authoring from history append.**
 
@@ -648,7 +649,7 @@ state. Empty edits return `None` and preserve the compressor.
 
 Store base/current tree and compressor, authored outer changes, constraint
 targets, and a savepoint stack. `apply_edit` uses `author_edit_change`, updates
-only current isolated state, records the change, and returns its local events.
+only current isolated state, records the change, and suppresses preview events.
 
 - [ ] **Step 4: Add and implement nested savepoints.**
 
@@ -698,9 +699,9 @@ git commit -m "feat(tree): add nested transactions"
 
 - [ ] **Step 1: Add failing runtime-core lifecycle tests.**
 
-Test begin, per-edit reads/events, nested begin/abort, outer commit, outer
-abort, no-op, wrong address, wrong view, schema upgrade rejection, and calls
-outside an active transaction.
+Test begin, intermediate reads without events, nested begin/abort, one outer
+commit event, outer abort without events, no-op, wrong address, wrong view,
+schema upgrade rejection, and calls outside an active transaction.
 
 - [ ] **Step 2: Store one active single-tree transaction in `Core`.**
 
@@ -717,7 +718,7 @@ Initialize it to `None` in every core constructor and restore path.
 
 When the address matches, existing reads use `tree_transaction.state`.
 Matching edits call `tree_transaction.apply_edit`, replace the active
-transaction, return local events, and return `[]` outbound. Another address
+transaction, return no events, and return `[]` outbound. Another address
 returns `TreeOperationFailed` with a literal cross-tree error.
 
 - [ ] **Step 4: Implement begin, nested begin, commit, and abort.**
@@ -725,7 +726,7 @@ returns `TreeOperationFailed` with a literal cross-tree error.
 Resolve `NodeInDocument` paths before invoking `transaction.begin`. Nested
 begin requires the same address and view. Inner commit/abort update only active
 state. Outer commit calls existing `submit_tree_commits` once. Outer abort
-restores the core tree/compressor and returns the rollback events.
+restores the core tree/compressor and returns no events.
 
 - [ ] **Step 5: Preserve batch and allocation invariants.**
 
@@ -770,8 +771,9 @@ git commit -m "feat(tree): submit atomic transactions"
 - [ ] **Step 1: Add failing facade type and callback tests.**
 
 Cover success value, typed callback error, setup error, nested success, nested
-abort handled by the outer callback, per-edit subscriber reads, rollback
-subscriber reads, no-op, wrong tree, and schema-upgrade rejection.
+abort handled by the outer callback, callback reads after each edit, one
+subscriber event after outer success, no subscriber event after abort, no-op,
+wrong tree, and schema-upgrade rejection.
 
 - [ ] **Step 2: Add runtime begin/commit/abort wrappers.**
 
@@ -806,9 +808,9 @@ error behind `Aborted`.
 
 - [ ] **Step 4: Verify synchronous event reentrancy.**
 
-Subscriber callbacks must read isolated state after each edit and restored
-state after abort. A subscriber edit on the same tree participates in the
-active transaction. A subscriber edit on another tree fails explicitly.
+The one subscriber callback after outer success must read final committed
+state. No subscriber callback runs for intermediate edits or abort. Reentrant
+edits during the commit event follow the existing runtime event rules.
 
 - [ ] **Step 5: Run JavaScript facade and parity tests.**
 
@@ -1075,8 +1077,9 @@ Preserve every version, codec, layout, and M1-M4 feature claim.
 - [ ] **Step 3: Document the public API and limits.**
 
 Show one committed callback, one aborted callback with typed error, and a
-`NodeInDocument` constraint. Explain nested scopes, local events, one outer
-network commit, sequenced constraint checks, and deferred features.
+`NodeInDocument` constraint. Explain nested scopes, one outer local event and
+network commit, no abort event, sequenced constraint checks, and deferred
+features.
 
 - [ ] **Step 4: Update the parent roadmap.**
 
@@ -1147,7 +1150,7 @@ behavior. Do not create an empty closure commit.
 - [ ] One outer success produces one composed SharedTree commit.
 - [ ] Outer abort restores values, identities, history, and compressor state.
 - [ ] Nested success and abort match the pinned upstream observations.
-- [ ] Local edit and rollback events match the supported upstream event model.
+- [ ] One outer commit event and no abort event match the pinned upstream model.
 - [ ] Node-existence constraints use identity and survive node moves.
 - [ ] A concurrent node removal suppresses constrained edits on every client.
 - [ ] Explicit violation remains distinct from an empty or implicit-conflict change.
@@ -1169,7 +1172,7 @@ behavior. Do not create an empty closure commit.
 
 | Design requirement | Owning tasks |
 | --- | --- |
-| Callback, nesting, local events, and abort | 1, 4, 6, 7 |
+| Callback, nesting, outer event, and abort | 1, 4, 6, 7 |
 | Stable node-existence constraints | 1, 2, 3, 5 |
 | Exact V5 wire behavior | 1, 2, 8 |
 | One outer commit and no-op allocation rule | 4, 5, 6, 7 |

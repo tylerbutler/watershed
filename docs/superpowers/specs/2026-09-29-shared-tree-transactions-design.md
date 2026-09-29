@@ -21,7 +21,8 @@ This is the first M5 slice. It includes:
 - Object, dynamic-map, array, and move edits.
 - Atomic commit and abort behavior.
 - The stable upstream `nodeInDocument` transaction constraint.
-- Local edit events during the callback and a rollback event after abort.
+- One local change event after a successful outer commit.
+- No local change event for an aborted or no-op transaction.
 - One composed outer commit, one channel operation, and normal reconnect and
   summary behavior.
 - Native JavaScript, native BEAM, upstream/native, and real-service proof.
@@ -38,9 +39,9 @@ Keep these features out of this slice:
 - Shared branches and public local-branch APIs.
 
 The user approved a callback API, a single-tree boundary, nested synchronous
-scopes, the upstream-compatible event model, and the stable upstream constraint
+scopes, the measured pinned event model, and the stable upstream constraint
 subset. A callback error aborts the current scope. The outermost successful
-scope produces the only synchronized commit.
+scope produces the only synchronized commit and public change event.
 
 ### Global constraints
 
@@ -70,7 +71,7 @@ Paths below are relative to
 
 | Source | Required behavior |
 | --- | --- |
-| `simple-tree/api/tree.ts` | Run synchronous callbacks, expose callback success or rollback, publish local change events for each edit, and group the outer transaction into one synchronized change. |
+| `simple-tree/api/tree.ts` | Run synchronous callbacks, expose callback success or rollback, and group the outer transaction into one synchronized change. |
 | `simple-tree/api/transactionTypes.ts` | Define callback results and the stable `nodeInDocument` constraint. Preconditions are checked locally and again after sequencing. |
 | `shared-tree-core/transaction.ts` | Support nested transaction scopes. Inner commit leaves the outer transaction active. Inner abort restores the inner savepoint. |
 | `shared-tree/tree.ts` | Start the transaction, add constraints, run the callback, and commit or abort according to the callback result. |
@@ -88,8 +89,7 @@ Paths below are relative to
 
 Edits inside the callback are immediately visible to reads on the same
 transactional view. Remote changes cannot interleave with the synchronous
-callback. Local subscribers receive the same per-edit events they receive
-outside a transaction.
+callback. Public change subscribers do not observe the intermediate edits.
 
 An inner transaction uses the current transaction state as its base. Inner
 success keeps its changes in the outer scope. Inner failure restores the state
@@ -98,8 +98,7 @@ that result.
 
 Only the outermost success submits a change. Its edits are composed in authoring
 order. A callback failure restores the state from the start of that scope. An
-outer failure restores the pre-transaction state and emits the corresponding
-rollback event when visible data changed.
+outer failure restores the pre-transaction state without a public change event.
 
 A successful transaction with no effective changes produces no commit,
 allocation, outbound message, or additional event.
@@ -181,7 +180,6 @@ Add a pure transaction module beside the existing tree history. It owns:
 - Authored changes in callback order.
 - Resolved node identities for constraints.
 - A stack of nested savepoints.
-- The accumulated local event observations needed for rollback.
 
 The isolated state must not append to normal pending history. It must not send
 channel operations. It must not update the document's committed runtime state
@@ -225,15 +223,14 @@ On outer success:
 If composition is empty, restore the base compressor and finish without a
 commit. A no-op transaction must not reserve a document ID range.
 
-The transaction's local edit events have already been delivered. Do not emit a
-duplicate data-change event after outer commit.
+Emit one local data-change event after the outer commit when the composed
+transaction changes visible data. Subscriber reads during that event must
+observe the committed final state.
 
 ### Abort and rollback
 
 On abort, restore the scope's savepoint. If the restored visible data differs
-from the callback-visible data, publish the existing local tree-change event
-after restoration. Subscriber reads during that event must observe the restored
-state.
+from the callback-visible data, do not publish a public tree-change event.
 
 An inner abort does not end the outer transaction. An outer abort removes the
 active transaction state completely. It leaves no pending commit, receipt,
@@ -252,7 +249,6 @@ While a transaction callback is active:
 
 - Reads for its tree use isolated state.
 - Data edits for its tree author against isolated state.
-- Local events can call reads and observe that isolated state.
 - Edits or transactions for another tree fail.
 - Incoming remote operations cannot change the transaction base.
 - Reconnect and summary publication do not observe partial transaction state.
@@ -295,11 +291,10 @@ All later checks use stable node identity.
 
 Keep `TreeChanged(local)` as the public data event.
 
-- Each successful edit inside the callback emits the same local event it emits
-  outside a transaction.
-- An inner or outer abort emits one local event after restoration when the
-  visible state changed.
-- A successful outer commit emits no duplicate event.
+- Intermediate callback edits emit no public data event.
+- Inner commit and abort emit no public data event.
+- A successful outer commit emits one local event when visible data changed.
+- An outer abort emits no public data event.
 - A no-op transaction emits no transaction-specific event.
 - A sequenced constraint violation emits a remote data-change event only when
   the visible state changes during reconciliation.
@@ -322,9 +317,9 @@ The corpus must include:
 
 | Case | Required observations |
 | --- | --- |
-| Single commit | Intermediate callback reads, per-edit local events, one final commit, one operation, and exact final tree and identity state. |
-| Outer abort | Intermediate reads and events, rollback event, restored tree and identity state, no submitted commit, and no retained allocation. |
-| Nested success | Inner reads and events, one outer commit, and author-order composition. |
+| Single commit | Intermediate callback reads, one outer local event, one final commit, one operation, and exact final tree and identity state. |
+| Outer abort | Intermediate callback reads, no public event, restored tree and identity state, no submitted commit, and no retained allocation. |
+| Nested success | Inner reads, one outer event, one outer commit, and author-order composition. |
 | Nested abort | Inner rollback to its savepoint, continued outer edits, and one final outer commit. |
 | No-op | No commit, allocation, operation, or additional event. |
 | Invalid edit | Exact callback error behavior and an unchanged transaction state when the callback aborts. |
@@ -363,7 +358,7 @@ Acceptance requires:
 - [ ] One outer success produces one composed SharedTree commit.
 - [ ] Outer abort restores values, identities, history, and compressor state.
 - [ ] Nested success and abort match the pinned upstream observations.
-- [ ] Local edit and rollback events match the supported upstream event model.
+- [ ] One outer commit event and no abort event match the pinned upstream model.
 - [ ] Node-existence constraints use identity and survive node moves.
 - [ ] A concurrent node removal suppresses constrained edits on every client.
 - [ ] Explicit violation remains distinct from an empty or implicit-conflict
