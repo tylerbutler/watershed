@@ -1,4 +1,5 @@
 import gleam/int
+import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
@@ -19,6 +20,33 @@ const revision_b = "20000000-0000-4000-8000-000000000002"
 
 pub fn shared_tree_array_codecs_match_upstream_test() -> Nil {
   fixtures.assert_case("array-codecs", array_codec_fixture.run)
+}
+
+pub fn sequence_v3_codec_preserves_constraint_free_insert_bytes_test() -> Nil {
+  let assert Ok(revision) = fluid_ids.stable_id(revision_a)
+  let id = AtomId(Some(revision), 1)
+  let assert Ok(change) =
+    sequence_field.from_marks([
+      sequence_field.Mark(
+        count: 1,
+        cell_id: Some(id),
+        effect: sequence_field.Attach(sequence_field.Insert(id)),
+        child: None,
+      ),
+    ])
+  let encode_atom = fn(id: AtomId, _location) {
+    Ok(json_ot.VNumber(json_ot.NInt(id.local_id)))
+  }
+  let encode_child = fn(_id, state, _location) { Ok(#(json_ot.VNull, state)) }
+  let assert Ok(#(encoded, Nil)) =
+    sequence_codec.encode(change, Nil, encode_atom, encode_child, "sequence")
+
+  encoded
+  |> json_ot.to_json
+  |> json.to_string
+  |> expect.to_equal(
+    "[{\"effect\":{\"insert\":{\"id\":1}},\"count\":1,\"cellId\":1}]",
+  )
 }
 
 pub fn sequence_v3_codec_threads_child_state_and_all_mark_fields_test() -> Nil {

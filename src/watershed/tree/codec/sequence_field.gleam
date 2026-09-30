@@ -434,7 +434,7 @@ fn encode_marks(
       let members = [#("count", VNumber(NInt(mark.count)))]
       let members = case effect {
         None -> members
-        Some(value) -> list.append(members, [#("effect", value)])
+        Some(value) -> [#("effect", value), ..members]
       }
       let members = case cell_id {
         None -> members
