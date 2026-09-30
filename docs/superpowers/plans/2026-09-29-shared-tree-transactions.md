@@ -525,7 +525,9 @@ git commit -m "feat(tree): decode transaction constraints"
   `765aa26f9f1cd1b803e6f510eacc362b591a9dd4`,
   `331cafb978343987c28f341f0ed234474a719e88`,
   `a66a104dd9ed7618bfdad3fd4470dad84bb4b12d`, and
-  `a61cce4d2636bbf4ff138aac01da351fadae38ca`.
+  `a61cce4d2636bbf4ff138aac01da351fadae38ca`. Malformed-input,
+  structural, and closure coverage is in
+  `8b3adb917ecf7db13174a170133e6743dd50d8e5`.
 - Native `NodeExistsConstraint` and aggregate violation state are complete.
   Pinned ModularChange V5 decode and encode support is complete.
 - The input-only runner returns encoder-produced output after removing only

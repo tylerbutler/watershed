@@ -188,6 +188,11 @@ and public support claims are unchanged.
 No generated fixture, dependency manifest, `.code-map`, or apm-managed file
 was changed.
 
+## Commit
+
+- `8b3adb917ecf7db13174a170133e6743dd50d8e5`
+  `test(tree): harden transaction constraint codecs`
+
 ## Concerns
 
 Full compressed FieldBatch parity remains out of scope. The captured
