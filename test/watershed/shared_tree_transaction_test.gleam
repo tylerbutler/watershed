@@ -1,5 +1,6 @@
 import gleam/json
 import gleam/list
+import gleam/string
 import startest/expect
 import watershed/json_ot.{VArray, VObject, VString}
 import watershed/tree/fixtures
@@ -71,13 +72,28 @@ pub fn shared_tree_transaction_wire_observes_constraints_and_exact_bytes_test() 
     list.key_find(message_bytes, "nonviolated")
   let assert Ok(VString(violated_bytes)) =
     list.key_find(message_bytes, "violated")
+  let assert Ok(nonviolated_message) = json_ot.parse_json(nonviolated_bytes)
+  let assert Ok(violated_message) = json_ot.parse_json(violated_bytes)
 
-  let assert Ok(original) = transaction_fixture.run_wire(input)
+  let original = case transaction_fixture.run_wire(input) {
+    Ok(value) -> value
+    Error(error) -> panic as { error }
+  }
   let assert Ok(VObject(observation)) = wire_observation(original)
   let assert Ok(nonviolated) = list.key_find(observation, "nonviolated")
   let assert Ok(violated) = list.key_find(observation, "violated")
-  let assert Ok(VString(encoded_nonviolated)) =
+  let assert Ok(VObject(encoded_messages)) =
+    list.key_find(observation, "message")
+  let assert Ok(VObject(encoded_bytes)) =
     list.key_find(observation, "messageBytes")
+  let assert Ok(encoded_nonviolated_message) =
+    list.key_find(encoded_messages, "nonviolated")
+  let assert Ok(encoded_violated_message) =
+    list.key_find(encoded_messages, "violated")
+  let assert Ok(VString(encoded_nonviolated)) =
+    list.key_find(encoded_bytes, "nonviolated")
+  let assert Ok(VString(encoded_violated)) =
+    list.key_find(encoded_bytes, "violated")
   nonviolated
   |> expect.to_equal(
     VObject([
@@ -92,36 +108,45 @@ pub fn shared_tree_transaction_wire_observes_constraints_and_exact_bytes_test() 
       #("violations", json_ot.VNumber(json_ot.NInt(1))),
     ]),
   )
+  encoded_nonviolated_message |> expect.to_equal(nonviolated_message)
+  encoded_violated_message |> expect.to_equal(violated_message)
   encoded_nonviolated |> expect.to_equal(nonviolated_bytes)
-
-  let assert Ok(swapped) = transaction_fixture.run_wire(swap_nonviolated(root))
-  let assert Ok(VObject(observation)) = wire_observation(swapped)
-  let assert Ok(VString(encoded_violated)) =
-    list.key_find(observation, "messageBytes")
   encoded_violated |> expect.to_equal(violated_bytes)
+}
+
+pub fn shared_tree_transaction_wire_rejects_noncanonical_bytes_test() -> Nil {
+  let assert Ok(fixtures.Case(input: input, ..)) =
+    fixtures.load("transaction-wire")
+  let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(input))
+  let assert Ok(VObject(message_bytes)) = list.key_find(root, "messageBytes")
+  let assert Ok(VString(nonviolated_bytes)) =
+    list.key_find(message_bytes, "nonviolated")
+  let changed_bytes =
+    nonviolated_bytes
+    |> string.replace("{\"revision\":4", "{ \"revision\":4")
+  let changed =
+    root
+    |> list.key_set(
+      "messageBytes",
+      VObject(list.key_set(message_bytes, "nonviolated", VString(changed_bytes))),
+    )
+    |> VObject
+    |> json_ot.to_json
+
+  let encoded = case transaction_fixture.run_wire(changed) {
+    Ok(value) -> value
+    Error(error) -> panic as { error }
+  }
+  let assert Ok(VObject(observation)) = wire_observation(encoded)
+  let assert Ok(VObject(encoded_bytes)) =
+    list.key_find(observation, "messageBytes")
+  let assert Ok(VString(encoded_nonviolated)) =
+    list.key_find(encoded_bytes, "nonviolated")
+  encoded_nonviolated |> expect.to_equal(nonviolated_bytes)
 }
 
 fn wire_observation(value: json.Json) -> Result(json_ot.JsonValue, Nil) {
   let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(value))
   let assert Ok(VArray([observation])) = list.key_find(root, "observations")
   Ok(observation)
-}
-
-fn swap_nonviolated(root: List(#(String, json_ot.JsonValue))) -> json.Json {
-  let assert Ok(VObject(message_bytes)) = list.key_find(root, "messageBytes")
-  let assert Ok(violated_bytes) = list.key_find(message_bytes, "violated")
-  let assert Ok(VObject(compressors)) = list.key_find(root, "compressor")
-  let assert Ok(violated_compressor) = list.key_find(compressors, "violated")
-  VObject(
-    root
-    |> list.key_set(
-      "messageBytes",
-      VObject(list.key_set(message_bytes, "nonviolated", violated_bytes)),
-    )
-    |> list.key_set(
-      "compressor",
-      VObject(list.key_set(compressors, "nonviolated", violated_compressor)),
-    ),
-  )
-  |> json_ot.to_json
 }

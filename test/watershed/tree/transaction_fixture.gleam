@@ -40,8 +40,20 @@ pub fn run_wire(input: Json) -> Result(Json, String) {
             #("id", json.string(parsed.id)),
             #("nonviolated", nonviolated.0),
             #("violated", violated.0),
-            #("message", nonviolated.1),
-            #("messageBytes", json.string(nonviolated.2)),
+            #(
+              "message",
+              json.object([
+                #("nonviolated", nonviolated.1),
+                #("violated", violated.1),
+              ]),
+            ),
+            #(
+              "messageBytes",
+              json.object([
+                #("nonviolated", json.string(nonviolated.2)),
+                #("violated", json.string(violated.2)),
+              ]),
+            ),
           ]),
         ]),
       ),
@@ -176,19 +188,12 @@ fn decode_message(
   bytes: String,
   compressor: fluid_ids.Compressor,
 ) -> Result(#(Json, Json, String), String) {
-  use original <- result.try(
-    json_ot.parse_json(bytes) |> result.map_error(string.inspect),
-  )
-  use sanitized <- result.try(without_field_batches(original))
   use compressor_before <- result.try(
     fluid_ids.serialize(compressor, True)
     |> result.map_error(string.inspect),
   )
   use message <- result.try(
-    codec.decode_message(
-      json.to_string(json_ot.to_json(sanitized)),
-      codec.DecodeContext(codec.Fluid310, compressor),
-    )
+    codec.decode_message(bytes, codec.DecodeContext(codec.Fluid310, compressor))
     |> result.map_error(string.inspect),
   )
   use changeset <- result.try(case message {
@@ -205,11 +210,7 @@ fn decode_message(
     )
     |> result.map_error(string.inspect),
   )
-  use encoded <- result.try(
-    json_ot.parse_json(json.to_string(encoded))
-    |> result.map_error(string.inspect),
-  )
-  use _ <- result.try(require_same_codec_sections(original, encoded))
+  let encoded_bytes = json.to_string(encoded)
   use compressor_after <- result.try(
     fluid_ids.serialize(compressor, True)
     |> result.map_error(string.inspect),
@@ -220,74 +221,7 @@ fn decode_message(
       False -> Error("message codec mutated compressor state")
     },
   )
-  Ok(#(observe(change.to_data(changeset)), json_ot.to_json(original), bytes))
-}
-
-fn without_field_batches(value: JsonValue) -> Result(JsonValue, String) {
-  use root <- result.try(object_members(value, "message"))
-  use changeset <- result.try(fixture_codec.field(
-    value,
-    "changeset",
-    fixture_codec.items,
-  ))
-  use sanitized <- result.try(
-    list.try_map(changeset, fn(entry) {
-      use members <- result.try(object_members(entry, "message change"))
-      use data <- result.try(fixture_codec.get(entry, "data"))
-      use data <- result.try(object_members(data, "message data"))
-      let data =
-        data
-        |> list.filter(fn(member) {
-          member.0 != "builds" && member.0 != "refreshers"
-        })
-        |> VObject
-      Ok(VObject(list.key_set(members, "data", data)))
-    }),
-  )
-  Ok(VObject(list.key_set(root, "changeset", json_ot.VArray(sanitized))))
-}
-
-fn require_same_codec_sections(
-  original: JsonValue,
-  encoded: JsonValue,
-) -> Result(Nil, String) {
-  use original <- result.try(message_data(original))
-  use encoded <- result.try(message_data(encoded))
-  case
-    list.key_find(original, "changes") == list.key_find(encoded, "changes"),
-    list.key_find(original, "violations")
-    == list.key_find(encoded, "violations")
-  {
-    True, True -> Ok(Nil)
-    False, _ -> Error("encoded transaction changes differ from input")
-    _, False -> Error("encoded transaction violation count differs from input")
-  }
-}
-
-fn message_data(
-  value: JsonValue,
-) -> Result(List(#(String, JsonValue)), String) {
-  use changeset <- result.try(fixture_codec.field(
-    value,
-    "changeset",
-    fixture_codec.items,
-  ))
-  use entry <- result.try(case changeset {
-    [entry] -> Ok(entry)
-    _ -> Error("expected one message change")
-  })
-  use data <- result.try(fixture_codec.get(entry, "data"))
-  object_members(data, "message data")
-}
-
-fn object_members(
-  value: JsonValue,
-  name: String,
-) -> Result(List(#(String, JsonValue)), String) {
-  case value {
-    VObject(members) -> Ok(members)
-    _ -> Error("expected an object for " <> name)
-  }
+  Ok(#(observe(change.to_data(changeset)), encoded, encoded_bytes))
 }
 
 fn observe(data: change.ChangeData) -> Json {

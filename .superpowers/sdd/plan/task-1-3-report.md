@@ -227,3 +227,109 @@ unrelated limitation outside scope: the runner removes only `builds` and
 the re-encoded `changes` and `violations` sections, and preserves those opaque
 FieldBatch bytes exactly. Full identifier-aware FieldBatch decoding remains a
 separate concern and was not added here.
+
+## Fix Round 1
+
+### Status
+
+BLOCKED. The false transaction observation was removed, but the pinned codec
+cannot round-trip either captured message unchanged.
+
+### Changes
+
+- `transaction_fixture.run_wire/1` now passes the supplied nonviolated and
+  violated message bytes unchanged to `codec.decode_message/2`.
+- The runner no longer removes `builds` or `refreshers`.
+- The runner no longer compares only `changes` and `violations`.
+- The runner returns the actual `codec.encode_message/2` JSON and
+  `json.to_string/1` bytes for both variants.
+- The exact-output test now compares encoder-produced JSON and bytes with both
+  captured variants.
+- Added a noncanonical-input regression that requires the observation to come
+  from the encoder instead of echoing input bytes.
+
+### Investigation
+
+The first full decode fails before stored-schema classification:
+
+```text
+UnsupportedFeature("message.changeset[0].data.builds.trees", "identifier values")
+```
+
+The captured FieldBatch uses `{"type":0,"value":0}` for the `Point.id`
+identifier field. `field_batch.decode_value/3` rejects `IdentifierValue`.
+Correct decoding needs the message compressor to convert the session-space
+integer through `fluid_ids.decompress/2`, but `field_batch.decode_with_schema/2`
+accepts only the encoded value and optional stored schema.
+
+Encoding is also insufficient for exact bytes. `field_batch.encode_with_schema/2`
+only validates node kinds and then calls `field_batch.encode/1`, which always
+emits the generic uncompressed shape table with an empty `identifiers` array.
+It cannot reproduce the captured indexed identifiers, identifier-value shape,
+or compressed shape table. Adding schema alone does not supply either missing
+capability.
+
+### Commands and output
+
+No-echo regression before the runner change:
+
+```bash
+gleam test --target erlang -- --test-name-filter=shared_tree_transaction_wire_rejects_noncanonical_bytes_test
+```
+
+Output:
+
+```text
+FAIL shared_tree_transaction_wire_rejects_noncanonical_bytes_test
+Expected Ok(...) to be Error
+Tests: 1 failed (1)
+```
+
+Full unchanged-message probe after the runner change:
+
+```bash
+gleam test --target erlang -- --test-name-filter=shared_tree_transaction_wire_observes_constraints_and_exact_bytes_test
+```
+
+Output:
+
+```text
+FAIL shared_tree_transaction_wire_observes_constraints_and_exact_bytes_test
+UnsupportedFeature("message.changeset[0].data.builds.trees", "identifier values")
+Tests: 1 failed (1)
+```
+
+Focused dual-target transaction and codec matrix:
+
+```bash
+gleam test --target erlang -- shared_tree_transaction shared_tree_codec
+gleam test --target javascript -- shared_tree_transaction shared_tree_codec
+```
+
+Output on each target:
+
+```text
+Tests: 25 passed | 3 failed (28)
+```
+
+The three failures are
+`shared_tree_transaction_wire_decodes_constraints_test`,
+`shared_tree_transaction_wire_observes_constraints_and_exact_bytes_test`, and
+`shared_tree_transaction_wire_rejects_noncanonical_bytes_test`. Each fails on
+the same unsupported FieldBatch identifier-value capability. Direct pinned V5
+constraint codec coverage still passes on both targets.
+
+### Self-review
+
+- Confirmed no fixture message JSON or byte string is returned as an
+  observation.
+- Confirmed both supplied variants are decoded without mutation before any
+  encoding attempt.
+- Confirmed both output JSON values and byte strings come directly from
+  `codec.encode_message/2`.
+- Confirmed the compressor mutation check remains in place.
+- Confirmed the failure is not solved by the existing stored-schema helpers:
+  decoding needs compressor-aware identifier values, and exact encoding needs
+  the captured compressed FieldBatch representation or an equivalent encoder.
+- Did not broaden the constraint batch into compressor-aware, byte-stable
+  FieldBatch codec work.
