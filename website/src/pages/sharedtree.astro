@@ -99,7 +99,7 @@ const rows = [
 
 <Sheet
   title="watershed — SharedTree and the schema layer"
-  description="Fluid Framework's SharedTree puts a stored schema inside the document and enforces it in each client. watershed's typed layer puts its schema in your build, as a decode boundary over a graph of channels. Six pairs of TypeScript and Gleam, the same board both ways, and an honest list of what SharedTree has that watershed does not."
+  description="Fluid Framework's SharedTree puts a stored schema inside the document and enforces it in each client. watershed's typed-map layer puts its schema in your build, as a decode boundary over a graph of channels. Six pairs of TypeScript and Gleam, the same board both ways, the typed-map layer's gaps, and the native facade's narrower overlap."
 >
   <header class="st-hero">
     <div class="st-hero-inner">
@@ -133,7 +133,7 @@ const rows = [
 
   <main class="doc-body">
     <div class="g-block">
-      <h2>The one difference the rest follows from</h2>
+      <h2>The one difference this comparison follows from</h2>
       <p>
         SharedTree makes the schema <em>the document</em>. The
         <code>SchemaFactory</code> id you pick is written into the container as
@@ -145,16 +145,16 @@ const rows = [
         machinery.
       </p>
       <p>
-        watershed makes the schema a <strong>decode boundary</strong> that
-        exists only in your build. The tag scoping a set of fields is a phantom
-        type, erased at compile time. Nothing about it reaches the wire, and
-        any Fluid Framework-compatible sequencer (floodgate included) stays
-        content-agnostic by design. In exchange the document is not one
-        structure but a graph of independently converging channels, so the
-        merge policy is named per slot rather than once for everything.
-        Reads hand back a <code>Result</code>, because a peer really
-        can write anything. What you do not get is atomicity, undo, or a
-        schema upgrade. Those are listed{" "}
+        watershed's typed-map layer makes the schema a{" "}
+        <strong>decode boundary</strong> that exists only in your build. The
+        tag scoping a set of fields is a phantom type, erased at compile time.
+        Nothing about it reaches the wire, and any Fluid Framework-compatible
+        sequencer (floodgate included) stays content-agnostic by design. In
+        exchange the document is not one structure but a graph of independently
+        converging channels, so the merge policy is named per slot rather than
+        once for everything. Reads hand back a <code>Result</code>, because a
+        peer really can write anything. What this layer does not get is
+        atomicity, undo, or a schema upgrade. Those are listed{" "}
         <a href="#gaps">further down</a>, not buried.
       </p>
       <div class="g-note">
@@ -246,8 +246,8 @@ const rows = [
         This pair is the whole argument, and it is short.
         <code>board.title</code> is a
         <code>string</code>, and under a stored schema it cannot be anything
-        else, so the read needs no error arm. watershed cannot promise that, so
-        it does not pretend to: <code>get_field</code> returns
+        else, so the read needs no error arm. The typed-map layer cannot promise
+        that, so it does not pretend to: <code>get_field</code> returns
         <code>Result(Option(a), FieldError)</code>, and you confront the “a peer
         disagrees about this type” case once, at the read, instead of
         discovering it later as corrupted state.
@@ -283,11 +283,11 @@ const rows = [
       <h2>4 · A record spread across keys</h2>
       <p>
         SharedTree stores the node, so the class declaration is the only
-        declaration there is. watershed stores JSON per key, which normally
-        means writing a decoder and an encoder and keeping them in sync by hand.
-        The <code>record1</code>…<code>record9</code> builders derive both
-        from one prop list instead, and <code>sealed_known</code> seals the schema
-        without you repeating the key names a third time.
+        declaration there is. The typed-map layer stores JSON per key, which
+        normally means writing a decoder and an encoder and keeping them in sync
+        by hand. The <code>record1</code>…<code>record9</code> builders derive
+        both from one prop list instead, and <code>sealed_known</code> seals the
+        schema without you repeating the key names a third time.
       </p>
       <div class="st-pair">
         <div class="st-col">
@@ -312,7 +312,7 @@ const rows = [
           moment keeps their edit: the record view is never a clobbering blob.
           It is also why a peer can read the record <em>mid-write</em> and see
           three of four keys updated. <code>Tree.runTransaction</code> would
-          prevent that; watershed has no answer for it yet. See{" "}
+          prevent that; the typed-map layer has no answer for it yet. See{" "}
           <a href="#gaps">below</a>.
         </p>
       </div>
@@ -328,11 +328,11 @@ const rows = [
         it.
       </p>
       <p>
-        A watershed document is not one structure. Each slot on the root holds a
-        handle to a channel that converges on its own terms, and the field
-        declaration names which terms. The Sudoku example is the clearest case:
-        four slots, four different answers to “what happens when two clients
-        touch this at once”. <a href="/foundations/topology"
+        A typed-map document is not one structure. Each slot on the root holds
+        a handle to a channel that converges on its own terms, and the field
+        declaration names which terms. The Sudoku example is the clearest
+        case: four slots, four different answers to “what happens when two
+        clients touch this at once”. <a href="/foundations/topology"
           >Foundations · documents and handles</a
         > lays out that layout on its own terms, without the SharedTree
         comparison.
@@ -354,9 +354,10 @@ const rows = [
         </div>
       </div>
       <p>
-        So watershed makes you choose, and in exchange lets you choose right:
-        pencil marks want an <a href="/structures/sets#orset">OR-set</a> where a
-        concurrent add beats a remove, the puzzle's givens want{" "}
+        So the typed-map layer makes you choose, and in exchange lets you choose
+        right: pencil marks want an{" "}
+        <a href="/structures/sets#orset">OR-set</a> where a concurrent add beats
+        a remove, the puzzle's givens want{" "}
         <a href="/structures/coordination#claims">first-writer-wins claims</a>,
         the mistake tally wants a{" "}
         <a href="/structures/counters#counter">counter</a> that does not
@@ -383,8 +384,8 @@ const rows = [
       <p>
         <code>treeChanged</code> is the thing a tree buys you that a graph
         cannot: a rollup over an entire subtree, for free, because the subtree
-        is a real thing with a boundary. watershed has no rollup above a single
-        channel: you subscribe per channel, and per field.
+        is a real thing with a boundary. The typed-map layer has no rollup above
+        a single channel: you subscribe per channel, and per field.
       </p>
       <p>
         What a field subscription gives back in exchange is decoded on both
@@ -420,13 +421,21 @@ const rows = [
     </div>
 
     <div class="g-block" id="gaps">
-      <h2>What SharedTree has that watershed does not</h2>
+      <h2>What SharedTree has that the typed-map layer does not</h2>
       <p>
-        All three of these are consequences of the same choice. A rebasable
-        changeset over one enforced tree is what lets you group edits, revert
-        them, and move a document from one stored schema to the next. watershed
-        has ops over independent channels and a client-side decoder, so it has
-        none of them.
+        These gaps are consequences of the typed-map layer's choice. A
+        rebasable changeset over one enforced tree is what lets you group edits,
+        revert them, and move a document from one stored schema to the next.
+        The typed-map layer has ops over independent channels and a client-side
+        decoder, so it has none of them.
+      </p>
+      <p>
+        The native facade is a different surface. It uses upstream SharedTree
+        for browser-created object, array, and map trees, including array moves,
+        schema compatibility checks, and schema upgrades. It does not add
+        transactions, undo and redo, or branching to watershed. The live
+        checklist also stops short of arbitrary layouts and production token
+        issuance.
       </p>
       <div class="st-solo">
         <SnippetBlock snippet={tsGaps}>
@@ -437,10 +446,10 @@ const rows = [
       </div>
       <ul>
         <li>
-          <strong>Transactions.</strong> watershed writes per-key ops, so peers
-          can observe a partial record. Fixing it means a batched multi-set map
-          op: a wire-format change, deliberately deferred until a real consumer
-          hurts.
+          <strong>Transactions.</strong> The typed-map layer writes per-key
+          ops, so peers can observe a partial record. Fixing it means a batched
+          multi-set map op: a wire-format change, deliberately deferred until a
+          real consumer hurts.
         </li>
         <li>
           <strong>Undo and redo.</strong> Not offered. The kernels do have a
@@ -448,15 +457,15 @@ const rows = [
           unacknowledged local ops, not a user-facing stack.
         </li>
         <li>
-          <strong>Schema upgrade.</strong> <code>schema.versioned(n)</code>
-          stamps a version and fails closed on mismatch, which is a dead end
-          rather than a path. Entries-level migrations are designed and
-          unshipped.
+          <strong>Schema upgrade.</strong> In the typed-map layer,{" "}
+          <code>schema.versioned(n)</code> stamps a version and fails closed on
+          mismatch, which is a dead end rather than a path. Entries-level
+          migrations are designed and unshipped.
         </li>
         <li>
           <strong>Enforcement, node identity, cross-parent moves, branching.</strong>
-          Absent by design. Typing stays a client decode boundary; the server
-          stays content-agnostic.
+          Absent from the typed-map layer by design. Typing stays a client
+          decode boundary; the server stays content-agnostic.
         </li>
       </ul>
       <p>
@@ -464,20 +473,23 @@ const rows = [
         Framework's tree package (stored-versus-view schema system, forest,
         compositional changeset rebasing, undo/redo, ID compression) is
         <strong>77,804 lines</strong> — a multi-year project to reproduce in
-        any language, and one watershed would take on only for a compelling
-        product need. watershed's entire schema vocabulary is
-        one <strong>roughly 700-line</strong> module:
+        any language. watershed's entire typed-map schema vocabulary is one{" "}
+        <strong>roughly 700-line</strong> module:
         <code>src/watershed/schema.gleam</code>. That is the trade.
+        The native facade does not reproduce the tree package; it exposes a
+        bounded browser slice of upstream SharedTree, with a different
+        capability surface and a different set of limits.
       </p>
     </div>
   </main>
 
   <section class="st-table-section" aria-labelledby="st-table-title">
     <div class="st-table-inner">
-      <h2 id="st-table-title">Side by side</h2>
+      <h2 id="st-table-title">The typed-map layer, side by side</h2>
       <p class="st-table-intro">
         The same axes, two answers. Read the bottom four rows together with the
-        top one: they are the same decision, seen from either end.
+        top one: they are the same decision, seen from either end. The native
+        facade is not a third column here.
       </p>
       <div
         class="st-table-scroll"
@@ -491,7 +503,9 @@ const rows = [
               <th scope="col"><span class="visually-hidden">Property</span></th>
               <th scope="col"><span class="th-kind">SharedTree</span></th>
               <th scope="col"
-                ><span class="th-kind" data-side="ws">watershed</span></th
+                ><span class="th-kind" data-side="ws"
+                  >watershed typed-map layer</span
+                ></th
               >
             </tr>
           </thead>

@@ -23,13 +23,19 @@ interface ChecklistItem {
   completed: boolean;
 }
 
-interface FocusedEdit {
-  id: string;
-  value: string;
-  start: number | null;
-  end: number | null;
-  direction: "forward" | "backward" | "none" | null;
-}
+type MoveDirection = "up" | "down";
+
+type FocusedControl =
+  | {
+      id: string;
+      control: "text";
+      value: string;
+      start: number | null;
+      end: number | null;
+      direction: "forward" | "backward" | "none" | null;
+    }
+  | { id: string; control: "toggle" }
+  | { id: string; control: "move"; direction: MoveDirection };
 
 function checklist(client: RigClient): ChecklistHandle {
   return client.handle as ChecklistHandle;
@@ -54,35 +60,80 @@ function canonical(client: RigClient): string {
   );
 }
 
-function focusedEdit(list: Element): FocusedEdit | null {
+function focusedControl(list: Element): FocusedControl | null {
   const active = document.activeElement;
-  if (!(active instanceof HTMLInputElement) || !list.contains(active)) {
+  if (!(active instanceof HTMLElement) || !list.contains(active)) {
     return null;
   }
   const id = active.dataset.itemId;
   if (!id) return null;
-  return {
-    id,
-    value: active.value,
-    start: active.selectionStart,
-    end: active.selectionEnd,
-    direction: active.selectionDirection,
-  };
+  if (active instanceof HTMLInputElement && active.type === "text") {
+    return {
+      id,
+      control: "text",
+      value: active.value,
+      start: active.selectionStart,
+      end: active.selectionEnd,
+      direction: active.selectionDirection,
+    };
+  }
+  if (active instanceof HTMLInputElement && active.type === "checkbox") {
+    return { id, control: "toggle" };
+  }
+  const direction = active.dataset.moveDirection;
+  if (
+    active instanceof HTMLButtonElement &&
+    (direction === "up" || direction === "down")
+  ) {
+    return { id, control: "move", direction };
+  }
+  return null;
 }
 
-function restoreFocusedEdit(list: Element, focus: FocusedEdit | null): void {
+function restoreFocusedControl(
+  list: Element,
+  focus: FocusedControl | null,
+): void {
   if (!focus) return;
-  const input = [...list.querySelectorAll("[data-item-id]")].find(
-    (candidate) =>
-      candidate instanceof HTMLInputElement &&
-      candidate.dataset.itemId === focus.id,
-  );
-  if (!(input instanceof HTMLInputElement)) return;
-  input.value = focus.value;
-  input.focus();
-  if (focus.start != null && focus.end != null) {
-    input.setSelectionRange(focus.start, focus.end, focus.direction ?? "none");
+  const controls = [...list.querySelectorAll<HTMLElement>("[data-item-id]")]
+    .filter((candidate) => candidate.dataset.itemId === focus.id);
+  if (focus.control === "text") {
+    const input = controls.find(
+      (candidate) =>
+        candidate instanceof HTMLInputElement && candidate.type === "text",
+    );
+    if (!(input instanceof HTMLInputElement)) return;
+    input.value = focus.value;
+    input.focus();
+    if (focus.start != null && focus.end != null) {
+      input.setSelectionRange(
+        focus.start,
+        focus.end,
+        focus.direction ?? "none",
+      );
+    }
+    return;
   }
+  if (focus.control === "toggle") {
+    controls.find(
+      (candidate) =>
+        candidate instanceof HTMLInputElement && candidate.type === "checkbox",
+    )?.focus();
+    return;
+  }
+  const sameDirection = controls.find(
+    (candidate) =>
+      candidate instanceof HTMLButtonElement &&
+      candidate.dataset.moveDirection === focus.direction &&
+      !candidate.disabled,
+  );
+  const oppositeDirection = controls.find(
+    (candidate) =>
+      candidate instanceof HTMLButtonElement &&
+      candidate.dataset.moveDirection !== focus.direction &&
+      !candidate.disabled,
+  );
+  (sameDirection ?? oppositeDirection)?.focus();
 }
 
 export function initSharedTreeChecklistDemo(): void {
@@ -121,7 +172,7 @@ export function initSharedTreeChecklistDemo(): void {
     const pendingCount = client.el.querySelector("[data-pending-count]");
     if (!(list instanceof HTMLOListElement)) return;
 
-    const focus = focusedEdit(list);
+    const focus = focusedControl(list);
     const currentItems = items(client);
     const fragment = document.createDocumentFragment();
 
@@ -134,6 +185,7 @@ export function initSharedTreeChecklistDemo(): void {
       const completed = document.createElement("input");
       completed.type = "checkbox";
       completed.checked = item.completed;
+      completed.dataset.itemId = item.id;
       completed.setAttribute(
         "aria-label",
         `${CLIENT_LABEL[client.id as keyof typeof CLIENT_LABEL]} item ${item.text}, ${
@@ -182,6 +234,8 @@ export function initSharedTreeChecklistDemo(): void {
       moveUp.type = "button";
       moveUp.textContent = "Move up";
       moveUp.disabled = index === 0;
+      moveUp.dataset.itemId = item.id;
+      moveUp.dataset.moveDirection = "up";
       moveUp.setAttribute(
         "aria-label",
         `Move ${CLIENT_LABEL[client.id as keyof typeof CLIENT_LABEL]} item ${item.text} up`,
@@ -207,6 +261,8 @@ export function initSharedTreeChecklistDemo(): void {
       moveDown.type = "button";
       moveDown.textContent = "Move down";
       moveDown.disabled = index === currentItems.length - 1;
+      moveDown.dataset.itemId = item.id;
+      moveDown.dataset.moveDirection = "down";
       moveDown.setAttribute(
         "aria-label",
         `Move ${CLIENT_LABEL[client.id as keyof typeof CLIENT_LABEL]} item ${item.text} down`,
@@ -236,7 +292,7 @@ export function initSharedTreeChecklistDemo(): void {
     rebuildingList = true;
     try {
       list.replaceChildren(fragment);
-      restoreFocusedEdit(list, focus);
+      restoreFocusedControl(list, focus);
     } finally {
       rebuildingList = false;
     }
