@@ -1,5 +1,7 @@
 //// Shared range effects and ownership notifications for sequence moves.
 
+// ponytail: Use singular for module names. Rename this module to
+// sequence_field/move.
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -490,6 +492,8 @@ fn query(entries: List(Entry), key: Key, count: Int) -> Query {
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn containing_entry(entries: List(Entry), key: Key) -> Option(Entry) {
   case entries {
     [] -> None

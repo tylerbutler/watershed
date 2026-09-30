@@ -804,6 +804,8 @@ fn raw_node(
   }
 }
 
+// ponytail: Conventional conversion function naming. Use an x_to_y name, for
+// example raw_node_to_tree_value.
 fn raw_value(
   node: RawNode,
   stored: Option(schema.StoredSchema),
@@ -1078,6 +1080,8 @@ fn classify_value(
           Error(CorruptData(location, "leaf node uses an array shape"))
       }
     }
+    // ponytail: Match all variants. This catch-all also takes any new TreeValue
+    // variant without a compiler error. Name the remaining variants.
     other -> Ok(other)
   }
 }
@@ -1215,6 +1219,10 @@ fn array(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil). Each of the four codec modules has a
+// copy of this helper and the JSON object, array, and string helpers. Keep one
+// copy.
 fn optional(
   members: List(#(String, JsonValue)),
   key: String,

@@ -466,6 +466,9 @@ fn validate_mark(mark: Mark) -> Result(Nil, TreeError) {
   case mark.effect {
     Attach(MoveIn(_, _)) | AttachAndDetach(_, _) | Rename(_) ->
       check(mark.cell_id != None, "an empty-cell effect requires a cell ID")
+    // ponytail: Match all variants. This catch-all also takes any new
+    // sequence_field Effect, Attach, or Detach variant without a compiler
+    // error. Name the remaining variants.
     _ -> Ok(Nil)
   }
 }
@@ -824,6 +827,9 @@ fn delta_mark(
       check(mark.child == None, "paired move rename cannot contain a child")
       |> result.map(fn(_) { #(local, global, renames) })
     True, True, AttachAndDetach(attach, detach) -> {
+      // ponytail: Check-then-assert. input_empty tests mark.cell_id, then this
+      // line asserts Some. Match mark.cell_id in the case head and remove the
+      // assert.
       let assert Some(input_id) = mark.cell_id
       let output_id = detached_id(detach)
       let old_id = case attach {
@@ -847,6 +853,9 @@ fn delta_mark(
       ))
     }
     _, _, Attach(Insert(_)) -> {
+      // ponytail: Check-then-assert. input_empty tests mark.cell_id, then this
+      // line asserts Some. Match mark.cell_id in the case head and remove the
+      // assert.
       let assert Some(id) = mark.cell_id
       Ok(#(
         [forest.Mark(mark.count, Some(id), None, []), ..local],
@@ -864,9 +873,15 @@ fn delta_mark(
         renames,
       ))
     True, True, Detach(Remove(_, _)) -> {
+      // ponytail: Check-then-assert. input_empty tests mark.cell_id, then this
+      // line asserts Some. Match mark.cell_id in the case head and remove the
+      // assert.
       let assert Some(old_id) = mark.cell_id
       let new_id = case mark.effect {
         Detach(detach) -> detached_id(detach)
+        // ponytail: Match all variants. This catch-all also takes any new
+        // sequence_field Effect, Attach, or Detach variant without a compiler
+        // error. Name the remaining variants.
         _ -> old_id
       }
       let renames = case old_id == new_id {
@@ -876,6 +891,9 @@ fn delta_mark(
       Ok(#(local, global, renames))
     }
     True, True, Detach(MoveOut(id, _, _)) -> {
+      // ponytail: Check-then-assert. input_empty tests mark.cell_id, then this
+      // line asserts Some. Match mark.cell_id in the case head and remove the
+      // assert.
       let assert Some(old_id) = mark.cell_id
       Ok(#(local, global, [forest.Rename(old_id, id, mark.count), ..renames]))
     }
@@ -1069,6 +1087,9 @@ fn refers_to_removed_root(mark: Mark) -> Bool {
       case mark.effect {
         Attach(Insert(_)) | AttachAndDetach(Insert(_), _) -> True
         Detach(_) -> True
+        // ponytail: Match all variants. This catch-all also takes any new
+        // sequence_field Effect, Attach, or Detach variant without a compiler
+        // error. Name the remaining variants.
         _ -> mark.child != None
       }
   }

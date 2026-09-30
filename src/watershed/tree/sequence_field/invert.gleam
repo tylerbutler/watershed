@@ -8,6 +8,8 @@ import watershed/tree/sequence_field
 import watershed/tree/sequence_field/moves
 import watershed/tree/types.{type AtomId, type TreeError, AtomId}
 
+// ponytail: Replace bools with custom types (suggestion). The is_rollback Bool
+// makes call sites unclear. Use a type such as Rollback or Undo.
 pub fn invert(
   change: sequence_field.Changeset,
   is_rollback: Bool,
@@ -321,6 +323,8 @@ fn combine_inverses(
             child: option_prefer(detach.child, attach.child),
           )
         sequence_field.Detach(attach_detach) -> {
+          // ponytail: Panicking in libraries. This let assert can panic. Match
+          // the value and return a TreeError for other shapes.
           let assert sequence_field.Attach(detach_attach) = detach.effect
           let cell =
             detach.cell_id
@@ -332,6 +336,9 @@ fn combine_inverses(
             option_prefer(detach.child, attach.child),
           )
         }
+        // ponytail: Match all variants. This catch-all also takes any new
+        // sequence_field Effect, Attach, or Detach variant without a compiler
+        // error. Name the remaining variants.
         _ -> attach
       }
       combine_inverses(attach_rest, detach_rest, [combined, ..output])

@@ -303,15 +303,24 @@ fn first_effect_length(
       use #(attach_length, context) <- result.try(case attach {
         sequence_field.MoveIn(id, _) ->
           query_length(moves.Destination, id, count, field, context)
+        // ponytail: Match all variants. This catch-all also takes any new
+        // sequence_field Effect, Attach, or Detach variant without a compiler
+        // error. Name the remaining variants.
         _ -> Ok(#(count, context))
       })
       use #(detach_length, context) <- result.try(case detach {
         sequence_field.MoveOut(id, _, _) ->
           query_length(moves.Source, id, count, field, context)
+        // ponytail: Match all variants. This catch-all also takes any new
+        // sequence_field Effect, Attach, or Detach variant without a compiler
+        // error. Name the remaining variants.
         _ -> Ok(#(count, context))
       })
       Ok(#(int.min(attach_length, detach_length), context))
     }
+    // ponytail: Match all variants. This catch-all also takes any new
+    // sequence_field Effect, Attach, or Detach variant without a compiler
+    // error. Name the remaining variants.
     _ -> Ok(#(count, context))
   }
 }
@@ -365,6 +374,9 @@ fn add_moved_effect(
           use context <- result.try(case effect {
             sequence_field.MoveOut(id, _, _) ->
               moves.move_key(context, key(moves.Source, id), base.count, field)
+            // ponytail: Match all variants. This catch-all also takes any new
+            // sequence_field Effect, Attach, or Detach variant without a
+            // compiler error. Name the remaining variants.
             _ -> Ok(context)
           })
           use mark <- result.try(combine_moved_effect(authored, effect))
@@ -498,6 +510,9 @@ fn rebase_effect(
         !is_new_attach(authored),
         "a new attach cannot be rebased over an emptied cell",
       ))
+      // ponytail: Check-then-assert. Earlier logic proves this shape, but this
+      // line asserts it again and can panic. Match the value where the code
+      // checks it, or return a TreeError here.
       let assert Some(base_cell) = sequence_field.output_cell_id(base)
       use #(authored, context) <- result.try(case move_out(base.effect) {
         None -> Ok(#(authored, context))
@@ -520,11 +535,17 @@ fn rebase_effect(
                 ),
                 context,
               ))
+            // ponytail: Match all variants. This catch-all also takes any new
+            // sequence_field Effect, Attach, or Detach variant without a
+            // compiler error. Name the remaining variants.
             _ -> Ok(#(sequence_field.Mark(..authored, cell_id: None), context))
           }
         False ->
           case base.effect {
             sequence_field.AttachAndDetach(attach, detach) -> {
+              // ponytail: Check-then-assert. Earlier logic proves this shape,
+              // but this line asserts it again and can panic. Match the value
+              // where the code checks it, or return a TreeError here.
               let assert Some(cell) = base.cell_id
               let attach_mark =
                 sequence_field.Mark(
@@ -551,6 +572,9 @@ fn rebase_effect(
             }
             sequence_field.Rename(id) ->
               Ok(#(sequence_field.Mark(..authored, cell_id: Some(id)), context))
+            // ponytail: Match all variants. This catch-all also takes any new
+            // sequence_field Effect, Attach, or Detach variant without a
+            // compiler error. Name the remaining variants.
             _ -> Ok(#(authored, context))
           }
       }
@@ -597,6 +621,9 @@ fn separate_for_move(
           Some(sequence_field.Rename(id_override)),
           Some(sequence_field.MoveOut(id, endpoint, None)),
         )
+        // ponytail: Match all variants. This catch-all also takes any new
+        // sequence_field Effect, Attach, or Detach variant without a compiler
+        // error. Name the remaining variants.
         _ -> #(None, Some(detach))
       }
     sequence_field.AttachAndDetach(attach, detach) -> #(
@@ -685,6 +712,8 @@ fn with_moved_effect(
   effect: moves.Effect,
   detach: sequence_field.Detach,
 ) -> moves.Effect {
+  // ponytail: Panicking in libraries. This let assert can panic. Match the
+  // value and return a TreeError for other shapes.
   let assert moves.MoveEffect(
     modify_after:,
     rebased_child:,
@@ -704,6 +733,8 @@ fn with_moved_effect(
 }
 
 fn with_rebased_child(effect: moves.Effect, child: AtomId) -> moves.Effect {
+  // ponytail: Panicking in libraries. This let assert can panic. Match the
+  // value and return a TreeError for other shapes.
   let assert moves.MoveEffect(
     modify_after:,
     moved_effect:,
@@ -805,6 +836,8 @@ fn take(
   marks: List(sequence_field.Mark),
   length: Int,
 ) -> Result(#(sequence_field.Mark, List(sequence_field.Mark)), TreeError) {
+  // ponytail: Check-then-assert. The callers prove that marks is not empty.
+  // Match the list and return a TreeError for [].
   let assert [mark, ..rest] = marks
   case mark.count <= length {
     True -> Ok(#(mark, rest))
@@ -840,6 +873,9 @@ fn move_in(effect: sequence_field.Effect) -> Option(AtomId) {
     sequence_field.Attach(sequence_field.MoveIn(id, _))
     | sequence_field.AttachAndDetach(sequence_field.MoveIn(id, _), _) ->
       Some(id)
+    // ponytail: Match all variants. This catch-all also takes any new
+    // sequence_field Effect, Attach, or Detach variant without a compiler
+    // error. Name the remaining variants.
     _ -> None
   }
 }
@@ -849,6 +885,9 @@ fn move_out(effect: sequence_field.Effect) -> Option(AtomId) {
     sequence_field.Detach(sequence_field.MoveOut(id, endpoint, _))
     | sequence_field.AttachAndDetach(_, sequence_field.MoveOut(id, endpoint, _)) ->
       Some(option_atom(endpoint, id))
+    // ponytail: Match all variants. This catch-all also takes any new
+    // sequence_field Effect, Attach, or Detach variant without a compiler
+    // error. Name the remaining variants.
     _ -> None
   }
 }
@@ -856,6 +895,9 @@ fn move_out(effect: sequence_field.Effect) -> Option(AtomId) {
 fn is_detach(effect: sequence_field.Effect) -> Bool {
   case effect {
     sequence_field.Detach(_) -> True
+    // ponytail: Match all variants. This catch-all also takes any new
+    // sequence_field Effect, Attach, or Detach variant without a compiler
+    // error. Name the remaining variants.
     _ -> False
   }
 }

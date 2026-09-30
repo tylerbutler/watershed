@@ -1,5 +1,8 @@
 //// Values and errors for the fixed SharedTree profile.
 
+// ponytail: Grouping by design pattern. A types module groups code by kind, and
+// the name is plural. Move these types into a domain module, for example
+// watershed/tree.
 import gleam/option.{type Option}
 import watershed/fluid_ids.{type StableId}
 

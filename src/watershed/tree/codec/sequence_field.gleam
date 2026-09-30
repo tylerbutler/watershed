@@ -209,6 +209,8 @@ fn require_normal_effect_id(
   }
 }
 
+// ponytail: Replace bools with custom types (suggestion). The allow_reserved
+// Bool makes call sites unclear. Use a small type that names each mode.
 fn decode_union_attach(
   value: JsonValue,
   decode_atom: fn(JsonValue, String) -> Result(AtomId, TreeError),
@@ -669,6 +671,10 @@ fn required(
   })
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil). Each of the four codec modules has a
+// copy of this helper and the JSON object, array, and string helpers. Keep one
+// copy.
 fn optional(
   members: List(#(String, JsonValue)),
   name: String,

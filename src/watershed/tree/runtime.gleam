@@ -263,6 +263,8 @@ pub fn author_edit(
     types.ArrayInsert(_, _, []) -> True
     types.ArrayRemove(_, start, end) | types.ArrayMove(_, start, end, _, _) ->
       start == end
+    // ponytail: Match all variants. This catch-all also takes any new Edit
+    // variant without a compiler error. Name the remaining variants.
     _ -> False
   }
   use <- bool.guard(

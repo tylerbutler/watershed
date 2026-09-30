@@ -864,6 +864,9 @@ fn sequence_effect_keys(
         sequence_effect_keys(sequence_field.Attach(attach), count, field),
         sequence_effect_keys(sequence_field.Detach(detach), count, field),
       )
+    // ponytail: Match all variants. This catch-all also takes any new
+    // sequence_field Effect, Attach, or Detach variant without a compiler
+    // error. Name the remaining variants.
     _ -> []
   }
 }
@@ -922,6 +925,9 @@ fn sequence_codec_effect_keys(
         sequence_codec_effect_keys(sequence_field.Attach(attach), count, field),
         sequence_codec_effect_keys(sequence_field.Detach(detach), count, field),
       )
+    // ponytail: Match all variants. This catch-all also takes any new
+    // sequence_field Effect, Attach, or Detach variant without a compiler
+    // error. Name the remaining variants.
     _ -> []
   }
 }
@@ -971,6 +977,9 @@ fn compare_move_keys(
   case left.side, right.side {
     moves.Source, moves.Destination -> Ok(order.Lt)
     moves.Destination, moves.Source -> Ok(order.Gt)
+    // ponytail: Match all variants. This catch-all also takes any new
+    // moves.Side variant without a compiler error. Name the remaining variants.
+    // Match Source, Source and Destination, Destination.
     _, _ ->
       compare_atom(
         AtomId(left.revision, left.local_id),
@@ -1028,6 +1037,8 @@ fn algebra_context(
   )
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn revision_position(
   revisions: List(RevisionInfo),
   revision: StableId,
@@ -1109,6 +1120,8 @@ pub fn edit_from(
         identity_order,
         first_local_id,
       )
+    // ponytail: Match all variants. This catch-all also takes any new Edit
+    // variant without a compiler error. Name the remaining variants.
     _ ->
       author_scalar_edit(
         schema,
@@ -1195,6 +1208,8 @@ pub fn validate_edit(
         destination_path,
         destination_gap,
       )
+    // ponytail: Match all variants. This catch-all also takes any new Edit
+    // variant without a compiler error. Name the remaining variants.
     _ ->
       operation_destination(schema, forest, operation)
       |> result.map(fn(_) { Nil })
@@ -1332,6 +1347,8 @@ fn validate_array_move(
   }
 }
 
+// ponytail: Annotate all module functions. Add the return type Result(Nil,
+// TreeError).
 fn validate_gap(path: FieldPath, index: Int, length: Int) {
   case index >= 0 && index <= max_safe_integer && index <= length {
     True -> Ok(Nil)
@@ -1339,6 +1356,8 @@ fn validate_gap(path: FieldPath, index: Int, length: Int) {
   }
 }
 
+// ponytail: Annotate all module functions. Add the return type Result(Nil,
+// TreeError).
 fn validate_half_open_range(
   path: FieldPath,
   start: Int,
@@ -1543,6 +1562,8 @@ fn reject_move_cycle(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn drop_step_prefix(
   steps: List(forest.FieldStep),
   prefix: List(forest.FieldStep),
@@ -1718,6 +1739,8 @@ fn finish_cross_array_graph(
     nodes,
     parents,
   ))
+  // ponytail: Panicking in libraries. This let assert can panic. Match the
+  // value and return a TreeError for [].
   let assert [forest.FieldStep(root_field, root_index), ..] = common
   from_data(
     ChangeData(
@@ -1836,6 +1859,9 @@ fn build_branch(
   revision: StableId,
   next_id: Int,
 ) -> Result(Branch, TreeError) {
+  // ponytail: Check-then-assert. The caller proves that both paths are not
+  // empty, then this line asserts it again. Pass the matched head step to this
+  // function.
   let assert [forest.FieldStep(branch_field, branch_index), ..] = steps
   use #(leaf, next_id) <- result.try(allocate(revision, next_id))
   use #(top, nodes, parents, next_id) <- result.try(
@@ -2098,6 +2124,8 @@ pub fn update_refreshers(
   Ok(Changeset(..updated, cross_field_keys: change.cross_field_keys))
 }
 
+// ponytail: Replace bools with custom types (suggestion). The is_rollback Bool
+// makes call sites unclear. Use a type such as Rollback or Undo.
 pub fn invert(
   change: TaggedChange,
   is_rollback: Bool,
@@ -2107,6 +2135,8 @@ pub fn invert(
   |> result.map(fn(output) { output.0 })
 }
 
+// ponytail: Replace bools with custom types (suggestion). The is_rollback Bool
+// makes call sites unclear. Use a type such as Rollback or Undo.
 pub fn invert_with_trace(
   change: TaggedChange,
   is_rollback: Bool,
@@ -3324,6 +3354,8 @@ fn zip_atoms(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn mapping_for(
   mappings: List(#(AtomId, AtomId)),
   id: AtomId,
@@ -3688,6 +3720,8 @@ fn build_contains(builds: List(forest.Build), id: AtomId) -> Bool {
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn tree_from_builds(
   builds: List(forest.Build),
   id: AtomId,
@@ -3706,6 +3740,9 @@ fn tree_from_builds(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil). history.item_at is a copy of this
+// helper. Use list.drop, then list.first.
 fn nth(values: List(a), index: Int) -> Option(a) {
   case values, index {
     [], _ -> None
@@ -5235,6 +5272,8 @@ fn merge_destroys(
   })
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn build_for(builds: List(forest.Build), id: AtomId) -> Option(forest.Build) {
   case builds {
     [] -> None
@@ -5246,6 +5285,8 @@ fn build_for(builds: List(forest.Build), id: AtomId) -> Option(forest.Build) {
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn destroy_for(
   destroys: List(forest.Destroy),
   id: AtomId,
@@ -5445,6 +5486,8 @@ fn require_identity_revision(
   |> result.map(fn(_) { Nil })
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn revision_for_identity_key(
   entries: List(#(StableId, Int)),
   key: Int,
@@ -5459,6 +5502,8 @@ fn revision_for_identity_key(
   }
 }
 
+// ponytail: Use the core libraries. This function is a copy of int.compare. Use
+// int.compare.
 fn int_compare(left: Int, right: Int) -> order.Order {
   case left < right, left > right {
     True, _ -> order.Lt
@@ -5467,6 +5512,8 @@ fn int_compare(left: Int, right: Int) -> order.Order {
   }
 }
 
+// ponytail: Use the core libraries. This function is a copy of int.max. Use
+// int.max.
 fn int_max(left: Int, right: Int) -> Int {
   case left > right {
     True -> left
@@ -5649,6 +5696,8 @@ fn wrap_ancestors(
           [],
         ),
       )
+      // ponytail: Check-then-assert. The case on parent_steps above proves that
+      // the list is not empty. Match the head step in that case arm.
       let assert [forest.FieldStep(root_field, root_index), ..] = parent_steps
       Ok(#(
         [#(root_field, GenericField([#(root_index, top)]))],
@@ -5853,6 +5902,8 @@ fn delta_child(id: AtomId, data: ChangeData) -> Result(DeltaParts, TreeError) {
   delta_fields(fields, data)
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn parts_for(
   parts: List(#(AtomId, DeltaParts)),
   id: AtomId,
@@ -6091,6 +6142,8 @@ fn validate_rollback_chain(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn revision_info(
   revisions: List(RevisionInfo),
   revision: StableId,
@@ -6370,6 +6423,8 @@ fn sequence_detach_atoms(detach: sequence_field.Detach) -> List(AtomId) {
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn ownership_for(owners: List(Ownership), id: AtomId) -> Option(Ownership) {
   case owners {
     [] -> None
@@ -6447,6 +6502,8 @@ fn resolve_alias_loop(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn pair_value(entries: List(#(a, b)), key: a) -> Option(b) {
   case entries {
     [] -> None

@@ -1162,6 +1162,8 @@ pub fn authoring_commits(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn replayed_authoring_commits(
   state: History,
   originator: fluid_ids.SessionId,
@@ -1182,6 +1184,8 @@ fn replayed_authoring_commits(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn commits_before_revision(
   commits: List(SequencedCommit),
   revision: fluid_ids.StableId,
@@ -1198,6 +1202,8 @@ fn commits_before_revision(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn branch_commits_before_revision(
   commits: List(BranchCommit),
   revision: fluid_ids.StableId,
@@ -1270,6 +1276,8 @@ fn remote_authoring_commits(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn pending_authoring_context(
   pending: List(LocalCommit),
   revision: fluid_ids.StableId,
@@ -2018,6 +2026,8 @@ fn history_revisions(state: History) -> List(fluid_ids.StableId) {
   )
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn trunk_commit(
   trunk: List(SequencedCommit),
   revision: fluid_ids.StableId,
@@ -2045,6 +2055,8 @@ fn require_local_base(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn peer_state(
   peers: List(PeerState),
   originator: fluid_ids.SessionId,
@@ -2104,6 +2116,9 @@ fn branch_contains_revision(
   list.any(commits, fn(commit) { commit.commit.revision == revision })
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil). change.nth is a copy of this helper.
+// Use list.drop, then list.first.
 fn item_at(items: List(a), index: Int) -> Option(a) {
   case index < 0, items {
     True, _ -> None

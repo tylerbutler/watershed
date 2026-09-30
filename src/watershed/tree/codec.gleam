@@ -574,6 +574,8 @@ fn decode_changes_value(
               schema_change,
               item_location <> ".schema",
             ))
+            // ponytail: Panicking in libraries. This let assert can panic. Make
+            // decode_schema_change return the schema parts, not a TreeChange.
             let assert shared_change.SchemaChange(_, after, _) = decoded
             let next = KnownSchema(after)
             Ok(#([decoded, ..state.0], next))
@@ -611,6 +613,9 @@ fn encode_changes_value(
                   item_location <> ".data",
                   "data change has no stored schema",
                 ))
+              // ponytail: Match all variants. This catch-all also takes any new
+              // SchemaContext variant without a compiler error. Name the
+              // remaining variants.
               _ -> Ok(Nil)
             })
             let item_context = encode_context_with_schema(context, state.1)
@@ -679,6 +684,8 @@ fn advance_schema_context(
   change: shared_change.TreeChange,
   location: String,
 ) -> Result(SchemaContext, TreeError) {
+  // ponytail: Check-then-assert. The caller already matched SchemaChange. Pass
+  // before and after to this function.
   let assert shared_change.SchemaChange(before, after, _) = change
   use _ <- result.try(case current {
     UnknownSchema -> Ok(Nil)
@@ -1922,6 +1929,8 @@ fn encode_builds(
   }
 }
 
+// ponytail: Replace bools with custom types (suggestion). The allow_root Bool
+// makes call sites unclear. Use a small type that names each mode.
 fn encode_revision_value(
   revision: Revision,
   context: EncodeContext,
@@ -2024,6 +2033,8 @@ fn decode_custom_metadata_node(
   Ok(CustomMetadata(metadata, children))
 }
 
+// ponytail: Conventional conversion function naming. Rename this function to
+// json_to_custom_metadata.
 /// Decode recursive commit metadata without changing compressor state.
 pub fn custom_metadata_from_json(
   value: Json,
@@ -2249,6 +2260,8 @@ fn collect_atom_revision(
   }
 }
 
+// ponytail: Conventional conversion function naming. Use an x_to_y name, for
+// example json_to_value.
 fn json_value(value: Json, location: String) -> Result(JsonValue, TreeError) {
   json_ot.parse_json(json.to_string(value))
   |> result.map_error(fn(_) { CorruptData(location, "value is not valid JSON") })
@@ -2315,6 +2328,10 @@ fn safe_local_id(value: Int, location: String) -> Result(Int, TreeError) {
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil). Each of the four codec modules has a
+// copy of this helper and the JSON object, array, and string helpers. Keep one
+// copy.
 fn optional(
   members: List(#(String, JsonValue)),
   key: String,

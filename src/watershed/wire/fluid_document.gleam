@@ -36,6 +36,9 @@ pub fn initial_tree(
   session: fluid_ids.SessionId,
   view_id: fluid_ids.StableId,
 ) -> Result(DocumentSummary, SummaryError) {
+  // ponytail: Fragmented modules. To make an initial tree, this caller builds
+  // the internal records forest.ForestData and history.HistorySnapshot. Add one
+  // tree function that makes the initial snapshot.
   use snapshot <- result.try(
     tree_kernel.snapshot_from_parts(
       view_id,
@@ -689,6 +692,9 @@ fn decode_datastore(
             SummaryTree(
               list.filter(entries, fn(item) { item.0 != ".attributes" }),
             )
+          // ponytail: Fragmented modules. To decode one tree summary, this
+          // caller uses tree/codec/summary, tree/codec, and tree/summary. Add
+          // one tree function that decodes a summary.
           use data <- result.try(
             summary_codec.decode(
               entry,
@@ -845,6 +851,9 @@ pub fn encode(summary: DocumentSummary) -> Result(SummaryEntry, SummaryError) {
                 Some(compressor) -> Ok(compressor)
                 None -> Error(fluid_summary.MissingEntry("/.idCompressor"))
               })
+              // ponytail: Fragmented modules. To encode one tree summary, this
+              // caller uses tree/summary, tree/codec/summary, and tree/codec.
+              // Add one tree function that encodes a summary.
               use wire <- result.try(
                 tree_summary.to_wire(snapshot)
                 |> result.map_error(fn(error) {

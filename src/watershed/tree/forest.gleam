@@ -248,6 +248,8 @@ pub fn delta(data: DeltaData) -> Result(Delta, TreeError) {
   Ok(Delta(DeltaData(..data, rename: renames)))
 }
 
+// ponytail: Replace bools with custom types (suggestion). The attach Bool
+// selects attach or detach ranges. Use Pass or a direction type.
 fn field_ranges(
   fields: List(#(String, FieldDelta)),
   attach: Bool,
@@ -511,6 +513,8 @@ fn validate_retained(
           location <> "[" <> int.to_string(element.1) <> "]",
         )
       })
+    // ponytail: Match all variants. This catch-all also takes any new TreeValue
+    // variant without a compiler error. Name the remaining variants.
     _ -> Ok(Nil)
   }
 }
@@ -948,6 +952,9 @@ fn visit_fields(
                 False -> work
               })
             }
+            // ponytail: Match all variants. This catch-all also takes any new
+            // Node variant without a compiler error. Name the remaining
+            // variants.
             _ -> Ok(work)
           }
         }
@@ -957,6 +964,8 @@ fn visit_fields(
   )
   case pass, parent {
     Attach, Child(id) -> Ok(Work(..work, applied: set.insert(work.applied, id)))
+    // ponytail: Match all variants. This catch-all also takes any new Pass or
+    // Parent variant without a compiler error. Name the remaining variants.
     _, _ -> Ok(work)
   }
 }
@@ -1038,6 +1047,9 @@ fn detach_mark(
       let pending = case mark.fields {
         [] -> work.pending
         fields -> {
+          // ponytail: Check-then-assert. validate_fields makes the count 1 for
+          // a mark with fields, so ids has one item. Match ids and return
+          // CorruptData for other shapes.
           let assert [id] = ids
           list.append(work.pending, [#(id, fields)])
         }
@@ -1245,6 +1257,8 @@ fn transfer_range_pass(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn next_transfer_offset(work: Work, source: AtomId, count: Int) -> Option(Int) {
   let ids =
     list.append(
@@ -1636,6 +1650,9 @@ fn allocate(
           )
           Ok(#(state, Array(schema_id, list.reverse(elements))))
         }
+        // ponytail: Match all variants. This catch-all also takes any new
+        // TreeValue variant without a compiler error. Name the remaining
+        // variants.
         _ -> Ok(#(state, Leaf(value)))
       })
       Ok(#(Forest(..state, nodes: dict.insert(state.nodes, id, node)), id))

@@ -564,6 +564,8 @@ fn compose_replacement(
       let first_change = case first {
         Some(replacement) -> replacement
         None -> {
+          // ponytail: Check-then-assert. The branch above excludes None, None.
+          // Match None, Some(replacement) directly.
           let assert Some(replacement) = second
           replacement
         }
@@ -606,6 +608,8 @@ fn composed_destination(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn lookup_source(
   moves: List(#(AtomId, AtomId)),
   source: AtomId,
@@ -620,6 +624,8 @@ fn lookup_source(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn lookup_by_destination(
   moves: List(#(AtomId, AtomId)),
   destination: AtomId,
@@ -798,6 +804,8 @@ fn put_register(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil).
 fn lookup_register(
   mapping: List(#(RegisterId, RegisterId)),
   source: RegisterId,

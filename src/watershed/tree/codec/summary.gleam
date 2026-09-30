@@ -46,6 +46,9 @@ pub type DetachedFieldIndex {
   DetachedFieldIndex(entries: List(DetachedField), max_id: Int)
 }
 
+// ponytail: Make invalid states impossible (suggestion). A branch commit can
+// have sequence data, and a sequenced commit can have none. Use one variant for
+// branch commits and one for sequenced commits.
 pub type SummaryCommit {
   SummaryCommit(
     commit: codec.WireCommit,
@@ -573,6 +576,8 @@ fn decode_edit_manager_string_with_schema(
   decode_edit_manager_with_schema(json_ot.to_json(value), context, stored)
 }
 
+// ponytail: Replace bools with custom types (suggestion). The sequenced Bool
+// makes call sites unclear. Use a small type that names each mode.
 fn decode_commits(
   values: List(JsonValue),
   sequenced: Bool,
@@ -1104,6 +1109,8 @@ fn encode_peer_base(
   }
 }
 
+// ponytail: Replace bools with custom types (suggestion). The allow_stable Bool
+// makes call sites unclear. Use a small type that names each mode.
 fn decode_summary_revision(
   value: JsonValue,
   session: fluid_ids.SessionId,
@@ -1657,6 +1664,10 @@ fn nonnegative_integer(
   }
 }
 
+// ponytail: Use result for fallible functions. This lookup returns Option when
+// it finds nothing. Return Result(_, Nil). Each of the four codec modules has a
+// copy of this helper and the JSON object, array, and string helpers. Keep one
+// copy.
 fn optional(
   members: List(#(String, JsonValue)),
   key: String,

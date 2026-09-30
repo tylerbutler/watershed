@@ -97,6 +97,9 @@ pub type SchemaState {
   FixedSchema(StoredSchema)
 }
 
+// ponytail: Make invalid states impossible (suggestion). Three Bool fields
+// allow invalid mixes, for example equivalent but not viewable. Use one variant
+// for each compatibility class.
 pub type Compatibility {
   Compatibility(can_view: Bool, can_upgrade: Bool, is_equivalent: Bool)
 }
@@ -449,6 +452,9 @@ pub fn allows_superset(
     && original.repository.nodes
     |> dict.keys
     |> list.all(fn(entry) {
+      // ponytail: Panicking in libraries. This let assert can panic if the
+      // dictionaries do not share keys. Iterate comparison_nodes directly or
+      // propagate the lookup result.
       let assert Ok(original_node) =
         dict.get(original.repository.comparison_nodes, entry)
       tree_allows_superset(
@@ -846,6 +852,8 @@ fn leaf_identifier_matches(
 ) -> Bool {
   case kind {
     ComparisonHandleLeaf -> True
+    // ponytail: Match all variants. This catch-all also takes any new leaf kind
+    // variant without a compiler error. Name the remaining variants.
     _ -> identifier == leaf_identifier(public_leaf_kind(kind))
   }
 }
@@ -955,6 +963,8 @@ fn decode_repository(
       Error(InvalidSchema(
         "$.root: sequence field is only valid as an array primary field",
       ))
+    // ponytail: Match all variants. This catch-all also takes any new schema
+    // field kind variant without a compiler error. Name the remaining variants.
     _ -> Ok(Nil)
   })
   let comparison_nodes = dict.from_list(nodes)
@@ -1027,6 +1037,9 @@ fn decode_node(
                       key_path(path, field.0)
                       <> ": sequence field is only valid as an array primary field",
                     ))
+                  // ponytail: Match all variants. This catch-all also takes any
+                  // new schema field kind variant without a compiler error.
+                  // Name the remaining variants.
                   _ -> Ok(Nil)
                 }
               })
@@ -1047,6 +1060,9 @@ fn decode_node(
             path
             <> ".kind.map: sequence field is only valid as an array primary field",
           ))
+        // ponytail: Match all variants. This catch-all also takes any new
+        // schema field kind variant without a compiler error. Name the
+        // remaining variants.
         _, _ -> Ok(Nil)
       })
       Ok(ComparisonMap(entries))
