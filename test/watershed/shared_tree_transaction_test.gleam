@@ -1,11 +1,137 @@
 import gleam/json
 import gleam/list
+import gleam/option.{None, Some}
+import gleam/result
 import gleam/string
 import startest/expect
+import watershed/fluid_ids
 import watershed/json_ot.{type JsonValue, VArray, VObject, VString}
+import watershed/tree/array_fixture
+import watershed/tree/change
 import watershed/tree/fixtures
+import watershed/tree/forest
 import watershed/tree/transaction_fixture
+import watershed/tree/types
 import watershed/wire
+
+const items_type = "org.watershed.shared-tree.m3.Items"
+
+const point_type = "org.watershed.shared-tree.m3.Point"
+
+fn transaction_revision() -> fluid_ids.StableId {
+  let assert Ok(revision) =
+    fluid_ids.stable_id("30000000-0000-4000-8000-000000000001")
+  revision
+}
+
+fn constraint_forest(view: fluid_ids.StableId) -> forest.Forest {
+  let root =
+    types.ObjectValue("org.watershed.shared-tree.m3.Root", [
+      #(
+        "left",
+        types.ArrayValue(items_type, [
+          types.ObjectValue(point_type, [
+            #("label", types.StringValue("point")),
+            #("x", types.NumberValue(1.0)),
+          ]),
+        ]),
+      ),
+      #("right", types.ArrayValue(items_type, [])),
+      #(
+        "byKey",
+        types.MapValue("org.watershed.shared-tree.m3.ArrayMap", [
+          #("item", types.StringValue("value")),
+        ]),
+      ),
+      #("narrow", types.ArrayValue("org.watershed.shared-tree.m3.Points", [])),
+    ])
+  let assert Ok(state) =
+    forest.new(view, array_fixture.stored("objectArrays"), Some(root))
+  state
+}
+
+fn apply_constraint_edit(
+  state: forest.Forest,
+  operation: types.Edit,
+) -> Result(forest.Forest, types.TreeError) {
+  let revision = transaction_revision()
+  use order <- result.try(change.identity_order([#(revision, 0)]))
+  use authored <- result.try(change.edit(
+    array_fixture.stored("objectArrays"),
+    state,
+    revision,
+    operation,
+    order,
+  ))
+  use delta <- result.try(
+    change.into_delta(change.TaggedChange(Some(revision), None, authored)),
+  )
+  forest.apply_delta(state, delta)
+}
+
+pub fn shared_tree_constraint_resolves_attached_node_kinds_test() -> Nil {
+  let state = constraint_forest(array_fixture.view_id())
+  [
+    [],
+    ["byKey"],
+    ["left", "0"],
+  ]
+  |> list.each(fn(path) {
+    let assert Ok(reference) = forest.locate(state, path)
+    let assert Ok(change.ConstraintTarget(resolved, resolved_path)) =
+      change.resolve_constraint(state, path)
+    resolved |> expect.to_equal(reference)
+    resolved_path |> expect.to_equal(path)
+  })
+}
+
+pub fn shared_tree_constraint_resolution_preserves_moved_identity_test() -> Nil {
+  let initial = constraint_forest(array_fixture.view_id())
+  let assert Ok(reference) = forest.locate(initial, ["left", "0"])
+  let assert Ok(moved) =
+    apply_constraint_edit(
+      initial,
+      types.ArrayMove(["left"], 0, 1, ["right"], 0),
+    )
+  let assert Ok(change.ConstraintTarget(resolved, path)) =
+    change.resolve_constraint(moved, ["right", "0"])
+  resolved |> expect.to_equal(reference)
+  path |> expect.to_equal(["right", "0"])
+}
+
+pub fn shared_tree_constraint_rejects_invalid_targets_test() -> Nil {
+  let initial = constraint_forest(array_fixture.view_id())
+  let assert Error(types.InvalidEdit(_, _)) =
+    change.resolve_constraint(initial, ["missing"])
+  let assert Ok(target) = change.resolve_constraint(initial, ["left", "0"])
+  let assert Ok(removed) =
+    apply_constraint_edit(initial, types.ArrayRemove(["left"], 0, 1))
+  let assert Error(types.InvalidEdit(_, _)) =
+    change.add_node_exists_constraints(change.empty(), removed, [target])
+
+  let other_view =
+    fluid_ids.stable_id("30000000-0000-4000-8000-000000000002")
+    |> result.unwrap(transaction_revision())
+  let other = constraint_forest(other_view)
+  let assert Error(types.InvalidEdit(_, _)) =
+    change.add_node_exists_constraints(change.empty(), other, [target])
+  Nil
+}
+
+pub fn shared_tree_constraint_duplicate_targets_collapse_test() -> Nil {
+  let state = constraint_forest(array_fixture.view_id())
+  let assert Ok(target) = change.resolve_constraint(state, ["left", "0"])
+  let assert Ok(constrained) =
+    change.add_node_exists_constraints(change.empty(), state, [target, target])
+  let data = change.to_data(constrained)
+  data.constraint_violation_count |> expect.to_equal(0)
+  data.nodes
+  |> list.filter(fn(entry) {
+    entry.1.node_exists_constraint == Some(change.NodeExistsConstraint(False))
+  })
+  |> list.length
+  |> expect.to_equal(1)
+}
 
 pub fn shared_tree_transaction_wire_requires_input_sections_test() -> Nil {
   let assert Ok(fixtures.Case(input: input, ..)) =

@@ -41,6 +41,10 @@ pub type NodeExistsConstraint {
   NodeExistsConstraint(violated: Bool)
 }
 
+pub type ConstraintTarget {
+  ConstraintTarget(reference: forest.NodeRef, path: FieldPath)
+}
+
 pub type NodeChange {
   NodeChange(
     fields: List(#(String, FieldChange)),
@@ -240,6 +244,149 @@ pub fn empty() -> Changeset {
     IdentityOrder([]),
     [],
   )
+}
+
+pub fn resolve_constraint(
+  visible: forest.Forest,
+  path: FieldPath,
+) -> Result(ConstraintTarget, TreeError) {
+  use reference <- result.try(forest.locate(visible, path))
+  use attached <- result.try(forest.is_attached(visible, reference))
+  case attached {
+    True -> Ok(ConstraintTarget(reference, path))
+    False -> Error(InvalidEdit(path, "constraint node is detached"))
+  }
+}
+
+pub fn add_node_exists_constraints(
+  value: Changeset,
+  visible: forest.Forest,
+  targets: List(ConstraintTarget),
+) -> Result(Changeset, TreeError) {
+  list.try_fold(list.unique(targets), value, fn(value, target) {
+    let ConstraintTarget(reference, path) = target
+    use current <- result.try(forest.locate(visible, path))
+    use attached <- result.try(forest.is_attached(visible, reference))
+    use _ <- result.try(case attached && current == reference {
+      True -> Ok(Nil)
+      False -> Error(InvalidEdit(path, "constraint target changed"))
+    })
+    use steps <- result.try(forest.node_path(visible, path))
+    use #(constraint, target_id) <- result.try(constraint_change(
+      steps,
+      value.data.max_local_id + 1,
+      value.identity_order,
+    ))
+    use merged <- result.try(
+      compose([
+        TaggedChange(None, None, constraint),
+        TaggedChange(None, None, value),
+      ]),
+    )
+    use target_id <- result.try(resolve_alias(target_id, merged.data.aliases))
+    use node <- result.try(node_for(target_id, merged.data.nodes))
+    let nodes =
+      put_pair(
+        merged.data.nodes,
+        target_id,
+        NodeChange(
+          ..node,
+          node_exists_constraint: Some(NodeExistsConstraint(False)),
+        ),
+      )
+    let data =
+      ChangeData(
+        ..merged.data,
+        nodes: nodes,
+        constraint_violation_count: constraint_violation_count(nodes),
+      )
+    use merged <- result.try(from_data(data, merged.identity_order))
+    Ok(merged)
+  })
+}
+
+fn constraint_change(
+  steps: List(forest.FieldStep),
+  next_id: Int,
+  identity_order: IdentityOrder,
+) -> Result(#(Changeset, AtomId), TreeError) {
+  let assert [forest.FieldStep(root_field, root_index), ..rest] = steps
+  use #(target, next_id) <- result.try(allocate_constraint_id(next_id))
+  use #(top, nodes, parents, next_id) <- result.try(
+    wrap_constraint_ancestors(
+      list.reverse(rest),
+      target,
+      next_id,
+      [
+        #(
+          target,
+          NodeChange(
+            fields: [],
+            node_exists_constraint: Some(NodeExistsConstraint(False)),
+            node_exists_constraint_on_revert: None,
+          ),
+        ),
+      ],
+      [],
+    ),
+  )
+  let parents =
+    list.append(parents, [
+      #(top, ParentField(None, root_field)),
+    ])
+  use value <- result.try(from_data(
+    ChangeData(
+      ..empty().data,
+      max_local_id: next_id - 1,
+      fields: [#(root_field, GenericField([#(root_index, top)]))],
+      nodes: nodes,
+      parents: parents,
+    ),
+    identity_order,
+  ))
+  Ok(#(value, target))
+}
+
+fn wrap_constraint_ancestors(
+  steps: List(forest.FieldStep),
+  child: AtomId,
+  next_id: Int,
+  nodes: List(#(AtomId, NodeChange)),
+  parents: List(#(AtomId, ParentField)),
+) -> Result(
+  #(AtomId, List(#(AtomId, NodeChange)), List(#(AtomId, ParentField)), Int),
+  TreeError,
+) {
+  case steps {
+    [] -> Ok(#(child, nodes, parents, next_id))
+    [forest.FieldStep(field, index), ..rest] -> {
+      use #(parent, next_id) <- result.try(allocate_constraint_id(next_id))
+      wrap_constraint_ancestors(
+        rest,
+        parent,
+        next_id,
+        list.append(nodes, [
+          #(parent, node_change([#(field, GenericField([#(index, child)]))])),
+        ]),
+        list.append(parents, [
+          #(child, ParentField(Some(parent), field)),
+        ]),
+      )
+    }
+  }
+}
+
+fn allocate_constraint_id(next_id: Int) -> Result(#(AtomId, Int), TreeError) {
+  case next_id >= 0 && next_id <= max_safe_integer {
+    True -> Ok(#(AtomId(None, next_id), next_id + 1))
+    False -> Error(CorruptData("constraint", "identifiers are exhausted"))
+  }
+}
+
+fn constraint_violation_count(nodes: List(#(AtomId, NodeChange))) -> Int {
+  list.count(nodes, fn(entry) {
+    entry.1.node_exists_constraint == Some(NodeExistsConstraint(True))
+  })
 }
 
 pub fn identity_order(
@@ -1751,7 +1898,10 @@ fn author_array_field(
 
 pub fn into_delta(change: TaggedChange) -> Result(forest.Delta, TreeError) {
   let data = change.change.data
-  use parts <- result.try(delta_fields(data.fields, data))
+  use parts <- result.try(case data.constraint_violation_count > 0 {
+    True -> Ok(DeltaParts([], [], []))
+    False -> delta_fields(data.fields, data)
+  })
   forest.delta(forest.DeltaData(
     latest_revision: change.revision,
     fields: parts.fields,
@@ -1783,6 +1933,9 @@ pub fn compose_with_trace(
       ..composed.data,
       max_local_id: max_local_id,
       revisions: revisions,
+      constraint_violation_count: constraint_violation_count(
+        composed.data.nodes,
+      ),
     ),
     composed.identity_order,
   ))
@@ -1976,7 +2129,11 @@ pub fn invert_with_trace(
   ))
   use #(nodes, state) <- result.try(
     list.try_fold(data.nodes, #([], state), fn(output, entry) {
-      let NodeChange(fields: fields, ..) = entry.1
+      let NodeChange(
+        fields: fields,
+        node_exists_constraint: constraint,
+        node_exists_constraint_on_revert: constraint_on_revert,
+      ) = entry.1
       use #(fields, state) <- result.try(invert_field_map(
         fields,
         Some(entry.0),
@@ -1985,7 +2142,16 @@ pub fn invert_with_trace(
         output.1,
       ))
       Ok(#(
-        list.append(output.0, [#(entry.0, NodeChange(..entry.1, fields:))]),
+        list.append(output.0, [
+          #(
+            entry.0,
+            NodeChange(
+              fields: fields,
+              node_exists_constraint: constraint_on_revert,
+              node_exists_constraint_on_revert: constraint,
+            ),
+          ),
+        ]),
         state,
       ))
     }),
@@ -2023,7 +2189,7 @@ pub fn invert_with_trace(
       destroys: destroys,
       refreshers: [],
       cross_field_keys: [],
-      constraint_violation_count: 0,
+      constraint_violation_count: constraint_violation_count(nodes),
     )
   use cross_field_keys <- result.try(sorted_derived_cross_field_keys(
     inverted_data,
@@ -2092,6 +2258,7 @@ pub fn rebase_with_trace(
   use state <- result.try(rebase_invalidated(state, []))
   let fields = replace_field_results(fields, None, state.field_results)
   let nodes = replace_node_field_results(state.nodes, state.field_results)
+  use nodes <- result.try(update_constraint_nodes(fields, nodes, state.aliases))
   use parents <- result.try(rebuild_parents(fields, nodes, state.aliases))
   use parents <- result.try(apply_rebase_notifications(
     parents,
@@ -2117,7 +2284,7 @@ pub fn rebase_with_trace(
       destroys: authored.destroys,
       refreshers: authored.refreshers,
       cross_field_keys: cross_field_keys,
-      constraint_violation_count: 0,
+      constraint_violation_count: constraint_violation_count(nodes),
     )
   use rebased <- result.try(from_data(data, identity_order))
   use rebased <- result.try(prune(rebased))
@@ -2493,6 +2660,82 @@ fn copy_authored_node(
       Ok(#(canonical, state))
     }
   }
+}
+
+fn update_constraint_nodes(
+  fields: List(#(String, FieldChange)),
+  nodes: List(#(AtomId, NodeChange)),
+  aliases: List(#(AtomId, AtomId)),
+) -> Result(List(#(AtomId, NodeChange)), TreeError) {
+  list.try_fold(fields, nodes, fn(nodes, entry) {
+    update_field_constraint_nodes(entry.1, False, nodes, aliases)
+  })
+}
+
+fn update_field_constraint_nodes(
+  field: FieldChange,
+  parent_detached: Bool,
+  nodes: List(#(AtomId, NodeChange)),
+  aliases: List(#(AtomId, AtomId)),
+) -> Result(List(#(AtomId, NodeChange)), TreeError) {
+  case field {
+    GenericField(children) ->
+      list.try_fold(children, nodes, fn(nodes, child) {
+        update_constraint_node(child.1, parent_detached, nodes, aliases)
+      })
+    SequenceField(change) ->
+      list.try_fold(sequence_field.to_marks(change), nodes, fn(nodes, mark) {
+        case mark.child {
+          None -> Ok(nodes)
+          Some(child) ->
+            update_constraint_node(
+              child,
+              parent_detached || sequence_child_is_detached(mark),
+              nodes,
+              aliases,
+            )
+        }
+      })
+    ValueField(optional_field.FieldChange(_, children, _))
+    | OptionalField(optional_field.FieldChange(_, children, _)) ->
+      list.try_fold(children, nodes, fn(nodes, child) {
+        let detached = case child.0 {
+          optional_field.Active -> parent_detached
+          optional_field.Detached(_) -> True
+        }
+        update_constraint_node(child.1, detached, nodes, aliases)
+      })
+  }
+}
+
+fn sequence_child_is_detached(mark: sequence_field.Mark) -> Bool {
+  case mark.cell_id, sequence_field.output_length(mark) {
+    None, 0 -> True
+    Some(_), length if length > 0 -> False
+    None, _ -> False
+    Some(_), _ -> True
+  }
+}
+
+fn update_constraint_node(
+  id: AtomId,
+  detached: Bool,
+  nodes: List(#(AtomId, NodeChange)),
+  aliases: List(#(AtomId, AtomId)),
+) -> Result(List(#(AtomId, NodeChange)), TreeError) {
+  use canonical <- result.try(resolve_alias(id, aliases))
+  use node <- result.try(node_for(canonical, nodes))
+  let constraint = case node.node_exists_constraint {
+    None -> None
+    Some(_) -> Some(NodeExistsConstraint(detached))
+  }
+  let node = NodeChange(..node, node_exists_constraint: constraint)
+  use nodes <- result.try(
+    list.try_fold(node.fields, nodes, fn(nodes, entry) {
+      update_field_constraint_nodes(entry.1, detached, nodes, aliases)
+    }),
+  )
+  Ok(put_pair(nodes, canonical, node))
 }
 
 fn invert_field_map(
@@ -4743,13 +4986,30 @@ fn compose_nodes(
         Some(second_id),
         state,
       ))
+      let node_exists_constraint = case first_node.node_exists_constraint {
+        Some(constraint) -> Some(constraint)
+        None -> second_node.node_exists_constraint
+      }
+      let node_exists_constraint_on_revert = case
+        first_node.node_exists_constraint_on_revert
+      {
+        Some(constraint) -> Some(constraint)
+        None -> second_node.node_exists_constraint_on_revert
+      }
       use parent <- result.try(parent_for(first_id, state.first.parents))
       use parent <- result.try(normalize_parent(parent, aliases))
       let nodes =
         state.nodes
         |> remove_pair(first_canonical)
         |> remove_pair(second_canonical)
-        |> put_pair(canonical, node_change(fields))
+        |> put_pair(
+          canonical,
+          NodeChange(
+            fields: fields,
+            node_exists_constraint:,
+            node_exists_constraint_on_revert:,
+          ),
+        )
       let parents =
         state.parents
         |> remove_pair(first_canonical)

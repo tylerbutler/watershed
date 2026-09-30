@@ -29,9 +29,25 @@ fn revision_b() -> fluid_ids.StableId {
   id
 }
 
+fn revision_c() -> fluid_ids.StableId {
+  let assert Ok(id) =
+    fluid_ids.stable_id("20000000-0000-4000-8000-000000000003")
+  id
+}
+
 fn identity_order() -> change.IdentityOrder {
   let assert Ok(order) =
     change.identity_order([#(revision(), 0), #(revision_b(), 1)])
+  order
+}
+
+fn constraint_identity_order() -> change.IdentityOrder {
+  let assert Ok(order) =
+    change.identity_order([
+      #(revision(), 0),
+      #(revision_b(), 1),
+      #(revision_c(), 2),
+    ])
   order
 }
 
@@ -438,6 +454,248 @@ fn object_arrays_root() -> types.TreeValue {
     #("byKey", types.MapValue("org.watershed.shared-tree.m3.ArrayMap", [])),
     #("narrow", types.ArrayValue("org.watershed.shared-tree.m3.Points", [])),
   ])
+}
+
+fn constraint_array_forest() -> forest.Forest {
+  let point = fn(label, x) {
+    types.ObjectValue(point_type, [
+      #("label", types.StringValue(label)),
+      #("x", types.NumberValue(x)),
+    ])
+  }
+  let root =
+    types.ObjectValue("org.watershed.shared-tree.m3.Root", [
+      #(
+        "left",
+        types.ArrayValue(items_type, [
+          point("constrained", 1.0),
+          point("sibling", 2.0),
+        ]),
+      ),
+      #("right", types.ArrayValue(items_type, [point("right", 3.0)])),
+      #("byKey", types.MapValue("org.watershed.shared-tree.m3.ArrayMap", [])),
+      #("narrow", types.ArrayValue("org.watershed.shared-tree.m3.Points", [])),
+    ])
+  let assert Ok(initial) =
+    forest.new(
+      array_fixture.view_id(),
+      array_fixture.stored("objectArrays"),
+      Some(root),
+    )
+  initial
+}
+
+fn authored_constraint_edit(
+  initial: forest.Forest,
+  path: types.FieldPath,
+) -> change.Changeset {
+  let stored = array_fixture.stored("objectArrays")
+  let assert Ok(target) = change.resolve_constraint(initial, path)
+  let assert Ok(authored) =
+    change.edit(
+      stored,
+      initial,
+      revision(),
+      types.SetField(list.append(path, ["x"]), types.NumberValue(9.0)),
+      constraint_identity_order(),
+    )
+  let assert Ok(constrained) =
+    change.add_node_exists_constraints(authored, initial, [target])
+  constrained
+}
+
+fn authored_base_edit(
+  initial: forest.Forest,
+  revision: fluid_ids.StableId,
+  operation: types.Edit,
+) -> change.Changeset {
+  let assert Ok(authored) =
+    change.edit(
+      array_fixture.stored("objectArrays"),
+      initial,
+      revision,
+      operation,
+      constraint_identity_order(),
+    )
+  authored
+}
+
+fn apply_tagged(
+  initial: forest.Forest,
+  revision: fluid_ids.StableId,
+  value: change.Changeset,
+) -> forest.Forest {
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(Some(revision), None, value))
+  let assert Ok(updated) = forest.apply_delta(initial, delta)
+  updated
+}
+
+fn rebase_constraint(
+  transaction: change.Changeset,
+  over: change.Changeset,
+) -> change.Changeset {
+  let assert Ok(context) =
+    change.rebase_context(list.append(
+      change.to_data(transaction).revisions,
+      change.to_data(over).revisions,
+    ))
+  let rebased =
+    change.rebase(
+      change.TaggedChange(Some(revision()), None, transaction),
+      change.TaggedChange(None, None, over),
+      context,
+    )
+  case rebased {
+    Ok(value) -> value
+    Error(_) -> panic as { "constraint rebase failed" }
+  }
+}
+
+fn constraint_states(value: change.Changeset) -> List(Bool) {
+  change.to_data(value).nodes
+  |> list.filter_map(fn(entry) {
+    case entry.1.node_exists_constraint {
+      Some(change.NodeExistsConstraint(violated)) -> Ok(violated)
+      None -> Error(Nil)
+    }
+  })
+}
+
+pub fn shared_tree_array_constraint_rebase_preserves_attached_identity_test() {
+  let initial = constraint_array_forest()
+  let transaction = authored_constraint_edit(initial, ["left", "0"])
+  let cases = [
+    authored_base_edit(
+      initial,
+      revision_b(),
+      types.SetField(["right", "0", "x"], types.NumberValue(3.0)),
+    ),
+    authored_base_edit(
+      initial,
+      revision_b(),
+      types.SetField(["left", "0", "label"], types.StringValue("renamed")),
+    ),
+    authored_base_edit(
+      initial,
+      revision_b(),
+      types.ArrayMove(["left"], 0, 1, ["left"], 2),
+    ),
+    authored_base_edit(
+      initial,
+      revision_b(),
+      types.ArrayMove(["left"], 0, 1, ["right"], 0),
+    ),
+    authored_base_edit(
+      initial,
+      revision_b(),
+      types.ArrayInsert(["left"], 0, [
+        types.ObjectValue(point_type, [
+          #("label", types.StringValue("inserted")),
+          #("x", types.NumberValue(0.0)),
+        ]),
+      ]),
+    ),
+  ]
+  cases
+  |> list.each(fn(base) {
+    let rebased = rebase_constraint(transaction, base)
+    constraint_states(rebased) |> expect.to_equal([False])
+    change.to_data(rebased).constraint_violation_count |> expect.to_equal(0)
+  })
+}
+
+pub fn shared_tree_array_constraint_rebase_marks_remove_and_replace_test() {
+  let initial = constraint_array_forest()
+  let transaction = authored_constraint_edit(initial, ["left", "0"])
+  let removed =
+    authored_base_edit(initial, revision_b(), types.ArrayRemove(["left"], 0, 1))
+  let after_remove = apply_tagged(initial, revision_b(), removed)
+  let inserted =
+    authored_base_edit(
+      after_remove,
+      revision_c(),
+      types.ArrayInsert(["left"], 0, [
+        types.ObjectValue(point_type, [
+          #("label", types.StringValue("replacement")),
+          #("x", types.NumberValue(4.0)),
+        ]),
+      ]),
+    )
+  let assert Ok(replaced) =
+    change.compose([
+      change.TaggedChange(Some(revision_b()), None, removed),
+      change.TaggedChange(Some(revision_c()), None, inserted),
+    ])
+
+  [removed, replaced]
+  |> list.each(fn(base) {
+    let rebased = rebase_constraint(transaction, base)
+    constraint_states(rebased) |> expect.to_equal([True])
+    change.to_data(rebased).constraint_violation_count |> expect.to_equal(1)
+  })
+}
+
+pub fn shared_tree_array_constraint_rebase_accepts_restored_identity_test() {
+  let initial = constraint_array_forest()
+  let transaction = authored_constraint_edit(initial, ["left", "0"])
+  let removed =
+    authored_base_edit(initial, revision_b(), types.ArrayRemove(["left"], 0, 1))
+  let restored_result =
+    change.invert(
+      change.TaggedChange(Some(revision_b()), None, removed),
+      True,
+      revision_c(),
+    )
+  let restored = case restored_result {
+    Ok(value) -> value
+    Error(_) -> panic as { "restore inversion failed" }
+  }
+  let composed_result =
+    change.compose([
+      change.TaggedChange(Some(revision_b()), None, removed),
+      change.TaggedChange(Some(revision_c()), Some(revision_b()), restored),
+    ])
+  let remove_then_restore = case composed_result {
+    Ok(value) -> value
+    Error(_) -> panic as { "restore composition failed" }
+  }
+  let rebased = rebase_constraint(transaction, remove_then_restore)
+  constraint_states(rebased) |> expect.to_equal([False])
+  change.to_data(rebased).constraint_violation_count |> expect.to_equal(0)
+}
+
+pub fn shared_tree_array_constraint_rebase_updates_nested_and_stale_state_test() {
+  let initial = constraint_array_forest()
+  let transaction = authored_constraint_edit(initial, ["left", "0"])
+  let data = change.to_data(transaction)
+  let nodes =
+    list.map(data.nodes, fn(entry) {
+      case entry.1.node_exists_constraint {
+        None -> entry
+        Some(_) -> #(
+          entry.0,
+          change.NodeChange(
+            ..entry.1,
+            node_exists_constraint: Some(change.NodeExistsConstraint(True)),
+          ),
+        )
+      }
+    })
+  let assert Ok(stale) =
+    change.from_data(
+      change.ChangeData(..data, nodes: nodes, constraint_violation_count: 1),
+      constraint_identity_order(),
+    )
+  let unrelated =
+    authored_base_edit(
+      initial,
+      revision_b(),
+      types.SetField(["right", "0", "x"], types.NumberValue(3.0)),
+    )
+  let rebased = rebase_constraint(stale, unrelated)
+  constraint_states(rebased) |> expect.to_equal([False])
+  change.to_data(rebased).constraint_violation_count |> expect.to_equal(0)
 }
 
 pub fn shared_tree_array_compose_schedules_untouched_move_destination_test() {

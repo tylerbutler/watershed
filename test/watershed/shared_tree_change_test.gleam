@@ -170,6 +170,52 @@ fn authored(revision: fluid_ids.StableId, operation: Edit) -> change.Changeset {
   authored
 }
 
+fn constraint_at(path: List(String), violated: Bool) -> change.Changeset {
+  let visible = initial_forest()
+  let assert Ok(target) = change.resolve_constraint(visible, path)
+  let assert Ok(constrained) =
+    change.add_node_exists_constraints(change.empty(), visible, [target])
+  let data = change.to_data(constrained)
+  let nodes =
+    list.map(data.nodes, fn(entry) {
+      case entry.1.node_exists_constraint {
+        None -> entry
+        Some(_) -> #(
+          entry.0,
+          change.NodeChange(
+            ..entry.1,
+            node_exists_constraint: Some(change.NodeExistsConstraint(violated)),
+          ),
+        )
+      }
+    })
+  let assert Ok(constrained) =
+    checked(
+      change.ChangeData(
+        ..data,
+        nodes: nodes,
+        constraint_violation_count: case violated {
+          True -> 1
+          False -> 0
+        },
+      ),
+    )
+  constrained
+}
+
+fn constrained_nodes(value: change.Changeset) -> List(change.NodeChange) {
+  change.to_data(value).nodes
+  |> list.filter_map(fn(entry) {
+    case
+      entry.1.node_exists_constraint != None
+      || entry.1.node_exists_constraint_on_revert != None
+    {
+      True -> Ok(entry.1)
+      False -> Error(Nil)
+    }
+  })
+}
+
 pub fn shared_tree_change_empty_data_round_trips_test() {
   let empty = change.empty()
   change.to_data(empty) |> expect.to_equal(empty_data())
@@ -202,6 +248,147 @@ pub fn shared_tree_change_constraint_data_round_trips_test() -> Nil {
     )
     |> expect.to_be_error
   Nil
+}
+
+pub fn shared_tree_change_compose_preserves_and_deduplicates_constraints_test() {
+  let constraint = constraint_at(["point"], False)
+  let before =
+    authored(revision_a(), SetField(["point", "x"], NumberValue(7.0)))
+  let after = authored(revision_b(), SetField(["point", "y"], NumberValue(8.0)))
+  let assert Ok(composed) =
+    change.compose([
+      change.TaggedChange(Some(revision_a()), None, before),
+      change.TaggedChange(None, None, constraint),
+      change.TaggedChange(None, None, constraint),
+      change.TaggedChange(Some(revision_b()), None, after),
+    ])
+  constrained_nodes(composed) |> list.length |> expect.to_equal(1)
+  change.to_data(composed).constraint_violation_count |> expect.to_equal(0)
+}
+
+pub fn shared_tree_change_compose_recomputes_constraint_violations_test() {
+  let visible = initial_forest()
+  let assert Ok(root_target) = change.resolve_constraint(visible, [])
+  let assert Ok(point_target) = change.resolve_constraint(visible, ["point"])
+  let assert Ok(constrained) =
+    change.add_node_exists_constraints(change.empty(), visible, [
+      root_target,
+      point_target,
+    ])
+  let data = change.to_data(constrained)
+  let nodes =
+    list.map(data.nodes, fn(entry) {
+      case entry.1.node_exists_constraint {
+        None -> entry
+        Some(_) -> #(
+          entry.0,
+          change.NodeChange(
+            ..entry.1,
+            node_exists_constraint: Some(change.NodeExistsConstraint(True)),
+          ),
+        )
+      }
+    })
+  let assert Ok(constrained) =
+    checked(
+      change.ChangeData(..data, nodes: nodes, constraint_violation_count: 0),
+    )
+  let assert Ok(composed) =
+    change.compose([change.TaggedChange(None, None, constrained)])
+  constrained_nodes(composed) |> list.length |> expect.to_equal(2)
+  change.to_data(composed).constraint_violation_count |> expect.to_equal(2)
+}
+
+pub fn shared_tree_change_invert_exchanges_constraint_kinds_test() {
+  let constrained = constraint_at(["point"], False)
+  let data = change.to_data(constrained)
+  let nodes =
+    list.map(data.nodes, fn(entry) {
+      case entry.1.node_exists_constraint {
+        None -> entry
+        Some(_) -> #(
+          entry.0,
+          change.NodeChange(
+            ..entry.1,
+            node_exists_constraint_on_revert: Some(change.NodeExistsConstraint(
+              True,
+            )),
+          ),
+        )
+      }
+    })
+  let assert Ok(constrained) = checked(change.ChangeData(..data, nodes: nodes))
+  let assert Ok(inverse) =
+    change.invert(
+      change.TaggedChange(None, None, constrained),
+      False,
+      revision_c(),
+    )
+  let assert [node] = constrained_nodes(inverse)
+  node.node_exists_constraint
+  |> expect.to_equal(Some(change.NodeExistsConstraint(True)))
+  node.node_exists_constraint_on_revert
+  |> expect.to_equal(Some(change.NodeExistsConstraint(False)))
+  change.to_data(inverse).constraint_violation_count |> expect.to_equal(1)
+}
+
+pub fn shared_tree_change_constraint_free_algebra_stays_constraint_free_test() {
+  let authored =
+    authored(revision_a(), SetField(["point", "x"], NumberValue(7.0)))
+  let assert Ok(composed) =
+    change.compose([change.TaggedChange(Some(revision_a()), None, authored)])
+  let assert Ok(inverse) =
+    change.invert(
+      change.TaggedChange(Some(revision_a()), None, authored),
+      False,
+      revision_c(),
+    )
+  constrained_nodes(composed) |> expect.to_equal([])
+  constrained_nodes(inverse) |> expect.to_equal([])
+  change.to_data(composed).constraint_violation_count |> expect.to_equal(0)
+  change.to_data(inverse).constraint_violation_count |> expect.to_equal(0)
+}
+
+pub fn shared_tree_change_violated_constraint_suppresses_field_delta_test() {
+  let visible = initial_forest()
+  let assert Ok(target) = change.resolve_constraint(visible, ["point"])
+  let authored =
+    authored(revision_a(), SetField(["point", "x"], NumberValue(7.0)))
+  let assert Ok(constrained) =
+    change.add_node_exists_constraints(authored, visible, [target])
+  let data = change.to_data(constrained)
+  let nodes =
+    list.map(data.nodes, fn(entry) {
+      case entry.1.node_exists_constraint {
+        None -> entry
+        Some(_) -> #(
+          entry.0,
+          change.NodeChange(
+            ..entry.1,
+            node_exists_constraint: Some(change.NodeExistsConstraint(True)),
+          ),
+        )
+      }
+    })
+  let assert Ok(violated) =
+    checked(
+      change.ChangeData(
+        ..data,
+        nodes: nodes,
+        refreshers: data.builds,
+        constraint_violation_count: 1,
+      ),
+    )
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(Some(revision_a()), None, violated))
+  let delta = forest.delta_data(delta)
+  delta.fields |> expect.to_equal([])
+  delta.global |> expect.to_equal([])
+  delta.rename |> expect.to_equal([])
+  delta.build |> expect.to_equal(data.builds)
+  delta.refreshers |> expect.to_equal(data.builds)
+  expect.to_be_false(change.to_data(violated).fields == [])
+  change.to_data(violated).constraint_violation_count |> expect.to_equal(1)
 }
 
 pub fn shared_tree_change_identity_order_rejects_invalid_entries_test() {
