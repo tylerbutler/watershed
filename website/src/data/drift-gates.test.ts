@@ -75,11 +75,14 @@ const GENERATED_RUNTIME_RAW_CONSUMERS = new Set([
   ATLAS_RAW_RUNTIME_EXCEPTION,
   "src/scripts/demo/boot.test.ts",
   "src/scripts/demo/gleam-values.type-test.ts",
+  "src/scripts/demo/sluice-rig.test.ts",
+  "src/scripts/demo/sluice-transport.test.ts",
   "src/scripts/demo/website-runtime-contract.test.ts",
   "src/scripts/guide-race-demo.ts",
   "src/scripts/json-ot-demo.ts",
   "src/scripts/rich-text-demo.ts",
   "src/scripts/sequence-demo.ts",
+  "src/scripts/shared-tree-checklist-demo.ts",
   "src/scripts/sudoku-demo.ts",
   "src/scripts/text-demo.ts",
   "src/scripts/text-element-demo.ts",
@@ -91,8 +94,14 @@ const LEGACY_GENERATED_DOCUMENT_CONSUMERS = new Set([
   "src/scripts/json-ot-demo.ts",
   "src/scripts/rich-text-demo.ts",
   "src/scripts/sequence-demo.ts",
+  "src/scripts/shared-tree-checklist-demo.ts",
   "src/scripts/sudoku-demo.ts",
   "src/scripts/text-demo.ts",
+]);
+
+const LEGACY_GENERATED_DOCUMENT_TEST_CONSUMERS = new Set([
+  "src/scripts/demo/sluice-rig.test.ts",
+  "src/scripts/demo/sluice-transport.test.ts",
 ]);
 
 const AUTHORED_INTEROP_EXPORTS = new Set([
@@ -535,7 +544,12 @@ function legacyGeneratedDocumentImportViolations(
   importerPath: string,
 ): string[] {
   const relModule = relative(websiteRoot, importerPath);
-  if (LEGACY_GENERATED_DOCUMENT_CONSUMERS.has(relModule)) return [];
+  if (
+    LEGACY_GENERATED_DOCUMENT_CONSUMERS.has(relModule) ||
+    LEGACY_GENERATED_DOCUMENT_TEST_CONSUMERS.has(relModule)
+  ) {
+    return [];
+  }
   return importBindingsFrom(
     source,
     importerPath,

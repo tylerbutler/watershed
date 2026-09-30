@@ -1,0 +1,628 @@
+---
+const clients = [
+  { id: "a", name: "Client A" },
+  { id: "b", name: "Client B" },
+];
+---
+
+<section
+  id="sharedtree-checklist-demo"
+  class="demo"
+  aria-labelledby="sharedtree-checklist-demo-title"
+>
+  <div class="demo-head" data-reveal="rise">
+    <h2 id="sharedtree-checklist-demo-title">SharedTree checklist, live</h2>
+    <p>
+      Two replicas run watershed's production SharedTree kernel against one
+      in-page <code>sluice</code>. Edit, check, add, or move an item and the
+      local row turns <strong class="k-pending">magenta</strong> while its op is
+      unsequenced. Once the sluice stamps and delivers it, the row returns to
+      <strong class="k-sequenced">ink</strong>.
+    </p>
+    <p class="demo-hint">
+      <strong>Race edit vs. reorder</strong> resets the seeded checklist, then
+      has Client A revise <code>publish-survey</code> while Client B moves
+      <code>inspect-spillway</code> down. Both writes leave before either reaches
+      the sequencer. Step the deliveries or settle them all: every replica lands
+      on the same text and order.
+    </p>
+  </div>
+
+  <div class="rig" data-st-rig>
+    {
+      clients.map((client) => (
+        <article
+          class="client"
+          data-client={client.id}
+          aria-label={`${client.name} SharedTree checklist replica`}
+          style={`grid-area: ${client.id}`}
+        >
+          <header class="client-head">
+            <h3>{client.name}</h3>
+            <span class="pending-count annot" data-pending-count>0 pending</span>
+          </header>
+          <div class="add-row">
+            <label for={`st-draft-${client.id}`}>Add an item to {client.name}</label>
+            <div class="add-controls">
+              <input
+                id={`st-draft-${client.id}`}
+                type="text"
+                data-st-draft
+                aria-label={`New checklist item text for ${client.name}`}
+                disabled
+              />
+              <button
+                type="button"
+                data-st-add
+                aria-label={`Add checklist item on ${client.name}`}
+                disabled
+              >
+                Add item
+              </button>
+            </div>
+          </div>
+          <ol class="checklist" data-st-list aria-label={`${client.name} checklist`} />
+          <footer class="client-foot">
+            <span class="annot">Canonical order</span>
+            <code data-canonical>[]</code>
+          </footer>
+        </article>
+      ))
+    }
+
+    <div class="channel" style="grid-area: seq">
+      <div class="seq-node" data-seq-node>
+        <span class="annot">Sequencer</span>
+        <output class="seq-counter" data-seq-counter aria-label="Latest sequence number">
+          SN&nbsp;0
+        </output>
+      </div>
+      <ol
+        class="op-log"
+        data-op-log
+        aria-live="polite"
+        aria-label="Sequenced checklist operations, newest first"
+      />
+    </div>
+
+    <div class="flow-layer" data-flow-layer aria-hidden="true"></div>
+  </div>
+
+  <div class="demo-controls" data-reveal="rise">
+    <label class="pace">
+      <span class="annot">Animation speed</span>
+      <input
+        type="range"
+        min="0.25"
+        max="2"
+        step="0.25"
+        value="1"
+        data-st-pace
+        title="Playback only; does not affect simulated ordering."
+        disabled
+      />
+      <output data-st-pace-out>1×</output>
+    </label>
+    <label class="jitter">
+      <input
+        type="checkbox"
+        data-st-latency-variance
+        title="Add random ±100 ms per hop; arrival order may change."
+        disabled
+      />
+      <span class="annot">Jitter ±100&nbsp;ms</span>
+    </label>
+    <p class="status" data-st-status role="status">
+      <span class="stamp converged">Converged</span>
+      all replicas identical · nothing pending
+    </p>
+  </div>
+
+  <div class="scenario-row" data-reveal="rise">
+    <button type="button" class="race-btn" data-st-race disabled>
+      Race edit vs. reorder
+    </button>
+    <button type="button" class="step-btn" data-st-step disabled>
+      Step one delivery
+    </button>
+    <button type="button" class="step-btn" data-st-settle disabled>
+      Settle to quiescence
+    </button>
+    <button
+      type="button"
+      class="reset-btn"
+      data-st-reset
+      aria-label="Reset both SharedTree checklist replicas to the seeded checklist"
+      disabled
+    >
+      Reset
+    </button>
+  </div>
+
+  <p class="controls-hint">
+    Jitter changes simulated hop timing; animation speed changes playback only.
+    The step control delivers one queued broadcast wave. Settle drains every
+    queued frame immediately.
+  </p>
+
+  <noscript>
+    <p class="demo-fallback">
+      The live demo needs JavaScript: it runs the production SharedTree client
+      runtime and the in-memory <code>sluice</code> in your browser. The rest of
+      the page works without it.
+    </p>
+  </noscript>
+
+  <p class="demo-fallback" data-st-fallback hidden>
+    The live demo couldn't start because this browser didn't load the production
+    SharedTree runtime and in-memory <code>sluice</code>. The rest of the page
+    still works.
+  </p>
+</section>
+
+<script>
+  try {
+    const { initSharedTreeChecklistDemo } = await import(
+      "../scripts/shared-tree-checklist-demo.ts"
+    );
+    initSharedTreeChecklistDemo();
+  } catch (error) {
+    console.error("watershed SharedTree checklist demo failed to start", error);
+    const note = document.querySelector("[data-st-fallback]");
+    if (note instanceof HTMLElement) note.hidden = false;
+  }
+</script>
+
+<style>
+  .demo {
+    padding: var(--space-section) var(--content-pad);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .demo-head,
+  .demo-controls,
+  .scenario-row,
+  .controls-hint,
+  .demo-fallback {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  .demo-head p {
+    margin-top: var(--space-lg);
+  }
+
+  .demo-hint {
+    color: var(--ink);
+    font-size: var(--text-sm);
+    font-weight: 500;
+  }
+
+  .k-pending {
+    color: var(--overprint-deep);
+  }
+
+  .k-sequenced {
+    color: var(--ink);
+  }
+
+  .rig {
+    position: relative;
+    max-width: 68rem;
+    margin: var(--space-xl) auto 0;
+    display: grid;
+    grid-template-areas: "a seq b";
+    grid-template-columns: minmax(0, 1fr) minmax(9rem, 0.48fr) minmax(0, 1fr);
+    gap: var(--space-lg);
+    align-items: start;
+  }
+
+  .client {
+    min-width: 0;
+    border: 1px solid var(--ink);
+    background: var(--bg);
+  }
+
+  .client-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .client-head h3 {
+    font-size: 1rem;
+    font-weight: 650;
+    font-stretch: 115%;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+  }
+
+  .pending-count {
+    color: var(--muted);
+  }
+
+  .pending-count.is-pending {
+    color: var(--overprint-deep);
+  }
+
+  .add-row {
+    padding: var(--space-md);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .add-row label {
+    display: block;
+    margin-bottom: var(--space-xs);
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  .add-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .add-controls input,
+  .checklist :global(input[type="text"]) {
+    min-width: 0;
+    border: 1px solid var(--ink);
+    border-radius: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: inherit;
+  }
+
+  .add-controls input {
+    padding: 0.65rem 0.75rem;
+    border-right: 0;
+  }
+
+  .add-controls button,
+  .scenario-row button,
+  .checklist :global(button) {
+    min-height: 2.75rem;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--ink);
+    border-radius: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .add-controls button:hover:enabled,
+  .scenario-row button:hover:enabled,
+  .checklist :global(button:hover:enabled) {
+    background: var(--overprint-faint);
+  }
+
+  .checklist {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .checklist :global(.checklist-row) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    border-bottom: 1px solid var(--hairline);
+    color: var(--ink);
+  }
+
+  .checklist :global(.checklist-row.is-pending) {
+    color: var(--overprint-deep);
+    background: var(--overprint-faint);
+    border-color: var(--overprint);
+  }
+
+  .checklist :global(input[type="checkbox"]) {
+    width: 1.15rem;
+    height: 1.15rem;
+    margin-top: 0.65rem;
+    accent-color: var(--overprint);
+  }
+
+  .checklist :global(input[type="text"]) {
+    width: 100%;
+    padding: 0.55rem 0.65rem;
+    color: currentColor;
+    border-color: currentColor;
+  }
+
+  .checklist :global(.item-moves) {
+    grid-column: 2;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .checklist :global(.item-moves button + button) {
+    border-left: 0;
+  }
+
+  .checklist :global(button:disabled),
+  .scenario-row button:disabled,
+  .add-controls button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .client-foot {
+    padding: var(--space-sm) var(--space-md) var(--space-md);
+  }
+
+  .client-foot code {
+    display: block;
+    margin-top: var(--space-xs);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .channel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-md);
+    padding-top: clamp(var(--space-md), 6vw, 4rem);
+  }
+
+  .seq-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2xs);
+    padding: var(--space-sm) var(--space-lg);
+    border: 1px solid var(--ink);
+    background: var(--bg);
+  }
+
+  .seq-counter {
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 1.25rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .seq-counter.stamped {
+    animation: stamp 380ms var(--ease-out-quart);
+  }
+
+  @keyframes stamp {
+    0% {
+      color: var(--overprint);
+      transform: scale(1.12);
+    }
+    100% {
+      color: var(--ink);
+      transform: none;
+    }
+  }
+
+  .op-log {
+    width: 100%;
+    max-height: 13.5rem;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    line-height: 1.6;
+    list-style: none;
+    mask-image: linear-gradient(black 55%, transparent 96%);
+  }
+
+  .op-log :global(li) {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0 0.4rem;
+    padding: 0.12rem 0;
+  }
+
+  .op-log :global(.op-path) {
+    color: var(--waterline);
+  }
+
+  .op-log :global(.op-kind),
+  .op-log :global(li:first-child .op-meta) {
+    color: var(--ink);
+  }
+
+  .flow-layer {
+    position: absolute;
+    inset: 0;
+    z-index: var(--z-flow);
+    pointer-events: none;
+  }
+
+  :global(.flow-dot) {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--overprint);
+  }
+
+  :global(.flow-dot.sequenced) {
+    background: var(--ink);
+  }
+
+  :global(.flow-dot-label) {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 50%;
+    padding: 2px 5px;
+    transform: translateX(-50%);
+    background: var(--overprint);
+    color: var(--bg);
+    font-size: 0.625rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  :global(.flow-dot.sequenced .flow-dot-label) {
+    background: var(--ink);
+  }
+
+  .demo-controls {
+    margin-top: var(--space-xl);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xl);
+  }
+
+  .pace,
+  .jitter,
+  .status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .pace input {
+    width: clamp(8rem, 18vw, 14rem);
+    accent-color: var(--overprint);
+  }
+
+  .pace output {
+    min-width: 5ch;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .jitter {
+    cursor: pointer;
+  }
+
+  .jitter input {
+    width: 1.05rem;
+    height: 1.05rem;
+    accent-color: var(--overprint);
+  }
+
+  .status {
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .status :global(.stamp) {
+    padding: 0.2rem 0.55rem;
+    border: 1.5px solid currentColor;
+    transform: rotate(-2deg);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+
+  .status :global(.stamp.converged) {
+    color: var(--waterline);
+  }
+
+  .status :global(.stamp.revising) {
+    color: var(--overprint-deep);
+  }
+
+  .scenario-row {
+    margin-top: var(--space-lg);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+  }
+
+  .scenario-row .step-btn,
+  .scenario-row .reset-btn {
+    border-color: var(--hairline);
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  .scenario-row .reset-btn {
+    font-weight: 400;
+  }
+
+  .controls-hint {
+    margin-top: var(--space-sm);
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .demo-fallback {
+    margin-top: var(--space-lg);
+    color: var(--overprint-deep);
+  }
+
+  @media (max-width: 940px) {
+    .rig {
+      grid-template-areas: "a" "seq" "b";
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .channel {
+      padding-top: 0;
+    }
+
+    .op-log {
+      max-height: 5.7rem;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .add-controls,
+    .checklist :global(.item-moves) {
+      grid-template-columns: 1fr;
+    }
+
+    .add-controls input {
+      border-right: 1px solid var(--ink);
+      border-bottom: 0;
+    }
+
+    .checklist :global(.item-moves button + button) {
+      border-top: 0;
+      border-left: 1px solid var(--ink);
+    }
+
+    .demo-controls,
+    .scenario-row {
+      align-items: stretch;
+    }
+
+    .scenario-row button {
+      width: 100%;
+    }
+  }
+
+  @media (pointer: coarse) {
+    .add-controls button,
+    .scenario-row button,
+    .checklist :global(button) {
+      min-height: 3rem;
+      padding-block: 0.8rem;
+    }
+  }
+</style>

@@ -1,0 +1,128 @@
+---
+import Ecosystem from "../../components/Ecosystem.astro";
+import SharedTreeChecklistDemo from "../../components/SharedTreeChecklistDemo.astro";
+import Sheet from "../../layouts/Sheet.astro";
+---
+
+<Sheet
+  title="watershed — SharedTree checklist demo"
+  description="Two browser replicas edit one native SharedTree checklist through watershed's production kernel and an in-page sluice, with pending state, explicit delivery, stable item identity, and a deterministic edit-versus-reorder race."
+>
+  <header class="page-hero">
+    <div class="page-hero-inner">
+      <p class="back-link"><a href="/sharedtree">← SharedTree comparison</a></p>
+      <h1>One checklist.<br />Two replicas. <em>Order survives the race.</em></h1>
+      <p class="lede">
+        Both replicas below run watershed's production
+        <code>SharedTree</code> kernel against an in-page <code>sluice</code>.
+        This page starts from a seeded native container, so it can focus on
+        optimistic edits, server order, and convergence without asking
+        Floodgate to create or host the document.
+      </p>
+      <p class="lede lede-secondary">
+        The{" "}
+        <a href="https://github.com/tylerbutler/watershed/tree/main/examples/shared_tree_checklist_lustre">
+          SharedTree checklist Lustre example
+        </a>{" "}
+        is the hosted-service counterpart: it creates the container through
+        Floodgate and lets two browser tabs collaborate on the same document.
+      </p>
+      <div class="cta-row">
+        <a class="cta-quiet" href="#sharedtree-checklist-demo">Jump to the demo ↓</a>
+        <a
+          class="cta-quiet"
+          href="https://github.com/tylerbutler/watershed/tree/main/examples/shared_tree_checklist_lustre"
+        >
+          Run the two-tab example
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <SharedTreeChecklistDemo />
+  </main>
+  <Ecosystem />
+</Sheet>
+
+<script>
+  import { initReveals } from "../../scripts/motion.js";
+  initReveals();
+</script>
+
+<style>
+  .page-hero {
+    padding: clamp(3.5rem, 9vw, 7.5rem) var(--content-pad)
+      clamp(2.5rem, 6vw, 5rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .page-hero-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  .back-link {
+    margin: 0 0 var(--space-lg);
+    font-size: var(--text-sm);
+  }
+
+  .back-link a,
+  .lede a,
+  .cta-quiet {
+    color: var(--waterline);
+  }
+
+  h1 {
+    max-width: 18ch;
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+  }
+
+  h1 em {
+    color: var(--overprint-deep);
+    font-style: normal;
+  }
+
+  @media (max-width: 30rem) {
+    h1 {
+      font-size: clamp(1.9rem, 8.5vw, 2.7rem);
+      font-stretch: 100%;
+      letter-spacing: -0.03em;
+    }
+  }
+
+  .lede {
+    max-width: 60ch;
+    margin-top: var(--space-xl);
+    color: var(--ink);
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.6;
+  }
+
+  .lede-secondary {
+    margin-top: var(--space-lg);
+    font-size: 1.0625rem;
+  }
+
+  .cta-row {
+    margin-top: var(--space-xl);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-lg);
+  }
+
+  .cta-quiet {
+    font-weight: 500;
+  }
+
+  .back-link a:hover,
+  .lede a:hover,
+  .cta-quiet:hover {
+    color: var(--overprint-deep);
+  }
+</style>
