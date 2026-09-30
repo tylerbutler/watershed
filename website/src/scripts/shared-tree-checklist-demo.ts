@@ -370,7 +370,6 @@ export function initSharedTreeChecklistDemo(): void {
   }
 
   document.querySelector("[data-st-race]")?.addEventListener("click", () => {
-    rig?.reset();
     if (!rig) return;
     const clientA = rig.clients.a;
     const clientB = rig.clients.b;

@@ -17,6 +17,14 @@ async function canonicals(page) {
 
 test("SharedTree checklist converges after local work and a stepped race", { timeout: 120_000 }, async (t) => {
   const { page, errors } = await openBrowserTest(t);
+  await page.setRequestInterception(true);
+  page.on("request", (request) => {
+    if (new URL(request.url()).hostname === "tinylytics.app") {
+      void request.respond({ status: 204, body: "" });
+    } else {
+      void request.continue();
+    }
+  });
   t.after(() => assert.deepEqual(errors, []));
 
   const response = await page.goto(new URL("/sharedtree/checklist", base).href);
