@@ -564,20 +564,20 @@ git commit -m "feat(tree): decode transaction constraints"
 - Produces: `resolve_constraint`, `add_node_exists_constraints`, and complete
   compose/invert/rebase/application semantics.
 
-- [ ] **Step 1: Add failing local target-resolution tests.**
+- [x] **Step 1: Add failing local target-resolution tests.**
 
 Test an attached object, map, array element, moved node, duplicate path,
 missing path, detached reference, and reference from another forest. The last
 three return `InvalidEdit` without changing state.
 
-- [ ] **Step 2: Author constraint-only node paths.**
+- [x] **Step 2: Author constraint-only node paths.**
 
 Use `forest.node_path` and the existing ancestor wrapping logic to construct a
 node change at the constrained base node. Merge it into the composed
 transaction change without replacing existing field changes. Verify that the
 stored `NodeRef` still identifies the base node before adding the constraint.
 
-- [ ] **Step 3: Add failing compose and invert tests.**
+- [x] **Step 3: Add failing compose and invert tests.**
 
 Require:
 
@@ -588,44 +588,53 @@ Require:
   `node_exists_constraint_on_revert`;
 - existing data-only compose/invert output is unchanged.
 
-- [ ] **Step 4: Implement compose and invert propagation.**
+- [x] **Step 4: Implement compose and invert propagation.**
 
 Thread constraint fields through node merge, alias resolution, pruning, and
 inverse construction. Recompute the aggregate count from node constraints
 after each operation instead of incrementally trusting stale input.
 
-- [ ] **Step 5: Add failing rebase cases from the corpus.**
+- [x] **Step 5: Add failing rebase cases from the corpus.**
 
 Cover unchanged node, same-node edit, move, remove, replace, remove-then-restore,
 cross-array move, concurrent insert around the node, nested constrained node,
 and already-violated input.
 
-- [ ] **Step 6: Implement rebase violation updates.**
+- [x] **Step 6: Implement rebase violation updates.**
 
 Port the pinned modular constraint update rule into the existing rebase state.
 A move preserves the constraint. A detach without reattachment marks it
 violated. A restored same identity clears a violation only when the pinned
 source does. Recompute `constraint_violation_count` after rebase.
 
-- [ ] **Step 7: Suppress visible field effects after explicit violation.**
+- [x] **Step 7: Suppress visible field effects after explicit violation.**
 
 When `constraint_violation_count > 0`, `into_delta` must preserve builds and
 refreshers required by history but omit constrained field effects. Keep this
 outcome distinct from an empty outer change and from schema conflict.
 
-- [ ] **Step 8: Run algebra and array identity tests on both targets.**
+- [x] **Step 8: Run algebra and array identity tests on both targets.**
 
 ```bash
 gleam test --target erlang -- shared_tree_transaction shared_tree_change shared_tree_array_change shared_tree_change_fixture
 gleam test --target javascript -- shared_tree_transaction shared_tree_change shared_tree_array_change shared_tree_change_fixture
 ```
 
-- [ ] **Step 9: Commit constraint semantics.**
+- [x] **Step 9: Commit constraint semantics.**
 
 ```bash
 git add src/watershed/tree/change.gleam src/watershed/tree/forest.gleam test/watershed
 git commit -m "feat(tree): enforce node constraints"
 ```
+
+**Completion evidence (2026-09-30):**
+
+- Constraint authoring and modular algebra are complete.
+- The focused Erlang and JavaScript commands each passed 122 tests.
+- Task review passed after one fix round.
+- Task 4 remains next and unimplemented.
+- Repository-wide `just build` and `just test` remain blocked only by the
+  reported existing pnpm lockfile validation issue.
 
 ### Task 4: Add pure nested transaction state
 
