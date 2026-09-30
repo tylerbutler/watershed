@@ -357,6 +357,7 @@ pub fn shared_tree_fixture_codec_rejects_invalid_tagged_revisions_test() -> Nil 
         destroys: [],
         refreshers: [],
         cross_field_keys: [],
+        constraint_violation_count: 0,
       ),
       order,
     )
@@ -389,11 +390,47 @@ pub fn shared_tree_fixture_codec_rejects_multi_tree_build_chunks_test() -> Nil {
         destroys: [],
         refreshers: [],
         cross_field_keys: [],
+        constraint_violation_count: 0,
       ),
       order,
     )
   codec.wire(changeset, [#(revision, 0)]) |> expect.to_be_error
   Nil
+}
+
+pub fn shared_tree_change_fixture_preserves_constraint_state_test() -> Nil {
+  let revision = stable_revision("00000000-0000-4000-b000-000000000001")
+  let id = types.AtomId(Some(revision), 0)
+  let assert Ok(order) = change.identity_order([#(revision, 0)])
+  let data =
+    change.ChangeData(
+      max_local_id: 0,
+      revisions: [change.RevisionInfo(revision, None)],
+      fields: [#("root", change.GenericField([#(0, id)]))],
+      nodes: [
+        #(
+          id,
+          change.NodeChange(
+            fields: [],
+            node_exists_constraint: Some(change.NodeExistsConstraint(True)),
+            node_exists_constraint_on_revert: Some(change.NodeExistsConstraint(
+              False,
+            )),
+          ),
+        ),
+      ],
+      parents: [#(id, change.ParentField(None, "root"))],
+      aliases: [],
+      builds: [],
+      destroys: [],
+      refreshers: [],
+      cross_field_keys: [],
+      constraint_violation_count: 1,
+    )
+  let assert Ok(changeset) = change.from_data(data, order)
+  let assert Ok(encoded) = codec.parse(codec.state_json(changeset))
+  let assert Ok(decoded) = codec.state(encoded, order)
+  change.to_data(decoded) |> expect.to_equal(data)
 }
 
 pub fn shared_tree_map_change_runner_rejects_invalid_input_test() -> Nil {

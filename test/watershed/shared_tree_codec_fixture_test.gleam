@@ -6,6 +6,7 @@ import watershed/json_ot.{VArray, VObject, VString}
 import watershed/tree/codec_fixture
 import watershed/tree/fixtures
 import watershed/tree/schema_evolution_fixture
+import watershed/tree/transaction_fixture
 
 pub fn shared_tree_codec_matches_upstream_test() -> Nil {
   fixtures.assert_case("tree-codecs", codec_fixture.run)
@@ -77,6 +78,13 @@ pub fn shared_tree_codec_fixture_observes_message_content_mutation_test() -> Nil
     Error(_) -> Nil
     Ok(observation) -> expect.to_be_false(observation == original)
   }
+}
+
+pub fn shared_tree_transaction_wire_decodes_constraints_test() -> Nil {
+  let assert Ok(fixtures.Case(input: input, ..)) =
+    fixtures.load("transaction-wire")
+  let _ = transaction_fixture.run_wire(input) |> expect.to_be_ok
+  Nil
 }
 
 pub fn shared_tree_codec_fixture_rejects_context_and_summary_mutations_test() -> Nil {

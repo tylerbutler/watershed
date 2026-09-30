@@ -37,8 +37,16 @@ pub type FieldChange {
   GenericField(children: List(#(Int, AtomId)))
 }
 
+pub type NodeExistsConstraint {
+  NodeExistsConstraint(violated: Bool)
+}
+
 pub type NodeChange {
-  NodeChange(fields: List(#(String, FieldChange)))
+  NodeChange(
+    fields: List(#(String, FieldChange)),
+    node_exists_constraint: Option(NodeExistsConstraint),
+    node_exists_constraint_on_revert: Option(NodeExistsConstraint),
+  )
 }
 
 pub type ParentField {
@@ -61,6 +69,7 @@ pub type ChangeData {
     destroys: List(forest.Destroy),
     refreshers: List(forest.Build),
     cross_field_keys: List(CrossFieldKey),
+    constraint_violation_count: Int,
   )
 }
 
@@ -205,6 +214,14 @@ type InvertWork {
   InvertWork(field: moves.FieldId, change: sequence_field.Changeset)
 }
 
+fn node_change(fields: List(#(String, FieldChange))) -> NodeChange {
+  NodeChange(
+    fields:,
+    node_exists_constraint: None,
+    node_exists_constraint_on_revert: None,
+  )
+}
+
 pub fn empty() -> Changeset {
   Changeset(
     ChangeData(
@@ -218,6 +235,7 @@ pub fn empty() -> Changeset {
       destroys: [],
       refreshers: [],
       cross_field_keys: [],
+      constraint_violation_count: 0,
     ),
     IdentityOrder([]),
     [],
@@ -317,7 +335,7 @@ fn data_identity_revisions(data: ChangeData) -> List(StableId) {
     list.flat_map(data.fields, fn(entry) { field_identity_revisions(entry.1) })
   let nodes =
     list.flat_map(data.nodes, fn(entry) {
-      let NodeChange(fields) = entry.1
+      let NodeChange(fields: fields, ..) = entry.1
       list.append(
         atom_identity_revisions(entry.0),
         list.flat_map(fields, fn(field) { field_identity_revisions(field.1) }),
@@ -502,7 +520,7 @@ fn sorted_derived_cross_field_keys(
   use root <- result.try(cross_field_keys_from_fields(data.fields, None))
   use nested <- result.try(
     list.try_fold(data.nodes, [], fn(keys, entry) {
-      let NodeChange(fields) = entry.1
+      let NodeChange(fields: fields, ..) = entry.1
       use found <- result.try(cross_field_keys_from_fields(
         fields,
         Some(entry.0),
@@ -576,7 +594,7 @@ fn validate_owned_fields(
       None -> Ok(data.fields)
       Some(parent) -> {
         use node <- result.try(node_for(parent, data.nodes))
-        let NodeChange(fields) = node
+        let NodeChange(fields: fields, ..) = node
         Ok(fields)
       }
     }
@@ -980,6 +998,7 @@ fn author_scalar_edit(
       destroys: [],
       refreshers: [],
       cross_field_keys: [],
+      constraint_violation_count: 0,
     ),
     identity_order,
   )
@@ -1455,7 +1474,7 @@ fn author_sibling_array_fields(
     list.flatten([
       first_branch.nodes,
       second_branch.nodes,
-      [#(common_id, NodeChange(branch_fields))],
+      [#(common_id, node_change(branch_fields))],
     ])
   let parents =
     list.flatten([
@@ -1507,7 +1526,7 @@ fn author_ancestor_array_fields(
   finish_cross_array_graph(
     common,
     common_id,
-    list.append(branch.nodes, [#(common_id, NodeChange([#("", direct)]))]),
+    list.append(branch.nodes, [#(common_id, node_change([#("", direct)]))]),
     list.append(branch.parents, [
       #(branch.top, ParentField(Some(common_id), "")),
     ]),
@@ -1549,6 +1568,7 @@ fn finish_cross_array_graph(
       destroys: [],
       refreshers: [],
       cross_field_keys: [],
+      constraint_violation_count: 0,
     ),
     identity_order,
   )
@@ -1659,7 +1679,7 @@ fn build_branch(
       leaf,
       revision,
       next_id,
-      [#(leaf, NodeChange([#(field, field_change)]))],
+      [#(leaf, node_change([#(field, field_change)]))],
       [],
     ),
   )
@@ -1723,6 +1743,7 @@ fn author_array_field(
       destroys: [],
       refreshers: [],
       cross_field_keys: [],
+      constraint_violation_count: 0,
     ),
     identity_order,
   )
@@ -1806,9 +1827,9 @@ pub fn replace_revisions(
   use nodes <- result.try(
     list.try_map(change.data.nodes, fn(entry) {
       use id <- result.try(replaced_atom(entry.0, state))
-      let NodeChange(fields) = entry.1
+      let NodeChange(fields: fields, ..) = entry.1
       use fields <- result.try(replace_field_map(fields, state))
-      Ok(#(id, NodeChange(fields)))
+      Ok(#(id, NodeChange(..entry.1, fields:)))
     }),
   )
   use parents <- result.try(
@@ -1955,7 +1976,7 @@ pub fn invert_with_trace(
   ))
   use #(nodes, state) <- result.try(
     list.try_fold(data.nodes, #([], state), fn(output, entry) {
-      let NodeChange(fields) = entry.1
+      let NodeChange(fields: fields, ..) = entry.1
       use #(fields, state) <- result.try(invert_field_map(
         fields,
         Some(entry.0),
@@ -1963,7 +1984,10 @@ pub fn invert_with_trace(
         inverse_revision,
         output.1,
       ))
-      Ok(#(list.append(output.0, [#(entry.0, NodeChange(fields))]), state))
+      Ok(#(
+        list.append(output.0, [#(entry.0, NodeChange(..entry.1, fields:))]),
+        state,
+      ))
     }),
   )
   use state <- result.try(
@@ -1999,6 +2023,7 @@ pub fn invert_with_trace(
       destroys: destroys,
       refreshers: [],
       cross_field_keys: [],
+      constraint_violation_count: 0,
     )
   use cross_field_keys <- result.try(sorted_derived_cross_field_keys(
     inverted_data,
@@ -2092,6 +2117,7 @@ pub fn rebase_with_trace(
       destroys: authored.destroys,
       refreshers: authored.refreshers,
       cross_field_keys: cross_field_keys,
+      constraint_violation_count: 0,
     )
   use rebased <- result.try(from_data(data, identity_order))
   use rebased <- result.try(prune(rebased))
@@ -2413,8 +2439,8 @@ fn rebase_nodes(
     None -> {
       use authored_node <- result.try(node_for(authored, state.authored.nodes))
       use base_node <- result.try(node_for(base, state.base.nodes))
-      let NodeChange(authored_fields) = authored_node
-      let NodeChange(base_fields) = base_node
+      let NodeChange(fields: authored_fields, ..) = authored_node
+      let NodeChange(fields: base_fields, ..) = base_node
       let state =
         RebaseState(
           ..state,
@@ -2431,7 +2457,8 @@ fn rebase_nodes(
         Some(base),
         state,
       ))
-      let nodes = put_pair(state.nodes, authored, NodeChange(fields))
+      let nodes =
+        put_pair(state.nodes, authored, NodeChange(..authored_node, fields:))
       Ok(#(authored, RebaseState(..state, nodes: nodes)))
     }
   }
@@ -2455,12 +2482,9 @@ fn copy_authored_node(
     Some(_) -> Ok(#(canonical, state))
     None -> {
       use node <- result.try(node_for(canonical, state.authored.nodes))
-      let NodeChange(fields) = node
+      let NodeChange(fields: fields, ..) = node
       let state =
-        RebaseState(
-          ..state,
-          nodes: put_pair(state.nodes, canonical, NodeChange(fields)),
-        )
+        RebaseState(..state, nodes: put_pair(state.nodes, canonical, node))
       use state <- result.try(
         list.try_fold(fields, state, fn(state, entry) {
           copy_field_children(entry.1, state)
@@ -2618,7 +2642,7 @@ fn collect_parents(
         "node has incompatible ownership",
       ))
       use node <- result.try(node_for(canonical, nodes))
-      let NodeChange(child_fields) = node
+      let NodeChange(fields: child_fields, ..) = node
       collect_parents(
         child_fields,
         Some(canonical),
@@ -2641,7 +2665,7 @@ fn collect_replacements(
   use state <- result.try(
     list.try_fold(data.nodes, state, fn(state, entry) {
       use state <- result.try(visit_atom(entry.0, 1, state))
-      let NodeChange(fields) = entry.1
+      let NodeChange(fields: fields, ..) = entry.1
       visit_field_map(fields, state)
     }),
   )
@@ -3166,10 +3190,14 @@ fn prune_node(
 ) -> Result(#(Option(AtomId), PruneState), TreeError) {
   use canonical <- result.try(resolve_alias(id, aliases))
   use node <- result.try(node_for(canonical, state.nodes))
-  let NodeChange(fields) = node
+  let NodeChange(fields: fields, ..) = node
   use #(fields, state) <- result.try(prune_field_map(fields, state, aliases))
-  case fields {
-    [] ->
+  case
+    fields,
+    node.node_exists_constraint,
+    node.node_exists_constraint_on_revert
+  {
+    [], None, None ->
       Ok(#(
         None,
         PruneState(
@@ -3177,11 +3205,11 @@ fn prune_node(
           remove_pair(state.parents, canonical),
         ),
       ))
-    _ ->
+    _, _, _ ->
       Ok(#(
         Some(id),
         PruneState(
-          put_pair(state.nodes, canonical, NodeChange(fields)),
+          put_pair(state.nodes, canonical, NodeChange(..node, fields:)),
           state.parents,
         ),
       ))
@@ -3244,7 +3272,7 @@ fn removed_roots_from_child(
 ) -> Result(List(AtomId), TreeError) {
   use canonical <- result.try(resolve_alias(id, data.aliases))
   use node <- result.try(node_for(canonical, data.nodes))
-  let NodeChange(fields) = node
+  let NodeChange(fields: fields, ..) = node
   removed_roots_from_fields(fields, data, roots)
 }
 
@@ -3287,7 +3315,7 @@ fn detached_roots_from_child(
 ) -> Result(List(AtomId), TreeError) {
   use canonical <- result.try(resolve_alias(id, data.aliases))
   use node <- result.try(node_for(canonical, data.nodes))
-  let NodeChange(fields) = node
+  let NodeChange(fields: fields, ..) = node
   detached_roots_from_fields(fields, data, roots)
 }
 
@@ -3517,6 +3545,7 @@ fn compose_pair(
       destroys: destroys,
       refreshers: refreshers,
       cross_field_keys: cross_field_keys,
+      constraint_violation_count: 0,
     ),
     identity_order,
   ))
@@ -3921,7 +3950,7 @@ fn sequence_field_for(
       use parent <- result.try(resolve_alias(parent, data.aliases))
       case pair_value(data.nodes, parent) {
         None -> Ok([])
-        Some(NodeChange(fields)) -> Ok(fields)
+        Some(NodeChange(fields:, ..)) -> Ok(fields)
       }
     }
   }
@@ -3985,7 +4014,7 @@ fn ensure_rebased_parent(
       let state =
         RebaseState(
           ..state,
-          nodes: put_pair(state.nodes, base, NodeChange([])),
+          nodes: put_pair(state.nodes, base, node_change([])),
           base_to_rebased: put_pair(state.base_to_rebased, base, base),
         )
       let source_field = moves.FieldId(base_parent, field)
@@ -4071,7 +4100,7 @@ fn field_change_for(
       use parent <- result.try(resolve_alias(parent, data.aliases))
       case pair_value(data.nodes, parent) {
         None -> Ok([])
-        Some(NodeChange(fields)) -> Ok(fields)
+        Some(NodeChange(fields:, ..)) -> Ok(fields)
       }
     }
   }
@@ -4474,10 +4503,13 @@ fn replace_node_field_results(
   replacements: List(#(moves.FieldId, FieldChange)),
 ) -> List(#(AtomId, NodeChange)) {
   list.map(nodes, fn(entry) {
-    let NodeChange(fields) = entry.1
+    let NodeChange(fields: fields, ..) = entry.1
     #(
       entry.0,
-      NodeChange(replace_field_results(fields, Some(entry.0), replacements)),
+      NodeChange(
+        ..entry.1,
+        fields: replace_field_results(fields, Some(entry.0), replacements),
+      ),
     )
   })
 }
@@ -4686,8 +4718,8 @@ fn compose_nodes(
     False -> {
       use first_node <- result.try(node_for(first_id, state.first.nodes))
       use second_node <- result.try(node_for(second_id, state.second.nodes))
-      let NodeChange(first_fields) = first_node
-      let NodeChange(second_fields) = second_node
+      let NodeChange(fields: first_fields, ..) = first_node
+      let NodeChange(fields: second_fields, ..) = second_node
       use first_canonical <- result.try(resolve_alias(first_id, state.aliases))
       use second_canonical <- result.try(resolve_alias(second_id, state.aliases))
       use #(canonical, aliases) <- result.try(unify_aliases(
@@ -4717,7 +4749,7 @@ fn compose_nodes(
         state.nodes
         |> remove_pair(first_canonical)
         |> remove_pair(second_canonical)
-        |> put_pair(canonical, NodeChange(fields))
+        |> put_pair(canonical, node_change(fields))
       let parents =
         state.parents
         |> remove_pair(first_canonical)
@@ -5251,7 +5283,7 @@ fn wrap_ancestors(
     [] -> Ok(#([#(field, field_change)], [], [], next_id - 1))
     _ -> {
       use #(child, next_id) <- result.try(allocate(revision, next_id))
-      let nodes = [#(child, NodeChange([#(field, field_change)]))]
+      let nodes = [#(child, node_change([#(field, field_change)]))]
       use #(top, nodes, parents, next_id) <- result.try(
         wrap_parent_fields(
           list.reverse(parent_steps),
@@ -5296,7 +5328,7 @@ fn wrap_parent_fields(
         revision,
         next_id,
         list.append(nodes, [
-          #(parent, NodeChange([#(field, GenericField([#(index, child)]))])),
+          #(parent, node_change([#(field, GenericField([#(index, child)]))])),
         ]),
         list.append(parents, [
           #(child, ParentField(Some(parent), field)),
@@ -5462,7 +5494,7 @@ fn generic_delta_marks(
 fn delta_child(id: AtomId, data: ChangeData) -> Result(DeltaParts, TreeError) {
   use canonical <- result.try(resolve_alias(id, data.aliases))
   use node <- result.try(node_for(canonical, data.nodes))
-  let NodeChange(fields) = node
+  let NodeChange(fields: fields, ..) = node
   delta_fields(fields, data)
 }
 
@@ -5485,6 +5517,11 @@ fn validate_data(data: ChangeData) -> Result(Nil, TreeError) {
     data.max_local_id >= -1 && data.max_local_id <= max_safe_integer,
     "change",
     "invalid allocation watermark",
+  ))
+  use _ <- result.try(check(
+    data.constraint_violation_count >= 0,
+    "change",
+    "constraint violation count is negative",
   ))
   use _ <- result.try(validate_revisions(data.revisions))
   use _ <- result.try(unique_pairs(data.fields, "root fields"))
@@ -5511,7 +5548,7 @@ fn validate_data(data: ChangeData) -> Result(Nil, TreeError) {
         "node changes",
         "alias source cannot key a node change",
       ))
-      let NodeChange(fields) = entry.1
+      let NodeChange(fields: fields, ..) = entry.1
       use _ <- result.try(unique_pairs(fields, "node fields"))
       validate_field_map(fields, "node fields")
     }),
@@ -5560,7 +5597,7 @@ fn validate_data_identity_order(
   use _ <- result.try(
     list.try_each(data.nodes, fn(entry) {
       use _ <- result.try(validate_atom_identity_order(entry.0, identity_order))
-      let NodeChange(fields) = entry.1
+      let NodeChange(fields: fields, ..) = entry.1
       validate_field_map_identity_order(fields, identity_order)
     }),
   )
@@ -5894,7 +5931,7 @@ fn walk_child(
   ))
   use node <- result.try(node_for(canonical, data.nodes))
   let owner = Ownership(canonical, parent)
-  let NodeChange(fields) = node
+  let NodeChange(fields: fields, ..) = node
   walk_fields(fields, Some(canonical), data, list.append(owners, [owner]), [
     canonical,
     ..stack

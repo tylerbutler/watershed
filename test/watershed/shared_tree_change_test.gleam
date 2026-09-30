@@ -73,6 +73,16 @@ fn atom_b(local_id: Int) -> AtomId {
   AtomId(Some(revision_b()), local_id)
 }
 
+fn node_change(
+  fields: List(#(String, change.FieldChange)),
+) -> change.NodeChange {
+  change.NodeChange(
+    fields:,
+    node_exists_constraint: None,
+    node_exists_constraint_on_revert: None,
+  )
+}
+
 fn empty_data() -> change.ChangeData {
   change.ChangeData(
     max_local_id: -1,
@@ -85,6 +95,7 @@ fn empty_data() -> change.ChangeData {
     destroys: [],
     refreshers: [],
     cross_field_keys: [],
+    constraint_violation_count: 0,
   )
 }
 
@@ -114,12 +125,12 @@ fn synthetic_first_data() -> change.ChangeData {
     nodes: [
       #(
         atom(4),
-        change.NodeChange([
+        node_change([
           #("nested-required", nested),
           #("pruned-optional", pruned_optional),
         ]),
       ),
-      #(atom(5), change.NodeChange([])),
+      #(atom(5), node_change([])),
     ],
     parents: [
       #(atom(4), change.ParentField(None, "root")),
@@ -167,6 +178,32 @@ pub fn shared_tree_change_empty_data_round_trips_test() {
   |> expect.to_equal(Ok(empty))
 }
 
+pub fn shared_tree_change_constraint_data_round_trips_test() -> Nil {
+  let node =
+    change.NodeChange(
+      fields: [],
+      node_exists_constraint: Some(change.NodeExistsConstraint(False)),
+      node_exists_constraint_on_revert: None,
+    )
+  let data =
+    change.ChangeData(
+      ..empty_data(),
+      fields: [#("root", change.GenericField([#(0, atom(1))]))],
+      nodes: [#(atom(1), node)],
+      parents: [#(atom(1), change.ParentField(None, "root"))],
+      constraint_violation_count: 1,
+    )
+  let assert Ok(decoded) = change.from_data(data, test_identity_order())
+  change.to_data(decoded) |> expect.to_equal(data)
+  let _ =
+    change.from_data(
+      change.ChangeData(..empty_data(), constraint_violation_count: -1),
+      test_identity_order(),
+    )
+    |> expect.to_be_error
+  Nil
+}
+
 pub fn shared_tree_change_identity_order_rejects_invalid_entries_test() {
   let too_large = 9_007_199_254_740_991 + 1
   let assert Error(InvalidHistory(_)) =
@@ -194,7 +231,7 @@ pub fn shared_tree_change_from_data_requires_identity_order_test() {
     change.ChangeData(
       ..empty_data(),
       fields: [#("root", change.GenericField([#(0, atom(1))]))],
-      nodes: [#(atom(1), change.NodeChange([]))],
+      nodes: [#(atom(1), node_change([]))],
       parents: [#(atom(1), change.ParentField(None, "root"))],
     )
   let assert Ok(identity_order) = change.identity_order([])
@@ -289,7 +326,7 @@ pub fn shared_tree_change_invert_uses_explicit_nonlexical_identity_order_test() 
       nodes: [
         #(
           a_atom(2),
-          change.NodeChange([
+          node_change([
             #(
               "x",
               change.ValueField(optional_field.set(False, a_atom(0), a_atom(1))),
@@ -298,7 +335,7 @@ pub fn shared_tree_change_invert_uses_explicit_nonlexical_identity_order_test() 
         ),
         #(
           a_atom(3),
-          change.NodeChange([
+          node_change([
             #("left", change.GenericField([#(0, a_atom(2))])),
           ]),
         ),
@@ -320,7 +357,7 @@ pub fn shared_tree_change_invert_uses_explicit_nonlexical_identity_order_test() 
       nodes: [
         #(
           b_atom(2),
-          change.NodeChange([
+          node_change([
             #(
               "x",
               change.ValueField(optional_field.set(False, b_atom(0), b_atom(1))),
@@ -329,7 +366,7 @@ pub fn shared_tree_change_invert_uses_explicit_nonlexical_identity_order_test() 
         ),
         #(
           b_atom(3),
-          change.NodeChange([
+          node_change([
             #("right", change.GenericField([#(0, b_atom(2))])),
           ]),
         ),
@@ -368,37 +405,43 @@ pub fn shared_tree_change_invert_uses_explicit_nonlexical_identity_order_test() 
   let assert [
     #(
       b_node,
-      change.NodeChange([
-        #(
-          "x",
-          change.ValueField(optional_field.FieldChange(
-            [],
-            [],
-            Some(optional_field.Replacement(
-              False,
-              Some(optional_field.Detached(b_source)),
-              b_detach,
+      change.NodeChange(
+        fields: [
+          #(
+            "x",
+            change.ValueField(optional_field.FieldChange(
+              [],
+              [],
+              Some(optional_field.Replacement(
+                False,
+                Some(optional_field.Detached(b_source)),
+                b_detach,
+              )),
             )),
-          )),
-        ),
-      ]),
+          ),
+        ],
+        ..,
+      ),
     ),
     #(
       a_node,
-      change.NodeChange([
-        #(
-          "x",
-          change.ValueField(optional_field.FieldChange(
-            [],
-            [],
-            Some(optional_field.Replacement(
-              False,
-              Some(optional_field.Detached(a_source)),
-              a_detach,
+      change.NodeChange(
+        fields: [
+          #(
+            "x",
+            change.ValueField(optional_field.FieldChange(
+              [],
+              [],
+              Some(optional_field.Replacement(
+                False,
+                Some(optional_field.Detached(a_source)),
+                a_detach,
+              )),
             )),
-          )),
-        ),
-      ]),
+          ),
+        ],
+        ..,
+      ),
     ),
     _,
   ] = inverse.nodes
@@ -413,7 +456,7 @@ pub fn shared_tree_change_invert_uses_explicit_nonlexical_identity_order_test() 
 
 pub fn shared_tree_change_rejects_duplicate_tables_and_generic_indices_test() {
   let field = change.GenericField([#(0, atom(1))])
-  let node = change.NodeChange([])
+  let node = node_change([])
   [
     change.ChangeData(..empty_data(), fields: [
       #("root", field),
@@ -498,7 +541,7 @@ pub fn shared_tree_change_rejects_missing_and_multiply_owned_nodes_test() {
     change.ChangeData(
       ..empty_data(),
       fields: [#("left", child), #("right", child)],
-      nodes: [#(atom(1), change.NodeChange([]))],
+      nodes: [#(atom(1), node_change([]))],
       parents: [#(atom(1), change.ParentField(None, "left"))],
     )
   let assert Error(CorruptData(_, _)) = checked(multiply_owned)
@@ -511,7 +554,7 @@ pub fn shared_tree_change_rejects_alias_keyed_node_tables_test() {
     change.ChangeData(
       ..empty_data(),
       fields: [#("root", change.GenericField([#(0, atom(2))]))],
-      nodes: [#(atom(1), change.NodeChange([]))],
+      nodes: [#(atom(1), node_change([]))],
       parents: [#(atom(1), change.ParentField(None, "root"))],
       aliases: [alias],
     )
@@ -522,7 +565,7 @@ pub fn shared_tree_change_rejects_alias_keyed_node_tables_test() {
     change.ChangeData(
       ..empty_data(),
       fields: [#("root", change.GenericField([#(0, atom(2))]))],
-      nodes: [#(atom(2), change.NodeChange([]))],
+      nodes: [#(atom(2), node_change([]))],
       parents: [#(atom(1), change.ParentField(None, "root"))],
       aliases: [alias],
     )
@@ -551,8 +594,8 @@ pub fn shared_tree_change_accepts_alias_bearing_nested_graph_test() {
       revisions: [change.RevisionInfo(revision_a(), None)],
       fields: [#("root", root)],
       nodes: [
-        #(atom(4), change.NodeChange([#("child", nested)])),
-        #(atom(5), change.NodeChange([])),
+        #(atom(4), node_change([#("child", nested)])),
+        #(atom(5), node_change([])),
       ],
       parents: [
         #(atom(4), change.ParentField(None, "root")),
@@ -590,7 +633,7 @@ pub fn shared_tree_change_nested_leaf_edit_builds_complete_delta_test() {
       nodes: [
         #(
           atom(2),
-          change.NodeChange([
+          node_change([
             #(
               "x",
               change.ValueField(optional_field.set(False, atom(0), atom(1))),
@@ -599,7 +642,7 @@ pub fn shared_tree_change_nested_leaf_edit_builds_complete_delta_test() {
         ),
         #(
           atom(3),
-          change.NodeChange([
+          node_change([
             #("point", change.GenericField([#(0, atom(2))])),
           ]),
         ),
@@ -672,7 +715,7 @@ pub fn shared_tree_change_optional_edit_uses_detach_then_fill_ids_test() {
   |> expect.to_equal([
     #(
       atom(2),
-      change.NodeChange([
+      node_change([
         #(
           "note",
           change.OptionalField(optional_field.set(True, atom(1), atom(0))),
@@ -769,7 +812,7 @@ pub fn shared_tree_change_root_field_key_child_is_not_root_path_test() {
       nodes: [
         #(
           atom(2),
-          change.NodeChange([
+          node_change([
             #(
               "rootFieldKey",
               change.ValueField(optional_field.set(False, atom(0), atom(1))),
@@ -841,7 +884,7 @@ pub fn shared_tree_change_delta_collects_global_rename_and_detached_data_test() 
       ..empty_data(),
       max_local_id: 30,
       fields: [#("root", field)],
-      nodes: [#(node, change.NodeChange([]))],
+      nodes: [#(node, node_change([]))],
       parents: [#(node, change.ParentField(None, "root"))],
       builds: [forest.Build(atom(40), [NumberValue(4.0)])],
       destroys: [forest.Destroy(atom(50), 1)],
@@ -877,7 +920,7 @@ pub fn shared_tree_change_sequence_delta_collects_child_global_and_rename_test()
       nodes: [
         #(
           child,
-          change.NodeChange([
+          node_change([
             #(
               "nested",
               change.OptionalField(optional_field.FieldChange(
@@ -888,7 +931,7 @@ pub fn shared_tree_change_sequence_delta_collects_child_global_and_rename_test()
             ),
           ]),
         ),
-        #(nested, change.NodeChange([])),
+        #(nested, node_change([])),
       ],
       parents: [
         #(child, change.ParentField(None, "root")),
@@ -926,7 +969,7 @@ pub fn shared_tree_change_delta_orders_nested_globals_child_first_test() {
       nodes: [
         #(
           outer_node,
-          change.NodeChange([
+          node_change([
             #(
               "inner",
               change.OptionalField(optional_field.FieldChange(
@@ -937,7 +980,7 @@ pub fn shared_tree_change_delta_orders_nested_globals_child_first_test() {
             ),
           ]),
         ),
-        #(inner_node, change.NodeChange([])),
+        #(inner_node, node_change([])),
       ],
       parents: [
         #(outer_node, change.ParentField(None, "root")),
@@ -995,7 +1038,7 @@ pub fn shared_tree_change_compose_nested_edits_matches_sequential_test() {
   |> expect.to_equal([
     #(
       atom(2),
-      change.NodeChange([
+      node_change([
         #("x", change.ValueField(optional_field.set(False, atom(0), atom(1)))),
         #(
           "y",
@@ -1005,7 +1048,7 @@ pub fn shared_tree_change_compose_nested_edits_matches_sequential_test() {
     ),
     #(
       atom(3),
-      change.NodeChange([
+      node_change([
         #("point", change.GenericField([#(0, atom(2))])),
       ]),
     ),
@@ -1097,7 +1140,10 @@ pub fn shared_tree_change_replace_revisions_remaps_collisions_test() {
     #("rootFieldKey", change.GenericField([#(0, AtomId(Some(revision_c), 3))])),
   ])
   let assert [
-    #(AtomId(Some(revision_c), 2), change.NodeChange([#("x", x), #("y", y)])),
+    #(
+      AtomId(Some(revision_c), 2),
+      change.NodeChange(fields: [#("x", x), #("y", y)], ..),
+    ),
     _,
   ] = data.nodes
   x
@@ -1131,7 +1177,7 @@ pub fn shared_tree_change_replace_revisions_refuses_dangling_alias_test() {
       ..empty_data(),
       max_local_id: 4,
       fields: [#("root", change.GenericField([#(0, alias)]))],
-      nodes: [#(root_id, change.NodeChange([]))],
+      nodes: [#(root_id, node_change([]))],
       parents: [#(root_id, change.ParentField(None, "root"))],
       aliases: [#(alias, root_id)],
     )
@@ -1156,10 +1202,10 @@ pub fn shared_tree_change_prune_keeps_unused_aliases_test() {
       max_local_id: 3,
       fields: [#("root", change.GenericField([#(0, alias)]))],
       nodes: [
-        #(leaf, change.NodeChange([#("empty", change.GenericField([]))])),
+        #(leaf, node_change([#("empty", change.GenericField([]))])),
         #(
           root_id,
-          change.NodeChange([
+          node_change([
             #("child", change.GenericField([#(0, leaf)])),
           ]),
         ),
@@ -1254,8 +1300,8 @@ pub fn shared_tree_change_removed_roots_and_refreshers_follow_ranges_test() {
       max_local_id: 31,
       fields: [#("root", field)],
       nodes: [
-        #(child, change.NodeChange([])),
-        #(atom(6), change.NodeChange([])),
+        #(child, node_change([])),
+        #(atom(6), node_change([])),
       ],
       parents: [
         #(child, change.ParentField(None, "root")),
@@ -1328,7 +1374,7 @@ pub fn shared_tree_change_compose_normalizes_generic_concrete_fields_test() {
       change.ChangeData(
         ..empty_data(),
         fields: [#("root", change.GenericField([#(0, first_id)]))],
-        nodes: [#(first_id, change.NodeChange([]))],
+        nodes: [#(first_id, node_change([]))],
         parents: [#(first_id, change.ParentField(None, "root"))],
       ),
     )
@@ -1346,7 +1392,7 @@ pub fn shared_tree_change_compose_normalizes_generic_concrete_fields_test() {
             )),
           ),
         ],
-        nodes: [#(second_id, change.NodeChange([]))],
+        nodes: [#(second_id, node_change([]))],
         parents: [#(second_id, change.ParentField(None, "root"))],
       ),
     )
@@ -1474,10 +1520,10 @@ pub fn shared_tree_change_invert_reserves_each_original_revision_test() {
   let assert [
     #(
       _,
-      change.NodeChange([
-        #("x", change.ValueField(x)),
-        #("y", change.ValueField(y)),
-      ]),
+      change.NodeChange(
+        fields: [#("x", change.ValueField(x)), #("y", change.ValueField(y))],
+        ..,
+      ),
     ),
     _,
   ] = data.nodes
@@ -1567,7 +1613,7 @@ pub fn shared_tree_change_invert_synthetic_reserves_metadata_revisions_test() {
       nodes: [
         #(
           atom(4),
-          change.NodeChange([
+          node_change([
             #(
               "nested-required",
               change.ValueField(optional_field.set(False, atom(41), atom_b(43))),
@@ -1582,7 +1628,7 @@ pub fn shared_tree_change_invert_synthetic_reserves_metadata_revisions_test() {
             ),
           ]),
         ),
-        #(atom(5), change.NodeChange([])),
+        #(atom(5), node_change([])),
       ],
       parents: [
         #(atom(4), change.ParentField(None, "root")),
@@ -1710,7 +1756,10 @@ pub fn shared_tree_change_rebase_parent_child_keeps_old_object_test() {
     #(_, _),
     #(
       root_node_id,
-      change.NodeChange([#("point", change.ValueField(point_change))]),
+      change.NodeChange(
+        fields: [#("point", change.ValueField(point_change))],
+        ..,
+      ),
     ),
   ] = rebased_data.nodes
   root_node_id |> expect.to_equal(atom(3))
@@ -1937,7 +1986,7 @@ pub fn shared_tree_change_optional_clear_present_keeps_parent_attached_test() {
       nodes: [
         #(
           atom(1),
-          change.NodeChange([
+          node_change([
             #(
               "note",
               change.OptionalField(optional_field.clear(False, atom(0))),
@@ -1982,7 +2031,7 @@ pub fn shared_tree_change_compose_reversed_nested_edits_matches_upstream_test() 
       nodes: [
         #(
           atom_b(2),
-          change.NodeChange([
+          node_change([
             #(
               "y",
               change.ValueField(optional_field.set(False, atom_b(0), atom_b(1))),
@@ -1995,7 +2044,7 @@ pub fn shared_tree_change_compose_reversed_nested_edits_matches_upstream_test() 
         ),
         #(
           atom_b(3),
-          change.NodeChange([
+          node_change([
             #("point", change.GenericField([#(0, atom_b(2))])),
           ]),
         ),

@@ -785,7 +785,10 @@ fn normalize_inverse(
           nodes: list.map(data.nodes, fn(entry) {
             #(
               normalize_atom(entry.0, mappings),
-              change.NodeChange(normalize_fields(entry.1.fields, mappings)),
+              change.NodeChange(
+                ..entry.1,
+                fields: normalize_fields(entry.1.fields, mappings),
+              ),
             )
           }),
           parents: list.map(data.parents, fn(entry) {

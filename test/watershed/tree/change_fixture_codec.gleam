@@ -158,12 +158,23 @@ pub fn state(
   value: JsonValue,
   identity_order: change.IdentityOrder,
 ) -> Result(change.Changeset, String) {
-  use _ <- result.try(
-    exact(value, [
-      "maxLocalId", "revisions", "fields", "nodes", "parents", "aliases",
-      "builds", "destroys", "refreshers",
-    ]),
-  )
+  let constraint_count = get(value, "constraintViolationCount")
+  use _ <- result.try(case constraint_count {
+    Error(_) ->
+      exact(value, [
+        "maxLocalId", "revisions", "fields", "nodes", "parents", "aliases",
+        "builds", "destroys", "refreshers",
+      ])
+    Ok(_) ->
+      exact(value, [
+        "maxLocalId", "revisions", "fields", "nodes", "parents", "aliases",
+        "builds", "destroys", "refreshers", "constraintViolationCount",
+      ])
+  })
+  use constraint_violation_count <- result.try(case constraint_count {
+    Error(_) -> Ok(0)
+    Ok(value) -> integer(value)
+  })
   use max_local_id <- result.try(field(value, "maxLocalId", integer))
   use revisions <- result.try(
     field(value, "revisions", fn(value) { many(value, revision_info) }),
@@ -174,9 +185,35 @@ pub fn state(
       many(value, fn(entry) {
         use #(id, node) <- result.try(pair(entry))
         use id <- result.try(atom(id))
-        use _ <- result.try(exact(node, ["fields"]))
+        let constraint = get(node, "nodeExistsConstraint")
+        use _ <- result.try(case constraint {
+          Error(_) -> exact(node, ["fields"])
+          Ok(_) ->
+            exact(node, [
+              "fields",
+              "nodeExistsConstraint",
+              "nodeExistsConstraintOnRevert",
+            ])
+        })
         use fields <- result.try(field(node, "fields", fields))
-        Ok(#(id, change.NodeChange(fields)))
+        use node_exists_constraint <- result.try(case constraint {
+          Error(_) -> Ok(None)
+          Ok(value) -> optional(value, decode_node_exists_constraint)
+        })
+        use node_exists_constraint_on_revert <- result.try(
+          case get(node, "nodeExistsConstraintOnRevert") {
+            Error(_) -> Ok(None)
+            Ok(value) -> optional(value, decode_node_exists_constraint)
+          },
+        )
+        Ok(#(
+          id,
+          change.NodeChange(
+            fields:,
+            node_exists_constraint:,
+            node_exists_constraint_on_revert:,
+          ),
+        ))
       })
     }),
   )
@@ -218,6 +255,7 @@ pub fn state(
       destroys:,
       refreshers:,
       cross_field_keys: [],
+      constraint_violation_count:,
     ),
     identity_order,
   )
@@ -349,7 +387,13 @@ fn destroy_json(value: forest.Destroy) -> Json {
 
 pub fn state_json(value: change.Changeset) -> Json {
   let value = change.to_data(value)
-  json.object([
+  let includes_constraints =
+    value.constraint_violation_count != 0
+    || list.any(value.nodes, fn(entry) {
+      entry.1.node_exists_constraint != None
+      || entry.1.node_exists_constraint_on_revert != None
+    })
+  let fields = [
     #("maxLocalId", json.int(value.max_local_id)),
     #("revisions", json.array(value.revisions, revision_info_json)),
     #("fields", fields_json(value.fields)),
@@ -358,7 +402,26 @@ pub fn state_json(value: change.Changeset) -> Json {
       json.array(value.nodes, fn(entry) {
         array([
           atom_json(entry.0),
-          json.object([#("fields", fields_json(entry.1.fields))]),
+          json.object(case includes_constraints {
+            False -> [#("fields", fields_json(entry.1.fields))]
+            True -> [
+              #("fields", fields_json(entry.1.fields)),
+              #(
+                "nodeExistsConstraint",
+                nullable(
+                  entry.1.node_exists_constraint,
+                  node_exists_constraint_json,
+                ),
+              ),
+              #(
+                "nodeExistsConstraintOnRevert",
+                nullable(
+                  entry.1.node_exists_constraint_on_revert,
+                  node_exists_constraint_json,
+                ),
+              ),
+            ]
+          }),
         ])
       }),
     ),
@@ -383,7 +446,29 @@ pub fn state_json(value: change.Changeset) -> Json {
     #("builds", json.array(value.builds, build_json)),
     #("destroys", json.array(value.destroys, destroy_json)),
     #("refreshers", json.array(value.refreshers, build_json)),
-  ])
+  ]
+  json.object(case includes_constraints {
+    False -> fields
+    True ->
+      list.append(fields, [
+        #(
+          "constraintViolationCount",
+          json.int(value.constraint_violation_count),
+        ),
+      ])
+  })
+}
+
+fn decode_node_exists_constraint(
+  value: JsonValue,
+) -> Result(change.NodeExistsConstraint, String) {
+  use _ <- result.try(exact(value, ["violated"]))
+  use violated <- result.try(field(value, "violated", boolean))
+  Ok(change.NodeExistsConstraint(violated))
+}
+
+fn node_exists_constraint_json(value: change.NodeExistsConstraint) -> Json {
+  json.object([#("violated", json.bool(value.violated))])
 }
 
 fn fields_json(values: List(#(String, change.FieldChange))) -> Json {

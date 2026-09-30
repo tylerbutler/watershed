@@ -756,23 +756,12 @@ fn decode_modular_value(
         "no-change constraints",
       ))
   })
-  use _ <- result.try(case optional(members, "violations") {
-    None -> Ok(Nil)
-    Some(value) -> {
-      use count <- result.try(nonnegative_integer(
-        value,
-        location <> ".violations",
-      ))
-      case count {
-        0 -> Ok(Nil)
-        _ ->
-          Error(types.UnsupportedFeature(
-            location <> ".violations",
-            "constraint violations",
-          ))
-      }
-    }
-  })
+  use constraint_violation_count <- result.try(
+    case optional(members, "violations") {
+      None -> Ok(0)
+      Some(value) -> nonnegative_integer(value, location <> ".violations")
+    },
+  )
   use max_id <- result.try(case optional(members, "maxId") {
     None -> Ok(-1)
     Some(value) -> nonnegative_integer(value, location <> ".maxId")
@@ -828,6 +817,7 @@ fn decode_modular_value(
       destroys: [],
       refreshers: refreshers,
       cross_field_keys: cross_field_keys,
+      constraint_violation_count:,
     )
   let DecodeContext(compressor: compressor, ..) = context
   use order <- result.try(identity_order(
@@ -1270,14 +1260,17 @@ fn decode_node_change(
     ["fieldChanges", "nodeExistsConstraint"],
     location,
   ))
-  use _ <- result.try(case optional(members, "nodeExistsConstraint") {
-    None -> Ok(Nil)
-    Some(_) ->
-      Error(types.UnsupportedFeature(
-        location <> ".nodeExistsConstraint",
-        "node existence constraints",
-      ))
-  })
+  use node_exists_constraint <- result.try(
+    case optional(members, "nodeExistsConstraint") {
+      None -> Ok(None)
+      Some(value) ->
+        decode_node_exists_constraint(
+          value,
+          location <> ".nodeExistsConstraint",
+        )
+        |> result.map(Some)
+    },
+  )
   let state = DecodeChangeState(next_id + 1, nodes, parents, cross_field_keys)
   use #(fields, state) <- result.try(case optional(members, "fieldChanges") {
     None -> Ok(#([], state))
@@ -1296,11 +1289,36 @@ fn decode_node_change(
     id,
     DecodeChangeState(
       next_id,
-      [#(id, change.NodeChange(fields)), ..nodes],
+      [
+        #(
+          id,
+          change.NodeChange(
+            fields:,
+            node_exists_constraint:,
+            node_exists_constraint_on_revert: None,
+          ),
+        ),
+        ..nodes
+      ],
       [#(id, change.ParentField(parent, field)), ..parents],
       cross_field_keys,
     ),
   ))
+}
+
+fn decode_node_exists_constraint(
+  value: JsonValue,
+  location: String,
+) -> Result(change.NodeExistsConstraint, TreeError) {
+  use members <- result.try(object(value, location))
+  use _ <- result.try(exact_keys(members, ["violated"], location))
+  use violated <- result.try(required(
+    members,
+    "violated",
+    location <> ".violated",
+  ))
+  use violated <- result.try(boolean(violated, location <> ".violated"))
+  Ok(change.NodeExistsConstraint(violated))
 }
 
 fn decode_replacement(
@@ -1501,6 +1519,10 @@ fn encode_modular_value(
   let members = case refreshers {
     None -> members
     Some(value) -> [#("refreshers", value), ..members]
+  }
+  let members = case data.constraint_violation_count {
+    0 -> members
+    count -> list.append(members, [#("violations", VNumber(NInt(count)))])
   }
   Ok(VObject(members))
 }
@@ -1769,8 +1791,8 @@ fn encode_node_change(
           CorruptData(location, "child node change is missing")
         }),
       )
-      case node.fields {
-        [] -> Ok(VObject([]))
+      use members <- result.try(case node.fields {
+        [] -> Ok([])
         fields -> {
           use fields <- result.try(encode_field_map(
             fields,
@@ -1779,9 +1801,20 @@ fn encode_node_change(
             change_context,
             location <> ".fieldChanges",
           ))
-          Ok(VObject([#("fieldChanges", fields)]))
+          Ok([#("fieldChanges", fields)])
         }
+      })
+      let members = case node.node_exists_constraint {
+        None -> members
+        Some(constraint) ->
+          list.append(members, [
+            #(
+              "nodeExistsConstraint",
+              VObject([#("violated", VBool(constraint.violated))]),
+            ),
+          ])
       }
+      Ok(VObject(members))
     }
   }
 }

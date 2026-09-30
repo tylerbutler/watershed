@@ -6,6 +6,7 @@ import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
 import watershed/fluid_ids
+import watershed/json_ot
 import watershed/tree/change
 import watershed/tree/codec
 import watershed/tree/fixtures
@@ -139,7 +140,13 @@ pub fn shared_tree_codec_decodes_raw_v7_generic_message_test() {
     data.fields
   child_id.local_id |> expect.to_equal(3)
   let assert [
-    #(_, change.NodeChange([#("title", change.ValueField(title_change))])),
+    #(
+      _,
+      change.NodeChange(
+        fields: [#("title", change.ValueField(title_change))],
+        ..,
+      ),
+    ),
   ] = data.nodes
   let assert Some(replacement) = title_change.replacement
   replacement.was_empty |> expect.to_be_false
@@ -193,8 +200,10 @@ pub fn shared_tree_codec_decodes_optional_clear_test() {
   let data = change.to_data(changes)
   let assert [#("rootFieldKey", change.GenericField([#(0, root_change)]))] =
     data.fields
-  let assert Ok(change.NodeChange([#("note", change.OptionalField(note_change))])) =
-    list.key_find(data.nodes, root_change)
+  let assert Ok(change.NodeChange(
+    fields: [#("note", change.OptionalField(note_change))],
+    ..,
+  )) = list.key_find(data.nodes, root_change)
   let assert Some(replacement) = note_change.replacement
   replacement.was_empty |> expect.to_be_false
   replacement.source |> expect.to_equal(None)
@@ -288,6 +297,92 @@ pub fn shared_tree_codec_encodes_native_authored_change_test() {
   change.to_data(decoded) |> expect.to_equal(change.to_data(authored))
 }
 
+pub fn shared_tree_codec_constraints_round_trip_pinned_v5_test() -> Nil {
+  let owner = session(session_a)
+  let assert Ok(#(compressor, local)) =
+    fluid_ids.new(owner) |> fluid_ids.generate
+  let assert #(compressor, Some(range)) =
+    fluid_ids.take_creation_range(compressor)
+  let assert Ok(compressor) = fluid_ids.finalize(compressor, range)
+  let assert Ok(revision) = fluid_ids.decompress(compressor, local)
+  let id = types.AtomId(Some(revision), 0)
+  let assert Ok(order) = change.identity_order([#(revision, 0)])
+  let assert Ok(changeset) =
+    change.from_data(
+      change.ChangeData(
+        max_local_id: 0,
+        revisions: [change.RevisionInfo(revision, None)],
+        fields: [#("root", change.GenericField([#(0, id)]))],
+        nodes: [
+          #(
+            id,
+            change.NodeChange(
+              fields: [],
+              node_exists_constraint: Some(change.NodeExistsConstraint(True)),
+              node_exists_constraint_on_revert: Some(
+                change.NodeExistsConstraint(False),
+              ),
+            ),
+          ),
+        ],
+        parents: [#(id, change.ParentField(None, "root"))],
+        aliases: [],
+        builds: [],
+        destroys: [],
+        refreshers: [],
+        cross_field_keys: [],
+        constraint_violation_count: 1,
+      ),
+      order,
+    )
+  let change_context = codec.ChangeContext(owner, Some(revision), codec.Message)
+  let decode_context = codec.DecodeContext(codec.Fluid310, compressor)
+  let encode_context = codec.EncodeContext(codec.Fluid310, compressor, None)
+  let assert Ok(encoded) =
+    codec.encode_modular(changeset, encode_context, change_context)
+  let encoded_text = json.to_string(encoded)
+  encoded_text
+  |> string.contains("\"nodeExistsConstraint\":{\"violated\":true}")
+  |> expect.to_be_true
+  encoded_text |> string.contains("\"violations\":1") |> expect.to_be_true
+  encoded_text
+  |> string.contains("nodeExistsConstraintOnRevert")
+  |> expect.to_be_false
+  let assert Ok(decoded) =
+    codec.decode_modular(encoded, decode_context, change_context)
+  let decoded = change.to_data(decoded)
+  decoded.constraint_violation_count |> expect.to_equal(1)
+  let assert [#(_, node)] = decoded.nodes
+  node.node_exists_constraint
+  |> expect.to_equal(Some(change.NodeExistsConstraint(True)))
+  node.node_exists_constraint_on_revert |> expect.to_equal(None)
+
+  let malformed =
+    string.replace(
+      encoded_text,
+      "\"violated\":true",
+      "\"violated\":true,\"extra\":false",
+    )
+  let assert Ok(malformed) = json_ot.parse_json(malformed)
+  codec.decode_modular(
+    json_ot.to_json(malformed),
+    decode_context,
+    change_context,
+  )
+  |> expect.to_be_error
+
+  let assert Ok(zero) =
+    change.from_data(
+      change.ChangeData(..decoded, constraint_violation_count: 0),
+      order,
+    )
+  let assert Ok(encoded_zero) =
+    codec.encode_modular(zero, encode_context, change_context)
+  json.to_string(encoded_zero)
+  |> string.contains("\"violations\"")
+  |> expect.to_be_false
+}
+
 pub fn shared_tree_codec_uses_ordered_schema_for_data_builds_test() {
   let owner = session(session_a)
   let assert Ok(#(compressor, local)) =
@@ -318,6 +413,7 @@ pub fn shared_tree_codec_uses_ordered_schema_for_data_builds_test() {
         destroys: [],
         refreshers: [],
         cross_field_keys: [],
+        constraint_violation_count: 0,
       ),
       order,
     )

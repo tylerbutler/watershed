@@ -1940,7 +1940,7 @@ fn first_detach(data: change.ChangeData) -> Result(types.AtomId, Nil) {
     data.fields,
     data.nodes
       |> list.flat_map(fn(entry) {
-        let change.NodeChange(fields) = entry.1
+        let change.NodeChange(fields:, ..) = entry.1
         fields
       }),
   )

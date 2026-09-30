@@ -122,6 +122,16 @@ fn atom(local_id: Int) -> AtomId {
   AtomId(Some(authored_revision()), local_id)
 }
 
+fn node_change(
+  fields: List(#(String, change.FieldChange)),
+) -> change.NodeChange {
+  change.NodeChange(
+    fields:,
+    node_exists_constraint: None,
+    node_exists_constraint_on_revert: None,
+  )
+}
+
 fn empty_data() -> change.ChangeData {
   change.ChangeData(
     max_local_id: -1,
@@ -134,6 +144,7 @@ fn empty_data() -> change.ChangeData {
     destroys: [],
     refreshers: [],
     cross_field_keys: [],
+    constraint_violation_count: 0,
   )
 }
 
@@ -149,10 +160,10 @@ fn object_map_change(
     revisions: [change.RevisionInfo(authored_revision(), None)],
     fields: [#("rootFieldKey", change.GenericField([#(0, atom(max_local_id))]))],
     nodes: [
-      #(atom(max_local_id - 1), change.NodeChange([#(field, field_change)])),
+      #(atom(max_local_id - 1), node_change([#(field, field_change)])),
       #(
         atom(max_local_id),
-        change.NodeChange([
+        node_change([
           #("items", change.GenericField([#(0, atom(max_local_id - 1))])),
         ]),
       ),
@@ -227,7 +238,7 @@ pub fn shared_tree_map_change_wraps_root_map_entry_test() {
       nodes: [
         #(
           atom(2),
-          change.NodeChange([
+          node_change([
             #(
               "root-key",
               change.OptionalField(optional_field.set(True, atom(1), atom(0))),
@@ -255,7 +266,7 @@ pub fn shared_tree_map_change_sets_nested_map_entry_test() {
       nodes: [
         #(
           atom(2),
-          change.NodeChange([
+          node_change([
             #(
               "after",
               change.OptionalField(optional_field.set(True, atom(1), atom(0))),
@@ -264,13 +275,13 @@ pub fn shared_tree_map_change_sets_nested_map_entry_test() {
         ),
         #(
           atom(3),
-          change.NodeChange([
+          node_change([
             #("nested", change.GenericField([#(0, atom(2))])),
           ]),
         ),
         #(
           atom(4),
-          change.NodeChange([
+          node_change([
             #("items", change.GenericField([#(0, atom(3))])),
           ]),
         ),

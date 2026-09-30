@@ -182,6 +182,7 @@ pub fn shared_tree_revision_infos_retain_conflicting_metadata_test() -> Nil {
         destroys: [],
         refreshers: [],
         cross_field_keys: [],
+        constraint_violation_count: 0,
       ),
       order,
     )
@@ -208,6 +209,7 @@ fn empty_data() -> change.ChangeData {
     destroys: [],
     refreshers: [],
     cross_field_keys: [],
+    constraint_violation_count: 0,
   )
 }
 

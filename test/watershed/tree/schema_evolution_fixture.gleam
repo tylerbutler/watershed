@@ -4612,6 +4612,7 @@ fn decode_internal_data(
       destroys:,
       refreshers: [],
       cross_field_keys: [],
+      constraint_violation_count: 0,
     ),
     identity_order,
   )
@@ -4746,7 +4747,14 @@ fn decode_internal_nodes(
         decode_internal_fields(value, originator, compressor)
       }),
     )
-    Ok(#(id, change.NodeChange(fields)))
+    Ok(#(
+      id,
+      change.NodeChange(
+        fields:,
+        node_exists_constraint: None,
+        node_exists_constraint_on_revert: None,
+      ),
+    ))
   })
 }
 

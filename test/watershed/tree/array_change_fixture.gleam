@@ -199,7 +199,14 @@ fn decode_graph(
         use fields <- result.try(
           codec.field(node, "fields", decode_fields(_, context)),
         )
-        Ok(#(id, change.NodeChange(fields)))
+        Ok(#(
+          id,
+          change.NodeChange(
+            fields:,
+            node_exists_constraint: None,
+            node_exists_constraint_on_revert: None,
+          ),
+        ))
       })
     }),
   )
@@ -250,6 +257,7 @@ fn decode_graph(
         refreshers: [],
         destroys: [],
         cross_field_keys: expected_keys,
+        constraint_violation_count: 0,
       ),
       context.identity_order,
     )

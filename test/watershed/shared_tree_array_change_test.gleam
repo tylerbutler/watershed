@@ -620,6 +620,7 @@ pub fn shared_tree_array_ownership_only_revisions_survive_identity_rebind_test()
           moves.FieldId(None, "root"),
         ),
       ],
+      constraint_violation_count: 0,
     )
   let assert Ok(authored) = change.from_data(data, identity_order())
   change.rebind_identity_order(authored, identity_order(), [])
@@ -747,6 +748,7 @@ pub fn shared_tree_array_retry_reserves_multi_revision_inverse_ids_test() {
           moves.FieldId(None, "right"),
         ),
       ],
+      constraint_violation_count: 0,
     )
   let second_data =
     change.ChangeData(
@@ -784,6 +786,7 @@ pub fn shared_tree_array_retry_reserves_multi_revision_inverse_ids_test() {
           moves.FieldId(None, "left"),
         ),
       ],
+      constraint_violation_count: 0,
     )
   let assert Ok(first) = change.from_data(first_data, identity_order())
   let assert Ok(second) = change.from_data(second_data, identity_order())
