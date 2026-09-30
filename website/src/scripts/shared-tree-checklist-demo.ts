@@ -29,7 +29,6 @@ type FocusedControl =
   | {
       id: string;
       control: "text";
-      value: string;
       start: number | null;
       end: number | null;
       direction: "forward" | "backward" | "none" | null;
@@ -71,7 +70,6 @@ function focusedControl(list: Element): FocusedControl | null {
     return {
       id,
       control: "text",
-      value: active.value,
       start: active.selectionStart,
       end: active.selectionEnd,
       direction: active.selectionDirection,
@@ -103,7 +101,6 @@ function restoreFocusedControl(
         candidate instanceof HTMLInputElement && candidate.type === "text",
     );
     if (!(input instanceof HTMLInputElement)) return;
-    input.value = focus.value;
     input.focus();
     if (focus.start != null && focus.end != null) {
       input.setSelectionRange(
@@ -145,10 +142,33 @@ export function initSharedTreeChecklistDemo(): void {
   );
   let rig: ReturnType<typeof createSluiceRig> = null;
   let rebuildingList = false;
+  const drafts = new Map<string, string>();
+  const deferredEdits = new Map<string, string>();
 
-  function submitEdit(client: RigClient, id: string, text: string): void {
+  function draftKey(client: RigClient, id: string): string {
+    return `${client.id}:${id}`;
+  }
+
+  function submitEdit(client: RigClient, id: string): void {
+    const key = draftKey(client, id);
+    const text = drafts.get(key);
+    if (text === undefined) return;
     const current = items(client).find((item) => item.id === id);
-    if (!current || current.text === text) return;
+    if (!current) {
+      expectOk(
+        websiteRuntime.shared_tree_checklist_edit(
+          checklist(client),
+          id,
+          text,
+        ),
+        `SharedTree checklist edit failed for ${id}`,
+      );
+      return;
+    }
+    if (current.text === text) {
+      drafts.delete(key);
+      return;
+    }
     rig?.submit(
       client,
       id,
@@ -163,6 +183,46 @@ export function initSharedTreeChecklistDemo(): void {
         );
       },
       `edit ${id}`,
+    );
+    drafts.delete(key);
+  }
+
+  function flushDeferredEdit(client: RigClient): void {
+    const id = deferredEdits.get(client.id);
+    if (!id) return;
+    deferredEdits.delete(client.id);
+    submitEdit(client, id);
+  }
+
+  function submitMove(
+    client: RigClient,
+    id: string,
+    direction: MoveDirection,
+  ): void {
+    const currentItems = items(client);
+    const index = currentItems.findIndex((item) => item.id === id);
+    const move =
+      direction === "up"
+        ? websiteRuntime.shared_tree_checklist_move_up
+        : websiteRuntime.shared_tree_checklist_move_down;
+    const error = `SharedTree checklist move ${direction} failed for ${id}`;
+    if (index < 0) {
+      expectOk(move(checklist(client), id), error);
+      return;
+    }
+    if (
+      (direction === "up" && index === 0) ||
+      (direction === "down" && index === currentItems.length - 1)
+    ) {
+      return;
+    }
+    rig?.submit(
+      client,
+      id,
+      () => {
+        expectOk(move(checklist(client), id), error);
+      },
+      `move ${id} ${direction}`,
     );
   }
 
@@ -192,7 +252,8 @@ export function initSharedTreeChecklistDemo(): void {
           item.completed ? "completed" : "not completed"
         }`,
       );
-      completed.addEventListener("change", () => {
+      completed.addEventListener("click", () => {
+        flushDeferredEdit(client);
         rig?.submit(
           client,
           item.id,
@@ -211,20 +272,36 @@ export function initSharedTreeChecklistDemo(): void {
 
       const text = document.createElement("input");
       text.type = "text";
-      text.value = item.text;
+      text.value = drafts.get(draftKey(client, item.id)) ?? item.text;
       text.dataset.itemId = item.id;
       text.setAttribute(
         "aria-label",
         `${CLIENT_LABEL[client.id as keyof typeof CLIENT_LABEL]} item text: ${item.text}`,
       );
+      text.addEventListener("input", () => {
+        const key = draftKey(client, item.id);
+        if (text.value === item.text) {
+          drafts.delete(key);
+        } else {
+          drafts.set(key, text.value);
+        }
+      });
       text.addEventListener("keydown", (event) => {
         if (event.key !== "Enter") return;
         event.preventDefault();
         text.blur();
       });
-      text.addEventListener("blur", () => {
+      text.addEventListener("blur", (event) => {
         if (rebuildingList) return;
-        submitEdit(client, item.id, text.value);
+        if (!drafts.has(draftKey(client, item.id))) return;
+        if (
+          event.relatedTarget instanceof HTMLElement &&
+          list.contains(event.relatedTarget)
+        ) {
+          deferredEdits.set(client.id, item.id);
+          return;
+        }
+        submitEdit(client, item.id);
       });
 
       const moves = document.createElement("span");
@@ -241,20 +318,8 @@ export function initSharedTreeChecklistDemo(): void {
         `Move ${CLIENT_LABEL[client.id as keyof typeof CLIENT_LABEL]} item ${item.text} up`,
       );
       moveUp.addEventListener("click", () => {
-        rig?.submit(
-          client,
-          item.id,
-          () => {
-            expectOk(
-              websiteRuntime.shared_tree_checklist_move_up(
-                checklist(client),
-                item.id,
-              ),
-              `SharedTree checklist move up failed for ${item.id}`,
-            );
-          },
-          `move ${item.id} up`,
-        );
+        flushDeferredEdit(client);
+        submitMove(client, item.id, "up");
       });
 
       const moveDown = document.createElement("button");
@@ -268,20 +333,8 @@ export function initSharedTreeChecklistDemo(): void {
         `Move ${CLIENT_LABEL[client.id as keyof typeof CLIENT_LABEL]} item ${item.text} down`,
       );
       moveDown.addEventListener("click", () => {
-        rig?.submit(
-          client,
-          item.id,
-          () => {
-            expectOk(
-              websiteRuntime.shared_tree_checklist_move_down(
-                checklist(client),
-                item.id,
-              ),
-              `SharedTree checklist move down failed for ${item.id}`,
-            );
-          },
-          `move ${item.id} down`,
-        );
+        flushDeferredEdit(client);
+        submitMove(client, item.id, "down");
       });
 
       moves.append(moveUp, moveDown);
@@ -333,11 +386,23 @@ export function initSharedTreeChecklistDemo(): void {
 
   for (const id of CLIENT_IDS) {
     const client = rig.clients[id];
+    const list = client.el.querySelector("[data-st-list]");
     const draft = client.el.querySelector("[data-st-draft]");
     const add = client.el.querySelector("[data-st-add]");
-    if (!(draft instanceof HTMLInputElement) || !(add instanceof HTMLButtonElement)) {
+    if (
+      !(list instanceof HTMLOListElement) ||
+      !(draft instanceof HTMLInputElement) ||
+      !(add instanceof HTMLButtonElement)
+    ) {
       continue;
     }
+
+    list.addEventListener("click", () => {
+      flushDeferredEdit(client);
+    });
+    list.addEventListener("keyup", (event) => {
+      if (event.key === "Tab") flushDeferredEdit(client);
+    });
 
     const submitAdd = () => {
       const text = draft.value.trim();
@@ -388,20 +453,7 @@ export function initSharedTreeChecklistDemo(): void {
       },
       "edit publish-survey",
     );
-    rig.submit(
-      clientB,
-      "inspect-spillway",
-      () => {
-        expectOk(
-          websiteRuntime.shared_tree_checklist_move_down(
-            checklist(clientB),
-            "inspect-spillway",
-          ),
-          "SharedTree checklist race move failed",
-        );
-      },
-      "move inspect-spillway down",
-    );
+    submitMove(clientB, "inspect-spillway", "down");
   });
   document.querySelector("[data-st-step]")?.addEventListener("click", () => {
     rig?.step();
@@ -410,6 +462,8 @@ export function initSharedTreeChecklistDemo(): void {
     rig?.settleNow();
   });
   document.querySelector("[data-st-reset]")?.addEventListener("click", () => {
+    drafts.clear();
+    deferredEdits.clear();
     rig?.reset();
   });
 }

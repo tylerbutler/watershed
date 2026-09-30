@@ -15,7 +15,7 @@ async function canonicals(page) {
   );
 }
 
-test("SharedTree checklist converges after local work and a stepped race", { timeout: 120_000 }, async (t) => {
+async function openChecklist(t) {
   const { page, errors } = await openBrowserTest(t);
   await page.setRequestInterception(true);
   page.on("request", (request) => {
@@ -30,6 +30,19 @@ test("SharedTree checklist converges after local work and a stepped race", { tim
   const response = await page.goto(new URL("/sharedtree/checklist", base).href);
   assert.equal(response?.status(), 200);
   await page.waitForSelector("[data-st-race]:not([disabled])");
+  return page;
+}
+
+async function replaceText(page, selector, text) {
+  await page.click(selector);
+  await page.keyboard.down("Control");
+  await page.keyboard.press("A");
+  await page.keyboard.up("Control");
+  await page.keyboard.type(text);
+}
+
+test("SharedTree checklist converges after local work and a stepped race", { timeout: 120_000 }, async (t) => {
+  const page = await openChecklist(t);
 
   const initial = await canonicals(page);
   assert.equal(initial.length, 2);
@@ -93,4 +106,206 @@ test("SharedTree checklist converges after local work and a stepped race", { tim
       );
   }, {}, baselineIds);
   assert.deepEqual(await canonicals(page), initial);
+});
+
+test("focused checklist text preserves only dirty local drafts", { timeout: 120_000 }, async (t) => {
+  const page = await openChecklist(t);
+
+  await page.evaluate(() => {
+    document
+      .querySelector(
+        '[data-client="b"] [data-item-id="publish-survey"][type="text"]',
+      )
+      ?.focus();
+    document.querySelector("[data-st-race]")?.click();
+    document.querySelector("[data-st-settle]")?.click();
+  });
+  await page.waitForFunction(() => {
+    const canonical = document.querySelector(
+      '[data-client="b"] [data-canonical]',
+    );
+    return canonical?.textContent?.includes("publish revised survey");
+  });
+
+  assert.equal(
+    await page.$eval(
+      '[data-client="b"] [data-item-id="publish-survey"][type="text"]',
+      (input) => input.value,
+    ),
+    "publish revised survey",
+  );
+
+  await page.evaluate(() => {
+    const input = document.querySelector(
+      '[data-client="b"] [data-item-id="publish-survey"][type="text"]',
+    );
+    if (input instanceof HTMLInputElement) input.blur();
+  });
+  assert.deepEqual(
+    await page.$$eval("[data-pending-count]", (elements) =>
+      elements.map((element) => element.textContent?.trim())
+    ),
+    ["0 pending", "0 pending"],
+  );
+  assert.equal(
+    (await canonicals(page))[1].find((item) => item.id === "publish-survey")
+      ?.text,
+    "publish revised survey",
+  );
+
+  await page.click("[data-st-reset]");
+  await replaceText(
+    page,
+    '[data-client="b"] [data-item-id="publish-survey"][type="text"]',
+    "publish local draft",
+  );
+  await page.evaluate(() => {
+    document.querySelector("[data-st-race]")?.click();
+    document.querySelector("[data-st-settle]")?.click();
+  });
+  assert.equal(
+    await page.$eval(
+      '[data-client="b"] [data-item-id="publish-survey"][type="text"]',
+      (input) => input.value,
+    ),
+    "publish local draft",
+  );
+  assert.equal(
+    (await canonicals(page))[1].find((item) => item.id === "publish-survey")
+      ?.text,
+    "publish revised survey",
+  );
+
+  await page.evaluate(() => {
+    const input = document.querySelector(
+      '[data-client="b"] [data-item-id="publish-survey"][type="text"]',
+    );
+    if (input instanceof HTMLInputElement) input.blur();
+    document.querySelector("[data-st-settle]")?.click();
+  });
+  assert.equal(
+    (await canonicals(page))[1].find((item) => item.id === "publish-survey")
+      ?.text,
+    "publish local draft",
+  );
+});
+
+test("dirty checklist edits coexist with move, toggle, and Tab focus", { timeout: 120_000 }, async (t) => {
+  const page = await openChecklist(t);
+
+  await replaceText(
+    page,
+    '[data-client="a"] [data-item-id="review-field-notes"][type="text"]',
+    "review revised notes",
+  );
+  await page.click(
+    '[data-client="a"] [data-item-id="review-field-notes"][data-move-direction="down"]',
+  );
+  await page.click("[data-st-settle]");
+  let clientA = (await canonicals(page))[0];
+  assert.deepEqual(
+    clientA.map((item) => item.id),
+    ["inspect-spillway", "publish-survey", "review-field-notes"],
+  );
+  assert.equal(
+    clientA.find((item) => item.id === "review-field-notes")?.text,
+    "review revised notes",
+  );
+
+  await page.click("[data-st-reset]");
+  await replaceText(
+    page,
+    '[data-client="a"] [data-item-id="review-field-notes"][type="text"]',
+    "review toggled notes",
+  );
+  await page.click(
+    '[data-client="a"] [data-item-id="review-field-notes"][type="checkbox"]',
+  );
+  await page.click("[data-st-settle]");
+  clientA = (await canonicals(page))[0];
+  assert.equal(
+    clientA.find((item) => item.id === "review-field-notes")?.text,
+    "review toggled notes",
+  );
+  assert.equal(
+    clientA.find((item) => item.id === "review-field-notes")?.completed,
+    true,
+  );
+
+  await page.click("[data-st-reset]");
+  await replaceText(
+    page,
+    '[data-client="a"] [data-item-id="review-field-notes"][type="text"]',
+    "review tab notes",
+  );
+  await page.keyboard.press("Tab");
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      id: document.activeElement?.getAttribute("data-item-id"),
+      direction: document.activeElement?.getAttribute("data-move-direction"),
+    })),
+    { id: "review-field-notes", direction: "up" },
+  );
+  await page.click("[data-st-settle]");
+  assert.equal(
+    (await canonicals(page))[0].find(
+      (item) => item.id === "review-field-notes",
+    )?.text,
+    "review tab notes",
+  );
+});
+
+test("repeated and boundary checklist races settle without phantom pending state", { timeout: 120_000 }, async (t) => {
+  const page = await openChecklist(t);
+
+  for (let index = 0; index < 4; index += 1) {
+    await page.click("[data-st-race]");
+    await page.click("[data-st-settle]");
+    assert.deepEqual(
+      await page.$$eval("[data-pending-count]", (elements) =>
+        elements.map((element) => element.textContent?.trim())
+      ),
+      ["0 pending", "0 pending"],
+    );
+  }
+
+  await page.click("[data-st-reset]");
+  for (let index = 0; index < 2; index += 1) {
+    await page.click(
+      '[data-client="b"] [data-item-id="inspect-spillway"][data-move-direction="down"]',
+    );
+    await page.click("[data-st-settle]");
+  }
+  assert.deepEqual(
+    (await canonicals(page))[1].map((item) => item.id),
+    ["review-field-notes", "publish-survey", "inspect-spillway"],
+  );
+
+  await page.click("[data-st-race]");
+  await page.waitForFunction(
+    () => document.querySelector("[data-st-status] .converged") !== null,
+    { timeout: 5_000 },
+  );
+  assert.deepEqual(
+    await page.$$eval("[data-pending-count]", (elements) =>
+      elements.map((element) => element.textContent?.trim())
+    ),
+    ["0 pending", "0 pending"],
+  );
+});
+
+test("Race keeps the current checklist and Reset names the baseline reset", { timeout: 120_000 }, async (t) => {
+  const page = await openChecklist(t);
+
+  const hint = await page.$eval(
+    "#sharedtree-checklist-demo .demo-hint",
+    (element) => element.textContent ?? "",
+  );
+  assert.equal(hint.includes("resets the seeded checklist"), false);
+  assert.match(
+    await page.$eval("[data-st-reset]", (element) =>
+      element.getAttribute("aria-label") ?? ""
+    ),
+    /seeded checklist/i,
+  );
 });

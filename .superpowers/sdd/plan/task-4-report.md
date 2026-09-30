@@ -144,3 +144,62 @@ drift, build, and browser gates above all passed independently.
 - `node --strip-types --test src/data/copy-gates.test.ts` — passed, 822
   tests.
 - `pnpm check:types` — passed.
+
+## Final Whole-Branch Fix Wave
+
+### Root Causes
+
+- Focus preservation copied every focused text input's DOM value across list
+  replacement. It could not distinguish an untouched field from a dirty local
+  draft, so a remote render restored stale text. The later blur compared that
+  stale value with the updated model and submitted a reverting edit.
+- A dirty text input submitted synchronously from `blur`. When focus moved to a
+  checkbox or move button, that submit rebuilt the list before the browser
+  completed click activation. When focus moved with Tab, the rebuild removed
+  the browser's next focus target.
+- Checklist boundary moves intentionally return `Ok(None)`. The page passed
+  that successful no-op to `rig.submit`, which assumes the write emitted a new
+  sequence number. It then attached pending and outbound bookkeeping to an
+  existing sequence number, leaving both clients pending after natural
+  delivery.
+- The demo hint still described Race as a seeded reset after Race had been
+  changed to preserve the current checklist.
+
+### Fixes
+
+- Track text drafts only after an `input` event changes a value from the
+  rendered model. Remote renders now preserve dirty drafts and refresh
+  untouched focused inputs from SharedTree state.
+- Defer a dirty blur only while focus moves to another control in the rebuilt
+  list. The next click activation flushes the edit inside the activated
+  control's handler; Tab flushes on the new control's keyup, after focus has
+  moved. The render restores that control by stable item ID.
+- Guard checklist moves against current first/last-row boundaries before
+  calling `rig.submit`. Missing stable IDs still run through the generated
+  bridge and `expectOk`, so bridge errors remain explicit.
+- Race continues to operate on the current checklist and preserve user-added
+  items. Reset remains the only seeded-baseline reset.
+
+No generic Sluice rig behavior, schema, dependency manifest, or lockfile
+changed.
+
+### Final Verification
+
+| Command | Result |
+| --- | --- |
+| Focused SharedTree browser file | exit 0; 5 passed |
+| `pnpm check:types && pnpm test:unit && pnpm build` | exit 0; types passed, 2,360 unit tests passed, 46 pages built |
+| `cd tools/website-runtime && gleam test` | exit 0; 7 passed |
+| Website runtime/Sluice node tests | exit 0; 22 passed |
+| `trellis run test --target javascript watershed` | exit 0; 2,573 passed |
+| `pnpm test:integration:browser:required` | exit 0; 41 browser tests passed |
+| `just lint` | exit 0 |
+| `just test` | exit 0; full repository matrix and 41 browser tests passed |
+| `git diff --check` | exit 0 |
+
+### Final Concerns
+
+One final `just test` attempt timed out in the unrelated
+`guide-race-styles.test.mjs` browser case while all checklist tests passed. The
+guide-race test passed immediately in isolation, and a complete `just test`
+retry passed all 41 browser tests. No checklist concern remains.

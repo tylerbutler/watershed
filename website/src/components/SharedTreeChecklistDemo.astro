@@ -20,8 +20,8 @@ const clients = [
       <strong class="k-sequenced">ink</strong>.
     </p>
     <p class="demo-hint">
-      <strong>Race edit vs. reorder</strong> resets the seeded checklist, then
-      has Client A revise <code>publish-survey</code> while Client B moves
+      <strong>Race edit vs. reorder</strong> keeps the current checklist intact:
+      Client A revises <code>publish-survey</code> while Client B moves
       <code>inspect-spillway</code> down. Both writes leave before either reaches
       the sequencer. Step the deliveries or settle them all: every replica lands
       on the same text and order.
