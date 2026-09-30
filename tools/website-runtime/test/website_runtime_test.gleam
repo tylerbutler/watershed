@@ -102,3 +102,110 @@ pub fn rejects_wrong_or_map_entry_modes_test() -> Nil {
     website_runtime.tally_entries(register)
   Nil
 }
+
+pub fn exposes_seeded_shared_tree_checklists_test() -> Nil {
+  let assert Ok(seed) = website_runtime.shared_tree_checklist_seed()
+  let rig =
+    sluice_js.start(
+      tenant: "default",
+      document: "website-runtime-shared-tree-checklist",
+    )
+  let document_a = sluice_js.connect_seeded(rig, "a", seed)
+  let document_b = sluice_js.connect_seeded(rig, "b", seed)
+  sluice_js.settle(rig)
+
+  let assert Ok(checklist_a) =
+    website_runtime.open_shared_tree_checklist(document_a)
+  let assert Ok(checklist_b) =
+    website_runtime.open_shared_tree_checklist(document_b)
+  let baseline = [
+    website_runtime.SharedTreeChecklistItem(
+      "inspect-spillway",
+      "inspect spillway",
+      False,
+    ),
+    website_runtime.SharedTreeChecklistItem(
+      "review-field-notes",
+      "review field notes",
+      False,
+    ),
+    website_runtime.SharedTreeChecklistItem(
+      "publish-survey",
+      "publish survey",
+      False,
+    ),
+  ]
+  let assert Ok(items_a) =
+    website_runtime.shared_tree_checklist_items(checklist_a)
+  let assert Ok(items_b) =
+    website_runtime.shared_tree_checklist_items(checklist_b)
+  let assert True = items_a == baseline
+  let assert True = items_b == baseline
+
+  let assert Ok(Nil) =
+    website_runtime.shared_tree_checklist_move_up(
+      checklist_a,
+      "inspect-spillway",
+    )
+  let assert Ok(Nil) =
+    website_runtime.shared_tree_checklist_toggle(
+      checklist_a,
+      "review-field-notes",
+    )
+  let assert Ok(Nil) =
+    website_runtime.shared_tree_checklist_toggle(
+      checklist_a,
+      "review-field-notes",
+    )
+
+  let assert Ok(Nil) =
+    website_runtime.shared_tree_checklist_add(
+      checklist_a,
+      "mark-low-ford",
+      "mark low ford",
+    )
+  sluice_js.settle(rig)
+
+  let assert Ok(Nil) =
+    website_runtime.shared_tree_checklist_edit(
+      checklist_a,
+      "publish-survey",
+      "publish revised survey",
+    )
+  let assert Ok(Nil) =
+    website_runtime.shared_tree_checklist_move_down(
+      checklist_b,
+      "inspect-spillway",
+    )
+  sluice_js.settle(rig)
+
+  let expected = [
+    website_runtime.SharedTreeChecklistItem(
+      "review-field-notes",
+      "review field notes",
+      False,
+    ),
+    website_runtime.SharedTreeChecklistItem(
+      "inspect-spillway",
+      "inspect spillway",
+      False,
+    ),
+    website_runtime.SharedTreeChecklistItem(
+      "publish-survey",
+      "publish revised survey",
+      False,
+    ),
+    website_runtime.SharedTreeChecklistItem(
+      "mark-low-ford",
+      "mark low ford",
+      False,
+    ),
+  ]
+  let assert Ok(items_a) =
+    website_runtime.shared_tree_checklist_items(checklist_a)
+  let assert Ok(items_b) =
+    website_runtime.shared_tree_checklist_items(checklist_b)
+  let assert True = items_a == expected
+  let assert True = items_b == expected
+  Nil
+}

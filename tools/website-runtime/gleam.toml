@@ -12,6 +12,7 @@ typescript_declarations = true
 gleam_json = ">= 3.0.0 and < 4.0.0"
 gleam_stdlib = ">= 0.62.0 and < 2.0.0"
 signet = ">= 0.1.0 and < 1.0.0"
+shared_tree_checklist_lustre = { path = "../../examples/shared_tree_checklist_lustre" }
 spillway = ">= 0.1.0 and < 1.0.0"
 watershed = { path = "../.." }
 watershed_lustre = { path = "../../watershed_lustre" }

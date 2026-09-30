@@ -196,3 +196,65 @@ test("rejects wrong OR-map entry modes", () => {
     "tally OR-map contains register value at key: notes",
   );
 });
+
+test("exposes seeded SharedTree checklists", () => {
+  const seed = expectOk(
+    websiteRuntime.shared_tree_checklist_seed(),
+    "checklist seed failed",
+  );
+  const rig = sluice.start("default", "website-runtime-checklist-contract");
+  const documentA = sluice.connect_seeded(rig, "a", seed);
+  const documentB = sluice.connect_seeded(rig, "b", seed);
+  sluice.settle(rig);
+
+  const checklistA = expectOk(
+    websiteRuntime.open_shared_tree_checklist(documentA),
+    "client A checklist open failed",
+  );
+  const checklistB = expectOk(
+    websiteRuntime.open_shared_tree_checklist(documentB),
+    "client B checklist open failed",
+  );
+  expectOk(
+    websiteRuntime.shared_tree_checklist_add(
+      checklistA,
+      "mark-low-ford",
+      "mark low ford",
+    ),
+    "checklist add failed",
+  );
+  sluice.settle(rig);
+
+  const plainItems = (checklist: typeof checklistA) =>
+    expectOk(
+      websiteRuntime.shared_tree_checklist_items(checklist),
+      "checklist items failed",
+    )
+      .toArray()
+      .map(({ id, text, completed }) => ({ id, text, completed }));
+
+  const expected = [
+    {
+      id: "inspect-spillway",
+      text: "inspect spillway",
+      completed: false,
+    },
+    {
+      id: "review-field-notes",
+      text: "review field notes",
+      completed: false,
+    },
+    {
+      id: "publish-survey",
+      text: "publish survey",
+      completed: false,
+    },
+    {
+      id: "mark-low-ford",
+      text: "mark low ford",
+      completed: false,
+    },
+  ];
+  assert.deepEqual(plainItems(checklistA), expected);
+  assert.deepEqual(plainItems(checklistB), expected);
+});

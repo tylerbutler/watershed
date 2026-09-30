@@ -5,19 +5,25 @@ import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
-import gleam/option.{None, Some, map}
+import gleam/option.{type Option, None, Some, map, to_result}
 import gleam/result
 import gleam/string
+import shared_tree_checklist_lustre/checklist
+import shared_tree_checklist_lustre/schema as checklist_schema
 import signet/types as token
 import spillway/message
 import spillway/types
 import watershed
 import watershed/channel
 import watershed/counter_kernel
+import watershed/fluid_ids
+import watershed/id
 import watershed/json_ot
 import watershed/or_map_kernel
 import watershed/runtime_core
+import watershed/tree/types as tree_types
 import watershed/wire
+import watershed/wire/fluid_document
 import watershed/wire/fluid_summary
 
 pub opaque type CounterCore {
@@ -42,6 +48,148 @@ pub type RegisterEntry {
 
 pub type TallyEntry {
   TallyEntry(key: String, value: Int)
+}
+
+pub opaque type SharedTreeChecklist {
+  SharedTreeChecklist(tree: watershed.SharedTree)
+}
+
+pub type SharedTreeChecklistItem {
+  SharedTreeChecklistItem(id: String, text: String, completed: Bool)
+}
+
+pub fn shared_tree_checklist_seed() -> Result(
+  runtime_core.BootstrapSeed,
+  String,
+) {
+  use session <- result.try(
+    fluid_ids.session_id(id.uuid_v4()) |> result.map_error(string.inspect),
+  )
+  use view <- result.try(
+    fluid_ids.stable_id(id.uuid_v4()) |> result.map_error(string.inspect),
+  )
+  use summary <- result.try(
+    fluid_document.initial_tree(
+      checklist_schema.stored(),
+      Some(
+        checklist_schema.checklist_value([
+          #("inspect-spillway", "inspect spillway", False),
+          #("review-field-notes", "review field notes", False),
+          #("publish-survey", "publish survey", False),
+        ]),
+      ),
+      session,
+      view,
+    )
+    |> result.map_error(string.inspect),
+  )
+  runtime_core.document_seed(summary)
+  |> result.map_error(string.inspect)
+}
+
+pub fn open_shared_tree_checklist(
+  document: watershed.Document(root),
+) -> Result(SharedTreeChecklist, String) {
+  use root <- result.try(watershed.resolve_root(document))
+  use tree_value <- result.try(
+    watershed.get(root, "tree")
+    |> result.map_error(fn(_) { "checklist root does not contain tree" }),
+  )
+  watershed.resolve_tree(document, tree_value, checklist_schema.view())
+  |> result.map(SharedTreeChecklist)
+}
+
+pub fn shared_tree_checklist_items(
+  checklist: SharedTreeChecklist,
+) -> Result(List(SharedTreeChecklistItem), String) {
+  let SharedTreeChecklist(tree) = checklist
+  use root <- result.try(watershed.tree_get(tree, []))
+  use value <- result.try(
+    root
+    |> to_result("SharedTree checklist root is absent"),
+  )
+  use decoded <- result.try(checklist.decode(value))
+  let checklist.Checklist(items: items, ..) = decoded
+  Ok(
+    list.map(items, fn(item) {
+      SharedTreeChecklistItem(item.id, item.text, item.completed)
+    }),
+  )
+}
+
+pub fn shared_tree_checklist_add(
+  checklist: SharedTreeChecklist,
+  id: String,
+  text: String,
+) -> Result(Nil, String) {
+  mutate_shared_tree_checklist(checklist, fn(value) {
+    checklist.add(value, id, text) |> result.map(Some)
+  })
+}
+
+pub fn shared_tree_checklist_edit(
+  checklist: SharedTreeChecklist,
+  id: String,
+  text: String,
+) -> Result(Nil, String) {
+  mutate_shared_tree_checklist(checklist, fn(value) {
+    checklist.edit(value, id, text) |> result.map(Some)
+  })
+}
+
+pub fn shared_tree_checklist_toggle(
+  checklist: SharedTreeChecklist,
+  id: String,
+) -> Result(Nil, String) {
+  mutate_shared_tree_checklist(checklist, fn(value) {
+    checklist.toggle(value, id) |> result.map(Some)
+  })
+}
+
+pub fn shared_tree_checklist_move_up(
+  checklist: SharedTreeChecklist,
+  id: String,
+) -> Result(Nil, String) {
+  mutate_shared_tree_checklist(checklist, fn(value) {
+    checklist.move_up(value, id)
+  })
+}
+
+pub fn shared_tree_checklist_move_down(
+  checklist: SharedTreeChecklist,
+  id: String,
+) -> Result(Nil, String) {
+  mutate_shared_tree_checklist(checklist, fn(value) {
+    checklist.move_down(value, id)
+  })
+}
+
+fn mutate_shared_tree_checklist(
+  checklist: SharedTreeChecklist,
+  prepare: fn(checklist.Checklist) -> Result(Option(tree_types.Edit), String),
+) -> Result(Nil, String) {
+  let SharedTreeChecklist(tree) = checklist
+  use root <- result.try(watershed.tree_get(tree, []))
+  use value <- result.try(
+    root
+    |> to_result("SharedTree checklist root is absent"),
+  )
+  use decoded <- result.try(checklist.decode(value))
+  use edit <- result.try(prepare(decoded))
+  case edit {
+    None -> Ok(Nil)
+    Some(tree_types.SetField(path, value)) ->
+      watershed.tree_set(tree, path, value)
+    Some(tree_types.ArrayInsert(path, index, values)) ->
+      watershed.tree_array_insert(tree, path, index, values)
+    Some(tree_types.ArrayRemove(path, start, end)) ->
+      watershed.tree_array_remove(tree, path, start, end)
+    Some(tree_types.ArrayMove(source, start, end, destination, gap)) ->
+      watershed.tree_array_move(tree, source, start, end, destination, gap)
+    Some(tree_types.ClearField(_)) -> Error("checklist does not clear fields")
+    Some(tree_types.MapSet(_, _, _)) | Some(tree_types.MapDelete(_, _)) ->
+      Error("checklist does not use map edits")
+  }
 }
 
 pub fn json_ot_parse(raw: String) -> Result(json_ot.JsonValue, String) {
