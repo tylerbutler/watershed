@@ -5,7 +5,7 @@ import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
-import gleam/option.{type Option, None, Some, map, to_result}
+import gleam/option.{type Option, None, Some, map}
 import gleam/result
 import gleam/string
 import shared_tree_checklist_lustre/checklist
@@ -106,7 +106,7 @@ pub fn shared_tree_checklist_items(
   use root <- result.try(watershed.tree_get(tree, []))
   use value <- result.try(
     root
-    |> to_result("SharedTree checklist root is absent"),
+    |> option.to_result("SharedTree checklist root is absent"),
   )
   use decoded <- result.try(checklist.decode(value))
   let checklist.Checklist(items: items, ..) = decoded
@@ -172,7 +172,7 @@ fn mutate_shared_tree_checklist(
   use root <- result.try(watershed.tree_get(tree, []))
   use value <- result.try(
     root
-    |> to_result("SharedTree checklist root is absent"),
+    |> option.to_result("SharedTree checklist root is absent"),
   )
   use decoded <- result.try(checklist.decode(value))
   use edit <- result.try(prepare(decoded))
