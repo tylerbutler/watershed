@@ -1,205 +1,196 @@
-# Task 4 Report: Dedicated SharedTree Checklist Page
+# SharedTree constraint codec Task 4 report
 
 ## Status
 
-Complete. The website now has a dedicated `/sharedtree/checklist` page with two
-production SharedTree replicas connected to the in-page Sluice rig.
+Complete. Task 4 adds permanent malformed-input, structural round-trip, and
+fixture input-observation coverage. It closes the standalone SharedTree
+constraint codec phase without adding constraint algebra, target resolution,
+transaction runtime behavior, or public APIs.
 
-## Implementation
+The pinned Message V7, SharedTreeChange V5, and ModularChange V5 formats remain
+unchanged. `noChangeConstraint` remains unsupported. The runner still removes
+only unsupported FieldBatch `builds` and `refreshers` before codec execution.
 
-- Added `website/src/components/SharedTreeChecklistDemo.astro`.
-  - Two replica articles with client IDs `a` and `b`.
-  - Required `data-st-*` hooks, canonical output, pending badges, sequencer,
-    operation log, flow layer, pace and jitter controls, race, step, settle,
-    reset, status, `noscript`, and failed-import fallback.
-  - Flat 1px linework, no panel radius or shadows.
-  - Magenta marks pending rows, ink marks sequenced rows, and waterline remains
-    reserved for links and operation paths.
-- Added `website/src/scripts/shared-tree-checklist-demo.ts`.
-  - Uses `createSluiceRig`, `demoSeed`, the generated `websiteRuntime`
-    SharedTree checklist bridge, and `ResultValue`.
-  - Opens and stores one opaque checklist handle per client.
-  - Reads generated records into plain `{ id, text, completed }` objects.
-  - Rebuilds only each checklist list and preserves an active edit's text,
-    focus, and selection during a render.
-  - Routes add, edit, toggle, move, race, step, settle, and reset through the
-    shared rig. Every generated `Result` is checked with `expectOk`.
-  - The race resets to the seed, submits Client A's `publish-survey` edit and
-    Client B's `inspect-spillway` move before delivery, and converges to:
-    `review-field-notes`, `inspect-spillway`, `publish-survey`, with
-    `publish-survey` reading `publish revised survey`.
-- Added `website/src/pages/sharedtree/checklist.astro`.
-  - Links back to `/sharedtree`.
-  - Explains the production SharedTree kernel, in-page Sluice, seeded native
-    container, and the Floodgate/two-tab Lustre counterpart.
-  - Links directly to the live demo and
-    `examples/shared_tree_checklist_lustre`.
-- Updated `website/src/pages/sharedtree.astro`.
-  - Preserves the typed-map comparison's scope.
-  - Describes the current native SharedTree browser facade and its remaining
-    demo exclusions.
-  - Adds a prominent `/sharedtree/checklist` link.
-- Updated the generated-runtime policy gate to register the new dedicated demo
-  and the previously committed SharedTree rig tests as named bridge consumers.
-- Regenerated `tools/website-runtime/manifest.toml` so the already-declared
-  local `shared_tree_checklist_lustre` dependency is recorded reproducibly.
+## Changes
 
-## Responsive and Keyboard Self-Review
+### Malformed input coverage
 
-### Desktop
+`test/watershed/shared_tree_codec_test.gleam` now rejects these violation
+counts at `modular.violations`:
 
-- The rig uses equal `minmax(0, 1fr)` replica columns around the central
-  sequencer.
-- Replica cards, list rows, controls, canonical values, and the operation log
-  all constrain long content instead of widening the page.
-- Pending and sequenced states use the required semantic colors.
+```json
+{"violations":-1}
+{"violations":1.5}
+{"violations":"1"}
+{"violations":true}
+```
 
-### Mobile
+It also rejects these malformed node constraints at the node constraint
+location:
 
-- At 940px the rig becomes Client A, sequencer, Client B in one column.
-- At 480px add controls and move controls stack vertically, and scenario
-  buttons become full width.
-- The hero reduces display stretch and size below 30rem to protect the Sheet
-  frame.
-- Coarse-pointer controls have at least 3rem height.
+```json
+{"nodeExistsConstraint":{}}
+{"nodeExistsConstraint":{"violated":"false"}}
+{"nodeExistsConstraint":{"violated":false,"extra":true}}
+{"nodeExistsConstraint":null}
+```
 
-### Keyboard and Assistive States
+`{"noChangeConstraint":{"violated":false}}` continues to return
+`UnsupportedFeature` at `modular.noChangeConstraint`.
 
-- All actions use native inputs and buttons and inherit the global 2px
-  magenta `:focus-visible` outline.
-- Enter adds a draft item and commits an item edit; blur also commits edits.
-- Toggle controls expose the client, item text, and completion state.
-- Move buttons expose the client, item text, and direction, and disable at the
-  first and last rows.
-- Reset and fallback assistive text is literal.
-- The status and operation log use live regions without replacing native
-  control behavior.
+### Structural round trips
 
-## Verification
+Direct ModularChange V5 tests now cover:
 
-- Task 4 external acceptance gate: passed.
-- SharedTree bridge and Sluice rig tests: 12 passed.
-- `pnpm check:types`: passed.
-- `node --strip-types --test src/data/copy-gates.test.ts`: passed.
-- `node --strip-types --test src/data/drift-gates.test.ts`: passed.
-- Impeccable mechanical detector: no findings.
-- `pnpm build`: passed, including the full website unit suite and Astro build.
-- Built route check: `website/dist/sharedtree/checklist/index.html` exists and
-  contains the live checklist section.
-- `git diff --check`: passed.
+- a constraint-only node change;
+- a constrained node with a nested object field;
+- a constrained node inside a sequence field;
+- an alias that resolves to a constrained node;
+- a violated change with both builds and refreshers;
+- exact omission of zero `violations`;
+- exact omission of native `node_exists_constraint_on_revert`;
+- exact encoded JSON for constraint-only, nested, array, and alias cases;
+- exact top-level members and native round-trip preservation for builds,
+  refreshers, and a nonzero violation count.
+
+### Runner input observation
+
+`test/watershed/shared_tree_transaction_test.gleam` independently mutates:
+
+- nonviolated `violated: false` to `true`;
+- violated top-level `violations: 1` to `0`;
+- the nonviolated compressor session ID;
+- `modularChange: 5` to `4`;
+- the nonviolated message revision byte from `4` to `3`.
+
+Each mutation must make `run_wire` return an error or a different observation.
+
+The compressor-session mutation exposed a real gap: the validated session ID
+affected compressor construction but was not represented in the normalized
+observation. `transaction_fixture.run_wire/1` now includes canonical,
+validated nonviolated and violated compressor session IDs under
+`compressorSessions`. Message JSON and bytes still come only from the real
+encoder.
+
+## TDD evidence
+
+### RED
+
+Malformed violation counts were added before changing behavior. Existing
+strict decoding was already green, so a temporary mutation changed
+`violations` decoding from `nonnegative_integer` to `integer`:
+
+```bash
+gleam test --target erlang -- --test-name-filter=shared_tree_codec_rejects_malformed_violation_counts_test
+```
+
+Result: failed on the negative count because the expected
+`modular.violations` corrupt-data error was absent.
+
+Malformed node constraints were added before changing behavior. Existing
+strict decoding was already green, so a temporary mutation allowed an
+additional `extra` member:
+
+```bash
+gleam test --target erlang -- --test-name-filter=shared_tree_codec_rejects_malformed_node_constraints_test
+```
+
+Result: failed with a pattern-match failure when the extra-member input was
+accepted.
+
+Structural round-trip cases were added before changing behavior. A temporary
+mutation removed `nodeExistsConstraint` encoding:
+
+```bash
+gleam test --target erlang -- --test-name-filter=shared_tree_codec_structural_constraints_round_trip_exact_json_test
+```
+
+Result: failed because the encoder returned an empty node object instead of
+the exact constraint object.
+
+The runner mutation test failed against the unmodified runner:
+
+```bash
+gleam test --target erlang -- --test-name-filter=shared_tree_transaction_wire_observes_independent_input_mutations_test
+```
+
+Result:
+
+```text
+compressor session mutation was not observed
+Tests: 1 failed (1)
+```
+
+All temporary codec mutations were restored before the final green runs.
+
+### GREEN
+
+Focused new behavior:
+
+```bash
+gleam test --target erlang -- --test-name-filter=shared_tree_codec_rejects_malformed_violation_counts_test
+gleam test --target erlang -- --test-name-filter=shared_tree_codec_rejects_malformed_node_constraints_test
+gleam test --target erlang -- --test-name-filter=shared_tree_codec_structural_constraints_round_trip_exact_json_test
+gleam test --target erlang -- --test-name-filter=shared_tree_codec_alias_constraint_omits_revert_constraint_test
+gleam test --target erlang -- --test-name-filter=shared_tree_codec_violated_change_keeps_build_members_test
+gleam test --target erlang -- --test-name-filter=shared_tree_transaction_wire_observes_independent_input_mutations_test
+```
+
+Result: each focused test passed.
+
+## Closure gates
+
+These exact commands passed:
+
+```bash
+gleam format --check src test
+gleam test --target erlang -- shared_tree_transaction shared_tree_change shared_tree_codec shared_tree_codec_fixture shared_tree_change_fixture
+gleam test --target javascript -- shared_tree_transaction shared_tree_change shared_tree_codec shared_tree_codec_fixture shared_tree_change_fixture
+just shared-tree-codec-interop
+just shared-tree-test
+```
+
+Results:
+
+- focused Erlang: 112 passed, 0 failed;
+- focused JavaScript: 112 passed, 0 failed;
+- codec interoperability: 2 targets, 30 items per target;
+- SharedTree profile: 756 passed, 0 failed, plus all owned smokes.
+
+The first codec interop attempt reported missing existing oracle dependencies.
+After `npm --prefix tools/shared-tree-oracle ci --no-audit --no-fund`, it
+reported the missing pinned Fluid checkout. After
+`npm --prefix tools/shared-tree-oracle run source:prepare`, the gate passed.
+No dependency manifest or lockfile changed. No Hex rate limit occurred.
+
+The commands retain pre-existing warnings for two unused private codec export
+helpers and JavaScript unsafe-integer test literals. This task adds no warning.
+
+## Parent plan
+
+Only Task 2 in
+`docs/superpowers/plans/2026-09-29-shared-tree-transactions.md` was marked
+complete. Its evidence records the implementation commits and exact closure
+commands.
+
+The plan states that native constraint state and pinned V5 codec support are
+complete. Task 3 constraint authoring and algebra remains next. Transaction
+runtime behavior and public APIs remain unimplemented. M5 remains incomplete,
+and public support claims are unchanged.
+
+## Files changed
+
+- `test/watershed/shared_tree_codec_test.gleam`
+- `test/watershed/shared_tree_transaction_test.gleam`
+- `test/watershed/tree/transaction_fixture.gleam`
+- `docs/superpowers/plans/2026-09-29-shared-tree-transactions.md`
+
+No generated fixture, dependency manifest, `.code-map`, or apm-managed file
+was changed.
 
 ## Concerns
 
-None.
-
-## Round 1 Fixes
-
-- Qualified the comparison page consistently as watershed's typed-map layer.
-  The description, headings, body copy, gaps section, conclusion, and table
-  framing now keep that scope explicit.
-- Kept the native facade contrast narrow: browser-created object, array, and
-  map trees, array moves, schema compatibility checks, and schema upgrades.
-  Transactions, undo and redo, branching, arbitrary checklist layouts, and
-  production token issuance remain stated limits.
-- Preserved keyboard focus across checklist list replacement for text inputs,
-  toggle checkboxes, and move buttons by stable item ID and control identity.
-  A move button keeps its direction while enabled; at the list boundary,
-  focus moves to the opposite direction for the same item so keyboard use can
-  continue.
-- Extended the real-browser demo checks with the SharedTree checklist
-  convergence path and focused toggle/repeated-move keyboard coverage.
-
-### Round 1 Verification
-
-- `node --test /home/tylerbu/.copilot/session-state/516e97b7-7902-4b9a-9ef4-4137500e6b6f/files/task-4-acceptance.test.mjs`
-  — passed, 1 test.
-- `node --strip-types --test src/scripts/demo/website-runtime-contract.test.ts src/scripts/demo/sluice-rig.test.ts src/scripts/demo/sluice-transport.test.ts`
-  — passed, 22 tests.
-- `pnpm check:types` — passed.
-- `node --strip-types --test src/data/copy-gates.test.ts` — passed, 822
-  tests.
-- `node --strip-types --test src/data/drift-gates.test.ts` — passed, 1,092
-  tests.
-- `pnpm build` — passed, including 2,360 unit tests and 46 built pages.
-- `pnpm test:integration:browser:required` — passed, including 2,360 unit
-  tests, 46 built pages, and 36 browser tests.
-- `git diff --check` — passed.
-
-### Round 1 Concerns
-
-`just test` was also attempted as a broader repository check. The core
-`watershed` package passed, and `shared_tree_checklist_lustre` passed all 6
-tests. Eight unrelated Lustre example packages could not resolve dependencies
-because the Hex API rate limit was exceeded, so the full matrix stopped before
-the website packages. The required Task 4 acceptance, bridge, type, copy,
-drift, build, and browser gates above all passed independently.
-
-## Round 2 Fix
-
-- Corrected the hero lede to describe watershed as the `typed-map layer`,
-  matching the rest of the comparison page.
-
-### Round 2 Verification
-
-- `node --strip-types --test src/data/copy-gates.test.ts` — passed, 822
-  tests.
-- `pnpm check:types` — passed.
-
-## Final Whole-Branch Fix Wave
-
-### Root Causes
-
-- Focus preservation copied every focused text input's DOM value across list
-  replacement. It could not distinguish an untouched field from a dirty local
-  draft, so a remote render restored stale text. The later blur compared that
-  stale value with the updated model and submitted a reverting edit.
-- A dirty text input submitted synchronously from `blur`. When focus moved to a
-  checkbox or move button, that submit rebuilt the list before the browser
-  completed click activation. When focus moved with Tab, the rebuild removed
-  the browser's next focus target.
-- Checklist boundary moves intentionally return `Ok(None)`. The page passed
-  that successful no-op to `rig.submit`, which assumes the write emitted a new
-  sequence number. It then attached pending and outbound bookkeeping to an
-  existing sequence number, leaving both clients pending after natural
-  delivery.
-- The demo hint still described Race as a seeded reset after Race had been
-  changed to preserve the current checklist.
-
-### Fixes
-
-- Track text drafts only after an `input` event changes a value from the
-  rendered model. Remote renders now preserve dirty drafts and refresh
-  untouched focused inputs from SharedTree state.
-- Defer a dirty blur only while focus moves to another control in the rebuilt
-  list. The next click activation flushes the edit inside the activated
-  control's handler; Tab flushes on the new control's keyup, after focus has
-  moved. The render restores that control by stable item ID.
-- Guard checklist moves against current first/last-row boundaries before
-  calling `rig.submit`. Missing stable IDs still run through the generated
-  bridge and `expectOk`, so bridge errors remain explicit.
-- Race continues to operate on the current checklist and preserve user-added
-  items. Reset remains the only seeded-baseline reset.
-
-No generic Sluice rig behavior, schema, dependency manifest, or lockfile
-changed.
-
-### Final Verification
-
-| Command | Result |
-| --- | --- |
-| Focused SharedTree browser file | exit 0; 5 passed |
-| `pnpm check:types && pnpm test:unit && pnpm build` | exit 0; types passed, 2,360 unit tests passed, 46 pages built |
-| `cd tools/website-runtime && gleam test` | exit 0; 7 passed |
-| Website runtime/Sluice node tests | exit 0; 22 passed |
-| `trellis run test --target javascript watershed` | exit 0; 2,573 passed |
-| `pnpm test:integration:browser:required` | exit 0; 41 browser tests passed |
-| `just lint` | exit 0 |
-| `just test` | exit 0; full repository matrix and 41 browser tests passed |
-| `git diff --check` | exit 0 |
-
-### Final Concerns
-
-One final `just test` attempt timed out in the unrelated
-`guide-race-styles.test.mjs` browser case while all checklist tests passed. The
-guide-race test passed immediately in isolation, and a complete `just test`
-retry passed all 41 browser tests. No checklist concern remains.
+Full compressed FieldBatch parity remains out of scope. The captured
+`builds` and `refreshers` contain identifier values that need separate
+compressor-aware FieldBatch decoding and byte-stable compressed encoding.
+This task does not reopen that ruling.

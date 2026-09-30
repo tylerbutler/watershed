@@ -14,8 +14,10 @@ type WireInput {
   WireInput(
     id: String,
     nonviolated_bytes: String,
+    nonviolated_session: fluid_ids.SessionId,
     nonviolated_compressor: fluid_ids.Compressor,
     violated_bytes: String,
+    violated_session: fluid_ids.SessionId,
     violated_compressor: fluid_ids.Compressor,
   )
 }
@@ -52,6 +54,23 @@ pub fn run_wire(input: Json) -> Result(Json, String) {
               json.object([
                 #("nonviolated", json.string(nonviolated.2)),
                 #("violated", json.string(violated.2)),
+              ]),
+            ),
+            #(
+              "compressorSessions",
+              json.object([
+                #(
+                  "nonviolated",
+                  json.string(fluid_ids.session_id_to_string(
+                    parsed.nonviolated_session,
+                  )),
+                ),
+                #(
+                  "violated",
+                  json.string(fluid_ids.session_id_to_string(
+                    parsed.violated_session,
+                  )),
+                ),
               ]),
             ),
           ]),
@@ -105,12 +124,12 @@ fn decode_input(value: JsonValue) -> Result(WireInput, String) {
     fixture_codec.text,
   ))
   use compressors <- result.try(fixture_codec.get(value, "compressor"))
-  use nonviolated_compressor <- result.try(fixture_codec.field(
+  use nonviolated <- result.try(fixture_codec.field(
     compressors,
     "nonviolated",
     decode_compressor,
   ))
-  use violated_compressor <- result.try(fixture_codec.field(
+  use violated <- result.try(fixture_codec.field(
     compressors,
     "violated",
     decode_compressor,
@@ -123,9 +142,11 @@ fn decode_input(value: JsonValue) -> Result(WireInput, String) {
   Ok(WireInput(
     id:,
     nonviolated_bytes:,
-    nonviolated_compressor:,
+    nonviolated_session: nonviolated.0,
+    nonviolated_compressor: nonviolated.1,
     violated_bytes:,
-    violated_compressor:,
+    violated_session: violated.0,
+    violated_compressor: violated.1,
   ))
 }
 
@@ -164,7 +185,9 @@ fn decode_context(value: JsonValue) -> Result(Nil, String) {
   }
 }
 
-fn decode_compressor(value: JsonValue) -> Result(fluid_ids.Compressor, String) {
+fn decode_compressor(
+  value: JsonValue,
+) -> Result(#(fluid_ids.SessionId, fluid_ids.Compressor), String) {
   use _ <- result.try(fixture_codec.exact(value, ["serialized", "sessionId"]))
   use serialized <- result.try(fixture_codec.field(
     value,
@@ -180,8 +203,11 @@ fn decode_compressor(value: JsonValue) -> Result(fluid_ids.Compressor, String) {
     fluid_ids.session_id(session_raw)
     |> result.map_error(string.inspect),
   )
-  fluid_ids.deserialize(json.string(serialized), session)
-  |> result.map_error(string.inspect)
+  use compressor <- result.try(
+    fluid_ids.deserialize(json.string(serialized), session)
+    |> result.map_error(string.inspect),
+  )
+  Ok(#(session, compressor))
 }
 
 fn decode_message(

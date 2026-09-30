@@ -149,6 +149,67 @@ pub fn shared_tree_transaction_wire_rejects_noncanonical_bytes_test() -> Nil {
   encoded_nonviolated |> expect.to_equal(expected_bytes)
 }
 
+pub fn shared_tree_transaction_wire_observes_independent_input_mutations_test() -> Nil {
+  let assert Ok(fixtures.Case(input: input, ..)) =
+    fixtures.load("transaction-wire")
+  let assert Ok(original) = transaction_fixture.run_wire(input)
+
+  [
+    #(
+      "nonviolated constraint flag",
+      replace_nested_string(
+        input,
+        "messageBytes",
+        "nonviolated",
+        "\"violated\":false",
+        "\"violated\":true",
+      ),
+    ),
+    #(
+      "violated count",
+      replace_nested_string(
+        input,
+        "messageBytes",
+        "violated",
+        "\"violations\":1",
+        "\"violations\":0",
+      ),
+    ),
+    #(
+      "compressor session",
+      replace_input(
+        input,
+        "989422b1-6ee8-49b7-bb0c-b27c95030135",
+        "989422b1-6ee8-49b7-bb0c-b27c95030136",
+      ),
+    ),
+    #(
+      "modular version",
+      replace_nested_integer(input, "context", "modularChange", 5, 4),
+    ),
+    #(
+      "message byte",
+      replace_nested_string(
+        input,
+        "messageBytes",
+        "nonviolated",
+        "\"revision\":4",
+        "\"revision\":3",
+      ),
+    ),
+  ]
+  |> list.each(fn(mutation) {
+    case transaction_fixture.run_wire(mutation.1) {
+      Error(_) -> Nil
+      Ok(observation) ->
+        case observation == original {
+          False -> Nil
+          True -> panic as { mutation.0 <> " mutation was not observed" }
+        }
+    }
+  })
+}
+
 fn wire_observation(value: json.Json) -> Result(json_ot.JsonValue, Nil) {
   let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(value))
   let assert Ok(VArray([observation])) = list.key_find(root, "observations")
@@ -179,6 +240,60 @@ fn normalize_message(bytes: String) -> Result(#(JsonValue, String), Nil) {
     |> encode_object
   let assert Ok(value) = json_ot.parse_json(normalized)
   Ok(#(value, normalized))
+}
+
+fn replace_nested_string(
+  input: json.Json,
+  parent_key: String,
+  child_key: String,
+  before: String,
+  after: String,
+) -> json.Json {
+  let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(input))
+  let assert Ok(VObject(parent)) = list.key_find(root, parent_key)
+  let assert Ok(VString(value)) = list.key_find(parent, child_key)
+  let changed = string.replace(value, before, after)
+  expect.to_be_false(changed == value)
+  root
+  |> list.key_set(
+    parent_key,
+    VObject(list.key_set(parent, child_key, VString(changed))),
+  )
+  |> VObject
+  |> json_ot.to_json
+}
+
+fn replace_nested_integer(
+  input: json.Json,
+  parent_key: String,
+  child_key: String,
+  before: Int,
+  after: Int,
+) -> json.Json {
+  let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(input))
+  let assert Ok(VObject(parent)) = list.key_find(root, parent_key)
+  let assert Ok(json_ot.VNumber(json_ot.NInt(value))) =
+    list.key_find(parent, child_key)
+  value |> expect.to_equal(before)
+  root
+  |> list.key_set(
+    parent_key,
+    VObject(list.key_set(
+      parent,
+      child_key,
+      json_ot.VNumber(json_ot.NInt(after)),
+    )),
+  )
+  |> VObject
+  |> json_ot.to_json
+}
+
+fn replace_input(input: json.Json, before: String, after: String) -> json.Json {
+  let raw = json.to_string(input)
+  let changed = string.replace(raw, before, after)
+  expect.to_be_false(changed == raw)
+  let assert Ok(value) = json_ot.parse_json(changed)
+  json_ot.to_json(value)
 }
 
 fn encode_object(members: List(#(String, String))) -> String {

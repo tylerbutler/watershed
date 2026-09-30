@@ -383,6 +383,212 @@ pub fn shared_tree_codec_constraints_round_trip_pinned_v5_test() -> Nil {
   |> expect.to_be_false
 }
 
+pub fn shared_tree_codec_rejects_malformed_violation_counts_test() -> Nil {
+  let owner = session(session_a)
+  let compressor = fluid_ids.new(owner)
+  let context = codec.DecodeContext(codec.Fluid310, compressor)
+  let change_context = codec.ChangeContext(owner, None, codec.Message)
+
+  ["-1", "1.5", "\"1\"", "true"]
+  |> list.each(fn(violations) {
+    let assert Ok(value) =
+      json_ot.parse_json("{\"changes\":[],\"violations\":" <> violations <> "}")
+    let assert Error(types.CorruptData(location, _)) =
+      codec.decode_modular(json_ot.to_json(value), context, change_context)
+    location |> expect.to_equal("modular.violations")
+  })
+}
+
+pub fn shared_tree_codec_rejects_malformed_node_constraints_test() -> Nil {
+  let owner = session(session_a)
+  let compressor = fluid_ids.new(owner)
+  let context = codec.DecodeContext(codec.Fluid310, compressor)
+  let change_context = codec.ChangeContext(owner, None, codec.Message)
+
+  [
+    "{}",
+    "{\"violated\":\"false\"}",
+    "{\"violated\":false,\"extra\":true}",
+    "null",
+  ]
+  |> list.each(fn(constraint) {
+    let raw =
+      "{\"changes\":[{\"fieldKey\":\"root\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"nodeExistsConstraint\":"
+      <> constraint
+      <> "}]]}]}"
+    let assert Ok(value) = json_ot.parse_json(raw)
+    let assert Error(types.CorruptData(location, _)) =
+      codec.decode_modular(json_ot.to_json(value), context, change_context)
+    location
+    |> string.starts_with("modular.changes[0].change.nodeExistsConstraint")
+    |> expect.to_be_true
+  })
+
+  let assert Ok(no_change) =
+    json_ot.parse_json(
+      "{\"changes\":[],\"noChangeConstraint\":{\"violated\":false}}",
+    )
+  let assert Error(types.UnsupportedFeature(location, _)) =
+    codec.decode_modular(json_ot.to_json(no_change), context, change_context)
+  location |> expect.to_equal("modular.noChangeConstraint")
+}
+
+pub fn shared_tree_codec_structural_constraints_round_trip_exact_json_test() -> Nil {
+  let owner = session(session_a)
+  let assert Ok(#(compressor, local)) =
+    fluid_ids.new(owner) |> fluid_ids.generate
+  let assert #(compressor, Some(range)) =
+    fluid_ids.take_creation_range(compressor)
+  let assert Ok(compressor) = fluid_ids.finalize(compressor, range)
+  let assert Ok(revision) = fluid_ids.decompress(compressor, local)
+  let decode_context = codec.DecodeContext(codec.Fluid310, compressor)
+  let encode_context = codec.EncodeContext(codec.Fluid310, compressor, None)
+  let change_context = codec.ChangeContext(owner, Some(revision), codec.Message)
+
+  [
+    "{\"maxId\":0,\"changes\":[{\"fieldKey\":\"root\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"nodeExistsConstraint\":{\"violated\":false}}]]}]}",
+    "{\"maxId\":1,\"changes\":[{\"fieldKey\":\"root\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"child\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"nodeExistsConstraint\":{\"violated\":false}}]]}],\"nodeExistsConstraint\":{\"violated\":false}}]]}]}",
+    "{\"maxId\":1,\"changes\":[{\"fieldKey\":\"root\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"items\",\"fieldKind\":\"Sequence\",\"change\":[{\"count\":1,\"cellId\":1,\"changes\":{\"nodeExistsConstraint\":{\"violated\":false}}}]}]}]]}]}",
+  ]
+  |> list.each(fn(raw) {
+    let assert Ok(value) = json_ot.parse_json(raw)
+    let assert Ok(decoded) =
+      codec.decode_modular(
+        json_ot.to_json(value),
+        decode_context,
+        change_context,
+      )
+    let assert Ok(encoded) =
+      codec.encode_modular(decoded, encode_context, change_context)
+    json.to_string(encoded) |> expect.to_equal(raw)
+  })
+}
+
+pub fn shared_tree_codec_alias_constraint_omits_revert_constraint_test() -> Nil {
+  let owner = session(session_a)
+  let assert Ok(#(compressor, local)) =
+    fluid_ids.new(owner) |> fluid_ids.generate
+  let assert #(compressor, Some(range)) =
+    fluid_ids.take_creation_range(compressor)
+  let assert Ok(compressor) = fluid_ids.finalize(compressor, range)
+  let assert Ok(revision) = fluid_ids.decompress(compressor, local)
+  let target = types.AtomId(Some(revision), 0)
+  let alias = types.AtomId(Some(revision), 1)
+  let assert Ok(order) = change.identity_order([#(revision, 0)])
+  let assert Ok(changeset) =
+    change.from_data(
+      change.ChangeData(
+        max_local_id: 1,
+        revisions: [change.RevisionInfo(revision, None)],
+        fields: [#("root", change.GenericField([#(0, alias)]))],
+        nodes: [
+          #(
+            target,
+            change.NodeChange(
+              fields: [],
+              node_exists_constraint: Some(change.NodeExistsConstraint(False)),
+              node_exists_constraint_on_revert: Some(
+                change.NodeExistsConstraint(True),
+              ),
+            ),
+          ),
+        ],
+        parents: [#(target, change.ParentField(None, "root"))],
+        aliases: [#(alias, target)],
+        builds: [],
+        destroys: [],
+        refreshers: [],
+        cross_field_keys: [],
+        constraint_violation_count: 0,
+      ),
+      order,
+    )
+  let change_context = codec.ChangeContext(owner, Some(revision), codec.Message)
+  let assert Ok(encoded) =
+    codec.encode_modular(
+      changeset,
+      codec.EncodeContext(codec.Fluid310, compressor, None),
+      change_context,
+    )
+  json.to_string(encoded)
+  |> expect.to_equal(
+    "{\"maxId\":1,\"changes\":[{\"fieldKey\":\"root\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"nodeExistsConstraint\":{\"violated\":false}}]]}]}",
+  )
+}
+
+pub fn shared_tree_codec_violated_change_keeps_build_members_test() -> Nil {
+  let owner = session(session_a)
+  let assert Ok(#(compressor, local)) =
+    fluid_ids.new(owner) |> fluid_ids.generate
+  let assert #(compressor, Some(range)) =
+    fluid_ids.take_creation_range(compressor)
+  let assert Ok(compressor) = fluid_ids.finalize(compressor, range)
+  let assert Ok(revision) = fluid_ids.decompress(compressor, local)
+  let constrained = types.AtomId(Some(revision), 0)
+  let build =
+    forest.Build(types.AtomId(Some(revision), 1), [
+      types.StringValue("built"),
+    ])
+  let refresher =
+    forest.Build(types.AtomId(Some(revision), 2), [
+      types.StringValue("refreshed"),
+    ])
+  let assert Ok(order) = change.identity_order([#(revision, 0)])
+  let assert Ok(changeset) =
+    change.from_data(
+      change.ChangeData(
+        max_local_id: 2,
+        revisions: [change.RevisionInfo(revision, None)],
+        fields: [#("root", change.GenericField([#(0, constrained)]))],
+        nodes: [
+          #(
+            constrained,
+            change.NodeChange(
+              fields: [],
+              node_exists_constraint: Some(change.NodeExistsConstraint(True)),
+              node_exists_constraint_on_revert: None,
+            ),
+          ),
+        ],
+        parents: [#(constrained, change.ParentField(None, "root"))],
+        aliases: [],
+        builds: [build],
+        destroys: [],
+        refreshers: [refresher],
+        cross_field_keys: [],
+        constraint_violation_count: 1,
+      ),
+      order,
+    )
+  let change_context = codec.ChangeContext(owner, Some(revision), codec.Message)
+  let decode_context = codec.DecodeContext(codec.Fluid310, compressor)
+  let assert Ok(encoded) =
+    codec.encode_modular(
+      changeset,
+      codec.EncodeContext(codec.Fluid310, compressor, None),
+      change_context,
+    )
+  let assert Ok(json_ot.VObject(members)) =
+    json_ot.parse_json(json.to_string(encoded))
+  members
+  |> list.map(fn(member) { member.0 })
+  |> expect.to_equal([
+    "builds",
+    "changes",
+    "maxId",
+    "refreshers",
+    "violations",
+  ])
+  let assert Ok(json_ot.VNumber(json_ot.NInt(1))) =
+    list.key_find(members, "violations")
+  let assert Ok(decoded) =
+    codec.decode_modular(encoded, decode_context, change_context)
+  let decoded = change.to_data(decoded)
+  decoded.builds |> expect.to_equal([build])
+  decoded.refreshers |> expect.to_equal([refresher])
+  decoded.constraint_violation_count |> expect.to_equal(1)
+}
+
 pub fn shared_tree_codec_uses_ordered_schema_for_data_builds_test() {
   let owner = session(session_a)
   let assert Ok(#(compressor, local)) =

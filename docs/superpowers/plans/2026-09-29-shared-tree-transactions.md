@@ -444,7 +444,7 @@ git commit -m "test(tree): capture transaction contract"
 - Produces: the section-3 constraint data model and lossless ModularChange V5
   encode/decode support.
 
-- [ ] **Step 1: Add input-only codec fixture tests.**
+- [x] **Step 1: Add input-only codec fixture tests.**
 
 Add:
 
@@ -465,7 +465,7 @@ gleam test --target javascript -- shared_tree_transaction shared_tree_codec
 
 Expected red: nonzero `violations` and `nodeExistsConstraint` are unsupported.
 
-- [ ] **Step 2: Add constraint fields with explicit defaults.**
+- [x] **Step 2: Add constraint fields with explicit defaults.**
 
 Extend `NodeChange` and `ChangeData` with the interfaces in section 3. Update
 every constructor and pattern match. Use:
@@ -480,7 +480,7 @@ NodeChange(
 
 and set `constraint_violation_count: 0` for existing changes.
 
-- [ ] **Step 3: Decode V5 constraint fields.**
+- [x] **Step 3: Decode V5 constraint fields.**
 
 Decode:
 
@@ -492,19 +492,19 @@ Reject extra keys and non-Boolean `violated`. Decode top-level `violations` as
 a nonnegative integer and preserve it. Continue to reject
 `noChangeConstraint`.
 
-- [ ] **Step 4: Encode V5 constraint fields.**
+- [x] **Step 4: Encode V5 constraint fields.**
 
 Emit `nodeExistsConstraint` only when present. Emit `violations` only when the
 count is greater than zero. Do not encode `node_exists_constraint_on_revert`;
 the pinned V5 codec omits revert-only constraints.
 
-- [ ] **Step 5: Add malformed and round-trip tests.**
+- [x] **Step 5: Add malformed and round-trip tests.**
 
 Cover negative/fractional violation counts, missing `violated`, extra keys,
 constraint-only node changes, aliases, nested arrays, and violated changes with
 builds. Assert exact JSON, not only semantic equality.
 
-- [ ] **Step 6: Run focused dual-target tests.**
+- [x] **Step 6: Run focused dual-target tests.**
 
 ```bash
 gleam format --check src test
@@ -512,12 +512,40 @@ gleam test --target erlang -- shared_tree_transaction shared_tree_change shared_
 gleam test --target javascript -- shared_tree_transaction shared_tree_change shared_tree_codec shared_tree_codec_fixture
 ```
 
-- [ ] **Step 7: Commit the codec boundary.**
+- [x] **Step 7: Commit the codec boundary.**
 
 ```bash
 git add src/watershed/tree/change.gleam src/watershed/tree/codec.gleam test/watershed
 git commit -m "feat(tree): decode transaction constraints"
 ```
+
+**Completion evidence (2026-09-30):**
+
+- Implementation commits:
+  `765aa26f9f1cd1b803e6f510eacc362b591a9dd4`,
+  `331cafb978343987c28f341f0ed234474a719e88`,
+  `a66a104dd9ed7618bfdad3fd4470dad84bb4b12d`, and
+  `a61cce4d2636bbf4ff138aac01da351fadae38ca`.
+- Native `NodeExistsConstraint` and aggregate violation state are complete.
+  Pinned ModularChange V5 decode and encode support is complete.
+- The input-only runner returns encoder-produced output after removing only
+  unsupported FieldBatch `builds` and `refreshers`. Full compressed FieldBatch
+  parity remains outside this task.
+- These exact commands passed:
+
+  ```bash
+  gleam format --check src test
+  gleam test --target erlang -- shared_tree_transaction shared_tree_change shared_tree_codec shared_tree_codec_fixture shared_tree_change_fixture
+  gleam test --target javascript -- shared_tree_transaction shared_tree_change shared_tree_codec shared_tree_codec_fixture shared_tree_change_fixture
+  just shared-tree-codec-interop
+  just shared-tree-test
+  ```
+
+- The focused Erlang and JavaScript commands each passed 112 tests.
+  Codec interoperability passed for 2 targets with 30 items per target.
+  The SharedTree profile passed 756 tests and its owned smokes.
+- Task 3 constraint authoring and algebra is next. Transaction runtime and
+  public APIs remain unimplemented. M5 remains incomplete.
 
 ### Task 3: Implement constraint authoring and algebra
 
