@@ -22,6 +22,7 @@ import {
   settleNetwork,
   type DemoDelivery,
   type DemoDocument,
+  type DemoSeed,
   type DemoServer,
 } from "./sluice-runtime.ts";
 import { prefersReducedMotion } from "./timing.ts";
@@ -65,6 +66,7 @@ export interface RigConfig {
   control: string;
   /** Logical document name for the sluice. */
   document: string;
+  seed?: DemoSeed;
   clientIds: string[];
   clientLabel: Record<string, string>;
   setup: (
@@ -223,6 +225,7 @@ export function createSluiceRig(
       document: config.document,
       clientIds: config.clientIds,
       connectId: (id) => `user-${id}`,
+      seed: config.seed,
     });
     server = network.server;
     for (const id of config.clientIds) {

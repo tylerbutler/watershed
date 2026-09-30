@@ -3,8 +3,10 @@ import { json, sluice, watershed } from "./generated-runtime.ts";
 
 type GeneratedDocument = ReturnType<typeof sluice.connect>;
 type GeneratedServer = ReturnType<typeof sluice.start>;
+type GeneratedSeed = Parameters<typeof sluice.connect_seeded>[2];
 
 declare const demoDocumentBrand: unique symbol;
+declare const demoSeedBrand: unique symbol;
 declare const demoServerBrand: unique symbol;
 
 export type DemoDocument = {
@@ -12,6 +14,9 @@ export type DemoDocument = {
 };
 export type DemoServer = {
   readonly [demoServerBrand]: never;
+};
+export type DemoSeed = {
+  readonly [demoSeedBrand]: never;
 };
 export interface DemoDelivery {
   author: string;
@@ -29,6 +34,24 @@ export function connectClient(
   id: string,
 ): DemoDocument {
   return demoDocument(sluice.connect(generatedServer(server), id));
+}
+
+export function demoSeed(seed: GeneratedSeed): DemoSeed {
+  return seed as unknown as DemoSeed;
+}
+
+export function connectSeededClient(
+  server: DemoServer,
+  id: string,
+  seed: DemoSeed,
+): DemoDocument {
+  return demoDocument(
+    sluice.connect_seeded(
+      generatedServer(server),
+      id,
+      generatedSeed(seed),
+    ),
+  );
 }
 
 export function settleNetwork(server: DemoServer): void {
@@ -81,6 +104,10 @@ function demoServer(server: GeneratedServer): DemoServer {
 
 function generatedDocument(document: DemoDocument): GeneratedDocument {
   return document as unknown as GeneratedDocument;
+}
+
+function generatedSeed(seed: DemoSeed): GeneratedSeed {
+  return seed as unknown as GeneratedSeed;
 }
 
 function generatedServer(server: DemoServer): GeneratedServer {

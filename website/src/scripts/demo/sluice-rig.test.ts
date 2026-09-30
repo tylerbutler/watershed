@@ -1,7 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSluiceRig, type Rig, type RigConfig } from "./sluice-rig.ts";
-import { writeSequenceMarker } from "./sluice-runtime.ts";
+import {
+  expectOk,
+  websiteRuntime,
+} from "./generated-runtime.ts";
+import { withLegacyGeneratedDocument } from "./legacy-generated-document.ts";
+import {
+  createSluiceRig,
+  type Rig,
+  type RigClient,
+  type RigConfig,
+} from "./sluice-rig.ts";
+import {
+  demoSeed,
+  type DemoDocument,
+  writeSequenceMarker,
+} from "./sluice-runtime.ts";
 import type { DeliveryScheduler } from "./sluice-transport.ts";
 
 class FakeScheduler implements DeliveryScheduler {
@@ -186,6 +200,32 @@ function createTestRig(
   return { rig, status: dom.status, restore: dom.restore };
 }
 
+function openChecklist(document: DemoDocument) {
+  return expectOk(
+    withLegacyGeneratedDocument(
+      document,
+      websiteRuntime.open_shared_tree_checklist,
+    ),
+    "checklist open failed",
+  );
+}
+
+function checklistSignature(
+  checklists: Map<string, ReturnType<typeof openChecklist>>,
+  client: RigClient,
+): string {
+  const checklist = checklists.get(client.id);
+  assert.ok(checklist, `missing checklist for ${client.id}`);
+  return JSON.stringify(
+    expectOk(
+      websiteRuntime.shared_tree_checklist_items(checklist),
+      "checklist items failed",
+    )
+      .toArray()
+      .map(({ id, text, completed }) => ({ id, text, completed })),
+  );
+}
+
 function submitMarker(rig: Rig, marker: string, value: number): void {
   rig.submit(
     rig.clients.a,
@@ -237,6 +277,69 @@ test("reset cancels old deliveries and boots fresh documents", () => {
         (client, index) => client.doc !== oldDocuments[index],
       ),
     );
+  } finally {
+    rig.reset();
+    restore();
+  }
+});
+
+test("reset restores seeded checklist documents and clears queued work", () => {
+  const scheduler = new FakeScheduler();
+  const checklists = new Map<string, ReturnType<typeof openChecklist>>();
+  const seed = demoSeed(expectOk(
+    websiteRuntime.shared_tree_checklist_seed(),
+    "checklist seed failed",
+  ));
+  const signature = (client: RigClient) =>
+    checklistSignature(checklists, client);
+  const { rig, restore } = createTestRig(scheduler, {
+    seed,
+    setup(clients) {
+      for (const client of Object.values(clients)) {
+        checklists.set(client.id, openChecklist(client.doc));
+      }
+    },
+    canonical: signature,
+  });
+  try {
+    const baseline = Object.values(rig.clients).map(signature);
+    const oldDocuments = Object.values(rig.clients).map(
+      (client) => client.doc,
+    );
+    const checklistA = checklists.get("a");
+    assert.ok(checklistA);
+
+    rig.submit(
+      rig.clients.a,
+      "mark-low-ford",
+      () => {
+        expectOk(
+          websiteRuntime.shared_tree_checklist_add(
+            checklistA,
+            "mark-low-ford",
+            "mark low ford",
+          ),
+          "checklist add failed",
+        );
+      },
+      "add mark low ford",
+    );
+    assert.equal(scheduler.pendingCount, 1);
+
+    rig.reset();
+    scheduler.runAll();
+
+    assert.deepEqual(Object.values(rig.clients).map(signature), baseline);
+    assert.ok(
+      Object.values(rig.clients).every(
+        (client, index) => client.doc !== oldDocuments[index],
+      ),
+    );
+    assert.ok(
+      Object.values(rig.clients).every((client) => client.pending.length === 0),
+    );
+    assert.equal(rig.serverPending(), false);
+    assert.equal(scheduler.pendingCount, 0);
   } finally {
     rig.reset();
     restore();

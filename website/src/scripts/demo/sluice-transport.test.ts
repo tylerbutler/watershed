@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { writeSequenceMarker } from "./sluice-runtime.ts";
+import {
+  expectOk,
+  websiteRuntime,
+} from "./generated-runtime.ts";
+import { withLegacyGeneratedDocument } from "./legacy-generated-document.ts";
+import {
+  demoSeed,
+  type DemoDocument,
+  writeSequenceMarker,
+} from "./sluice-runtime.ts";
 import {
   createDeliveryEngine,
   createSluiceNetwork,
@@ -65,6 +74,25 @@ function createNetwork(name: string): SluiceNetwork {
   });
 }
 
+function openChecklist(document: DemoDocument) {
+  return expectOk(
+    withLegacyGeneratedDocument(
+      document,
+      websiteRuntime.open_shared_tree_checklist,
+    ),
+    "checklist open failed",
+  );
+}
+
+function checklistItems(checklist: ReturnType<typeof openChecklist>) {
+  return expectOk(
+    websiteRuntime.shared_tree_checklist_items(checklist),
+    "checklist items failed",
+  )
+    .toArray()
+    .map(({ id, text, completed }) => ({ id, text, completed }));
+}
+
 function enqueueOperations(network: SluiceNetwork, count: number): void {
   for (let value = 1; value <= count; value += 1) {
     writeSequenceMarker(network.documents.a, value);
@@ -109,6 +137,54 @@ test("connects peers and drains one sequenced operation as a delivery wave", () 
   ));
   assert.deepEqual(before, wave.map((delivery) => delivery.sequence_number));
   assert.deepEqual(drainDeliveries(network), []);
+});
+
+test("seeded peers converge after one checklist mutation", () => {
+  const seed = demoSeed(expectOk(
+    websiteRuntime.shared_tree_checklist_seed(),
+    "checklist seed failed",
+  ));
+  const network = createSluiceNetwork({
+    tenant: "website",
+    document: "transport-seeded-checklist",
+    clientIds: ["a", "b"],
+    seed,
+  });
+  const checklistA = openChecklist(network.documents.a);
+  const checklistB = openChecklist(network.documents.b);
+
+  expectOk(
+    websiteRuntime.shared_tree_checklist_add(
+      checklistA,
+      "mark-low-ford",
+      "mark low ford",
+    ),
+    "checklist add failed",
+  );
+  drainDeliveries(network);
+
+  assert.deepEqual(checklistItems(checklistB), [
+    {
+      id: "inspect-spillway",
+      text: "inspect spillway",
+      completed: false,
+    },
+    {
+      id: "review-field-notes",
+      text: "review field notes",
+      completed: false,
+    },
+    {
+      id: "publish-survey",
+      text: "publish survey",
+      completed: false,
+    },
+    {
+      id: "mark-low-ford",
+      text: "mark low ford",
+      completed: false,
+    },
+  ]);
 });
 
 test("schedule keeps at most one pending delivery timer", () => {

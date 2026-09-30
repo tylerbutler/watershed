@@ -1,12 +1,14 @@
 import {
   clientId,
   connectClient,
+  connectSeededClient,
   peekDelivery as peekRuntimeDelivery,
   settleNetwork,
   startNetwork,
   stepDelivery as stepRuntimeDelivery,
   type DemoDelivery,
   type DemoDocument,
+  type DemoSeed,
   type DemoServer,
 } from "./sluice-runtime.ts";
 
@@ -25,6 +27,7 @@ export interface CreateSluiceNetworkOptions {
   document: string;
   clientIds: readonly string[];
   connectId?: (id: string) => string;
+  seed?: DemoSeed;
 }
 
 export interface DeliveryScheduler {
@@ -48,7 +51,10 @@ export function createSluiceNetwork(
   const server = startNetwork(options.tenant, options.document);
   const documents: Record<string, SluiceDocument> = {};
   for (const id of options.clientIds) {
-    documents[id] = connectClient(server, options.connectId?.(id) ?? id);
+    const connectId = options.connectId?.(id) ?? id;
+    documents[id] = options.seed
+      ? connectSeededClient(server, connectId, options.seed)
+      : connectClient(server, connectId);
   }
   settleNetwork(server);
 
