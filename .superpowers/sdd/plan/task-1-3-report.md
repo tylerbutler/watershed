@@ -333,3 +333,152 @@ constraint codec coverage still passes on both targets.
   the captured compressed FieldBatch representation or an equivalent encoder.
 - Did not broaden the constraint batch into compressor-aware, byte-stable
   FieldBatch codec work.
+
+## Fix Round 2
+
+### Status
+
+PASS. The runner now decodes the supported normalized payload and returns only
+the actual `codec.encode_message` JSON and serialized bytes.
+
+### Changes
+
+- The runner parses each captured message and removes only `builds` and
+  `refreshers` before decode.
+- Constraint observations still come from the decoded native `ChangeData`.
+- The `message` and `messageBytes` observations come directly from
+  `codec.encode_message` and `json.to_string`.
+- Tests independently normalize the captured messages, preserve their property
+  order for exact byte assertions, and compare encoder output with those
+  normalized expected values.
+- The noncanonical-input test remains and now proves that returning input bytes
+  would fail.
+- Sequence marks now encode in the captured upstream order: `count`, `effect`,
+  then `cellId`. This was required for exact bytes after FieldBatch
+  normalization and is covered by the existing upstream array codec fixture.
+
+### Deliberate FieldBatch normalization
+
+The captured `builds` and `refreshers` contain identifier values that the
+current FieldBatch codec cannot decode without compressor-aware identifier
+support. Reproducing those sections byte-for-byte also requires the compressed
+shape-table encoder that is not part of this constraint codec slice. The
+controller ruling therefore keeps that separate work out of scope: this runner
+removes only those unsupported members and exercises the complete supported
+Message V7, SharedTreeChange V5, and ModularChange V5 constraint payload.
+
+### Commands and output
+
+Normalized expectation before the runner fix:
+
+```bash
+gleam test --target erlang -- --test-name-filter=shared_tree_transaction_wire_observes_constraints_and_exact_bytes_test
+```
+
+Output:
+
+```text
+FAIL shared_tree_transaction_wire_observes_constraints_and_exact_bytes_test
+UnsupportedFeature("message.changeset[0].data.builds.trees", "identifier values")
+Tests: 1 failed (1)
+```
+
+Runner normalization before canonical Sequence mark ordering:
+
+```bash
+gleam format test/watershed/tree/transaction_fixture.gleam test/watershed/shared_tree_transaction_test.gleam && gleam test --target erlang -- --test-name-filter=shared_tree_transaction_wire_
+gleam test --target javascript -- --test-name-filter=shared_tree_transaction_wire_
+```
+
+Output on each target:
+
+```text
+Tests: 4 passed | 2 failed (6)
+```
+
+The two failures were the exact-byte and noncanonical-input tests. Both showed
+the encoder's `effect`, `count`, `cellId` order differed from the captured
+upstream `count`, `effect`, `cellId` order.
+
+Focused Erlang transaction and codec suites:
+
+```bash
+gleam test --target erlang -- shared_tree_transaction shared_tree_codec shared_tree_codec_fixture shared_tree_array_codec
+```
+
+Output:
+
+```text
+Test Files: 4
+Tests: 36 passed (36)
+```
+
+Focused JavaScript transaction and codec suites:
+
+```bash
+gleam test --target javascript -- shared_tree_transaction shared_tree_codec shared_tree_codec_fixture shared_tree_array_codec
+```
+
+Output:
+
+```text
+Test Files: 4
+Tests: 36 passed (36)
+```
+
+Diff validation:
+
+```bash
+git diff --check
+```
+
+Output: no output, exit 0.
+
+The focused commands retain the pre-existing unused private fixture helper
+warnings. The JavaScript command also retains the pre-existing unsafe-integer
+warnings from array-kernel tests. This fix adds no warning.
+
+Full repository gate:
+
+```bash
+just test
+```
+
+Output:
+
+```text
+source_snippets               ok
+watershed                     ok
+shared_tree_cli               ok
+watershed_lustre              ok
+drum_machine_lustre           FAILED
+grocery_triptych_lustre       FAILED
+json_workspace_lustre         FAILED
+project_room_lustre           FAILED
+retro_board_lustre            FAILED
+retro_tutorial_lustre         FAILED
+shared_tree_checklist_lustre  FAILED
+```
+
+Each failed example stopped during dependency resolution with:
+
+```text
+error: Hex API failure
+The rate limit for the Hex API has been exceeded
+```
+
+The repository package and all focused transaction/codec packages completed
+successfully before the external Hex rate-limit failure.
+
+### Self-review
+
+- Confirmed the runner never returns fixture message JSON or byte strings.
+- Confirmed both output variants come from the encoder after normalized decode.
+- Confirmed the expected JSON and bytes are independently derived from the
+  captured input by removing only `builds` and `refreshers`.
+- Confirmed the anti-echo test changes insignificant input whitespace and
+  requires canonical encoder bytes.
+- Confirmed compressor serialization is unchanged before and after each
+  decode/encode operation.
+- Confirmed no fixture JSON, dependency manifest, generated file, `.code-map`,
+  or apm-managed file changed.

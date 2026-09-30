@@ -2,9 +2,10 @@ import gleam/json
 import gleam/list
 import gleam/string
 import startest/expect
-import watershed/json_ot.{VArray, VObject, VString}
+import watershed/json_ot.{type JsonValue, VArray, VObject, VString}
 import watershed/tree/fixtures
 import watershed/tree/transaction_fixture
+import watershed/wire/json_object
 
 pub fn shared_tree_transaction_wire_requires_input_sections_test() -> Nil {
   let assert Ok(fixtures.Case(input: input, ..)) =
@@ -72,8 +73,10 @@ pub fn shared_tree_transaction_wire_observes_constraints_and_exact_bytes_test() 
     list.key_find(message_bytes, "nonviolated")
   let assert Ok(VString(violated_bytes)) =
     list.key_find(message_bytes, "violated")
-  let assert Ok(nonviolated_message) = json_ot.parse_json(nonviolated_bytes)
-  let assert Ok(violated_message) = json_ot.parse_json(violated_bytes)
+  let assert Ok(#(nonviolated_message, nonviolated_bytes)) =
+    normalize_message(nonviolated_bytes)
+  let assert Ok(#(violated_message, violated_bytes)) =
+    normalize_message(violated_bytes)
 
   let original = case transaction_fixture.run_wire(input) {
     Ok(value) -> value
@@ -121,6 +124,7 @@ pub fn shared_tree_transaction_wire_rejects_noncanonical_bytes_test() -> Nil {
   let assert Ok(VObject(message_bytes)) = list.key_find(root, "messageBytes")
   let assert Ok(VString(nonviolated_bytes)) =
     list.key_find(message_bytes, "nonviolated")
+  let assert Ok(#(_, expected_bytes)) = normalize_message(nonviolated_bytes)
   let changed_bytes =
     nonviolated_bytes
     |> string.replace("{\"revision\":4", "{ \"revision\":4")
@@ -142,11 +146,47 @@ pub fn shared_tree_transaction_wire_rejects_noncanonical_bytes_test() -> Nil {
     list.key_find(observation, "messageBytes")
   let assert Ok(VString(encoded_nonviolated)) =
     list.key_find(encoded_bytes, "nonviolated")
-  encoded_nonviolated |> expect.to_equal(nonviolated_bytes)
+  encoded_nonviolated |> expect.to_equal(expected_bytes)
 }
 
 fn wire_observation(value: json.Json) -> Result(json_ot.JsonValue, Nil) {
   let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(value))
   let assert Ok(VArray([observation])) = list.key_find(root, "observations")
   Ok(observation)
+}
+
+fn normalize_message(bytes: String) -> Result(#(JsonValue, String), Nil) {
+  let assert Ok(root) = json_object.members(bytes)
+  let assert Ok(changeset) = list.key_find(root, "changeset")
+  let assert Ok(change) =
+    changeset
+    |> string.trim
+    |> string.drop_start(1)
+    |> string.drop_end(1)
+    |> json_object.members
+  let assert Ok(data) = list.key_find(change, "data")
+  let assert Ok(data) = json_object.members(data)
+  let data =
+    data
+    |> list.filter(fn(member) {
+      member.0 != "builds" && member.0 != "refreshers"
+    })
+    |> encode_object
+  let change = change |> list.key_set("data", data) |> encode_object
+  let normalized =
+    root
+    |> list.key_set("changeset", "[" <> change <> "]")
+    |> encode_object
+  let assert Ok(value) = json_ot.parse_json(normalized)
+  Ok(#(value, normalized))
+}
+
+fn encode_object(members: List(#(String, String))) -> String {
+  let body =
+    members
+    |> list.map(fn(member) {
+      json.to_string(json.string(member.0)) <> ":" <> member.1
+    })
+    |> string.join(",")
+  "{" <> body <> "}"
 }

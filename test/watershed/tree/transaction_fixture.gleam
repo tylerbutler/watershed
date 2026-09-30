@@ -188,12 +188,19 @@ fn decode_message(
   bytes: String,
   compressor: fluid_ids.Compressor,
 ) -> Result(#(Json, Json, String), String) {
+  use message <- result.try(
+    json_ot.parse_json(bytes) |> result.map_error(string.inspect),
+  )
+  use message <- result.try(without_unsupported_field_batches(message))
   use compressor_before <- result.try(
     fluid_ids.serialize(compressor, True)
     |> result.map_error(string.inspect),
   )
   use message <- result.try(
-    codec.decode_message(bytes, codec.DecodeContext(codec.Fluid310, compressor))
+    codec.decode_message(
+      json.to_string(json_ot.to_json(message)),
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
     |> result.map_error(string.inspect),
   )
   use changeset <- result.try(case message {
@@ -224,6 +231,32 @@ fn decode_message(
   Ok(#(observe(change.to_data(changeset)), encoded, encoded_bytes))
 }
 
+fn without_unsupported_field_batches(
+  value: JsonValue,
+) -> Result(JsonValue, String) {
+  use root <- result.try(object_members(value, "message"))
+  use changeset <- result.try(fixture_codec.field(
+    value,
+    "changeset",
+    fixture_codec.items,
+  ))
+  use normalized <- result.try(
+    list.try_map(changeset, fn(entry) {
+      use members <- result.try(object_members(entry, "message change"))
+      use data <- result.try(fixture_codec.get(entry, "data"))
+      use data <- result.try(object_members(data, "message data"))
+      let data =
+        data
+        |> list.filter(fn(member) {
+          member.0 != "builds" && member.0 != "refreshers"
+        })
+        |> VObject
+      Ok(VObject(list.key_set(members, "data", data)))
+    }),
+  )
+  Ok(VObject(list.key_set(root, "changeset", json_ot.VArray(normalized))))
+}
+
 fn observe(data: change.ChangeData) -> Json {
   let constraints =
     data.nodes
@@ -239,6 +272,16 @@ fn observe(data: change.ChangeData) -> Json {
     #("violations", json.int(data.constraint_violation_count)),
     #("constraints", fixture_codec.array(constraints)),
   ])
+}
+
+fn object_members(
+  value: JsonValue,
+  name: String,
+) -> Result(List(#(String, JsonValue)), String) {
+  case value {
+    VObject(members) -> Ok(members)
+    _ -> Error("expected an object for " <> name)
+  }
 }
 
 fn require_object(value: JsonValue, name: String) -> Result(Nil, String) {
