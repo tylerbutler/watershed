@@ -36,6 +36,8 @@ import watershed
 @target(javascript)
 import watershed/runtime
 @target(javascript)
+import watershed/runtime_core
+@target(javascript)
 import watershed/sluice/core
 @target(javascript)
 import watershed/transport_js.{type Cell}
@@ -87,15 +89,45 @@ pub fn connect(
   sluice: Sluice,
   user_id user_id: String,
 ) -> watershed.Document(root) {
+  connect_with_seed(sluice, user_id, None)
+}
+
+@target(javascript)
+/// Connect a new client with a bootstrap seed.
+pub fn connect_seeded(
+  sluice: Sluice,
+  user_id user_id: String,
+  seed seed: runtime_core.BootstrapSeed,
+) -> watershed.Document(root) {
+  connect_with_seed(sluice, user_id, Some(seed))
+}
+
+@target(javascript)
+fn connect_with_seed(
+  sluice: Sluice,
+  user_id: String,
+  seed: Option(runtime_core.BootstrapSeed),
+) -> watershed.Document(root) {
   let transport = make_transport(sluice.cell)
-  let document =
-    watershed.connect_via(
-      tenant: sluice.tenant,
-      document: sluice.document,
-      user_id: user_id,
-      transport: transport,
-      on_ready: fn(_result) { Nil },
-    )
+  let document = case seed {
+    None ->
+      watershed.connect_via(
+        tenant: sluice.tenant,
+        document: sluice.document,
+        user_id: user_id,
+        transport: transport,
+        on_ready: fn(_result) { Nil },
+      )
+    Some(seed) ->
+      watershed.connect_via_seed(
+        tenant: sluice.tenant,
+        document: sluice.document,
+        user_id: user_id,
+        seed: seed,
+        transport: transport,
+        on_ready: fn(_result) { Nil },
+      )
+  }
   // Delayed work goes on the sluice's logical clock, so anything the runtime
   // schedules for itself — today, the automatic summarization policy's jitter
   // window — is driven by `advance` rather than by real elapsed time.

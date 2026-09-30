@@ -33,6 +33,8 @@ import watershed/rich_text
 @target(javascript)
 import watershed/runtime
 @target(javascript)
+import watershed/runtime_core
+@target(javascript)
 import watershed/schema
 @target(javascript)
 import watershed/sequence_kernel
@@ -44,6 +46,10 @@ import watershed/summary_policy
 import watershed/text_kernel
 @target(javascript)
 import watershed/transport_js
+@target(javascript)
+import watershed/tree/runtime_fixture
+@target(javascript)
+import watershed/tree/types
 
 @target(javascript)
 type SequenceFields
@@ -76,6 +82,62 @@ fn rich_text_document(raw: String) -> rich_text.Document {
 fn rich_text_delta(raw: String) -> rich_text.Delta {
   let assert Ok(delta) = rich_text.parse_delta(raw)
   delta
+}
+
+@target(javascript)
+pub fn seeded_shared_tree_clients_converge_test() -> Nil {
+  let input =
+    runtime_fixture.routed_array_seed_input(
+      "rootArray",
+      types.ArrayValue("org.watershed.shared-tree.m3.Items", [
+        types.StringValue("survey"),
+        types.StringValue("review"),
+      ]),
+    )
+    |> expect.to_be_ok()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let assert [tree_view] = input.tree_views
+
+  let sluice =
+    sluice_js.start(tenant: "default", document: "seeded-shared-tree-js")
+  let document_a = sluice_js.connect_seeded(sluice, "user-a", seed)
+  let document_b = sluice_js.connect_seeded(sluice, "user-b", seed)
+  sluice_js.settle(sluice)
+
+  let root_a = watershed.resolve_root(document_a) |> expect.to_be_ok()
+  let root_b = watershed.resolve_root(document_b) |> expect.to_be_ok()
+  let tree_a =
+    watershed.get(root_a, "tree")
+    |> expect.to_be_ok()
+    |> watershed.resolve_tree(document_a, _, tree_view.view)
+    |> expect.to_be_ok()
+  let tree_b =
+    watershed.get(root_b, "tree")
+    |> expect.to_be_ok()
+    |> watershed.resolve_tree(document_b, _, tree_view.view)
+    |> expect.to_be_ok()
+
+  watershed.tree_array_insert(tree_a, [], 2, [types.StringValue("publish")])
+  |> expect.to_equal(Ok(Nil))
+  sluice_js.settle(sluice)
+
+  let expected = [
+    types.StringValue("survey"),
+    types.StringValue("review"),
+    types.StringValue("publish"),
+  ]
+  watershed.tree_array_values(tree_a, []) |> expect.to_equal(Ok(expected))
+  watershed.tree_array_values(tree_b, []) |> expect.to_equal(Ok(expected))
+
+  let document_c = sluice_js.connect_seeded(sluice, "user-c", seed)
+  sluice_js.settle(sluice)
+  let root_c = watershed.resolve_root(document_c) |> expect.to_be_ok()
+  let tree_c =
+    watershed.get(root_c, "tree")
+    |> expect.to_be_ok()
+    |> watershed.resolve_tree(document_c, _, tree_view.view)
+    |> expect.to_be_ok()
+  watershed.tree_array_values(tree_c, []) |> expect.to_equal(Ok(expected))
 }
 
 @target(javascript)
