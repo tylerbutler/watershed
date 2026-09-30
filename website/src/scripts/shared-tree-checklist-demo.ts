@@ -403,6 +403,11 @@ export function initSharedTreeChecklistDemo(): void {
     list.addEventListener("keyup", (event) => {
       if (event.key === "Tab") flushDeferredEdit(client);
     });
+    list.addEventListener("focusout", () => {
+      window.setTimeout(() => {
+        if (!list.contains(document.activeElement)) flushDeferredEdit(client);
+      }, 0);
+    });
 
     const submitAdd = () => {
       const text = draft.value.trim();

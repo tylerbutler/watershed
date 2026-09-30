@@ -255,6 +255,36 @@ test("dirty checklist edits coexist with move, toggle, and Tab focus", { timeout
   );
 });
 
+test("leaving a checklist while Tab is held commits its deferred edit", { timeout: 120_000 }, async (t) => {
+  const page = await openChecklist(t);
+
+  await replaceText(
+    page,
+    '[data-client="a"] [data-item-id="publish-survey"][type="text"]',
+    "publish held-tab draft",
+  );
+  await page.keyboard.down("Tab");
+  await page.keyboard.down("Tab");
+  await page.keyboard.up("Tab");
+  assert.equal(
+    await page.evaluate(() =>
+      document.activeElement?.matches('[data-client="b"] [data-st-draft]')
+    ),
+    true,
+  );
+
+  await page.click("[data-st-settle]");
+  const settled = await canonicals(page);
+  assert.equal(
+    settled[0].find((item) => item.id === "publish-survey")?.text,
+    "publish held-tab draft",
+  );
+  assert.equal(
+    settled[1].find((item) => item.id === "publish-survey")?.text,
+    "publish held-tab draft",
+  );
+});
+
 test("repeated and boundary checklist races settle without phantom pending state", { timeout: 120_000 }, async (t) => {
   const page = await openChecklist(t);
 
