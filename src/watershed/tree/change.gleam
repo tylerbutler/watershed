@@ -2106,7 +2106,7 @@ pub fn invert_with_trace(
     "invert",
     "a destroying change cannot be inverted",
   ))
-  let data = change.change.data
+  let data = effective_data(change.change.data)
   let #(allocation_revisions, _) = composition_metadata([change])
   use watermark <- result.try(reserved_watermark(
     data.max_local_id,
@@ -2161,6 +2161,7 @@ pub fn invert_with_trace(
   )
   let fields = replace_field_results(fields, None, state.field_results)
   let nodes = replace_node_field_results(nodes, state.field_results)
+  use nodes <- result.try(update_constraint_nodes(fields, nodes, data.aliases))
   use parents <- result.try(rebuild_parents(fields, nodes, data.aliases))
   let destroys = case is_rollback {
     True ->
@@ -2225,9 +2226,9 @@ pub fn rebase_with_trace(
     over.change.identity_order,
   ))
   let authored = change.change.data
-  let base = over.change.data
+  let base = effective_data(over.change.data)
   use owners <- result.try(owner_ranges(
-    over.change.cross_field_keys,
+    base.cross_field_keys,
     moves.BaseOperand,
     base.aliases,
   ))
@@ -2709,11 +2710,26 @@ fn update_field_constraint_nodes(
 }
 
 fn sequence_child_is_detached(mark: sequence_field.Mark) -> Bool {
-  case mark.cell_id, sequence_field.output_length(mark) {
+  case mark.cell_id, sequence_field.input_length(mark) {
     None, 0 -> True
     Some(_), length if length > 0 -> False
     None, _ -> False
     Some(_), _ -> True
+  }
+}
+
+fn effective_data(data: ChangeData) -> ChangeData {
+  case data.constraint_violation_count > 0 {
+    True ->
+      ChangeData(
+        ..data,
+        fields: [],
+        nodes: [],
+        parents: [],
+        aliases: [],
+        cross_field_keys: [],
+      )
+    False -> data
   }
 }
 

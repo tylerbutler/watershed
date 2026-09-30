@@ -326,10 +326,10 @@ pub fn shared_tree_change_invert_exchanges_constraint_kinds_test() {
     )
   let assert [node] = constrained_nodes(inverse)
   node.node_exists_constraint
-  |> expect.to_equal(Some(change.NodeExistsConstraint(True)))
+  |> expect.to_equal(Some(change.NodeExistsConstraint(False)))
   node.node_exists_constraint_on_revert
   |> expect.to_equal(Some(change.NodeExistsConstraint(False)))
-  change.to_data(inverse).constraint_violation_count |> expect.to_equal(1)
+  change.to_data(inverse).constraint_violation_count |> expect.to_equal(0)
 }
 
 pub fn shared_tree_change_constraint_free_algebra_stays_constraint_free_test() {

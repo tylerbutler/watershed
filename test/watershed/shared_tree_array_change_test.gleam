@@ -1,6 +1,6 @@
 import gleam/int
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import startest/expect
 import watershed/fluid_ids
@@ -489,14 +489,35 @@ fn authored_constraint_edit(
   initial: forest.Forest,
   path: types.FieldPath,
 ) -> change.Changeset {
+  constrained_edit(
+    initial,
+    path,
+    types.SetField(list.append(path, ["x"]), types.NumberValue(9.0)),
+  )
+}
+
+fn constrained_edit(
+  initial: forest.Forest,
+  path: types.FieldPath,
+  operation: types.Edit,
+) -> change.Changeset {
+  constrained_edit_with_revision(initial, path, revision(), operation)
+}
+
+fn constrained_edit_with_revision(
+  initial: forest.Forest,
+  path: types.FieldPath,
+  edit_revision: fluid_ids.StableId,
+  operation: types.Edit,
+) -> change.Changeset {
   let stored = array_fixture.stored("objectArrays")
   let assert Ok(target) = change.resolve_constraint(initial, path)
   let assert Ok(authored) =
     change.edit(
       stored,
       initial,
-      revision(),
-      types.SetField(list.append(path, ["x"]), types.NumberValue(9.0)),
+      edit_revision,
+      operation,
       constraint_identity_order(),
     )
   let assert Ok(constrained) =
@@ -562,6 +583,42 @@ fn constraint_states(value: change.Changeset) -> List(Bool) {
   })
 }
 
+fn set_constraint_states(
+  value: change.Changeset,
+  apply_state: Option(Bool),
+  revert_state: Option(Bool),
+) -> change.Changeset {
+  let data = change.to_data(value)
+  let nodes =
+    list.map(data.nodes, fn(entry) {
+      case entry.1.node_exists_constraint {
+        None -> entry
+        Some(_) -> #(
+          entry.0,
+          change.NodeChange(
+            ..entry.1,
+            node_exists_constraint: apply_state
+              |> option.map(change.NodeExistsConstraint),
+            node_exists_constraint_on_revert: revert_state
+              |> option.map(change.NodeExistsConstraint),
+          ),
+        )
+      }
+    })
+  let count =
+    nodes
+    |> list.filter(fn(entry) {
+      entry.1.node_exists_constraint == Some(change.NodeExistsConstraint(True))
+    })
+    |> list.length
+  let assert Ok(updated) =
+    change.from_data(
+      change.ChangeData(..data, nodes:, constraint_violation_count: count),
+      constraint_identity_order(),
+    )
+  updated
+}
+
 pub fn shared_tree_array_constraint_rebase_preserves_attached_identity_test() {
   let initial = constraint_array_forest()
   let transaction = authored_constraint_edit(initial, ["left", "0"])
@@ -603,6 +660,151 @@ pub fn shared_tree_array_constraint_rebase_preserves_attached_identity_test() {
     constraint_states(rebased) |> expect.to_equal([False])
     change.to_data(rebased).constraint_violation_count |> expect.to_equal(0)
   })
+}
+
+pub fn shared_tree_array_constraint_rebase_uses_transaction_input_attachment_test() {
+  let initial = constraint_array_forest()
+  let unrelated =
+    authored_base_edit(
+      initial,
+      revision_b(),
+      types.SetField(["right", "0", "x"], types.NumberValue(4.0)),
+    )
+  let cases = [
+    constrained_edit(initial, ["left", "0"], types.ArrayRemove(["left"], 0, 1)),
+    constrained_edit(
+      initial,
+      ["left", "0"],
+      types.ArrayMove(["left"], 0, 1, ["right"], 0),
+    ),
+  ]
+
+  cases
+  |> list.each(fn(transaction) {
+    let rebased = rebase_constraint(transaction, unrelated)
+    constraint_states(rebased) |> expect.to_equal([False])
+    change.to_data(rebased).constraint_violation_count |> expect.to_equal(0)
+  })
+}
+
+pub fn shared_tree_array_invert_violated_insert_and_remove_is_effect_free_test() {
+  let initial = constraint_array_forest()
+  let assert Ok(expected) = forest.array_values(initial, ["left"])
+  let cases = [
+    constrained_edit(
+      initial,
+      ["left", "0"],
+      types.ArrayInsert(["left"], 0, [
+        types.ObjectValue(point_type, [
+          #("label", types.StringValue("inserted")),
+          #("x", types.NumberValue(4.0)),
+        ]),
+      ]),
+    ),
+    constrained_edit(initial, ["left", "0"], types.ArrayRemove(["left"], 0, 1)),
+  ]
+
+  cases
+  |> list.each(fn(authored) {
+    let violated = set_constraint_states(authored, Some(True), None)
+    let assert Ok(forward_delta) =
+      change.into_delta(change.TaggedChange(Some(revision()), None, violated))
+    let assert Ok(after_forward) = forest.apply_delta(initial, forward_delta)
+    forest.array_values(after_forward, ["left"])
+    |> expect.to_equal(Ok(expected))
+    let assert Ok(inverted) =
+      change.invert(
+        change.TaggedChange(Some(revision()), None, violated),
+        True,
+        revision_c(),
+      )
+    let assert Ok(delta) =
+      change.into_delta(change.TaggedChange(
+        Some(revision_c()),
+        Some(revision()),
+        inverted,
+      ))
+    let assert Ok(updated) = forest.apply_delta(after_forward, delta)
+    forest.array_values(updated, ["left"]) |> expect.to_equal(Ok(expected))
+  })
+}
+
+pub fn shared_tree_array_invert_recomputes_constraint_from_input_attachment_test() {
+  let initial = constraint_array_forest()
+  let attached =
+    constrained_edit(
+      initial,
+      ["left", "0"],
+      types.ArrayMove(["left"], 0, 1, ["right"], 0),
+    )
+    |> set_constraint_states(None, Some(True))
+  let detached =
+    constrained_edit(initial, ["left", "0"], types.ArrayRemove(["left"], 0, 1))
+    |> set_constraint_states(None, Some(False))
+  let assert Ok(attached_inverse) =
+    change.invert(
+      change.TaggedChange(Some(revision()), None, attached),
+      False,
+      revision_c(),
+    )
+  let assert Ok(detached_inverse) =
+    change.invert(
+      change.TaggedChange(Some(revision()), None, detached),
+      False,
+      revision_c(),
+    )
+
+  constraint_states(attached_inverse) |> expect.to_equal([False])
+  change.to_data(attached_inverse).constraint_violation_count
+  |> expect.to_equal(0)
+  constraint_states(detached_inverse) |> expect.to_equal([True])
+  change.to_data(detached_inverse).constraint_violation_count
+  |> expect.to_equal(1)
+}
+
+pub fn shared_tree_array_rebase_ignores_violated_base_effects_test() {
+  let initial = constraint_array_forest()
+  let transaction =
+    constrained_edit(
+      initial,
+      ["right", "0"],
+      types.ArrayInsert(["left"], 0, [
+        types.ObjectValue(point_type, [
+          #("label", types.StringValue("inserted")),
+          #("x", types.NumberValue(4.0)),
+        ]),
+      ]),
+    )
+  let base =
+    constrained_edit_with_revision(
+      initial,
+      ["left", "0"],
+      revision_b(),
+      types.ArrayRemove(["left"], 0, 1),
+    )
+    |> set_constraint_states(Some(True), None)
+  let rebased = rebase_constraint(transaction, base)
+  let after_base = apply_tagged(initial, revision_b(), base)
+  let updated = apply_tagged(after_base, revision(), rebased)
+
+  constraint_states(rebased) |> expect.to_equal([False])
+  forest.array_values(updated, ["left"])
+  |> expect.to_equal(
+    Ok([
+      types.ObjectValue(point_type, [
+        #("label", types.StringValue("inserted")),
+        #("x", types.NumberValue(4.0)),
+      ]),
+      types.ObjectValue(point_type, [
+        #("label", types.StringValue("constrained")),
+        #("x", types.NumberValue(1.0)),
+      ]),
+      types.ObjectValue(point_type, [
+        #("label", types.StringValue("sibling")),
+        #("x", types.NumberValue(2.0)),
+      ]),
+    ]),
+  )
 }
 
 pub fn shared_tree_array_constraint_rebase_marks_remove_and_replace_test() {
