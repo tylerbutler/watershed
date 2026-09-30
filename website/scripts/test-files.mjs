@@ -31,5 +31,6 @@ export const browserTestFiles = [
   "scripts/lww-map-demo.test.mjs",
   "scripts/or-map-mv-register-demo.test.mjs",
   "scripts/runtime-demos.test.mjs",
+  "scripts/shared-tree-checklist-demo.test.mjs",
   "scripts/structure-runtime-contract.test.mjs",
 ];
