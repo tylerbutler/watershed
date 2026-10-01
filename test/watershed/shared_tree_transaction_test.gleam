@@ -22,7 +22,6 @@ import watershed/tree/transaction
 import watershed/tree/transaction_fixture
 import watershed/tree/types
 import watershed/tree_kernel
-import watershed/wire
 
 const items_type = "org.watershed.shared-tree.m3.Items"
 
@@ -1233,13 +1232,6 @@ pub fn shared_tree_transaction_wire_observes_constraints_and_encoder_output_test
     fixtures.load("transaction-wire")
   let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(input))
   let assert Ok(VObject(message_bytes)) = list.key_find(root, "messageBytes")
-  let assert Ok(VString(nonviolated_bytes)) =
-    list.key_find(message_bytes, "nonviolated")
-  let assert Ok(VString(violated_bytes)) =
-    list.key_find(message_bytes, "violated")
-  let assert Ok(nonviolated_message) = normalize_message(nonviolated_bytes)
-  let assert Ok(violated_message) = normalize_message(violated_bytes)
-
   let original = case transaction_fixture.run_wire(input) {
     Ok(value) -> value
     Error(error) -> panic as { error }
@@ -1259,30 +1251,29 @@ pub fn shared_tree_transaction_wire_observes_constraints_and_encoder_output_test
     list.key_find(encoded_bytes, "nonviolated")
   let assert Ok(VString(encoded_violated)) =
     list.key_find(encoded_bytes, "violated")
-  nonviolated
-  |> expect.to_equal(
-    VObject([
-      #("constraints", VArray([VObject([#("violated", json_ot.VBool(False))])])),
-      #("violations", json_ot.VNumber(json_ot.NInt(0))),
-    ]),
-  )
-  violated
-  |> expect.to_equal(
-    VObject([
-      #("constraints", VArray([VObject([#("violated", json_ot.VBool(True))])])),
-      #("violations", json_ot.VNumber(json_ot.NInt(1))),
-    ]),
-  )
-  wire.json_semantically_equal(
-    json_ot.to_json(encoded_nonviolated_message),
-    json_ot.to_json(nonviolated_message),
-  )
-  |> expect.to_be_true
-  wire.json_semantically_equal(
-    json_ot.to_json(encoded_violated_message),
-    json_ot.to_json(violated_message),
-  )
-  |> expect.to_be_true
+  expect_wire_constraints(nonviolated, False, 0)
+  expect_wire_constraints(violated, True, 1)
+  let replay_input =
+    root
+    |> list.key_set(
+      "messageBytes",
+      VObject([
+        #("nonviolated", VString(encoded_nonviolated)),
+        #("violated", VString(encoded_violated)),
+        #("over", list.key_find(message_bytes, "over") |> expect.to_be_ok),
+      ]),
+    )
+    |> VObject
+    |> json_ot.to_json
+  let replayed = case transaction_fixture.run_wire(replay_input) {
+    Ok(value) -> value
+    Error(error) -> panic as { error }
+  }
+  let assert Ok(VObject(replayed_observation)) = wire_observation(replayed)
+  list.key_find(replayed_observation, "nonviolated")
+  |> expect.to_equal(Ok(nonviolated))
+  list.key_find(replayed_observation, "violated")
+  |> expect.to_equal(Ok(violated))
   let assert Ok(encoded_nonviolated_value) =
     json_ot.parse_json(encoded_nonviolated)
   let assert Ok(encoded_violated_value) = json_ot.parse_json(encoded_violated)
@@ -1297,7 +1288,13 @@ pub fn shared_tree_transaction_wire_rejects_noncanonical_bytes_test() -> Nil {
   let assert Ok(VObject(message_bytes)) = list.key_find(root, "messageBytes")
   let assert Ok(VString(nonviolated_bytes)) =
     list.key_find(message_bytes, "nonviolated")
-  let assert Ok(expected_message) = normalize_message(nonviolated_bytes)
+  let original = case transaction_fixture.run_wire(input) {
+    Ok(value) -> value
+    Error(error) -> panic as { error }
+  }
+  let assert Ok(VObject(original_observation)) = wire_observation(original)
+  let assert Ok(original_nonviolated) =
+    list.key_find(original_observation, "nonviolated")
   let changed_bytes =
     nonviolated_bytes
     |> string.replace("{\"revision\":4", "{ \"revision\":4")
@@ -1321,12 +1318,26 @@ pub fn shared_tree_transaction_wire_rejects_noncanonical_bytes_test() -> Nil {
     list.key_find(encoded_bytes, "nonviolated")
   let is_echo = encoded_nonviolated == changed_bytes
   is_echo |> expect.to_be_false
-  let assert Ok(encoded_message) = json_ot.parse_json(encoded_nonviolated)
-  wire.json_semantically_equal(
-    json_ot.to_json(encoded_message),
-    json_ot.to_json(expected_message),
-  )
-  |> expect.to_be_true
+  let assert Ok(_) = json_ot.parse_json(encoded_nonviolated)
+  let replay_input =
+    root
+    |> list.key_set(
+      "messageBytes",
+      VObject(list.key_set(
+        message_bytes,
+        "nonviolated",
+        VString(encoded_nonviolated),
+      )),
+    )
+    |> VObject
+    |> json_ot.to_json
+  let replayed = case transaction_fixture.run_wire(replay_input) {
+    Ok(value) -> value
+    Error(error) -> panic as { error }
+  }
+  let assert Ok(VObject(replayed_observation)) = wire_observation(replayed)
+  list.key_find(replayed_observation, "nonviolated")
+  |> expect.to_equal(Ok(original_nonviolated))
 }
 
 pub fn shared_tree_transaction_wire_observes_independent_input_mutations_test() -> Nil {
@@ -1377,6 +1388,16 @@ pub fn shared_tree_transaction_wire_observes_independent_input_mutations_test() 
         "\"revision\":3",
       ),
     ),
+    #(
+      "Identifier build value",
+      replace_nested_string(
+        input,
+        "messageBytes",
+        "nonviolated",
+        "\"data\":[[0,\"wire\"],[1,5,\"wire-created\",10]]",
+        "\"data\":[[0,\"wire\"],[1,\"changed-identifier\",\"wire-created\",10]]",
+      ),
+    ),
   ]
   |> list.each(fn(mutation) {
     case transaction_fixture.run_wire(mutation.1) {
@@ -1396,18 +1417,18 @@ fn wire_observation(value: json.Json) -> Result(json_ot.JsonValue, Nil) {
   Ok(observation)
 }
 
-fn normalize_message(bytes: String) -> Result(JsonValue, Nil) {
-  let assert Ok(VObject(root)) = json_ot.parse_json(bytes)
-  let assert Ok(VArray([VObject(change)])) = list.key_find(root, "changeset")
-  let assert Ok(VObject(data)) = list.key_find(change, "data")
-  let data =
-    data
-    |> list.filter(fn(member) {
-      member.0 != "builds" && member.0 != "refreshers"
-    })
-    |> VObject
-  let change = change |> list.key_set("data", data) |> VObject
-  Ok(VObject(list.key_set(root, "changeset", VArray([change]))))
+fn expect_wire_constraints(
+  value: JsonValue,
+  violated: Bool,
+  violations: Int,
+) -> Nil {
+  let assert VObject(fields) = value
+  list.key_find(fields, "constraints")
+  |> expect.to_equal(
+    Ok(VArray([VObject([#("violated", json_ot.VBool(violated))])])),
+  )
+  list.key_find(fields, "violations")
+  |> expect.to_equal(Ok(json_ot.VNumber(json_ot.NInt(violations))))
 }
 
 fn replace_nested_string(

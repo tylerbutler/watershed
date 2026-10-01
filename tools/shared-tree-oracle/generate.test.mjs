@@ -3031,6 +3031,8 @@ test("manifest records complete native runners and actual wire field kinds", asy
       "sequence-compose-invert", "sequence-rebase", "array-modular-algebra",
       "schema-evolution-compatibility", "schema-evolution-algebra",
       "schema-evolution-history", "schema-evolution-codecs",
+      "identifier-schema", "identifier-values",
+      "identifier-field-batches", "identifier-persistence",
     ]);
   }
 });

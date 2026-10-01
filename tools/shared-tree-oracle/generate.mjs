@@ -4329,6 +4329,7 @@ export async function writeCorpus(output, cases, smoke) {
         "array-schema-content", "array-forest-delta", "sequence-field-editor",
         "sequence-compose-invert", "sequence-rebase", "array-modular-algebra",
         ...schemaEvolutionCaseIds,
+        ...requiredIdentifierCases.map(([id]) => id),
       ],
       erlang: [
         "id-ranges", "schema-validation", "forest-delta",
@@ -4340,6 +4341,7 @@ export async function writeCorpus(output, cases, smoke) {
         "array-schema-content", "array-forest-delta", "sequence-field-editor",
         "sequence-compose-invert", "sequence-rebase", "array-modular-algebra",
         ...schemaEvolutionCaseIds,
+        ...requiredIdentifierCases.map(([id]) => id),
       ],
     },
     cases: requiredCases.map(([id, domain]) => ({ id, domain, file: `cases/${id}.json` })),

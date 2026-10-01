@@ -8,7 +8,10 @@ import watershed/json_ot.{type JsonValue, VObject}
 import watershed/tree/change
 import watershed/tree/change_fixture_codec as fixture_codec
 import watershed/tree/codec
+import watershed/tree/fixtures
+import watershed/tree/forest
 import watershed/tree/shared_change
+import watershed/tree/types
 
 type WireInput {
   WireInput(
@@ -217,7 +220,6 @@ fn decode_message(
   use message <- result.try(
     json_ot.parse_json(bytes) |> result.map_error(string.inspect),
   )
-  use message <- result.try(without_unsupported_field_batches(message))
   use compressor_before <- result.try(
     fluid_ids.serialize(compressor, True)
     |> result.map_error(string.inspect),
@@ -257,32 +259,6 @@ fn decode_message(
   Ok(#(observe(change.to_data(changeset)), encoded, encoded_bytes))
 }
 
-fn without_unsupported_field_batches(
-  value: JsonValue,
-) -> Result(JsonValue, String) {
-  use root <- result.try(object_members(value, "message"))
-  use changeset <- result.try(fixture_codec.field(
-    value,
-    "changeset",
-    fixture_codec.items,
-  ))
-  use normalized <- result.try(
-    list.try_map(changeset, fn(entry) {
-      use members <- result.try(object_members(entry, "message change"))
-      use data <- result.try(fixture_codec.get(entry, "data"))
-      use data <- result.try(object_members(data, "message data"))
-      let data =
-        data
-        |> list.filter(fn(member) {
-          member.0 != "builds" && member.0 != "refreshers"
-        })
-        |> VObject
-      Ok(VObject(list.key_set(members, "data", data)))
-    }),
-  )
-  Ok(VObject(list.key_set(root, "changeset", json_ot.VArray(normalized))))
-}
-
 fn observe(data: change.ChangeData) -> Json {
   let constraints =
     data.nodes
@@ -297,17 +273,26 @@ fn observe(data: change.ChangeData) -> Json {
   json.object([
     #("violations", json.int(data.constraint_violation_count)),
     #("constraints", fixture_codec.array(constraints)),
+    #("builds", fixture_codec.array(list.map(data.builds, build_json))),
+    #("refreshers", fixture_codec.array(list.map(data.refreshers, build_json))),
   ])
 }
 
-fn object_members(
-  value: JsonValue,
-  name: String,
-) -> Result(List(#(String, JsonValue)), String) {
-  case value {
-    VObject(members) -> Ok(members)
-    _ -> Error("expected an object for " <> name)
-  }
+fn build_json(value: forest.Build) -> Json {
+  json.object([
+    #("id", atom_json(value.id)),
+    #("trees", json.array(value.trees, fixtures.tree_value_to_json)),
+  ])
+}
+
+fn atom_json(value: types.AtomId) -> Json {
+  json.object([
+    #("revision", case value.revision {
+      None -> json.null()
+      Some(value) -> json.string(fluid_ids.stable_id_to_string(value))
+    }),
+    #("localId", json.int(value.local_id)),
+  ])
 }
 
 fn require_object(value: JsonValue, name: String) -> Result(Nil, String) {

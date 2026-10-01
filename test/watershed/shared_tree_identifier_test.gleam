@@ -1,9 +1,13 @@
 import gleam/json
 import gleam/list
 import gleam/option.{Some}
+import gleam/result
+import gleam/string
 import startest/expect
 import watershed/fluid_ids
+import watershed/json_ot.{type JsonValue, VArray, VNull, VObject}
 import watershed/tree/codec/field_batch
+import watershed/tree/fixtures
 import watershed/tree/identifier
 import watershed/tree/identifier_fixture
 import watershed/tree/runtime as tree_runtime
@@ -11,6 +15,62 @@ import watershed/tree/schema
 import watershed/tree/transaction
 import watershed/tree/types
 import watershed/tree_kernel
+
+pub fn identifier_schema_upstream_fixture_test() {
+  assert_identifier_case("identifier-schema")
+}
+
+pub fn identifier_values_upstream_fixture_test() {
+  assert_identifier_case("identifier-values")
+}
+
+pub fn identifier_field_batches_upstream_fixture_test() {
+  assert_identifier_case("identifier-field-batches")
+}
+
+pub fn identifier_persistence_upstream_fixture_test() {
+  assert_identifier_case("identifier-persistence")
+}
+
+pub fn identifier_runner_observes_mutable_inputs_test() {
+  let cases = [
+    #("identifier-values", "custom-id", "changed-custom-id"),
+    #(
+      "identifier-field-batches",
+      "10000000-0000-4000-8000-000000000001",
+      "20000000-0000-4000-8000-000000000002",
+    ),
+    #("\"firstGenCount\":1", "\"firstGenCount\":2", "identifier-field-batches"),
+    #("identifier-values", "\"label\":\"replacement\"", "\"label\":\"changed\""),
+  ]
+  cases
+  |> list.each(fn(mutation) {
+    let #(name, before, after) = case mutation {
+      #("\"firstGenCount\":1", after, name) -> #(name, mutation.0, after)
+      value -> value
+    }
+    let assert Ok(fixture) = fixtures.load(name)
+    let original = identifier_fixture.run(fixture.input)
+    let changed =
+      fixture.input
+      |> json.to_string
+      |> string.replace(before, after)
+    let assert Ok(changed) = json.parse(changed, json_ot.decoder())
+    case identifier_fixture.run(json_ot.to_json(changed)) {
+      Error(_) -> Nil
+      Ok(changed) -> changed |> expect.to_not_equal(original |> expect.to_be_ok)
+    }
+  })
+}
+
+pub fn identifier_summary_tail_requires_allocation_atomically_test() {
+  let assert Ok(fixture) = fixtures.load("identifier-persistence")
+  let assert Ok(changed) =
+    json_ot.parse_json(json.to_string(fixture.input))
+    |> result.map(remove_tail_ranges)
+  let _ = identifier_fixture.run(json_ot.to_json(changed)) |> expect.to_be_error
+  Nil
+}
 
 pub fn identifier_missing_value_uses_document_compressor_test() {
   let assert Ok(session) =
@@ -418,5 +478,130 @@ fn generated_ids(
       let #(compressor, rest) = generated_ids(compressor, count - 1)
       #(compressor, [fluid_ids.stable_id_to_string(stable), ..rest])
     }
+  }
+}
+
+fn assert_identifier_case(name: String) -> Nil {
+  let assert Ok(fixture) = fixtures.load(name)
+  let assert Ok(actual) = identifier_fixture.run(fixture.input)
+  let assert Ok(actual) = json_ot.parse_json(json.to_string(actual))
+  let assert Ok(expected) = json_ot.parse_json(json.to_string(fixture.expected))
+  let #(actual, expected) = native_projection(actual, expected)
+  fixtures.first_difference(json_ot.to_json(actual), json_ot.to_json(expected))
+  |> expect.to_equal(Ok(Nil))
+}
+
+fn native_projection(
+  actual: JsonValue,
+  expected: JsonValue,
+) -> #(JsonValue, JsonValue) {
+  case actual, expected {
+    VObject(actual), VObject(expected) -> {
+      let expected =
+        list.filter(expected, fn(entry) {
+          !list.contains(
+            [
+              "originalError",
+              "upstreamAccepted",
+              "decodedByUpstream",
+              "beforeNode",
+              "afterNode",
+            ],
+            entry.0,
+          )
+          && case entry.0, entry.1 {
+            "summary", VObject(_) -> False
+            _, _ -> True
+          }
+        })
+      let pairs =
+        list.map(expected, fn(entry) {
+          let actual = list.key_find(actual, entry.0) |> result.unwrap(VNull)
+          let #(actual, expected) = native_projection(actual, entry.1)
+          #(#(entry.0, actual), #(entry.0, expected))
+        })
+      #(
+        VObject(list.map(pairs, fn(pair) { pair.0 })),
+        VObject(list.map(pairs, fn(pair) { pair.1 })),
+      )
+    }
+    VArray(actual), VArray(expected) ->
+      case project_array(actual, expected) {
+        Ok(value) -> value
+        Error(Nil) -> #(VArray(actual), VArray(expected))
+      }
+    _, _ -> #(actual, expected)
+  }
+}
+
+fn project_array(
+  actual: List(JsonValue),
+  expected: List(JsonValue),
+) -> Result(#(JsonValue, JsonValue), Nil) {
+  case actual, expected {
+    [], [] -> Ok(#(VArray([]), VArray([])))
+    [actual, ..actual_rest], [expected, ..expected_rest] -> {
+      let #(actual, expected) = native_projection(actual, expected)
+      use #(actual_rest, expected_rest) <- result.try(project_array(
+        actual_rest,
+        expected_rest,
+      ))
+      let assert VArray(actual_rest) = actual_rest
+      let assert VArray(expected_rest) = expected_rest
+      Ok(#(VArray([actual, ..actual_rest]), VArray([expected, ..expected_rest])))
+    }
+    _, _ -> Error(Nil)
+  }
+}
+
+fn remove_tail_ranges(value: JsonValue) -> JsonValue {
+  case value {
+    VObject(root) ->
+      case list.key_find(root, "scenarios") {
+        Ok(VArray(scenarios)) ->
+          VObject(list.key_set(
+            root,
+            "scenarios",
+            VArray(
+              list.map(scenarios, fn(scenario) {
+                case scenario {
+                  VObject(fields) ->
+                    case list.key_find(fields, "id") {
+                      Ok(json_ot.VString("summary-tail")) ->
+                        case list.key_find(fields, "actions") {
+                          Ok(VArray(actions)) ->
+                            VObject(list.key_set(
+                              fields,
+                              "actions",
+                              VArray(
+                                list.map(actions, fn(action) {
+                                  case action {
+                                    VObject(action_fields) ->
+                                      case list.key_find(action_fields, "op") {
+                                        Ok(json_ot.VString("apply-tail")) ->
+                                          VObject(list.key_set(
+                                            action_fields,
+                                            "idRanges",
+                                            VArray([]),
+                                          ))
+                                        _ -> action
+                                      }
+                                    _ -> action
+                                  }
+                                }),
+                              ),
+                            ))
+                          _ -> scenario
+                        }
+                      _ -> scenario
+                    }
+                  _ -> scenario
+                }
+              }),
+            ),
+          ))
+        _ -> value
+      }
+    _ -> value
   }
 }
