@@ -488,6 +488,59 @@ pub fn shared_tree_transaction_outer_abort_does_not_reuse_node_references_test()
   Nil
 }
 
+pub fn shared_tree_transaction_no_commit_does_not_reuse_nested_node_references_test() -> Nil {
+  let base = array_state(session(), [types.StringValue("A")])
+  let compressor = fluid_ids.new(session())
+  let assert Ok(base_reference) = tree_kernel.reference_at(base, ["0"])
+  let assert Ok(base_snapshot) = tree_kernel.snapshot(base)
+  let base_history = tree_kernel.history_view(base)
+  let assert Ok(value) = transaction.begin(base, compressor, [])
+  let value = transaction.begin_nested(value)
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.ArrayInsert([], 1, [types.StringValue("discarded")]),
+    )
+  let assert Ok(discarded_reference) =
+    tree_kernel.reference_at(transaction.state(value), ["1"])
+  let assert Ok(discarded_target) =
+    tree_kernel.resolve_constraint(transaction.state(value), ["1"])
+  let assert Ok(value) = transaction.abort_nested(value)
+
+  let assert Ok(#(transaction.NoCommit(restored, restored_compressor), events)) =
+    transaction.finish(value)
+  events |> expect.to_equal(tree_kernel.ChangeEvents([], False))
+  restored_compressor |> expect.to_equal(compressor)
+  tree_kernel.visible_data(restored)
+  |> expect.to_equal(tree_kernel.visible_data(base))
+  tree_kernel.snapshot(restored) |> expect.to_equal(Ok(base_snapshot))
+  tree_kernel.history_view(restored) |> expect.to_equal(base_history)
+  tree_kernel.history_view(restored).pending |> expect.to_equal([])
+  tree_kernel.reference_at(restored, ["0"])
+  |> expect.to_equal(Ok(base_reference))
+  tree_kernel.read_reference(restored, base_reference)
+  |> expect.to_equal(Ok(types.StringValue("A")))
+  tree_kernel.read_reference(restored, discarded_reference)
+  |> expect.to_be_error
+  transaction.begin(restored, restored_compressor, [discarded_target])
+  |> expect.to_be_error
+
+  let assert Ok(value) = transaction.begin(restored, restored_compressor, [])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.ArrayInsert([], 1, [types.StringValue("replacement")]),
+    )
+  let assert Ok(replacement_reference) =
+    tree_kernel.reference_at(transaction.state(value), ["1"])
+  replacement_reference |> expect.to_not_equal(discarded_reference)
+  tree_kernel.read_reference(transaction.state(value), discarded_reference)
+  |> expect.to_be_error
+  tree_kernel.validate_constraints(transaction.state(value), [discarded_target])
+  |> expect.to_be_error
+  Nil
+}
+
 pub fn shared_tree_transaction_nested_savepoints_restore_inner_state_test() -> Nil {
   let base = initial_state()
   let assert Ok(value) = transaction.begin(base, fluid_ids.new(session()), [])
@@ -579,9 +632,11 @@ pub fn shared_tree_transaction_empty_finish_restores_base_compressor_test() -> N
   let base = initial_state()
   let compressor = fluid_ids.new(session())
   let assert Ok(value) = transaction.begin(base, compressor, [])
-  let assert Ok(#(transaction.NoCommit, events)) = transaction.finish(value)
+  let assert Ok(#(transaction.NoCommit(state, restored), events)) =
+    transaction.finish(value)
   events |> expect.to_equal(tree_kernel.ChangeEvents([], False))
-  transaction.compressor(value) |> expect.to_equal(compressor)
+  state |> expect.to_equal(base)
+  restored |> expect.to_equal(compressor)
 }
 
 pub fn shared_tree_transaction_same_value_edit_is_not_no_commit_test() -> Nil {

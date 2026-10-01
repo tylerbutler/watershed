@@ -215,7 +215,10 @@ context. Ordinary `apply_local_change` reuses it before appending history.
 pub opaque type Transaction
 
 pub type Finish {
-  NoCommit
+  NoCommit(
+    state: tree_kernel.TreeState,
+    compressor: fluid_ids.Compressor,
+  )
   Commit(
     state: tree_kernel.TreeState,
     compressor: fluid_ids.Compressor,
@@ -256,10 +259,12 @@ pub fn abort(
 ```
 
 `finish` composes authored changes, adds constraints, and appends one local
-commit. `NoCommit` restores the base compressor. `abort` restores the base tree
-and summary compressor state while retaining pinned ongoing local compressor
-advancement. Intermediate edits and abort emit no public data event.
-`finish` returns the one outer event when committed visible data changed.
+commit. `NoCommit` returns the restored base tree with the preserved
+nonserialized forest allocation watermark and the base compressor. `abort`
+restores the base tree and summary compressor state while retaining pinned
+ongoing local compressor advancement. Intermediate edits and abort emit no
+public data event. `finish` returns the one outer event when committed visible
+data changed.
 
 ### Runtime-core API, owned by Task 5
 
@@ -702,8 +707,8 @@ ongoing local compressor advancement.
 - [x] **Step 5: Compose and append the outer success.**
 
 `finish` composes authored changes in order, adds constraints against the base
-forest, and appends one commit. If there is no effective data change, return
-`NoCommit` with the base compressor and no pending history.
+forest, and appends one commit. If there is no effective data change, return `NoCommit` with restored
+tree state, the base compressor, and no pending history.
 
 - [x] **Step 6: Reject unsupported transaction operations.**
 
@@ -743,9 +748,11 @@ git commit -m "feat(tree): add nested transactions"
 - `finish` and `abort` reject open nested scopes. Nested commit and abort reject
   depth zero. The returned immutable transaction remains usable after an
   error.
-- Empty transactions return `NoCommit`. Same-value identity edits remain real
-  commits. Net-zero array mutations retain the array event flag and emit one
-  final local tree event.
+- Empty transactions return `NoCommit` with the base tree and compressor.
+  Rolled-back no-op transactions also preserve the invisible forest allocation
+  watermark so discarded references cannot alias later nodes. Same-value
+  identity edits remain real commits. Net-zero array mutations retain the
+  array event flag and emit one final local tree event.
 - `begin` returns `Result(Transaction, TreeError)` instead of the infallible
   signature in section 3. This is the smallest typed boundary that validates
   resolved constraints before any edit can run.
@@ -824,6 +831,41 @@ git commit -m "feat(tree): add nested transactions"
 - `gleam format --check src test` and `git diff --check` passed.
 - No Task 5 runtime state, facade, callback, or public transaction API was
   added.
+
+**Review fix round 2 evidence (2026-09-30):**
+
+- Added a permanent regression for nested insertion, nested abort, no-op outer
+  finish, and a later transaction from the returned state. It verifies that
+  the discarded reference stays invalid, the discarded constraint is
+  rejected, the replacement gets a different reference, the surviving base
+  reference is unchanged, snapshot and history are unchanged, the compressor
+  is the base compressor, and no event or pending commit exists.
+- RED on both targets failed to compile because the required state could not be
+  returned by the bare `NoCommit` constructor:
+
+  ```text
+  Expected no arguments, got 2
+  ```
+
+- `NoCommit` now carries the restored tree state and base compressor. Both
+  no-op branches use one helper that restores base-visible state and history
+  while preserving the maximum nonserialized forest allocation watermark.
+  Ordinary empty transactions still return the exact base state and
+  compressor.
+- The required focused commands passed 65 tests on each target:
+
+  ```bash
+  gleam test --target erlang -- shared_tree_transaction shared_tree_kernel shared_tree_array_kernel
+  gleam test --target javascript -- shared_tree_transaction shared_tree_kernel shared_tree_array_kernel
+  ```
+
+- This intentionally changes the internal Task 4 `Finish` interface from a
+  bare `NoCommit` tag to
+  `NoCommit(state: tree_kernel.TreeState, compressor: fluid_ids.Compressor)`.
+  Task 5 must install both returned values while emitting no operation, event,
+  or pending commit.
+- `gleam format --check src test` and `git diff --check` passed.
+- Task 5 remains unimplemented.
 
 ### Task 5: Integrate transactions with runtime core
 

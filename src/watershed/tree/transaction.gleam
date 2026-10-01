@@ -33,7 +33,7 @@ pub opaque type Transaction {
 }
 
 pub type Finish {
-  NoCommit
+  NoCommit(state: tree_kernel.TreeState, compressor: fluid_ids.Compressor)
   Commit(
     state: tree_kernel.TreeState,
     compressor: fluid_ids.Compressor,
@@ -128,7 +128,7 @@ pub fn finish(
 ) -> Result(#(Finish, tree_kernel.ChangeEvents), TreeError) {
   use _ <- result.try(require_outer_scope(value))
   case value.changes {
-    [] -> Ok(#(NoCommit, tree_kernel.ChangeEvents([], False)))
+    [] -> Ok(finish_no_commit(value))
     [first, ..] -> {
       use outer <- result.try(
         value.changes
@@ -142,11 +142,24 @@ pub fn finish(
         |> shared_change.compose,
       )
       case shared_change.to_changes(outer) {
-        [] -> Ok(#(NoCommit, tree_kernel.ChangeEvents([], False)))
+        [] -> Ok(finish_no_commit(value))
         _ -> finish_change(value, first.revision, outer)
       }
     }
   }
+}
+
+fn finish_no_commit(value: Transaction) -> #(Finish, tree_kernel.ChangeEvents) {
+  #(
+    NoCommit(
+      tree_kernel.preserve_identity_allocation(
+        value.base_state,
+        value.current_state,
+      ),
+      value.base_compressor,
+    ),
+    tree_kernel.ChangeEvents([], False),
+  )
 }
 
 pub fn abort(
