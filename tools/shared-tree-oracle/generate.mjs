@@ -3901,9 +3901,16 @@ function validateIdentifierCase(value) {
     check(allocation.every(({ path }) => Array.isArray(path)), "allocation paths");
     const nested = value.expected.observations
       .find((item) => item.id === "nested-insertion")?.allocationEvents;
-    check(nonemptyArray(nested)
-      && nested.every(({ ordinal, path }) => Number.isSafeInteger(ordinal) && Array.isArray(path)),
-    "nested allocation traversal");
+    assert.deepEqual(
+      nested?.map(({ ordinal, kind, path }) => ({ ordinal, kind, path })),
+      [
+        { ordinal: 1, kind: "identifier", path: ["byKey", "map", "id"] },
+        { ordinal: 2, kind: "identifier", path: ["left", 0, "id"] },
+        { ordinal: 3, kind: "identifier", path: ["child", "id"] },
+        { ordinal: 4, kind: "revision", path: [] },
+      ],
+      `${label}: hydrated nested allocation traversal`,
+    );
   }
   if (label === "identifier-field-batches") {
     const numeric = value.input.scenarios
@@ -3956,7 +3963,8 @@ function validateIdentifierCase(value) {
     "literal equal custom ID actions");
     const replaced = value.expected.observations
       .find(({ id }) => id === "equal-custom-id-replacement");
-    check(replaced?.nodeReplaced === true && replaced.beforeNode !== replaced.afterNode,
+    check(replaced?.nodeReplaced === true && replaced.beforeNode !== replaced.afterNode
+      && replaced.sameNodeTokenStable === true,
       "replacement node identity");
   }
 }

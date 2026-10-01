@@ -123,8 +123,10 @@ type PersistenceExecution = {
 	identifier?: string;
 	peerObserved?: boolean;
 	repair?: unknown[];
-	beforeNode?: string;
-	afterNode?: string;
+	nodeReplaced?: boolean;
+	beforeNode?: number;
+	afterNode?: number;
+	sameNodeTokenStable?: boolean;
 	identityPreserved?: boolean;
 };
 type PersistedSchema = {
@@ -509,26 +511,12 @@ function pairInput(value: { fields: Record<string, unknown> }) {
 }
 
 function typedItem(
-	view: object,
 	value: { schema: string; fields: Record<string, unknown> },
 ) {
-	const manager = Reflect.get(view, "nodeKeyManager") as {
-		generateLocalNodeIdentifier: () => unknown;
-		stabilizeNodeIdentifier: (id: unknown) => string;
-	};
-	const identifier = () =>
-		manager.stabilizeNodeIdentifier(manager.generateLocalNodeIdentifier());
 	if (value.schema === Pair.identifier) {
-		return new Pair({
-			...pairInput(value),
-			firstId: value.fields.firstId ?? identifier(),
-			secondId: value.fields.secondId ?? identifier(),
-		} as never);
+		return new Pair(pairInput(value) as never);
 	}
-	return new Point({
-		...pointInput(value),
-		id: value.fields.id ?? identifier(),
-	} as never);
+	return new Point(pointInput(value) as never);
 }
 
 function rootInput(value: {
@@ -538,29 +526,14 @@ function rootInput(value: {
 		right: { schema: string; fields: Record<string, unknown> }[];
 		byKey: [string, { schema: string; fields: Record<string, unknown> }][];
 	};
-}, view?: object) {
+}) {
 	const item = (entry: { schema: string; fields: Record<string, unknown> }) =>
-		view === undefined
-			? entry.schema === Pair.identifier ? pairInput(entry) : pointInput(entry)
-			: typedItem(view, entry);
-	const left = new Array(value.fields.left.length);
-	for (let index = value.fields.left.length - 1; index >= 0; index--) {
-		left[index] = item(value.fields.left[index]);
-	}
-	const right = new Array(value.fields.right.length);
-	for (let index = value.fields.right.length - 1; index >= 0; index--) {
-		right[index] = item(value.fields.right[index]);
-	}
-	const byKey = new Map<string, Point | Pair | Record<string, unknown>>();
-	for (let index = value.fields.byKey.length - 1; index >= 0; index--) {
-		const [key, entry] = value.fields.byKey[index];
-		byKey.set(key, item(entry));
-	}
+		typedItem(entry);
 	return {
 		child: pointInput(value.fields.child),
-		left,
-		right,
-		byKey,
+		left: value.fields.left.map(item),
+		right: value.fields.right.map(item),
+		byKey: new Map(value.fields.byKey.map(([key, entry]) => [key, item(entry)])),
 	};
 }
 
@@ -601,7 +574,7 @@ function constructValue(
 	}
 	assert.equal(action.schema, Root.identifier);
 	const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
-	view.initialize(rootInput(action as never, view) as never);
+	view.initialize(rootInput(action as never) as never);
 	provider.synchronizeMessages();
 	const revision = messagesIn(processed).at(-1)?.revision;
 	return {
@@ -636,7 +609,7 @@ function executeValueScenario(input: IdentifierInput, item: {
 	const provider = fixedProvider(input.compressors.initial, 1);
 	const processed = interceptRuntime(provider.runtimes[0]);
 	const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
-	view.initialize(rootInput(input.initialTree as never, view) as never);
+	view.initialize(rootInput(input.initialTree as never) as never);
 	provider.synchronizeMessages();
 	const before = visible(view.root);
 	processed.length = 0;
@@ -659,7 +632,7 @@ function executeValueScenario(input: IdentifierInput, item: {
 			assert(typeof action.index === "number" && typeof action.value === "object");
 			view.root.left.insertAt(
 				action.index,
-				typedItem(view, action.value),
+				typedItem(action.value),
 			);
 		} else if (action.op === "set" && action.path?.at(-1) === "id") {
 			refusal = captureRefusal(() => {
@@ -1099,7 +1072,7 @@ async function prepareSummaryTail(input: IdentifierInput) {
 	const provider = fixedProvider(input.compressors.initial);
 	const processed = interceptRuntime(provider.runtimes[0]);
 	const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
-	view.initialize(rootInput(input.initialTree as never, view) as never);
+	view.initialize(rootInput(input.initialTree as never) as never);
 	provider.synchronizeMessages();
 	const summary = (await provider.trees[0].summarize(true)).summary;
 	const summaryCompressor = serializeIdCompressor(provider.compressors[0], false);
@@ -1216,7 +1189,7 @@ async function executePersistenceScenario(input: IdentifierInput, item: {
 	const processed = interceptRuntime(provider.runtimes[0]);
 	const generated = trackedAllocations(provider.compressors[0]);
 	const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
-	view.initialize(rootInput(input.initialTree as never, view) as never);
+	view.initialize(rootInput(input.initialTree as never) as never);
 	provider.synchronizeMessages();
 	const peer = provider.trees[1].viewWith(new TreeViewConfiguration({ schema: Root }));
 	const initialRevision = messagesIn(processed).at(-1)?.revision;
@@ -1244,7 +1217,7 @@ async function executePersistenceScenario(input: IdentifierInput, item: {
 			} else if (action.op === "insert") {
 				assert.deepEqual(action.path, ["left"]);
 				assert(action.index !== undefined && action.value !== undefined);
-				view.root.left.insertAt(action.index, typedItem(view, action.value));
+				view.root.left.insertAt(action.index, typedItem(action.value));
 				const inserted = view.root.left[action.index];
 				generatedIdentifier = inserted instanceof Pair ? inserted.firstId : inserted.id;
 			} else if (action.op === "disconnect") {
@@ -1286,8 +1259,27 @@ async function executePersistenceScenario(input: IdentifierInput, item: {
 	if (summary instanceof Promise) summary = (await summary).summary;
 	const after = visible(view.root);
 	const compressorAfter = serializeIdCompressor(provider.compressors[0], true);
-	const nodeToken = (node: object | undefined, index: number) =>
-		node === undefined ? undefined : `${index}:${Object.prototype.toString.call(node)}`;
+	const nodeTokens = new WeakMap<object, number>();
+	let nextNodeToken = 1;
+	const nodeToken = (node: object | undefined) => {
+		if (node === undefined) return undefined;
+		const existing = nodeTokens.get(node);
+		if (existing !== undefined) return existing;
+		const next = nextNodeToken++;
+		nodeTokens.set(node, next);
+		return next;
+	};
+	const beforeReplacement = replacementNodes.at(-2);
+	const afterReplacement = replacementNodes.at(-1);
+	let nodeReplaced: boolean | undefined;
+	let sameNodeTokenStable: boolean | undefined;
+	if (beforeReplacement !== undefined || afterReplacement !== undefined) {
+		assert(beforeReplacement !== undefined && afterReplacement !== undefined);
+		assert.notEqual(replacementNodes.at(-2), replacementNodes.at(-1));
+		nodeReplaced = beforeReplacement !== afterReplacement;
+		sameNodeTokenStable = nodeToken(afterReplacement) === nodeToken(afterReplacement);
+		assert.equal(sameNodeTokenStable, true);
+	}
 	return {
 		input: copy(item),
 		before,
@@ -1306,8 +1298,10 @@ async function executePersistenceScenario(input: IdentifierInput, item: {
 			: [...peer.root.left].some((entry) =>
 				(entry instanceof Pair ? entry.firstId : entry.id) === generatedIdentifier),
 		repair,
-		beforeNode: nodeToken(replacementNodes.at(-2), 1),
-		afterNode: nodeToken(replacementNodes.at(-1), 2),
+		nodeReplaced,
+		beforeNode: nodeToken(beforeReplacement),
+		afterNode: nodeToken(afterReplacement),
+		sameNodeTokenStable,
 		identityPreserved: movedNode === view.root.right.at(-1),
 		messages: copy(processed),
 	};
@@ -1400,9 +1394,10 @@ async function capturePersistence() {
 		observe("remove-retain-repair", { identifier: removed.identifier, repair: removed.repair }),
 		observe("equal-custom-id-replacement", {
 			identifier: "literal-custom-id",
-			nodeReplaced: replaced.beforeNode !== replaced.afterNode,
+			nodeReplaced: replaced.nodeReplaced,
 			beforeNode: replaced.beforeNode,
 			afterNode: replaced.afterNode,
+			sameNodeTokenStable: replaced.sameNodeTokenStable,
 		}),
 		observe("node-moves", {
 			identifier: moved.identifier,

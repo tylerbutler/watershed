@@ -231,6 +231,23 @@ test("Identifier capture rejects a successful refusal callback", async () => {
   assert.match(contents, /\(\) => captureRefusal\(\(\) => undefined\)/);
 });
 
+test("Identifier defaults are allocated only by upstream hydration", async () => {
+  const contents = await readFile(
+    new URL("./upstream-identifier.spec.ts", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(contents, /generateLocalNodeIdentifier|stabilizeNodeIdentifier/);
+});
+
+test("Identifier replacement evidence uses real reference identity", async () => {
+  const contents = await readFile(
+    new URL("./upstream-identifier.spec.ts", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(contents, /node: object \| undefined, index: number/);
+  assert.match(contents, /assert\.notEqual\(replacementNodes\.at\(-2\), replacementNodes\.at\(-1\)\)/);
+});
+
 test("source runner isolates transaction entropy from the existing corpus", () => {
   assert.deepEqual(source.sourceTestBatches(true), [
     [

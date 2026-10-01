@@ -887,8 +887,9 @@
         "id": "equal-custom-id-replacement",
         "identifier": "literal-custom-id",
         "nodeReplaced": true,
-        "beforeNode": "1:[object Object]",
-        "afterNode": "2:[object Object]"
+        "beforeNode": 2,
+        "afterNode": 1,
+        "sameNodeTokenStable": true
       },
       {
         "id": "node-moves",
@@ -2641,8 +2642,10 @@
           }
         ],
         "compressorAdvanced": true,
-        "beforeNode": "1:[object Object]",
-        "afterNode": "2:[object Object]",
+        "nodeReplaced": true,
+        "beforeNode": 2,
+        "afterNode": 1,
+        "sameNodeTokenStable": true,
         "identityPreserved": true,
         "messages": [
           {
@@ -2892,8 +2895,9 @@
           "id": "equal-custom-id-replacement",
           "identifier": "literal-custom-id",
           "nodeReplaced": true,
-          "beforeNode": "1:[object Object]",
-          "afterNode": "2:[object Object]"
+          "beforeNode": 2,
+          "afterNode": 1,
+          "sameNodeTokenStable": true
         }
       },
       {

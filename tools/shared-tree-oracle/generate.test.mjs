@@ -167,7 +167,10 @@ function identifierCaseFixture(id, domain) {
     ];
     observations.find(({ id: scenarioId }) => scenarioId === "nested-insertion")
       .allocationEvents = [
-        { ordinal: 1, kind: "identifier", path: ["child", "id"], op: 1 },
+        { ordinal: 1, kind: "identifier", path: ["byKey", "map", "id"], op: 1 },
+        { ordinal: 2, kind: "identifier", path: ["left", 0, "id"], op: 2 },
+        { ordinal: 3, kind: "identifier", path: ["child", "id"], op: 3 },
+        { ordinal: 4, kind: "revision", path: [], op: 4 },
       ];
   }
   if (id === "identifier-schema") {
@@ -213,6 +216,7 @@ function identifierCaseFixture(id, domain) {
         nodeReplaced: true,
         beforeNode: "1:node",
         afterNode: "2:node",
+        sameNodeTokenStable: true,
       },
     );
   }
@@ -1584,9 +1588,12 @@ test("Identifier fixtures preserve executable capture evidence", () => {
   ]);
   const nested = values.expected.observations
     .find(({ id }) => id === "nested-insertion").allocationEvents;
-  assert(nested.length >= 3);
-  assert(nested.every(({ ordinal, path }) =>
-    Number.isSafeInteger(ordinal) && ordinal > 0 && Array.isArray(path)));
+  assert.deepEqual(nested.map(({ ordinal, kind, path }) => ({ ordinal, kind, path })), [
+    { ordinal: 1, kind: "identifier", path: ["byKey", "map", "id"] },
+    { ordinal: 2, kind: "identifier", path: ["left", 0, "id"] },
+    { ordinal: 3, kind: "identifier", path: ["child", "id"] },
+    { ordinal: 4, kind: "revision", path: [] },
+  ]);
   for (const scenario of values.input.scenarios) {
     const execution = values.raw.scenarios.find(({ id }) => id === scenario.id);
     assert.deepEqual(execution.input, scenario);
@@ -1618,6 +1625,7 @@ test("Identifier fixtures preserve executable capture evidence", () => {
   const replacementObservation = persistence.expected.observations
     .find(({ id }) => id === "equal-custom-id-replacement");
   assert.notEqual(replacementObservation.beforeNode, replacementObservation.afterNode);
+  assert.equal(replacementObservation.sameNodeTokenStable, true);
 });
 
 test("M3 requires sequence replay evidence", () => {
