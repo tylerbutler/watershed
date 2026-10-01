@@ -135,6 +135,53 @@ fn acknowledgement(payload: json.Json) -> json.Json {
   ])
 }
 
+fn expect_allocation_batch(payload: json.Json) -> Nil {
+  let assert Ok(dynamic) = json.parse(json.to_string(payload), decode.dynamic)
+  let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+    frame.decode_submit_operation(dynamic)
+  let assert Ok(batch) =
+    fluid_container.decode(submitted.contents, submitted.metadata)
+  let assert [
+    fluid_container.ContainerMessage(fluid_container.IdAllocation(_), 0, _),
+    fluid_container.ContainerMessage(
+      fluid_container.ChannelOperation(_, _),
+      1,
+      _,
+    ),
+  ] = batch.messages
+  Nil
+}
+
+fn invalid_operation(sequence_number: Int) -> json.Json {
+  let contents =
+    fluid_container.DecodedBatch(True, None, [
+      fluid_container.ContainerMessage(
+        fluid_container.ChannelOperation(
+          fluid_container.Route("missing", "root"),
+          json.null(),
+        ),
+        0,
+        None,
+      ),
+    ])
+    |> fluid_container.encode_batch
+    |> expect.to_be_ok()
+  frame.encode_operation_event([
+    frame.Sequenced(
+      client_id: Some("other"),
+      sequence_number: sequence_number,
+      minimum_sequence_number: 0,
+      client_sequence_number: sequence_number,
+      reference_sequence_number: 0,
+      operation_type: "op",
+      contents: contents,
+      metadata: None,
+      timestamp: 0,
+      data: None,
+    ),
+  ])
+}
+
 fn combined_acknowledgement(
   first_payload: json.Json,
   second_payload: json.Json,
@@ -1229,6 +1276,8 @@ pub fn shared_tree_map_facade_beam_transaction_rejections_and_reconnect_test() {
           let reconnect =
             process.receive(connections, 1000) |> expect.to_be_ok()
           beam_transport(reconnect, submissions)
+          callbacks.on_event("op", invalid_operation(98))
+          reconnect.on_event("op", invalid_operation(99))
           reconnect.on_event(
             "connect_document_success",
             connected("reader-reconnected", 0),
@@ -1267,6 +1316,173 @@ pub fn shared_tree_map_facade_beam_transaction_rejections_and_reconnect_test() {
   |> expect.to_equal(Ok(Some(types.StringValue("usable"))))
   process.receive(submissions, 1000) |> expect.to_be_ok()
   process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_map_facade_beam_reconnect_replays_held_batches_after_nested_abort_test() {
+  let input = input(True)
+  let #(document, connections, submissions) = beam_document(input)
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  beam_transport(callbacks, submissions)
+  callbacks.on_event("connect_document_success", connected("reader", 0))
+  let tree = beam_tree(document, input)
+  let events = watershed_beam.subscribe_tree(tree)
+
+  let #(peer, peer_connections, peer_submissions) =
+    beam_document(peer_input(input))
+  let peer_callbacks =
+    process.receive(peer_connections, 1000) |> expect.to_be_ok()
+  beam_transport(peer_callbacks, peer_submissions)
+  peer_callbacks.on_event("connect_document_success", connected("other", 0))
+  let peer_tree = beam_tree(peer, input)
+
+  let result =
+    watershed_beam.tree_transaction(tree, [], fn(tree) {
+      let nested =
+        watershed_beam.tree_transaction(tree, [], fn(_) {
+          callbacks.on_close("transport lost")
+          let reconnect =
+            process.receive(connections, 1000) |> expect.to_be_ok()
+          beam_transport(reconnect, submissions)
+          reconnect.on_event(
+            "connect_document_success",
+            connected("reader-reconnected", 0),
+          )
+
+          watershed_beam.tree_map_set(
+            peer_tree,
+            [],
+            "remote",
+            types.StringValue("first"),
+          )
+          |> expect.to_equal(Ok(Nil))
+          let first =
+            process.receive(peer_submissions, 1000) |> expect.to_be_ok()
+          expect_allocation_batch(first)
+          reconnect.on_event("op", acknowledgement(first))
+
+          watershed_beam.tree_map_set(
+            peer_tree,
+            [],
+            "remote",
+            types.StringValue("second"),
+          )
+          |> expect.to_equal(Ok(Nil))
+          let second =
+            process.receive(peer_submissions, 1000) |> expect.to_be_ok()
+          reconnect.on_event("op", acknowledgement(second))
+
+          watershed_beam.tree_map_get(tree, [], "remote")
+          |> expect.to_equal(Ok(None))
+          Ok(Nil)
+        })
+      let assert watershed_beam.TransactionFailed(_) =
+        nested |> expect.to_be_error()
+      watershed_beam.tree_map_get(tree, [], "remote")
+      |> expect.to_equal(Ok(None))
+      Error(Stop)
+    })
+
+  result |> expect.to_equal(Error(watershed_beam.Aborted(Stop)))
+  watershed_beam.tree_map_get(tree, [], "remote")
+  |> expect.to_equal(Ok(Some(types.StringValue("second"))))
+  process.receive(events, 1000)
+  |> expect.to_equal(Ok(tree_kernel.TreeChanged(False)))
+  process.receive(events, 1000)
+  |> expect.to_equal(Ok(tree_kernel.TreeChanged(False)))
+  process.receive(events, 0) |> expect.to_equal(Error(Nil))
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  process.send(watershed_beam.runtime_subject(peer), runtime_beam.Shutdown)
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_map_facade_beam_reconnect_replays_before_outer_commit_failure_test() {
+  let input = input(True)
+  let #(document, connections, submissions) = beam_document(input)
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  beam_transport(callbacks, submissions)
+  callbacks.on_event("connect_document_success", connected("reader", 0))
+  let tree = beam_tree(document, input)
+
+  let #(peer, peer_connections, peer_submissions) =
+    beam_document(peer_input(input))
+  let peer_callbacks =
+    process.receive(peer_connections, 1000) |> expect.to_be_ok()
+  beam_transport(peer_callbacks, peer_submissions)
+  peer_callbacks.on_event("connect_document_success", connected("other", 0))
+  let peer_tree = beam_tree(peer, input)
+
+  watershed_beam.tree_transaction(tree, [], fn(tree) {
+    use _ <- result.try(watershed_beam.tree_map_set(
+      tree,
+      [],
+      "local",
+      types.StringValue("discarded"),
+    ))
+    callbacks.on_close("transport lost")
+    let reconnect = process.receive(connections, 1000) |> expect.to_be_ok()
+    beam_transport(reconnect, submissions)
+    reconnect.on_event(
+      "connect_document_success",
+      connected("reader-reconnected", 0),
+    )
+    watershed_beam.tree_map_set(
+      peer_tree,
+      [],
+      "remote",
+      types.StringValue("retained"),
+    )
+    |> expect.to_equal(Ok(Nil))
+    let remote = process.receive(peer_submissions, 1000) |> expect.to_be_ok()
+    reconnect.on_event("op", acknowledgement(remote))
+    Ok(Nil)
+  })
+  |> expect.to_be_error()
+
+  watershed_beam.tree_map_get(tree, [], "local") |> expect.to_equal(Ok(None))
+  watershed_beam.tree_map_get(tree, [], "remote")
+  |> expect.to_equal(Ok(Some(types.StringValue("retained"))))
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  process.send(watershed_beam.runtime_subject(peer), runtime_beam.Shutdown)
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_map_facade_beam_reconnect_replay_failure_replaces_abort_test() {
+  let input = input(True)
+  let #(document, connections, submissions) = beam_document(input)
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  beam_transport(callbacks, submissions)
+  callbacks.on_event("connect_document_success", connected("reader", 0))
+  let tree = beam_tree(document, input)
+  let owner = watershed_beam.runtime_subject(document)
+
+  let result =
+    watershed_beam.tree_transaction(tree, [], fn(tree) {
+      let nested =
+        watershed_beam.tree_transaction(tree, [], fn(_) {
+          callbacks.on_close("transport lost")
+          let reconnect =
+            process.receive(connections, 1000) |> expect.to_be_ok()
+          beam_transport(reconnect, submissions)
+          reconnect.on_event(
+            "connect_document_success",
+            connected("reader-reconnected", 0),
+          )
+          reconnect.on_event("op", invalid_operation(1))
+          Ok(Nil)
+        })
+      let assert watershed_beam.TransactionFailed(_) =
+        nested |> expect.to_be_error()
+      Error(Stop)
+    })
+
+  let assert Error(watershed_beam.TransactionFailed(_)) = result
+  let observation = runtime_beam.connection_observation(owner)
+  observation.phase |> expect.to_equal("failed")
+  observation.error |> expect.to_not_equal(None)
+  process.send(owner, runtime_beam.Shutdown)
 }
 
 @target(erlang)

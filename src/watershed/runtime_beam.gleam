@@ -3326,22 +3326,24 @@ fn handle_tree_transaction_commit(
         Ready(core, Some(_)) -> {
           let #(state, outcome) =
             abort_tree_transaction_in_phase(state, core, address)
-          process.send(reply, case outcome {
-            Ok(Nil) ->
+          let #(state, finish_outcome) = finish_tree_transaction_in_phase(state)
+          process.send(reply, case outcome, finish_outcome {
+            Error(error), _ | _, Error(error) -> Error(error)
+            Ok(Nil), Ok(Nil) ->
               Error("tree transaction requires a ready document connection")
-            Error(error) -> Error(error)
           })
-          continue_after_tree_transaction(state)
+          actor.continue(state)
         }
         Reconnecting(core) -> {
           let #(state, outcome) =
             abort_tree_transaction_in_phase(state, core, address)
-          process.send(reply, case outcome {
-            Ok(Nil) ->
+          let #(state, finish_outcome) = finish_tree_transaction_in_phase(state)
+          process.send(reply, case outcome, finish_outcome {
+            Error(error), _ | _, Error(error) -> Error(error)
+            Ok(Nil), Ok(Nil) ->
               Error("tree transaction requires a ready document connection")
-            Error(error) -> Error(error)
           })
-          continue_after_tree_transaction(state)
+          actor.continue(state)
         }
         SuspendedPendingTree(core, reason) -> {
           let #(state, outcome) =
@@ -3396,8 +3398,12 @@ fn handle_tree_transaction_abort(
         | SuspendedPendingTree(core, _) -> {
           let #(state, outcome) =
             abort_tree_transaction_in_phase(state, core, address)
-          process.send(reply, outcome)
-          continue_after_tree_transaction(state)
+          let #(state, finish_outcome) = finish_tree_transaction_in_phase(state)
+          process.send(reply, case outcome, finish_outcome {
+            Error(error), _ | _, Error(error) -> Error(error)
+            Ok(Nil), Ok(Nil) -> Ok(Nil)
+          })
+          actor.continue(state)
         }
         Connecting(_) | Failed(_) -> {
           process.send(
@@ -3435,15 +3441,8 @@ fn handle_tree_transaction_caller_down(
             Ok(core) -> {
               let state =
                 install_phase_core(release_tree_transaction_caller(state), core)
-              let #(state, _) = case state.phase {
-                Ready(_, None) -> drain_deferred_operations(state)
-                Ready(_, Some(_))
-                | Reconnecting(_)
-                | SuspendedPendingTree(_, _)
-                | Connecting(_)
-                | Failed(_) -> #(discard_deferred_operations(state), Ok(Nil))
-              }
-              continue_after_tree_transaction(state)
+              let #(state, _) = finish_tree_transaction_in_phase(state)
+              actor.continue(state)
             }
           }
       }
@@ -3469,14 +3468,43 @@ fn transaction_caller(
 }
 
 @target(erlang)
-fn continue_after_tree_transaction(state: State) -> actor.Next(State, Msg) {
-  case state.pending_reconnect, state.phase {
-    Some(connected), Reconnecting(core) ->
+fn finish_tree_transaction_in_phase(
+  state: State,
+) -> #(State, Result(Nil, String)) {
+  case state.phase {
+    Ready(core, _) ->
       case runtime_core.tree_transaction_depth(core) {
-        0 -> adopt_reconnect_connection(state, core, connected)
-        _ -> actor.continue(state)
+        0 -> drain_deferred_operations(state)
+        _ -> #(state, Ok(Nil))
       }
-    _, _ -> actor.continue(state)
+    Reconnecting(core) ->
+      case runtime_core.tree_transaction_depth(core), state.pending_reconnect {
+        0, Some(connected) -> {
+          let #(state, outcome) = adopt_reconnect_state(state, core, connected)
+          case outcome {
+            Error(error) -> #(state, Error(error))
+            Ok(Nil) ->
+              case state.phase {
+                Ready(_, _) -> drain_deferred_operations(state)
+                Connecting(_)
+                | Reconnecting(_)
+                | SuspendedPendingTree(_, _)
+                | Failed(_) -> #(
+                  state,
+                  Error(
+                    "reconnect did not become ready before operation replay",
+                  ),
+                )
+              }
+          }
+        }
+        0, None -> #(discard_deferred_operations(state), Ok(Nil))
+        _, _ -> #(state, Ok(Nil))
+      }
+    Connecting(_) | SuspendedPendingTree(_, _) | Failed(_) -> #(
+      discard_deferred_operations(state),
+      Ok(Nil),
+    )
   }
 }
 
@@ -3519,10 +3547,7 @@ fn abort_tree_transaction_in_phase(
     Ok(#(core, _)) -> {
       let state = install_phase_core(state, core)
       case runtime_core.tree_transaction_depth(core) {
-        0 -> #(
-          discard_deferred_operations(release_tree_transaction_caller(state)),
-          Ok(Nil),
-        )
+        0 -> #(release_tree_transaction_caller(state), Ok(Nil))
         _ -> #(state, Ok(Nil))
       }
     }
@@ -3770,12 +3795,24 @@ fn handle_inbound(
               actor.continue(state)
             }
           }
-        // Operations before/without a connected session (or while reconnecting)
-        // carry no state we can trust; ignore them.
-        Connecting(_)
-        | Reconnecting(_)
-        | SuspendedPendingTree(_, _)
-        | Failed(_) -> actor.continue(state)
+        Reconnecting(core) ->
+          case
+            state.pending_reconnect,
+            runtime_core.tree_transaction_depth(core) > 0
+          {
+            Some(_), True ->
+              actor.continue(
+                State(..state, deferred_operations: [
+                  operation_message(payload),
+                  ..state.deferred_operations
+                ]),
+              )
+            _, _ -> actor.continue(state)
+          }
+        // Operations before/without an authoritative connected session carry
+        // no state we can trust.
+        Connecting(_) | SuspendedPendingTree(_, _) | Failed(_) ->
+          actor.continue(state)
       }
 
     "nack" -> {
@@ -3838,10 +3875,22 @@ fn adopt_reconnect_connection(
   previous: runtime_core.Core,
   connected: message.ConnectedMessage,
 ) -> actor.Next(State, Msg) {
+  let #(state, _) = adopt_reconnect_state(state, previous, connected)
+  actor.continue(state)
+}
+
+@target(erlang)
+fn adopt_reconnect_state(
+  state: State,
+  previous: runtime_core.Core,
+  connected: message.ConnectedMessage,
+) -> #(State, Result(Nil, String)) {
   let state = State(..state, pending_reconnect: None)
   case runtime_core.adopt_reconnect(previous, connected) {
-    Error(error) ->
-      actor.continue(fail(state, "reconnect failed: " <> string.inspect(error)))
+    Error(error) -> {
+      let reason = "reconnect failed: " <> string.inspect(error)
+      #(fail(state, reason), Error(reason))
+    }
     Ok(core) -> {
       let checkpoint =
         option.unwrap(
@@ -3870,7 +3919,7 @@ fn adopt_reconnect_connection(
           runtime_core.catch_up_from(core, checkpoint),
         )
       case request_outcome {
-        Error(_) -> actor.continue(state)
+        Error(error) -> #(state, Error(error))
         Ok(Nil) ->
           // Presence is unsequenced, so it does not wait for the operation
           // catch-up `settle_reconnect` may still be pending. Rejoining now is
@@ -3881,9 +3930,12 @@ fn adopt_reconnect_connection(
               && state.generation == generation
             -> {
               notify_presence_session(state, core)
-              settle_reconnect(state, core, checkpoint)
+              #(settle_reconnect_state(state, core, checkpoint), Ok(Nil))
             }
-            _ -> actor.continue(state)
+            _ -> #(
+              state,
+              Error("reconnect state changed during handshake adoption"),
+            )
           }
       }
     }
@@ -4020,18 +4072,6 @@ fn finish_initial_connection(
         "bootstrap failed: " <> string.inspect(core_error),
       ))
   }
-}
-
-@target(erlang)
-/// Resubmit the operations with no ack, after the catch-up reaches the
-/// reconnect checkpoint. Before that point, stay in the catching-up state until
-/// more operations arrive.
-fn settle_reconnect(
-  state: State,
-  core: runtime_core.Core,
-  checkpoint: Int,
-) -> actor.Next(State, Msg) {
-  actor.continue(settle_reconnect_state(state, core, checkpoint))
 }
 
 @target(erlang)

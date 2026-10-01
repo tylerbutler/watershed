@@ -1316,6 +1316,28 @@ git commit -m "feat(tree): expose BEAM transactions"
   the existing failed, reconnecting, or suspended transition. Abort and no-op
   commit return a transaction failure instead of losing the actor callee.
 
+**Remaining reconnect-order fix evidence (2026-09-30, baseline `128c9f42`):**
+
+- RED: `gleam test --target erlang -- shared_tree_map_facade` passed 9 tests
+  and failed 3 controlled reconnect cases. With a checkpoint equal to the
+  retained sequence, complete post-handshake operation batches were discarded
+  while the actor remained reconnecting. The outer abort and commit paths both
+  finished with the remote value absent, and a bad retained batch did not
+  replace the callback abort with a transaction failure.
+- GREEN: the actor retains operation batches only after the current-generation
+  reconnect handshake is held by an active transaction. Old-generation and
+  pre-handshake operations remain ignored. After the outer scope unwinds, the
+  actor adopts the handshake and replays retained batches FIFO through the
+  normal sequenced-operation handler before replying.
+- The permanent cases cover an allocation-bearing first batch, two sequence
+  numbers in order, nested scopes with inner commit and outer abort, the outer
+  commit cleanup path, obsolete old-connection and pre-handshake operations,
+  and a replay error that must return `TransactionFailed` and fail the actor.
+- The focused map selection passed 12 tests. The Task 7 Erlang and
+  reconnect-adjacent selection passed 64 tests:
+  `shared_tree_runtime_beam`, `shared_tree_array_facade`,
+  `shared_tree_map_facade`, `facade_parity`, and `presence`.
+
 ### Task 8: Prove reconnect, summary, and native facade parity
 
 **Files:**
