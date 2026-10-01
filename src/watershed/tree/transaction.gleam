@@ -254,7 +254,7 @@ fn finish_change(
     draft,
     value.current_compressor,
   ))
-  use outer <- result.try(compose_constraints(value, order))
+  use outer <- result.try(compose_constraints(value, outer, revision, order))
   use #(outer, replacements) <- result.try(squash_revisions(outer, revision))
   use #(state, commit, events) <- result.try(tree_kernel.commit_local_preview(
     value.base_state,
@@ -272,6 +272,8 @@ fn finish_change(
 
 fn compose_constraints(
   value: Transaction,
+  authored: shared_change.Changeset,
+  revision: fluid_ids.StableId,
   order: change.IdentityOrder,
 ) -> Result(shared_change.Changeset, TreeError) {
   use empty <- result.try(shared_change.compose([]))
@@ -280,6 +282,8 @@ fn compose_constraints(
     value.constraint_sets,
     0,
     empty,
+    revision,
+    shared_change.max_local_id(authored) + 1,
     order,
   )
 }
@@ -289,42 +293,60 @@ fn compose_constraint_sequence(
   constraints: List(ConstraintSet),
   index: Int,
   outer: shared_change.Changeset,
+  revision: fluid_ids.StableId,
+  next_local_id: Int,
   order: change.IdentityOrder,
 ) -> Result(shared_change.Changeset, TreeError) {
   let #(at_position, remaining) = take_constraint_sets(constraints, index, [])
+  use #(outer, next_local_id) <- result.try(append_constraints(
+    outer,
+    at_position,
+    revision,
+    next_local_id,
+    order,
+  ))
   case changes {
     [authored, ..rest] -> {
-      let #(at_position, remaining_constraints) = case rest {
-        [] -> {
-          let #(trailing, remaining) =
-            take_constraint_sets(remaining, index + 1, [])
-          #(list.append(at_position, trailing), remaining)
-        }
-        _ -> #(at_position, remaining)
-      }
-      use authored <- result.try(
-        list.try_fold(at_position, authored, fn(authored, constraint) {
-          use change <- result.try(tree_kernel.add_node_exists_constraints(
-            constraint.state,
-            authored.change,
-            constraint.targets,
-            authored.revision,
-            order,
-          ))
-          Ok(AuthoredChange(..authored, change:))
-        }),
-      )
       use outer <- result.try(append_authored(outer, authored))
+      let revision = case rest {
+        [next, ..] -> next.revision
+        [] -> authored.revision
+      }
       compose_constraint_sequence(
         rest,
-        remaining_constraints,
+        remaining,
         index + 1,
         outer,
+        revision,
+        next_local_id,
         order,
       )
     }
     [] -> Ok(outer)
   }
+}
+
+fn append_constraints(
+  outer: shared_change.Changeset,
+  constraints: List(ConstraintSet),
+  revision: fluid_ids.StableId,
+  next_local_id: Int,
+  order: change.IdentityOrder,
+) -> Result(#(shared_change.Changeset, Int), TreeError) {
+  list.try_fold(constraints, #(outer, next_local_id), fn(state, constraint) {
+    use authored <- result.try(tree_kernel.node_exists_constraints(
+      constraint.state,
+      constraint.targets,
+      revision,
+      order,
+      state.1,
+    ))
+    use outer <- result.try(append_change(
+      state.0,
+      shared_change.TaggedChange(Some(revision), None, authored),
+    ))
+    Ok(#(outer, shared_change.max_local_id(authored) + 1))
+  })
 }
 
 fn take_constraint_sets(

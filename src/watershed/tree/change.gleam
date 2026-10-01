@@ -1762,6 +1762,180 @@ fn finish_cross_array_graph(
   )
 }
 
+pub fn add_node_exists_constraints_with_revision(
+  value: Changeset,
+  visible: forest.Forest,
+  targets: List(ConstraintTarget),
+  revision: StableId,
+  identity_order: IdentityOrder,
+) -> Result(Changeset, TreeError) {
+  use value <- result.try(with_identity_order(value, identity_order))
+  use constraints <- result.try(node_exists_constraints(
+    visible,
+    targets,
+    revision,
+    identity_order,
+    value.data.max_local_id + 1,
+  ))
+  compose([
+    TaggedChange(Some(revision), None, constraints),
+    TaggedChange(None, None, value),
+  ])
+}
+
+pub fn node_exists_constraints(
+  visible: forest.Forest,
+  targets: List(ConstraintTarget),
+  revision: StableId,
+  identity_order: IdentityOrder,
+  first_local_id: Int,
+) -> Result(Changeset, TreeError) {
+  use targets <- result.try(validate_constraint_targets(visible, targets, []))
+  list.try_fold(targets, empty(), fn(constraints, target) {
+    use authored <- result.try(author_constraint(
+      visible,
+      target.path,
+      int_max(first_local_id - 1, constraints.data.max_local_id) + 1,
+    ))
+    use authored <- result.try(with_identity_order(authored, identity_order))
+    use authored <- result.try(replace_revisions(authored, [None], revision))
+    compose([
+      TaggedChange(Some(revision), None, constraints),
+      TaggedChange(Some(revision), None, authored),
+    ])
+  })
+}
+
+fn validate_constraint_targets(
+  visible: forest.Forest,
+  targets: List(ConstraintTarget),
+  validated: List(ConstraintTarget),
+) -> Result(List(ConstraintTarget), TreeError) {
+  case targets {
+    [] -> Ok(list.reverse(validated))
+    [target, ..rest] -> {
+      use current <- result.try(forest.locate(visible, target.path))
+      use _ <- result.try(case current == target.reference {
+        True -> Ok(Nil)
+        False ->
+          Error(InvalidEdit(
+            target.path,
+            "node reference does not identify this path",
+          ))
+      })
+      case
+        list.any(validated, fn(existing) {
+          existing.reference == target.reference
+        })
+      {
+        True -> validate_constraint_targets(visible, rest, validated)
+        False ->
+          validate_constraint_targets(visible, rest, [target, ..validated])
+      }
+    }
+  }
+}
+
+fn author_constraint(
+  visible: forest.Forest,
+  path: FieldPath,
+  next_id: Int,
+) -> Result(Changeset, TreeError) {
+  use steps <- result.try(forest.node_path(visible, path))
+  use #(fields, nodes, parents, max_local_id) <- result.try(
+    wrap_constraint_ancestors(steps, next_id),
+  )
+  from_data(
+    ChangeData(
+      max_local_id: max_local_id,
+      revisions: [],
+      fields: fields,
+      nodes: nodes,
+      parents: parents,
+      aliases: [],
+      builds: [],
+      destroys: [],
+      refreshers: [],
+      cross_field_keys: [],
+      constraint_violation_count: 0,
+    ),
+    IdentityOrder([]),
+  )
+}
+
+fn wrap_constraint_ancestors(
+  steps: List(forest.FieldStep),
+  next_id: Int,
+) -> Result(
+  #(
+    List(#(String, FieldChange)),
+    List(#(AtomId, NodeChange)),
+    List(#(AtomId, ParentField)),
+    Int,
+  ),
+  TreeError,
+) {
+  use #(child, next_id) <- result.try(allocate_anonymous(next_id))
+  let constraint = NodeChange([], Some(NodeExistsConstraint(False)), None)
+  use #(top, nodes, parents, next_id) <- result.try(
+    wrap_constraint_parent_fields(
+      list.reverse(steps),
+      child,
+      next_id,
+      [#(child, constraint)],
+      [],
+    ),
+  )
+  case steps {
+    [] -> Error(CorruptData("constraint", "node path is empty"))
+    [forest.FieldStep(root_field, root_index), ..] ->
+      Ok(#(
+        [#(root_field, GenericField([#(root_index, top)]))],
+        nodes,
+        list.append(parents, [
+          #(top, ParentField(None, root_field)),
+        ]),
+        next_id - 1,
+      ))
+  }
+}
+
+fn wrap_constraint_parent_fields(
+  steps: List(forest.FieldStep),
+  child: AtomId,
+  next_id: Int,
+  nodes: List(#(AtomId, NodeChange)),
+  parents: List(#(AtomId, ParentField)),
+) -> Result(
+  #(AtomId, List(#(AtomId, NodeChange)), List(#(AtomId, ParentField)), Int),
+  TreeError,
+) {
+  case steps {
+    [] | [_] -> Ok(#(child, nodes, parents, next_id))
+    [forest.FieldStep(field, index), ..rest] -> {
+      use #(parent, next_id) <- result.try(allocate_anonymous(next_id))
+      wrap_constraint_parent_fields(
+        rest,
+        parent,
+        next_id,
+        list.append(nodes, [
+          #(parent, node_change([#(field, GenericField([#(index, child)]))])),
+        ]),
+        list.append(parents, [
+          #(child, ParentField(Some(parent), field)),
+        ]),
+      )
+    }
+  }
+}
+
+fn allocate_anonymous(next_id: Int) -> Result(#(AtomId, Int), TreeError) {
+  case next_id >= 0 && next_id <= max_safe_integer {
+    True -> Ok(#(AtomId(None, next_id), next_id + 1))
+    False -> Error(CorruptData("change allocator", "identifiers are exhausted"))
+  }
+}
+
 fn sequence_with_child(
   change: sequence_field.Changeset,
   index: Int,

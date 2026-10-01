@@ -667,7 +667,7 @@ pub fn add_node_exists_constraints(
   case shared_change.to_changes(outer) {
     [] -> Ok(outer)
     [shared_change.DataChange(data)] ->
-      change.add_node_exists_constraints(
+      change.add_node_exists_constraints_with_revision(
         data,
         state.visible,
         targets,
@@ -681,6 +681,23 @@ pub fn add_node_exists_constraints(
         "schema changes are not supported",
       ))
   }
+}
+
+pub fn node_exists_constraints(
+  state: TreeState,
+  targets: List(change.ConstraintTarget),
+  revision: fluid_ids.StableId,
+  order: change.IdentityOrder,
+  first_local_id: Int,
+) -> Result(shared_change.Changeset, TreeError) {
+  change.node_exists_constraints(
+    state.visible,
+    targets,
+    revision,
+    order,
+    first_local_id,
+  )
+  |> result.map(shared_change.from_data)
 }
 
 fn bind_local_change(

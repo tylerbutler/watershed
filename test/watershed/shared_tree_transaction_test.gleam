@@ -709,16 +709,29 @@ pub fn shared_tree_transaction_nested_constraints_use_current_author_order_test(
 }
 
 pub fn shared_tree_transaction_nested_constraint_detects_target_remove_test() -> Nil {
-  transaction_constraint_violation_after_remote_remove(1)
+  transaction_constraint_violation_after_remote_remove(1, True)
   |> expect.to_equal(1)
 }
 
 pub fn shared_tree_transaction_nested_constraint_ignores_other_remove_test() -> Nil {
-  transaction_constraint_violation_after_remote_remove(2)
+  transaction_constraint_violation_after_remote_remove(2, True)
   |> expect.to_equal(0)
 }
 
-fn transaction_constraint_violation_after_remote_remove(index: Int) -> Int {
+pub fn shared_tree_transaction_trailing_constraint_detects_target_remove_test() -> Nil {
+  transaction_constraint_violation_after_remote_remove(1, False)
+  |> expect.to_equal(1)
+}
+
+pub fn shared_tree_transaction_trailing_constraint_ignores_other_remove_test() -> Nil {
+  transaction_constraint_violation_after_remote_remove(2, False)
+  |> expect.to_equal(0)
+}
+
+fn transaction_constraint_violation_after_remote_remove(
+  index: Int,
+  add_nested_edit: Bool,
+) -> Int {
   let values = [
     types.StringValue("A"),
     types.StringValue("B"),
@@ -737,11 +750,17 @@ fn transaction_constraint_violation_after_remote_remove(index: Int) -> Int {
     tree_kernel.resolve_constraint(transaction.state(value), ["2"])
   let assert Ok(value) =
     transaction.begin_nested_with_constraints(value, [target])
-  let assert Ok(value) =
-    transaction.apply_edit(
-      value,
-      types.ArrayInsert([], 4, [types.StringValue("D")]),
-    )
+  let value = case add_nested_edit {
+    True -> {
+      let assert Ok(value) =
+        transaction.apply_edit(
+          value,
+          types.ArrayInsert([], 4, [types.StringValue("D")]),
+        )
+      value
+    }
+    False -> value
+  }
   let assert Ok(value) = transaction.commit_nested(value)
   let assert Ok(#(transaction.Commit(state, _, commit), _)) =
     transaction.finish(value)
@@ -893,7 +912,8 @@ pub fn shared_tree_transaction_nested_lifecycle_rejects_depth_zero_test() -> Nil
 pub fn shared_tree_transaction_empty_finish_restores_base_compressor_test() -> Nil {
   let base = initial_state()
   let compressor = fluid_ids.new(session())
-  let assert Ok(value) = transaction.begin(base, compressor, [])
+  let assert Ok(target) = tree_kernel.resolve_constraint(base, ["point"])
+  let assert Ok(value) = transaction.begin(base, compressor, [target])
   let assert Ok(#(transaction.NoCommit(state, restored), events)) =
     transaction.finish(value)
   events |> expect.to_equal(tree_kernel.ChangeEvents([], False))

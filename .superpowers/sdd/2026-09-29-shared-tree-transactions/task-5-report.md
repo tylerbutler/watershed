@@ -268,3 +268,92 @@ JavaScript: 225 passed
 ### Concerns
 
 - None for Task5 scope. Existing repository warnings remain unchanged.
+
+## Review fix: trailing constraint author boundary
+
+The prior review fix still attached a constraint authored after the last edit
+to that edit. The constraint helper prepends constraint content, so finish
+interpreted the post-edit path against the pre-edit array.
+
+### RED
+
+Two permanent regressions begin with `[A, B, Z]`, insert `C` at index 0,
+constrain `B` at path `["2"]` in a nested scope, commit that scope without
+another edit, and finish the outer transaction. One remote peer removes `B`;
+the other removes `Z`.
+
+On the untouched `639022a3` baseline, both targets ran 28 transaction tests
+with 26 passed and 2 failed:
+
+```bash
+gleam test --target erlang -- shared_tree_transaction
+gleam test --target javascript -- shared_tree_transaction
+```
+
+Both targets produced the same incorrect counts:
+
+- Remote removal of constrained `B`: 0, expected 1.
+- Remote removal of unconstrained `Z`: 1, expected 0.
+
+### GREEN
+
+The transaction suite passed 28 tests on each target:
+
+```bash
+gleam test --target erlang -- shared_tree_transaction
+gleam test --target javascript -- shared_tree_transaction
+```
+
+The required Task5 matrix passed:
+
+```bash
+gleam test --target erlang -- shared_tree_runtime shared_tree_transaction shared_tree_array_kernel shared_tree_schema_evolution
+gleam test --target javascript -- shared_tree_runtime shared_tree_transaction shared_tree_array_kernel shared_tree_schema_evolution
+```
+
+```text
+Erlang:     153 passed
+JavaScript: 164 passed
+```
+
+Direct coverage for the changed change and tree-kernel paths also passed:
+
+```bash
+gleam test --target erlang -- shared_tree_change shared_tree_change_constraint shared_tree_kernel
+gleam test --target javascript -- shared_tree_change shared_tree_change_constraint shared_tree_kernel
+```
+
+```text
+Erlang:     133 passed
+JavaScript: 133 passed
+```
+
+Formatting and diff checks passed:
+
+```bash
+gleam format src/watershed/tree/change.gleam src/watershed/tree_kernel.gleam src/watershed/tree/transaction.gleam test/watershed/shared_tree_transaction_test.gleam
+git diff --check
+```
+
+### Fix
+
+- Finish emits constraint-only operands at each recorded author boundary. A
+  constraint before another edit uses that edit's revision. A trailing
+  constraint uses the final edit's revision and follows that edit.
+- Constraint atom IDs start above the authored transaction watermark. This
+  preserves revision allocation and avoids collisions without changing the
+  wire revision set.
+- A transaction with constraints and no data still returns `NoCommit`.
+
+### Files
+
+- `src/watershed/tree/change.gleam`
+- `src/watershed/tree/transaction.gleam`
+- `src/watershed/tree_kernel.gleam`
+- `test/watershed/shared_tree_transaction_test.gleam`
+- `docs/superpowers/plans/2026-09-29-shared-tree-transactions.md`
+- `.superpowers/sdd/2026-09-29-shared-tree-transactions/task-5-report.md`
+
+### Concerns
+
+- None for Task5 scope. Existing repository warnings remain unchanged.

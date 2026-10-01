@@ -1006,9 +1006,10 @@ git commit -m "feat(tree): submit atomic transactions"
   The failures showed the constrained `B` removal at count 0, the unconstrained
   `Z` removal at count 1, and the detached `A` reference becoming invalid after
   finish.
-- `ConstraintSet` now retains its authored change boundary. Finish adds each
-  set to the change authored at that boundary before composing and squashing
-  the outer transaction. A trailing set is added to the final authored change.
+- `ConstraintSet` now retains its authored change boundary. Finish emits each
+  set as a constraint-only operand at that boundary before composing and
+  squashing the outer transaction. Constraint atom IDs start above the
+  authored transaction watermark.
 - Revision replacement now returns the exact old-to-squashed atom map.
   Preview identity promotion uses its reverse lookup for canonical detached
   keys, so retained repair nodes keep their preview node identities.
@@ -1026,6 +1027,42 @@ git commit -m "feat(tree): submit atomic transactions"
   ```bash
   gleam test --target erlang -- shared_tree_change shared_tree_forest shared_tree_array_forest shared_tree_map_forest shared_tree_history
   gleam test --target javascript -- shared_tree_change shared_tree_forest shared_tree_array_forest shared_tree_map_forest shared_tree_history
+  ```
+
+**Review fix round 2 evidence (2026-09-30):**
+
+- Added two permanent regressions for a nested constraint committed without a
+  later edit. After `[A, B, Z]` becomes `[C, A, B, Z]`, remote removal of `B`
+  must produce one violation and remote removal of `Z` must produce none.
+- On the untouched `639022a3` baseline, both targets ran 28 transaction tests
+  with 26 passed and 2 failed:
+
+  ```bash
+  gleam test --target erlang -- shared_tree_transaction
+  gleam test --target javascript -- shared_tree_transaction
+  ```
+
+  The constrained `B` removal produced 0 violations. The unconstrained `Z`
+  removal produced 1.
+- Finish now composes constraint-only changes at their recorded author
+  boundaries. It uses the next authored revision at a pre-edit boundary and
+  the final authored revision at the trailing boundary. Constraint atom IDs
+  start after the authored transaction watermark, so the fix adds no revision
+  allocation and creates no atom collisions.
+- A transaction with constraints but no data still returns `NoCommit`.
+- The required focused matrix passed 153 tests on Erlang and 164 tests on
+  JavaScript:
+
+  ```bash
+  gleam test --target erlang -- shared_tree_runtime shared_tree_transaction shared_tree_array_kernel shared_tree_schema_evolution
+  gleam test --target javascript -- shared_tree_runtime shared_tree_transaction shared_tree_array_kernel shared_tree_schema_evolution
+  ```
+
+- Direct change and tree-kernel coverage passed 133 tests on each target:
+
+  ```bash
+  gleam test --target erlang -- shared_tree_change shared_tree_change_constraint shared_tree_kernel
+  gleam test --target javascript -- shared_tree_change shared_tree_change_constraint shared_tree_kernel
   ```
 
 ### Task 6: Expose the JavaScript callback API
