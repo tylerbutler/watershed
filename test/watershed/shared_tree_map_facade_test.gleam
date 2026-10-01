@@ -4,7 +4,6 @@ import gleam/erlang/process
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
-@target(javascript)
 import gleam/result
 import gleam/string
 import spillway/types as spillway_types
@@ -33,7 +32,6 @@ import watershed_beam
 
 const map_type = "org.watershed.shared-tree.m2.DynamicMap"
 
-@target(javascript)
 type CallbackProblem {
   Stop
 }
@@ -1014,6 +1012,256 @@ pub fn shared_tree_map_facade_beam_operations_test() {
     fn(path) { watershed_beam.tree_map_entries(tree, path) },
     fn(path, value) { watershed_beam.tree_set(tree, path, value) },
   )
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_map_facade_beam_transaction_callback_and_remote_order_test() {
+  let input = input(True)
+  let #(document, connections, submissions) = beam_document(input)
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  beam_transport(callbacks, submissions)
+  callbacks.on_event("connect_document_success", connected("reader", 0))
+  let tree = beam_tree(document, input)
+  let events = watershed_beam.subscribe_tree(tree)
+
+  let #(peer, peer_connections, peer_submissions) =
+    beam_document(peer_input(input))
+  let peer_callbacks =
+    process.receive(peer_connections, 1000) |> expect.to_be_ok()
+  beam_transport(peer_callbacks, peer_submissions)
+  peer_callbacks.on_event("connect_document_success", connected("other", 0))
+  let peer_tree = beam_tree(peer, input)
+
+  watershed_beam.tree_transaction(tree, [], fn(tree) {
+    use _ <- result.try(watershed_beam.tree_map_set(
+      tree,
+      [],
+      "outer",
+      types.StringValue("one"),
+    ))
+    watershed_beam.tree_map_set(
+      peer_tree,
+      [],
+      "remote",
+      types.StringValue("first"),
+    )
+    |> expect.to_equal(Ok(Nil))
+    let first = process.receive(peer_submissions, 1000) |> expect.to_be_ok()
+    callbacks.on_event("op", acknowledgement(first))
+    watershed_beam.tree_map_get(tree, [], "remote")
+    |> expect.to_equal(Ok(None))
+
+    watershed_beam.tree_transaction(tree, [], fn(tree) {
+      use _ <- result.try(watershed_beam.tree_map_set(
+        tree,
+        [],
+        "nested",
+        types.StringValue("two"),
+      ))
+      watershed_beam.tree_map_set(
+        peer_tree,
+        [],
+        "remote",
+        types.StringValue("second"),
+      )
+      |> expect.to_equal(Ok(Nil))
+      let second = process.receive(peer_submissions, 1000) |> expect.to_be_ok()
+      callbacks.on_event("op", acknowledgement(second))
+      watershed_beam.tree_map_get(tree, [], "remote")
+      |> expect.to_equal(Ok(None))
+      Ok(Nil)
+    })
+    |> expect.to_equal(Ok(Nil))
+    watershed_beam.tree_map_get(tree, [], "remote")
+    |> expect.to_equal(Ok(None))
+    use _ <- result.try(watershed_beam.tree_map_set(
+      tree,
+      [],
+      "after",
+      types.StringValue("three"),
+    ))
+    Ok(42)
+  })
+  |> expect.to_equal(Ok(42))
+
+  watershed_beam.tree_map_entries(tree, [])
+  |> expect.to_equal(
+    Ok([
+      #("after", types.StringValue("three")),
+      #("nested", types.StringValue("two")),
+      #("outer", types.StringValue("one")),
+      #("remote", types.StringValue("second")),
+    ]),
+  )
+  process.receive(events, 1000)
+  |> expect.to_equal(Ok(tree_kernel.TreeChanged(True)))
+  process.receive(events, 1000)
+  |> expect.to_equal(Ok(tree_kernel.TreeChanged(False)))
+  process.receive(events, 1000)
+  |> expect.to_equal(Ok(tree_kernel.TreeChanged(False)))
+  process.receive(events, 0) |> expect.to_equal(Error(Nil))
+  process.receive(submissions, 1000) |> expect.to_be_ok()
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+
+  let aborted =
+    watershed_beam.tree_transaction(tree, [], fn(tree) {
+      watershed_beam.tree_map_set(
+        tree,
+        [],
+        "temporary",
+        types.StringValue("discarded"),
+      )
+      |> expect.to_equal(Ok(Nil))
+      watershed_beam.tree_map_set(
+        peer_tree,
+        [],
+        "remote-abort",
+        types.StringValue("first"),
+      )
+      |> expect.to_equal(Ok(Nil))
+      let first = process.receive(peer_submissions, 1000) |> expect.to_be_ok()
+      callbacks.on_event("op", acknowledgement(first))
+      watershed_beam.tree_transaction(tree, [], fn(tree) {
+        use _ <- result.try(watershed_beam.tree_map_set(
+          tree,
+          [],
+          "nested-temporary",
+          types.StringValue("discarded"),
+        ))
+        watershed_beam.tree_map_set(
+          peer_tree,
+          [],
+          "remote-abort",
+          types.StringValue("second"),
+        )
+        |> expect.to_equal(Ok(Nil))
+        let second =
+          process.receive(peer_submissions, 1000) |> expect.to_be_ok()
+        callbacks.on_event("op", acknowledgement(second))
+        Ok(Nil)
+      })
+      |> expect.to_equal(Ok(Nil))
+      watershed_beam.tree_map_get(tree, [], "remote-abort")
+      |> expect.to_equal(Ok(None))
+      Error(Stop)
+    })
+  aborted |> expect.to_equal(Error(watershed_beam.Aborted(Stop)))
+  watershed_beam.tree_map_get(tree, [], "temporary")
+  |> expect.to_equal(Ok(None))
+  watershed_beam.tree_map_get(tree, [], "nested-temporary")
+  |> expect.to_equal(Ok(None))
+  watershed_beam.tree_map_get(tree, [], "remote-abort")
+  |> expect.to_equal(Ok(Some(types.StringValue("second"))))
+  process.receive(events, 1000)
+  |> expect.to_equal(Ok(tree_kernel.TreeChanged(False)))
+  process.receive(events, 1000)
+  |> expect.to_equal(Ok(tree_kernel.TreeChanged(False)))
+  process.receive(events, 0) |> expect.to_equal(Error(Nil))
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+
+  watershed_beam.tree_transaction(tree, [], fn(_) { Ok("no-op") })
+  |> expect.to_equal(Ok("no-op"))
+  process.receive(events, 0) |> expect.to_equal(Error(Nil))
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  process.send(watershed_beam.runtime_subject(peer), runtime_beam.Shutdown)
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_map_facade_beam_transaction_rejections_and_reconnect_test() {
+  let input = input(False)
+  let #(document, connections, submissions) = beam_document(input)
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  beam_transport(callbacks, submissions)
+  callbacks.on_event("connect_document_success", connected("reader", 0))
+  let root = watershed_beam.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
+  let assert [initial] = input.tree_views
+  let tree =
+    watershed_beam.resolve_tree(document, marker, initial.view)
+    |> expect.to_be_ok()
+  let other_view =
+    watershed_beam.open_tree(document, marker, optional_view(input))
+    |> expect.to_be_ok()
+  let ran = process.new_subject()
+
+  let missing =
+    watershed_beam.tree_transaction(
+      tree,
+      [watershed_beam.NodeInDocument(["missing"])],
+      fn(_) {
+        process.send(ran, Nil)
+        Ok(Nil)
+      },
+    )
+  let assert Error(watershed_beam.TransactionFailed(_)) = missing
+  process.receive(ran, 0) |> expect.to_equal(Error(Nil))
+
+  let result =
+    watershed_beam.tree_transaction(tree, [], fn(tree) {
+      watershed_beam.tree_map_set(
+        tree,
+        ["items"],
+        "outer",
+        types.StringValue("kept until outer abort"),
+      )
+      |> expect.to_equal(Ok(Nil))
+      let wrong_view =
+        watershed_beam.tree_transaction(other_view, [], fn(_) {
+          process.send(ran, Nil)
+          Ok(Nil)
+        })
+      let assert watershed_beam.TransactionFailed(_) =
+        wrong_view |> expect.to_be_error
+      process.receive(ran, 0) |> expect.to_equal(Error(Nil))
+      watershed_beam.tree_upgrade_schema(other_view) |> expect.to_be_error()
+
+      let nested =
+        watershed_beam.tree_transaction(tree, [], fn(tree) {
+          use _ <- result.try(watershed_beam.tree_map_set(
+            tree,
+            ["items"],
+            "inner",
+            types.StringValue("rolled back"),
+          ))
+          callbacks.on_close("transport lost")
+          Ok("inner")
+        })
+      let assert watershed_beam.TransactionFailed(_) =
+        nested |> expect.to_be_error
+      watershed_beam.tree_map_get(tree, ["items"], "inner")
+      |> expect.to_equal(Ok(None))
+      watershed_beam.tree_map_get(tree, ["items"], "outer")
+      |> expect.to_equal(Ok(Some(types.StringValue("kept until outer abort"))))
+      Error(Stop)
+    })
+  result |> expect.to_equal(Error(watershed_beam.Aborted(Stop)))
+  watershed_beam.tree_map_get(tree, ["items"], "outer")
+  |> expect.to_equal(Ok(None))
+  watershed_beam.tree_map_get(tree, ["items"], "inner")
+  |> expect.to_equal(Ok(None))
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+
+  let reconnect = process.receive(connections, 1000) |> expect.to_be_ok()
+  beam_transport(reconnect, submissions)
+  reconnect.on_event(
+    "connect_document_success",
+    connected("reader-reconnected", 0),
+  )
+  watershed_beam.tree_transaction(tree, [], fn(tree) {
+    use _ <- result.try(watershed_beam.tree_map_set(
+      tree,
+      ["items"],
+      "later",
+      types.StringValue("usable"),
+    ))
+    Ok(Nil)
+  })
+  |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_map_get(tree, ["items"], "later")
+  |> expect.to_equal(Ok(Some(types.StringValue("usable"))))
+  process.receive(submissions, 1000) |> expect.to_be_ok()
   process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
 }
 

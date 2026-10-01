@@ -1202,13 +1202,13 @@ git commit -m "feat(tree): expose JS transactions"
 - Produces: the BEAM public API in section 3 and ordered deferred remote
   delivery.
 
-- [ ] **Step 1: Add failing BEAM callback and interleaving tests.**
+- [x] **Step 1: Add failing BEAM callback and interleaving tests.**
 
 Mirror Task 6 cases. Add a controlled remote operation between two callback
 edits. The callback must not see it. After outer commit or abort, the actor
 applies the remote operation in arrival order.
 
-- [ ] **Step 2: Add internal actor messages.**
+- [x] **Step 2: Add internal actor messages.**
 
 Add:
 
@@ -1221,36 +1221,67 @@ TreeTransactionAbort(address, reply)
 The replies use existing `Result` and outbound/event types. These constructors
 remain internal to `runtime_beam`.
 
-- [ ] **Step 3: Track deferred remote messages.**
+- [x] **Step 3: Track deferred remote messages.**
 
 Extend actor state with a FIFO list for sequenced remote delivery received
 while `tree_transaction_depth(core) > 0`. Do not defer local transaction
 messages, subscriber calls, shutdown, or the transaction timeout path.
 
-- [ ] **Step 4: Drain deferred delivery after outer completion.**
+- [x] **Step 4: Drain deferred delivery after outer completion.**
 
 After outer commit or abort, process deferred remote messages through the same
 handler used during normal operation. Preserve arrival order. Stop and enter
 the repository-standard failed/suspended state if replay reports a semantic or
 transport error.
 
-- [ ] **Step 5: Implement the BEAM public callback.**
+- [x] **Step 5: Implement the BEAM public callback.**
 
 Call begin through `process.call`, run the callback in the caller process, then
 call commit or abort. Map callback and runtime errors exactly as in Task 6.
 
-- [ ] **Step 6: Run BEAM facade and parity tests.**
+- [x] **Step 6: Run BEAM facade and parity tests.**
 
 ```bash
 gleam test --target erlang -- shared_tree_runtime_beam shared_tree_array_facade shared_tree_map_facade facade_parity
 ```
 
-- [ ] **Step 7: Commit the BEAM facade.**
+- [x] **Step 7: Commit the BEAM facade.**
 
 ```bash
 git add src/watershed/runtime_beam.gleam src/watershed_beam.gleam test/watershed test/facade_parity_test.gleam
 git commit -m "feat(tree): expose BEAM transactions"
 ```
+
+**Actual evidence (2026-09-30):**
+
+- RED: the exact Erlang matrix failed to compile because
+  `watershed_beam.tree_transaction`, its public constructors, and the three
+  `runtime_beam` lifecycle wrappers did not exist.
+- GREEN: the exact Erlang matrix passed 41 tests. It covers generic callback
+  values and errors, nested commit and abort, constraints, no-op, wrong view,
+  reconnect unwind, array operations, one outer submission, caller exit
+  cleanup, semantic replay failure, and transport failure.
+- The actor defers complete sequenced `"op"` batches while any transaction
+  scope is active. This keeps allocation and SharedTree operation messages in
+  one FIFO. The actor drains that FIFO through the normal operation handler
+  after outer commit or abort.
+- The outer caller owns the actor transaction through a process monitor.
+  Caller exit aborts every remaining scope and drains deferred delivery. Commit
+  or abort in reconnecting, catching-up, or suspended phases unwinds the
+  current scope while preserving any enclosing scope.
+- A deferred semantic failure returns an error and enters the existing failed
+  or suspended state. A commit transport failure returns an error and enters
+  reconnecting state. An abort failure with an active scope fails the actor
+  instead of leaving a stranded transaction.
+- JavaScript facade and common parity coverage passed 29 tests after
+  `tree_transaction` moved out of the JS-only facade exceptions.
+- `just lint` and `just test` passed. The full test gate included 2387 root
+  Erlang tests, 2653 root JavaScript tests, 120 source-snippet tests, 2360
+  website Node tests, and 42 browser integration tests.
+- `just build` passed the Gleam build stages, then the existing
+  `shared_tree_checklist_lustre` bundle install failed because 28 lockfile
+  tarball URLs use Microsoft package feeds that the active supply-chain policy
+  rejects. Task 7 did not change dependencies, pins, formats, or lockfiles.
 
 ### Task 8: Prove reconnect, summary, and native facade parity
 

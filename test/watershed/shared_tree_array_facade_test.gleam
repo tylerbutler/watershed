@@ -3,7 +3,6 @@ import gleam/erlang/process
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
-@target(javascript)
 import gleam/result
 import gleam/string
 import startest/expect
@@ -352,6 +351,135 @@ pub fn shared_tree_array_facade_beam_operations_test() {
         destination_gap,
       )
     },
+  )
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_array_facade_beam_transaction_test() {
+  let input = input()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let connections = process.new_subject()
+  let submissions = process.new_subject()
+  let document =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+    |> expect.to_be_ok()
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, _) {
+        case event {
+          "submitOp" -> process.send(submissions, Nil)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event("connect_document_success", connected("reader"))
+  let root = watershed_beam.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let tree =
+    watershed_beam.resolve_tree(document, marker, view.view)
+    |> expect.to_be_ok()
+
+  watershed_beam.tree_transaction(tree, [], fn(tree) {
+    use _ <- result.try(
+      watershed_beam.tree_array_insert(tree, [], 1, [types.StringValue("X")]),
+    )
+    use _ <- result.try(watershed_beam.tree_array_move(tree, [], 1, 2, [], 4))
+    use _ <- result.try(watershed_beam.tree_array_remove(tree, [], 1, 2))
+    Ok("commit")
+  })
+  |> expect.to_equal(Ok("commit"))
+  watershed_beam.tree_array_values(tree, [])
+  |> expect.to_equal(
+    Ok([
+      types.StringValue("A"),
+      types.StringValue("C"),
+      types.StringValue("X"),
+    ]),
+  )
+  process.receive(submissions, 1000) |> expect.to_equal(Ok(Nil))
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_array_facade_beam_transaction_rejects_other_view_test() {
+  let input = input()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let connections = process.new_subject()
+  let document =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+    |> expect.to_be_ok()
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event("connect_document_success", connected("reader"))
+  let root = watershed_beam.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let tree =
+    watershed_beam.resolve_tree(document, marker, view.view)
+    |> expect.to_be_ok()
+  let other =
+    watershed_beam.open_tree(document, marker, wider_view(input))
+    |> expect.to_be_ok()
+
+  watershed_beam.tree_transaction(tree, [], fn(_) {
+    watershed_beam.tree_array_get(other, [], 0) |> expect.to_be_error()
+    watershed_beam.tree_array_values(other, []) |> expect.to_be_error()
+    watershed_beam.tree_array_insert(other, [], 1, [
+      types.StringValue("wrong view"),
+    ])
+    |> expect.to_be_error()
+    watershed_beam.tree_array_remove(other, [], 0, 1)
+    |> expect.to_be_error()
+    watershed_beam.tree_array_move(other, [], 0, 1, [], 3)
+    |> expect.to_be_error()
+    watershed_beam.tree_array_values(tree, [])
+    |> expect.to_equal(
+      Ok([
+        types.StringValue("A"),
+        types.StringValue("B"),
+        types.StringValue("C"),
+      ]),
+    )
+    Ok(Nil)
+  })
+  |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_array_values(tree, [])
+  |> expect.to_equal(
+    Ok([
+      types.StringValue("A"),
+      types.StringValue("B"),
+      types.StringValue("C"),
+    ]),
   )
   process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
 }

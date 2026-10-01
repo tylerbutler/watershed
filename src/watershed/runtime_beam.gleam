@@ -514,6 +514,15 @@ pub type Msg {
     edit: tree_types.Edit,
     reply: Subject(Result(Nil, String)),
   )
+  TreeTransactionBegin(
+    address: String,
+    view: tree_schema.ViewSchema,
+    constraints: List(tree_types.FieldPath),
+    reply: Subject(Result(Nil, String)),
+  )
+  TreeTransactionCommit(address: String, reply: Subject(Result(Nil, String)))
+  TreeTransactionAbort(address: String, reply: Subject(Result(Nil, String)))
+  TreeTransactionCallerDown(down: process.Down)
   TreeUpgradeSchema(
     address: String,
     view: tree_schema.ViewSchema,
@@ -786,6 +795,15 @@ type PendingSummary {
 }
 
 @target(erlang)
+type ActiveTreeTransaction {
+  ActiveTreeTransaction(
+    address: String,
+    caller: process.Pid,
+    monitor: process.Monitor,
+  )
+}
+
+@target(erlang)
 type State {
   State(
     // `host`/`port` are retained for the REST summary API (git-storage), which
@@ -829,6 +847,8 @@ type State {
     /// operation.
     summary_armed: Bool,
     pending_summary: Option(PendingSummary),
+    active_tree_transaction: Option(ActiveTreeTransaction),
+    deferred_operations: List(List(SequencedDocumentMessage)),
     self: Subject(Msg),
   )
 }
@@ -945,11 +965,21 @@ fn start_with_optional_seed(
         },
         summary_armed: False,
         pending_summary: None,
+        active_tree_transaction: None,
+        deferred_operations: [],
         self: self,
       )
     let _ = process.send_after(self, heartbeat_interval_milliseconds, Heartbeat)
     connect_transport(transport, self, 0)
-    Ok(actor.initialised(state) |> actor.returning(self))
+    let selector =
+      process.new_selector()
+      |> process.select(self)
+      |> process.select_monitors(TreeTransactionCallerDown)
+    Ok(
+      actor.initialised(state)
+      |> actor.selecting(selector)
+      |> actor.returning(self),
+    )
   })
   |> actor.on_message(handle)
   |> actor.start
@@ -1220,6 +1250,46 @@ pub fn tree_edit_view(
     runtime,
     waiting: connect_timeout_milliseconds,
     sending: fn(reply) { TreeEditView(address, view, edit, reply) },
+  )
+}
+
+@target(erlang)
+pub fn begin_tree_transaction(
+  runtime: Subject(Msg),
+  address: String,
+  view: tree_schema.ViewSchema,
+  constraints: List(tree_types.FieldPath),
+) -> Result(Nil, String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) {
+      TreeTransactionBegin(address, view, constraints, reply)
+    },
+  )
+}
+
+@target(erlang)
+pub fn commit_tree_transaction(
+  runtime: Subject(Msg),
+  address: String,
+) -> Result(Nil, String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { TreeTransactionCommit(address, reply) },
+  )
+}
+
+@target(erlang)
+pub fn abort_tree_transaction(
+  runtime: Subject(Msg),
+  address: String,
+) -> Result(Nil, String) {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { TreeTransactionAbort(address, reply) },
   )
 }
 
@@ -2174,6 +2244,14 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
           actor.continue(state)
         }
       }
+    TreeTransactionBegin(address, view, constraints, reply) ->
+      handle_tree_transaction_begin(state, address, view, constraints, reply)
+    TreeTransactionCommit(address, reply) ->
+      handle_tree_transaction_commit(state, address, reply)
+    TreeTransactionAbort(address, reply) ->
+      handle_tree_transaction_abort(state, address, reply)
+    TreeTransactionCallerDown(down) ->
+      handle_tree_transaction_caller_down(state, down)
     TreeUpgradeSchema(address, view, reply) ->
       case state.phase {
         Ready(core, None) ->
@@ -3044,6 +3122,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     Shutdown -> {
       let state = abort_outcome_waiters(state)
       let state = abort_pending_summary(state)
+      let _ = release_tree_transaction_caller(state)
       case state.channel {
         Some(channel) -> channel.close()
         None -> Nil
@@ -3051,6 +3130,392 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       actor.stop()
     }
   }
+}
+
+@target(erlang)
+fn handle_tree_transaction_begin(
+  state: State,
+  address: String,
+  view: tree_schema.ViewSchema,
+  constraints: List(tree_types.FieldPath),
+  reply: Subject(Result(Nil, String)),
+) -> actor.Next(State, Msg) {
+  case state.phase {
+    Ready(core, None) ->
+      case transaction_caller(state, reply) {
+        Error(error) -> {
+          process.send(reply, Error(error))
+          actor.continue(state)
+        }
+        Ok(caller) ->
+          case
+            runtime_core.begin_tree_transaction(
+              core,
+              address,
+              view,
+              constraints,
+            )
+          {
+            Error(error) -> {
+              process.send(reply, Error(string.inspect(error)))
+              actor.continue(state)
+            }
+            Ok(core) -> {
+              let state = State(..state, phase: Ready(core, None))
+              let state = case state.active_tree_transaction {
+                Some(_) -> state
+                None ->
+                  State(
+                    ..state,
+                    active_tree_transaction: Some(ActiveTreeTransaction(
+                      address,
+                      caller,
+                      process.monitor(caller),
+                    )),
+                  )
+              }
+              process.send(reply, Ok(Nil))
+              actor.continue(state)
+            }
+          }
+      }
+    Ready(_, Some(_)) | Connecting(_) | Reconnecting(_) | Failed(_) -> {
+      process.send(
+        reply,
+        Error("tree transaction requires a ready document connection"),
+      )
+      actor.continue(state)
+    }
+    SuspendedPendingTree(_, reason) -> {
+      process.send(reply, Error(reason))
+      actor.continue(state)
+    }
+  }
+}
+
+@target(erlang)
+fn handle_tree_transaction_commit(
+  state: State,
+  address: String,
+  reply: Subject(Result(Nil, String)),
+) -> actor.Next(State, Msg) {
+  case transaction_caller(state, reply) {
+    Error(error) -> {
+      process.send(reply, Error(error))
+      actor.continue(state)
+    }
+    Ok(_) ->
+      case state.phase {
+        Ready(core, None) ->
+          case runtime_core.commit_tree_transaction(core, address) {
+            Error(error) ->
+              case runtime_core.abort_tree_transaction(core, address) {
+                Error(abort_error) -> {
+                  let reason =
+                    string.inspect(error)
+                    <> "; transaction abort failed: "
+                    <> string.inspect(abort_error)
+                  process.send(reply, Error(reason))
+                  actor.continue(fail_active_tree_transaction(
+                    state,
+                    core,
+                    reason,
+                  ))
+                }
+                Ok(#(core, _)) -> {
+                  let state = State(..state, phase: Ready(core, None))
+                  let #(state, drain_outcome) =
+                    finish_tree_transaction(state, core)
+                  process.send(reply, case drain_outcome {
+                    Ok(Nil) -> Error(string.inspect(error))
+                    Error(drain_error) ->
+                      Error(
+                        string.inspect(error)
+                        <> "; deferred operation failed: "
+                        <> drain_error,
+                      )
+                  })
+                  actor.continue(state)
+                }
+              }
+            Ok(#(core, events, outbound)) -> {
+              let #(state, send_outcome) =
+                send_or_suspend(
+                  State(..state, phase: Ready(core, None)),
+                  core,
+                  send_outbound_checked(state.channel, core.client_id, outbound),
+                )
+              fan_out(state.subscribers, events)
+              let #(state, outcome) = case send_outcome {
+                Error(error) -> #(
+                  discard_deferred_operations(finish_tree_transaction_caller(
+                    state,
+                    core,
+                  )),
+                  Error(error),
+                )
+                Ok(Nil) -> finish_tree_transaction(state, core)
+              }
+              process.send(reply, outcome)
+              actor.continue(state)
+            }
+          }
+        Ready(core, Some(_)) -> {
+          let #(state, outcome) =
+            abort_tree_transaction_in_phase(state, core, address)
+          process.send(reply, case outcome {
+            Ok(Nil) ->
+              Error("tree transaction requires a ready document connection")
+            Error(error) -> Error(error)
+          })
+          actor.continue(state)
+        }
+        Reconnecting(core) -> {
+          let #(state, outcome) =
+            abort_tree_transaction_in_phase(state, core, address)
+          process.send(reply, case outcome {
+            Ok(Nil) ->
+              Error("tree transaction requires a ready document connection")
+            Error(error) -> Error(error)
+          })
+          actor.continue(state)
+        }
+        SuspendedPendingTree(core, reason) -> {
+          let #(state, outcome) =
+            abort_tree_transaction_in_phase(state, core, address)
+          process.send(reply, case outcome {
+            Ok(Nil) -> Error(reason)
+            Error(error) -> Error(error)
+          })
+          actor.continue(state)
+        }
+        Connecting(_) | Failed(_) -> {
+          process.send(
+            reply,
+            Error("tree transaction requires a ready document connection"),
+          )
+          actor.continue(state)
+        }
+      }
+  }
+}
+
+@target(erlang)
+fn handle_tree_transaction_abort(
+  state: State,
+  address: String,
+  reply: Subject(Result(Nil, String)),
+) -> actor.Next(State, Msg) {
+  case transaction_caller(state, reply) {
+    Error(error) -> {
+      process.send(reply, Error(error))
+      actor.continue(state)
+    }
+    Ok(_) ->
+      case state.phase {
+        Ready(core, None) ->
+          case runtime_core.abort_tree_transaction(core, address) {
+            Error(error) -> {
+              let reason = string.inspect(error)
+              process.send(reply, Error(reason))
+              actor.continue(fail_active_tree_transaction(state, core, reason))
+            }
+            Ok(#(core, events)) -> {
+              let state = State(..state, phase: Ready(core, None))
+              fan_out(state.subscribers, events)
+              let #(state, outcome) = finish_tree_transaction(state, core)
+              process.send(reply, outcome)
+              actor.continue(state)
+            }
+          }
+        Ready(core, Some(_))
+        | Reconnecting(core)
+        | SuspendedPendingTree(core, _) -> {
+          let #(state, outcome) =
+            abort_tree_transaction_in_phase(state, core, address)
+          process.send(reply, outcome)
+          actor.continue(state)
+        }
+        Connecting(_) | Failed(_) -> {
+          process.send(
+            reply,
+            Error("tree transaction requires a ready document connection"),
+          )
+          actor.continue(state)
+        }
+      }
+  }
+}
+
+@target(erlang)
+fn handle_tree_transaction_caller_down(
+  state: State,
+  down: process.Down,
+) -> actor.Next(State, Msg) {
+  case state.active_tree_transaction, down {
+    Some(active), process.ProcessDown(monitor, _, _)
+      if monitor == active.monitor
+    -> {
+      case phase_core(state.phase) {
+        None ->
+          actor.continue(
+            discard_deferred_operations(release_tree_transaction_caller(state)),
+          )
+        Some(core) ->
+          case abort_all_tree_transactions(core, active.address) {
+            Error(error) ->
+              actor.continue(fail(
+                release_tree_transaction_caller(state),
+                "tree transaction caller exit abort failed: "
+                  <> string.inspect(error),
+              ))
+            Ok(core) -> {
+              let state =
+                install_phase_core(release_tree_transaction_caller(state), core)
+              let #(state, _) = case state.phase {
+                Ready(_, None) -> drain_deferred_operations(state)
+                Ready(_, Some(_))
+                | Reconnecting(_)
+                | SuspendedPendingTree(_, _)
+                | Connecting(_)
+                | Failed(_) -> #(discard_deferred_operations(state), Ok(Nil))
+              }
+              actor.continue(state)
+            }
+          }
+      }
+    }
+    _, _ -> actor.continue(state)
+  }
+}
+
+@target(erlang)
+fn transaction_caller(
+  state: State,
+  reply: Subject(Result(Nil, String)),
+) -> Result(process.Pid, String) {
+  use caller <- result.try(
+    process.subject_owner(reply)
+    |> result.map_error(fn(_) { "tree transaction caller is unavailable" }),
+  )
+  case state.active_tree_transaction {
+    Some(active) if active.caller != caller ->
+      Error("tree transaction uses another caller")
+    Some(_) | None -> Ok(caller)
+  }
+}
+
+@target(erlang)
+fn finish_tree_transaction(
+  state: State,
+  core: runtime_core.Core,
+) -> #(State, Result(Nil, String)) {
+  case runtime_core.tree_transaction_depth(core) {
+    0 ->
+      state
+      |> finish_tree_transaction_caller(core)
+      |> drain_deferred_operations
+    _ -> #(state, Ok(Nil))
+  }
+}
+
+@target(erlang)
+fn finish_tree_transaction_caller(
+  state: State,
+  core: runtime_core.Core,
+) -> State {
+  case runtime_core.tree_transaction_depth(core) {
+    0 -> release_tree_transaction_caller(state)
+    _ -> state
+  }
+}
+
+@target(erlang)
+fn abort_tree_transaction_in_phase(
+  state: State,
+  core: runtime_core.Core,
+  address: String,
+) -> #(State, Result(Nil, String)) {
+  case runtime_core.abort_tree_transaction(core, address) {
+    Error(error) -> {
+      let reason = string.inspect(error)
+      #(fail_active_tree_transaction(state, core, reason), Error(reason))
+    }
+    Ok(#(core, _)) -> {
+      let state = install_phase_core(state, core)
+      case runtime_core.tree_transaction_depth(core) {
+        0 -> #(
+          discard_deferred_operations(release_tree_transaction_caller(state)),
+          Ok(Nil),
+        )
+        _ -> #(state, Ok(Nil))
+      }
+    }
+  }
+}
+
+@target(erlang)
+fn fail_active_tree_transaction(
+  state: State,
+  core: runtime_core.Core,
+  reason: String,
+) -> State {
+  case runtime_core.tree_transaction_depth(core) > 0 {
+    True -> fail(state, reason)
+    False -> state
+  }
+}
+
+@target(erlang)
+fn abort_all_tree_transactions(
+  core: runtime_core.Core,
+  address: String,
+) -> Result(runtime_core.Core, runtime_core.CoreError) {
+  case runtime_core.tree_transaction_depth(core) {
+    0 -> Ok(core)
+    _ -> {
+      use #(core, _) <- result.try(runtime_core.abort_tree_transaction(
+        core,
+        address,
+      ))
+      abort_all_tree_transactions(core, address)
+    }
+  }
+}
+
+@target(erlang)
+fn release_tree_transaction_caller(state: State) -> State {
+  case state.active_tree_transaction {
+    Some(active) -> process.demonitor_process(active.monitor)
+    None -> Nil
+  }
+  State(..state, active_tree_transaction: None)
+}
+
+@target(erlang)
+fn discard_deferred_operations(state: State) -> State {
+  State(..state, deferred_operations: [])
+}
+
+@target(erlang)
+fn phase_core(phase: Phase) -> Option(runtime_core.Core) {
+  case phase {
+    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core, _) ->
+      Some(core)
+    Connecting(_) | Failed(_) -> None
+  }
+}
+
+@target(erlang)
+fn install_phase_core(state: State, core: runtime_core.Core) -> State {
+  let phase = case state.phase {
+    Ready(_, resubmit_at) -> Ready(core, resubmit_at)
+    Reconnecting(_) -> Reconnecting(core)
+    SuspendedPendingTree(_, reason) -> SuspendedPendingTree(core, reason)
+    Connecting(waiters) -> Connecting(waiters)
+    Failed(reason) -> Failed(reason)
+  }
+  State(..state, phase: phase)
 }
 
 @target(erlang)
@@ -3259,64 +3724,21 @@ fn handle_inbound(
 
     "op" ->
       case state.phase {
-        Ready(core, resubmit_at) -> {
-          case apply_operations(core, operation_message(payload)) {
-            Error(error) ->
-              case runtime_core.has_pending_tree(core) {
-                True ->
-                  actor.continue(suspend_or_fail(
-                    state,
-                    "sequenced op processing failed: " <> string.inspect(error),
-                  ))
-                False ->
-                  actor.continue(fail(
-                    state,
-                    "sequenced op processing failed: " <> string.inspect(error),
-                  ))
-              }
-            Ok(#(
-              core,
-              events,
-              resolutions,
-              summary_events,
-              request_from,
-              released,
-            )) -> {
-              let state = resolve_claim_waiters(state, resolutions)
-              let state = resolve_acquire_waiters(state, resolutions)
-              let state = apply_summary_events(state, summary_events)
-              fan_out(state.subscribers, events)
-              let state =
-                request_operations(
-                  State(..state, phase: Ready(core, resubmit_at)),
-                  core,
-                  request_from,
-                )
-              case state.phase, resubmit_at {
-                SuspendedPendingTree(_, _), _ -> actor.continue(state)
-                Reconnecting(_), _ -> actor.continue(state)
-                // Mid-reconnect: the operations a kernel just released are already
-                // in the in-flight queue, and `settle_reconnect` is about to
-                // restamp that whole queue with fresh client sequence numbers and
-                // send it. Sending them here as well would put two copies of each
-                // on the wire — the server sequences both, the client only expects
-                // the restamped one, and the stale ack fails the FIFO match. Every
-                // other submit path already gates on `resubmit_at`; this one is the
-                // only route by which an operation reaches the wire without the
-                // application asking, which is why only the consensus kernels
-                // (whose `Accept`s are released, not submitted) could trip it.
-                _, Some(checkpoint) -> settle_reconnect(state, core, checkpoint)
-                _, None -> {
-                  let #(state, _) = send_ready(state, core, None, released)
-                  case state.phase {
-                    Ready(_, _) -> actor.continue(arm_summary(state, core))
-                    _ -> actor.continue(state)
-                  }
-                }
-              }
+        Ready(core, _) ->
+          case runtime_core.tree_transaction_depth(core) > 0 {
+            True ->
+              actor.continue(
+                State(..state, deferred_operations: [
+                  operation_message(payload),
+                  ..state.deferred_operations
+                ]),
+              )
+            False -> {
+              let #(state, _) =
+                handle_operation_delivery(state, operation_message(payload))
+              actor.continue(state)
             }
           }
-        }
         // Operations before/without a connected session (or while reconnecting)
         // carry no state we can trust; ignore them.
         Connecting(_)
@@ -3380,6 +3802,97 @@ fn handle_inbound(
 }
 
 @target(erlang)
+fn drain_deferred_operations(state: State) -> #(State, Result(Nil, String)) {
+  do_drain_deferred_operations(
+    State(..state, deferred_operations: []),
+    list.reverse(state.deferred_operations),
+  )
+}
+
+@target(erlang)
+fn do_drain_deferred_operations(
+  state: State,
+  deliveries: List(List(SequencedDocumentMessage)),
+) -> #(State, Result(Nil, String)) {
+  case deliveries {
+    [] -> #(state, Ok(Nil))
+    [delivery, ..rest] ->
+      case handle_operation_delivery(state, delivery) {
+        #(state, Ok(Nil)) -> do_drain_deferred_operations(state, rest)
+        #(state, Error(error)) -> #(state, Error(error))
+      }
+  }
+}
+
+@target(erlang)
+fn handle_operation_delivery(
+  state: State,
+  operations: List(SequencedDocumentMessage),
+) -> #(State, Result(Nil, String)) {
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case apply_operations(core, operations) {
+        Error(error) -> {
+          let reason =
+            "sequenced op processing failed: " <> string.inspect(error)
+          let state = case runtime_core.has_pending_tree(core) {
+            True -> suspend_or_fail(state, reason)
+            False -> fail(state, reason)
+          }
+          #(state, Error(reason))
+        }
+        Ok(#(core, events, resolutions, summary_events, request_from, released)) -> {
+          let state = resolve_claim_waiters(state, resolutions)
+          let state = resolve_acquire_waiters(state, resolutions)
+          let state = apply_summary_events(state, summary_events)
+          fan_out(state.subscribers, events)
+          let state =
+            request_operations(
+              State(..state, phase: Ready(core, resubmit_at)),
+              core,
+              request_from,
+            )
+          case state.phase, resubmit_at {
+            SuspendedPendingTree(_, _), _ -> #(
+              state,
+              Error("sequenced operation requested unavailable history"),
+            )
+            Reconnecting(_), _ -> #(
+              state,
+              Error("sequenced operation transport failed"),
+            )
+            // Mid-reconnect: the operations a kernel just released are already
+            // in the in-flight queue, and `settle_reconnect` is about to
+            // restamp that whole queue with fresh client sequence numbers and
+            // send it. Sending them here as well would put two copies of each
+            // on the wire — the server sequences both, the client only expects
+            // the restamped one, and the stale ack fails the FIFO match. Every
+            // other submit path already gates on `resubmit_at`; this one is the
+            // only route by which an operation reaches the wire without the
+            // application asking, which is why only the consensus kernels
+            // (whose `Accept`s are released, not submitted) could trip it.
+            _, Some(checkpoint) -> {
+              let state = settle_reconnect_state(state, core, checkpoint)
+              #(state, Ok(Nil))
+            }
+            _, None -> {
+              let #(state, outcome) = send_ready(state, core, None, released)
+              case state.phase {
+                Ready(_, _) -> #(arm_summary(state, core), outcome)
+                _ -> #(state, outcome)
+              }
+            }
+          }
+        }
+      }
+    Connecting(_) | Reconnecting(_) | SuspendedPendingTree(_, _) | Failed(_) -> #(
+      state,
+      Ok(Nil),
+    )
+  }
+}
+
+@target(erlang)
 fn finish_initial_connection(
   state: State,
   connected: message.ConnectedMessage,
@@ -3424,23 +3937,30 @@ fn settle_reconnect(
   core: runtime_core.Core,
   checkpoint: Int,
 ) -> actor.Next(State, Msg) {
+  actor.continue(settle_reconnect_state(state, core, checkpoint))
+}
+
+@target(erlang)
+fn settle_reconnect_state(
+  state: State,
+  core: runtime_core.Core,
+  checkpoint: Int,
+) -> State {
   case runtime_core.reconnect_ready(core, checkpoint) {
     True -> {
       case runtime_core.resubmit(runtime_core.go_live(core)) {
         Ok(#(core, outbound)) -> {
           let #(state, _) = send_ready(state, core, None, outbound)
-          actor.continue(state)
+          state
         }
         Error(error) ->
           case runtime_core.has_pending_tree(core) {
-            True ->
-              actor.continue(suspend_or_fail(state, string.inspect(error)))
-            False -> actor.continue(fail(state, string.inspect(error)))
+            True -> suspend_or_fail(state, string.inspect(error))
+            False -> fail(state, string.inspect(error))
           }
       }
     }
-    False ->
-      actor.continue(State(..state, phase: Ready(core, Some(checkpoint))))
+    False -> State(..state, phase: Ready(core, Some(checkpoint)))
   }
 }
 
@@ -4192,7 +4712,13 @@ fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
   connect_transport(state.transport, state.self, generation)
   notify_session_lost(state)
   let state = abort_pending_summary(state)
-  State(..state, channel: None, phase: Reconnecting(core), generation:)
+  State(
+    ..state,
+    channel: None,
+    phase: Reconnecting(core),
+    generation:,
+    deferred_operations: [],
+  )
 }
 
 @target(erlang)
@@ -4225,6 +4751,7 @@ fn connection_failed(state: State, reason: String) -> State {
                 generation: generation,
                 reconnect_failures: failures,
                 reconnect_error: Some(reason),
+                deferred_operations: [],
               )
             }
           }
@@ -4253,6 +4780,7 @@ fn suspend_or_fail(state: State, reason: String) -> State {
             channel: None,
             phase: SuspendedPendingTree(core, reason),
             reconnect_error: Some(reason),
+            deferred_operations: [],
           )
         }
         False -> fail(state, reason)
@@ -4275,7 +4803,13 @@ fn reconnect_after_nack(state: State, core: runtime_core.Core) -> State {
   }
   notify_session_lost(state)
   let state = abort_pending_summary(state)
-  State(..state, channel: None, phase: Reconnecting(core), generation:)
+  State(
+    ..state,
+    channel: None,
+    phase: Reconnecting(core),
+    generation:,
+    deferred_operations: [],
+  )
 }
 
 @target(erlang)
@@ -4729,9 +5263,10 @@ fn fan_out(
 fn fail(state: State, reason: String) -> State {
   let state = abort_outcome_waiters(state)
   let state = abort_pending_summary(state)
+  let state = release_tree_transaction_caller(state)
   notify_waiters(state.phase, Error(reason))
   notify_session_lost(state)
-  State(..state, phase: Failed(reason))
+  State(..state, phase: Failed(reason), deferred_operations: [])
 }
 
 @target(erlang)

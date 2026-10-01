@@ -61,7 +61,7 @@ fn kinds() -> List(Kind) {
         "tree_get", "tree_set", "tree_clear", "tree_map_get", "tree_map_set",
         "tree_map_delete", "tree_map_keys", "tree_map_entries", "tree_array_get",
         "tree_array_values", "tree_array_insert", "tree_array_remove",
-        "tree_array_move",
+        "tree_array_move", "tree_transaction",
       ],
       ["subscribe_tree"],
     ),
@@ -386,8 +386,7 @@ const beam_only = ["runtime_subject"]
 /// which is a change to reconnect scheduling rather than a binding. Worth doing
 /// if a BEAM client ever wants an offline mode; not worth doing speculatively.
 const js_only = [
-  "runtime_of", "diagnostics", "go_offline", "go_online", "tree_transaction",
-  "unsubscribe",
+  "runtime_of", "diagnostics", "go_offline", "go_online", "unsubscribe",
 ]
 
 /// `watershed_lustre` wraps the callback-shaped surface (`ensure_*`,

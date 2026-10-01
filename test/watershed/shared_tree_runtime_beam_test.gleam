@@ -478,6 +478,217 @@ pub fn bad_live_operation_fails_without_crashing_actor_test() {
 }
 
 @target(erlang)
+pub fn deferred_bad_operation_fails_transaction_abort_explicitly_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let assert [view] = input.tree_views
+  let callbacks_subject = process.new_subject()
+  let assert Ok(actor) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(callbacks_subject, callbacks)
+      }),
+      seed: seed,
+    )
+  let assert Ok(callbacks) = process.receive(callbacks_subject, 1000)
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  runtime_beam.begin_tree_transaction(actor, "A/_C", view.view, [])
+  |> expect.to_equal(Ok(Nil))
+  let assert Ok(contents) =
+    fluid_container.encode_batch(
+      fluid_container.DecodedBatch(True, None, [
+        fluid_container.ContainerMessage(
+          fluid_container.ChannelOperation(
+            fluid_container.Route("missing", "root"),
+            wire_op.encode_map_operation(map_kernel.Clear),
+          ),
+          0,
+          None,
+        ),
+      ]),
+    )
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      frame.Sequenced(
+        client_id: Some("other"),
+        sequence_number: 1,
+        minimum_sequence_number: 0,
+        client_sequence_number: 1,
+        reference_sequence_number: 0,
+        operation_type: "op",
+        contents: contents,
+        metadata: None,
+        timestamp: 0,
+        data: None,
+      ),
+    ]),
+  )
+  runtime_beam.tree_read(actor, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue(""))))
+  runtime_beam.abort_tree_transaction(actor, "A/_C") |> expect.to_be_error()
+  let observation = runtime_beam.connection_observation(actor)
+  observation.phase |> expect.to_equal("failed")
+  observation.error |> expect.to_not_equal(None)
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn transaction_transport_failure_is_not_reported_as_commit_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let assert [view] = input.tree_views
+  let callbacks_subject = process.new_subject()
+  let assert Ok(actor) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(callbacks_subject, callbacks)
+      }),
+      seed: seed,
+    )
+  let assert Ok(callbacks) = process.receive(callbacks_subject, 1000)
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, _) {
+        case event {
+          "submitOp" -> Error("submission refused")
+          _ -> Ok(Nil)
+        }
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  runtime_beam.begin_tree_transaction(actor, "A/_C", view.view, [])
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_edit_view(
+    actor,
+    "A/_C",
+    view.view,
+    tree_types.SetField(["title"], tree_types.StringValue("pending")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.commit_tree_transaction(actor, "A/_C") |> expect.to_be_error()
+  runtime_beam.connection_observation(actor).phase
+  |> expect.to_equal("reconnecting")
+  runtime_beam.tree_read(actor, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("pending"))))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn dead_transaction_caller_does_not_strand_actor_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let assert [view] = input.tree_views
+  let callbacks_subject = process.new_subject()
+  let assert Ok(actor) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(callbacks_subject, callbacks)
+      }),
+      seed: seed,
+    )
+  let assert Ok(callbacks) = process.receive(callbacks_subject, 1000)
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  let begun = process.new_subject()
+  let caller =
+    process.spawn_unlinked(fn() {
+      runtime_beam.begin_tree_transaction(actor, "A/_C", view.view, [])
+      |> expect.to_equal(Ok(Nil))
+      runtime_beam.tree_edit_view(
+        actor,
+        "A/_C",
+        view.view,
+        tree_types.SetField(["title"], tree_types.StringValue("discarded")),
+      )
+      |> expect.to_equal(Ok(Nil))
+      process.send(begun, Nil)
+    })
+  let monitor = process.monitor(caller)
+  process.receive(begun, 1000) |> expect.to_equal(Ok(Nil))
+  process.new_selector()
+  |> process.select_specific_monitor(monitor, fn(_) { Nil })
+  |> process.selector_receive(1000)
+  |> expect.to_equal(Ok(Nil))
+  process.demonitor_process(monitor)
+
+  runtime_beam.begin_tree_transaction(actor, "A/_C", view.view, [])
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_read(actor, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue(""))))
+  runtime_beam.abort_tree_transaction(actor, "A/_C")
+  |> expect.to_equal(Ok(Nil))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
 pub fn seeded_actor_resolves_routed_root_before_publication_test() {
   let assert Ok(#(input, prefix)) = runtime_fixture.routed_seed_input()
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)
