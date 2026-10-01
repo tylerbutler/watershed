@@ -998,6 +998,8 @@ pub fn identifier_constraint_uses_node_identity_and_retains_builds_test() {
       panic as "Identifier transaction produced no commit"
     Error(error) -> panic as { string.inspect(error) }
   }
+  let assert Ok(Some(created_identifier)) =
+    tree_kernel.read(state, ["left", "2", "id"])
 
   let remote_base = identifier_array_state(other_session(), values)
   let assert Ok(remote_order) = change.identity_order([#(remote_revision(), 0)])
@@ -1074,6 +1076,17 @@ pub fn identifier_constraint_uses_node_identity_and_retains_builds_test() {
   data.constraint_violation_count |> expect.to_equal(1)
   let retained = data.builds != [] || data.refreshers != []
   retained |> expect.to_be_true
+  list.append(data.builds, data.refreshers)
+  |> list.flat_map(fn(build) { build.trees })
+  |> list.any(fn(value) {
+    case value {
+      types.ObjectValue(type_id, fields)
+        if type_id == identifier_fixture.point_type
+      -> list.key_find(fields, "id") == Ok(created_identifier)
+      _ -> False
+    }
+  })
+  |> expect.to_be_true
 }
 
 fn transaction_constraint_violation_after_remote_remove(
@@ -1557,6 +1570,26 @@ pub fn shared_tree_transaction_wire_observes_independent_input_mutations_test() 
         }
     }
   })
+}
+
+pub fn shared_tree_transaction_wire_observes_field_edit_mutation_test() -> Nil {
+  let assert Ok(fixtures.Case(input: input, ..)) =
+    fixtures.load("transaction-wire")
+  let original = transaction_fixture.run_wire(input) |> expect.to_be_ok
+  let changed =
+    replace_nested_string(
+      input,
+      "messageBytes",
+      "nonviolated",
+      "\"fieldKey\":\"right\"",
+      "\"fieldKey\":\"rightChanged\"",
+    )
+    |> transaction_fixture.run_wire
+    |> expect.to_be_ok
+  let assert Ok(VObject(original_observation)) = wire_observation(original)
+  let assert Ok(VObject(changed_observation)) = wire_observation(changed)
+  list.key_find(changed_observation, "nonviolated")
+  |> expect.to_not_equal(list.key_find(original_observation, "nonviolated"))
 }
 
 fn wire_observation(value: json.Json) -> Result(json_ot.JsonValue, Nil) {

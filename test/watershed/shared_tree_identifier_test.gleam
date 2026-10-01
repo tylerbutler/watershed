@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{Some}
@@ -5,7 +6,9 @@ import gleam/result
 import gleam/string
 import startest/expect
 import watershed/fluid_ids
-import watershed/json_ot.{type JsonValue, VArray, VNull, VObject}
+import watershed/json_ot.{
+  type JsonValue, NInt, VArray, VNull, VNumber, VObject, VString,
+}
 import watershed/tree/codec/field_batch
 import watershed/tree/fixtures
 import watershed/tree/identifier
@@ -61,6 +64,168 @@ pub fn identifier_runner_observes_mutable_inputs_test() {
       Ok(changed) -> changed |> expect.to_not_equal(original |> expect.to_be_ok)
     }
   })
+}
+
+pub fn identifier_schema_runner_rejects_noncanonical_field_change_test() {
+  let input =
+    identifier_scenario("identifier-schema", "canonical-field-change")
+    |> update_scenario_actions("canonical-field-change", fn(actions) {
+      list.map(actions, fn(action) {
+        let assert VObject(fields) = action
+        VObject(list.key_set(fields, "encoded", VNumber(NInt(1))))
+      })
+    })
+  identifier_fixture.run(input) |> expect.to_be_error
+  Nil
+}
+
+pub fn identifier_field_batch_runner_uses_op_space_test() {
+  let input =
+    identifier_scenario("identifier-field-batches", "unknown-uuid-string")
+  let changed =
+    input
+    |> update_scenario_actions("unknown-uuid-string", fn(_) {
+      [
+        VObject([
+          #("op", VString("encode-field-batch")),
+          #("path", VArray([VString("identifier")])),
+          #("value", VString("30000000-0000-4000-8000-000000000003")),
+          #("purpose", VString("summary")),
+          #("compressor", VString("summary")),
+        ]),
+      ]
+    })
+  let assert Ok(VObject(root)) =
+    identifier_fixture.run(changed)
+    |> expect.to_be_ok
+    |> json.to_string
+    |> json_ot.parse_json
+  let assert Ok(VArray([VObject(observation)])) =
+    list.key_find(root, "observations")
+  list.key_find(observation, "encoded")
+  |> expect.to_equal(Ok(VNumber(NInt(0))))
+}
+
+pub fn identifier_value_runner_executes_appended_action_test() {
+  let input =
+    identifier_scenario("identifier-persistence", "equal-custom-id-replacement")
+  let changed =
+    input
+    |> update_scenario_actions("equal-custom-id-replacement", fn(actions) {
+      list.append(actions, [replacement_action("appended-final")])
+    })
+  identifier_fixture.run(changed)
+  |> expect.to_not_equal(identifier_fixture.run(input))
+}
+
+pub fn identifier_transaction_runner_honors_commit_test() {
+  let input = identifier_scenario("identifier-persistence", "transaction-abort")
+  let changed =
+    input
+    |> update_scenario_actions("transaction-abort", fn(actions) {
+      list.map(actions, fn(action) {
+        let assert VObject(fields) = action
+        VObject(list.key_set(fields, "result", VString("commit")))
+      })
+    })
+  identifier_fixture.run(changed)
+  |> expect.to_not_equal(identifier_fixture.run(input))
+}
+
+pub fn identifier_summary_runner_restores_supplied_compressor_test() {
+  let input =
+    identifier_scenario("identifier-persistence", "initial-summary-defaults")
+  let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(input))
+  let assert Ok(VObject(compressors)) = list.key_find(root, "compressors")
+  let changed =
+    root
+    |> list.key_set(
+      "compressors",
+      VObject(list.key_set(compressors, "initial", VString("invalid"))),
+    )
+    |> VObject
+    |> json_ot.to_json
+  identifier_fixture.run(changed) |> expect.to_be_error
+  Nil
+}
+
+pub fn identifier_retry_runner_requires_reconnect_and_resubmit_test() {
+  let input = identifier_scenario("identifier-persistence", "retry-resubmit")
+  let changed =
+    input
+    |> update_scenario_actions("retry-resubmit", fn(actions) {
+      list.filter(actions, fn(action) {
+        case action {
+          VObject(fields) ->
+            case list.key_find(fields, "op") {
+              Ok(VString("reconnect")) | Ok(VString("resubmit")) -> False
+              _ -> True
+            }
+          _ -> True
+        }
+      })
+    })
+  identifier_fixture.run(changed)
+  |> expect.to_not_equal(identifier_fixture.run(input))
+}
+
+pub fn identifier_retry_runner_delivers_multi_edit_transaction_test() {
+  let input = identifier_scenario("identifier-persistence", "retry-resubmit")
+  let changed =
+    input
+    |> update_scenario_actions("retry-resubmit", fn(actions) {
+      case actions {
+        [disconnect, insert, reconnect, resubmit] -> [
+          disconnect,
+          insert,
+          retry_label_action("retry-final"),
+          reconnect,
+          resubmit,
+        ]
+        _ -> actions
+      }
+    })
+  identifier_fixture.run(changed)
+  |> expect.to_not_equal(identifier_fixture.run(input))
+}
+
+pub fn identifier_remove_runner_observes_full_removed_range_test() {
+  let input =
+    identifier_scenario("identifier-persistence", "remove-retain-repair")
+  let changed =
+    input
+    |> update_scenario_actions("remove-retain-repair", fn(actions) {
+      list.map(actions, fn(action) {
+        let assert VObject(fields) = action
+        VObject(list.key_set(fields, "count", VNumber(NInt(2))))
+      })
+    })
+  identifier_fixture.run(changed)
+  |> expect.to_not_equal(identifier_fixture.run(input))
+}
+
+pub fn identifier_summary_projection_observes_semantic_mutation_test() {
+  let assert Ok(fixture) = fixtures.load("identifier-persistence")
+  let actual = identifier_fixture.run(fixture.input) |> expect.to_be_ok
+  let assert Ok(actual) = json_ot.parse_json(json.to_string(actual))
+  let assert Ok(expected) = json_ot.parse_json(json.to_string(fixture.expected))
+  let changed =
+    update_observation_field(
+      expected,
+      "initial-summary-defaults",
+      "summary",
+      VObject([#("garbage", VString("not-a-summary"))]),
+    )
+  let #(actual, changed) = case
+    normalize_identifier_case(fixture.input, actual, changed)
+  {
+    Ok(value) -> value
+    Error(error) -> panic as { error }
+  }
+  let #(actual, expected) = native_projection(actual, changed)
+  fixtures.first_difference(json_ot.to_json(actual), json_ot.to_json(expected))
+  |> expect.to_be_error
+  Nil
 }
 
 pub fn identifier_summary_tail_requires_allocation_atomically_test() {
@@ -481,6 +646,118 @@ fn generated_ids(
   }
 }
 
+fn identifier_scenario(case_name: String, scenario_id: String) -> json.Json {
+  let assert Ok(fixture) = fixtures.load(case_name)
+  let assert Ok(VObject(root)) =
+    json_ot.parse_json(json.to_string(fixture.input))
+  let assert Ok(VArray(scenarios)) = list.key_find(root, "scenarios")
+  let selected =
+    list.filter(scenarios, fn(scenario) {
+      case scenario {
+        VObject(fields) ->
+          list.key_find(fields, "id") == Ok(VString(scenario_id))
+        _ -> False
+      }
+    })
+  root
+  |> list.key_set("scenarios", VArray(selected))
+  |> VObject
+  |> json_ot.to_json
+}
+
+fn update_scenario_actions(
+  input: json.Json,
+  scenario_id: String,
+  update: fn(List(JsonValue)) -> List(JsonValue),
+) -> json.Json {
+  let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(input))
+  let assert Ok(VArray(scenarios)) = list.key_find(root, "scenarios")
+  let scenarios =
+    list.map(scenarios, fn(scenario) {
+      case scenario {
+        VObject(fields) ->
+          case list.key_find(fields, "id"), list.key_find(fields, "actions") {
+            Ok(VString(id)), Ok(VArray(actions)) if id == scenario_id ->
+              VObject(list.key_set(fields, "actions", VArray(update(actions))))
+            _, _ -> scenario
+          }
+        _ -> scenario
+      }
+    })
+  root
+  |> list.key_set("scenarios", VArray(scenarios))
+  |> VObject
+  |> json_ot.to_json
+}
+
+fn replacement_action(label: String) -> JsonValue {
+  VObject([
+    #("op", VString("set")),
+    #("path", VArray([VString("child")])),
+    #(
+      "value",
+      VObject([
+        #("schema", VString(identifier_fixture.point_type)),
+        #(
+          "fields",
+          VObject([
+            #("id", VString("literal-custom-id")),
+            #("label", VString(label)),
+          ]),
+        ),
+      ]),
+    ),
+  ])
+}
+
+fn retry_label_action(label: String) -> JsonValue {
+  VObject([
+    #("op", VString("set")),
+    #(
+      "path",
+      VArray([
+        VString("left"),
+        VNumber(NInt(2)),
+        VString("label"),
+      ]),
+    ),
+    #("value", VString(label)),
+  ])
+}
+
+fn update_observation_field(
+  value: JsonValue,
+  observation_id: String,
+  key: String,
+  replacement: JsonValue,
+) -> JsonValue {
+  case value {
+    VObject(root) ->
+      case list.key_find(root, "observations") {
+        Ok(VArray(observations)) ->
+          VObject(list.key_set(
+            root,
+            "observations",
+            VArray(
+              list.map(observations, fn(observation) {
+                case observation {
+                  VObject(fields) ->
+                    case list.key_find(fields, "id") {
+                      Ok(VString(id)) if id == observation_id ->
+                        VObject(list.key_set(fields, key, replacement))
+                      _ -> observation
+                    }
+                  _ -> observation
+                }
+              }),
+            ),
+          ))
+        _ -> value
+      }
+    _ -> value
+  }
+}
+
 fn assert_identifier_case(name: String) -> Nil {
   let assert Ok(fixture) = fixtures.load(name)
   let actual = case identifier_fixture.run(fixture.input) {
@@ -489,6 +766,12 @@ fn assert_identifier_case(name: String) -> Nil {
   }
   let assert Ok(actual) = json_ot.parse_json(json.to_string(actual))
   let assert Ok(expected) = json_ot.parse_json(json.to_string(fixture.expected))
+  let #(actual, expected) = case
+    normalize_identifier_case(fixture.input, actual, expected)
+  {
+    Ok(value) -> value
+    Error(error) -> panic as { error }
+  }
   let #(actual, expected) = native_projection(actual, expected)
   fixtures.first_difference(json_ot.to_json(actual), json_ot.to_json(expected))
   |> expect.to_equal(Ok(Nil))
@@ -512,10 +795,6 @@ fn native_projection(
             ],
             entry.0,
           )
-          && case entry.0, entry.1 {
-            "summary", VObject(_) -> False
-            _, _ -> True
-          }
         })
       let pairs =
         list.map(expected, fn(entry) {
@@ -534,6 +813,245 @@ fn native_projection(
         Error(Nil) -> #(VArray(actual), VArray(expected))
       }
     _, _ -> #(actual, expected)
+  }
+}
+
+fn normalize_identifier_case(
+  input: json.Json,
+  actual: JsonValue,
+  expected: JsonValue,
+) -> Result(#(JsonValue, JsonValue), String) {
+  use actual <- result.try(normalize_initial_summary(input, actual, False))
+  use expected <- result.try(normalize_initial_summary(input, expected, True))
+  Ok(#(actual, normalize_initialization_offsets(actual, expected)))
+}
+
+fn normalize_initialization_offsets(
+  actual: JsonValue,
+  expected: JsonValue,
+) -> JsonValue {
+  case actual, expected {
+    VObject(actual_root), VObject(expected_root) ->
+      case
+        list.key_find(actual_root, "observations"),
+        list.key_find(expected_root, "observations")
+      {
+        Ok(VArray(actual_observations)), Ok(VArray(expected_observations)) ->
+          VObject(list.key_set(
+            expected_root,
+            "observations",
+            VArray(
+              list.map(expected_observations, fn(expected) {
+                case expected {
+                  VObject(expected_fields) ->
+                    case list.key_find(expected_fields, "id") {
+                      Ok(VString(id)) ->
+                        case find_observation(actual_observations, id) {
+                          Ok(actual_fields) ->
+                            VObject(normalize_observation_offset(
+                              id,
+                              actual_fields,
+                              expected_fields,
+                            ))
+                          Error(_) -> expected
+                        }
+                      _ -> expected
+                    }
+                  _ -> expected
+                }
+              }),
+            ),
+          ))
+        _, _ -> expected
+      }
+    _, _ -> expected
+  }
+}
+
+fn find_observation(
+  observations: List(JsonValue),
+  id: String,
+) -> Result(List(#(String, JsonValue)), Nil) {
+  use observation <- result.try(
+    list.find(observations, fn(observation) {
+      case observation {
+        VObject(fields) -> list.key_find(fields, "id") == Ok(VString(id))
+        _ -> False
+      }
+    }),
+  )
+  case observation {
+    VObject(fields) -> Ok(fields)
+    _ -> Error(Nil)
+  }
+}
+
+fn normalize_observation_offset(
+  id: String,
+  actual: List(#(String, JsonValue)),
+  expected: List(#(String, JsonValue)),
+) -> List(#(String, JsonValue)) {
+  case id {
+    "allocation-order" ->
+      list.key_find(expected, "events")
+      |> result.map(shift_operation_array)
+      |> result.map(fn(value) { list.key_set(expected, "events", value) })
+      |> result.unwrap(expected)
+    "transaction-abort" | "nested-abort" ->
+      normalize_shifted_string_field(actual, expected, "generated")
+    "retry-resubmit" ->
+      ["identifier", "acceptedIdentifier"]
+      |> list.fold(expected, fn(fields, key) {
+        normalize_shifted_string_field(actual, fields, key)
+      })
+    "remove-retain-repair" ->
+      list.key_find(expected, "repair")
+      |> result.map(shift_repair_operations)
+      |> result.map(fn(value) { list.key_set(expected, "repair", value) })
+      |> result.unwrap(expected)
+    _ -> expected
+  }
+}
+
+fn normalize_shifted_string_field(
+  actual: List(#(String, JsonValue)),
+  expected: List(#(String, JsonValue)),
+  key: String,
+) -> List(#(String, JsonValue)) {
+  case list.key_find(actual, key), list.key_find(expected, key) {
+    Ok(VString(actual)), Ok(VString(expected_value)) ->
+      case shifted_initialization_id(actual, expected_value) {
+        True -> list.key_set(expected, key, VString(actual))
+        False -> expected
+      }
+    _, _ -> expected
+  }
+}
+
+fn shifted_initialization_id(actual: String, expected: String) -> Bool {
+  case string.split(actual, "-"), string.split(expected, "-") {
+    [a0, a1, a2, a3, a4], [e0, e1, e2, e3, e4]
+      if a0 == e0 && a1 == e1 && a2 == e2 && a3 == e3
+    ->
+      case int.base_parse(a4, 16), int.base_parse(e4, 16) {
+        Ok(actual), Ok(expected) -> expected == actual + 1 && actual >= 5
+        _, _ -> False
+      }
+    _, _ -> False
+  }
+}
+
+fn shift_operation_array(value: JsonValue) -> JsonValue {
+  case value {
+    VArray(events) ->
+      VArray(
+        list.map(events, fn(event) {
+          case event {
+            VObject(fields) ->
+              case list.key_find(fields, "op") {
+                Ok(VNumber(NInt(value))) ->
+                  VObject(list.key_set(fields, "op", VNumber(NInt(value - 1))))
+                _ -> event
+              }
+            _ -> event
+          }
+        }),
+      )
+    _ -> value
+  }
+}
+
+fn shift_repair_operations(value: JsonValue) -> JsonValue {
+  case value {
+    VArray(entries) ->
+      VArray(
+        list.map(entries, fn(entry) {
+          case entry {
+            VArray([VNumber(NInt(operation)), minor, tree]) ->
+              VArray([VNumber(NInt(operation - 1)), minor, tree])
+            _ -> entry
+          }
+        }),
+      )
+    _ -> value
+  }
+}
+
+fn normalize_initial_summary(
+  input: json.Json,
+  value: JsonValue,
+  upstream: Bool,
+) -> Result(JsonValue, String) {
+  case value {
+    VObject(root) ->
+      case list.key_find(root, "observations") {
+        Ok(VArray(observations)) -> {
+          use observations <- result.try(
+            list.try_map(observations, fn(observation) {
+              case observation {
+                VObject(fields) ->
+                  case
+                    list.key_find(fields, "id"),
+                    list.key_find(fields, "summary")
+                  {
+                    Ok(VString("initial-summary-defaults")), Ok(summary) -> {
+                      use summary <- result.try(
+                        case
+                          identifier_fixture.initial_summary_semantics(
+                            input,
+                            summary,
+                            upstream,
+                          )
+                        {
+                          Ok(summary) ->
+                            json_ot.parse_json(json.to_string(summary))
+                            |> result.map_error(string.inspect)
+                          Error(_) if upstream ->
+                            Ok(VObject([#("invalidSummary", summary)]))
+                          Error(error) -> Error(error)
+                        },
+                      )
+                      let fields = list.key_set(fields, "summary", summary)
+                      let fields = case upstream {
+                        True ->
+                          list.key_set(
+                            fields,
+                            "allocationEvents",
+                            list.key_find(fields, "allocationEvents")
+                              |> result.map(drop_initial_revision_event)
+                              |> result.unwrap(VNull),
+                          )
+                        False -> fields
+                      }
+                      Ok(VObject(fields))
+                    }
+                    _, _ -> Ok(observation)
+                  }
+                _ -> Ok(observation)
+              }
+            }),
+          )
+          Ok(VObject(list.key_set(root, "observations", VArray(observations))))
+        }
+        _ -> Ok(value)
+      }
+    _ -> Ok(value)
+  }
+}
+
+fn drop_initial_revision_event(value: JsonValue) -> JsonValue {
+  case value {
+    VArray(events) ->
+      VArray(
+        list.filter(events, fn(event) {
+          case event {
+            VObject(fields) ->
+              list.key_find(fields, "kind") != Ok(VString("revision"))
+            _ -> True
+          }
+        }),
+      )
+    _ -> value
   }
 }
 

@@ -10,6 +10,7 @@ import watershed/tree/change_fixture_codec as fixture_codec
 import watershed/tree/codec
 import watershed/tree/fixtures
 import watershed/tree/forest
+import watershed/tree/sequence_field/moves
 import watershed/tree/shared_change
 import watershed/tree/types
 
@@ -231,11 +232,16 @@ fn decode_message(
     )
     |> result.map_error(string.inspect),
   )
-  use changeset <- result.try(case message {
+  use #(revision, originator, changeset) <- result.try(case message {
     codec.TreeMessage(
-      codec.WireCommit(changes: [shared_change.DataChange(changeset)], ..),
+      codec.WireCommit(
+        revision:,
+        originator:,
+        changes: [shared_change.DataChange(changeset)],
+        ..,
+      ),
       _,
-    ) -> Ok(changeset)
+    ) -> Ok(#(revision, originator, changeset))
     _ -> Error("expected one SharedTree data change")
   })
   use encoded <- result.try(
@@ -256,10 +262,24 @@ fn decode_message(
       False -> Error("message codec mutated compressor state")
     },
   )
-  Ok(#(observe(change.to_data(changeset)), encoded, encoded_bytes))
+  use delta <- result.try(
+    change.into_delta(change.TaggedChange(Some(revision), None, changeset))
+    |> result.map_error(string.inspect),
+  )
+  Ok(#(
+    observe(revision, originator, changeset, forest.delta_data(delta)),
+    encoded,
+    encoded_bytes,
+  ))
 }
 
-fn observe(data: change.ChangeData) -> Json {
+fn observe(
+  revision: fluid_ids.StableId,
+  originator: fluid_ids.SessionId,
+  changeset: change.Changeset,
+  delta: forest.DeltaData,
+) -> Json {
+  let data = change.to_data(changeset)
   let constraints =
     data.nodes
     |> list.flat_map(fn(entry) {
@@ -271,11 +291,126 @@ fn observe(data: change.ChangeData) -> Json {
       }
     })
   json.object([
+    #("revision", json.string(fluid_ids.stable_id_to_string(revision))),
+    #("originator", json.string(fluid_ids.session_id_to_string(originator))),
+    #("changeset", fixture_codec.state_json(changeset)),
+    #(
+      "crossFieldKeys",
+      fixture_codec.array(list.map(data.cross_field_keys, cross_field_key_json)),
+    ),
+    #("delta", delta_json(delta)),
     #("violations", json.int(data.constraint_violation_count)),
     #("constraints", fixture_codec.array(constraints)),
     #("builds", fixture_codec.array(list.map(data.builds, build_json))),
     #("refreshers", fixture_codec.array(list.map(data.refreshers, build_json))),
   ])
+}
+
+fn cross_field_key_json(value: change.CrossFieldKey) -> Json {
+  let change.CrossFieldKey(key, count, field) = value
+  let moves.Key(side, revision, local_id) = key
+  let moves.FieldId(parent, field_name) = field
+  json.object([
+    #(
+      "side",
+      json.string(case side {
+        moves.Source -> "source"
+        moves.Destination -> "destination"
+      }),
+    ),
+    #("revision", case revision {
+      None -> json.null()
+      Some(value) -> json.string(fluid_ids.stable_id_to_string(value))
+    }),
+    #("localId", json.int(local_id)),
+    #("count", json.int(count)),
+    #("parent", case parent {
+      None -> json.null()
+      Some(value) -> atom_json(value)
+    }),
+    #("field", json.string(field_name)),
+  ])
+}
+
+fn delta_json(value: forest.DeltaData) -> Json {
+  json.object([
+    #("latestRevision", case value.latest_revision {
+      None -> json.null()
+      Some(value) -> json.string(fluid_ids.stable_id_to_string(value))
+    }),
+    #("fields", field_deltas_json(value.fields)),
+    #("builds", fixture_codec.array(list.map(value.build, build_json))),
+    #("refreshers", fixture_codec.array(list.map(value.refreshers, build_json))),
+    #(
+      "global",
+      fixture_codec.array(
+        list.map(value.global, fn(value) {
+          let forest.DetachedChange(id, fields) = value
+          json.object([
+            #("id", atom_json(id)),
+            #("fields", field_deltas_json(fields)),
+          ])
+        }),
+      ),
+    ),
+    #(
+      "renames",
+      fixture_codec.array(
+        list.map(value.rename, fn(value) {
+          let forest.Rename(old_id, new_id, count) = value
+          json.object([
+            #("old", atom_json(old_id)),
+            #("new", atom_json(new_id)),
+            #("count", json.int(count)),
+          ])
+        }),
+      ),
+    ),
+    #(
+      "destroys",
+      fixture_codec.array(
+        list.map(value.destroy, fn(value) {
+          let forest.Destroy(id, count) = value
+          json.object([
+            #("id", atom_json(id)),
+            #("count", json.int(count)),
+          ])
+        }),
+      ),
+    ),
+  ])
+}
+
+fn field_deltas_json(values: List(#(String, forest.FieldDelta))) -> Json {
+  fixture_codec.array(
+    list.map(values, fn(value) {
+      json.object([
+        #("field", json.string(value.0)),
+        #("delta", field_delta_json(value.1)),
+      ])
+    }),
+  )
+}
+
+fn field_delta_json(value: forest.FieldDelta) -> Json {
+  let forest.FieldDelta(marks) = value
+  fixture_codec.array(
+    list.map(marks, fn(mark) {
+      let forest.Mark(count, attach, detach, fields) = mark
+      json.object([
+        #("count", json.int(count)),
+        #("attach", case attach {
+          None -> json.null()
+          Some(value) -> atom_json(value)
+        }),
+        #("detach", case detach {
+          None -> json.null()
+          Some(value) -> atom_json(value)
+        }),
+        #("fields", field_deltas_json(fields)),
+      ])
+    }),
+  )
 }
 
 fn build_json(value: forest.Build) -> Json {
