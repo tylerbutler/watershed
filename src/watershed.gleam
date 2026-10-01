@@ -192,6 +192,17 @@ pub opaque type SharedTree {
 }
 
 @target(javascript)
+pub type TreeTransactionConstraint {
+  NodeInDocument(path: tree_types.FieldPath)
+}
+
+@target(javascript)
+pub type TreeTransactionError(callback_error) {
+  Aborted(callback_error)
+  TransactionFailed(String)
+}
+
+@target(javascript)
 pub opaque type SharedCounter {
   SharedCounter(runtime: runtime.Runtime, address: String)
 }
@@ -534,6 +545,34 @@ pub fn pending_summary_evidence(document: Document(a)) -> Result(Json, String) {
 @target(javascript)
 pub fn tree_upgrade_schema(tree: SharedTree) -> Result(Nil, String) {
   runtime.tree_upgrade_schema(tree.runtime, tree.address, tree.view)
+}
+
+@target(javascript)
+pub fn tree_transaction(
+  tree: SharedTree,
+  constraints: List(TreeTransactionConstraint),
+  callback: fn(SharedTree) -> Result(value, callback_error),
+) -> Result(value, TreeTransactionError(callback_error)) {
+  let paths =
+    list.map(constraints, fn(constraint) {
+      let NodeInDocument(path) = constraint
+      path
+    })
+  use _ <- result.try(
+    runtime.begin_tree_transaction(tree.runtime, tree.address, tree.view, paths)
+    |> result.map_error(TransactionFailed),
+  )
+  case callback(tree) {
+    Ok(value) ->
+      runtime.commit_tree_transaction(tree.runtime, tree.address)
+      |> result.map(fn(_) { value })
+      |> result.map_error(TransactionFailed)
+    Error(error) ->
+      case runtime.abort_tree_transaction(tree.runtime, tree.address) {
+        Ok(_) -> Error(Aborted(error))
+        Error(runtime_error) -> Error(TransactionFailed(runtime_error))
+      }
+  }
 }
 
 @target(javascript)

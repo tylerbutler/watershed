@@ -4,6 +4,8 @@ import gleam/erlang/process
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+@target(javascript)
+import gleam/result
 import gleam/string
 import spillway/types as spillway_types
 import startest/expect
@@ -30,6 +32,11 @@ import watershed/wire/fluid_document
 import watershed_beam
 
 const map_type = "org.watershed.shared-tree.m2.DynamicMap"
+
+@target(javascript)
+type CallbackProblem {
+  Stop
+}
 
 fn input(root_map: Bool) -> runtime_core.BootstrapSeedInput {
   let #(schema, root) = case root_map {
@@ -390,6 +397,174 @@ pub fn shared_tree_map_facade_js_operations_test() {
     fn(path) { watershed.tree_map_entries(tree, path) },
     fn(path, value) { watershed.tree_set(tree, path, value) },
   )
+  watershed.close(document)
+}
+
+@target(javascript)
+pub fn shared_tree_map_facade_js_transaction_callback_test() {
+  let input = input(True)
+  let #(document, callbacks, submissions) = js_document(input)
+  callbacks.on_event(
+    "connect_document_success",
+    json.to_string(connected("reader", 0)),
+  )
+  let tree = js_tree(document, input)
+  let observed = transport_js.new_cell([])
+  let subscription =
+    watershed.subscribe_tree(tree, fn(event) {
+      transport_js.set_cell(observed, [
+        #(event, watershed.tree_map_entries(tree, [])),
+        ..transport_js.get_cell(observed)
+      ])
+    })
+
+  watershed.tree_transaction(tree, [], fn(tree) {
+    use _ <- result.try(watershed.tree_map_set(
+      tree,
+      [],
+      "outer",
+      types.StringValue("one"),
+    ))
+    watershed.tree_map_get(tree, [], "outer")
+    |> expect.to_equal(Ok(Some(types.StringValue("one"))))
+    watershed.tree_transaction(tree, [], fn(tree) {
+      use _ <- result.try(watershed.tree_map_set(
+        tree,
+        [],
+        "nested",
+        types.StringValue("two"),
+      ))
+      Ok(Nil)
+    })
+    |> expect.to_equal(Ok(Nil))
+    watershed.tree_transaction(tree, [], fn(tree) {
+      watershed.tree_map_set(tree, [], "rolled-back", types.StringValue("x"))
+      |> expect.to_equal(Ok(Nil))
+      Error(Stop)
+    })
+    |> expect.to_equal(Error(watershed.Aborted(Stop)))
+    watershed.tree_map_get(tree, [], "rolled-back")
+    |> expect.to_equal(Ok(None))
+    use _ <- result.try(watershed.tree_map_set(
+      tree,
+      [],
+      "after",
+      types.StringValue("three"),
+    ))
+    Ok(42)
+  })
+  |> expect.to_equal(Ok(42))
+
+  let final = [
+    #("after", types.StringValue("three")),
+    #("nested", types.StringValue("two")),
+    #("outer", types.StringValue("one")),
+  ]
+  watershed.tree_map_entries(tree, []) |> expect.to_equal(Ok(final))
+  transport_js.get_cell(observed)
+  |> expect.to_equal([
+    #(tree_kernel.TreeChanged(True), Ok(final)),
+  ])
+  transport_js.get_cell(submissions) |> list.length |> expect.to_equal(1)
+
+  let aborted =
+    watershed.tree_transaction(tree, [], fn(tree) {
+      use _ <- result.try(watershed.tree_map_set(
+        tree,
+        [],
+        "temporary",
+        types.StringValue("value"),
+      ))
+      case
+        watershed.tree_map_set(
+          tree,
+          [],
+          "invalid",
+          types.ObjectValue("unknown", []),
+        )
+      {
+        Error(error) -> Error(error)
+        Ok(_) -> Ok(Nil)
+      }
+    })
+  let assert Error(watershed.Aborted(_)) = aborted
+  watershed.tree_map_get(tree, [], "temporary") |> expect.to_equal(Ok(None))
+  transport_js.get_cell(observed) |> list.length |> expect.to_equal(1)
+  transport_js.get_cell(submissions) |> list.length |> expect.to_equal(1)
+
+  watershed.tree_transaction(tree, [], fn(_) { Ok("no-op") })
+  |> expect.to_equal(Ok("no-op"))
+  transport_js.get_cell(observed) |> list.length |> expect.to_equal(1)
+  transport_js.get_cell(submissions) |> list.length |> expect.to_equal(1)
+  watershed.unsubscribe(subscription)
+  watershed.close(document)
+}
+
+@target(javascript)
+pub fn shared_tree_map_facade_js_transaction_rejections_test() {
+  let input = input(False)
+  let #(document, callbacks, submissions) = js_document(input)
+  callbacks.on_event(
+    "connect_document_success",
+    json.to_string(connected("reader", 0)),
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let assert [initial] = input.tree_views
+  let tree =
+    watershed.resolve_tree(document, marker, initial.view) |> expect.to_be_ok()
+  let other_view =
+    watershed.open_tree(document, marker, optional_view(input))
+    |> expect.to_be_ok()
+  let ran = transport_js.new_cell(False)
+
+  let missing =
+    watershed.tree_transaction(
+      tree,
+      [watershed.NodeInDocument(["missing"])],
+      fn(_) {
+        transport_js.set_cell(ran, True)
+        Ok(Nil)
+      },
+    )
+  let assert Error(watershed.TransactionFailed(_)) = missing
+  transport_js.get_cell(ran) |> expect.to_equal(False)
+
+  watershed.tree_transaction(
+    tree,
+    [watershed.NodeInDocument(["items"])],
+    fn(tree) {
+      let wrong_view =
+        watershed.tree_transaction(other_view, [], fn(_) {
+          transport_js.set_cell(ran, True)
+          Ok(Nil)
+        })
+      let assert Error(watershed.TransactionFailed(_)) = wrong_view
+      transport_js.get_cell(ran) |> expect.to_equal(False)
+      watershed.tree_upgrade_schema(other_view) |> expect.to_be_error()
+      use _ <- result.try(watershed.tree_map_set(
+        tree,
+        ["items"],
+        "kept",
+        types.StringValue("value"),
+      ))
+      Ok(Nil)
+    },
+  )
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_map_get(tree, ["items"], "kept")
+  |> expect.to_equal(Ok(Some(types.StringValue("value"))))
+  transport_js.get_cell(submissions) |> list.length |> expect.to_equal(1)
+
+  callbacks.on_close()
+  transport_js.set_cell(ran, False)
+  let disconnected =
+    watershed.tree_transaction(tree, [], fn(_) {
+      transport_js.set_cell(ran, True)
+      Ok(Nil)
+    })
+  let assert Error(watershed.TransactionFailed(_)) = disconnected
+  transport_js.get_cell(ran) |> expect.to_equal(False)
   watershed.close(document)
 }
 

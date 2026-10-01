@@ -2,6 +2,8 @@
 import gleam/erlang/process
 import gleam/json
 import gleam/option.{type Option, None, Some}
+@target(javascript)
+import gleam/result
 import startest/expect
 @target(javascript)
 import watershed
@@ -133,6 +135,100 @@ pub fn shared_tree_array_facade_js_operations_test() {
       )
     },
   )
+  watershed.close(document)
+}
+
+@target(javascript)
+pub fn shared_tree_array_facade_js_transaction_test() {
+  let input = input()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let callbacks = transport_js.new_cell(None)
+  let submissions = transport_js.new_cell(0)
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(event, _) {
+            case event {
+              "submitOp" ->
+                transport_js.set_cell(
+                  submissions,
+                  transport_js.get_cell(submissions) + 1,
+                )
+              _ -> Nil
+            }
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    connected("reader") |> json.to_string,
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let tree =
+    watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
+
+  let failed =
+    watershed.tree_transaction(tree, [], fn(tree) {
+      use _ <- result.try(
+        watershed.tree_array_insert(tree, [], 1, [types.StringValue("X")]),
+      )
+      use _ <- result.try(watershed.tree_array_move(tree, [], 1, 2, [], 4))
+      use _ <- result.try(watershed.tree_array_remove(tree, [], 1, 2))
+      Ok("commit")
+    })
+  let assert Error(watershed.TransactionFailed(_)) = failed
+  watershed.tree_array_values(tree, [])
+  |> expect.to_equal(
+    Ok([
+      types.StringValue("A"),
+      types.StringValue("B"),
+      types.StringValue("C"),
+    ]),
+  )
+  transport_js.get_cell(submissions) |> expect.to_equal(0)
+
+  watershed.tree_transaction(tree, [], fn(tree) {
+    use _ <- result.try(watershed.tree_array_move(tree, [], 1, 2, [], 3))
+    use _ <- result.try(
+      watershed.tree_array_insert(tree, [], 1, [types.StringValue("X")]),
+    )
+    watershed.tree_array_values(tree, [])
+    |> expect.to_equal(
+      Ok([
+        types.StringValue("A"),
+        types.StringValue("X"),
+        types.StringValue("C"),
+        types.StringValue("B"),
+      ]),
+    )
+    use _ <- result.try(watershed.tree_array_remove(tree, [], 2, 3))
+    Ok("done")
+  })
+  |> expect.to_equal(Ok("done"))
+  watershed.tree_array_values(tree, [])
+  |> expect.to_equal(
+    Ok([
+      types.StringValue("A"),
+      types.StringValue("X"),
+      types.StringValue("B"),
+    ]),
+  )
+  transport_js.get_cell(submissions) |> expect.to_equal(1)
   watershed.close(document)
 }
 

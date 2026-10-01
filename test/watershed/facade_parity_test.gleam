@@ -386,7 +386,8 @@ const beam_only = ["runtime_subject"]
 /// which is a change to reconnect scheduling rather than a binding. Worth doing
 /// if a BEAM client ever wants an offline mode; not worth doing speculatively.
 const js_only = [
-  "runtime_of", "diagnostics", "go_offline", "go_online", "unsubscribe",
+  "runtime_of", "diagnostics", "go_offline", "go_online", "tree_transaction",
+  "unsubscribe",
 ]
 
 /// `watershed_lustre` wraps the callback-shaped surface (`ensure_*`,

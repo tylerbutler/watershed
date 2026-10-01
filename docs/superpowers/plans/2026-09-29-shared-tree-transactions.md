@@ -1073,26 +1073,26 @@ git commit -m "feat(tree): submit atomic transactions"
 - Modify: `test/watershed/shared_tree_runtime_js_test.gleam`
 - Modify: `test/watershed/shared_tree_array_facade_test.gleam`
 - Modify: `test/watershed/shared_tree_map_facade_test.gleam`
-- Modify: `test/facade_parity_test.gleam`
+- Modify: `test/watershed/facade_parity_test.gleam`
 
 **Interfaces:**
 - Consumes: Task 5 runtime-core lifecycle.
 - Produces: the JavaScript public API in section 3.
 
-- [ ] **Step 1: Add failing facade type and callback tests.**
+- [x] **Step 1: Add failing facade type and callback tests.**
 
 Cover success value, typed callback error, setup error, nested success, nested
 abort handled by the outer callback, callback reads after each edit, one
 subscriber event after outer success, no subscriber event after abort, no-op,
 wrong tree, and schema-upgrade rejection.
 
-- [ ] **Step 2: Add runtime begin/commit/abort wrappers.**
+- [x] **Step 2: Add runtime begin/commit/abort wrappers.**
 
 Each wrapper reads the runtime cell, requires ready state, calls the matching
 runtime-core function, updates the cell before fan-out, and sends outbound only
 for outer commit.
 
-- [ ] **Step 3: Implement the generic public callback.**
+- [x] **Step 3: Implement the generic public callback.**
 
 Use this control flow:
 
@@ -1117,24 +1117,46 @@ case callback(tree) {
 If abort itself fails, return `TransactionFailed` rather than hiding the runtime
 error behind `Aborted`.
 
-- [ ] **Step 4: Verify synchronous event reentrancy.**
+- [x] **Step 4: Verify synchronous event reentrancy.**
 
 The one subscriber callback after outer success must read final committed
 state. No subscriber callback runs for intermediate edits or abort. Reentrant
 edits during the commit event follow the existing runtime event rules.
 
-- [ ] **Step 5: Run JavaScript facade and parity tests.**
+- [x] **Step 5: Run JavaScript facade and parity tests.**
 
 ```bash
 gleam test --target javascript -- shared_tree_runtime_js shared_tree_array_facade shared_tree_map_facade facade_parity
 ```
 
-- [ ] **Step 6: Commit the JavaScript facade.**
+- [x] **Step 6: Commit the JavaScript facade.**
 
 ```bash
-git add src/watershed/runtime.gleam src/watershed.gleam test/watershed test/facade_parity_test.gleam
+git add src/watershed/runtime.gleam src/watershed.gleam \
+  test/watershed/shared_tree_runtime_js_test.gleam \
+  test/watershed/shared_tree_array_facade_test.gleam \
+  test/watershed/shared_tree_map_facade_test.gleam \
+  test/watershed/facade_parity_test.gleam \
+  docs/superpowers/plans/2026-09-29-shared-tree-transactions.md
 git commit -m "feat(tree): expose JS transactions"
 ```
+
+**Actual evidence (2026-09-30):**
+
+- RED: the exact JavaScript matrix failed to compile because
+  `watershed.tree_transaction`, its public constructors, and the three runtime
+  lifecycle wrappers did not exist.
+- GREEN: the exact JavaScript matrix passed 27 tests. It covers callback
+  values, typed aborts and setup failures, nested commit and abort, isolated
+  reads, invalid-edit rollback, constraints, no-op, wrong tree and view,
+  schema rejection, one final-state event, array and map edits, and reentrant
+  outbound order.
+- The commit wrapper installs rollback state when runtime-core commit fails.
+  A deterministic array composition failure verifies that the next transaction
+  can begin and commit.
+- Target-aware Erlang facade parity passed 7 tests while the BEAM callback API
+  remains deferred to Task 7.
+- Targeted formatting and `git diff --check` passed.
 
 ### Task 7: Expose the BEAM callback API and defer remote delivery
 

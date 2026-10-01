@@ -1000,6 +1000,115 @@ pub fn reentrant_tree_subscriber_preserves_submission_order_test() {
 }
 
 @target(javascript)
+pub fn tree_transaction_commit_reentrancy_preserves_state_and_order_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let assert [view] = input.tree_views
+  let callbacks = transport_js.new_cell(None)
+  let pushed = transport_js.new_cell([])
+  let observed = transport_js.new_cell([])
+  let owner =
+    runtime.start_with_transport_and_seed(
+      http_base_url: "https://seed.invalid",
+      connect_message: connect_message(),
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(event, payload) {
+            case event {
+              "submitOp" -> {
+                let assert Ok(dynamic) =
+                  json.parse(json.to_string(payload), decode.dynamic)
+                let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+                  frame.decode_submit_operation(dynamic)
+                transport_js.set_cell(pushed, [
+                  submitted.client_sequence_number,
+                  ..transport_js.get_cell(pushed)
+                ])
+              }
+              _ -> Nil
+            }
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  let _ =
+    runtime.subscribe(owner, "A/_C", fn(_) {
+      let current = runtime.tree_read(owner, "A/_C", ["title"])
+      transport_js.set_cell(observed, [
+        current,
+        ..transport_js.get_cell(observed)
+      ])
+      case current {
+        Ok(Some(tree_types.StringValue("outer"))) ->
+          runtime.tree_edit(
+            owner,
+            "A/_C",
+            tree_types.SetField(["title"], tree_types.StringValue("reentrant")),
+          )
+          |> expect.to_equal(Ok(Nil))
+        _ -> Nil
+      }
+    })
+
+  runtime.begin_tree_transaction(owner, "A/_C", view.view, [])
+  |> expect.to_equal(Ok(Nil))
+  runtime.tree_edit_view(
+    owner,
+    "A/_C",
+    view.view,
+    tree_types.SetField(["title"], tree_types.StringValue("intermediate")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(observed) |> expect.to_equal([])
+  runtime.tree_edit_view(
+    owner,
+    "A/_C",
+    view.view,
+    tree_types.SetField(["title"], tree_types.StringValue("outer")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime.tree_read(owner, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("outer"))))
+  runtime.begin_tree_transaction(owner, "A/root", view.view, [])
+  |> expect.to_be_error()
+  runtime.commit_tree_transaction(owner, "A/_C") |> expect.to_equal(Ok(Nil))
+
+  transport_js.get_cell(pushed) |> list.reverse |> expect.to_equal([1, 2])
+  transport_js.get_cell(observed)
+  |> list.reverse
+  |> expect.to_equal([
+    Ok(Some(tree_types.StringValue("outer"))),
+    Ok(Some(tree_types.StringValue("reentrant"))),
+  ])
+  runtime.tree_read(owner, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("reentrant"))))
+  runtime.close(owner)
+}
+
+@target(javascript)
 pub fn invalid_inline_own_echo_rejects_edit_without_fanout_test() {
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)

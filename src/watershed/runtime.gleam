@@ -2323,6 +2323,113 @@ pub fn tree_edit_view(
 }
 
 @target(javascript)
+pub fn begin_tree_transaction(
+  runtime: Runtime,
+  address: String,
+  view: tree_schema.ViewSchema,
+  constraints: List(tree_types.FieldPath),
+) -> Result(Nil, String) {
+  let cell = runtime.cell
+  let state = cell_get(cell)
+  case state.phase, state.bootstrap {
+    Ready(core, None), None ->
+      case
+        runtime_core.begin_tree_transaction(core, address, view, constraints)
+      {
+        Error(error) -> Error(string.inspect(error))
+        Ok(core) -> {
+          cell_set(cell, State(..state, phase: Ready(core, None)))
+          Ok(Nil)
+        }
+      }
+    Ready(_, None), Some(_) | Connecting, _ | Failed(_), _ ->
+      Error("tree transaction requires a ready document connection")
+    Ready(_, Some(_)), _ | Reconnecting(_), _ ->
+      Error("tree transaction requires a ready document connection")
+    SuspendedPendingTree(_, reason), _ -> Error(reason)
+  }
+}
+
+@target(javascript)
+pub fn commit_tree_transaction(
+  runtime: Runtime,
+  address: String,
+) -> Result(Nil, String) {
+  let cell = runtime.cell
+  let state = cell_get(cell)
+  case state.phase, state.bootstrap {
+    Ready(core, None), None ->
+      case runtime_core.commit_tree_transaction(core, address) {
+        Error(error) ->
+          case runtime_core.abort_tree_transaction(core, address) {
+            Ok(#(core, _)) -> {
+              cell_set(cell, State(..state, phase: Ready(core, None)))
+              Error(string.inspect(error))
+            }
+            Error(abort_error) ->
+              Error(
+                string.inspect(error)
+                <> "; transaction abort failed: "
+                <> string.inspect(abort_error),
+              )
+          }
+        Ok(#(core, events, outbound)) -> {
+          cell_set(cell, State(..state, phase: Ready(core, None)))
+          send_outbound(state.channel, core.client_id, outbound)
+          case cell_get(cell).phase {
+            Ready(_, _) | Reconnecting(_) -> {
+              fan_out(state.subscribers, events)
+              Ok(Nil)
+            }
+            Failed(reason) -> Error(reason)
+            SuspendedPendingTree(_, reason) -> Error(reason)
+            Connecting ->
+              Error("tree transaction requires a ready document connection")
+          }
+        }
+      }
+    Ready(_, None), Some(_) | Connecting, _ | Failed(_), _ ->
+      Error("tree transaction requires a ready document connection")
+    Ready(_, Some(_)), _ | Reconnecting(_), _ ->
+      Error("tree transaction requires a ready document connection")
+    SuspendedPendingTree(_, reason), _ -> Error(reason)
+  }
+}
+
+@target(javascript)
+pub fn abort_tree_transaction(
+  runtime: Runtime,
+  address: String,
+) -> Result(Nil, String) {
+  let cell = runtime.cell
+  let state = cell_get(cell)
+  case state.phase, state.bootstrap {
+    Ready(core, None), None ->
+      case runtime_core.abort_tree_transaction(core, address) {
+        Error(error) -> Error(string.inspect(error))
+        Ok(#(core, events)) -> {
+          cell_set(cell, State(..state, phase: Ready(core, None)))
+          case cell_get(cell).phase {
+            Ready(_, _) | Reconnecting(_) -> {
+              fan_out(state.subscribers, events)
+              Ok(Nil)
+            }
+            Failed(reason) -> Error(reason)
+            SuspendedPendingTree(_, reason) -> Error(reason)
+            Connecting ->
+              Error("tree transaction requires a ready document connection")
+          }
+        }
+      }
+    Ready(_, None), Some(_) | Connecting, _ | Failed(_), _ ->
+      Error("tree transaction requires a ready document connection")
+    Ready(_, Some(_)), _ | Reconnecting(_), _ ->
+      Error("tree transaction requires a ready document connection")
+    SuspendedPendingTree(_, reason), _ -> Error(reason)
+  }
+}
+
+@target(javascript)
 pub fn tree_upgrade_schema(
   runtime: Runtime,
   address: String,
