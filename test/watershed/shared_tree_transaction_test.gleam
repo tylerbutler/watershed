@@ -9,11 +9,13 @@ import watershed/fluid_ids
 import watershed/json_ot.{type JsonValue, VArray, VObject, VString}
 import watershed/tree/array_fixture
 import watershed/tree/change
+import watershed/tree/codec
 import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
+import watershed/tree/sequence_field/moves
 import watershed/tree/shared_change
 import watershed/tree/transaction
 import watershed/tree/transaction_fixture
@@ -393,6 +395,104 @@ pub fn shared_tree_transaction_finish_preserves_preview_node_references_test() -
   |> expect.to_equal(Ok(types.StringValue("B")))
   tree_kernel.read_reference(acknowledged, c_reference)
   |> expect.to_equal(Ok(types.StringValue("C")))
+}
+
+pub fn shared_tree_transaction_insert_move_remove_round_trips_test() -> Nil {
+  let values = [
+    types.StringValue("A"),
+    types.StringValue("B"),
+    types.StringValue("C"),
+  ]
+  let base = array_state(session(), values)
+  let compressor = fluid_ids.new(session())
+  let assert Ok(a_reference) = tree_kernel.reference_at(base, ["0"])
+  let assert Ok(b_reference) = tree_kernel.reference_at(base, ["1"])
+  let assert Ok(c_reference) = tree_kernel.reference_at(base, ["2"])
+  let assert Ok(value) = transaction.begin(base, compressor, [])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.ArrayInsert([], 1, [types.StringValue("X")]),
+    )
+  let assert Ok(x_reference) =
+    tree_kernel.reference_at(transaction.state(value), ["1"])
+  let assert Ok(value) =
+    transaction.apply_edit(value, types.ArrayMove([], 1, 2, [], 4))
+  let assert Ok(value) =
+    transaction.apply_edit(value, types.ArrayRemove([], 1, 2))
+  let finished = transaction.finish(value) |> expect.to_be_ok()
+  let assert #(transaction.Commit(state, compressor, commit), _) = finished
+
+  tree_kernel.array_values(state, [])
+  |> expect.to_equal(
+    Ok([
+      types.StringValue("A"),
+      types.StringValue("C"),
+      types.StringValue("X"),
+    ]),
+  )
+  tree_kernel.read_reference(state, a_reference)
+  |> expect.to_equal(Ok(types.StringValue("A")))
+  tree_kernel.read_reference(state, b_reference)
+  |> expect.to_equal(Ok(types.StringValue("B")))
+  tree_kernel.read_reference(state, c_reference)
+  |> expect.to_equal(Ok(types.StringValue("C")))
+  tree_kernel.read_reference(state, x_reference)
+  |> expect.to_equal(Ok(types.StringValue("X")))
+
+  let assert [shared_change.DataChange(composed)] =
+    shared_change.to_changes(commit.change)
+  let data = change.to_data(composed)
+  data.cross_field_keys |> expect.to_not_equal([])
+  data.cross_field_keys
+  |> list.each(fn(entry) {
+    let change.CrossFieldKey(key, _, field) = entry
+    let moves.Key(_, revision, _) = key
+    let moves.FieldId(parent, _) = field
+    revision |> expect.to_equal(Some(commit.revision))
+    case parent {
+      None -> Nil
+      Some(parent) -> parent.revision |> expect.to_equal(Some(commit.revision))
+    }
+  })
+
+  let encoded =
+    tree_runtime.encode_commit(commit, state, compressor)
+    |> expect.to_be_ok()
+  let remote = array_state(other_session(), values)
+  let assert Ok(#(decoded, message)) =
+    tree_runtime.decode_sequenced_message(
+      json.to_string(encoded),
+      remote,
+      0,
+      compressor,
+    )
+  codec.encode_message(
+    message,
+    codec.EncodeContext(
+      codec.Fluid310,
+      compressor,
+      Some(tree_kernel.stored_schema(remote)),
+    ),
+  )
+  |> expect.to_equal(Ok(encoded))
+  let assert Ok(#(replayed, _, _)) =
+    tree_runtime.receive_commit(
+      remote,
+      decoded,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      compressor,
+    )
+  tree_kernel.array_values(replayed, [])
+  |> expect.to_equal(
+    Ok([
+      types.StringValue("A"),
+      types.StringValue("C"),
+      types.StringValue("X"),
+    ]),
+  )
 }
 
 pub fn shared_tree_transaction_finish_preserves_detached_preview_reference_test() -> Nil {

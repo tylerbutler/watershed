@@ -3639,12 +3639,35 @@ pub fn tree_array_get(
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
 
+pub fn tree_array_get_view(
+  core: Core,
+  address: String,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+  index: Int,
+) -> Result(Option(tree_types.TreeValue), CoreError) {
+  use state <- result.try(checked_read_tree_channel(core, address, view))
+  tree_kernel.array_get(state, path, index)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
 pub fn tree_array_values(
   core: Core,
   address: String,
   path: tree_types.FieldPath,
 ) -> Result(List(tree_types.TreeValue), CoreError) {
   use state <- result.try(read_tree_channel(core, address))
+  tree_kernel.array_values(state, path)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+pub fn tree_array_values_view(
+  core: Core,
+  address: String,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(List(tree_types.TreeValue), CoreError) {
+  use state <- result.try(checked_read_tree_channel(core, address, view))
   tree_kernel.array_values(state, path)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }

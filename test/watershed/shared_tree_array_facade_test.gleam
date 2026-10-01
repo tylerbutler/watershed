@@ -1,12 +1,15 @@
 @target(erlang)
 import gleam/erlang/process
 import gleam/json
+import gleam/list
 import gleam/option.{type Option, None, Some}
 @target(javascript)
 import gleam/result
+import gleam/string
 import startest/expect
 @target(javascript)
 import watershed
+import watershed/channel
 @target(javascript)
 import watershed/runtime
 @target(erlang)
@@ -16,7 +19,9 @@ import watershed/sluice/frame
 @target(javascript)
 import watershed/transport_js
 import watershed/tree/runtime_fixture
+import watershed/tree/schema as tree_schema
 import watershed/tree/types
+import watershed/tree_kernel
 @target(erlang)
 import watershed_beam
 
@@ -46,6 +51,31 @@ fn connected(client: String) -> json.Json {
     timestamp: 0,
     presence_v1: False,
   )
+}
+
+fn wider_view(
+  input: runtime_core.BootstrapSeedInput,
+) -> tree_schema.ViewSchema {
+  let tree =
+    input.channels
+    |> list.find(fn(seed) {
+      case seed.snapshot {
+        channel.TreeSnapshot(_) -> True
+        _ -> False
+      }
+    })
+    |> expect.to_be_ok()
+  let assert channel.TreeSnapshot(snapshot) = tree.snapshot
+  let #(stored, _, _) = tree_kernel.snapshot_parts(snapshot)
+  stored
+  |> tree_schema.stored_to_json
+  |> json.to_string
+  |> string.replace(
+    "},\"root\":",
+    ",\"org.watershed.shared-tree.m3.Extra\":{\"kind\":{\"object\":{\"value\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":",
+  )
+  |> tree_schema.view_from_string
+  |> expect.to_be_ok
 }
 
 fn assert_array_operations(
@@ -182,16 +212,83 @@ pub fn shared_tree_array_facade_js_transaction_test() {
   let tree =
     watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
 
-  let failed =
-    watershed.tree_transaction(tree, [], fn(tree) {
-      use _ <- result.try(
-        watershed.tree_array_insert(tree, [], 1, [types.StringValue("X")]),
-      )
-      use _ <- result.try(watershed.tree_array_move(tree, [], 1, 2, [], 4))
-      use _ <- result.try(watershed.tree_array_remove(tree, [], 1, 2))
-      Ok("commit")
-    })
-  let assert Error(watershed.TransactionFailed(_)) = failed
+  watershed.tree_transaction(tree, [], fn(tree) {
+    use _ <- result.try(
+      watershed.tree_array_insert(tree, [], 1, [types.StringValue("X")]),
+    )
+    use _ <- result.try(watershed.tree_array_move(tree, [], 1, 2, [], 4))
+    use _ <- result.try(watershed.tree_array_remove(tree, [], 1, 2))
+    Ok("commit")
+  })
+  |> expect.to_equal(Ok("commit"))
+  watershed.tree_array_values(tree, [])
+  |> expect.to_equal(
+    Ok([
+      types.StringValue("A"),
+      types.StringValue("C"),
+      types.StringValue("X"),
+    ]),
+  )
+  transport_js.get_cell(submissions) |> expect.to_equal(1)
+  watershed.close(document)
+}
+
+@target(javascript)
+pub fn shared_tree_array_facade_js_transaction_rejects_other_view_test() {
+  let input = input()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let callbacks = transport_js.new_cell(None)
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(_, _) { Nil },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    connected("reader") |> json.to_string,
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let tree =
+    watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
+  let other =
+    watershed.open_tree(document, marker, wider_view(input))
+    |> expect.to_be_ok()
+
+  watershed.tree_transaction(tree, [], fn(_) {
+    watershed.tree_array_get(other, [], 0) |> expect.to_be_error()
+    watershed.tree_array_values(other, []) |> expect.to_be_error()
+    watershed.tree_array_insert(other, [], 1, [types.StringValue("wrong view")])
+    |> expect.to_be_error()
+    watershed.tree_array_remove(other, [], 0, 1) |> expect.to_be_error()
+    watershed.tree_array_move(other, [], 0, 1, [], 3)
+    |> expect.to_be_error()
+    watershed.tree_array_values(tree, [])
+    |> expect.to_equal(
+      Ok([
+        types.StringValue("A"),
+        types.StringValue("B"),
+        types.StringValue("C"),
+      ]),
+    )
+    Ok(Nil)
+  })
+  |> expect.to_equal(Ok(Nil))
   watershed.tree_array_values(tree, [])
   |> expect.to_equal(
     Ok([
@@ -200,35 +297,6 @@ pub fn shared_tree_array_facade_js_transaction_test() {
       types.StringValue("C"),
     ]),
   )
-  transport_js.get_cell(submissions) |> expect.to_equal(0)
-
-  watershed.tree_transaction(tree, [], fn(tree) {
-    use _ <- result.try(watershed.tree_array_move(tree, [], 1, 2, [], 3))
-    use _ <- result.try(
-      watershed.tree_array_insert(tree, [], 1, [types.StringValue("X")]),
-    )
-    watershed.tree_array_values(tree, [])
-    |> expect.to_equal(
-      Ok([
-        types.StringValue("A"),
-        types.StringValue("X"),
-        types.StringValue("C"),
-        types.StringValue("B"),
-      ]),
-    )
-    use _ <- result.try(watershed.tree_array_remove(tree, [], 2, 3))
-    Ok("done")
-  })
-  |> expect.to_equal(Ok("done"))
-  watershed.tree_array_values(tree, [])
-  |> expect.to_equal(
-    Ok([
-      types.StringValue("A"),
-      types.StringValue("X"),
-      types.StringValue("B"),
-    ]),
-  )
-  transport_js.get_cell(submissions) |> expect.to_equal(1)
   watershed.close(document)
 }
 

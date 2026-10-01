@@ -701,7 +701,13 @@ pub fn tree_array_get(
   path: tree_types.FieldPath,
   index: Int,
 ) -> Result(Option(tree_types.TreeValue), String) {
-  runtime.tree_array_get(tree.runtime, tree.address, path, index)
+  runtime.tree_array_get_view(
+    tree.runtime,
+    tree.address,
+    tree.view,
+    path,
+    index,
+  )
 }
 
 @target(javascript)
@@ -710,7 +716,7 @@ pub fn tree_array_values(
   tree: SharedTree,
   path: tree_types.FieldPath,
 ) -> Result(List(tree_types.TreeValue), String) {
-  runtime.tree_array_values(tree.runtime, tree.address, path)
+  runtime.tree_array_values_view(tree.runtime, tree.address, tree.view, path)
 }
 
 @target(javascript)
@@ -721,9 +727,10 @@ pub fn tree_array_insert(
   index: Int,
   values: List(tree_types.TreeValue),
 ) -> Result(Nil, String) {
-  runtime.tree_edit(
+  runtime.tree_edit_view(
     tree.runtime,
     tree.address,
+    tree.view,
     tree_types.ArrayInsert(path, index, values),
   )
 }
@@ -736,9 +743,10 @@ pub fn tree_array_remove(
   start: Int,
   end: Int,
 ) -> Result(Nil, String) {
-  runtime.tree_edit(
+  runtime.tree_edit_view(
     tree.runtime,
     tree.address,
+    tree.view,
     tree_types.ArrayRemove(path, start, end),
   )
 }
@@ -753,9 +761,10 @@ pub fn tree_array_move(
   destination_path: tree_types.FieldPath,
   destination_gap: Int,
 ) -> Result(Nil, String) {
-  runtime.tree_edit(
+  runtime.tree_edit_view(
     tree.runtime,
     tree.address,
+    tree.view,
     tree_types.ArrayMove(
       source_path,
       source_start,

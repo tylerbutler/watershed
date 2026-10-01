@@ -2231,6 +2231,7 @@ pub fn replace_revisions_with_mapping(
   use refreshers <- result.try(replace_builds(change.data.refreshers, state))
   use cross_field_keys <- result.try(replace_cross_field_keys(
     change.cross_field_keys,
+    change.data.aliases,
     state,
   ))
   let data =
@@ -3560,13 +3561,19 @@ fn replaced_atom(id: AtomId, state: ReplaceState) -> Result(AtomId, TreeError) {
 
 fn replace_cross_field_keys(
   keys: List(CrossFieldKey),
+  aliases: List(#(AtomId, AtomId)),
   state: ReplaceState,
 ) -> Result(List(CrossFieldKey), TreeError) {
   list.try_map(keys, fn(entry) {
     let CrossFieldKey(key, count, field) = entry
     let moves.Key(side, revision, local_id) = key
     use key <- result.try(replaced_atom(AtomId(revision, local_id), state))
-    use parent <- result.try(case field.parent {
+    use parent_field <- result.try(normalize_parent(
+      ParentField(field.parent, field.field),
+      aliases,
+    ))
+    let ParentField(parent, _) = parent_field
+    use parent <- result.try(case parent {
       None -> Ok(None)
       Some(parent) -> replaced_atom(parent, state) |> result.map(Some)
     })

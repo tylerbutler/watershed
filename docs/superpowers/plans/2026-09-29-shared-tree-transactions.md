@@ -1158,6 +1158,35 @@ git commit -m "feat(tree): expose JS transactions"
   remains deferred to Task 7.
 - Targeted formatting and `git diff --check` passed.
 
+**Review fix evidence (2026-09-30):**
+
+- A callback that moved the JavaScript runtime to `Reconnecting` stranded its
+  active scope because commit and abort only handled `Ready`. The regression
+  covered an inner successful callback, an outer callback error, retained outer
+  savepoint state, full rollback, reconnect, and a later successful
+  transaction. Commit now aborts the current scope before returning the
+  connection-phase error. Abort unwinds the current scope and preserves the
+  core-bearing phase.
+- Array facade reads and edits used the address-only runtime functions. A
+  same-address handle with a different immutable view could read, insert,
+  remove, and move inside another handle's transaction. JavaScript and Erlang
+  array facades now use view-aware read and edit routes. The JavaScript
+  regression rejects both array reads and all three array edits.
+- The valid `[A, B, C]` -> insert `X` -> move `X` -> remove `B` transaction
+  failed while squashing revisions. Its move cross-field parent retained an
+  alias, and revision replacement tried to remap that alias after aliases were
+  removed. Cross-field parents now normalize through the existing alias table
+  before replacement. The pure regression verifies retained node identities,
+  remapped move keys and parents, exact codec re-encoding, remote replay, and
+  final `[A, C, X]`.
+- RED: the focused JavaScript run produced three failures. The offline callback
+  still exposed the inner edit, the other-view array read returned `A`, and the
+  pure sequence failed with
+  `CorruptData("revision replacement", "identity was not visited")`.
+- GREEN: the Task 6 JavaScript facade matrix passed 29 tests. Erlang array/map
+  facade parity passed 15 tests. The transaction, change, kernel, array-kernel,
+  and array-change matrix passed 199 tests on each target.
+
 ### Task 7: Expose the BEAM callback API and defer remote delivery
 
 **Files:**

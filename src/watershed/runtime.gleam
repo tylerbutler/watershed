@@ -2218,6 +2218,24 @@ pub fn tree_array_get(
 }
 
 @target(javascript)
+pub fn tree_array_get_view(
+  runtime: Runtime,
+  address: String,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+  index: Int,
+) -> Result(Option(tree_types.TreeValue), String) {
+  read(
+    runtime.cell,
+    Error("tree array read requires a ready document connection"),
+    fn(core) {
+      runtime_core.tree_array_get_view(core, address, view, path, index)
+      |> result.map_error(string.inspect)
+    },
+  )
+}
+
+@target(javascript)
 pub fn tree_array_values(
   runtime: Runtime,
   address: String,
@@ -2228,6 +2246,23 @@ pub fn tree_array_values(
     Error("tree array read requires a ready document connection"),
     fn(core) {
       runtime_core.tree_array_values(core, address, path)
+      |> result.map_error(string.inspect)
+    },
+  )
+}
+
+@target(javascript)
+pub fn tree_array_values_view(
+  runtime: Runtime,
+  address: String,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(List(tree_types.TreeValue), String) {
+  read(
+    runtime.cell,
+    Error("tree array read requires a ready document connection"),
+    fn(core) {
+      runtime_core.tree_array_values_view(core, address, view, path)
       |> result.map_error(string.inspect)
     },
   )
@@ -2390,9 +2425,27 @@ pub fn commit_tree_transaction(
       }
     Ready(_, None), Some(_) | Connecting, _ | Failed(_), _ ->
       Error("tree transaction requires a ready document connection")
-    Ready(_, Some(_)), _ | Reconnecting(_), _ ->
+    Ready(_, Some(_)), _ ->
       Error("tree transaction requires a ready document connection")
-    SuspendedPendingTree(_, reason), _ -> Error(reason)
+    Reconnecting(core), _ ->
+      case runtime_core.abort_tree_transaction(core, address) {
+        Error(error) -> Error(string.inspect(error))
+        Ok(#(core, _)) -> {
+          cell_set(cell, State(..state, phase: Reconnecting(core)))
+          Error("tree transaction requires a ready document connection")
+        }
+      }
+    SuspendedPendingTree(core, reason), _ ->
+      case runtime_core.abort_tree_transaction(core, address) {
+        Error(error) -> Error(string.inspect(error))
+        Ok(#(core, _)) -> {
+          cell_set(
+            cell,
+            State(..state, phase: SuspendedPendingTree(core, reason)),
+          )
+          Error(reason)
+        }
+      }
   }
 }
 
@@ -2423,9 +2476,27 @@ pub fn abort_tree_transaction(
       }
     Ready(_, None), Some(_) | Connecting, _ | Failed(_), _ ->
       Error("tree transaction requires a ready document connection")
-    Ready(_, Some(_)), _ | Reconnecting(_), _ ->
+    Ready(_, Some(_)), _ ->
       Error("tree transaction requires a ready document connection")
-    SuspendedPendingTree(_, reason), _ -> Error(reason)
+    Reconnecting(core), _ ->
+      case runtime_core.abort_tree_transaction(core, address) {
+        Error(error) -> Error(string.inspect(error))
+        Ok(#(core, _)) -> {
+          cell_set(cell, State(..state, phase: Reconnecting(core)))
+          Ok(Nil)
+        }
+      }
+    SuspendedPendingTree(core, reason), _ ->
+      case runtime_core.abort_tree_transaction(core, address) {
+        Error(error) -> Error(string.inspect(error))
+        Ok(#(core, _)) -> {
+          cell_set(
+            cell,
+            State(..state, phase: SuspendedPendingTree(core, reason)),
+          )
+          Ok(Nil)
+        }
+      }
   }
 }
 

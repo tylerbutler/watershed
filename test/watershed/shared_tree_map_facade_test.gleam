@@ -569,6 +569,67 @@ pub fn shared_tree_map_facade_js_transaction_rejections_test() {
 }
 
 @target(javascript)
+pub fn shared_tree_map_facade_js_transaction_offline_unwinds_scopes_test() {
+  let input = input(True)
+  let #(document, callbacks, submissions) = js_document(input)
+  callbacks.on_event(
+    "connect_document_success",
+    json.to_string(connected("reader", 0)),
+  )
+  let tree = js_tree(document, input)
+
+  let result =
+    watershed.tree_transaction(tree, [], fn(tree) {
+      watershed.tree_map_set(
+        tree,
+        [],
+        "outer",
+        types.StringValue("kept until outer abort"),
+      )
+      |> expect.to_equal(Ok(Nil))
+      let nested =
+        watershed.tree_transaction(tree, [], fn(tree) {
+          use _ <- result.try(watershed.tree_map_set(
+            tree,
+            [],
+            "inner",
+            types.StringValue("rolled back"),
+          ))
+          watershed.go_offline(document)
+          Ok("inner")
+        })
+      let assert watershed.TransactionFailed(_) = nested |> expect.to_be_error
+      watershed.tree_map_get(tree, [], "inner") |> expect.to_equal(Ok(None))
+      watershed.tree_map_get(tree, [], "outer")
+      |> expect.to_equal(Ok(Some(types.StringValue("kept until outer abort"))))
+      Error(Stop)
+    })
+  result |> expect.to_equal(Error(watershed.Aborted(Stop)))
+  watershed.tree_map_get(tree, [], "outer") |> expect.to_equal(Ok(None))
+  watershed.tree_map_get(tree, [], "inner") |> expect.to_equal(Ok(None))
+  transport_js.get_cell(submissions) |> expect.to_equal([])
+
+  callbacks.on_event(
+    "connect_document_success",
+    json.to_string(connected("reader-reconnected", 0)),
+  )
+  watershed.tree_transaction(tree, [], fn(tree) {
+    use _ <- result.try(watershed.tree_map_set(
+      tree,
+      [],
+      "later",
+      types.StringValue("usable"),
+    ))
+    Ok(Nil)
+  })
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_map_get(tree, [], "later")
+  |> expect.to_equal(Ok(Some(types.StringValue("usable"))))
+  transport_js.get_cell(submissions) |> list.length |> expect.to_equal(1)
+  watershed.close(document)
+}
+
+@target(javascript)
 pub fn shared_tree_map_facade_js_view_lifecycle_test() {
   let input = input(False)
   let #(document, callbacks, submissions) = js_document(input)
