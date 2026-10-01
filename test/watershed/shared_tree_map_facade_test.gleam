@@ -1226,6 +1226,17 @@ pub fn shared_tree_map_facade_beam_transaction_rejections_and_reconnect_test() {
             types.StringValue("rolled back"),
           ))
           callbacks.on_close("transport lost")
+          let reconnect =
+            process.receive(connections, 1000) |> expect.to_be_ok()
+          beam_transport(reconnect, submissions)
+          reconnect.on_event(
+            "connect_document_success",
+            connected("reader-reconnected", 0),
+          )
+          runtime_beam.connection_observation(watershed_beam.runtime_subject(
+            document,
+          )).phase
+          |> expect.to_equal("reconnecting")
           Ok("inner")
         })
       let assert watershed_beam.TransactionFailed(_) =
@@ -1242,13 +1253,6 @@ pub fn shared_tree_map_facade_beam_transaction_rejections_and_reconnect_test() {
   watershed_beam.tree_map_get(tree, ["items"], "inner")
   |> expect.to_equal(Ok(None))
   process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
-
-  let reconnect = process.receive(connections, 1000) |> expect.to_be_ok()
-  beam_transport(reconnect, submissions)
-  reconnect.on_event(
-    "connect_document_success",
-    connected("reader-reconnected", 0),
-  )
   watershed_beam.tree_transaction(tree, [], fn(tree) {
     use _ <- result.try(watershed_beam.tree_map_set(
       tree,

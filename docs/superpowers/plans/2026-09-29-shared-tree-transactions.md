@@ -1283,6 +1283,39 @@ git commit -m "feat(tree): expose BEAM transactions"
   tarball URLs use Microsoft package feeds that the active supply-chain policy
   rejects. Task 7 did not change dependencies, pins, formats, or lockfiles.
 
+**Reviewed-fix evidence (2026-09-30, baseline `7cbcf6a9`):**
+
+- RED: `gleam test --target erlang -- shared_tree_runtime_beam` crashed the
+  actor when a deferred sequence gap made `requestOps` return
+  `Error("gap request refused")`. Isolated abort and no-op commit reproductions
+  both reached the panic in `request_operations`.
+- RED: the controlled two-process reproduction read the owner callback's
+  uncommitted `"owner"` value from the nonowner process instead of returning
+  `Error("tree transaction uses another caller")`. Its nonowner edit also
+  entered the owner's transaction.
+- RED: `gleam test --target erlang -- shared_tree_map_facade` passed 8 tests
+  and failed the early-handshake nested transaction test because the actor
+  reported `"failed"` instead of retaining `"reconnecting"` until the callback
+  unwound.
+- GREEN: the Erlang Task 7 matrix passed 44 tests:
+  `shared_tree_runtime_beam`, `shared_tree_array_facade`,
+  `shared_tree_map_facade`, and `facade_parity`.
+- GREEN: JavaScript parity passed 29 tests:
+  `shared_tree_runtime_js`, `shared_tree_array_facade`,
+  `shared_tree_map_facade`, and `facade_parity`. The reconnect-adjacent
+  presence selection passed 17 Erlang tests.
+- Every same-address actor tree read and edit now checks the reply subject's
+  owner while a callback transaction is active. This includes view, map,
+  array, retained snapshot, compatibility, history, and schema-upgrade routes.
+  Other processes receive an explicit error; the owner can continue, and
+  ordinary access resumes after the scope ends.
+- A successful reconnect handshake received during an active callback is held
+  in actor state. The actor adopts it after the outer scope aborts, commits, or
+  is cleaned up after caller exit, preserving the core and pending state.
+- `requestOps` transport failures now return through deferred replay and use
+  the existing failed, reconnecting, or suspended transition. Abort and no-op
+  commit return a transaction failure instead of losing the actor callee.
+
 ### Task 8: Prove reconnect, summary, and native facade parity
 
 **Files:**

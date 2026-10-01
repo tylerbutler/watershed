@@ -85,6 +85,46 @@ fn connect_message() -> message.ConnectMessage {
 }
 
 @target(erlang)
+fn ready_tree_actor(push: fn(String, json.Json) -> Result(Nil, String)) {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let assert [view] = input.tree_views
+  let callbacks_subject = process.new_subject()
+  let assert Ok(actor) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(callbacks_subject, callbacks)
+      }),
+      seed: seed,
+    )
+  let assert Ok(callbacks) = process.receive(callbacks_subject, 1000)
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(push: push, close: fn() { Nil }, drop: fn() {
+      Nil
+    }),
+  )
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  #(actor, callbacks, view.view)
+}
+
+@target(erlang)
 fn membership_frame(
   sequence_number: Int,
   operation_type: String,
@@ -558,6 +598,43 @@ pub fn deferred_bad_operation_fails_transaction_abort_explicitly_test() {
 }
 
 @target(erlang)
+fn deferred_gap_request_failure(
+  finish: fn(process.Subject(runtime_beam.Msg), String) -> Result(Nil, String),
+) {
+  let #(actor, callbacks, view) =
+    ready_tree_actor(fn(event, _) {
+      case event {
+        "requestOps" -> Error("gap request refused")
+        _ -> Ok(Nil)
+      }
+    })
+  runtime_beam.begin_tree_transaction(actor, "A/_C", view, [])
+  |> expect.to_equal(Ok(Nil))
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(2, "leave", "\"other\""),
+    ]),
+  )
+  finish(actor, "A/_C")
+  |> expect.to_equal(Error("gap request refused"))
+  let observation = runtime_beam.connection_observation(actor)
+  observation.phase |> expect.to_equal("failed")
+  observation.error |> expect.to_equal(Some("gap request refused"))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn deferred_gap_request_failure_returns_from_abort_test() {
+  deferred_gap_request_failure(runtime_beam.abort_tree_transaction)
+}
+
+@target(erlang)
+pub fn deferred_gap_request_failure_returns_from_noop_commit_test() {
+  deferred_gap_request_failure(runtime_beam.commit_tree_transaction)
+}
+
+@target(erlang)
 pub fn transaction_transport_failure_is_not_reported_as_commit_test() {
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)
@@ -685,6 +762,64 @@ pub fn dead_transaction_caller_does_not_strand_actor_test() {
   |> expect.to_equal(Ok(Some(tree_types.StringValue(""))))
   runtime_beam.abort_tree_transaction(actor, "A/_C")
   |> expect.to_equal(Ok(Nil))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn active_transaction_rejects_nonowner_tree_access_test() {
+  let #(actor, _, view) = ready_tree_actor(fn(_, _) { Ok(Nil) })
+  let begun = process.new_subject()
+  let owner_results = process.new_subject()
+  let _ =
+    process.spawn_unlinked(fn() {
+      let continue = process.new_subject()
+      runtime_beam.begin_tree_transaction(actor, "A/_C", view, [])
+      |> expect.to_equal(Ok(Nil))
+      runtime_beam.tree_edit_view(
+        actor,
+        "A/_C",
+        view,
+        tree_types.SetField(["title"], tree_types.StringValue("owner")),
+      )
+      |> expect.to_equal(Ok(Nil))
+      process.send(begun, continue)
+      process.receive(continue, 1000) |> expect.to_equal(Ok(Nil))
+      let read = runtime_beam.tree_read(actor, "A/_C", ["title"])
+      let edit =
+        runtime_beam.tree_edit(
+          actor,
+          "A/_C",
+          tree_types.SetField(["title"], tree_types.StringValue("owner-two")),
+        )
+      let abort = runtime_beam.abort_tree_transaction(actor, "A/_C")
+      process.send(owner_results, #(read, edit, abort))
+    })
+  let continue = process.receive(begun, 1000) |> expect.to_be_ok()
+
+  runtime_beam.tree_read_view(actor, "A/_C", view, ["title"])
+  |> expect.to_equal(Error("tree transaction uses another caller"))
+  runtime_beam.tree_edit(
+    actor,
+    "A/_C",
+    tree_types.SetField(["title"], tree_types.StringValue("nonowner")),
+  )
+  |> expect.to_equal(Error("tree transaction uses another caller"))
+
+  process.send(continue, Nil)
+  process.receive(owner_results, 1000)
+  |> expect.to_equal(
+    Ok(#(Ok(Some(tree_types.StringValue("owner"))), Ok(Nil), Ok(Nil))),
+  )
+  runtime_beam.tree_read(actor, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue(""))))
+  runtime_beam.tree_edit(
+    actor,
+    "A/_C",
+    tree_types.SetField(["title"], tree_types.StringValue("after")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_read(actor, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("after"))))
   process.send(actor, runtime_beam.Shutdown)
 }
 

@@ -848,6 +848,7 @@ type State {
     summary_armed: Bool,
     pending_summary: Option(PendingSummary),
     active_tree_transaction: Option(ActiveTreeTransaction),
+    pending_reconnect: Option(message.ConnectedMessage),
     deferred_operations: List(List(SequencedDocumentMessage)),
     self: Subject(Msg),
   )
@@ -966,6 +967,7 @@ fn start_with_optional_seed(
         summary_armed: False,
         pending_summary: None,
         active_tree_transaction: None,
+        pending_reconnect: None,
         deferred_operations: [],
         self: self,
       )
@@ -1965,8 +1967,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     TreeCompatibility(address, view, reply) -> {
       process.send(
         reply,
-        read(
+        read_transaction_tree(
           state,
+          address,
+          reply,
           Error("tree compatibility requires a ready document connection"),
           fn(core) {
             runtime_core.tree_compatibility(core, address, view)
@@ -1979,8 +1983,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     TreeHistoryEvidence(address, reply) -> {
       process.send(
         reply,
-        read(
+        read_transaction_tree(
           state,
+          address,
+          reply,
           Error("tree history evidence requires a ready document connection"),
           fn(core) {
             runtime_core.tree_history_evidence(core, address)
@@ -2007,8 +2013,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     TreeRead(address, path, reply) -> {
       process.send(
         reply,
-        read(
+        read_transaction_tree(
           state,
+          address,
+          reply,
           Error("tree read requires a ready document connection"),
           fn(core) {
             runtime_core.tree_read(core, address, path)
@@ -2021,8 +2029,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     TreeRetainedSnapshot(address, reply) -> {
       process.send(
         reply,
-        read(
+        read_transaction_tree(
           state,
+          address,
+          reply,
           Error("tree retained snapshot requires a ready document connection"),
           fn(core) {
             runtime_core.tree_retained_snapshot(core, address)
@@ -2035,8 +2045,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     TreeMapGet(address, path, key, reply) -> {
       process.send(
         reply,
-        read(
+        read_transaction_tree(
           state,
+          address,
+          reply,
           Error("tree map read requires a ready document connection"),
           fn(core) {
             runtime_core.tree_map_get(core, address, path, key)
@@ -2049,8 +2061,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     TreeMapEntries(address, path, reply) -> {
       process.send(
         reply,
-        read(
+        read_transaction_tree(
           state,
+          address,
+          reply,
           Error("tree map read requires a ready document connection"),
           fn(core) {
             runtime_core.tree_map_entries(core, address, path)
@@ -2063,8 +2077,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     TreeArrayGet(address, path, index, reply) -> {
       process.send(
         reply,
-        read(
+        read_transaction_tree(
           state,
+          address,
+          reply,
           Error("tree array read requires a ready document connection"),
           fn(core) {
             runtime_core.tree_array_get(core, address, path, index)
@@ -2077,8 +2093,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     TreeReadView(address, view, path, reply) -> {
       process.send(
         reply,
-        read(
+        read_transaction_tree(
           state,
+          address,
+          reply,
           Error("tree read requires a ready document connection"),
           fn(core) {
             runtime_core.tree_read_view(core, address, view, path)
@@ -2091,8 +2109,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     TreeArrayValues(address, path, reply) -> {
       process.send(
         reply,
-        read(
+        read_transaction_tree(
           state,
+          address,
+          reply,
           Error("tree array read requires a ready document connection"),
           fn(core) {
             runtime_core.tree_array_values(core, address, path)
@@ -2105,8 +2125,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     TreeArrayGetView(address, view, path, index, reply) -> {
       process.send(
         reply,
-        read(
+        read_transaction_tree(
           state,
+          address,
+          reply,
           Error("tree array read requires a ready document connection"),
           fn(core) {
             runtime_core.tree_array_get_view(core, address, view, path, index)
@@ -2119,8 +2141,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     TreeArrayValuesView(address, view, path, reply) -> {
       process.send(
         reply,
-        read(
+        read_transaction_tree(
           state,
+          address,
+          reply,
           Error("tree array read requires a ready document connection"),
           fn(core) {
             runtime_core.tree_array_values_view(core, address, view, path)
@@ -2133,8 +2157,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     TreeMapGetView(address, view, path, key, reply) -> {
       process.send(
         reply,
-        read(
+        read_transaction_tree(
           state,
+          address,
+          reply,
           Error("tree map read requires a ready document connection"),
           fn(core) {
             runtime_core.tree_map_get_view(core, address, view, path, key)
@@ -2147,8 +2173,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     TreeMapEntriesView(address, view, path, reply) -> {
       process.send(
         reply,
-        read(
+        read_transaction_tree(
           state,
+          address,
+          reply,
           Error("tree map read requires a ready document connection"),
           fn(core) {
             runtime_core.tree_map_entries_view(core, address, view, path)
@@ -2159,90 +2187,114 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       actor.continue(state)
     }
     TreeEdit(address, operation, reply) ->
-      case state.phase {
-        Ready(core, None) ->
-          case runtime_core.submit_tree_edits(core, address, [operation]) {
-            Error(error) -> {
-              process.send(reply, Error(string.inspect(error)))
+      case transaction_tree_access(state, address, reply) {
+        Error(error) -> {
+          process.send(reply, Error(error))
+          actor.continue(state)
+        }
+        Ok(Nil) ->
+          case state.phase {
+            Ready(core, None) ->
+              case runtime_core.submit_tree_edits(core, address, [operation]) {
+                Error(error) -> {
+                  process.send(reply, Error(string.inspect(error)))
+                  actor.continue(state)
+                }
+                Ok(#(core, events, outbound)) -> {
+                  let #(next, outcome) =
+                    send_or_suspend(
+                      State(..state, phase: Ready(core, None)),
+                      core,
+                      send_outbound_checked(
+                        state.channel,
+                        core.client_id,
+                        outbound,
+                      ),
+                    )
+                  process.send(reply, case next.phase {
+                    Reconnecting(_) -> Ok(Nil)
+                    _ -> outcome
+                  })
+                  fan_out(state.subscribers, events)
+                  actor.continue(next)
+                }
+              }
+            Ready(_, Some(_)) | Reconnecting(_) -> {
+              process.send(
+                reply,
+                Error("tree edit requires a ready document connection"),
+              )
               actor.continue(state)
             }
-            Ok(#(core, events, outbound)) -> {
-              let #(next, outcome) =
-                send_or_suspend(
-                  State(..state, phase: Ready(core, None)),
-                  core,
-                  send_outbound_checked(state.channel, core.client_id, outbound),
-                )
-              process.send(reply, case next.phase {
-                Reconnecting(_) -> Ok(Nil)
-                _ -> outcome
-              })
-              fan_out(state.subscribers, events)
-              actor.continue(next)
+            SuspendedPendingTree(_, reason) -> {
+              process.send(reply, Error(reason))
+              actor.continue(state)
+            }
+            Connecting(_) | Failed(_) -> {
+              process.send(
+                reply,
+                Error("tree edit requires a ready document connection"),
+              )
+              actor.continue(state)
             }
           }
-        Ready(_, Some(_)) | Reconnecting(_) -> {
-          process.send(
-            reply,
-            Error("tree edit requires a ready document connection"),
-          )
-          actor.continue(state)
-        }
-        SuspendedPendingTree(_, reason) -> {
-          process.send(reply, Error(reason))
-          actor.continue(state)
-        }
-        Connecting(_) | Failed(_) -> {
-          process.send(
-            reply,
-            Error("tree edit requires a ready document connection"),
-          )
-          actor.continue(state)
-        }
       }
     TreeEditView(address, view, operation, reply) ->
-      case state.phase {
-        Ready(core, None) ->
-          case
-            runtime_core.submit_tree_edits_view(core, address, view, [operation])
-          {
-            Error(error) -> {
-              process.send(reply, Error(string.inspect(error)))
+      case transaction_tree_access(state, address, reply) {
+        Error(error) -> {
+          process.send(reply, Error(error))
+          actor.continue(state)
+        }
+        Ok(Nil) ->
+          case state.phase {
+            Ready(core, None) ->
+              case
+                runtime_core.submit_tree_edits_view(core, address, view, [
+                  operation,
+                ])
+              {
+                Error(error) -> {
+                  process.send(reply, Error(string.inspect(error)))
+                  actor.continue(state)
+                }
+                Ok(#(core, events, outbound)) -> {
+                  let #(next, outcome) =
+                    send_or_suspend(
+                      State(..state, phase: Ready(core, None)),
+                      core,
+                      send_outbound_checked(
+                        state.channel,
+                        core.client_id,
+                        outbound,
+                      ),
+                    )
+                  process.send(reply, case next.phase {
+                    Reconnecting(_) -> Ok(Nil)
+                    _ -> outcome
+                  })
+                  fan_out(state.subscribers, events)
+                  actor.continue(next)
+                }
+              }
+            Ready(_, Some(_)) | Reconnecting(_) -> {
+              process.send(
+                reply,
+                Error("tree edit requires a ready document connection"),
+              )
               actor.continue(state)
             }
-            Ok(#(core, events, outbound)) -> {
-              let #(next, outcome) =
-                send_or_suspend(
-                  State(..state, phase: Ready(core, None)),
-                  core,
-                  send_outbound_checked(state.channel, core.client_id, outbound),
-                )
-              process.send(reply, case next.phase {
-                Reconnecting(_) -> Ok(Nil)
-                _ -> outcome
-              })
-              fan_out(state.subscribers, events)
-              actor.continue(next)
+            SuspendedPendingTree(_, reason) -> {
+              process.send(reply, Error(reason))
+              actor.continue(state)
+            }
+            Connecting(_) | Failed(_) -> {
+              process.send(
+                reply,
+                Error("tree edit requires a ready document connection"),
+              )
+              actor.continue(state)
             }
           }
-        Ready(_, Some(_)) | Reconnecting(_) -> {
-          process.send(
-            reply,
-            Error("tree edit requires a ready document connection"),
-          )
-          actor.continue(state)
-        }
-        SuspendedPendingTree(_, reason) -> {
-          process.send(reply, Error(reason))
-          actor.continue(state)
-        }
-        Connecting(_) | Failed(_) -> {
-          process.send(
-            reply,
-            Error("tree edit requires a ready document connection"),
-          )
-          actor.continue(state)
-        }
       }
     TreeTransactionBegin(address, view, constraints, reply) ->
       handle_tree_transaction_begin(state, address, view, constraints, reply)
@@ -2253,46 +2305,57 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     TreeTransactionCallerDown(down) ->
       handle_tree_transaction_caller_down(state, down)
     TreeUpgradeSchema(address, view, reply) ->
-      case state.phase {
-        Ready(core, None) ->
-          case runtime_core.submit_tree_upgrade(core, address, view) {
-            Error(error) -> {
-              process.send(reply, Error(string.inspect(error)))
+      case transaction_tree_access(state, address, reply) {
+        Error(error) -> {
+          process.send(reply, Error(error))
+          actor.continue(state)
+        }
+        Ok(Nil) ->
+          case state.phase {
+            Ready(core, None) ->
+              case runtime_core.submit_tree_upgrade(core, address, view) {
+                Error(error) -> {
+                  process.send(reply, Error(string.inspect(error)))
+                  actor.continue(state)
+                }
+                Ok(#(core, events, outbound)) -> {
+                  let #(next, outcome) =
+                    send_or_suspend(
+                      State(..state, phase: Ready(core, None)),
+                      core,
+                      send_outbound_checked(
+                        state.channel,
+                        core.client_id,
+                        outbound,
+                      ),
+                    )
+                  process.send(reply, case next.phase {
+                    Reconnecting(_) -> Ok(Nil)
+                    _ -> outcome
+                  })
+                  fan_out(state.subscribers, events)
+                  actor.continue(next)
+                }
+              }
+            Ready(_, Some(_)) | Reconnecting(_) -> {
+              process.send(
+                reply,
+                Error("tree upgrade requires a ready document connection"),
+              )
               actor.continue(state)
             }
-            Ok(#(core, events, outbound)) -> {
-              let #(next, outcome) =
-                send_or_suspend(
-                  State(..state, phase: Ready(core, None)),
-                  core,
-                  send_outbound_checked(state.channel, core.client_id, outbound),
-                )
-              process.send(reply, case next.phase {
-                Reconnecting(_) -> Ok(Nil)
-                _ -> outcome
-              })
-              fan_out(state.subscribers, events)
-              actor.continue(next)
+            SuspendedPendingTree(_, reason) -> {
+              process.send(reply, Error(reason))
+              actor.continue(state)
+            }
+            Connecting(_) | Failed(_) -> {
+              process.send(
+                reply,
+                Error("tree upgrade requires a ready document connection"),
+              )
+              actor.continue(state)
             }
           }
-        Ready(_, Some(_)) | Reconnecting(_) -> {
-          process.send(
-            reply,
-            Error("tree upgrade requires a ready document connection"),
-          )
-          actor.continue(state)
-        }
-        SuspendedPendingTree(_, reason) -> {
-          process.send(reply, Error(reason))
-          actor.continue(state)
-        }
-        Connecting(_) | Failed(_) -> {
-          process.send(
-            reply,
-            Error("tree upgrade requires a ready document connection"),
-          )
-          actor.continue(state)
-        }
       }
     Put(address, key, value) ->
       edit(state, fn(core) { runtime_core.set(core, address, key, value) })
@@ -3268,7 +3331,7 @@ fn handle_tree_transaction_commit(
               Error("tree transaction requires a ready document connection")
             Error(error) -> Error(error)
           })
-          actor.continue(state)
+          continue_after_tree_transaction(state)
         }
         Reconnecting(core) -> {
           let #(state, outcome) =
@@ -3278,7 +3341,7 @@ fn handle_tree_transaction_commit(
               Error("tree transaction requires a ready document connection")
             Error(error) -> Error(error)
           })
-          actor.continue(state)
+          continue_after_tree_transaction(state)
         }
         SuspendedPendingTree(core, reason) -> {
           let #(state, outcome) =
@@ -3334,7 +3397,7 @@ fn handle_tree_transaction_abort(
           let #(state, outcome) =
             abort_tree_transaction_in_phase(state, core, address)
           process.send(reply, outcome)
-          actor.continue(state)
+          continue_after_tree_transaction(state)
         }
         Connecting(_) | Failed(_) -> {
           process.send(
@@ -3380,7 +3443,7 @@ fn handle_tree_transaction_caller_down(
                 | Connecting(_)
                 | Failed(_) -> #(discard_deferred_operations(state), Ok(Nil))
               }
-              actor.continue(state)
+              continue_after_tree_transaction(state)
             }
           }
       }
@@ -3402,6 +3465,18 @@ fn transaction_caller(
     Some(active) if active.caller != caller ->
       Error("tree transaction uses another caller")
     Some(_) | None -> Ok(caller)
+  }
+}
+
+@target(erlang)
+fn continue_after_tree_transaction(state: State) -> actor.Next(State, Msg) {
+  case state.pending_reconnect, state.phase {
+    Some(connected), Reconnecting(core) ->
+      case runtime_core.tree_transaction_depth(core) {
+        0 -> adopt_reconnect_connection(state, core, connected)
+        _ -> actor.continue(state)
+      }
+    _, _ -> actor.continue(state)
   }
 }
 
@@ -3640,54 +3715,10 @@ fn handle_inbound(
           }
         }
         Reconnecting(core) -> {
-          case runtime_core.adopt_reconnect(core, connected) {
-            Error(error) ->
-              actor.continue(fail(
-                state,
-                "reconnect failed: " <> string.inspect(error),
-              ))
-            Ok(core) -> {
-              let checkpoint =
-                option.unwrap(
-                  connected.checkpoint_sequence_number,
-                  core.last_seen_sequence_number,
-                )
-              case runtime_core.reconnect_barrier_active(core) {
-                True -> {
-                  let _ =
-                    process.send_after(
-                      state.self,
-                      connect_timeout_milliseconds,
-                      ReconnectTimedOut(core.client_id),
-                    )
-                  Nil
-                }
-                False -> Nil
-              }
-              // Ask for the gap. Nothing else will: no server pushes it unprompted,
-              // and the reactive `requestOps` in the `"op"` handler below needs an
-              // operation to react to. See `runtime_core.catch_up_from`.
-              let generation = state.generation
-              let state =
-                request_operations(
-                  State(..state, phase: Reconnecting(core)),
-                  core,
-                  runtime_core.catch_up_from(core, checkpoint),
-                )
-              // Presence is unsequenced, so it does not wait for the operation
-              // catch-up `settle_reconnect` may still be pending — rejoining now is
-              // both correct and the fastest way back to a roster.
-              case state.phase {
-                Reconnecting(current)
-                  if current.client_id == core.client_id
-                  && state.generation == generation
-                -> {
-                  notify_presence_session(state, core)
-                  settle_reconnect(state, core, checkpoint)
-                }
-                _ -> actor.continue(state)
-              }
-            }
+          case runtime_core.tree_transaction_depth(core) > 0 {
+            True ->
+              actor.continue(State(..state, pending_reconnect: Some(connected)))
+            False -> adopt_reconnect_connection(state, core, connected)
           }
         }
         // A late duplicate success; nothing to do.
@@ -3802,6 +3833,64 @@ fn handle_inbound(
 }
 
 @target(erlang)
+fn adopt_reconnect_connection(
+  state: State,
+  previous: runtime_core.Core,
+  connected: message.ConnectedMessage,
+) -> actor.Next(State, Msg) {
+  let state = State(..state, pending_reconnect: None)
+  case runtime_core.adopt_reconnect(previous, connected) {
+    Error(error) ->
+      actor.continue(fail(state, "reconnect failed: " <> string.inspect(error)))
+    Ok(core) -> {
+      let checkpoint =
+        option.unwrap(
+          connected.checkpoint_sequence_number,
+          core.last_seen_sequence_number,
+        )
+      case runtime_core.reconnect_barrier_active(core) {
+        True -> {
+          let _ =
+            process.send_after(
+              state.self,
+              connect_timeout_milliseconds,
+              ReconnectTimedOut(core.client_id),
+            )
+          Nil
+        }
+        False -> Nil
+      }
+      // Ask for the gap. Nothing else will: no server pushes it unprompted,
+      // and the reactive `requestOps` in the `"op"` handler below needs an
+      // operation to react to. See `runtime_core.catch_up_from`.
+      let generation = state.generation
+      let #(state, request_outcome) =
+        request_operations(
+          State(..state, phase: Reconnecting(core)),
+          runtime_core.catch_up_from(core, checkpoint),
+        )
+      case request_outcome {
+        Error(_) -> actor.continue(state)
+        Ok(Nil) ->
+          // Presence is unsequenced, so it does not wait for the operation
+          // catch-up `settle_reconnect` may still be pending. Rejoining now is
+          // both correct and the fastest way back to a roster.
+          case state.phase {
+            Reconnecting(current)
+              if current.client_id == core.client_id
+              && state.generation == generation
+            -> {
+              notify_presence_session(state, core)
+              settle_reconnect(state, core, checkpoint)
+            }
+            _ -> actor.continue(state)
+          }
+      }
+    }
+  }
+}
+
+@target(erlang)
 fn drain_deferred_operations(state: State) -> #(State, Result(Nil, String)) {
   do_drain_deferred_operations(
     State(..state, deferred_operations: []),
@@ -3846,42 +3935,47 @@ fn handle_operation_delivery(
           let state = resolve_acquire_waiters(state, resolutions)
           let state = apply_summary_events(state, summary_events)
           fan_out(state.subscribers, events)
-          let state =
+          let #(state, request_outcome) =
             request_operations(
               State(..state, phase: Ready(core, resubmit_at)),
-              core,
               request_from,
             )
-          case state.phase, resubmit_at {
-            SuspendedPendingTree(_, _), _ -> #(
-              state,
-              Error("sequenced operation requested unavailable history"),
-            )
-            Reconnecting(_), _ -> #(
-              state,
-              Error("sequenced operation transport failed"),
-            )
-            // Mid-reconnect: the operations a kernel just released are already
-            // in the in-flight queue, and `settle_reconnect` is about to
-            // restamp that whole queue with fresh client sequence numbers and
-            // send it. Sending them here as well would put two copies of each
-            // on the wire — the server sequences both, the client only expects
-            // the restamped one, and the stale ack fails the FIFO match. Every
-            // other submit path already gates on `resubmit_at`; this one is the
-            // only route by which an operation reaches the wire without the
-            // application asking, which is why only the consensus kernels
-            // (whose `Accept`s are released, not submitted) could trip it.
-            _, Some(checkpoint) -> {
-              let state = settle_reconnect_state(state, core, checkpoint)
-              #(state, Ok(Nil))
-            }
-            _, None -> {
-              let #(state, outcome) = send_ready(state, core, None, released)
+          case request_outcome {
+            Error(reason) ->
               case state.phase {
-                Ready(_, _) -> #(arm_summary(state, core), outcome)
-                _ -> #(state, outcome)
+                SuspendedPendingTree(_, _) -> #(
+                  state,
+                  Error("sequenced operation requested unavailable history"),
+                )
+                Reconnecting(_) -> #(
+                  state,
+                  Error("sequenced operation transport failed"),
+                )
+                Connecting(_) | Ready(_, _) | Failed(_) -> #(
+                  state,
+                  Error(reason),
+                )
               }
-            }
+            Ok(Nil) ->
+              case state.phase, resubmit_at {
+                // Mid-reconnect: the operations a kernel just released are
+                // already in the in-flight queue, and `settle_reconnect` is
+                // about to restamp that whole queue with fresh client sequence
+                // numbers and send it. Sending them here as well would put two
+                // copies of each on the wire.
+                _, Some(checkpoint) -> {
+                  let state = settle_reconnect_state(state, core, checkpoint)
+                  #(state, Ok(Nil))
+                }
+                _, None -> {
+                  let #(state, outcome) =
+                    send_ready(state, core, None, released)
+                  case state.phase {
+                    Ready(_, _) -> #(arm_summary(state, core), outcome)
+                    _ -> #(state, outcome)
+                  }
+                }
+              }
           }
         }
       }
@@ -4695,6 +4789,39 @@ fn read(state: State, default: t, extract: fn(runtime_core.Core) -> t) -> t {
   }
 }
 
+@target(erlang)
+fn read_transaction_tree(
+  state: State,
+  address: String,
+  reply: Subject(Result(a, String)),
+  default: Result(a, String),
+  extract: fn(runtime_core.Core) -> Result(a, String),
+) -> Result(a, String) {
+  use _ <- result.try(transaction_tree_access(state, address, reply))
+  read(state, default, extract)
+}
+
+@target(erlang)
+fn transaction_tree_access(
+  state: State,
+  address: String,
+  reply: Subject(a),
+) -> Result(Nil, String) {
+  case state.active_tree_transaction {
+    Some(active) if active.address == address -> {
+      use caller <- result.try(
+        process.subject_owner(reply)
+        |> result.map_error(fn(_) { "tree transaction caller is unavailable" }),
+      )
+      case caller == active.caller {
+        True -> Ok(Nil)
+        False -> Error("tree transaction uses another caller")
+      }
+    }
+    Some(_) | None -> Ok(Nil)
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Reconnect helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4717,6 +4844,7 @@ fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
     channel: None,
     phase: Reconnecting(core),
     generation:,
+    pending_reconnect: None,
     deferred_operations: [],
   )
 }
@@ -4751,6 +4879,7 @@ fn connection_failed(state: State, reason: String) -> State {
                 generation: generation,
                 reconnect_failures: failures,
                 reconnect_error: Some(reason),
+                pending_reconnect: None,
                 deferred_operations: [],
               )
             }
@@ -4780,6 +4909,7 @@ fn suspend_or_fail(state: State, reason: String) -> State {
             channel: None,
             phase: SuspendedPendingTree(core, reason),
             reconnect_error: Some(reason),
+            pending_reconnect: None,
             deferred_operations: [],
           )
         }
@@ -4808,6 +4938,7 @@ fn reconnect_after_nack(state: State, core: runtime_core.Core) -> State {
     channel: None,
     phase: Reconnecting(core),
     generation:,
+    pending_reconnect: None,
     deferred_operations: [],
   )
 }
@@ -4824,22 +4955,17 @@ fn nack_is_fatal(item: Nack) -> Bool {
 @target(erlang)
 fn request_operations(
   state: State,
-  core: runtime_core.Core,
   request_from: Option(Int),
-) -> State {
+) -> #(State, Result(Nil, String)) {
   case state.channel, request_from {
     Some(channel), Some(from) ->
       case
         channel.push("requestOps", socket.encode_request_operations(from: from))
       {
-        Ok(Nil) -> state
-        Error(reason) ->
-          case runtime_core.has_pending_tree(core) {
-            True -> connection_failed(state, reason)
-            False -> panic as reason
-          }
+        Ok(Nil) -> #(state, Ok(Nil))
+        Error(reason) -> #(connection_failed(state, reason), Error(reason))
       }
-    _, _ -> state
+    _, _ -> #(state, Ok(Nil))
   }
 }
 
@@ -5266,7 +5392,12 @@ fn fail(state: State, reason: String) -> State {
   let state = release_tree_transaction_caller(state)
   notify_waiters(state.phase, Error(reason))
   notify_session_lost(state)
-  State(..state, phase: Failed(reason), deferred_operations: [])
+  State(
+    ..state,
+    phase: Failed(reason),
+    pending_reconnect: None,
+    deferred_operations: [],
+  )
 }
 
 @target(erlang)
