@@ -619,6 +619,29 @@ fn set_constraint_states(
   updated
 }
 
+fn set_first_constraint_state(
+  nodes: List(#(types.AtomId, change.NodeChange)),
+  violated: Bool,
+) -> List(#(types.AtomId, change.NodeChange)) {
+  case nodes {
+    [] -> []
+    [entry, ..rest] ->
+      case entry.1.node_exists_constraint {
+        None -> [entry, ..set_first_constraint_state(rest, violated)]
+        Some(_) -> [
+          #(
+            entry.0,
+            change.NodeChange(
+              ..entry.1,
+              node_exists_constraint: Some(change.NodeExistsConstraint(violated)),
+            ),
+          ),
+          ..rest
+        ]
+      }
+  }
+}
+
 pub fn shared_tree_array_constraint_rebase_preserves_attached_identity_test() {
   let initial = constraint_array_forest()
   let transaction = authored_constraint_edit(initial, ["left", "0"])
@@ -685,6 +708,102 @@ pub fn shared_tree_array_constraint_rebase_uses_transaction_input_attachment_tes
     constraint_states(rebased) |> expect.to_equal([False])
     change.to_data(rebased).constraint_violation_count |> expect.to_equal(0)
   })
+}
+
+pub fn shared_tree_array_compose_then_rebase_keeps_historical_violation_inactive_test() {
+  let initial = constraint_array_forest()
+  let violated =
+    authored_constraint_edit(initial, ["left", "0"])
+    |> set_constraint_states(Some(True), None)
+  let sibling =
+    authored_base_edit(
+      initial,
+      revision_b(),
+      types.SetField(["left", "1", "x"], types.NumberValue(8.0)),
+    )
+  let assert Ok(composed) =
+    change.compose([
+      change.TaggedChange(Some(revision()), None, violated),
+      change.TaggedChange(Some(revision_b()), None, sibling),
+    ])
+  constraint_states(composed) |> expect.to_equal([True])
+  change.to_data(composed).constraint_violation_count |> expect.to_equal(0)
+
+  let unrelated =
+    authored_base_edit(
+      initial,
+      revision_c(),
+      types.SetField(["right", "0", "x"], types.NumberValue(4.0)),
+    )
+  let assert Ok(context) =
+    change.rebase_context(list.append(
+      change.to_data(composed).revisions,
+      change.to_data(unrelated).revisions,
+    ))
+  let assert Ok(rebased) =
+    change.rebase(
+      change.TaggedChange(None, None, composed),
+      change.TaggedChange(Some(revision_c()), None, unrelated),
+      context,
+    )
+  constraint_states(rebased) |> expect.to_equal([False])
+  change.to_data(rebased).constraint_violation_count |> expect.to_equal(0)
+
+  let after_base = apply_tagged(initial, revision_c(), unrelated)
+  let updated = apply_tagged(after_base, revision_b(), rebased)
+  let assert Ok(left) = forest.array_values(updated, ["left"])
+  left
+  |> expect.to_equal([
+    types.ObjectValue(point_type, [
+      #("label", types.StringValue("constrained")),
+      #("x", types.NumberValue(1.0)),
+    ]),
+    types.ObjectValue(point_type, [
+      #("label", types.StringValue("sibling")),
+      #("x", types.NumberValue(8.0)),
+    ]),
+  ])
+}
+
+pub fn shared_tree_array_rebase_counts_only_fresh_constraint_transition_test() {
+  let initial = constraint_array_forest()
+  let assert Ok(first) = change.resolve_constraint(initial, ["left", "0"])
+  let assert Ok(second) = change.resolve_constraint(initial, ["left", "1"])
+  let transaction =
+    authored_base_edit(
+      initial,
+      revision(),
+      types.SetField(["left", "1", "x"], types.NumberValue(8.0)),
+    )
+  let assert Ok(transaction) =
+    change.add_node_exists_constraints(transaction, initial, [second, first])
+  let data = change.to_data(transaction)
+  let assert Ok(transaction) =
+    change.from_data(
+      change.ChangeData(
+        ..data,
+        nodes: set_first_constraint_state(data.nodes, True),
+        constraint_violation_count: 0,
+      ),
+      constraint_identity_order(),
+    )
+  constraint_states(transaction) |> expect.to_equal([True, False])
+
+  let removed =
+    authored_base_edit(initial, revision_c(), types.ArrayRemove(["left"], 0, 2))
+  let assert Ok(context) =
+    change.rebase_context(list.append(
+      change.to_data(transaction).revisions,
+      change.to_data(removed).revisions,
+    ))
+  let assert Ok(rebased) =
+    change.rebase(
+      change.TaggedChange(Some(revision()), None, transaction),
+      change.TaggedChange(Some(revision_c()), None, removed),
+      context,
+    )
+  constraint_states(rebased) |> expect.to_equal([True, True])
+  change.to_data(rebased).constraint_violation_count |> expect.to_equal(1)
 }
 
 pub fn shared_tree_array_invert_violated_insert_and_remove_is_effect_free_test() {

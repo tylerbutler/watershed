@@ -167,6 +167,10 @@ type PruneState {
   )
 }
 
+type ConstraintState {
+  ConstraintState(nodes: List(#(AtomId, NodeChange)), violation_count: Int)
+}
+
 type RebaseState {
   RebaseState(
     nodes: List(#(AtomId, NodeChange)),
@@ -1942,16 +1946,11 @@ pub fn compose_with_trace(
     max_local_id,
   ))
   let cross_field_keys = composed.cross_field_keys
-  let constraint_violation_count = case changes {
-    [_] -> constraint_violation_count(composed.data.nodes)
-    _ -> composed.data.constraint_violation_count
-  }
   use composed <- result.try(from_data(
     ChangeData(
       ..composed.data,
       max_local_id: max_local_id,
       revisions: revisions,
-      constraint_violation_count: constraint_violation_count,
     ),
     composed.identity_order,
   ))
@@ -2177,7 +2176,13 @@ pub fn invert_with_trace(
   )
   let fields = replace_field_results(fields, None, state.field_results)
   let nodes = replace_node_field_results(nodes, state.field_results)
-  use nodes <- result.try(update_constraint_nodes(fields, nodes, data.aliases))
+  use constraint_state <- result.try(update_constraint_nodes(
+    fields,
+    nodes,
+    data.aliases,
+    0,
+  ))
+  let nodes = constraint_state.nodes
   use parents <- result.try(rebuild_parents(fields, nodes, data.aliases))
   let destroys = case is_rollback {
     True ->
@@ -2206,7 +2211,7 @@ pub fn invert_with_trace(
       destroys: destroys,
       refreshers: [],
       cross_field_keys: [],
-      constraint_violation_count: constraint_violation_count(nodes),
+      constraint_violation_count: int_max(0, constraint_state.violation_count),
     )
   use cross_field_keys <- result.try(sorted_derived_cross_field_keys(
     inverted_data,
@@ -2275,7 +2280,13 @@ pub fn rebase_with_trace(
   use state <- result.try(rebase_invalidated(state, []))
   let fields = replace_field_results(fields, None, state.field_results)
   let nodes = replace_node_field_results(state.nodes, state.field_results)
-  use nodes <- result.try(update_constraint_nodes(fields, nodes, state.aliases))
+  use constraint_state <- result.try(update_constraint_nodes(
+    fields,
+    nodes,
+    state.aliases,
+    authored.constraint_violation_count,
+  ))
+  let nodes = constraint_state.nodes
   use parents <- result.try(rebuild_parents(fields, nodes, state.aliases))
   use parents <- result.try(apply_rebase_notifications(
     parents,
@@ -2301,7 +2312,7 @@ pub fn rebase_with_trace(
       destroys: authored.destroys,
       refreshers: authored.refreshers,
       cross_field_keys: cross_field_keys,
-      constraint_violation_count: constraint_violation_count(nodes),
+      constraint_violation_count: int_max(0, constraint_state.violation_count),
     )
   use rebased <- result.try(from_data(data, identity_order))
   use rebased <- result.try(prune(rebased))
@@ -2683,44 +2694,49 @@ fn update_constraint_nodes(
   fields: List(#(String, FieldChange)),
   nodes: List(#(AtomId, NodeChange)),
   aliases: List(#(AtomId, AtomId)),
-) -> Result(List(#(AtomId, NodeChange)), TreeError) {
-  list.try_fold(fields, nodes, fn(nodes, entry) {
-    update_field_constraint_nodes(entry.1, False, nodes, aliases)
-  })
+  violation_count: Int,
+) -> Result(ConstraintState, TreeError) {
+  list.try_fold(
+    fields,
+    ConstraintState(nodes, violation_count),
+    fn(state, entry) {
+      update_field_constraint_nodes(entry.1, False, state, aliases)
+    },
+  )
 }
 
 fn update_field_constraint_nodes(
   field: FieldChange,
   parent_detached: Bool,
-  nodes: List(#(AtomId, NodeChange)),
+  state: ConstraintState,
   aliases: List(#(AtomId, AtomId)),
-) -> Result(List(#(AtomId, NodeChange)), TreeError) {
+) -> Result(ConstraintState, TreeError) {
   case field {
     GenericField(children) ->
-      list.try_fold(children, nodes, fn(nodes, child) {
-        update_constraint_node(child.1, parent_detached, nodes, aliases)
+      list.try_fold(children, state, fn(state, child) {
+        update_constraint_node(child.1, parent_detached, state, aliases)
       })
     SequenceField(change) ->
-      list.try_fold(sequence_field.to_marks(change), nodes, fn(nodes, mark) {
+      list.try_fold(sequence_field.to_marks(change), state, fn(state, mark) {
         case mark.child {
-          None -> Ok(nodes)
+          None -> Ok(state)
           Some(child) ->
             update_constraint_node(
               child,
               parent_detached || sequence_child_is_detached(mark),
-              nodes,
+              state,
               aliases,
             )
         }
       })
     ValueField(optional_field.FieldChange(_, children, _))
     | OptionalField(optional_field.FieldChange(_, children, _)) ->
-      list.try_fold(children, nodes, fn(nodes, child) {
+      list.try_fold(children, state, fn(state, child) {
         let detached = case child.0 {
           optional_field.Active -> parent_detached
           optional_field.Detached(_) -> True
         }
-        update_constraint_node(child.1, detached, nodes, aliases)
+        update_constraint_node(child.1, detached, state, aliases)
       })
   }
 }
@@ -2797,22 +2813,33 @@ fn mute_field(field: FieldChange) -> Result(FieldChange, TreeError) {
 fn update_constraint_node(
   id: AtomId,
   detached: Bool,
-  nodes: List(#(AtomId, NodeChange)),
+  state: ConstraintState,
   aliases: List(#(AtomId, AtomId)),
-) -> Result(List(#(AtomId, NodeChange)), TreeError) {
+) -> Result(ConstraintState, TreeError) {
   use canonical <- result.try(resolve_alias(id, aliases))
-  use node <- result.try(node_for(canonical, nodes))
-  let constraint = case node.node_exists_constraint {
-    None -> None
-    Some(_) -> Some(NodeExistsConstraint(detached))
+  use node <- result.try(node_for(canonical, state.nodes))
+  let #(constraint, violation_count) = case node.node_exists_constraint {
+    None -> #(None, state.violation_count)
+    Some(NodeExistsConstraint(was_violated)) -> #(
+      Some(NodeExistsConstraint(detached)),
+      case was_violated, detached {
+        False, True -> state.violation_count + 1
+        True, False -> state.violation_count - 1
+        _, _ -> state.violation_count
+      },
+    )
   }
   let node = NodeChange(..node, node_exists_constraint: constraint)
-  use nodes <- result.try(
-    list.try_fold(node.fields, nodes, fn(nodes, entry) {
-      update_field_constraint_nodes(entry.1, detached, nodes, aliases)
-    }),
+  use state <- result.try(
+    list.try_fold(
+      node.fields,
+      ConstraintState(..state, violation_count:),
+      fn(state, entry) {
+        update_field_constraint_nodes(entry.1, detached, state, aliases)
+      },
+    ),
   )
-  Ok(put_pair(nodes, canonical, node))
+  Ok(ConstraintState(..state, nodes: put_pair(state.nodes, canonical, node)))
 }
 
 fn invert_field_map(

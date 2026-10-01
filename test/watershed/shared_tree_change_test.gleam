@@ -328,6 +328,14 @@ pub fn shared_tree_change_compose_keeps_valid_edit_after_violation_test() {
     ),
   )
 
+  let assert Ok(modular_singleton) =
+    change.compose([change.TaggedChange(None, None, composed)])
+  change.to_data(modular_singleton).constraint_violation_count
+  |> expect.to_equal(0)
+  constrained_nodes(modular_singleton)
+  |> list.map(fn(node) { node.node_exists_constraint })
+  |> expect.to_equal([Some(change.NodeExistsConstraint(True))])
+
   let assert Ok(untagged_singleton) =
     shared_change.compose([
       shared_change.TaggedChange(None, None, shared_change.from_data(composed)),
@@ -365,7 +373,7 @@ pub fn shared_tree_change_compose_keeps_valid_edit_after_violation_test() {
   |> expect.to_equal(forest.visible_root(sequential))
 }
 
-pub fn shared_tree_change_compose_recomputes_constraint_violations_test() {
+pub fn shared_tree_change_compose_singleton_preserves_constraint_accounting_test() {
   let visible = initial_forest()
   let assert Ok(root_target) = change.resolve_constraint(visible, [])
   let assert Ok(point_target) = change.resolve_constraint(visible, ["point"])
@@ -395,7 +403,7 @@ pub fn shared_tree_change_compose_recomputes_constraint_violations_test() {
   let assert Ok(composed) =
     change.compose([change.TaggedChange(None, None, constrained)])
   constrained_nodes(composed) |> list.length |> expect.to_equal(2)
-  change.to_data(composed).constraint_violation_count |> expect.to_equal(2)
+  change.to_data(composed).constraint_violation_count |> expect.to_equal(0)
 }
 
 pub fn shared_tree_change_invert_exchanges_constraint_kinds_test() {
