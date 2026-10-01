@@ -61,6 +61,22 @@ redo, `noChange`, revert constraints, schema upgrades in transactions,
 asynchronous transactions, custom metadata, post-processors, and cross-tree
 atomicity remain deferred.
 
+### Identifier prerequisite for Task 8
+
+Tasks 2–7 are implemented through `afc32c65`. Task 8 remains blocked on
+Identifier-field support: the pinned transaction oracle uses `sf.identifier`,
+while the native schema and FieldBatch codecs exclude that field kind and its
+compressed value representation.
+
+Execute the [Identifier support plan](2026-10-01-shared-tree-identifiers.md)
+before resuming Task 8. Keep the oracle's Identifier fields and complete
+builds, refreshers, and summaries. Do not substitute ordinary string fields
+or strip content to make parity pass. Identifier values use ordinary string
+leaves; they do not require a new `TreeValue` node kind.
+
+The Identifier plan does not close transaction Tasks 8–11 or M5 undo/redo.
+Resume the unchecked tasks here after its acceptance gates pass.
+
 ### Current constraints to remove
 
 | Source at planning time | Required change |
