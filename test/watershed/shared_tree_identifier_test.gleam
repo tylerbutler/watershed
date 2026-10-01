@@ -132,6 +132,57 @@ pub fn identifier_transaction_runner_honors_commit_test() {
   |> expect.to_not_equal(identifier_fixture.run(input))
 }
 
+pub fn identifier_transaction_defaults_to_commit_and_executes_tail_test() {
+  let input = identifier_scenario("identifier-persistence", "nested-abort")
+  let changed =
+    input
+    |> update_scenario_actions("nested-abort", fn(actions) {
+      list.map(actions, fn(action) {
+        let assert VObject(fields) = action
+        let assert Ok(VArray(nested)) = list.key_find(fields, "actions")
+        VObject(list.key_set(
+          fields,
+          "actions",
+          VArray(list.append(nested, [replacement_action("after-abort")])),
+        ))
+      })
+    })
+  identifier_fixture.run(changed)
+  |> expect.to_not_equal(identifier_fixture.run(input))
+}
+
+pub fn identifier_runner_executes_actions_after_observations_test() {
+  let scenarios = [
+    #("initial-summary-defaults", replacement_action("after-summary")),
+    #("summary-tail", replacement_action("after-tail")),
+    #("remove-retain-repair", replacement_action("after-remove")),
+    #("node-moves", replacement_action("after-move")),
+  ]
+  scenarios
+  |> list.each(fn(entry) {
+    let input = identifier_scenario("identifier-persistence", entry.0)
+    let changed =
+      update_scenario_actions(input, entry.0, fn(actions) {
+        list.append(actions, [entry.1])
+      })
+    identifier_fixture.run(changed)
+    |> expect.to_not_equal(identifier_fixture.run(input))
+  })
+}
+
+pub fn identifier_runner_returns_error_for_extra_unsupported_action_test() {
+  let input =
+    identifier_scenario("identifier-persistence", "remove-retain-repair")
+  let changed =
+    update_scenario_actions(input, "remove-retain-repair", fn(actions) {
+      list.append(actions, [
+        VObject([#("op", VString("unsupported-extra-action"))]),
+      ])
+    })
+  identifier_fixture.run(changed) |> expect.to_be_error
+  Nil
+}
+
 pub fn identifier_summary_runner_restores_supplied_compressor_test() {
   let input =
     identifier_scenario("identifier-persistence", "initial-summary-defaults")
@@ -189,6 +240,55 @@ pub fn identifier_retry_runner_delivers_multi_edit_transaction_test() {
   |> expect.to_not_equal(identifier_fixture.run(input))
 }
 
+pub fn identifier_retry_runner_executes_disconnect_recovery_timeline_test() {
+  let input = identifier_scenario("identifier-persistence", "retry-resubmit")
+  let changed =
+    input
+    |> update_scenario_actions("retry-resubmit", fn(actions) {
+      let assert [disconnect, insert, reconnect, resubmit] = actions
+      [
+        disconnect,
+        insert,
+        reconnect,
+        VObject([#("op", VString("catch-up"))]),
+        resubmit,
+        VObject([#("op", VString("ack"))]),
+        VObject([#("op", VString("duplicate-ack"))]),
+      ]
+    })
+  let observation = identifier_output_observation(changed, "retry-resubmit")
+  list.key_find(observation, "peerApplyCount")
+  |> expect.to_equal(Ok(VNumber(NInt(1))))
+  list.key_find(observation, "pendingAfterAck")
+  |> expect.to_equal(Ok(VNumber(NInt(0))))
+}
+
+pub fn identifier_retry_runner_executes_accepted_before_drop_timeline_test() {
+  let input = identifier_scenario("identifier-persistence", "retry-resubmit")
+  let changed =
+    input
+    |> update_scenario_actions("retry-resubmit", fn(actions) {
+      let assert [_, insert, _, resubmit] = actions
+      [
+        insert,
+        VObject([#("op", VString("accept"))]),
+        VObject([#("op", VString("disconnect"))]),
+        VObject([#("op", VString("reconnect"))]),
+        VObject([#("op", VString("catch-up"))]),
+        resubmit,
+        VObject([#("op", VString("ack"))]),
+      ]
+    })
+  let observation = identifier_output_observation(changed, "retry-resubmit")
+  let assert Ok(identifier) = list.key_find(observation, "identifier")
+  list.key_find(observation, "acceptedIdentifier")
+  |> expect.to_equal(Ok(identifier))
+  list.key_find(observation, "resubmittedCount")
+  |> expect.to_equal(Ok(VNumber(NInt(0))))
+  list.key_find(observation, "peerApplyCount")
+  |> expect.to_equal(Ok(VNumber(NInt(1))))
+}
+
 pub fn identifier_remove_runner_observes_full_removed_range_test() {
   let input =
     identifier_scenario("identifier-persistence", "remove-retain-repair")
@@ -202,6 +302,40 @@ pub fn identifier_remove_runner_observes_full_removed_range_test() {
     })
   identifier_fixture.run(changed)
   |> expect.to_not_equal(identifier_fixture.run(input))
+}
+
+pub fn identifier_allocation_events_ignore_explicit_known_duplicates_test() {
+  let input = identifier_scenario("identifier-values", "nested-insertion")
+  let changed =
+    input
+    |> update_scenario_actions("nested-insertion", fn(_) {
+      [explicit_duplicate_root_action()]
+    })
+  let observation = identifier_output_observation(changed, "nested-insertion")
+  let events = list.key_find(observation, "allocationEvents") |> expect.to_be_ok
+  let events = case events {
+    VArray(events) -> events
+    other -> {
+      other |> expect.to_equal(VArray([]))
+      []
+    }
+  }
+  list.length(events) |> expect.to_equal(1)
+  let event = list.first(events) |> expect.to_be_ok
+  let event = case event {
+    VObject(event) -> event
+    other -> {
+      other |> expect.to_equal(VObject([]))
+      []
+    }
+  }
+  list.key_find(event, "ordinal")
+  |> expect.to_equal(Ok(VNumber(NInt(1))))
+  list.key_find(event, "kind")
+  |> expect.to_equal(Ok(VString("revision")))
+  list.key_find(event, "path") |> expect.to_equal(Ok(VArray([])))
+  list.key_find(event, "op")
+  |> expect.to_equal(Ok(VNumber(NInt(1))))
 }
 
 pub fn identifier_summary_projection_observes_semantic_mutation_test() {
@@ -226,6 +360,18 @@ pub fn identifier_summary_projection_observes_semantic_mutation_test() {
   fixtures.first_difference(json_ot.to_json(actual), json_ot.to_json(expected))
   |> expect.to_be_error
   Nil
+}
+
+pub fn identifier_summary_normalization_rejects_empty_init_change_test() {
+  assert_initial_summary_mutation_fails(empty_summary_changes)
+}
+
+pub fn identifier_summary_normalization_rejects_changed_init_build_test() {
+  assert_initial_summary_mutation_fails(fn(value) {
+    mutate_summary_strings(value, fn(content) {
+      string.replace(content, "[4,3,\"child\",", "[4,3,\"mutated-child\",")
+    })
+  })
 }
 
 pub fn identifier_summary_tail_requires_allocation_atomically_test() {
@@ -725,6 +871,68 @@ fn retry_label_action(label: String) -> JsonValue {
   ])
 }
 
+fn explicit_duplicate_root_action() -> JsonValue {
+  let known = VString("10000000-0000-4000-8000-000000000001")
+  VObject([
+    #("op", VString("construct")),
+    #("schema", VString(identifier_fixture.root_type)),
+    #(
+      "fields",
+      VObject([
+        #(
+          "child",
+          VObject([
+            #("schema", VString(identifier_fixture.point_type)),
+            #(
+              "fields",
+              VObject([
+                #("id", known),
+                #("label", VString("child")),
+              ]),
+            ),
+          ]),
+        ),
+        #(
+          "left",
+          VArray([
+            VObject([
+              #("schema", VString(identifier_fixture.pair_type)),
+              #(
+                "fields",
+                VObject([
+                  #("firstId", known),
+                  #("secondId", known),
+                  #("label", VString("pair")),
+                  #("pairOnly", VString("pair")),
+                ]),
+              ),
+            ]),
+          ]),
+        ),
+        #("right", VArray([])),
+        #(
+          "byKey",
+          VArray([
+            VArray([
+              VString("map"),
+              VObject([
+                #("schema", VString(identifier_fixture.point_type)),
+                #(
+                  "fields",
+                  VObject([
+                    #("id", known),
+                    #("label", VString("map")),
+                  ]),
+                ),
+              ]),
+            ]),
+          ]),
+        ),
+      ]),
+    ),
+  ])
+}
+
 fn update_observation_field(
   value: JsonValue,
   observation_id: String,
@@ -754,6 +962,111 @@ fn update_observation_field(
           ))
         _ -> value
       }
+    _ -> value
+  }
+}
+
+fn identifier_output_observation(
+  input: json.Json,
+  id: String,
+) -> List(#(String, JsonValue)) {
+  let output = identifier_fixture.run(input) |> expect.to_be_ok
+  let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(output))
+  let assert Ok(VArray(observations)) = list.key_find(root, "observations")
+  let assert Ok(VObject(observation)) =
+    list.find(observations, fn(value) {
+      case value {
+        VObject(fields) -> list.key_find(fields, "id") == Ok(VString(id))
+        _ -> False
+      }
+    })
+  observation
+}
+
+fn assert_initial_summary_mutation_fails(
+  mutate: fn(JsonValue) -> JsonValue,
+) -> Nil {
+  let assert Ok(fixture) = fixtures.load("identifier-persistence")
+  let actual = identifier_fixture.run(fixture.input) |> expect.to_be_ok
+  let assert Ok(actual) = json_ot.parse_json(json.to_string(actual))
+  let assert Ok(expected) = json_ot.parse_json(json.to_string(fixture.expected))
+  let changed =
+    update_observation_field(
+      expected,
+      "initial-summary-defaults",
+      "summary",
+      find_observation_field(expected, "initial-summary-defaults", "summary")
+        |> mutate,
+    )
+  let #(actual, changed) = case
+    normalize_identifier_case(fixture.input, actual, changed)
+  {
+    Ok(value) -> value
+    Error(error) -> panic as { error }
+  }
+  let #(actual, changed) = native_projection(actual, changed)
+  fixtures.first_difference(json_ot.to_json(actual), json_ot.to_json(changed))
+  |> expect.to_be_error
+  Nil
+}
+
+fn find_observation_field(
+  value: JsonValue,
+  id: String,
+  key: String,
+) -> JsonValue {
+  let assert VObject(root) = value
+  let assert Ok(VArray(observations)) = list.key_find(root, "observations")
+  let assert Ok(VObject(observation)) =
+    list.find(observations, fn(value) {
+      case value {
+        VObject(fields) -> list.key_find(fields, "id") == Ok(VString(id))
+        _ -> False
+      }
+    })
+  list.key_find(observation, key) |> expect.to_be_ok
+}
+
+fn empty_summary_changes(value: JsonValue) -> JsonValue {
+  mutate_summary_strings(value, fn(content) {
+    case json_ot.parse_json(content) {
+      Ok(value) ->
+        value |> empty_change_fields |> json_ot.to_json |> json.to_string
+      Error(_) -> content
+    }
+  })
+}
+
+fn empty_change_fields(value: JsonValue) -> JsonValue {
+  case value {
+    VObject(fields) ->
+      VObject(
+        list.map(fields, fn(entry) {
+          case entry.0 {
+            "change" -> #(entry.0, VArray([]))
+            _ -> #(entry.0, empty_change_fields(entry.1))
+          }
+        }),
+      )
+    VArray(values) -> VArray(list.map(values, empty_change_fields))
+    _ -> value
+  }
+}
+
+fn mutate_summary_strings(
+  value: JsonValue,
+  mutate: fn(String) -> String,
+) -> JsonValue {
+  case value {
+    VString(value) -> VString(mutate(value))
+    VObject(fields) ->
+      VObject(
+        list.map(fields, fn(entry) {
+          #(entry.0, mutate_summary_strings(entry.1, mutate))
+        }),
+      )
+    VArray(values) ->
+      VArray(list.map(values, mutate_summary_strings(_, mutate)))
     _ -> value
   }
 }
