@@ -1,6 +1,8 @@
+import gleam/list
 import gleam/option.{Some}
 import startest/expect
 import watershed/fluid_ids
+import watershed/tree/codec/field_batch
 import watershed/tree/identifier_fixture
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
@@ -19,6 +21,27 @@ pub fn identifier_schema_preserves_field_kind_test() {
   schema.stored_to_json(stored)
   |> schema.stored_from_json
   |> expect.to_equal(Ok(stored))
+}
+
+pub fn identifier_field_batch_preserves_unknown_strings_test() {
+  let compressor = fluid_ids.new(identifier_fixture.sender_session())
+  [
+    "customer-17",
+    "50000000-0000-4000-8000-000000000005",
+    "4b825dc6-5768-5c1e-9a66-9e0f9e2f3f45",
+    "客户-🌊",
+  ]
+  |> list.each(fn(identifier) {
+    let value = identifier_fixture.point(identifier, "ordinary")
+    let assert Ok(encoded) =
+      field_batch.encode_with_context(
+        [[value]],
+        Some(identifier_fixture.stored()),
+        field_batch.SummaryIds(compressor),
+      )
+    field_batch.decode_with_schema(encoded, Some(identifier_fixture.stored()))
+    |> expect.to_equal(Ok([[value]]))
+  })
 }
 
 pub fn identifier_direct_set_is_atomic_error_test() {

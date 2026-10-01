@@ -7,6 +7,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import watershed/fluid_ids
 import watershed/json_ot.{
   type JsonValue, NFloat, NInt, VArray, VBool, VNull, VNumber, VObject, VString,
 }
@@ -74,14 +75,27 @@ type RawNode {
   )
 }
 
+pub type IdContext {
+  MessageIds(compressor: fluid_ids.Compressor, originator: fluid_ids.SessionId)
+  SummaryIds(compressor: fluid_ids.Compressor)
+}
+
 /// Decode one self-describing FieldBatch V2 value.
 pub fn decode(encoded: Json) -> Result(List(List(TreeValue)), TreeError) {
-  use fields <- result.try(decode_raw(encoded))
+  decode_fields(encoded, None, None)
+}
+
+fn decode_fields(
+  encoded: Json,
+  stored: Option(schema.StoredSchema),
+  ids: Option(IdContext),
+) -> Result(List(List(TreeValue)), TreeError) {
+  use fields <- result.try(decode_raw(encoded, ids))
   index_try_map(fields, fn(field, field_index) {
     index_try_map(field, fn(value, value_index) {
       raw_value(
         value,
-        None,
+        stored,
         "fieldBatch.data["
           <> int.to_string(field_index)
           <> "]["
@@ -92,7 +106,10 @@ pub fn decode(encoded: Json) -> Result(List(List(TreeValue)), TreeError) {
   })
 }
 
-fn decode_raw(encoded: Json) -> Result(List(List(RawNode)), TreeError) {
+fn decode_raw(
+  encoded: Json,
+  ids: Option(IdContext),
+) -> Result(List(List(RawNode)), TreeError) {
   use value <- result.try(
     json_ot.parse_json(json.to_string(encoded))
     |> result.map_error(fn(_) {
@@ -115,6 +132,7 @@ fn decode_raw(encoded: Json) -> Result(List(List(RawNode)), TreeError) {
       stream,
       [],
       location,
+      ids,
     ))
     case rest {
       [] -> Ok(values)
@@ -128,20 +146,15 @@ pub fn decode_with_schema(
   encoded: Json,
   stored: Option(schema.StoredSchema),
 ) -> Result(List(List(TreeValue)), TreeError) {
-  use fields <- result.try(decode_raw(encoded))
-  index_try_map(fields, fn(field, field_index) {
-    index_try_map(field, fn(value, value_index) {
-      raw_value(
-        value,
-        stored,
-        "fieldBatch.data["
-          <> int.to_string(field_index)
-          <> "]["
-          <> int.to_string(value_index)
-          <> "]",
-      )
-    })
-  })
+  decode_fields(encoded, stored, None)
+}
+
+pub fn decode_with_context(
+  encoded: Json,
+  stored: Option(schema.StoredSchema),
+  ids: IdContext,
+) -> Result(List(List(TreeValue)), TreeError) {
+  decode_fields(encoded, stored, Some(ids))
 }
 
 /// Encode fields with the upstream uncompressed FieldBatch V2 shapes.
@@ -218,6 +231,82 @@ pub fn encode_with_schema(
       })
   })
   encode(fields)
+}
+
+pub fn encode_with_context(
+  fields: List(List(TreeValue)),
+  stored: Option(schema.StoredSchema),
+  ids: IdContext,
+) -> Result(Json, TreeError) {
+  case stored {
+    None -> encode(fields)
+    Some(stored) -> {
+      use data <- result.try(
+        index_try_map(fields, fn(field, field_index) {
+          use values <- result.try(
+            index_try_map(field, fn(value, value_index) {
+              let location =
+                "fieldBatch.data["
+                <> int.to_string(field_index)
+                <> "]["
+                <> int.to_string(value_index)
+                <> "]"
+              use _ <- result.try(validate_value_kind(value, stored, location))
+              encode_node_with_context(
+                value,
+                stored,
+                schema.root_field_schema(stored),
+                ids,
+                location,
+              )
+            }),
+          )
+          Ok(
+            VArray([
+              VNumber(NInt(1)),
+              VArray(list.flatten(values)),
+            ]),
+          )
+        }),
+      )
+      Ok(
+        VObject([
+          #("version", VNumber(NInt(2))),
+          #("identifiers", VArray([])),
+          #(
+            "shapes",
+            VArray([
+              VObject([
+                #("c", VObject([#("extraFields", VNumber(NInt(1)))])),
+              ]),
+              VObject([#("a", VNumber(NInt(2)))]),
+              VObject([#("d", VNumber(NInt(0)))]),
+              VObject([
+                #(
+                  "c",
+                  VObject([
+                    #("type", VString(null_leaf)),
+                    #("value", VArray([VNull])),
+                  ]),
+                ),
+              ]),
+              VObject([
+                #(
+                  "c",
+                  VObject([
+                    #("type", VString(string_leaf)),
+                    #("value", VNumber(NInt(0))),
+                  ]),
+                ),
+              ]),
+            ]),
+          ),
+          #("data", VArray(data)),
+        ])
+        |> json_ot.to_json,
+      )
+    }
+  }
 }
 
 fn decode_batch(value: JsonValue) -> Result(Batch, TreeError) {
@@ -332,8 +421,7 @@ fn decode_node_shape(
     Some(VBool(True)) -> Ok(PresentValue)
     Some(VBool(False)) -> Ok(AbsentValue)
     Some(VArray([constant])) -> Ok(ConstantValue(constant))
-    Some(VNumber(NInt(0))) ->
-      Error(UnsupportedFeature(location <> ".value", "identifier values"))
+    Some(VNumber(NInt(0))) -> Ok(IdentifierValue)
     Some(_) -> Error(CorruptData(location <> ".value", "invalid value shape"))
   })
   use fields <- result.try(case optional(members, "fields") {
@@ -374,6 +462,7 @@ fn decode_shape(
   stream: List(JsonValue),
   active: List(Int),
   location: String,
+  ids: Option(IdContext),
 ) -> Result(#(List(RawNode), List(JsonValue)), TreeError) {
   use _ <- result.try(case list.contains(active, index) {
     True ->
@@ -389,7 +478,7 @@ fn decode_shape(
   let active = [index, ..active]
   case shape {
     NestedArray(child) ->
-      decode_nested(child, shapes, identifiers, stream, location)
+      decode_nested(child, shapes, identifiers, stream, location, ids)
     InlineArray(length, child) ->
       decode_inline(
         length,
@@ -399,6 +488,7 @@ fn decode_shape(
         stream,
         active,
         location,
+        ids,
       )
     Node(type_id, value, fields, extra_fields) ->
       decode_node(
@@ -411,6 +501,7 @@ fn decode_shape(
         stream,
         active,
         location,
+        ids,
       )
     Any -> {
       use #(encoded_index, rest) <- result.try(read(stream, location))
@@ -418,7 +509,7 @@ fn decode_shape(
         encoded_index,
         location <> ".shape",
       ))
-      decode_shape(child, shapes, identifiers, rest, [], location)
+      decode_shape(child, shapes, identifiers, rest, [], location, ids)
     }
   }
 }
@@ -429,6 +520,7 @@ fn decode_nested(
   identifiers: List(String),
   stream: List(JsonValue),
   location: String,
+  ids: Option(IdContext),
 ) -> Result(#(List(RawNode), List(JsonValue)), TreeError) {
   use #(encoded, rest) <- result.try(read(stream, location))
   case encoded {
@@ -440,6 +532,7 @@ fn decode_nested(
         inner,
         [],
         location,
+        ids,
       ))
       Ok(#(values, rest))
     }
@@ -452,6 +545,7 @@ fn decode_nested(
         identifiers,
         [],
         location,
+        ids,
       ))
       Ok(#(values, rest))
     }
@@ -465,6 +559,7 @@ fn decode_until_empty(
   stream: List(JsonValue),
   values: List(RawNode),
   location: String,
+  ids: Option(IdContext),
 ) -> Result(List(RawNode), TreeError) {
   case stream {
     [] -> Ok(list.reverse(values))
@@ -477,6 +572,7 @@ fn decode_until_empty(
         stream,
         [],
         location,
+        ids,
       ))
       use _ <- result.try(case list.length(rest) < before {
         True -> Ok(Nil)
@@ -490,6 +586,7 @@ fn decode_until_empty(
         rest,
         list.append(list.reverse(decoded), values),
         location,
+        ids,
       )
     }
   }
@@ -502,6 +599,7 @@ fn decode_count(
   identifiers: List(String),
   values: List(RawNode),
   location: String,
+  ids: Option(IdContext),
 ) -> Result(List(RawNode), TreeError) {
   case count {
     0 -> Ok(list.reverse(values))
@@ -513,6 +611,7 @@ fn decode_count(
         [],
         [],
         location,
+        ids,
       ))
       use _ <- result.try(case rest {
         [] -> Ok(Nil)
@@ -525,6 +624,7 @@ fn decode_count(
         identifiers,
         list.append(list.reverse(decoded), values),
         location,
+        ids,
       )
     }
   }
@@ -538,6 +638,7 @@ fn decode_inline(
   stream: List(JsonValue),
   active: List(Int),
   location: String,
+  ids: Option(IdContext),
 ) -> Result(#(List(RawNode), List(JsonValue)), TreeError) {
   case count {
     0 -> Ok(#([], stream))
@@ -549,6 +650,7 @@ fn decode_inline(
         stream,
         active,
         location,
+        ids,
       ))
       let next_active = case list.length(rest) < list.length(stream) {
         True -> []
@@ -562,6 +664,7 @@ fn decode_inline(
         rest,
         next_active,
         location,
+        ids,
       ))
       Ok(#(list.append(first, remaining), rest))
     }
@@ -578,6 +681,7 @@ fn decode_node(
   stream: List(JsonValue),
   active: List(Int),
   location: String,
+  ids: Option(IdContext),
 ) -> Result(#(List(RawNode), List(JsonValue)), TreeError) {
   let initial_length = list.length(stream)
   use #(type_id, stream) <- result.try(case type_id {
@@ -598,6 +702,7 @@ fn decode_node(
     value_shape,
     stream,
     location <> ".value",
+    ids,
   ))
   let active = case list.length(stream) {
     length if length < initial_length -> []
@@ -612,6 +717,7 @@ fn decode_node(
     [],
     [],
     location,
+    ids,
   ))
   use #(fields, stream) <- result.try(case extra_fields {
     None -> Ok(#(fields, stream))
@@ -629,6 +735,7 @@ fn decode_node(
         fields,
         seen,
         location <> ".extraFields",
+        ids,
       ))
       Ok(#(fields, rest))
     }
@@ -651,6 +758,7 @@ fn decode_fixed_field_values(
   decoded: List(#(String, List(RawNode))),
   seen: List(String),
   location: String,
+  ids: Option(IdContext),
 ) -> Result(
   #(List(#(String, List(RawNode))), List(String), List(JsonValue)),
   TreeError,
@@ -670,6 +778,7 @@ fn decode_fixed_field_values(
         stream,
         active,
         location <> ".fields." <> key,
+        ids,
       ))
       use #(decoded, seen) <- result.try(add_field(
         decoded,
@@ -691,6 +800,7 @@ fn decode_fixed_field_values(
         decoded,
         seen,
         location,
+        ids,
       )
     }
   }
@@ -704,6 +814,7 @@ fn decode_extra_fields(
   fields: List(#(String, List(RawNode))),
   seen: List(String),
   location: String,
+  ids: Option(IdContext),
 ) -> Result(#(List(#(String, List(RawNode))), List(String)), TreeError) {
   case stream {
     [] -> Ok(#(fields, seen))
@@ -724,6 +835,7 @@ fn decode_extra_fields(
         rest,
         [],
         location <> "." <> key,
+        ids,
       ))
       use #(fields, seen) <- result.try(add_field(
         fields,
@@ -740,6 +852,7 @@ fn decode_extra_fields(
         fields,
         seen,
         location,
+        ids,
       )
     }
   }
@@ -763,6 +876,7 @@ fn decode_value(
   shape: ValueShape,
   stream: List(JsonValue),
   location: String,
+  ids: Option(IdContext),
 ) -> Result(#(Option(JsonValue), List(JsonValue)), TreeError) {
   case shape {
     OptionalValue -> {
@@ -782,7 +896,57 @@ fn decode_value(
     }
     AbsentValue -> Ok(#(None, stream))
     ConstantValue(value) -> Ok(#(Some(value), stream))
-    IdentifierValue -> Error(UnsupportedFeature(location, "identifier values"))
+    IdentifierValue -> {
+      use #(value, rest) <- result.try(read(stream, location))
+      case value {
+        VString(_) -> Ok(#(Some(value), rest))
+        VNumber(NInt(value)) ->
+          decode_compressed_identifier(value, ids, location)
+          |> result.map(fn(value) { #(Some(VString(value)), rest) })
+        _ -> Error(CorruptData(location, "identifier value is invalid"))
+      }
+    }
+  }
+}
+
+fn decode_compressed_identifier(
+  value: Int,
+  ids: Option(IdContext),
+  location: String,
+) -> Result(String, TreeError) {
+  case ids {
+    None ->
+      Error(UnsupportedFeature(
+        location,
+        "numeric identifier decoding requires an ID context",
+      ))
+    Some(MessageIds(compressor, originator)) -> {
+      use operation <- result.try(
+        fluid_ids.op_id(value)
+        |> result.map_error(fn(error) { id_error(location, error) }),
+      )
+      use session_space <- result.try(
+        fluid_ids.from_op(compressor, operation, originator)
+        |> result.map_error(fn(error) { id_error(location, error) }),
+      )
+      fluid_ids.decompress(compressor, session_space)
+      |> result.map(fluid_ids.stable_id_to_string)
+      |> result.map_error(fn(error) { id_error(location, error) })
+    }
+    Some(SummaryIds(compressor)) ->
+      case value < 0 {
+        True ->
+          Error(CorruptData(location, "summary identifier must be finalized"))
+        False -> {
+          use session_space <- result.try(
+            fluid_ids.session_space_id(value)
+            |> result.map_error(fn(error) { id_error(location, error) }),
+          )
+          fluid_ids.decompress(compressor, session_space)
+          |> result.map(fluid_ids.stable_id_to_string)
+          |> result.map_error(fn(error) { id_error(location, error) })
+        }
+      }
   }
 }
 
@@ -1006,6 +1170,75 @@ fn encode_node(
   }
 }
 
+fn encode_node_with_context(
+  value: TreeValue,
+  stored: schema.StoredSchema,
+  definition: schema.FieldSchema,
+  ids: IdContext,
+  location: String,
+) -> Result(List(JsonValue), TreeError) {
+  let schema.FieldSchema(cardinality, _) = definition
+  case cardinality, value {
+    schema.Identifier, StringValue(value) -> {
+      use encoded <- result.try(encode_identifier(value, ids, location))
+      Ok([VNumber(NInt(4)), encoded])
+    }
+    _, ObjectValue(type_id, fields) ->
+      encode_structural_node_with_context(
+        type_id,
+        fields,
+        stored,
+        ids,
+        location,
+      )
+    _, MapValue(type_id, entries) ->
+      encode_structural_node_with_context(
+        type_id,
+        entries,
+        stored,
+        ids,
+        location,
+      )
+    _, ArrayValue(type_id, elements) ->
+      encode_array_node_with_context(type_id, elements, stored, ids, location)
+    _, _ -> encode_node(value, location)
+  }
+}
+
+fn encode_identifier(
+  value: String,
+  ids: IdContext,
+  location: String,
+) -> Result(JsonValue, TreeError) {
+  case fluid_ids.stable_id(value) {
+    Error(_) -> Ok(VString(value))
+    Ok(stable) -> {
+      let compressor = case ids {
+        MessageIds(compressor, _) | SummaryIds(compressor) -> compressor
+      }
+      use compressed <- result.try(
+        fluid_ids.recompress(compressor, stable)
+        |> result.map_error(fn(error) { id_error(location, error) }),
+      )
+      case compressed {
+        None -> Ok(VString(value))
+        Some(compressed) -> {
+          use operation <- result.try(
+            fluid_ids.to_op(compressor, compressed)
+            |> result.map_error(fn(error) { id_error(location, error) }),
+          )
+          let operation_value = fluid_ids.op_id_to_int(operation)
+          case ids {
+            SummaryIds(_) if operation_value < 0 -> Ok(VString(value))
+            MessageIds(_, _) | SummaryIds(_) ->
+              Ok(VNumber(NInt(operation_value)))
+          }
+        }
+      }
+    }
+  }
+}
+
 fn encode_array_node(
   type_id: String,
   elements: List(TreeValue),
@@ -1013,6 +1246,36 @@ fn encode_array_node(
 ) -> Result(List(JsonValue), TreeError) {
   use encoded <- result.try(
     list.try_map(elements, fn(element) { encode_node(element, location <> ".") }),
+  )
+  Ok([
+    VNumber(NInt(0)),
+    VString(type_id),
+    VBool(False),
+    VArray([
+      VString(""),
+      VArray(list.flatten(encoded)),
+    ]),
+  ])
+}
+
+fn encode_array_node_with_context(
+  type_id: String,
+  elements: List(TreeValue),
+  stored: schema.StoredSchema,
+  ids: IdContext,
+  location: String,
+) -> Result(List(JsonValue), TreeError) {
+  use definition <- result.try(schema.array_element_schema(stored, type_id))
+  use encoded <- result.try(
+    list.try_map(elements, fn(element) {
+      encode_node_with_context(
+        element,
+        stored,
+        definition,
+        ids,
+        location <> ".",
+      )
+    }),
   )
   Ok([
     VNumber(NInt(0)),
@@ -1139,6 +1402,47 @@ fn encode_structural_node(
   ])
 }
 
+fn encode_structural_node_with_context(
+  type_id: String,
+  fields: List(#(String, TreeValue)),
+  stored: schema.StoredSchema,
+  ids: IdContext,
+  location: String,
+) -> Result(List(JsonValue), TreeError) {
+  use node <- result.try(schema.node_schema(stored, type_id))
+  use encoded_fields <- result.try(
+    list.try_fold(fields, [], fn(encoded, field) {
+      use _ <- result.try(
+        case list.any(encoded, fn(value) { value == VString(field.0) }) {
+          True ->
+            Error(CorruptData(location, "node has duplicate field " <> field.0))
+          False -> Ok(Nil)
+        },
+      )
+      use definition <- result.try(case node {
+        schema.Object(_) -> schema.field_schema(stored, type_id, field.0)
+        schema.Map(definition) -> Ok(definition)
+        schema.Array(_) | schema.Leaf(_) ->
+          Error(CorruptData(location, "node uses an invalid structural shape"))
+      })
+      use child <- result.try(encode_node_with_context(
+        field.1,
+        stored,
+        definition,
+        ids,
+        location <> "." <> field.0,
+      ))
+      Ok(list.append(encoded, [VString(field.0), VArray(child)]))
+    }),
+  )
+  Ok([
+    VNumber(NInt(0)),
+    VString(type_id),
+    VBool(False),
+    VArray(encoded_fields),
+  ])
+}
+
 fn decode_identifier(
   value: JsonValue,
   location: String,
@@ -1179,6 +1483,10 @@ fn structural_int(
     VNumber(NInt(value)) if value >= 0 && value <= max_safe_integer -> Ok(value)
     _ -> Error(CorruptData(location, "expected a safe nonnegative integer"))
   }
+}
+
+fn id_error(location: String, error: fluid_ids.IdError) -> TreeError {
+  CorruptData(location, "ID compressor error: " <> string.inspect(error))
 }
 
 fn finite(value: Float) -> Bool {
