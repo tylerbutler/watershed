@@ -630,8 +630,8 @@ git commit -m "feat(tree): enforce node constraints"
 **Completion evidence (2026-09-30):**
 
 - Constraint authoring and modular algebra are complete.
-- The focused Erlang and JavaScript commands each passed 122 tests.
-- Task review passed after one fix round.
+- The focused Erlang and JavaScript commands each passed 123 tests.
+- Task review and subsequent scoped corrective reviews passed.
 - Task 4 remains next and unimplemented.
 - Repository-wide `just build` and `just test` remain blocked only by the
   reported existing pnpm lockfile validation issue.
