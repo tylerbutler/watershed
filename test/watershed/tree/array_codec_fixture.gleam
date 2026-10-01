@@ -528,6 +528,7 @@ fn schema_state_json(value: schema.SchemaState) -> Json {
         schema.Required -> "Value"
         schema.Optional -> "Optional"
         schema.Sequence -> "Sequence"
+        schema.Identifier -> "Identifier"
       }
     }
   }

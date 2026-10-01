@@ -8,7 +8,7 @@ import gleam/result
 import gleam/string
 import watershed/fluid_ids
 import watershed/json_ot.{
-  type JsonValue, NInt, VArray, VBool, VNull, VNumber, VObject, VString,
+  type JsonValue, NFloat, NInt, VArray, VBool, VNull, VNumber, VObject, VString,
 }
 import watershed/tree/change
 import watershed/tree/codec/field_batch
@@ -1004,6 +1004,16 @@ fn decode_field_entries(
             entry_location <> ".change",
           )
           |> result.map(fn(value) { #(change.OptionalField(value.0), value.1) })
+        "Identifier" ->
+          case encoded {
+            VNumber(NInt(0)) | VNumber(NFloat(0.0)) ->
+              Ok(#(change.IdentifierField, state))
+            _ ->
+              Error(CorruptData(
+                entry_location <> ".change",
+                "identifier field change must be canonical zero",
+              ))
+          }
         "ModularEditBuilder.Generic" ->
           decode_generic_field(
             encoded,
@@ -1592,6 +1602,7 @@ fn encode_field_map(
     index_try_map(fields, fn(entry, index) {
       let location = location <> "[" <> int.to_string(index) <> "]"
       use #(kind, encoded) <- result.try(case entry.1 {
+        change.IdentifierField -> Ok(#("Identifier", VNumber(NInt(0))))
         change.ValueField(value) ->
           encode_optional_field(
             value,
@@ -2138,6 +2149,7 @@ fn collect_field_revisions(
 ) -> List(fluid_ids.StableId) {
   list.fold(fields, revisions, fn(revisions, entry) {
     case entry.1 {
+      change.IdentifierField -> revisions
       change.GenericField(children) ->
         list.fold(children, revisions, fn(revisions, child) {
           collect_atom_revision(child.1, revisions)

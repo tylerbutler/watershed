@@ -7,6 +7,7 @@ import gleam/set
 import gleam/string
 import startest/expect
 import watershed/tree/fixtures
+import watershed/tree/identifier_fixture
 import watershed/tree/schema
 import watershed/tree/types
 
@@ -120,6 +121,78 @@ pub fn shared_tree_schema_refuses_unsupported_semantics_test() -> Nil {
       schema.stored_from_string(raw)
     string.is_empty(detail) |> expect.to_be_false
   })
+}
+
+pub fn shared_tree_schema_identifier_profile_is_string_object_only_test() {
+  let point = identifier_fixture.point_type
+  let string_leaf = "com.fluidframework.leaf.string"
+  let number_leaf = "com.fluidframework.leaf.number"
+  let non_string =
+    "{\"version\":2,\"nodes\":{\""
+    <> number_leaf
+    <> "\":{\"kind\":{\"leaf\":0}},\""
+    <> point
+    <> "\":{\"kind\":{\"object\":{\"id\":{\"kind\":\"Identifier\",\"types\":[\""
+    <> number_leaf
+    <> "\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\""
+    <> point
+    <> "\"]}}"
+  let union =
+    "{\"version\":2,\"nodes\":{\""
+    <> number_leaf
+    <> "\":{\"kind\":{\"leaf\":0}},\""
+    <> string_leaf
+    <> "\":{\"kind\":{\"leaf\":1}},\""
+    <> point
+    <> "\":{\"kind\":{\"object\":{\"id\":{\"kind\":\"Identifier\",\"types\":[\""
+    <> number_leaf
+    <> "\",\""
+    <> string_leaf
+    <> "\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\""
+    <> point
+    <> "\"]}}"
+  let map =
+    "{\"version\":2,\"nodes\":{\""
+    <> string_leaf
+    <> "\":{\"kind\":{\"leaf\":1}},\"Map\":{\"kind\":{\"map\":{\"kind\":\"Identifier\",\"types\":[\""
+    <> string_leaf
+    <> "\"]}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Map\"]}}"
+  let array =
+    "{\"version\":2,\"nodes\":{\""
+    <> string_leaf
+    <> "\":{\"kind\":{\"leaf\":1}},\"Array\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Identifier\",\"types\":[\""
+    <> string_leaf
+    <> "\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Array\"]}}"
+
+  [non_string, union, map, array]
+  |> list.each(fn(raw) {
+    let assert Error(types.InvalidSchema(_)) = schema.stored_from_string(raw)
+    schema.view_from_string(raw) |> expect.to_be_ok
+  })
+}
+
+pub fn shared_tree_schema_identifier_content_is_required_string_test() {
+  let stored = identifier_fixture.stored()
+  schema.validate_root(
+    stored,
+    types.ObjectValue(identifier_fixture.point_type, [
+      #("label", types.StringValue("missing")),
+    ]),
+  )
+  |> expect.to_be_error
+  schema.validate_root(
+    stored,
+    types.ObjectValue(identifier_fixture.point_type, [
+      #("id", types.NumberValue(1.0)),
+      #("label", types.StringValue("wrong type")),
+    ]),
+  )
+  |> expect.to_be_error
+  schema.validate_root(
+    stored,
+    identifier_fixture.point("custom-non-uuid", "valid"),
+  )
+  |> expect.to_equal(Ok(Nil))
 }
 
 pub fn shared_tree_schema_checks_leaf_identity_and_references_test() -> Nil {

@@ -1,9 +1,12 @@
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
+import gleam/option.{Some}
 import gleam/string
 import startest/expect
 import watershed/tree/fixtures
+import watershed/tree/identifier_fixture
+import watershed/tree/schema
 import watershed/tree/schema_evolution_fixture
 
 pub fn shared_tree_schema_evolution_compatibility_test() -> Nil {
@@ -54,6 +57,25 @@ pub fn shared_tree_schema_evolution_runner_rejects_empty_input_test() -> Nil {
       #("rawProbes", json.array([], fn(value) { value })),
     ])
   let assert Error(_) = schema_evolution_fixture.run_compatibility(input)
+  Nil
+}
+
+pub fn shared_tree_schema_evolution_identifier_widens_one_way_test() {
+  let identifier = identifier_fixture.stored()
+  let value = identifier_fixture.view("Value")
+  schema.compatibility(identifier, value)
+  |> expect.to_equal(Ok(schema.Compatibility(True, True, False)))
+  let assert Ok(Some(upgraded)) = schema.prepare_upgrade(identifier, value)
+  schema.field_schema(upgraded, identifier_fixture.point_type, "id")
+  |> expect.to_equal(
+    Ok(schema.FieldSchema(schema.Required, ["com.fluidframework.leaf.string"])),
+  )
+
+  let value_stored = schema.view_to_stored(value)
+  let identifier_view = identifier_fixture.view("Identifier")
+  schema.compatibility(value_stored, identifier_view)
+  |> expect.to_equal(Ok(schema.Compatibility(False, False, False)))
+  let assert Error(_) = schema.prepare_upgrade(value_stored, identifier_view)
   Nil
 }
 

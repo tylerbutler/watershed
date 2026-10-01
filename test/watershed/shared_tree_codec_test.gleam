@@ -297,6 +297,53 @@ pub fn shared_tree_codec_encodes_native_authored_change_test() {
   change.to_data(decoded) |> expect.to_equal(change.to_data(authored))
 }
 
+pub fn shared_tree_codec_identifier_field_is_canonical_zero_test() {
+  let owner = session(session_a)
+  let assert Ok(#(compressor, local)) =
+    fluid_ids.new(owner) |> fluid_ids.generate
+  let assert #(compressor, Some(range)) =
+    fluid_ids.take_creation_range(compressor)
+  let assert Ok(compressor) = fluid_ids.finalize(compressor, range)
+  let assert Ok(revision) = fluid_ids.decompress(compressor, local)
+  let decode_context = codec.DecodeContext(codec.Fluid310, compressor)
+  let encode_context = codec.EncodeContext(codec.Fluid310, compressor, None)
+  let change_context = codec.ChangeContext(owner, Some(revision), codec.Message)
+  let before_summary = fluid_ids.serialize(compressor, False)
+  let before_ongoing = fluid_ids.serialize(compressor, True)
+  let raw =
+    "{\"changes\":[{\"fieldKey\":\"id\",\"fieldKind\":\"Identifier\",\"change\":0}]}"
+  let assert Ok(encoded) = json_ot.parse_json(raw)
+  let assert Ok(decoded) =
+    codec.decode_modular(
+      json_ot.to_json(encoded),
+      decode_context,
+      change_context,
+    )
+  change.to_data(decoded).fields
+  |> expect.to_equal([#("id", change.IdentifierField)])
+  let assert Ok(round_trip) =
+    codec.encode_modular(decoded, encode_context, change_context)
+  json.to_string(round_trip) |> expect.to_equal(raw)
+  fluid_ids.serialize(compressor, False) |> expect.to_equal(before_summary)
+  fluid_ids.serialize(compressor, True) |> expect.to_equal(before_ongoing)
+
+  ["1", "-1", "null", "\"0\"", "false", "[]", "{}"]
+  |> list.each(fn(payload) {
+    let malformed =
+      "{\"changes\":[{\"fieldKey\":\"id\",\"fieldKind\":\"Identifier\",\"change\":"
+      <> payload
+      <> "}]}"
+    let assert Ok(value) = json_ot.parse_json(malformed)
+    let assert Error(types.CorruptData(location, _)) =
+      codec.decode_modular(
+        json_ot.to_json(value),
+        decode_context,
+        change_context,
+      )
+    location |> expect.to_equal("modular.changes[0].change")
+  })
+}
+
 pub fn shared_tree_codec_constraints_round_trip_pinned_v5_test() -> Nil {
   let owner = session(session_a)
   let assert Ok(#(compressor, local)) =

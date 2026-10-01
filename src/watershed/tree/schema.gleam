@@ -26,6 +26,7 @@ pub type Cardinality {
   Required
   Optional
   Sequence
+  Identifier
 }
 
 pub type FieldSchema {
@@ -291,6 +292,10 @@ fn validate_content(
     None, Optional -> Ok(Nil)
     None, Required -> Error(InvalidEdit(path, "required field is absent"))
     None, Sequence -> Ok(Nil)
+    None, Identifier -> Error(InvalidEdit(path, "identifier field is absent"))
+    Some(StringValue(_)), Identifier -> Ok(Nil)
+    Some(_), Identifier ->
+      Error(InvalidEdit(path, "identifier field must contain a string"))
     Some(value), _ -> {
       let identifier = value_identifier(value)
       case list.contains(field.allowed_types, identifier) {
@@ -656,9 +661,10 @@ fn public_leaf_kind(kind: ComparisonLeafKind) -> LeafKind {
 fn public_field(field: ComparisonField) -> FieldSchema {
   FieldSchema(
     case field.kind {
-      RequiredKind | IdentifierKind -> Required
+      RequiredKind -> Required
       ForbiddenKind | OptionalKind -> Optional
       SequenceKind -> Sequence
+      IdentifierKind -> Identifier
     },
     field.allowed_types,
   )
@@ -689,7 +695,8 @@ fn comparison_node_view_supported(node: ComparisonNode) -> Bool {
       list.all(fields, fn(field) {
         case field.1.kind {
           RequiredKind | OptionalKind -> True
-          ForbiddenKind | SequenceKind | IdentifierKind -> False
+          IdentifierKind -> field.0 != "" && identifier_field_supported(field.1)
+          ForbiddenKind | SequenceKind -> False
         }
       })
     ComparisonMap(entries) ->
@@ -751,10 +758,20 @@ fn comparison_node_supported(node: ComparisonNode) -> Bool {
     ComparisonLeaf(ComparisonHandleLeaf) -> False
     ComparisonLeaf(_) -> True
     ComparisonObject(fields) ->
-      list.all(fields, fn(field) { profile_field_kind(field.1.kind) })
+      list.all(fields, fn(field) {
+        profile_field_kind(field.1.kind)
+        || case field.1.kind {
+          IdentifierKind -> field.0 != "" && identifier_field_supported(field.1)
+          ForbiddenKind | OptionalKind | RequiredKind | SequenceKind -> False
+        }
+      })
     ComparisonMap(entries) -> profile_field_kind(entries.kind)
     ComparisonArray(_) -> False
   }
+}
+
+fn identifier_field_supported(field: ComparisonField) -> Bool {
+  field.allowed_types == ["com.fluidframework.leaf.string"]
 }
 
 fn comparison_node_to_public(node: ComparisonNode) -> NodeSchema {
@@ -814,7 +831,10 @@ fn decode_comparison_field_kind(
       case comparison_field_kind(kind) {
         Ok(kind) ->
           case
-            kind == SequenceKind || profile_field_kind(kind) || allow_excluded
+            kind == SequenceKind
+            || kind == IdentifierKind
+            || profile_field_kind(kind)
+            || allow_excluded
           {
             True -> Ok(kind)
             False ->
@@ -890,7 +910,16 @@ fn compare_field(
   view: FieldSchema,
   path: String,
 ) -> Result(Nil, TreeError) {
-  case stored == view {
+  case
+    stored == view
+    || {
+      let FieldSchema(stored_cardinality, stored_types) = stored
+      let FieldSchema(view_cardinality, view_types) = view
+      stored_cardinality == Identifier
+      && view_cardinality == Required
+      && stored_types == view_types
+    }
+  {
     True -> Ok(Nil)
     False -> Error(InvalidSchema(path <> ": incompatible field schema"))
   }
@@ -963,9 +992,9 @@ fn decode_repository(
       Error(InvalidSchema(
         "$.root: sequence field is only valid as an array primary field",
       ))
-    // ponytail: Match all variants. This catch-all also takes any new schema
-    // field kind variant without a compiler error. Name the remaining variants.
-    _ -> Ok(Nil)
+    IdentifierKind ->
+      Error(InvalidSchema("$.root: identifier field is only valid on an object"))
+    ForbiddenKind | OptionalKind | RequiredKind -> Ok(Nil)
   })
   let comparison_nodes = dict.from_list(nodes)
   let repository =
@@ -1037,10 +1066,16 @@ fn decode_node(
                       key_path(path, field.0)
                       <> ": sequence field is only valid as an array primary field",
                     ))
-                  // ponytail: Match all variants. This catch-all also takes any
-                  // new schema field kind variant without a compiler error.
-                  // Name the remaining variants.
-                  _ -> Ok(Nil)
+                  IdentifierKind ->
+                    case field.0 != "" && identifier_field_supported(field.1) {
+                      True -> Ok(Nil)
+                      False ->
+                        Error(InvalidSchema(
+                          key_path(path, field.0)
+                          <> ": identifier field must be a named string field",
+                        ))
+                    }
+                  ForbiddenKind | OptionalKind | RequiredKind -> Ok(Nil)
                 }
               })
           })
@@ -1060,10 +1095,16 @@ fn decode_node(
             path
             <> ".kind.map: sequence field is only valid as an array primary field",
           ))
-        // ponytail: Match all variants. This catch-all also takes any new
-        // schema field kind variant without a compiler error. Name the
-        // remaining variants.
-        _, _ -> Ok(Nil)
+        IdentifierKind, False ->
+          Error(InvalidSchema(
+            path <> ".kind.map: identifier field is only valid on an object",
+          ))
+        ForbiddenKind, _
+        | OptionalKind, _
+        | RequiredKind, _
+        | SequenceKind, True
+        | IdentifierKind, True
+        -> Ok(Nil)
       })
       Ok(ComparisonMap(entries))
     }

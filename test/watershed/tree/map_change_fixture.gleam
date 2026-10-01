@@ -849,6 +849,7 @@ fn fields_atoms(
 ) -> List(types.AtomId) {
   list.flat_map(fields, fn(entry) {
     case entry.1 {
+      change.IdentifierField -> []
       change.GenericField(children) -> list.map(children, fn(child) { child.1 })
       change.SequenceField(field) ->
         sequence_field.to_marks(field)
@@ -916,6 +917,7 @@ fn normalize_field(
   mappings: List(#(types.AtomId, types.AtomId)),
 ) -> change.FieldChange {
   case field {
+    change.IdentifierField -> change.IdentifierField
     change.GenericField(children) ->
       change.GenericField(
         list.map(children, fn(child) {

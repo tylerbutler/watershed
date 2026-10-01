@@ -479,6 +479,8 @@ fn fields_json(values: List(#(String, change.FieldChange))) -> Json {
 
 fn field_json(value: change.FieldChange) -> Json {
   case value {
+    change.IdentifierField ->
+      json.object([#("kind", json.string("Identifier"))])
     change.GenericField(children) ->
       json.object([
         #("kind", json.string("Generic")),
@@ -776,6 +778,7 @@ fn wire_fields(
   use encoded <- result.try(
     list.try_map(fields, fn(entry) {
       use #(kind, payload) <- result.try(case entry.1 {
+        change.IdentifierField -> Ok(#("Identifier", json.int(0)))
         change.ValueField(field) ->
           wire_concrete(field, data, revisions, tagged_revision)
           |> result.map(fn(encoded) { #("Value", encoded) })

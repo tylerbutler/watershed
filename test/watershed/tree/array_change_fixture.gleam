@@ -679,6 +679,13 @@ fn field_json(
   context: Context,
 ) -> Result(Json, String) {
   case field {
+    change.IdentifierField ->
+      Ok(
+        json.object([
+          #("kind", json.string("Identifier")),
+          #("change", json.int(0)),
+        ]),
+      )
     change.GenericField(children) -> {
       use children <- result.try(
         list.try_map(children, fn(child) {

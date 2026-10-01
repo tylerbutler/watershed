@@ -247,6 +247,108 @@ pub fn shared_tree_change_empty_data_round_trips_test() {
   |> expect.to_equal(Ok(empty))
 }
 
+pub fn shared_tree_change_identifier_field_is_no_change_test() {
+  let identifier = identifier_changeset()
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(None, None, identifier))
+  forest.delta_data(delta).fields |> expect.to_equal([])
+  let data = change.to_data(identifier)
+  data.max_local_id |> expect.to_equal(-1)
+  data.nodes |> expect.to_equal([])
+  data.builds |> expect.to_equal([])
+
+  let assert Ok(inverted) =
+    change.invert(
+      change.TaggedChange(None, None, identifier),
+      False,
+      revision_a(),
+    )
+  change.to_data(inverted).fields
+  |> expect.to_equal([#("id", change.IdentifierField)])
+
+  let assert Ok(composed) =
+    change.compose([
+      change.TaggedChange(None, None, identifier),
+      change.TaggedChange(None, None, identifier),
+    ])
+  change.to_data(composed).fields
+  |> expect.to_equal([#("id", change.IdentifierField)])
+}
+
+pub fn shared_tree_change_identifier_field_composes_only_empty_generic_test() {
+  let identifier = identifier_changeset()
+  let empty_generic =
+    checked(
+      change.ChangeData(..empty_data(), fields: [
+        #("id", change.GenericField([])),
+      ]),
+    )
+    |> expect.to_be_ok()
+  let assert Ok(composed) =
+    change.compose([
+      change.TaggedChange(None, None, identifier),
+      change.TaggedChange(None, None, empty_generic),
+    ])
+  change.to_data(composed).fields
+  |> expect.to_equal([#("id", change.IdentifierField)])
+
+  let child = AtomId(None, 0)
+  let concrete_generic =
+    checked(
+      change.ChangeData(
+        ..empty_data(),
+        max_local_id: 0,
+        fields: [#("id", change.GenericField([#(0, child)]))],
+        nodes: [#(child, node_change([]))],
+        parents: [#(child, change.ParentField(None, "id"))],
+      ),
+    )
+    |> expect.to_be_ok()
+  let assert Error(_) =
+    change.compose([
+      change.TaggedChange(None, None, identifier),
+      change.TaggedChange(None, None, concrete_generic),
+    ])
+
+  let value =
+    checked(
+      change.ChangeData(..empty_data(), fields: [
+        #("id", change.ValueField(optional_field.FieldChange([], [], None))),
+      ]),
+    )
+    |> expect.to_be_ok()
+  let assert Error(_) =
+    change.compose([
+      change.TaggedChange(None, None, identifier),
+      change.TaggedChange(None, None, value),
+    ])
+  Nil
+}
+
+pub fn shared_tree_change_identifier_field_rebases_as_no_change_test() {
+  let identifier = identifier_changeset()
+  let assert Ok(context) =
+    change.rebase_context([
+      change.RevisionInfo(revision_a(), None),
+      change.RevisionInfo(revision_b(), None),
+    ])
+  let assert Ok(rebased) =
+    change.rebase(
+      change.TaggedChange(Some(revision_a()), None, identifier),
+      change.TaggedChange(Some(revision_b()), None, identifier),
+      context,
+    )
+  change.to_data(rebased).fields
+  |> expect.to_equal([#("id", change.IdentifierField)])
+}
+
+fn identifier_changeset() -> change.Changeset {
+  checked(
+    change.ChangeData(..empty_data(), fields: [#("id", change.IdentifierField)]),
+  )
+  |> expect.to_be_ok()
+}
+
 pub fn shared_tree_change_constraint_data_round_trips_test() -> Nil {
   let node =
     change.NodeChange(

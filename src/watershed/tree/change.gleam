@@ -10,8 +10,8 @@ import watershed/fluid_ids.{type StableId}
 import watershed/tree/forest
 import watershed/tree/optional_field
 import watershed/tree/schema.{
-  type Cardinality, type FieldSchema, type StoredSchema, FieldSchema, Optional,
-  Required,
+  type Cardinality, type FieldSchema, type StoredSchema, FieldSchema, Identifier,
+  Optional, Required,
 }
 import watershed/tree/sequence_field
 import watershed/tree/sequence_field/compose as sequence_compose
@@ -35,6 +35,7 @@ pub type FieldChange {
   OptionalField(optional_field.FieldChange)
   SequenceField(sequence_field.Changeset)
   GenericField(children: List(#(Int, AtomId)))
+  IdentifierField
 }
 
 pub type NodeExistsConstraint {
@@ -543,6 +544,7 @@ fn data_identity_revisions(data: ChangeData) -> List(StableId) {
 
 fn field_identity_revisions(field: FieldChange) -> List(StableId) {
   case field {
+    IdentifierField -> []
     GenericField(children) ->
       list.flat_map(children, fn(child) { atom_identity_revisions(child.1) })
     SequenceField(change) ->
@@ -831,7 +833,8 @@ fn cross_field_keys_from_fields(
               )
             }),
         ))
-      _ -> Ok(keys)
+      IdentifierField | GenericField(_) | ValueField(_) | OptionalField(_) ->
+        Ok(keys)
     }
   })
 }
@@ -1843,7 +1846,7 @@ fn author_constraint(
 ) -> Result(Changeset, TreeError) {
   use steps <- result.try(forest.node_path(visible, path))
   use #(fields, nodes, parents, max_local_id) <- result.try(
-    wrap_constraint_ancestors(steps, next_id),
+    wrap_authored_constraint_ancestors(steps, next_id),
   )
   from_data(
     ChangeData(
@@ -1863,7 +1866,7 @@ fn author_constraint(
   )
 }
 
-fn wrap_constraint_ancestors(
+fn wrap_authored_constraint_ancestors(
   steps: List(forest.FieldStep),
   next_id: Int,
 ) -> Result(
@@ -2599,6 +2602,11 @@ fn rebase_field(
   state: RebaseState,
 ) -> Result(#(FieldChange, RebaseState), TreeError) {
   case authored, base {
+    IdentifierField, IdentifierField -> Ok(#(IdentifierField, state))
+    IdentifierField, GenericField([]) | GenericField([]), IdentifierField ->
+      Ok(#(IdentifierField, state))
+    IdentifierField, GenericField(_) | GenericField(_), IdentifierField ->
+      Error(CorruptData("rebase", "identifier fields cannot contain edits"))
     GenericField(authored), GenericField(base) -> {
       use #(children, state) <- result.try(rebase_generic(authored, base, state))
       Ok(#(GenericField(children), state))
@@ -2926,6 +2934,7 @@ fn update_field_constraint_nodes(
   aliases: List(#(AtomId, AtomId)),
 ) -> Result(ConstraintState, TreeError) {
   case field {
+    IdentifierField -> Ok(state)
     GenericField(children) ->
       list.try_fold(children, state, fn(state, child) {
         update_constraint_node(child.1, parent_detached, state, aliases)
@@ -3006,6 +3015,7 @@ fn mute_field_map(
 
 fn mute_field(field: FieldChange) -> Result(FieldChange, TreeError) {
   case field {
+    IdentifierField -> Ok(IdentifierField)
     ValueField(optional_field.FieldChange(_, children, _)) ->
       Ok(ValueField(optional_field.FieldChange([], children, None)))
     OptionalField(optional_field.FieldChange(_, children, _)) ->
@@ -3083,6 +3093,7 @@ fn invert_field(
   state: InvertState,
 ) -> Result(#(FieldChange, InvertState), TreeError) {
   case field {
+    IdentifierField -> Ok(#(IdentifierField, state))
     GenericField(children) -> Ok(#(GenericField(children), state))
     SequenceField(change) -> {
       let move_context =
@@ -3262,6 +3273,7 @@ fn visit_field(
   state: ReplaceState,
 ) -> Result(ReplaceState, TreeError) {
   case field {
+    IdentifierField -> Ok(state)
     GenericField(children) ->
       list.try_fold(children, state, fn(state, child) {
         visit_atom(child.1, 1, state)
@@ -3600,6 +3612,7 @@ fn replace_field(
   state: ReplaceState,
 ) -> Result(FieldChange, TreeError) {
   case field {
+    IdentifierField -> Ok(IdentifierField)
     GenericField(children) ->
       list.try_map(children, fn(child) {
         use id <- result.try(replaced_atom(child.1, state))
@@ -3656,6 +3669,7 @@ fn prune_field(
   aliases: List(#(AtomId, AtomId)),
 ) -> Result(#(Option(FieldChange), PruneState), TreeError) {
   case field {
+    IdentifierField -> Ok(#(Some(IdentifierField), state))
     GenericField(children) -> {
       use #(children, state) <- result.try(prune_children(
         children,
@@ -3801,6 +3815,7 @@ fn removed_roots_from_field(
   roots: List(AtomId),
 ) -> Result(List(AtomId), TreeError) {
   case field {
+    IdentifierField -> Ok(roots)
     GenericField(children) ->
       list.try_fold(children, roots, fn(roots, child) {
         removed_roots_from_child(child.1, data, roots)
@@ -3852,6 +3867,7 @@ fn detached_roots_from_fields(
 ) -> Result(List(AtomId), TreeError) {
   list.try_fold(fields, roots, fn(roots, entry) {
     case entry.1 {
+      IdentifierField -> Ok(roots)
       GenericField(children) ->
         list.try_fold(children, roots, fn(roots, child) {
           detached_roots_from_child(child.1, data, roots)
@@ -4170,6 +4186,11 @@ fn compose_field(
   state: ComposeState,
 ) -> Result(#(FieldChange, ComposeState), TreeError) {
   case first, second {
+    IdentifierField, IdentifierField -> Ok(#(IdentifierField, state))
+    IdentifierField, GenericField([]) | GenericField([]), IdentifierField ->
+      Ok(#(IdentifierField, state))
+    IdentifierField, GenericField(_) | GenericField(_), IdentifierField ->
+      Error(CorruptData("compose", "identifier fields cannot contain edits"))
     GenericField(first), GenericField(second) -> {
       use #(children, state) <- result.try(compose_generic(first, second, state))
       Ok(#(GenericField(children), state))
@@ -4523,7 +4544,10 @@ fn sequence_field_for(
   case pair_value(fields, field.field) {
     None -> Ok(None)
     Some(SequenceField(change)) -> Ok(Some(change))
-    Some(_) ->
+    Some(IdentifierField)
+    | Some(GenericField(_))
+    | Some(ValueField(_))
+    | Some(OptionalField(_)) ->
       Error(CorruptData("sequence fields", "owned field is not a sequence"))
   }
 }
@@ -4675,6 +4699,7 @@ fn field_change_for(
 
 fn empty_field_change(field: FieldChange) -> Result(FieldChange, TreeError) {
   case field {
+    IdentifierField -> Ok(IdentifierField)
     GenericField(_) -> Ok(GenericField([]))
     SequenceField(_) -> {
       use empty <- result.try(sequence_field.from_marks([]))
@@ -5783,6 +5808,11 @@ fn edit_destination(
         parent_type,
         field,
       ))
+      use _ <- result.try(case definition.cardinality {
+        Identifier ->
+          Error(InvalidEdit(path, "identifier fields cannot be edited"))
+        Required | Optional | schema.Sequence -> Ok(Nil)
+      })
       use _ <- result.try(schema.validate_field(
         schema,
         parent_type,
@@ -5853,6 +5883,8 @@ fn authored_field(
     Required, None -> Error(InvalidEdit([], "required field is absent"))
     schema.Sequence, _ ->
       Error(types.UnsupportedFeature("field edit", "sequence fields"))
+    Identifier, _ ->
+      Error(InvalidEdit([], "identifier fields cannot be edited"))
   }
 }
 
@@ -5989,6 +6021,7 @@ fn delta_field(
   TreeError,
 ) {
   case field {
+    IdentifierField -> Ok(#(None, [], []))
     GenericField(children) -> {
       use child_parts <- result.try(
         children
@@ -6242,6 +6275,7 @@ fn validate_field_identity_order(
   identity_order: IdentityOrder,
 ) -> Result(Nil, TreeError) {
   case field {
+    IdentifierField -> Ok(Nil)
     GenericField(children) ->
       list.try_each(children, fn(child) {
         validate_atom_identity_order(child.1, identity_order)
@@ -6362,6 +6396,7 @@ fn validate_field_map(
 
 fn validate_field(field: FieldChange) -> Result(Nil, TreeError) {
   case field {
+    IdentifierField -> Ok(Nil)
     ValueField(change) | OptionalField(change) ->
       optional_field.validate(change)
     SequenceField(change) ->
@@ -6538,6 +6573,7 @@ fn walk_child(
 
 fn field_children(field: FieldChange) -> List(AtomId) {
   case field {
+    IdentifierField -> []
     GenericField(children) -> list.map(children, fn(child) { child.1 })
     SequenceField(change) ->
       sequence_field.to_marks(change)
