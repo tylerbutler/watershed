@@ -806,7 +806,7 @@ fn run_constructs(
     sessions,
     "initial",
   ))
-  use #(values, compressor) <- result.try(
+  use #(constructed, compressor) <- result.try(
     list.try_fold(actions, #([], compressor), fn(state, action) {
       let value = case fixture_codec.get(action, "value") {
         Error(_) -> fixture_codec.get(action, "fields")
@@ -826,23 +826,23 @@ fn run_constructs(
           ]),
         ),
       )
-      use #(value, next) <- result.try(
+      use #(materialized, next) <- result.try(
         identifier.materialize_value(stored, value, state.1)
         |> result.map_error(string.inspect),
       )
-      Ok(#([value, ..state.0], next))
+      Ok(#([#(value, materialized), ..state.0], next))
     }),
   )
-  let values = list.reverse(values)
-  case values {
-    [types.ObjectValue(type_id, fields)] if type_id == point_type ->
+  let constructed = list.reverse(constructed)
+  case constructed {
+    [#(_, types.ObjectValue(type_id, fields))] if type_id == point_type ->
       Ok(
         json.object([
           #("id", json.string(id)),
           #("value", field_string(fields, "id")),
         ]),
       )
-    [types.ObjectValue(type_id, fields)] if type_id == pair_type ->
+    [#(_, types.ObjectValue(type_id, fields))] if type_id == pair_type ->
       Ok(
         json.object([
           #("id", json.string(id)),
@@ -858,15 +858,18 @@ fn run_constructs(
           ),
         ]),
       )
-    [value] -> {
+    [#(authored, value)] -> {
       use #(compressor, revision) <- result.try(
         generate_stable(compressor) |> result.map_error(string.inspect),
       )
-      let #(_, allocation) = fluid_ids.take_creation_range(compressor)
-      use allocation_events <- result.try(allocation_events_from_range(
+      let #(reported, allocation) = fluid_ids.take_creation_range(compressor)
+      use allocation_events <- result.try(allocation_events(
+        stored,
+        authored,
         value,
+        [],
         Some(revision),
-        compressor,
+        reported,
         allocation,
       ))
       Ok(
@@ -877,14 +880,15 @@ fn run_constructs(
         ]),
       )
     }
-    values ->
+    constructed ->
       Ok(
         json.object([
           #("id", json.string(id)),
           #(
             "values",
             json.array(
-              list.map(values, fn(value) {
+              list.map(constructed, fn(entry) {
+                let value = entry.1
                 case value {
                   types.ObjectValue(_, fields) -> field_string(fields, "id")
                   _ -> json.null()
@@ -932,7 +936,7 @@ fn run_value_actions(
     }
     _ -> {
       let state = state(stored, full_view(), initial)
-      run_one_value_action(id, operation, edit, state, compressor)
+      run_one_value_action(id, operation, edit, stored, state, compressor)
     }
   }
 }
@@ -941,6 +945,7 @@ fn run_one_value_action(
   id: String,
   operation: String,
   edit: types.Edit,
+  stored: schema.StoredSchema,
   state: tree_kernel.TreeState,
   compressor: fluid_ids.Compressor,
 ) -> Result(json.Json, String) {
@@ -963,7 +968,9 @@ fn run_one_value_action(
       case operation {
         "insert" -> {
           use events <- result.try(edit_allocation_events(
+            stored,
             after,
+            edit,
             commit.revision,
             after_compressor,
           ))
@@ -1284,8 +1291,11 @@ fn run_initial_summary(
     list.drop(actions, 1),
   ))
   use after_root <- result.try(visible_root(after))
-  use allocation_events <- result.try(allocation_events_from_range(
+  use allocation_events <- result.try(allocation_events(
+    stored,
+    initial,
     root,
+    [],
     None,
     compressor,
     allocation,
@@ -1655,18 +1665,36 @@ fn run_retry(
     remote_compressor,
     "identifier-peer",
   ))
-  let explicit_catch_up = has_retry_action(actions, "catch-up")
+  let explicit_catch_up =
+    list.any(["catch-up", "join", "leave"], has_retry_action(actions, _))
   let explicit_ack = has_retry_action(actions, "ack")
+  let old_client_id = local.client_id
   use state <- result.try(run_retry_actions(
-    RetryState(local, peer, True, True, None, None, 0, 0),
+    RetryState(
+      local,
+      peer,
+      True,
+      True,
+      None,
+      None,
+      None,
+      old_client_id,
+      0,
+      1,
+      False,
+      False,
+      False,
+      -1,
+      0,
+      0,
+    ),
     actions,
     explicit_catch_up,
     explicit_ack,
   ))
   use identifier <- result.try(
-    runtime_core.tree_read(state.local, "A/_C", ["left", "2", "id"])
-    |> result.map_error(string.inspect)
-    |> result.try(fn(value) { option.to_result(value, "retry id is absent") }),
+    state.authored_identifier
+    |> option.to_result("authored retry id is absent"),
   )
   use peer_identifier <- result.try(
     runtime_core.tree_read(state.peer, "A/_C", ["left", "2", "id"])
@@ -1699,6 +1727,10 @@ fn run_retry(
       #("peerObserved", json.bool(peer_identifier == identifier)),
       #("peerValue", visible_json(peer_root)),
       #("acceptedIdentifier", visible_json(accepted_identifier)),
+      #("readinessHeld", json.bool(state.readiness_held)),
+      #("readyBeforeLive", json.bool(state.ready_before_live)),
+      #("barrierBeforeLive", json.bool(state.barrier_before_live)),
+      #("pendingBeforeLive", json.int(state.pending_before_live)),
       #("pendingAfterAck", json.int(list.length(state.local.in_flight))),
       #("peerApplyCount", json.int(state.peer_apply_count)),
       #("resubmittedCount", json.int(state.resubmitted_count)),
@@ -1714,6 +1746,14 @@ type RetryState {
     live: Bool,
     outbound: Option(wire.OutboundOperation),
     accepted: Option(spillway_types.SequencedDocumentMessage),
+    authored_identifier: Option(types.TreeValue),
+    old_client_id: String,
+    reconnect_checkpoint: Int,
+    next_lifecycle_sequence: Int,
+    readiness_held: Bool,
+    ready_before_live: Bool,
+    barrier_before_live: Bool,
+    pending_before_live: Int,
     peer_apply_count: Int,
     resubmitted_count: Int,
   )
@@ -1787,9 +1827,10 @@ fn run_retry_actions(
             "retry client is already connected",
           ))
           let checkpoint = case state.accepted {
-            Some(message) -> message.sequence_number
-            None -> state.local.last_seen_sequence_number
+            Some(message) -> message.sequence_number + 2
+            None -> state.local.last_seen_sequence_number + 2
           }
+          let next_sequence = checkpoint - 1
           use local <- result.try(
             runtime_core.adopt_reconnect(
               state.local,
@@ -1797,21 +1838,20 @@ fn run_retry_actions(
             )
             |> result.map_error(string.inspect),
           )
-          let local = case explicit_catch_up {
-            True -> local
-            False -> runtime_core.go_live(local)
-          }
-          run_retry_actions(
+          let reconnected =
             RetryState(
               ..state,
               local:,
               connected: True,
-              live: !explicit_catch_up,
-            ),
-            rest,
-            explicit_catch_up,
-            explicit_ack,
-          )
+              live: False,
+              reconnect_checkpoint: checkpoint,
+              next_lifecycle_sequence: next_sequence,
+            )
+          use reconnected <- result.try(case explicit_catch_up {
+            True -> Ok(reconnected)
+            False -> complete_retry_catch_up(reconnected)
+          })
+          run_retry_actions(reconnected, rest, explicit_catch_up, explicit_ack)
         }
         "accept" -> {
           use _ <- result.try(require(
@@ -1846,27 +1886,57 @@ fn run_retry_actions(
             None -> Ok(state.local)
           })
           run_retry_actions(
-            RetryState(..state, local: runtime_core.go_live(local), live: True),
+            RetryState(..state, local:),
             rest,
             explicit_catch_up,
             explicit_ack,
           )
         }
+        "join" | "leave" -> {
+          use state <- result.try(apply_retry_lifecycle(state, operation))
+          run_retry_actions(state, rest, explicit_catch_up, explicit_ack)
+        }
         "resubmit" -> {
           use _ <- result.try(require(
-            state.connected && state.live,
-            "retry resubmit needs a live connection",
+            state.connected && !state.live,
+            "retry resubmit needs a reconnected client",
+          ))
+          let ready =
+            runtime_core.reconnect_ready(
+              state.local,
+              state.reconnect_checkpoint,
+            )
+          let barrier = runtime_core.reconnect_barrier_active(state.local)
+          let pending = list.length(state.local.in_flight)
+          use _ <- result.try(require(
+            ready,
+            "retry reconnect is not ready for live traffic: barrier="
+              <> case barrier {
+              True -> "true"
+              False -> "false"
+            }
+              <> " pending="
+              <> int.to_string(pending),
           ))
           use #(local, outbounds) <- result.try(
-            runtime_core.resubmit(state.local)
+            runtime_core.resubmit(runtime_core.go_live(state.local))
             |> result.map_error(string.inspect),
           )
+          let state =
+            RetryState(
+              ..state,
+              local:,
+              live: True,
+              ready_before_live: ready,
+              barrier_before_live: barrier,
+              pending_before_live: pending,
+            )
           use #(state, accepted) <- result.try(case outbounds {
-            [] -> Ok(#(RetryState(..state, local:), state.accepted))
+            [] -> Ok(#(state, state.accepted))
             [outbound] -> {
               use #(accepted_state, message) <- result.try(
                 accept_retry_submission(
-                  RetryState(..state, local:, outbound: Some(outbound)),
+                  RetryState(..state, outbound: Some(outbound)),
                   outbound,
                 ),
               )
@@ -1916,6 +1986,83 @@ fn run_retry_actions(
   }
 }
 
+fn complete_retry_catch_up(state: RetryState) -> Result(RetryState, String) {
+  use local <- result.try(case state.accepted {
+    Some(message) ->
+      runtime_core.handle_sequenced(state.local, message)
+      |> result.map(fn(value) { value.0 })
+      |> result.map_error(string.inspect)
+    None -> Ok(state.local)
+  })
+  use state <- result.try(apply_retry_lifecycle(
+    RetryState(..state, local:),
+    "join",
+  ))
+  apply_retry_lifecycle(state, "leave")
+}
+
+fn apply_retry_lifecycle(
+  state: RetryState,
+  operation: String,
+) -> Result(RetryState, String) {
+  use _ <- result.try(require(
+    state.connected && !state.live,
+    "retry lifecycle needs a reconnected client",
+  ))
+  use outbound <- result.try(
+    state.outbound |> option.to_result("retry submission is absent"),
+  )
+  let base =
+    sequenced_from_outbound(
+      outbound,
+      state.old_client_id,
+      state.next_lifecycle_sequence,
+    )
+  let message = case operation {
+    "join" ->
+      spillway_types.SequencedDocumentMessage(
+        ..base,
+        client_id: None,
+        message_type: "join",
+        data: Some(
+          "{\"clientId\":\"" <> state.local.client_id <> "\",\"detail\":{}}",
+        ),
+      )
+    "leave" ->
+      spillway_types.SequencedDocumentMessage(
+        ..base,
+        client_id: None,
+        message_type: "leave",
+        data: Some(json.to_string(json.string(state.old_client_id))),
+      )
+    _ -> base
+  }
+  use #(local, _) <- result.try(
+    runtime_core.handle_sequenced(state.local, message)
+    |> result.map_error(string.inspect),
+  )
+  use #(peer, _) <- result.try(
+    runtime_core.handle_sequenced(state.peer, message)
+    |> result.map_error(string.inspect),
+  )
+  let readiness_held =
+    state.readiness_held
+    || {
+      operation == "join"
+      && runtime_core.reconnect_barrier_active(local)
+      && !runtime_core.reconnect_ready(local, state.reconnect_checkpoint)
+    }
+  Ok(
+    RetryState(
+      ..state,
+      local:,
+      peer:,
+      readiness_held:,
+      next_lifecycle_sequence: state.next_lifecycle_sequence + 1,
+    ),
+  )
+}
+
 fn run_retry_edit_actions(
   state: RetryState,
   actions: List(JsonValue),
@@ -1931,8 +2078,20 @@ fn run_retry_edit_actions(
     list.first(outbound)
     |> result.map_error(fn(_) { "retry edit produced no submission" }),
   )
+  use authored_identifier <- result.try(
+    runtime_core.tree_read(local, "A/_C", ["left", "2", "id"])
+    |> result.map_error(string.inspect)
+    |> result.try(fn(value) {
+      option.to_result(value, "authored retry id is absent")
+    }),
+  )
   run_retry_actions(
-    RetryState(..state, local:, outbound: Some(outbound)),
+    RetryState(
+      ..state,
+      local:,
+      outbound: Some(outbound),
+      authored_identifier: Some(authored_identifier),
+    ),
     rest,
     explicit_catch_up,
     explicit_ack,
@@ -2063,6 +2222,8 @@ fn has_retry_controls(actions: List(JsonValue)) -> Bool {
       "disconnect",
       "reconnect",
       "catch-up",
+      "join",
+      "leave",
       "resubmit",
       "accept",
       "ack",
@@ -2853,65 +3014,250 @@ fn generate_stable(
   Ok(#(compressor, stable))
 }
 
-fn allocation_events_from_range(
-  value: types.TreeValue,
+fn allocation_events(
+  stored: schema.StoredSchema,
+  authored: types.TreeValue,
+  materialized: types.TreeValue,
+  prefix: List(json.Json),
   revision: Option(fluid_ids.StableId),
   compressor: fluid_ids.Compressor,
   allocation: Option(fluid_ids.CreationRange),
 ) -> Result(json.Json, String) {
-  let bounds = allocation_bounds(allocation)
+  use identifier_values <- result.try(missing_identifier_values(
+    stored,
+    authored,
+    materialized,
+    prefix,
+  ))
+  use _ <- result.try(validate_allocation_range(
+    compressor,
+    allocation,
+    list.length(identifier_values)
+      + case revision {
+      Some(_) -> 1
+      None -> 0
+    },
+  ))
   use identifiers <- result.try(
-    identifier_paths(value, [])
-    |> list.try_fold([], fn(identifiers, entry) {
-      case fluid_ids.stable_id(entry.1) {
-        Error(_) -> Ok(identifiers)
-        Ok(stable) ->
-          case fluid_ids.recompress(compressor, stable) {
-            Ok(Some(value)) -> {
-              use operation <- result.try(
-                fluid_ids.to_op(compressor, value)
-                |> result.map_error(string.inspect),
-              )
-              let operation = fluid_ids.op_id_to_int(operation)
-              case operation_in_bounds(operation, bounds) {
-                True -> Ok([#(operation, entry.0), ..identifiers])
-                False -> Ok(identifiers)
-              }
-            }
-            Ok(None) -> Ok(identifiers)
-            Error(error) -> Error(string.inspect(error))
-          }
-      }
+    list.try_map(identifier_values, fn(entry) {
+      use operation <- result.try(stable_operation(compressor, entry.1))
+      Ok(#(operation, entry.0))
     }),
   )
   use revision_op <- result.try(case revision {
-    Some(revision) ->
-      case fluid_ids.recompress(compressor, revision) {
-        Ok(Some(value)) ->
-          fluid_ids.to_op(compressor, value)
-          |> result.map(fluid_ids.op_id_to_int)
-          |> result.map_error(string.inspect)
-        Ok(None) -> Error("allocation revision is absent from the compressor")
-        Error(error) -> Error(string.inspect(error))
-      }
+    Some(revision) -> stable_operation(compressor, revision)
     None -> Ok(-1)
   })
   Ok(allocation_event_json(identifiers, revision_op))
 }
 
 fn edit_allocation_events(
+  stored: schema.StoredSchema,
   state: tree_kernel.TreeState,
+  edit: types.Edit,
   revision: fluid_ids.StableId,
   compressor: fluid_ids.Compressor,
 ) -> Result(json.Json, String) {
-  use data <- result.try(
-    tree_kernel.visible_data(state) |> result.map_error(string.inspect),
+  use #(authored, materialized, prefix) <- result.try(edit_allocation_values(
+    state,
+    edit,
+  ))
+  let #(reported, allocation) = fluid_ids.take_creation_range(compressor)
+  allocation_events(
+    stored,
+    authored,
+    materialized,
+    prefix,
+    Some(revision),
+    reported,
+    allocation,
   )
+}
+
+fn edit_allocation_values(
+  state: tree_kernel.TreeState,
+  edit: types.Edit,
+) -> Result(#(types.TreeValue, types.TreeValue, List(json.Json)), String) {
+  case edit {
+    types.ArrayInsert(path, index, [authored]) -> {
+      let target = list.append(path, [int.to_string(index)])
+      use materialized <- result.try(
+        tree_kernel.read(state, target)
+        |> result.map_error(string.inspect)
+        |> result.try(fn(value) {
+          option.to_result(value, "inserted allocation value is absent")
+        }),
+      )
+      Ok(#(
+        authored,
+        materialized,
+        list.append(list.map(path, json.string), [json.int(index)]),
+      ))
+    }
+    types.SetField(path, authored) -> {
+      use materialized <- result.try(
+        tree_kernel.read(state, path)
+        |> result.map_error(string.inspect)
+        |> result.try(fn(value) {
+          option.to_result(value, "set allocation value is absent")
+        }),
+      )
+      Ok(#(authored, materialized, list.map(path, json.string)))
+    }
+    types.MapSet(path, key, authored) -> {
+      let target = list.append(path, [key])
+      use materialized <- result.try(
+        tree_kernel.read(state, target)
+        |> result.map_error(string.inspect)
+        |> result.try(fn(value) {
+          option.to_result(value, "map allocation value is absent")
+        }),
+      )
+      Ok(#(authored, materialized, list.map(target, json.string)))
+    }
+    _ -> Error("edit has no authored allocation value")
+  }
+}
+
+fn validate_allocation_range(
+  compressor: fluid_ids.Compressor,
+  allocation: Option(fluid_ids.CreationRange),
+  expected_count: Int,
+) -> Result(Nil, String) {
+  let local = fluid_ids.local_session(compressor)
+  case allocation {
+    Some(fluid_ids.CreationRange(session, Some(ids)))
+      if session == local && ids.count == expected_count
+    -> Ok(Nil)
+    Some(fluid_ids.CreationRange(session, _)) if session != local ->
+      Error("allocation range belongs to a different session")
+    Some(fluid_ids.CreationRange(_, Some(ids))) ->
+      Error(
+        "allocation range count "
+        <> int.to_string(ids.count)
+        <> " does not match "
+        <> int.to_string(expected_count)
+        <> " recorded allocations",
+      )
+    _ if expected_count == 0 -> Ok(Nil)
+    _ -> Error("allocation range is absent")
+  }
+}
+
+fn stable_operation(
+  compressor: fluid_ids.Compressor,
+  stable: fluid_ids.StableId,
+) -> Result(Int, String) {
   use value <- result.try(
-    data.root |> option.to_result("allocation event root is absent"),
+    fluid_ids.recompress(compressor, stable)
+    |> result.map_error(string.inspect)
+    |> result.try(fn(value) {
+      option.to_result(value, "allocated value is absent from the compressor")
+    }),
   )
-  let #(_, allocation) = fluid_ids.take_creation_range(compressor)
-  allocation_events_from_range(value, Some(revision), compressor, allocation)
+  fluid_ids.to_op(compressor, value)
+  |> result.map(fluid_ids.op_id_to_int)
+  |> result.map_error(string.inspect)
+}
+
+fn missing_identifier_values(
+  stored: schema.StoredSchema,
+  authored: types.TreeValue,
+  materialized: types.TreeValue,
+  path: List(json.Json),
+) -> Result(List(#(List(json.Json), fluid_ids.StableId)), String) {
+  case authored, materialized {
+    types.ObjectValue(type_id, authored_fields),
+      types.ObjectValue(materialized_type, materialized_fields)
+      if type_id == materialized_type
+    -> {
+      use node <- result.try(
+        schema.node_schema(stored, type_id) |> result.map_error(string.inspect),
+      )
+      let identifiers = case node {
+        schema.Object(definitions) ->
+          definitions
+          |> list.filter_map(fn(definition) {
+            let schema.FieldSchema(cardinality, _) = definition.1
+            case
+              cardinality,
+              list.key_find(authored_fields, definition.0),
+              list.key_find(materialized_fields, definition.0)
+            {
+              schema.Identifier, Error(_), Ok(types.StringValue(value)) ->
+                fluid_ids.stable_id(value)
+                |> result.map(fn(stable) {
+                  #(list.append(path, [json.string(definition.0)]), stable)
+                })
+                |> result.map_error(fn(_) { Nil })
+              _, _, _ -> Error(Nil)
+            }
+          })
+        _ -> []
+      }
+      use nested <- result.try(
+        list.try_fold(authored_fields, [], fn(found, field) {
+          use child <- result.try(
+            list.key_find(materialized_fields, field.0)
+            |> result.map_error(fn(_) {
+              "materialized field is absent: " <> field.0
+            }),
+          )
+          use children <- result.try(missing_identifier_values(
+            stored,
+            field.1,
+            child,
+            list.append(path, [json.string(field.0)]),
+          ))
+          Ok(list.append(found, children))
+        }),
+      )
+      Ok(list.append(identifiers, nested))
+    }
+    types.MapValue(type_id, authored_entries),
+      types.MapValue(materialized_type, materialized_entries)
+      if type_id == materialized_type
+    ->
+      list.try_fold(authored_entries, [], fn(found, entry) {
+        use child <- result.try(
+          list.key_find(materialized_entries, entry.0)
+          |> result.map_error(fn(_) {
+            "materialized map entry is absent: " <> entry.0
+          }),
+        )
+        use children <- result.try(missing_identifier_values(
+          stored,
+          entry.1,
+          child,
+          list.append(path, [json.string(entry.0)]),
+        ))
+        Ok(list.append(found, children))
+      })
+    types.ArrayValue(type_id, authored_values),
+      types.ArrayValue(materialized_type, materialized_values)
+      if type_id == materialized_type
+    ->
+      authored_values
+      |> list.index_map(fn(value, index) { #(index, value) })
+      |> list.try_fold([], fn(found, entry) {
+        use child <- result.try(
+          materialized_values
+          |> list.drop(entry.0)
+          |> list.first
+          |> result.map_error(fn(_) {
+            "materialized array value is absent at " <> int.to_string(entry.0)
+          }),
+        )
+        use children <- result.try(missing_identifier_values(
+          stored,
+          entry.1,
+          child,
+          list.append(path, [json.int(entry.0)]),
+        ))
+        Ok(list.append(found, children))
+      })
+    _, _ -> Ok([])
+  }
 }
 
 fn allocation_event_json(
@@ -2948,53 +3294,6 @@ fn allocation_event_json(
     },
     fn(value) { value },
   )
-}
-
-fn allocation_bounds(
-  allocation: Option(fluid_ids.CreationRange),
-) -> Option(#(Int, Int)) {
-  case allocation {
-    Some(fluid_ids.CreationRange(_, Some(ids))) ->
-      Some(#(ids.first_gen_count - 1, ids.first_gen_count + ids.count - 2))
-    _ -> None
-  }
-}
-
-fn operation_in_bounds(operation: Int, bounds: Option(#(Int, Int))) -> Bool {
-  case bounds {
-    Some(bounds) -> operation >= bounds.0 && operation <= bounds.1
-    None -> False
-  }
-}
-
-fn identifier_paths(
-  value: types.TreeValue,
-  path: List(json.Json),
-) -> List(#(List(json.Json), String)) {
-  case value {
-    types.ObjectValue(_, fields) ->
-      list.flat_map(fields, fn(entry) {
-        case entry.0, entry.1 {
-          "id", types.StringValue(value)
-          | "firstId", types.StringValue(value)
-          | "secondId", types.StringValue(value)
-          -> [#(list.append(path, [json.string(entry.0)]), value)]
-          _, child ->
-            identifier_paths(child, list.append(path, [json.string(entry.0)]))
-        }
-      })
-    types.MapValue(_, entries) ->
-      list.flat_map(entries, fn(entry) {
-        identifier_paths(entry.1, list.append(path, [json.string(entry.0)]))
-      })
-    types.ArrayValue(_, values) ->
-      values
-      |> list.index_map(fn(value, index) {
-        identifier_paths(value, list.append(path, [json.int(index)]))
-      })
-      |> list.flatten
-    _ -> []
-  }
 }
 
 fn summary_entry(

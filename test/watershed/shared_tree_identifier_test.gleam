@@ -1,13 +1,13 @@
 import gleam/int
 import gleam/json
 import gleam/list
-import gleam/option.{Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import startest/expect
 import watershed/fluid_ids
 import watershed/json_ot.{
-  type JsonValue, NInt, VArray, VNull, VNumber, VObject, VString,
+  type JsonValue, NInt, VArray, VBool, VNull, VNumber, VObject, VString,
 }
 import watershed/tree/codec/field_batch
 import watershed/tree/fixtures
@@ -251,16 +251,48 @@ pub fn identifier_retry_runner_executes_disconnect_recovery_timeline_test() {
         insert,
         reconnect,
         VObject([#("op", VString("catch-up"))]),
+        VObject([#("op", VString("join"))]),
+        VObject([#("op", VString("leave"))]),
         resubmit,
         VObject([#("op", VString("ack"))]),
         VObject([#("op", VString("duplicate-ack"))]),
       ]
     })
   let observation = identifier_output_observation(changed, "retry-resubmit")
+  list.key_find(observation, "readinessHeld")
+  |> expect.to_equal(Ok(VBool(True)))
+  list.key_find(observation, "readyBeforeLive")
+  |> expect.to_equal(Ok(VBool(True)))
+  list.key_find(observation, "barrierBeforeLive")
+  |> expect.to_equal(Ok(VBool(True)))
+  list.key_find(observation, "pendingBeforeLive")
+  |> expect.to_equal(Ok(VNumber(NInt(1))))
   list.key_find(observation, "peerApplyCount")
   |> expect.to_equal(Ok(VNumber(NInt(1))))
   list.key_find(observation, "pendingAfterAck")
   |> expect.to_equal(Ok(VNumber(NInt(0))))
+}
+
+pub fn identifier_retry_runner_refuses_live_without_old_leave_test() {
+  let input = identifier_scenario("identifier-persistence", "retry-resubmit")
+  let changed =
+    input
+    |> update_scenario_actions("retry-resubmit", fn(actions) {
+      let assert [_, insert, _, resubmit] = actions
+      [
+        insert,
+        VObject([#("op", VString("accept"))]),
+        VObject([#("op", VString("disconnect"))]),
+        VObject([#("op", VString("reconnect"))]),
+        VObject([#("op", VString("catch-up"))]),
+        VObject([#("op", VString("join"))]),
+        resubmit,
+      ]
+    })
+  identifier_fixture.run(changed)
+  |> expect.to_equal(Error(
+    "retry reconnect is not ready for live traffic: barrier=true pending=0",
+  ))
 }
 
 pub fn identifier_retry_runner_executes_accepted_before_drop_timeline_test() {
@@ -275,6 +307,8 @@ pub fn identifier_retry_runner_executes_accepted_before_drop_timeline_test() {
         VObject([#("op", VString("disconnect"))]),
         VObject([#("op", VString("reconnect"))]),
         VObject([#("op", VString("catch-up"))]),
+        VObject([#("op", VString("join"))]),
+        VObject([#("op", VString("leave"))]),
         resubmit,
         VObject([#("op", VString("ack"))]),
       ]
@@ -283,6 +317,14 @@ pub fn identifier_retry_runner_executes_accepted_before_drop_timeline_test() {
   let assert Ok(identifier) = list.key_find(observation, "identifier")
   list.key_find(observation, "acceptedIdentifier")
   |> expect.to_equal(Ok(identifier))
+  list.key_find(observation, "readinessHeld")
+  |> expect.to_equal(Ok(VBool(True)))
+  list.key_find(observation, "readyBeforeLive")
+  |> expect.to_equal(Ok(VBool(True)))
+  list.key_find(observation, "barrierBeforeLive")
+  |> expect.to_equal(Ok(VBool(True)))
+  list.key_find(observation, "pendingBeforeLive")
+  |> expect.to_equal(Ok(VNumber(NInt(0))))
   list.key_find(observation, "resubmittedCount")
   |> expect.to_equal(Ok(VNumber(NInt(0))))
   list.key_find(observation, "peerApplyCount")
@@ -336,6 +378,43 @@ pub fn identifier_allocation_events_ignore_explicit_known_duplicates_test() {
   list.key_find(event, "path") |> expect.to_equal(Ok(VArray([])))
   list.key_find(event, "op")
   |> expect.to_equal(Ok(VNumber(NInt(1))))
+}
+
+pub fn identifier_allocation_events_ignore_explicit_generated_alias_test() {
+  let observation =
+    nested_allocation_observation(Some("10000000-0000-4000-8000-000000000002"))
+  allocation_event_signature(observation)
+  |> expect.to_equal([
+    #("identifier", ["byKey", "map", "id"], 1),
+    #("identifier", ["left", "0", "id"], 2),
+    #("revision", [], 3),
+  ])
+}
+
+pub fn identifier_allocation_events_ignore_explicit_revision_alias_test() {
+  let observation =
+    nested_allocation_observation(Some("10000000-0000-4000-8000-000000000004"))
+  allocation_event_signature(observation)
+  |> expect.to_equal([
+    #("identifier", ["byKey", "map", "id"], 1),
+    #("identifier", ["left", "0", "id"], 2),
+    #("revision", [], 3),
+  ])
+}
+
+pub fn identifier_allocation_events_use_shifted_local_cluster_test() {
+  let input = identifier_scenario("identifier-values", "nested-insertion")
+  let changed =
+    input
+    |> replace_initial_compressor(shifted_local_compressor())
+  let observation = identifier_output_observation(changed, "nested-insertion")
+  allocation_event_signature(observation)
+  |> expect.to_equal([
+    #("identifier", ["byKey", "map", "id"], 514),
+    #("identifier", ["left", "0", "id"], 515),
+    #("identifier", ["child", "id"], 516),
+    #("revision", [], 517),
+  ])
 }
 
 pub fn identifier_summary_projection_observes_semantic_mutation_test() {
@@ -931,6 +1010,100 @@ fn explicit_duplicate_root_action() -> JsonValue {
       ]),
     ),
   ])
+}
+
+fn nested_allocation_observation(
+  explicit_child: Option(String),
+) -> List(#(String, JsonValue)) {
+  let input = identifier_scenario("identifier-values", "nested-insertion")
+  let changed =
+    input
+    |> update_scenario_actions("nested-insertion", fn(actions) {
+      case explicit_child {
+        None -> actions
+        Some(identifier) ->
+          list.map(actions, fn(action) {
+            set_nested_child_identifier(action, identifier)
+          })
+      }
+    })
+  identifier_output_observation(changed, "nested-insertion")
+}
+
+fn set_nested_child_identifier(
+  action: JsonValue,
+  identifier: String,
+) -> JsonValue {
+  let assert VObject(action_fields) = action
+  let assert Ok(VObject(fields)) = list.key_find(action_fields, "fields")
+  let assert Ok(VObject(child)) = list.key_find(fields, "child")
+  let assert Ok(VObject(child_fields)) = list.key_find(child, "fields")
+  let child =
+    child
+    |> list.key_set(
+      "fields",
+      VObject(list.key_set(child_fields, "id", VString(identifier))),
+    )
+  VObject(list.key_set(
+    action_fields,
+    "fields",
+    VObject(list.key_set(fields, "child", VObject(child))),
+  ))
+}
+
+fn allocation_event_signature(
+  observation: List(#(String, JsonValue)),
+) -> List(#(String, List(String), Int)) {
+  let assert Ok(VArray(events)) = list.key_find(observation, "allocationEvents")
+  list.map(events, fn(event) {
+    let assert VObject(fields) = event
+    let assert Ok(VString(kind)) = list.key_find(fields, "kind")
+    let assert Ok(VArray(path)) = list.key_find(fields, "path")
+    let path =
+      list.map(path, fn(segment) {
+        case segment {
+          VString(value) -> value
+          VNumber(NInt(value)) -> int.to_string(value)
+          _ -> panic as "allocation path segment is not text or an integer"
+        }
+      })
+    let assert Ok(VNumber(NInt(operation))) = list.key_find(fields, "op")
+    #(kind, path, operation)
+  })
+}
+
+fn replace_initial_compressor(
+  input: json.Json,
+  serialized: String,
+) -> json.Json {
+  let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(input))
+  let assert Ok(VObject(compressors)) = list.key_find(root, "compressors")
+  root
+  |> list.key_set(
+    "compressors",
+    VObject(list.key_set(compressors, "initial", VString(serialized))),
+  )
+  |> VObject
+  |> json_ot.to_json
+}
+
+fn shifted_local_compressor() -> String {
+  let assert Ok(local_session) =
+    fluid_ids.session_id("10000000-0000-4000-8000-000000000001")
+  let assert Ok(remote_session) =
+    fluid_ids.session_id("20000000-0000-4000-8000-000000000002")
+  let #(remote, _) = generated_ids(fluid_ids.new(remote_session), 1)
+  let assert #(_remote, Some(remote_range)) =
+    fluid_ids.take_creation_range(remote)
+  let assert Ok(local) =
+    fluid_ids.finalize(fluid_ids.new(local_session), remote_range)
+  let #(local, _) = generated_ids(local, 1)
+  let assert #(local, Some(local_range)) = fluid_ids.take_creation_range(local)
+  let assert Ok(local) = fluid_ids.finalize(local, local_range)
+  let assert Ok(serialized) = fluid_ids.serialize(local, True)
+  let assert Ok(VString(serialized)) =
+    json_ot.parse_json(json.to_string(serialized))
+  serialized
 }
 
 fn update_observation_field(
