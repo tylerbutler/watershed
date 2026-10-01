@@ -41,6 +41,8 @@ import watershed/summary_policy
 @target(erlang)
 import watershed/tree/fixtures
 @target(erlang)
+import watershed/tree/identifier_fixture
+@target(erlang)
 import watershed/tree/runtime_fixture
 @target(erlang)
 import watershed/tree/types as tree_types
@@ -122,6 +124,78 @@ fn ready_tree_actor(push: fn(String, json.Json) -> Result(Nil, String)) {
   )
   runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
   #(actor, callbacks, view.view)
+}
+
+@target(erlang)
+fn ready_identifier_actor(push: fn(String, json.Json) -> Result(Nil, String)) {
+  let assert Ok(seed) =
+    identifier_fixture.seed_input()
+    |> runtime_core.bootstrap_seed
+  let callbacks_subject = process.new_subject()
+  let assert Ok(actor) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(callbacks_subject, callbacks)
+      }),
+      seed: seed,
+    )
+  let assert Ok(callbacks) = process.receive(callbacks_subject, 1000)
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(push: push, close: fn() { Nil }, drop: fn() {
+      Nil
+    }),
+  )
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  actor
+}
+
+@target(erlang)
+pub fn identifier_refusals_preserve_installed_runtime_test() {
+  let submissions = process.new_subject()
+  let actor =
+    ready_identifier_actor(fn(event, payload) {
+      case event {
+        "submitOp" -> process.send(submissions, payload)
+        _ -> Nil
+      }
+      Ok(Nil)
+    })
+  let events = process.new_subject()
+  process.send(
+    actor,
+    runtime_beam.Subscribe("A/_C", fn(event) { process.send(events, event) }),
+  )
+
+  [
+    tree_types.SetField(["id"], tree_types.StringValue("replacement")),
+    tree_types.SetField(["id"], tree_types.StringValue("literal-custom-id")),
+    tree_types.ClearField(["id"]),
+  ]
+  |> list.each(fn(edit) {
+    runtime_beam.tree_edit(actor, "A/_C", edit) |> expect.to_be_error
+    runtime_beam.tree_read(actor, "A/_C", ["id"])
+    |> expect.to_equal(Ok(Some(tree_types.StringValue("literal-custom-id"))))
+    process.receive(events, 0) |> expect.to_equal(Error(Nil))
+    process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  })
+  process.send(actor, runtime_beam.Shutdown)
 }
 
 @target(erlang)

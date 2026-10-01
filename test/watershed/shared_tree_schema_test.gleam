@@ -195,6 +195,36 @@ pub fn shared_tree_schema_identifier_content_is_required_string_test() {
   |> expect.to_equal(Ok(Nil))
 }
 
+pub fn shared_tree_schema_identifier_validates_declared_string_node_test() {
+  let raw =
+    "{\"version\":2,\"nodes\":{
+      \"com.fluidframework.leaf.string\":{\"kind\":{\"object\":{}}},
+      \"org.watershed.shared-tree.identifiers.Point\":{\"kind\":{\"object\":{
+        \"id\":{\"kind\":\"Identifier\",\"types\":[\"com.fluidframework.leaf.string\"]}
+      }}}
+    },\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.identifiers.Point\"]}}"
+  let assert Ok(stored) = schema.stored_from_string(raw)
+  let assert Error(_) =
+    schema.validate_root(
+      stored,
+      types.ObjectValue(identifier_fixture.point_type, [
+        #("id", types.StringValue("custom-non-uuid")),
+      ]),
+    )
+  Nil
+}
+
+pub fn shared_tree_schema_identifier_root_is_comparison_only_test() {
+  let raw =
+    "{\"version\":2,\"nodes\":{
+      \"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}}
+    },\"root\":{\"kind\":\"Identifier\",\"types\":[\"com.fluidframework.leaf.string\"]}}"
+  schema.stored_from_string(raw) |> expect.to_be_error
+  let assert Ok(view) = schema.view_from_string(raw)
+  let assert Error(_) = schema.can_view(identifier_fixture.stored(), view)
+  Nil
+}
+
 pub fn shared_tree_schema_checks_leaf_identity_and_references_test() -> Nil {
   [
     string.replace(string_schema, "\"leaf\":1", "\"leaf\":0"),

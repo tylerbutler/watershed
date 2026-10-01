@@ -342,6 +342,128 @@ pub fn shared_tree_change_identifier_field_rebases_as_no_change_test() {
   |> expect.to_equal([#("id", change.IdentifierField)])
 }
 
+pub fn shared_tree_change_identifier_field_rejects_generic_rebase_test() {
+  let identifier = identifier_changeset()
+  let child = AtomId(None, 0)
+  let concrete_generic =
+    checked(
+      change.ChangeData(
+        ..empty_data(),
+        max_local_id: 0,
+        fields: [#("id", change.GenericField([#(0, child)]))],
+        nodes: [#(child, node_change([]))],
+        parents: [#(child, change.ParentField(None, "id"))],
+      ),
+    )
+    |> expect.to_be_ok()
+  let assert Ok(context) =
+    change.rebase_context([
+      change.RevisionInfo(revision_a(), None),
+      change.RevisionInfo(revision_b(), None),
+    ])
+  let assert Error(_) =
+    change.rebase(
+      change.TaggedChange(Some(revision_a()), None, identifier),
+      change.TaggedChange(Some(revision_b()), None, concrete_generic),
+      context,
+    )
+  let assert Error(_) =
+    change.rebase(
+      change.TaggedChange(Some(revision_a()), None, concrete_generic),
+      change.TaggedChange(Some(revision_b()), None, identifier),
+      context,
+    )
+  Nil
+}
+
+pub fn shared_tree_change_identifier_field_preserves_atoms_across_transforms_test() {
+  let authored =
+    authored(revision_a(), SetField(["point", "x"], NumberValue(7.0)))
+  let data = change.to_data(authored)
+  let with_identifier =
+    checked(
+      change.ChangeData(..data, fields: [
+        #("identifier", change.IdentifierField),
+        ..data.fields
+      ]),
+    )
+    |> expect.to_be_ok()
+
+  let assert Ok(pruned) = change.prune(with_identifier)
+  let pruned = change.to_data(pruned)
+  pruned.max_local_id |> expect.to_equal(3)
+  pruned.fields
+  |> expect.to_equal([
+    #("identifier", change.IdentifierField),
+    #("rootFieldKey", change.GenericField([#(0, atom(3))])),
+  ])
+  pruned.nodes
+  |> expect.to_equal([
+    #(
+      atom(2),
+      node_change([
+        #("x", change.ValueField(optional_field.set(False, atom(0), atom(1)))),
+      ]),
+    ),
+    #(
+      atom(3),
+      node_change([
+        #("point", change.GenericField([#(0, atom(2))])),
+      ]),
+    ),
+  ])
+  pruned.builds
+  |> expect.to_equal([forest.Build(atom(0), [NumberValue(7.0)])])
+
+  let revision_c = revision("00000000-0000-4000-8000-0000000000c0")
+  let assert Ok(#(replaced, mappings)) =
+    change.replace_revisions_with_mapping(
+      with_identifier,
+      [Some(revision_a())],
+      revision_c,
+    )
+  let replaced = change.to_data(replaced)
+  replaced.max_local_id |> expect.to_equal(3)
+  replaced.fields
+  |> expect.to_equal([
+    #("identifier", change.IdentifierField),
+    #("rootFieldKey", change.GenericField([#(0, AtomId(Some(revision_c), 3))])),
+  ])
+  replaced.nodes
+  |> expect.to_equal([
+    #(
+      AtomId(Some(revision_c), 2),
+      node_change([
+        #(
+          "x",
+          change.ValueField(optional_field.set(
+            False,
+            AtomId(Some(revision_c), 0),
+            AtomId(Some(revision_c), 1),
+          )),
+        ),
+      ]),
+    ),
+    #(
+      AtomId(Some(revision_c), 3),
+      node_change([
+        #("point", change.GenericField([#(0, AtomId(Some(revision_c), 2))])),
+      ]),
+    ),
+  ])
+  replaced.builds
+  |> expect.to_equal([
+    forest.Build(AtomId(Some(revision_c), 0), [NumberValue(7.0)]),
+  ])
+  mappings
+  |> expect.to_equal([
+    #(atom(3), AtomId(Some(revision_c), 3)),
+    #(atom(2), AtomId(Some(revision_c), 2)),
+    #(atom(1), AtomId(Some(revision_c), 1)),
+    #(atom(0), AtomId(Some(revision_c), 0)),
+  ])
+}
+
 fn identifier_changeset() -> change.Changeset {
   checked(
     change.ChangeData(..empty_data(), fields: [#("id", change.IdentifierField)]),

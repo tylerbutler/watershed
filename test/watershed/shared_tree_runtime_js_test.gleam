@@ -47,6 +47,8 @@ import watershed/transport_js
 @target(javascript)
 import watershed/tree/fixtures
 @target(javascript)
+import watershed/tree/identifier_fixture
+@target(javascript)
 import watershed/tree/runtime_fixture
 @target(javascript)
 import watershed/tree/types as tree_types
@@ -323,6 +325,82 @@ pub fn seeded_runtime_resolves_routed_root_before_publication_test() {
   |> expect.to_equal("reconnecting")
   runtime.diagnostics(runtime).in_flight_count |> expect.to_equal(1)
   runtime.close(runtime)
+}
+
+@target(javascript)
+pub fn identifier_refusals_preserve_installed_runtime_test() {
+  let assert Ok(seed) =
+    identifier_fixture.seed_input()
+    |> runtime_core.bootstrap_seed
+  let callbacks = transport_js.new_cell(None)
+  let ready = transport_js.new_cell(None)
+  let pushed = transport_js.new_cell([])
+  let owner =
+    runtime.start_with_transport_and_seed(
+      http_base_url: "https://seed.invalid",
+      connect_message: connect_message(),
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(event, payload) {
+            case event {
+              "submitOp" ->
+                transport_js.set_cell(pushed, [
+                  payload,
+                  ..transport_js.get_cell(pushed)
+                ])
+              _ -> Nil
+            }
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      seed: seed,
+      on_ready: fn(result) { transport_js.set_cell(ready, Some(result)) },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_join()
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  transport_js.get_cell(ready) |> expect.to_equal(Some(Ok(Nil)))
+  let events = transport_js.new_cell([])
+  let _ =
+    runtime.subscribe(owner, "A/_C", fn(event) {
+      transport_js.set_cell(events, [event, ..transport_js.get_cell(events)])
+    })
+  let before = runtime.diagnostics(owner)
+
+  [
+    tree_types.SetField(["id"], tree_types.StringValue("replacement")),
+    tree_types.SetField(["id"], tree_types.StringValue("literal-custom-id")),
+    tree_types.ClearField(["id"]),
+  ]
+  |> list.each(fn(edit) {
+    runtime.tree_edit(owner, "A/_C", edit) |> expect.to_be_error
+    runtime.tree_read(owner, "A/_C", ["id"])
+    |> expect.to_equal(Ok(Some(tree_types.StringValue("literal-custom-id"))))
+    transport_js.get_cell(events) |> expect.to_equal([])
+    transport_js.get_cell(pushed) |> expect.to_equal([])
+    runtime.diagnostics(owner).in_flight_count
+    |> expect.to_equal(before.in_flight_count)
+  })
+  runtime.close(owner)
 }
 
 @target(javascript)

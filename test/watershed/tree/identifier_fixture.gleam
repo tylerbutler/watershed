@@ -1,11 +1,16 @@
 import gleam/json
+import gleam/list
 import gleam/option.{Some}
+import watershed/channel
 import watershed/fluid_ids
+import watershed/runtime_core
 import watershed/tree/forest
 import watershed/tree/history
+import watershed/tree/runtime_fixture
 import watershed/tree/schema
 import watershed/tree/types
 import watershed/tree_kernel
+import watershed/wire/fluid_container
 
 pub const point_type = "org.watershed.shared-tree.identifiers.Point"
 
@@ -43,6 +48,36 @@ pub fn state(
   let assert Ok(value) =
     tree_kernel.restore(snapshot, view_id(), session(), view)
   value
+}
+
+pub fn seed_input() -> runtime_core.BootstrapSeedInput {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert [tree_view] = input.tree_views
+  let view = view("Identifier")
+  let assert Ok(snapshot) =
+    tree_kernel.snapshot_from_parts(
+      tree_view.view_id,
+      stored(),
+      forest.ForestData(Some(point("literal-custom-id", "before")), [], 0),
+      history.HistorySnapshot(history.InitialBase, [], [], 0, 0),
+    )
+  runtime_core.BootstrapSeedInput(
+    ..input,
+    sequence_number: 0,
+    minimum_sequence_number: 0,
+    tree_views: [runtime_core.TreeViewSeed(..tree_view, view:)],
+    channels: list.map(input.channels, fn(seed) {
+      case seed.route == tree_view.route {
+        True ->
+          runtime_core.ChannelSeed(
+            ..seed,
+            snapshot: channel.TreeSnapshot(snapshot),
+          )
+        False -> seed
+      }
+    }),
+    bootstrap_map: fluid_container.Route("A", "root"),
+  )
 }
 
 pub fn pair_stored() -> schema.StoredSchema {

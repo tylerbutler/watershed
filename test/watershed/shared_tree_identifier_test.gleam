@@ -146,8 +146,6 @@ fn expect_atomic_error(edit: types.Edit) {
   let assert Ok(before_reference) = tree_kernel.reference_at(state, ["id"])
   let before_data = tree_kernel.visible_data(state)
   let before_history = tree_kernel.history_view(state)
-  let before_summary = fluid_ids.serialize(compressor, False)
-  let before_ongoing = fluid_ids.serialize(compressor, True)
 
   let assert Error(_) = tree_kernel.validate_edit(state, edit)
   let assert Error(_) = tree_runtime.author_edit(state, edit, compressor)
@@ -156,19 +154,13 @@ fn expect_atomic_error(edit: types.Edit) {
   let assert Ok(#(transaction.NoCommit(restored, restored_compressor), events)) =
     transaction.finish(open)
 
-  tree_kernel.visible_data(state) |> expect.to_equal(before_data)
-  tree_kernel.history_view(state) |> expect.to_equal(before_history)
-  tree_kernel.history_view(state).pending |> expect.to_equal([])
-  tree_kernel.reference_at(state, ["id"])
-  |> expect.to_equal(Ok(before_reference))
-  tree_kernel.read_reference(state, before_reference)
-  |> expect.to_equal(Ok(types.StringValue("literal-custom-id")))
-  fluid_ids.serialize(compressor, False) |> expect.to_equal(before_summary)
-  fluid_ids.serialize(compressor, True) |> expect.to_equal(before_ongoing)
   tree_kernel.visible_data(restored) |> expect.to_equal(before_data)
   tree_kernel.history_view(restored) |> expect.to_equal(before_history)
+  tree_kernel.history_view(restored).pending |> expect.to_equal([])
   tree_kernel.reference_at(restored, ["id"])
   |> expect.to_equal(Ok(before_reference))
+  tree_kernel.read_reference(restored, before_reference)
+  |> expect.to_equal(Ok(types.StringValue("literal-custom-id")))
   restored_compressor |> expect.to_equal(compressor)
   events |> expect.to_equal(tree_kernel.ChangeEvents([], False))
   Nil

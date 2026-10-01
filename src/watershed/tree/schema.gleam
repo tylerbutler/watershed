@@ -293,22 +293,29 @@ fn validate_content(
     None, Required -> Error(InvalidEdit(path, "required field is absent"))
     None, Sequence -> Ok(Nil)
     None, Identifier -> Error(InvalidEdit(path, "identifier field is absent"))
-    Some(StringValue(_)), Identifier -> Ok(Nil)
+    Some(StringValue(_) as value), Identifier ->
+      validate_allowed_node(repository, field, value, path)
     Some(_), Identifier ->
       Error(InvalidEdit(path, "identifier field must contain a string"))
-    Some(value), _ -> {
-      let identifier = value_identifier(value)
-      case list.contains(field.allowed_types, identifier) {
-        False ->
-          Error(InvalidEdit(path, "node type is not allowed: " <> identifier))
-        True ->
-          case dict.get(repository.nodes, identifier) {
-            Error(Nil) ->
-              Error(InvalidEdit(path, "unknown schema: " <> identifier))
-            Ok(node) -> validate_node(repository, node, value, path)
-          }
+    Some(value), _ -> validate_allowed_node(repository, field, value, path)
+  }
+}
+
+fn validate_allowed_node(
+  repository: Repository,
+  field: FieldSchema,
+  value: TreeValue,
+  path: FieldPath,
+) -> Result(Nil, TreeError) {
+  let identifier = value_identifier(value)
+  case list.contains(field.allowed_types, identifier) {
+    False ->
+      Error(InvalidEdit(path, "node type is not allowed: " <> identifier))
+    True ->
+      case dict.get(repository.nodes, identifier) {
+        Error(Nil) -> Error(InvalidEdit(path, "unknown schema: " <> identifier))
+        Ok(node) -> validate_node(repository, node, value, path)
       }
-    }
   }
 }
 
@@ -992,9 +999,9 @@ fn decode_repository(
       Error(InvalidSchema(
         "$.root: sequence field is only valid as an array primary field",
       ))
-    IdentifierKind ->
+    IdentifierKind if !allow_excluded ->
       Error(InvalidSchema("$.root: identifier field is only valid on an object"))
-    ForbiddenKind | OptionalKind | RequiredKind -> Ok(Nil)
+    ForbiddenKind | OptionalKind | RequiredKind | IdentifierKind -> Ok(Nil)
   })
   let comparison_nodes = dict.from_list(nodes)
   let repository =
