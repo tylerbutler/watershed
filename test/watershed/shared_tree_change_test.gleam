@@ -8,6 +8,7 @@ import watershed/tree/forest
 import watershed/tree/optional_field
 import watershed/tree/schema
 import watershed/tree/sequence_field
+import watershed/tree/shared_change
 import watershed/tree/types.{
   type AtomId, type Edit, type TreeError, type TreeValue, AtomId, ClearField,
   CorruptData, InvalidEdit, InvalidHistory, NullValue, NumberValue, ObjectValue,
@@ -326,6 +327,21 @@ pub fn shared_tree_change_compose_keeps_valid_edit_after_violation_test() {
       ),
     ),
   )
+
+  let assert Ok(singleton) =
+    shared_change.compose([
+      shared_change.TaggedChange(None, None, shared_change.from_data(composed)),
+    ])
+  let assert [shared_change.DataChange(recomposed)] =
+    shared_change.to_changes(singleton)
+  recomposed |> expect.to_equal(composed)
+  change.to_data(recomposed).constraint_violation_count |> expect.to_equal(0)
+  let assert Ok(recomposed_delta) =
+    change.into_delta(change.TaggedChange(None, None, recomposed))
+  let assert Ok(recomposed_state) =
+    forest.apply_delta(initial, recomposed_delta)
+  forest.visible_root(recomposed_state)
+  |> expect.to_equal(forest.visible_root(sequential))
 }
 
 pub fn shared_tree_change_compose_recomputes_constraint_violations_test() {

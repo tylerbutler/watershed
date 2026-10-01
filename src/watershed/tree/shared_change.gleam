@@ -89,6 +89,8 @@ fn flush_data(
 ) -> Result(List(TreeChange), TreeError) {
   case data_run {
     [] -> Ok(output)
+    [change.TaggedChange(_, _, data)] ->
+      Ok(list.append(output, [DataChange(data)]))
     _ ->
       change.compose(data_run)
       |> result.map(fn(data) { list.append(output, [DataChange(data)]) })
