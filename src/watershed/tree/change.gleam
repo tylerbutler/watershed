@@ -1928,14 +1928,16 @@ pub fn compose_with_trace(
     max_local_id,
   ))
   let cross_field_keys = composed.cross_field_keys
+  let constraint_violation_count = case changes {
+    [_] -> constraint_violation_count(composed.data.nodes)
+    _ -> composed.data.constraint_violation_count
+  }
   use composed <- result.try(from_data(
     ChangeData(
       ..composed.data,
       max_local_id: max_local_id,
       revisions: revisions,
-      constraint_violation_count: constraint_violation_count(
-        composed.data.nodes,
-      ),
+      constraint_violation_count: constraint_violation_count,
     ),
     composed.identity_order,
   ))
@@ -2730,6 +2732,51 @@ fn effective_data(data: ChangeData) -> ChangeData {
         cross_field_keys: [],
       )
     False -> data
+  }
+}
+
+fn composition_data(data: ChangeData) -> Result(ChangeData, TreeError) {
+  case data.constraint_violation_count > 0 {
+    False -> Ok(data)
+    True -> {
+      use fields <- result.try(mute_field_map(data.fields))
+      use nodes <- result.try(
+        list.try_map(data.nodes, fn(entry) {
+          use fields <- result.try(mute_field_map(entry.1.fields))
+          Ok(#(entry.0, NodeChange(..entry.1, fields:)))
+        }),
+      )
+      Ok(ChangeData(..data, fields: fields, nodes: nodes, cross_field_keys: []))
+    }
+  }
+}
+
+fn mute_field_map(
+  fields: List(#(String, FieldChange)),
+) -> Result(List(#(String, FieldChange)), TreeError) {
+  list.try_map(fields, fn(entry) {
+    use field <- result.try(mute_field(entry.1))
+    Ok(#(entry.0, field))
+  })
+}
+
+fn mute_field(field: FieldChange) -> Result(FieldChange, TreeError) {
+  case field {
+    ValueField(optional_field.FieldChange(_, children, _)) ->
+      Ok(ValueField(optional_field.FieldChange([], children, None)))
+    OptionalField(optional_field.FieldChange(_, children, _)) ->
+      Ok(OptionalField(optional_field.FieldChange([], children, None)))
+    SequenceField(change) -> {
+      use muted <- result.try(
+        sequence_field.to_marks(change)
+        |> list.map(fn(mark) {
+          sequence_field.Mark(..mark, effect: sequence_field.Noop)
+        })
+        |> sequence_field.from_marks,
+      )
+      Ok(SequenceField(muted))
+    }
+    GenericField(_) -> Ok(field)
   }
 }
 
@@ -3733,8 +3780,8 @@ fn compose_pair(
     first.identity_order,
     second.identity_order,
   ))
-  let first_data = first.data
-  let second_data = second.data
+  use first_data <- result.try(composition_data(first.data))
+  use second_data <- result.try(composition_data(second.data))
   use aliases <- result.try(merge_aliases(
     first_data.aliases,
     second_data.aliases,
@@ -3744,12 +3791,12 @@ fn compose_pair(
   use nodes <- result.try(canonicalize_pair_keys(merged_nodes, aliases))
   use parents <- result.try(canonicalize_pair_keys(merged_parents, aliases))
   use first_owners <- result.try(owner_ranges(
-    first.cross_field_keys,
+    first_data.cross_field_keys,
     moves.FirstOperand,
     first_data.aliases,
   ))
   use second_owners <- result.try(owner_ranges(
-    second.cross_field_keys,
+    second_data.cross_field_keys,
     moves.SecondOperand,
     second_data.aliases,
   ))
@@ -3788,7 +3835,7 @@ fn compose_pair(
     second_data,
   ))
   use cross_field_keys <- result.try(sort_cross_field_keys(
-    list.append(first.cross_field_keys, second.cross_field_keys),
+    list.append(first_data.cross_field_keys, second_data.cross_field_keys),
     identity_order,
   ))
   let cross_field_keys = coalesce_cross_field_keys(cross_field_keys)

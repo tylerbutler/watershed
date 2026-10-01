@@ -203,6 +203,28 @@ fn constraint_at(path: List(String), violated: Bool) -> change.Changeset {
   constrained
 }
 
+fn violate_constraints(constrained: change.Changeset) -> change.Changeset {
+  let data = change.to_data(constrained)
+  let nodes =
+    list.map(data.nodes, fn(entry) {
+      case entry.1.node_exists_constraint {
+        None -> entry
+        Some(_) -> #(
+          entry.0,
+          change.NodeChange(
+            ..entry.1,
+            node_exists_constraint: Some(change.NodeExistsConstraint(True)),
+          ),
+        )
+      }
+    })
+  let assert Ok(violated) =
+    checked(
+      change.ChangeData(..data, nodes: nodes, constraint_violation_count: 1),
+    )
+  violated
+}
+
 fn constrained_nodes(value: change.Changeset) -> List(change.NodeChange) {
   change.to_data(value).nodes
   |> list.filter_map(fn(entry) {
@@ -264,6 +286,46 @@ pub fn shared_tree_change_compose_preserves_and_deduplicates_constraints_test() 
     ])
   constrained_nodes(composed) |> list.length |> expect.to_equal(1)
   change.to_data(composed).constraint_violation_count |> expect.to_equal(0)
+}
+
+pub fn shared_tree_change_compose_keeps_valid_edit_after_violation_test() {
+  let initial = initial_forest()
+  let constrained_edit =
+    authored(revision_a(), SetField(["point", "x"], NumberValue(7.0)))
+  let assert Ok(target) = change.resolve_constraint(initial, ["point"])
+  let assert Ok(constrained_edit) =
+    change.add_node_exists_constraints(constrained_edit, initial, [target])
+  let violated = violate_constraints(constrained_edit)
+  let later = authored(revision_b(), SetField(["point", "y"], NumberValue(9.0)))
+
+  let assert Ok(violated_delta) =
+    change.into_delta(change.TaggedChange(Some(revision_a()), None, violated))
+  let assert Ok(after_violation) = forest.apply_delta(initial, violated_delta)
+  let assert Ok(later_delta) =
+    change.into_delta(change.TaggedChange(Some(revision_b()), None, later))
+  let assert Ok(sequential) = forest.apply_delta(after_violation, later_delta)
+
+  let assert Ok(composed) =
+    change.compose([
+      change.TaggedChange(Some(revision_a()), None, violated),
+      change.TaggedChange(Some(revision_b()), None, later),
+    ])
+  let assert Ok(composed_delta) =
+    change.into_delta(change.TaggedChange(None, None, composed))
+  let assert Ok(composed_state) = forest.apply_delta(initial, composed_delta)
+
+  forest.visible_root(composed_state)
+  |> expect.to_equal(forest.visible_root(sequential))
+  forest.visible_root(composed_state)
+  |> expect.to_equal(
+    Ok(
+      Some(
+        ObjectValue("Root", [
+          #("point", point(1.0, 9.0)),
+        ]),
+      ),
+    ),
+  )
 }
 
 pub fn shared_tree_change_compose_recomputes_constraint_violations_test() {
