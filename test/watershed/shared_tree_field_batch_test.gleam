@@ -28,6 +28,12 @@ const points_type = "org.watershed.shared-tree.m3.Points"
 
 const root_type = "org.watershed.shared-tree.m3.Root"
 
+const identifier_container_type = "org.watershed.shared-tree.identifiers.Container"
+
+const identifier_map_type = "org.watershed.shared-tree.identifiers.Map"
+
+const identifier_array_type = "org.watershed.shared-tree.identifiers.Array"
+
 fn encoded_batch(shapes: List(json.Json), data: List(json.Json)) -> json.Json {
   json.object([
     #("version", json.int(2)),
@@ -77,6 +83,102 @@ fn array_schema() -> schema.StoredSchema {
       decode.at(["schemas", "rootArray"], decode.string),
     )
   let assert Ok(stored) = schema.stored_from_string(raw)
+  stored
+}
+
+fn identifier_nesting_schema() -> schema.StoredSchema {
+  let field = fn(kind, types) {
+    json.object([
+      #("kind", json.string(kind)),
+      #("types", json.array(types, json.string)),
+    ])
+  }
+  let assert Ok(stored) =
+    schema.stored_from_json(
+      json.object([
+        #("version", json.int(2)),
+        #(
+          "nodes",
+          json.object([
+            #(
+              "com.fluidframework.leaf.string",
+              json.object([#("kind", json.object([#("leaf", json.int(1))]))]),
+            ),
+            #(
+              identifier_fixture.point_type,
+              json.object([
+                #(
+                  "kind",
+                  json.object([
+                    #(
+                      "object",
+                      json.object([
+                        #(
+                          "id",
+                          field("Identifier", ["com.fluidframework.leaf.string"]),
+                        ),
+                        #(
+                          "label",
+                          field("Value", ["com.fluidframework.leaf.string"]),
+                        ),
+                      ]),
+                    ),
+                  ]),
+                ),
+              ]),
+            ),
+            #(
+              identifier_map_type,
+              json.object([
+                #(
+                  "kind",
+                  json.object([
+                    #("map", field("Value", [identifier_fixture.point_type])),
+                  ]),
+                ),
+              ]),
+            ),
+            #(
+              identifier_array_type,
+              json.object([
+                #(
+                  "kind",
+                  json.object([
+                    #(
+                      "object",
+                      json.object([
+                        #(
+                          "",
+                          field("Sequence", [identifier_fixture.point_type]),
+                        ),
+                      ]),
+                    ),
+                  ]),
+                ),
+              ]),
+            ),
+            #(
+              identifier_container_type,
+              json.object([
+                #(
+                  "kind",
+                  json.object([
+                    #(
+                      "object",
+                      json.object([
+                        #("byKey", field("Value", [identifier_map_type])),
+                        #("items", field("Value", [identifier_array_type])),
+                      ]),
+                    ),
+                  ]),
+                ),
+              ]),
+            ),
+          ]),
+        ),
+        #("root", field("Value", [identifier_container_type])),
+      ]),
+    )
   stored
 }
 
@@ -367,6 +469,261 @@ pub fn shared_tree_codec_field_batch_decodes_recursive_identifier_shape_test() {
       ],
     ]),
   )
+}
+
+pub fn shared_tree_codec_field_batch_decodes_numeric_fixed_and_inline_identifiers_test() {
+  let sender_session = identifier_fixture.sender_session()
+  let sender = fluid_ids.new(sender_session)
+  let assert Ok(#(sender, first)) = fluid_ids.generate(sender)
+  let assert Ok(#(sender, second)) = fluid_ids.generate(sender)
+  let assert Ok(first_stable) = fluid_ids.decompress(sender, first)
+  let assert Ok(second_stable) = fluid_ids.decompress(sender, second)
+  let assert Ok(first_operation) = fluid_ids.to_op(sender, first)
+  let assert Ok(second_operation) = fluid_ids.to_op(sender, second)
+  let #(_, range) = fluid_ids.take_creation_range(sender)
+  let assert Some(range) = range
+  let assert Ok(receiver) =
+    fluid_ids.new(identifier_fixture.receiver_session())
+    |> fluid_ids.finalize(range)
+  let identifier_shape =
+    json.object([
+      #(
+        "c",
+        json.object([
+          #("type", json.string("com.fluidframework.leaf.string")),
+          #("value", json.int(0)),
+        ]),
+      ),
+    ])
+  let encoded =
+    encoded_batch(
+      [
+        json.object([
+          #(
+            "c",
+            json.object([
+              #("type", json.string("Fixed")),
+              #("value", json.bool(False)),
+              #(
+                "fields",
+                json.array(
+                  [
+                    json.array([json.string("id"), json.int(1)], fn(value) {
+                      value
+                    }),
+                  ],
+                  fn(value) { value },
+                ),
+              ),
+            ]),
+          ),
+        ]),
+        identifier_shape,
+        json.object([
+          #(
+            "b",
+            json.object([#("length", json.int(2)), #("shape", json.int(1))]),
+          ),
+        ]),
+      ],
+      [
+        stream([
+          json.int(0),
+          json.int(fluid_ids.op_id_to_int(first_operation)),
+        ]),
+        stream([
+          json.int(2),
+          json.int(fluid_ids.op_id_to_int(first_operation)),
+          json.int(fluid_ids.op_id_to_int(second_operation)),
+        ]),
+      ],
+    )
+
+  field_batch.decode_with_context(
+    encoded,
+    None,
+    field_batch.MessageIds(receiver, sender_session),
+  )
+  |> expect.to_equal(
+    Ok([
+      [
+        ObjectValue("Fixed", [
+          #("id", StringValue(fluid_ids.stable_id_to_string(first_stable))),
+        ]),
+      ],
+      [
+        StringValue(fluid_ids.stable_id_to_string(first_stable)),
+        StringValue(fluid_ids.stable_id_to_string(second_stable)),
+      ],
+    ]),
+  )
+}
+
+pub fn shared_tree_codec_field_batch_encodes_identifiers_nested_in_maps_and_arrays_test() {
+  let sender_session = identifier_fixture.sender_session()
+  let sender = fluid_ids.new(sender_session)
+  let assert Ok(#(sender, first)) = fluid_ids.generate(sender)
+  let assert Ok(#(sender, second)) = fluid_ids.generate(sender)
+  let assert Ok(first_stable) = fluid_ids.decompress(sender, first)
+  let assert Ok(second_stable) = fluid_ids.decompress(sender, second)
+  let first =
+    identifier_fixture.point(fluid_ids.stable_id_to_string(first_stable), "map")
+  let second =
+    identifier_fixture.point(
+      fluid_ids.stable_id_to_string(second_stable),
+      "array",
+    )
+  let value =
+    ObjectValue(identifier_container_type, [
+      #("byKey", MapValue(identifier_map_type, [#("first", first)])),
+      #("items", ArrayValue(identifier_array_type, [second])),
+    ])
+  let stored = identifier_nesting_schema()
+  let assert Ok(encoded) =
+    field_batch.encode_with_context(
+      [[value]],
+      Some(stored),
+      field_batch.MessageIds(sender, sender_session),
+    )
+  let #(_, range) = fluid_ids.take_creation_range(sender)
+  let assert Some(range) = range
+  let assert Ok(receiver) =
+    fluid_ids.new(identifier_fixture.receiver_session())
+    |> fluid_ids.finalize(range)
+
+  field_batch.decode_with_context(
+    encoded,
+    Some(stored),
+    field_batch.MessageIds(receiver, sender_session),
+  )
+  |> expect.to_equal(Ok([[value]]))
+}
+
+pub fn shared_tree_codec_field_batch_pins_identifier_encode_for_native_decode_test() {
+  let sender_session = identifier_fixture.sender_session()
+  let sender = fluid_ids.new(sender_session)
+  let assert Ok(#(sender, _)) = fluid_ids.generate(sender)
+  let value =
+    identifier_fixture.point("11111111-1111-4111-8111-111111111111", "captured")
+  let assert Ok(encoded) =
+    field_batch.encode_with_context(
+      [[value]],
+      Some(identifier_fixture.stored()),
+      field_batch.MessageIds(sender, sender_session),
+    )
+  let expected =
+    encoded_batch(
+      [
+        json.object([
+          #("c", json.object([#("extraFields", json.int(1))])),
+        ]),
+        json.object([#("a", json.int(2))]),
+        json.object([#("d", json.int(0))]),
+        json.object([
+          #(
+            "c",
+            json.object([
+              #("type", json.string("com.fluidframework.leaf.null")),
+              #("value", json.array([json.null()], fn(value) { value })),
+            ]),
+          ),
+        ]),
+        json.object([
+          #(
+            "c",
+            json.object([
+              #("type", json.string("com.fluidframework.leaf.string")),
+              #("value", json.int(0)),
+            ]),
+          ),
+        ]),
+      ],
+      [
+        stream([
+          json.int(1),
+          stream([
+            json.int(0),
+            json.string(identifier_fixture.point_type),
+            json.bool(False),
+            stream([
+              json.string("id"),
+              stream([json.int(4), json.int(-1)]),
+              json.string("label"),
+              stream([
+                json.int(0),
+                json.string("com.fluidframework.leaf.string"),
+                json.bool(True),
+                json.string("captured"),
+                stream([]),
+              ]),
+            ]),
+          ]),
+        ]),
+      ],
+    )
+  encoded |> expect.to_equal(expected)
+
+  let range =
+    fluid_ids.CreationRange(
+      sender_session,
+      Some(fluid_ids.RangeIds(1, 1, 512, [#(1, 1)])),
+    )
+  let assert Ok(receiver) =
+    fluid_ids.new(identifier_fixture.receiver_session())
+    |> fluid_ids.finalize(range)
+  field_batch.decode_with_context(
+    expected,
+    Some(identifier_fixture.stored()),
+    field_batch.MessageIds(receiver, sender_session),
+  )
+  |> expect.to_equal(Ok([[value]]))
+}
+
+pub fn shared_tree_codec_field_batch_preserves_reserved_unallocated_identifiers_test() {
+  let sender_session = identifier_fixture.sender_session()
+  let sender = fluid_ids.new(sender_session)
+  let assert Ok(#(sender, _)) = fluid_ids.generate(sender)
+  let #(sender, range) = fluid_ids.take_creation_range(sender)
+  let assert Some(range) = range
+  let assert Ok(sender) = fluid_ids.finalize(sender, range)
+  let reserved = "11111111-1111-4111-8111-111111111112"
+  let value = identifier_fixture.point(reserved, "reserved")
+  [
+    field_batch.MessageIds(sender, sender_session),
+    field_batch.SummaryIds(sender),
+  ]
+  |> list.each(fn(context) {
+    let assert Ok(encoded) =
+      field_batch.encode_with_context(
+        [[value]],
+        Some(identifier_fixture.stored()),
+        context,
+      )
+    field_batch.decode(encoded) |> expect.to_equal(Ok([[value]]))
+  })
+
+  let assert Ok(receiver) =
+    fluid_ids.new(identifier_fixture.receiver_session())
+    |> fluid_ids.finalize(range)
+  [
+    field_batch.MessageIds(receiver, sender_session),
+    field_batch.SummaryIds(receiver),
+  ]
+  |> list.each(fn(context) {
+    let assert Ok(encoded) =
+      field_batch.encode_with_context(
+        [[value]],
+        Some(identifier_fixture.stored()),
+        context,
+      )
+    field_batch.decode(encoded) |> expect.to_equal(Ok([[value]]))
+    let assert Error(types.CorruptData(_, _)) =
+      field_batch.decode_with_context(
+        identifier_batch(json.int(1)),
+        None,
+        context,
+      )
+  })
 }
 
 pub fn shared_tree_codec_field_batch_contextual_identifier_round_trip_test() {

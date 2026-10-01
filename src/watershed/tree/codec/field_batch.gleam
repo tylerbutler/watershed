@@ -1216,24 +1216,22 @@ fn encode_identifier(
       let compressor = case ids {
         MessageIds(compressor, _) | SummaryIds(compressor) -> compressor
       }
-      use compressed <- result.try(
-        fluid_ids.recompress(compressor, stable)
-        |> result.map_error(fn(error) { id_error(location, error) }),
-      )
-      case compressed {
-        None -> Ok(VString(value))
-        Some(compressed) -> {
-          use operation <- result.try(
-            fluid_ids.to_op(compressor, compressed)
-            |> result.map_error(fn(error) { id_error(location, error) }),
-          )
-          let operation_value = fluid_ids.op_id_to_int(operation)
-          case ids {
-            SummaryIds(_) if operation_value < 0 -> Ok(VString(value))
-            MessageIds(_, _) | SummaryIds(_) ->
-              Ok(VNumber(NInt(operation_value)))
+      case fluid_ids.recompress(compressor, stable) {
+        Error(fluid_ids.UnknownId(_)) | Ok(None) -> Ok(VString(value))
+        Error(error) -> Error(id_error(location, error))
+        Ok(Some(compressed)) ->
+          case fluid_ids.to_op(compressor, compressed) {
+            Error(fluid_ids.UnknownId(_)) -> Ok(VString(value))
+            Error(error) -> Error(id_error(location, error))
+            Ok(operation) -> {
+              let operation_value = fluid_ids.op_id_to_int(operation)
+              case ids {
+                SummaryIds(_) if operation_value < 0 -> Ok(VString(value))
+                MessageIds(_, _) | SummaryIds(_) ->
+                  Ok(VNumber(NInt(operation_value)))
+              }
+            }
           }
-        }
       }
     }
   }
