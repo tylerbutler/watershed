@@ -980,6 +980,20 @@ pub fn revision_infos(change: TaggedChange) -> List(RevisionInfo) {
   tagged_revision_infos(change)
 }
 
+pub fn materialize_revision_metadata(
+  change: TaggedChange,
+) -> Result(Changeset, TreeError) {
+  let #(revisions, _) = composition_metadata([change])
+  case revisions == change.change.data.revisions {
+    True -> Ok(change.change)
+    False ->
+      from_data(
+        ChangeData(..change.change.data, revisions:),
+        change.change.identity_order,
+      )
+  }
+}
+
 pub fn max_local_id(change: Changeset) -> Int {
   change.data.max_local_id
 }
@@ -3693,16 +3707,7 @@ fn composition_metadata(
   let #(revisions, max_local_id) =
     list.fold(changes, #([], -1), fn(state, tagged) {
       let data = tagged.change.data
-      let candidates = case data.revisions {
-        [] ->
-          case tagged.revision {
-            None -> []
-            Some(revision) -> [
-              RevisionInfo(revision, tagged.rollback_of),
-            ]
-          }
-        revisions -> revisions
-      }
+      let candidates = tagged_revision_infos(tagged)
       let revisions =
         list.fold(candidates, state.0, fn(revisions, info) {
           case revision_info(revisions, info.revision) {

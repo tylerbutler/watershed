@@ -328,14 +328,35 @@ pub fn shared_tree_change_compose_keeps_valid_edit_after_violation_test() {
     ),
   )
 
-  let assert Ok(singleton) =
+  let assert Ok(untagged_singleton) =
     shared_change.compose([
       shared_change.TaggedChange(None, None, shared_change.from_data(composed)),
     ])
+  let assert [shared_change.DataChange(unchanged)] =
+    shared_change.to_changes(untagged_singleton)
+  unchanged |> expect.to_equal(composed)
+
+  let original = revision("00000000-0000-4000-8000-0000000000d0")
+  let unmaterialized_data =
+    change.ChangeData(..change.to_data(composed), revisions: [])
+  let assert Ok(unmaterialized) = checked(unmaterialized_data)
+  let assert Ok(singleton) =
+    shared_change.compose([
+      shared_change.TaggedChange(
+        Some(revision_c()),
+        Some(original),
+        shared_change.from_data(unmaterialized),
+      ),
+    ])
   let assert [shared_change.DataChange(recomposed)] =
     shared_change.to_changes(singleton)
-  recomposed |> expect.to_equal(composed)
-  change.to_data(recomposed).constraint_violation_count |> expect.to_equal(0)
+  change.to_data(recomposed)
+  |> expect.to_equal(
+    change.ChangeData(..unmaterialized_data, revisions: [
+      change.RevisionInfo(revision_c(), Some(original)),
+      change.RevisionInfo(original, None),
+    ]),
+  )
   let assert Ok(recomposed_delta) =
     change.into_delta(change.TaggedChange(None, None, recomposed))
   let assert Ok(recomposed_state) =
