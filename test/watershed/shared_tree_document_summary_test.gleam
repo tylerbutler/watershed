@@ -8,9 +8,11 @@ import spillway/types as spillway_types
 import startest/expect
 import watershed/channel
 import watershed/fluid_ids
+import watershed/json_ot.{VArray, VObject, VString}
 import watershed/runtime_core
 import watershed/tree/document_summary_fixture
 import watershed/tree/fixtures
+import watershed/tree/identifier_fixture
 import watershed/tree/runtime_fixture
 import watershed/tree/schema as tree_schema
 import watershed/tree/summary_export
@@ -20,6 +22,29 @@ import watershed/wire/fluid_document
 import watershed/wire/fluid_summary
 import watershed/wire/socket
 import watershed/wire/summary_blob
+
+pub fn identifier_summary_tail_continues_in_fresh_session_test() {
+  let assert Ok(fixture) = fixtures.load("identifier-persistence")
+  let output = case identifier_fixture.run(fixture.input) {
+    Ok(value) -> value
+    Error(error) -> panic as { error }
+  }
+  let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(output))
+  let assert Ok(VArray(observations)) = list.key_find(root, "observations")
+  let assert Ok(VObject(tail)) =
+    list.find(observations, fn(value) {
+      case value {
+        VObject(fields) ->
+          list.key_find(fields, "id") == Ok(VString("summary-tail"))
+        _ -> False
+      }
+    })
+  let assert Ok(VString(identifier)) =
+    list.key_find(tail, "continuedIdentifier")
+  identifier |> string.length |> expect.to_not_equal(0)
+  list.key_find(tail, "continuationReferenceStable")
+  |> expect.to_equal(Ok(json_ot.VBool(True)))
+}
 
 pub fn shared_tree_document_summary_decodes_captured_hierarchy_test() {
   let assert Ok(fixture) = fixtures.load("summary-tail")

@@ -483,7 +483,10 @@ fn generated_ids(
 
 fn assert_identifier_case(name: String) -> Nil {
   let assert Ok(fixture) = fixtures.load(name)
-  let assert Ok(actual) = identifier_fixture.run(fixture.input)
+  let actual = case identifier_fixture.run(fixture.input) {
+    Ok(value) -> value
+    Error(error) -> panic as { error }
+  }
   let assert Ok(actual) = json_ot.parse_json(json.to_string(actual))
   let assert Ok(expected) = json_ot.parse_json(json.to_string(fixture.expected))
   let #(actual, expected) = native_projection(actual, expected)

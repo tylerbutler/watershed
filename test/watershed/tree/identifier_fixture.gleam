@@ -1026,12 +1026,57 @@ fn run_summary_tail(
     "messages",
     fixture_codec.items,
   ))
-  use #(state, _) <- result.try(
+  use #(state, compressor) <- result.try(
     list.try_fold(messages, #(state, compressor), fn(current, message) {
       apply_tail_message(current.0, current.1, message)
     }),
   )
   use after <- result.try(visible_root(state))
+  use reference <- result.try(
+    tree_kernel.reference_at(state, ["byKey", "tail"])
+    |> result.map_error(string.inspect),
+  )
+  use open <- result.try(
+    transaction.begin(state, compressor, []) |> result.map_error(string.inspect),
+  )
+  use open <- result.try(
+    transaction.apply_edit(
+      open,
+      types.MapSet(
+        ["byKey"],
+        "continued",
+        types.ObjectValue(point_type, [
+          #("label", types.StringValue("continued")),
+        ]),
+      ),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use open <- result.try(
+    transaction.apply_edit(
+      open,
+      types.SetField(
+        ["byKey", "continued", "label"],
+        types.StringValue("continued-final"),
+      ),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use finished <- result.try(
+    transaction.finish(open) |> result.map_error(string.inspect),
+  )
+  let assert #(transaction.Commit(continued, _, _), _) = finished
+  use continued_identifier <- result.try(
+    tree_kernel.read(continued, ["byKey", "continued", "id"])
+    |> result.map_error(string.inspect)
+    |> result.try(fn(value) {
+      option.to_result(value, "continued Identifier is absent")
+    }),
+  )
+  use continued_reference <- result.try(
+    tree_kernel.reference_at(continued, ["byKey", "tail"])
+    |> result.map_error(string.inspect),
+  )
   Ok(
     json.object([
       #("id", json.string(id)),
@@ -1044,6 +1089,11 @@ fn run_summary_tail(
           |> result.unwrap([])
           |> list.map(json_ot.to_json)
           |> fixture_codec.array,
+      ),
+      #("continuedIdentifier", visible_json(continued_identifier)),
+      #(
+        "continuationReferenceStable",
+        json.bool(reference == continued_reference),
       ),
     ]),
   )
@@ -1169,6 +1219,28 @@ fn run_retry(
     tree_runtime.encode_commit(retry, after, compressor)
     |> result.map_error(string.inspect),
   )
+  use #(acknowledged, _, _) <- result.try(
+    tree_runtime.receive_commit(
+      after,
+      commit,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      compressor,
+    )
+    |> result.map_error(string.inspect),
+  )
+  use accepted_identifier <- result.try(
+    tree_kernel.read(acknowledged, ["left", "2", "id"])
+    |> result.map_error(string.inspect)
+    |> result.try(fn(value) {
+      option.to_result(value, "accepted retry id is absent")
+    }),
+  )
+  use after_ack <- result.try(
+    tree_kernel.resubmit_commits(acknowledged)
+    |> result.map_error(string.inspect),
+  )
   Ok(
     json.object([
       #("id", json.string(id)),
@@ -1180,6 +1252,8 @@ fn run_retry(
         "peerObserved",
         json.bool(json.to_string(authored) == json.to_string(resubmitted)),
       ),
+      #("acceptedIdentifier", visible_json(accepted_identifier)),
+      #("pendingAfterAck", json.int(list.length(after_ack))),
     ]),
   )
 }

@@ -3,8 +3,13 @@ import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
 import startest/expect
+import watershed/fluid_ids
 import watershed/tree/fixtures
+import watershed/tree/identifier_fixture
 import watershed/tree/summary_fixture
+import watershed/tree/transaction
+import watershed/tree/types
+import watershed/tree_kernel
 import watershed/wire/fluid_summary
 
 fn array(values: List(json.Json)) -> json.Json {
@@ -102,6 +107,51 @@ fn refusal_scenario(label: String, path: String, kind: String) -> json.Json {
       ]),
     ),
   ])
+}
+
+pub fn identifier_pending_transaction_keeps_sequenced_summary_test() {
+  let base =
+    identifier_fixture.state(
+      identifier_fixture.full_stored(),
+      identifier_fixture.full_view(),
+      identifier_fixture.full_root(
+        identifier_fixture.point("child", "child"),
+        [identifier_fixture.point("existing", "existing")],
+        [],
+        [],
+      ),
+    )
+  let assert Ok(sequenced) = tree_kernel.snapshot(base)
+  let assert Ok(open) =
+    transaction.begin(base, fluid_ids.new(identifier_fixture.session()), [])
+  let assert Ok(open) =
+    transaction.apply_edit(
+      open,
+      types.ArrayInsert(["left"], 1, [
+        types.ObjectValue(identifier_fixture.point_type, [
+          #("label", types.StringValue("pending")),
+        ]),
+      ]),
+    )
+  let assert Ok(reference) =
+    tree_kernel.reference_at(transaction.state(open), ["left", "1"])
+  let assert Ok(identifier) =
+    tree_kernel.read(transaction.state(open), ["left", "1", "id"])
+  let assert Ok(open) =
+    transaction.apply_edit(
+      open,
+      types.SetField(["left", "1", "label"], types.StringValue("pending-final")),
+    )
+  let assert Ok(#(transaction.Commit(pending, _, _), _)) =
+    transaction.finish(open)
+  tree_kernel.read(pending, ["left", "1", "id"])
+  |> expect.to_equal(Ok(identifier))
+  tree_kernel.reference_at(pending, ["left", "1"])
+  |> expect.to_equal(Ok(reference))
+  tree_kernel.history_view(pending).pending
+  |> list.length
+  |> expect.to_equal(1)
+  tree_kernel.snapshot(pending) |> expect.to_equal(Ok(sequenced))
 }
 
 pub fn shared_tree_summary_resolves_binary_blob_from_previous_test() -> Nil {

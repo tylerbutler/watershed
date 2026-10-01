@@ -1,10 +1,15 @@
+import gleam/json
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
 import watershed/fluid_ids
+import watershed/json_ot.{type JsonValue, VArray, VObject, VString}
 import watershed/tree/change
+import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/history
+import watershed/tree/identifier_fixture
 import watershed/tree/schema
 import watershed/tree/shared_change
 import watershed/tree/types.{NumberValue, ObjectValue, SetField, StringValue}
@@ -112,6 +117,17 @@ fn title_state() -> tree_kernel.TreeState {
     )
   let assert Ok(state) = tree_kernel.restore(snapshot, view_id, session(), view)
   state
+}
+
+pub fn identifier_retry_acknowledges_once_without_changing_id_test() {
+  let retry = identifier_observation("retry-resubmit")
+  let assert Ok(identifier) = list.key_find(retry, "identifier")
+  list.key_find(retry, "acceptedIdentifier")
+  |> expect.to_equal(Ok(identifier))
+  list.key_find(retry, "peerObserved")
+  |> expect.to_equal(Ok(json_ot.VBool(True)))
+  list.key_find(retry, "pendingAfterAck")
+  |> expect.to_equal(Ok(json_ot.VNumber(json_ot.NInt(0))))
 }
 
 pub fn shared_tree_history_resubmit_rejects_duplicate_repairs_test() -> Nil {
@@ -231,4 +247,22 @@ pub fn shared_tree_history_resubmits_empty_conflict_commit_test() -> Nil {
 
   history.resubmit(local.history, [#(pending.revision, [])])
   |> expect.to_equal(Ok([pending]))
+}
+
+fn identifier_observation(id: String) -> List(#(String, JsonValue)) {
+  let assert Ok(fixture) = fixtures.load("identifier-persistence")
+  let output = case identifier_fixture.run(fixture.input) {
+    Ok(value) -> value
+    Error(error) -> panic as { error }
+  }
+  let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(output))
+  let assert Ok(VArray(observations)) = list.key_find(root, "observations")
+  let assert Ok(VObject(observation)) =
+    list.find(observations, fn(value) {
+      case value {
+        VObject(fields) -> list.key_find(fields, "id") == Ok(VString(id))
+        _ -> False
+      }
+    })
+  observation
 }

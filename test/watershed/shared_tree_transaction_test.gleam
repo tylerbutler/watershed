@@ -345,6 +345,35 @@ fn array_state(
   state
 }
 
+fn identifier_array_state(
+  local_session: fluid_ids.SessionId,
+  values: List(types.TreeValue),
+) -> tree_kernel.TreeState {
+  let root =
+    identifier_fixture.full_root(
+      identifier_fixture.point("child", "child"),
+      values,
+      [],
+      [],
+    )
+  let initial = history.inspect(history.new(local_session)).sequenced
+  let assert Ok(snapshot) =
+    tree_kernel.snapshot_from_parts(
+      view_id(),
+      identifier_fixture.full_stored(),
+      forest.ForestData(Some(root), [], 0),
+      initial,
+    )
+  let assert Ok(state) =
+    tree_kernel.restore(
+      snapshot,
+      view_id(),
+      local_session,
+      identifier_fixture.full_view(),
+    )
+  state
+}
+
 type Allocation {
   Allocation(revisions: List(fluid_ids.StableId), order: change.IdentityOrder)
 }
@@ -926,6 +955,125 @@ pub fn shared_tree_transaction_trailing_constraint_detects_target_remove_test() 
 pub fn shared_tree_transaction_trailing_constraint_ignores_other_remove_test() -> Nil {
   transaction_constraint_violation_after_remote_remove(2, False)
   |> expect.to_equal(0)
+}
+
+pub fn identifier_constraint_uses_node_identity_and_retains_builds_test() {
+  let values = [
+    identifier_fixture.point("literal-custom-id", "constrained"),
+    identifier_fixture.point("literal-custom-id", "survivor"),
+  ]
+  let base = identifier_array_state(identifier_fixture.session(), values)
+  let assert Ok(constrained_reference) =
+    tree_kernel.reference_at(base, ["left", "0"])
+  let assert Ok(survivor_reference) =
+    tree_kernel.reference_at(base, ["left", "1"])
+  constrained_reference |> expect.to_not_equal(survivor_reference)
+  tree_kernel.read(base, ["left", "0", "id"])
+  |> expect.to_equal(tree_kernel.read(base, ["left", "1", "id"]))
+
+  let assert Ok(open) =
+    transaction.begin(base, fluid_ids.new(identifier_fixture.session()), [])
+  let assert Ok(open) =
+    transaction.apply_edit(
+      open,
+      types.ArrayInsert(["left"], 2, [
+        types.ObjectValue(identifier_fixture.point_type, [
+          #("label", types.StringValue("created")),
+        ]),
+      ]),
+    )
+  let assert Ok(target) =
+    tree_kernel.resolve_constraint(transaction.state(open), ["left", "0"])
+  let assert Ok(open) =
+    transaction.begin_nested_with_constraints(open, [target])
+  let assert Ok(open) =
+    transaction.apply_edit(
+      open,
+      types.SetField(["left", "2", "label"], types.StringValue("created-final")),
+    )
+  let assert Ok(open) = transaction.commit_nested(open)
+  let #(state, commit) = case transaction.finish(open) {
+    Ok(#(transaction.Commit(state, _, commit), _)) -> #(state, commit)
+    Ok(#(transaction.NoCommit(_, _), _)) ->
+      panic as "Identifier transaction produced no commit"
+    Error(error) -> panic as { string.inspect(error) }
+  }
+
+  let remote_base = identifier_array_state(other_session(), values)
+  let assert Ok(remote_order) = change.identity_order([#(remote_revision(), 0)])
+  let remote_commit = case
+    tree_kernel.apply_local(
+      remote_base,
+      remote_revision(),
+      remote_order,
+      types.ArrayRemove(["left"], 0, 1),
+    )
+  {
+    Ok(#(_, commit, _)) -> commit
+    Error(error) -> panic as { string.inspect(error) }
+  }
+  let rollback_revisions = [
+    rollback_revision_one(),
+    rollback_revision_two(),
+    rollback_revision_three(),
+  ]
+  let revisions =
+    [
+      remote_revision(),
+      ..list.append(rollback_revisions, [
+        commit.revision,
+        ..shared_change.identity_revisions(commit.change)
+      ])
+    ]
+    |> list.unique
+  let assert Ok(order) =
+    revisions
+    |> list.index_map(fn(revision, index) { #(revision, index) })
+    |> change.identity_order
+  let rebased = case
+    tree_kernel.receive_ordered(
+      state,
+      remote_commit,
+      order,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Allocation(rollback_revisions, order),
+      mint,
+    )
+  {
+    Ok(#(state, _, _)) -> state
+    Error(error) -> panic as { string.inspect(error) }
+  }
+  tree_kernel.read(rebased, ["left", "0", "label"])
+  |> expect.to_equal(Ok(Some(types.StringValue("survivor"))))
+  tree_kernel.read(rebased, ["left", "1"]) |> expect.to_equal(Ok(None))
+  tree_kernel.reference_at(rebased, ["left", "0"])
+  |> expect.to_equal(Ok(survivor_reference))
+  tree_kernel.read_reference(rebased, constrained_reference)
+  |> expect.to_equal(
+    Ok(identifier_fixture.point("literal-custom-id", "constrained")),
+  )
+
+  let pending =
+    tree_kernel.history_view(rebased).pending
+    |> list.first
+    |> expect.to_be_ok
+  let data =
+    pending.change
+    |> shared_change.to_changes
+    |> list.filter_map(fn(item) {
+      case item {
+        shared_change.DataChange(data) -> Ok(data)
+        shared_change.SchemaChange(_, _, _) -> Error(Nil)
+      }
+    })
+    |> list.first
+    |> expect.to_be_ok
+  let data = change.to_data(data)
+  data.constraint_violation_count |> expect.to_equal(1)
+  let retained = data.builds != [] || data.refreshers != []
+  retained |> expect.to_be_true
 }
 
 fn transaction_constraint_violation_after_remote_remove(
