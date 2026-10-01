@@ -126,7 +126,7 @@ fn prepare(
     },
   )
   use _ <- result.try(
-    schema.validate_root_field(stored, initial_root)
+    schema.validate_root_construction(stored, initial_root)
     |> result.map_error(InvalidInitialTree),
   )
   use session <- result.try(

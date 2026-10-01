@@ -17,6 +17,7 @@ import watershed/runtime_core
 import watershed/sluice/frame
 @target(javascript)
 import watershed/transport_js
+import watershed/tree/identifier_fixture
 import watershed/tree/runtime_fixture
 import watershed/tree/schema as tree_schema
 import watershed/tree/types
@@ -50,6 +51,29 @@ fn connected(client: String) -> json.Json {
     timestamp: 0,
     presence_v1: False,
   )
+}
+
+fn identifier_root() -> types.TreeValue {
+  identifier_fixture.full_root(
+    identifier_fixture.point("child", "child"),
+    [],
+    [],
+    [],
+  )
+}
+
+fn missing_identifier_point(label: String) -> types.TreeValue {
+  types.ObjectValue(identifier_fixture.point_type, [
+    #("label", types.StringValue(label)),
+  ])
+}
+
+fn expect_generated_identifier(value: Option(types.TreeValue), label: String) {
+  let assert Some(types.ObjectValue(_, fields)) = value
+  list.key_find(fields, "label")
+  |> expect.to_equal(Ok(types.StringValue(label)))
+  let assert Ok(types.StringValue(identifier)) = list.key_find(fields, "id")
+  identifier |> expect.to_not_equal("")
 }
 
 fn wider_view(
@@ -164,6 +188,49 @@ pub fn shared_tree_array_facade_js_operations_test() {
       )
     },
   )
+  watershed.close(document)
+}
+
+@target(javascript)
+pub fn shared_tree_array_facade_js_generates_identifier_defaults_test() {
+  let input = identifier_fixture.full_seed_input(identifier_root())
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let callbacks = transport_js.new_cell(None)
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(_, _) { Nil },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    connected("reader") |> json.to_string,
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let tree =
+    watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
+  watershed.tree_array_insert(tree, ["left"], 0, [
+    missing_identifier_point("array"),
+  ])
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_array_get(tree, ["left"], 0)
+  |> expect.to_be_ok()
+  |> expect_generated_identifier("array")
   watershed.close(document)
 }
 
@@ -352,6 +419,49 @@ pub fn shared_tree_array_facade_beam_operations_test() {
       )
     },
   )
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_array_facade_beam_generates_identifier_defaults_test() {
+  let input = identifier_fixture.full_seed_input(identifier_root())
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let connections = process.new_subject()
+  let document =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+    |> expect.to_be_ok()
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event("connect_document_success", connected("reader"))
+  runtime_beam.await_ready(watershed_beam.runtime_subject(document))
+  |> expect.to_equal(Ok(Nil))
+  let root = watershed_beam.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let tree =
+    watershed_beam.resolve_tree(document, marker, view.view)
+    |> expect.to_be_ok()
+  watershed_beam.tree_array_insert(tree, ["left"], 0, [
+    missing_identifier_point("array"),
+  ])
+  |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_array_get(tree, ["left"], 0)
+  |> expect.to_be_ok()
+  |> expect_generated_identifier("array")
   process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
 }
 

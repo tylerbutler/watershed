@@ -13,6 +13,7 @@ import watershed/tree/codec
 import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/history
+import watershed/tree/identifier_fixture
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
 import watershed/tree/sequence_field/moves
@@ -26,6 +27,106 @@ import watershed/wire
 const items_type = "org.watershed.shared-tree.m3.Items"
 
 const point_type = "org.watershed.shared-tree.m3.Point"
+
+pub fn identifier_transaction_abort_preserves_local_advancement_test() {
+  let stored = identifier_fixture.stored()
+  let base =
+    identifier_fixture.state(
+      stored,
+      identifier_fixture.view("Identifier"),
+      identifier_fixture.point("before", "before"),
+    )
+  let compressor = fluid_ids.new(identifier_fixture.session())
+  let assert Ok(open) = transaction.begin(base, compressor, [])
+  let assert Ok(open) =
+    transaction.apply_edit(
+      open,
+      types.SetField(
+        [],
+        types.ObjectValue(identifier_fixture.point_type, [
+          #("label", types.StringValue("generated")),
+        ]),
+      ),
+    )
+  let advanced = transaction.compressor(open)
+  advanced |> expect.to_not_equal(compressor)
+  let assert Ok(#(restored, aborted_compressor)) = transaction.abort(open)
+  tree_kernel.visible_data(restored)
+  |> expect.to_equal(tree_kernel.visible_data(base))
+  aborted_compressor |> expect.to_equal(advanced)
+}
+
+pub fn identifier_nested_abort_does_not_reuse_reference_test() {
+  let stored = identifier_fixture.stored()
+  let base =
+    identifier_fixture.state(
+      stored,
+      identifier_fixture.view("Identifier"),
+      identifier_fixture.point("before", "before"),
+    )
+  let compressor = fluid_ids.new(identifier_fixture.session())
+  let assert Ok(open) = transaction.begin(base, compressor, [])
+  let nested = transaction.begin_nested(open)
+  let assert Ok(nested) =
+    transaction.apply_edit(
+      nested,
+      types.SetField(
+        [],
+        types.ObjectValue(identifier_fixture.point_type, [
+          #("label", types.StringValue("first")),
+        ]),
+      ),
+    )
+  let assert Ok(first_reference) =
+    tree_kernel.reference_at(transaction.state(nested), [])
+  let assert Ok(open) = transaction.abort_nested(nested)
+  let assert Ok(open) =
+    transaction.apply_edit(
+      open,
+      types.SetField(
+        [],
+        types.ObjectValue(identifier_fixture.point_type, [
+          #("label", types.StringValue("second")),
+        ]),
+      ),
+    )
+  let assert Ok(second_reference) =
+    tree_kernel.reference_at(transaction.state(open), [])
+  second_reference |> expect.to_not_equal(first_reference)
+}
+
+pub fn identifier_noop_finish_restores_base_compressor_test() {
+  let stored = identifier_fixture.full_stored()
+  let base =
+    identifier_fixture.state(
+      stored,
+      identifier_fixture.full_view(),
+      identifier_fixture.full_root(
+        identifier_fixture.point("child", "child"),
+        [],
+        [],
+        [],
+      ),
+    )
+  let compressor = fluid_ids.new(identifier_fixture.session())
+  let assert Ok(open) = transaction.begin(base, compressor, [])
+  let open = transaction.begin_nested(open)
+  let assert Ok(open) =
+    transaction.apply_edit(
+      open,
+      types.ArrayInsert(["left"], 0, [
+        types.ObjectValue(identifier_fixture.point_type, [
+          #("label", types.StringValue("temporary")),
+        ]),
+      ]),
+    )
+  let assert Ok(open) = transaction.abort_nested(open)
+  let assert Ok(#(transaction.NoCommit(restored, finished), _)) =
+    transaction.finish(open)
+  tree_kernel.visible_data(restored)
+  |> expect.to_equal(tree_kernel.visible_data(base))
+  finished |> expect.to_equal(compressor)
+}
 
 fn transaction_revision() -> fluid_ids.StableId {
   let assert Ok(revision) =

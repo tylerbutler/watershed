@@ -6,6 +6,8 @@ import startest/expect
 import watershed/container
 import watershed/git_storage
 @target(erlang)
+import watershed/tree/identifier_fixture
+@target(erlang)
 import watershed/tree/schema
 @target(erlang)
 import watershed/tree/types
@@ -26,6 +28,21 @@ pub fn shared_tree_creation_checks_initial_value_before_network_test() -> Nil {
       container.CreateConfig("http://127.0.0.1:1", "tenant", "not-a-secret"),
       stored(),
       None,
+    )
+  Nil
+}
+
+@target(erlang)
+pub fn shared_tree_creation_accepts_missing_identifier_before_network_test() {
+  let initial =
+    types.ObjectValue(identifier_fixture.point_type, [
+      #("label", types.StringValue("generated")),
+    ])
+  let assert Error(container.StorageFailed(_)) =
+    container.create_tree(
+      container.CreateConfig("http://127.0.0.1:1", "tenant", "not-a-secret"),
+      identifier_fixture.stored(),
+      Some(initial),
     )
   Nil
 }

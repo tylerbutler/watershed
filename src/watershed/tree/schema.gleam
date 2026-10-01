@@ -166,7 +166,15 @@ pub fn validate_root_field(
   schema: StoredSchema,
   value: Option(TreeValue),
 ) -> Result(Nil, TreeError) {
-  validate_content(schema.repository, schema.repository.root, value, [])
+  validate_content(schema.repository, schema.repository.root, value, [], False)
+}
+
+/// Validate new root content before Identifier defaults are materialized.
+pub fn validate_root_construction(
+  schema: StoredSchema,
+  value: Option(TreeValue),
+) -> Result(Nil, TreeError) {
+  validate_content(schema.repository, schema.repository.root, value, [], True)
 }
 
 /// Validate a subtree without applying the document root's allowed types.
@@ -176,7 +184,7 @@ pub fn validate_subtree(
 ) -> Result(Nil, TreeError) {
   let identifier = value_identifier(value)
   case dict.get(schema.repository.nodes, identifier) {
-    Ok(node) -> validate_node(schema.repository, node, value, [])
+    Ok(node) -> validate_node(schema.repository, node, value, [], False)
     Error(Nil) -> Error(InvalidEdit([], "unknown schema: " <> identifier))
   }
 }
@@ -202,7 +210,7 @@ pub fn validate_field(
   value: Option(TreeValue),
 ) -> Result(Nil, TreeError) {
   use definition <- result.try(field_schema(schema, parent_type, field))
-  validate_content(schema.repository, definition, value, [field])
+  validate_content(schema.repository, definition, value, [field], False)
 }
 
 /// Read one declared object field, including a field that has no content.
@@ -265,9 +273,13 @@ pub fn validate_array_elements(
   elements
   |> list.index_map(fn(value, index) { #(index, value) })
   |> list.try_each(fn(entry) {
-    validate_content(schema.repository, definition, Some(entry.1), [
-      int.to_string(entry.0),
-    ])
+    validate_content(
+      schema.repository,
+      definition,
+      Some(entry.1),
+      [int.to_string(entry.0)],
+      False,
+    )
   })
 }
 
@@ -279,7 +291,7 @@ pub fn validate_map_entry(
   value: Option(TreeValue),
 ) -> Result(Nil, TreeError) {
   use definition <- result.try(map_entry_schema(schema, map_type))
-  validate_content(schema.repository, definition, value, [key])
+  validate_content(schema.repository, definition, value, [key], False)
 }
 
 fn validate_content(
@@ -287,17 +299,32 @@ fn validate_content(
   field: FieldSchema,
   value: Option(TreeValue),
   path: FieldPath,
+  allow_missing_identifier: Bool,
 ) -> Result(Nil, TreeError) {
   case value, field.cardinality {
     None, Optional -> Ok(Nil)
     None, Required -> Error(InvalidEdit(path, "required field is absent"))
     None, Sequence -> Ok(Nil)
+    None, Identifier if allow_missing_identifier -> Ok(Nil)
     None, Identifier -> Error(InvalidEdit(path, "identifier field is absent"))
     Some(StringValue(_) as value), Identifier ->
-      validate_allowed_node(repository, field, value, path)
+      validate_allowed_node(
+        repository,
+        field,
+        value,
+        path,
+        allow_missing_identifier,
+      )
     Some(_), Identifier ->
       Error(InvalidEdit(path, "identifier field must contain a string"))
-    Some(value), _ -> validate_allowed_node(repository, field, value, path)
+    Some(value), _ ->
+      validate_allowed_node(
+        repository,
+        field,
+        value,
+        path,
+        allow_missing_identifier,
+      )
   }
 }
 
@@ -306,6 +333,7 @@ fn validate_allowed_node(
   field: FieldSchema,
   value: TreeValue,
   path: FieldPath,
+  allow_missing_identifier: Bool,
 ) -> Result(Nil, TreeError) {
   let identifier = value_identifier(value)
   case list.contains(field.allowed_types, identifier) {
@@ -314,7 +342,8 @@ fn validate_allowed_node(
     True ->
       case dict.get(repository.nodes, identifier) {
         Error(Nil) -> Error(InvalidEdit(path, "unknown schema: " <> identifier))
-        Ok(node) -> validate_node(repository, node, value, path)
+        Ok(node) ->
+          validate_node(repository, node, value, path, allow_missing_identifier)
       }
   }
 }
@@ -324,6 +353,7 @@ fn validate_node(
   node: NodeSchema,
   value: TreeValue,
   path: FieldPath,
+  allow_missing_identifier: Bool,
 ) -> Result(Nil, TreeError) {
   case node, value {
     Leaf(StringLeaf), StringValue(_)
@@ -369,6 +399,7 @@ fn validate_node(
           entry.1,
           child,
           list.append(path, [entry.0]),
+          allow_missing_identifier,
         )
       })
     }
@@ -391,6 +422,7 @@ fn validate_node(
           definition,
           Some(entry.1),
           list.append(path, [entry.0]),
+          allow_missing_identifier,
         )
       })
     }
@@ -403,6 +435,7 @@ fn validate_node(
           definition,
           Some(entry.1),
           list.append(path, [int.to_string(entry.0)]),
+          allow_missing_identifier,
         )
       })
     _, _ -> Error(InvalidEdit(path, "value does not match its node schema"))

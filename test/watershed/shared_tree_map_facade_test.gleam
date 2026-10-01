@@ -20,6 +20,7 @@ import watershed/runtime_core
 import watershed/sluice/frame
 @target(javascript)
 import watershed/transport_js
+import watershed/tree/identifier_fixture
 import watershed/tree/runtime_fixture
 import watershed/tree/schema as tree_schema
 import watershed/tree/types
@@ -47,6 +48,31 @@ fn input(root_map: Bool) -> runtime_core.BootstrapSeedInput {
     )
   }
   runtime_fixture.routed_map_seed_input(schema, root) |> expect.to_be_ok()
+}
+
+fn identifier_input() -> runtime_core.BootstrapSeedInput {
+  identifier_fixture.full_seed_input(
+    identifier_fixture.full_root(
+      identifier_fixture.point("child", "child"),
+      [],
+      [],
+      [],
+    ),
+  )
+}
+
+fn missing_identifier_point(label: String) -> types.TreeValue {
+  types.ObjectValue(identifier_fixture.point_type, [
+    #("label", types.StringValue(label)),
+  ])
+}
+
+fn expect_generated_identifier(value: Option(types.TreeValue), label: String) {
+  let assert Some(types.ObjectValue(_, fields)) = value
+  list.key_find(fields, "label")
+  |> expect.to_equal(Ok(types.StringValue(label)))
+  let assert Ok(types.StringValue(identifier)) = list.key_find(fields, "id")
+  identifier |> expect.to_not_equal("")
 }
 
 fn connected(client: String, checkpoint: Int) -> json.Json {
@@ -463,6 +489,28 @@ pub fn shared_tree_map_facade_js_operations_test() {
     fn(path) { watershed.tree_map_entries(tree, path) },
     fn(path, value) { watershed.tree_set(tree, path, value) },
   )
+  watershed.close(document)
+}
+
+@target(javascript)
+pub fn shared_tree_map_facade_js_generates_identifier_defaults_test() {
+  let input = identifier_input()
+  let #(document, callbacks, _) = js_document(input)
+  callbacks.on_event(
+    "connect_document_success",
+    json.to_string(connected("reader", 0)),
+  )
+  let tree = js_tree(document, input)
+  watershed.tree_map_set(
+    tree,
+    ["byKey"],
+    "point",
+    missing_identifier_point("map"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_map_get(tree, ["byKey"], "point")
+  |> expect.to_be_ok()
+  |> expect_generated_identifier("map")
   watershed.close(document)
 }
 
@@ -1080,6 +1128,27 @@ pub fn shared_tree_map_facade_beam_operations_test() {
     fn(path) { watershed_beam.tree_map_entries(tree, path) },
     fn(path, value) { watershed_beam.tree_set(tree, path, value) },
   )
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_map_facade_beam_generates_identifier_defaults_test() {
+  let input = identifier_input()
+  let #(document, connections, submissions) = beam_document(input)
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  beam_transport(callbacks, submissions)
+  callbacks.on_event("connect_document_success", connected("reader", 0))
+  let tree = beam_tree(document, input)
+  watershed_beam.tree_map_set(
+    tree,
+    ["byKey"],
+    "point",
+    missing_identifier_point("map"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_map_get(tree, ["byKey"], "point")
+  |> expect.to_be_ok()
+  |> expect_generated_identifier("map")
   process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
 }
 

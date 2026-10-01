@@ -18,6 +18,7 @@ import watershed/tree/codec
 import watershed/tree/codec/summary as summary_codec
 import watershed/tree/forest
 import watershed/tree/history
+import watershed/tree/identifier
 import watershed/tree/schema
 import watershed/tree/summary as tree_summary
 import watershed/tree/types as tree_types
@@ -36,6 +37,42 @@ pub fn initial_tree(
   session: fluid_ids.SessionId,
   view_id: fluid_ids.StableId,
 ) -> Result(DocumentSummary, SummaryError) {
+  let compressor = fluid_ids.new(session)
+  use #(initial_root, compressor) <- result.try(case initial_root {
+    None -> {
+      use _ <- result.try(
+        schema.validate_root_field(stored, None)
+        |> result.map_error(fn(error) {
+          fluid_summary.MalformedEntry(
+            "/.channels/A/.channels/_C",
+            string.inspect(error),
+          )
+        }),
+      )
+      Ok(#(None, compressor))
+    }
+    Some(value) -> {
+      use #(value, compressor) <- result.try(
+        identifier.materialize_value(stored, value, compressor)
+        |> result.map_error(fn(error) {
+          fluid_summary.MalformedEntry(
+            "/.channels/A/.channels/_C",
+            string.inspect(error),
+          )
+        }),
+      )
+      use _ <- result.try(
+        schema.validate_root(stored, value)
+        |> result.map_error(fn(error) {
+          fluid_summary.MalformedEntry(
+            "/.channels/A/.channels/_C",
+            string.inspect(error),
+          )
+        }),
+      )
+      Ok(#(Some(value), compressor))
+    }
+  })
   // ponytail: Fragmented modules. To make an initial tree, this caller builds
   // the internal records forest.ForestData and history.HistorySnapshot. Add one
   // tree function that makes the initial snapshot.
@@ -138,7 +175,7 @@ pub fn initial_tree(
       code,
       [#("root", "A")],
       [store],
-      Some(fluid_ids.new(session)),
+      Some(compressor),
       view_id,
       json.object([#("gcNodes", json.object([]))]),
       None,

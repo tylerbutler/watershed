@@ -10,6 +10,7 @@ import watershed/fluid_ids
 import watershed/tree/change
 import watershed/tree/codec
 import watershed/tree/history
+import watershed/tree/identifier
 import watershed/tree/schema
 import watershed/tree/shared_change
 import watershed/tree/types.{type Edit, type SequencePoint, type TreeError}
@@ -267,19 +268,6 @@ pub fn author_edit(
   ),
   TreeError,
 ) {
-  use _ <- result.try(tree_kernel.validate_edit(state, edit))
-  let empty = case edit {
-    types.ArrayInsert(_, _, []) -> True
-    types.ArrayRemove(_, start, end) | types.ArrayMove(_, start, end, _, _) ->
-      start == end
-    // ponytail: Match all variants. This catch-all also takes any new Edit
-    // variant without a compiler error. Name the remaining variants.
-    _ -> False
-  }
-  use <- bool.guard(
-    empty,
-    Ok(#(state, None, tree_kernel.ChangeEvents([], False), compressor)),
-  )
   use authored <- result.try(author_edit_change(state, edit, compressor))
   case authored {
     None -> Ok(#(state, None, tree_kernel.ChangeEvents([], False), compressor))
@@ -310,6 +298,11 @@ pub fn author_edit_change(
   edit: Edit,
   compressor: fluid_ids.Compressor,
 ) -> Result(Option(AuthoredEdit), TreeError) {
+  use #(edit, compressor) <- result.try(identifier.materialize_edit(
+    tree_kernel.stored_schema(state),
+    edit,
+    compressor,
+  ))
   use _ <- result.try(tree_kernel.validate_edit(state, edit))
   let empty = case edit {
     types.ArrayInsert(_, _, []) -> True

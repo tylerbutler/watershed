@@ -1,4 +1,5 @@
 import gleam/bit_array
+import gleam/dict
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
@@ -8,9 +9,11 @@ import startest/expect
 import watershed/channel
 import watershed/fluid_ids
 import watershed/runtime_core
+import watershed/tree/identifier_fixture
 import watershed/tree/runtime_fixture
 import watershed/tree/schema
 import watershed/tree/types
+import watershed/tree_kernel
 import watershed/wire
 import watershed/wire/fluid_document
 import watershed/wire/fluid_summary
@@ -65,6 +68,87 @@ fn initial() -> fluid_document.DocumentSummary {
   let assert Ok(summary) =
     fluid_document.initial_tree(stored(), Some(root()), session, view)
   summary
+}
+
+pub fn shared_tree_creation_materializes_identifier_defaults_in_pinned_order_test() {
+  let #(session, view) = identity()
+  let initial =
+    identifier_fixture.full_root(
+      types.ObjectValue(identifier_fixture.point_type, [
+        #("label", types.StringValue("child")),
+      ]),
+      [
+        types.ObjectValue(identifier_fixture.point_type, [
+          #("label", types.StringValue("point")),
+        ]),
+        types.ObjectValue(identifier_fixture.pair_type, [
+          #("label", types.StringValue("pair")),
+          #("pairOnly", types.StringValue("pair")),
+        ]),
+      ],
+      [],
+      [],
+    )
+  let assert Ok(created) =
+    fluid_document.initial_tree(
+      identifier_fixture.full_stored(),
+      Some(initial),
+      session,
+      view,
+    )
+  let assert Some(compressor) = fluid_document.compressor(created)
+  let assert Ok(#(expected, first)) =
+    fluid_ids.new(session) |> fluid_ids.generate
+  let assert Ok(first) = fluid_ids.decompress(expected, first)
+  let assert Ok(#(expected, second)) = fluid_ids.generate(expected)
+  let assert Ok(second) = fluid_ids.decompress(expected, second)
+  let assert Ok(#(expected, third)) = fluid_ids.generate(expected)
+  let assert Ok(third) = fluid_ids.decompress(expected, third)
+  let assert Ok(#(expected, fourth)) = fluid_ids.generate(expected)
+  let assert Ok(fourth) = fluid_ids.decompress(expected, fourth)
+  compressor |> expect.to_equal(expected)
+
+  let assert Ok(encoded) = fluid_document.encode(created)
+  let assert Ok(reader_session) =
+    fluid_ids.session_id("30000000-0000-4000-8000-000000000003")
+  let assert Ok(reader_view) =
+    fluid_ids.stable_id("40000000-0000-4000-8000-000000000004")
+  let assert Ok(loaded) =
+    fluid_document.decode(encoded, None, reader_session, reader_view)
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected("reader", [], 0),
+      loaded,
+    )
+  let assert Some(reader_compressor) = fluid_document.compressor(loaded)
+  let assert Ok(#(reader_compressor, expected_revision)) =
+    fluid_ids.generate(reader_compressor)
+  let assert Ok(expected_revision) =
+    fluid_ids.decompress(reader_compressor, expected_revision)
+  runtime_core.tree_read(core, "A/_C", ["left", "1", "firstId"])
+  |> expect.to_equal(
+    Ok(Some(types.StringValue(fluid_ids.stable_id_to_string(first)))),
+  )
+  runtime_core.tree_read(core, "A/_C", ["left", "1", "secondId"])
+  |> expect.to_equal(
+    Ok(Some(types.StringValue(fluid_ids.stable_id_to_string(second)))),
+  )
+  runtime_core.tree_read(core, "A/_C", ["left", "0", "id"])
+  |> expect.to_equal(
+    Ok(Some(types.StringValue(fluid_ids.stable_id_to_string(third)))),
+  )
+  runtime_core.tree_read(core, "A/_C", ["child", "id"])
+  |> expect.to_equal(
+    Ok(Some(types.StringValue(fluid_ids.stable_id_to_string(fourth)))),
+  )
+
+  let assert Ok(#(edited, _, [_])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      types.SetField(["child", "label"], types.StringValue("edited")),
+    ])
+  let assert Ok(channel.TreeState(tree)) = dict.get(edited.channels, "A/_C")
+  let assert [commit] = tree_kernel.history_view(tree).pending
+  commit.revision |> expect.to_equal(expected_revision)
 }
 
 fn blob(tree: fluid_summary.SummaryEntry, path: String) -> json.Json {

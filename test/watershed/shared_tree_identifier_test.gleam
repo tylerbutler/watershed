@@ -1,14 +1,197 @@
+import gleam/json
 import gleam/list
 import gleam/option.{Some}
 import startest/expect
 import watershed/fluid_ids
 import watershed/tree/codec/field_batch
+import watershed/tree/identifier
 import watershed/tree/identifier_fixture
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
 import watershed/tree/transaction
 import watershed/tree/types
 import watershed/tree_kernel
+
+pub fn identifier_missing_value_uses_document_compressor_test() {
+  let assert Ok(session) =
+    fluid_ids.session_id("11111111-1111-4111-8111-111111111111")
+  let base = fluid_ids.new(session)
+  let assert Ok(#(expected_compressor, local)) = fluid_ids.generate(base)
+  let assert Ok(stable) = fluid_ids.decompress(expected_compressor, local)
+  let input =
+    types.ObjectValue(identifier_fixture.point_type, [
+      #("label", types.StringValue("new")),
+    ])
+  let assert Ok(#(value, compressor)) =
+    identifier.materialize_value(identifier_fixture.stored(), input, base)
+  let assert types.ObjectValue(_, fields) = value
+  list.key_find(fields, "id")
+  |> expect.to_equal(
+    Ok(types.StringValue(fluid_ids.stable_id_to_string(stable))),
+  )
+  compressor |> expect.to_equal(expected_compressor)
+  schema.validate_root(identifier_fixture.stored(), value)
+  |> expect.to_equal(Ok(Nil))
+}
+
+pub fn identifier_nested_defaults_follow_pinned_order_test() {
+  let stored = identifier_fixture.full_stored()
+  let base = fluid_ids.new(identifier_fixture.session())
+  let #(expected, ids) = generated_ids(base, 4)
+  let candidate =
+    identifier_fixture.full_root(
+      types.ObjectValue(identifier_fixture.point_type, [
+        #("label", types.StringValue("child")),
+      ]),
+      [
+        types.ObjectValue(identifier_fixture.point_type, [
+          #("label", types.StringValue("array")),
+        ]),
+      ],
+      [],
+      [
+        #(
+          "map",
+          types.ObjectValue(identifier_fixture.point_type, [
+            #("label", types.StringValue("map")),
+          ]),
+        ),
+      ],
+    )
+  let initial =
+    identifier_fixture.full_root(
+      identifier_fixture.point("child-explicit", "before"),
+      [],
+      [],
+      [],
+    )
+  let state =
+    identifier_fixture.state(stored, identifier_fixture.full_view(), initial)
+  let assert Ok(#(state, Some(commit), _, compressor)) =
+    tree_runtime.author_edit(state, types.SetField([], candidate), base)
+  let assert [map_id, array_id, child_id, revision] = ids
+  tree_kernel.read(state, ["byKey", "map", "id"])
+  |> expect.to_equal(Ok(Some(types.StringValue(map_id))))
+  tree_kernel.read(state, ["left", "0", "id"])
+  |> expect.to_equal(Ok(Some(types.StringValue(array_id))))
+  tree_kernel.read(state, ["child", "id"])
+  |> expect.to_equal(Ok(Some(types.StringValue(child_id))))
+  commit.revision
+  |> fluid_ids.stable_id_to_string
+  |> expect.to_equal(revision)
+  compressor |> expect.to_equal(expected)
+}
+
+pub fn identifier_explicit_strings_do_not_allocate_test() {
+  let stored = identifier_fixture.stored()
+  let before =
+    identifier_fixture.state(
+      stored,
+      identifier_fixture.view("Identifier"),
+      identifier_fixture.point("before", "before"),
+    )
+  let base = fluid_ids.new(identifier_fixture.session())
+  let #(expected, ids) = generated_ids(base, 1)
+  let assert Ok(#(after, Some(commit), _, compressor)) =
+    tree_runtime.author_edit(
+      before,
+      types.SetField([], identifier_fixture.point("", "empty")),
+      base,
+    )
+  let assert Ok(data) = tree_kernel.visible_data(after)
+  data.root |> expect.to_equal(Some(identifier_fixture.point("", "empty")))
+  commit.revision
+  |> fluid_ids.stable_id_to_string
+  |> expect.to_equal(list.first(ids) |> expect.to_be_ok())
+  compressor |> expect.to_equal(expected)
+}
+
+pub fn identifier_invalid_insert_preserves_compressor_test() {
+  let stored = identifier_fixture.stored()
+  let before =
+    identifier_fixture.state(
+      stored,
+      identifier_fixture.view("Identifier"),
+      identifier_fixture.point("before", "before"),
+    )
+  let base = fluid_ids.new(identifier_fixture.session())
+  let invalid =
+    types.ObjectValue(identifier_fixture.point_type, [
+      #("label", types.NumberValue(1.0)),
+    ])
+  let assert Error(_) =
+    tree_runtime.author_edit(before, types.SetField([], invalid), base)
+  let #(expected, ids) = generated_ids(base, 2)
+  let valid =
+    types.ObjectValue(identifier_fixture.point_type, [
+      #("label", types.StringValue("valid")),
+    ])
+  let assert Ok(#(after, Some(commit), _, compressor)) =
+    tree_runtime.author_edit(before, types.SetField([], valid), base)
+  let assert [identifier, revision] = ids
+  tree_kernel.read(after, ["id"])
+  |> expect.to_equal(Ok(Some(types.StringValue(identifier))))
+  commit.revision
+  |> fluid_ids.stable_id_to_string
+  |> expect.to_equal(revision)
+  compressor |> expect.to_equal(expected)
+}
+
+pub fn identifier_move_preserves_value_and_node_reference_test() {
+  let stored = identifier_fixture.full_stored()
+  let before =
+    identifier_fixture.state(
+      stored,
+      identifier_fixture.full_view(),
+      identifier_fixture.full_root(
+        identifier_fixture.point("child", "child"),
+        [identifier_fixture.point("moved", "moved")],
+        [],
+        [],
+      ),
+    )
+  let assert Ok(reference) = tree_kernel.reference_at(before, ["left", "0"])
+  let compressor = fluid_ids.new(identifier_fixture.session())
+  let #(expected, _) = generated_ids(compressor, 1)
+  let assert Ok(#(after, Some(_), _, compressor)) =
+    tree_runtime.author_edit(
+      before,
+      types.ArrayMove(["left"], 0, 1, ["right"], 0),
+      compressor,
+    )
+  tree_kernel.read(after, ["right", "0"])
+  |> expect.to_equal(Ok(Some(identifier_fixture.point("moved", "moved"))))
+  tree_kernel.reference_at(after, ["right", "0"])
+  |> expect.to_equal(Ok(reference))
+  compressor |> expect.to_equal(expected)
+}
+
+pub fn identifier_retry_reuses_authored_value_test() {
+  let stored = identifier_fixture.stored()
+  let before =
+    identifier_fixture.state(
+      stored,
+      identifier_fixture.view("Identifier"),
+      identifier_fixture.point("before", "before"),
+    )
+  let base = fluid_ids.new(identifier_fixture.session())
+  let assert Ok(#(after, Some(commit), _, compressor)) =
+    tree_runtime.author_edit(
+      before,
+      types.SetField(
+        [],
+        types.ObjectValue(identifier_fixture.point_type, [
+          #("label", types.StringValue("generated")),
+        ]),
+      ),
+      base,
+    )
+  let assert Ok([retry]) = tree_kernel.resubmit_commits(after)
+  let assert Ok(authored) =
+    tree_runtime.encode_commit(commit, after, compressor)
+  let assert Ok(retried) = tree_runtime.encode_commit(retry, after, compressor)
+  json.to_string(retried) |> expect.to_equal(json.to_string(authored))
+}
 
 pub fn identifier_schema_preserves_field_kind_test() {
   let stored = identifier_fixture.stored()
@@ -187,4 +370,19 @@ fn expect_atomic_error(edit: types.Edit) {
   restored_compressor |> expect.to_equal(compressor)
   events |> expect.to_equal(tree_kernel.ChangeEvents([], False))
   Nil
+}
+
+fn generated_ids(
+  compressor: fluid_ids.Compressor,
+  count: Int,
+) -> #(fluid_ids.Compressor, List(String)) {
+  case count {
+    0 -> #(compressor, [])
+    _ -> {
+      let assert Ok(#(compressor, local)) = fluid_ids.generate(compressor)
+      let assert Ok(stable) = fluid_ids.decompress(compressor, local)
+      let #(compressor, rest) = generated_ids(compressor, count - 1)
+      #(compressor, [fluid_ids.stable_id_to_string(stable), ..rest])
+    }
+  }
 }
