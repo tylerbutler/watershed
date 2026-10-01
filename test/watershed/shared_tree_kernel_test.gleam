@@ -6,6 +6,7 @@ import watershed/fluid_ids
 import watershed/tree/change
 import watershed/tree/forest
 import watershed/tree/history
+import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
 import watershed/tree/shared_change
 import watershed/tree/types.{
@@ -229,6 +230,31 @@ pub fn shared_tree_kernel_edits_locally_without_snapshotting_pending_test() {
     tree_kernel.restore(after, view_id(), session(), view)
   tree_kernel.read(reloaded, ["point", "x"])
   |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+}
+
+pub fn shared_tree_kernel_preview_edits_without_pending_history_test() {
+  let state = initial_state()
+  let compressor = fluid_ids.new(session())
+  let assert Ok(Some(authored)) =
+    tree_runtime.author_edit_change(
+      state,
+      SetField(["point", "x"], NumberValue(7.0)),
+      compressor,
+    )
+  tree_kernel.read(authored.state, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+  tree_kernel.history_view(authored.state).pending |> expect.to_equal([])
+  authored.events.events |> expect.to_equal([tree_kernel.TreeChanged(True)])
+
+  let assert Ok(#(ordinary, Some(commit), events, ordinary_compressor)) =
+    tree_runtime.author_edit(
+      state,
+      SetField(["point", "x"], NumberValue(7.0)),
+      compressor,
+    )
+  tree_kernel.history_view(ordinary).pending |> expect.to_equal([commit])
+  events |> expect.to_equal(authored.events)
+  ordinary_compressor |> expect.to_equal(authored.compressor)
 }
 
 pub fn shared_tree_kernel_rejects_invalid_edit_before_allocation_test() {

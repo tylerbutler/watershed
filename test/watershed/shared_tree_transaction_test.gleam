@@ -10,8 +10,14 @@ import watershed/tree/array_fixture
 import watershed/tree/change
 import watershed/tree/fixtures
 import watershed/tree/forest
+import watershed/tree/history
+import watershed/tree/runtime as tree_runtime
+import watershed/tree/schema
+import watershed/tree/shared_change
+import watershed/tree/transaction
 import watershed/tree/transaction_fixture
 import watershed/tree/types
+import watershed/tree_kernel
 import watershed/wire
 
 const items_type = "org.watershed.shared-tree.m3.Items"
@@ -131,6 +137,237 @@ pub fn shared_tree_constraint_duplicate_targets_collapse_test() -> Nil {
   })
   |> list.length
   |> expect.to_equal(1)
+}
+
+const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+
+fn session() -> fluid_ids.SessionId {
+  let assert Ok(id) =
+    fluid_ids.session_id("00000000-0000-4000-8000-000000000001")
+  id
+}
+
+fn view_id() -> fluid_ids.StableId {
+  let assert Ok(id) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000002")
+  id
+}
+
+fn root() -> types.TreeValue {
+  types.ObjectValue("Root", [
+    #(
+      "point",
+      types.ObjectValue("Point", [
+        #("x", types.NumberValue(1.0)),
+      ]),
+    ),
+    #(
+      "note",
+      types.ObjectValue("Point", [
+        #("x", types.NumberValue(2.0)),
+      ]),
+    ),
+  ])
+}
+
+fn initial_state() -> tree_kernel.TreeState {
+  let assert Ok(stored) = schema.stored_from_string(tree_schema)
+  let assert Ok(view) = schema.view_from_string(tree_schema)
+  let initial = history.inspect(history.new(session())).sequenced
+  let assert Ok(snapshot) =
+    tree_kernel.snapshot_from_parts(
+      view_id(),
+      stored,
+      forest.ForestData(Some(root()), [], 0),
+      initial,
+    )
+  let assert Ok(state) =
+    tree_kernel.restore(snapshot, view_id(), session(), view)
+  state
+}
+
+pub fn shared_tree_transaction_commits_one_outer_change_test() -> Nil {
+  let base = initial_state()
+  let compressor = fluid_ids.new(session())
+  let assert Ok(value) = transaction.begin(base, compressor, [])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.SetField(["point", "x"], types.NumberValue(2.0)),
+    )
+  tree_kernel.read(transaction.state(value), ["point", "x"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(2.0))))
+  tree_kernel.history_view(transaction.state(value)).pending
+  |> expect.to_equal([])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.SetField(["point", "x"], types.NumberValue(3.0)),
+    )
+  tree_kernel.read(transaction.state(value), ["point", "x"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(3.0))))
+  tree_kernel.history_view(transaction.state(value)).pending
+  |> expect.to_equal([])
+
+  let assert Ok(#(transaction.Commit(state, _, commit), events)) =
+    transaction.finish(value)
+  tree_kernel.read(state, ["point", "x"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(3.0))))
+  tree_kernel.history_view(state).pending |> expect.to_equal([commit])
+  events.events |> expect.to_equal([tree_kernel.TreeChanged(True)])
+}
+
+pub fn shared_tree_transaction_abort_restores_document_and_summary_test() -> Nil {
+  let base = initial_state()
+  let compressor = fluid_ids.new(session())
+  let assert Ok(base_snapshot) = tree_kernel.snapshot(base)
+  let assert Ok(base_summary) = fluid_ids.serialize(compressor, False)
+  let assert Ok(base_ongoing) = fluid_ids.serialize(compressor, True)
+  let assert Ok(value) = transaction.begin(base, compressor, [])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.SetField(["point", "x"], types.NumberValue(3.0)),
+    )
+  let assert Ok(#(state, advanced)) = transaction.abort(value)
+
+  tree_kernel.snapshot(state) |> expect.to_equal(Ok(base_snapshot))
+  tree_kernel.visible_data(state)
+  |> expect.to_equal(tree_kernel.visible_data(base))
+  tree_kernel.history_view(state)
+  |> expect.to_equal(tree_kernel.history_view(base))
+  fluid_ids.serialize(advanced, False) |> expect.to_equal(Ok(base_summary))
+  fluid_ids.serialize(advanced, True)
+  |> expect.to_not_equal(Ok(base_ongoing))
+}
+
+pub fn shared_tree_transaction_nested_savepoints_restore_inner_state_test() -> Nil {
+  let base = initial_state()
+  let assert Ok(value) = transaction.begin(base, fluid_ids.new(session()), [])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.SetField(["point", "x"], types.NumberValue(2.0)),
+    )
+  let value = transaction.begin_nested(value)
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.SetField(["point", "x"], types.NumberValue(3.0)),
+    )
+  let value = transaction.begin_nested(value)
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.SetField(["point", "x"], types.NumberValue(4.0)),
+    )
+  let assert Ok(value) = transaction.abort_nested(value)
+  tree_kernel.read(transaction.state(value), ["point", "x"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(3.0))))
+  let assert Ok(value) = transaction.commit_nested(value)
+  tree_kernel.read(transaction.state(value), ["point", "x"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(3.0))))
+  let assert Ok(#(transaction.Commit(state, _, _), events)) =
+    transaction.finish(value)
+  tree_kernel.read(state, ["point", "x"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(3.0))))
+  events.events |> expect.to_equal([tree_kernel.TreeChanged(True)])
+}
+
+pub fn shared_tree_transaction_outer_abort_after_inner_commit_restores_base_test() -> Nil {
+  let base = initial_state()
+  let compressor = fluid_ids.new(session())
+  let assert Ok(value) = transaction.begin(base, compressor, [])
+  let value = transaction.begin_nested(value)
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.SetField(["point", "x"], types.NumberValue(4.0)),
+    )
+  let assert Ok(value) = transaction.commit_nested(value)
+  let advanced = transaction.compressor(value)
+  let assert Ok(#(state, aborted_compressor)) = transaction.abort(value)
+  state |> expect.to_equal(base)
+  aborted_compressor |> expect.to_equal(advanced)
+  fluid_ids.serialize(aborted_compressor, False)
+  |> expect.to_equal(fluid_ids.serialize(compressor, False))
+}
+
+pub fn shared_tree_transaction_outer_lifecycle_rejects_open_nested_scope_test() -> Nil {
+  let base = initial_state()
+  let assert Ok(value) = transaction.begin(base, fluid_ids.new(session()), [])
+  let nested = transaction.begin_nested(value)
+  transaction.finish(nested) |> expect.to_be_error
+  transaction.abort(nested) |> expect.to_be_error
+  let assert Ok(value) = transaction.abort_nested(nested)
+  let assert Ok(#(state, _)) = transaction.abort(value)
+  state |> expect.to_equal(base)
+}
+
+pub fn shared_tree_transaction_nested_lifecycle_rejects_depth_zero_test() -> Nil {
+  let assert Ok(value) =
+    transaction.begin(initial_state(), fluid_ids.new(session()), [])
+  transaction.commit_nested(value) |> expect.to_be_error
+  transaction.abort_nested(value) |> expect.to_be_error
+  transaction.state(value) |> expect.to_equal(initial_state())
+}
+
+pub fn shared_tree_transaction_empty_finish_restores_base_compressor_test() -> Nil {
+  let base = initial_state()
+  let compressor = fluid_ids.new(session())
+  let assert Ok(value) = transaction.begin(base, compressor, [])
+  let assert Ok(#(transaction.NoCommit, events)) = transaction.finish(value)
+  events |> expect.to_equal(tree_kernel.ChangeEvents([], False))
+  transaction.compressor(value) |> expect.to_equal(compressor)
+}
+
+pub fn shared_tree_transaction_same_value_edit_is_not_no_commit_test() -> Nil {
+  let base = initial_state()
+  let assert Ok(value) = transaction.begin(base, fluid_ids.new(session()), [])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.SetField(["point", "x"], types.NumberValue(1.0)),
+    )
+  let assert Ok(#(transaction.Commit(_, _, _), events)) =
+    transaction.finish(value)
+  events.events |> expect.to_equal([])
+}
+
+pub fn shared_tree_transaction_rejects_detached_constraint_at_begin_test() -> Nil {
+  let base = initial_state()
+  let compressor = fluid_ids.new(session())
+  let assert Ok(target) = tree_kernel.resolve_constraint(base, ["note"])
+  let assert Ok(#(removed, Some(_), _, compressor)) =
+    tree_runtime.author_edit(base, types.ClearField(["note"]), compressor)
+  let assert Error(types.InvalidEdit(["note"], _)) =
+    transaction.begin(removed, compressor, [target])
+  Nil
+}
+
+pub fn shared_tree_transaction_commits_valid_node_constraint_test() -> Nil {
+  let base = initial_state()
+  let assert Ok(target) = tree_kernel.resolve_constraint(base, ["point"])
+  let assert Ok(value) =
+    transaction.begin(base, fluid_ids.new(session()), [target])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.SetField(["point", "x"], types.NumberValue(5.0)),
+    )
+  let assert Ok(#(transaction.Commit(_, _, commit), _)) =
+    transaction.finish(value)
+  let assert [shared_change.DataChange(data)] =
+    shared_change.to_changes(commit.change)
+  let constrained =
+    change.to_data(data).nodes
+    |> list.filter(fn(entry) {
+      case entry.1.node_exists_constraint {
+        Some(_) -> True
+        None -> False
+      }
+    })
+  list.length(constrained) |> expect.to_equal(1)
 }
 
 pub fn shared_tree_transaction_wire_requires_input_sections_test() -> Nil {

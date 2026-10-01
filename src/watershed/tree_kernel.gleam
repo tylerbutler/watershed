@@ -167,6 +167,36 @@ pub fn reference_at(
   forest.locate(state.visible, path)
 }
 
+pub fn resolve_constraint(
+  state: TreeState,
+  path: FieldPath,
+) -> Result(change.ConstraintTarget, TreeError) {
+  change.resolve_constraint(state.visible, path)
+}
+
+pub fn validate_constraints(
+  state: TreeState,
+  targets: List(change.ConstraintTarget),
+) -> Result(Nil, TreeError) {
+  list.try_each(targets, fn(target) {
+    let change.ConstraintTarget(reference, path) = target
+    use current <- result.try(forest.locate(state.visible, path))
+    use _ <- result.try(case current == reference {
+      True -> Ok(Nil)
+      False ->
+        Error(types.InvalidEdit(
+          path,
+          "node reference does not identify this path",
+        ))
+    })
+    use attached <- result.try(forest.is_attached(state.visible, reference))
+    case attached {
+      True -> Ok(Nil)
+      False -> Error(types.InvalidEdit(path, "node is not attached"))
+    }
+  })
+}
+
 pub fn read_reference(
   state: TreeState,
   reference: forest.NodeRef,
@@ -525,17 +555,36 @@ pub fn apply_local(
   order: change.IdentityOrder,
   edit: Edit,
 ) -> Result(#(TreeState, history.Commit, ChangeEvents), TreeError) {
+  use authored <- result.try(author_local_change(state, revision, order, edit))
+  apply_local_change(state, revision, order, authored)
+}
+
+pub fn author_local_change(
+  state: TreeState,
+  revision: fluid_ids.StableId,
+  order: change.IdentityOrder,
+  edit: Edit,
+) -> Result(shared_change.Changeset, TreeError) {
   use _ <- result.try(validate_edit(state, edit))
-  use authored <- result.try(change.edit_from(
+  change.edit_from(
     forest.stored_schema(state.visible),
     state.visible,
     revision,
     edit,
     order,
     state.next_local_id,
-  ))
-  let outer = shared_change.from_data(authored)
-  apply_local_change(state, revision, order, outer)
+  )
+  |> result.map(shared_change.from_data)
+}
+
+pub fn apply_local_preview(
+  state: TreeState,
+  revision: fluid_ids.StableId,
+  order: change.IdentityOrder,
+  outer: shared_change.Changeset,
+) -> Result(#(TreeState, ChangeEvents), TreeError) {
+  use outer <- result.try(bind_local_change(outer, revision, order))
+  apply_bound_local_preview(state, revision, outer)
 }
 
 pub fn apply_local_change(
@@ -544,32 +593,91 @@ pub fn apply_local_change(
   order: change.IdentityOrder,
   outer: shared_change.Changeset,
 ) -> Result(#(TreeState, history.Commit, ChangeEvents), TreeError) {
-  use outer <- result.try(shared_change.rebind_identity_order(
+  use outer <- result.try(bind_local_change(outer, revision, order))
+  let commit = history.Commit(revision, state.local_session, outer)
+  use update <- result.try(history.append_local(state.history, commit))
+  use #(preview, events) <- result.try(apply_bound_local_preview(
+    state,
+    revision,
+    outer,
+  ))
+  Ok(#(
+    TreeState(
+      ..preview,
+      history: update.history,
+      local_authoring_schemas: list.append(state.local_authoring_schemas, [
+        #(revision, schema.FixedSchema(forest.stored_schema(state.visible))),
+      ]),
+    ),
+    commit,
+    events,
+  ))
+}
+
+pub fn add_node_exists_constraints(
+  state: TreeState,
+  outer: shared_change.Changeset,
+  targets: List(change.ConstraintTarget),
+  revision: fluid_ids.StableId,
+  order: change.IdentityOrder,
+) -> Result(shared_change.Changeset, TreeError) {
+  case shared_change.to_changes(outer) {
+    [] -> Ok(outer)
+    [shared_change.DataChange(data)] ->
+      change.add_node_exists_constraints(
+        data,
+        state.visible,
+        targets,
+        revision,
+        order,
+      )
+      |> result.map(shared_change.from_data)
+    _ ->
+      Error(types.UnsupportedFeature(
+        "tree.transaction",
+        "schema changes are not supported",
+      ))
+  }
+}
+
+fn bind_local_change(
+  outer: shared_change.Changeset,
+  revision: fluid_ids.StableId,
+  order: change.IdentityOrder,
+) -> Result(shared_change.Changeset, TreeError) {
+  shared_change.rebind_identity_order(
     outer,
     order,
     [revision, ..shared_change.identity_revisions(outer)] |> list.unique,
-  ))
-  let commit = history.Commit(revision, state.local_session, outer)
-  use update <- result.try(history.append_local(state.history, commit))
+  )
+}
+
+fn apply_bound_local_preview(
+  state: TreeState,
+  revision: fluid_ids.StableId,
+  outer: shared_change.Changeset,
+) -> Result(#(TreeState, ChangeEvents), TreeError) {
+  use effects <- result.try(
+    shared_change.effects(shared_change.TaggedChange(
+      Some(revision),
+      None,
+      outer,
+    )),
+  )
   use #(visible, events) <- result.try(apply_effects_with_events(
     state.visible,
-    update.effects,
+    effects,
     True,
   ))
   Ok(#(
     TreeState(
       ..state,
       visible:,
-      history: update.history,
-      local_authoring_schemas: list.append(state.local_authoring_schemas, [
-        #(revision, schema.FixedSchema(forest.stored_schema(state.visible))),
-      ]),
       next_local_id: int_max(
         state.next_local_id,
         shared_change.max_local_id(outer) + 1,
       ),
     ),
-    commit,
     events,
   ))
 }

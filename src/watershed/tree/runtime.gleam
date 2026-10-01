@@ -15,6 +15,15 @@ import watershed/tree/shared_change
 import watershed/tree/types.{type Edit, type SequencePoint, type TreeError}
 import watershed/tree_kernel
 
+pub type AuthoredEdit {
+  AuthoredEdit(
+    state: tree_kernel.TreeState,
+    change: shared_change.Changeset,
+    events: tree_kernel.ChangeEvents,
+    compressor: fluid_ids.Compressor,
+  )
+}
+
 pub fn restore(
   snapshot: tree_kernel.TreeSnapshot,
   view_id: fluid_ids.StableId,
@@ -271,17 +280,61 @@ pub fn author_edit(
     empty,
     Ok(#(state, None, tree_kernel.ChangeEvents([], False), compressor)),
   )
+  use authored <- result.try(author_edit_change(state, edit, compressor))
+  case authored {
+    None -> Ok(#(state, None, tree_kernel.ChangeEvents([], False), compressor))
+    Some(authored) -> {
+      use revision <- result.try(authored_revision(authored.change))
+      use order <- result.try(identity_order(
+        state,
+        history.Commit(
+          revision,
+          fluid_ids.local_session(compressor),
+          authored.change,
+        ),
+        authored.compressor,
+      ))
+      use #(state, commit, events) <- result.try(tree_kernel.apply_local_change(
+        state,
+        revision,
+        order,
+        authored.change,
+      ))
+      Ok(#(state, Some(commit), events, authored.compressor))
+    }
+  }
+}
+
+pub fn author_edit_change(
+  state: tree_kernel.TreeState,
+  edit: Edit,
+  compressor: fluid_ids.Compressor,
+) -> Result(Option(AuthoredEdit), TreeError) {
+  use _ <- result.try(tree_kernel.validate_edit(state, edit))
+  let empty = case edit {
+    types.ArrayInsert(_, _, []) -> True
+    types.ArrayRemove(_, start, end) | types.ArrayMove(_, start, end, _, _) ->
+      start == end
+    _ -> False
+  }
+  use <- bool.guard(empty, Ok(None))
   use #(revision, order, compressor) <- result.try(allocate_revision(
     state,
     compressor,
   ))
-  use #(state, commit, events) <- result.try(tree_kernel.apply_local(
+  use change <- result.try(tree_kernel.author_local_change(
     state,
     revision,
     order,
     edit,
   ))
-  Ok(#(state, Some(commit), events, compressor))
+  use #(state, events) <- result.try(tree_kernel.apply_local_preview(
+    state,
+    revision,
+    order,
+    change,
+  ))
+  Ok(Some(AuthoredEdit(state, change, events, compressor)))
 }
 
 pub fn author_upgrade(
@@ -353,6 +406,18 @@ fn allocate_revision(
     "tree author identity order",
   ))
   Ok(#(revision, order, compressor))
+}
+
+fn authored_revision(
+  value: shared_change.Changeset,
+) -> Result(fluid_ids.StableId, TreeError) {
+  case
+    shared_change.revision_infos(shared_change.TaggedChange(None, None, value))
+  {
+    [info] -> Ok(info.revision)
+    [] -> Error(types.InvalidHistory("authored edit has no revision"))
+    _ -> Error(types.InvalidHistory("authored edit has multiple revisions"))
+  }
 }
 
 fn mint_revision(

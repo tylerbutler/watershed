@@ -16,6 +16,7 @@ import watershed/tree/history
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/runtime_fixture
 import watershed/tree/shared_change
+import watershed/tree/transaction
 import watershed/tree/types
 import watershed/tree_kernel
 import watershed/wire
@@ -279,6 +280,49 @@ pub fn shared_tree_array_net_zero_batch_still_emits_one_event_test() {
   |> expect.to_equal([
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
   ])
+}
+
+pub fn shared_tree_array_transaction_net_zero_mutation_still_emits_event_test() {
+  let writer = core()
+  let before = state(writer)
+  let assert Some(compressor) = writer.compressor
+  let assert Ok(value) = transaction.begin(before, compressor, [])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.ArrayInsert([], 1, [types.StringValue("C")]),
+    )
+  let assert Ok(value) =
+    transaction.apply_edit(value, types.ArrayRemove([], 1, 2))
+  tree_kernel.read(transaction.state(value), [])
+  |> expect.to_equal(tree_kernel.read(before, []))
+  let assert Ok(#(transaction.Commit(after, _, _), events)) =
+    transaction.finish(value)
+  tree_kernel.read(after, []) |> expect.to_equal(tree_kernel.read(before, []))
+  events
+  |> expect.to_equal(tree_kernel.ChangeEvents(
+    [tree_kernel.TreeChanged(True)],
+    True,
+  ))
+}
+
+pub fn shared_tree_array_transaction_edits_newly_inserted_node_test() {
+  let writer = core()
+  let assert Some(compressor) = writer.compressor
+  let assert Ok(value) = transaction.begin(state(writer), compressor, [])
+  let assert Ok(value) =
+    transaction.apply_edit(value, types.ArrayInsert([], 1, [point()]))
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.SetField(["1", "x"], types.NumberValue(7.0)),
+    )
+  tree_kernel.read(transaction.state(value), ["1", "x"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(7.0))))
+  let assert Ok(#(transaction.Commit(after, _, _), _)) =
+    transaction.finish(value)
+  tree_kernel.read(after, ["1", "x"])
+  |> expect.to_equal(Ok(Some(types.NumberValue(7.0))))
 }
 
 pub fn shared_tree_array_kernel_reads_pending_elements_test() {

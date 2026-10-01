@@ -651,7 +651,7 @@ git commit -m "feat(tree): enforce node constraints"
   allocation, and local history append.
 - Produces: the pure transaction API in section 3 and reusable edit authoring.
 
-- [ ] **Step 1: Add failing single-scope commit and abort tests.**
+- [x] **Step 1: Add failing single-scope commit and abort tests.**
 
 Start from a tree and compressor, apply two edits, and assert callback-visible
 state without public events. Before finish, assert normal pending history is
@@ -660,7 +660,7 @@ Abort must restore tree, history, identity, and summary compressor equality
 without an event. After an authored edit, preserve the pinned advancement of
 the ongoing local compressor state without emitting an allocation range.
 
-- [ ] **Step 2: Split edit authoring from history append.**
+- [x] **Step 2: Split edit authoring from history append.**
 
 Add an internal authoring result:
 
@@ -686,44 +686,93 @@ pub fn author_edit_change(
 returned change through `tree_kernel.apply_local_change` from the pre-edit
 state. Empty edits return `None` and preserve the compressor.
 
-- [ ] **Step 3: Implement outer transaction state.**
+- [x] **Step 3: Implement outer transaction state.**
 
 Store base/current tree and compressor, authored outer changes, constraint
 targets, and a savepoint stack. `apply_edit` uses `author_edit_change`, updates
 only current isolated state, records the change, and suppresses preview events.
 
-- [ ] **Step 4: Add and implement nested savepoints.**
+- [x] **Step 4: Add and implement nested savepoints.**
 
 Test two nested levels, inner success, inner abort, outer continuation, and
 outer abort after inner success. Each savepoint stores current tree,
 authored-change length, and event position. Aborting a savepoint preserves
 ongoing local compressor advancement.
 
-- [ ] **Step 5: Compose and append the outer success.**
+- [x] **Step 5: Compose and append the outer success.**
 
 `finish` composes authored changes in order, adds constraints against the base
 forest, and appends one commit. If there is no effective data change, return
 `NoCommit` with the base compressor and no pending history.
 
-- [ ] **Step 6: Reject unsupported transaction operations.**
+- [x] **Step 6: Reject unsupported transaction operations.**
 
 Add tests for schema upgrades, a constraint that becomes detached before the
 callback starts, and commit/abort at depth zero. Use typed errors and leave
 state usable.
 
-- [ ] **Step 7: Run pure transaction and kernel tests.**
+- [x] **Step 7: Run pure transaction and kernel tests.**
 
 ```bash
 gleam test --target erlang -- shared_tree_transaction shared_tree_kernel shared_tree_array_kernel
 gleam test --target javascript -- shared_tree_transaction shared_tree_kernel shared_tree_array_kernel
 ```
 
-- [ ] **Step 8: Commit the pure transaction engine.**
+- [x] **Step 8: Commit the pure transaction engine.**
 
 ```bash
 git add src/watershed/tree/transaction.gleam src/watershed/tree/runtime.gleam src/watershed/tree_kernel.gleam test/watershed
 git commit -m "feat(tree): add nested transactions"
 ```
+
+**Completion evidence (2026-09-30):**
+
+- Added pure `watershed/tree/transaction` state with outer commit and abort,
+  nested savepoints, constraint validation and authoring, no-commit handling,
+  and one final event.
+- Split edit authoring from history append through `AuthoredEdit`,
+  `author_edit_change`, `author_local_change`, and `apply_local_preview`.
+  Ordinary authoring still appends from the pre-edit state.
+- Preview application carries the authored revision, advances local IDs, and
+  leaves normal pending history unchanged. Final composition uses compressor
+  identity keys. It does not sort revisions by UUID or allocation time.
+- Inner abort restores its tree, authored-change count, and event position. It
+  keeps ongoing local compressor advancement. Outer abort restores the base
+  tree and history, keeps ongoing local compressor advancement, and leaves
+  summary compressor serialization unchanged.
+- `finish` and `abort` reject open nested scopes. Nested commit and abort reject
+  depth zero. The returned immutable transaction remains usable after an
+  error.
+- Empty transactions return `NoCommit`. Same-value identity edits remain real
+  commits. Net-zero array mutations retain the array event flag and emit one
+  final local tree event.
+- `begin` returns `Result(Transaction, TreeError)` instead of the infallible
+  signature in section 3. This is the smallest typed boundary that validates
+  resolved constraints before any edit can run.
+- Schema upgrades are not representable by the closed `tree_types.Edit`
+  surface. Task 4 does not add a schema edit variant. Defensive outer-change
+  checks return `UnsupportedFeature("tree.transaction", "schema changes are not supported")`.
+- RED evidence: the focused Erlang suite failed because the transaction module
+  and preview APIs did not exist. The first GREEN pass then exposed the missing
+  net-zero array mutation event, which failed with
+  `ChangeEvents([], False)` instead of
+  `ChangeEvents([TreeChanged(True)], True)`.
+- These exact required commands each passed 61 tests:
+
+  ```bash
+  gleam test --target erlang -- shared_tree_transaction shared_tree_kernel shared_tree_array_kernel
+  gleam test --target javascript -- shared_tree_transaction shared_tree_kernel shared_tree_array_kernel
+  ```
+
+- Expanded ordinary-authoring coverage passed 42 tests on each target:
+
+  ```bash
+  gleam test --target erlang -- shared_tree_map_kernel shared_tree_channel shared_tree_summary_codec
+  gleam test --target javascript -- shared_tree_map_kernel shared_tree_channel shared_tree_summary_codec
+  ```
+
+- `gleam format --check src test` and `git diff --check` passed.
+- Task 5 runtime integration and public callback APIs remain unimplemented.
 
 ### Task 5: Integrate transactions with runtime core
 
