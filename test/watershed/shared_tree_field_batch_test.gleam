@@ -5,6 +5,7 @@ import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
 import watershed/fluid_ids
+import watershed/json_ot
 import watershed/tree/change_fixture_codec as fixture_codec
 import watershed/tree/codec/field_batch
 import watershed/tree/fixtures
@@ -599,84 +600,76 @@ pub fn shared_tree_codec_field_batch_encodes_identifiers_nested_in_maps_and_arra
   |> expect.to_equal(Ok([[value]]))
 }
 
-pub fn shared_tree_codec_field_batch_pins_identifier_encode_for_native_decode_test() {
-  let sender_session = identifier_fixture.sender_session()
-  let sender = fluid_ids.new(sender_session)
-  let assert Ok(#(sender, _)) = fluid_ids.generate(sender)
-  let value =
-    identifier_fixture.point("11111111-1111-4111-8111-111111111111", "captured")
-  let assert Ok(encoded) =
-    field_batch.encode_with_context(
-      [[value]],
-      Some(identifier_fixture.stored()),
-      field_batch.MessageIds(sender, sender_session),
-    )
-  let expected =
-    encoded_batch(
-      [
-        json.object([
-          #("c", json.object([#("extraFields", json.int(1))])),
-        ]),
-        json.object([#("a", json.int(2))]),
-        json.object([#("d", json.int(0))]),
-        json.object([
-          #(
-            "c",
-            json.object([
-              #("type", json.string("com.fluidframework.leaf.null")),
-              #("value", json.array([json.null()], fn(value) { value })),
-            ]),
-          ),
-        ]),
-        json.object([
-          #(
-            "c",
-            json.object([
-              #("type", json.string("com.fluidframework.leaf.string")),
-              #("value", json.int(0)),
-            ]),
-          ),
-        ]),
-      ],
-      [
-        stream([
-          json.int(1),
-          stream([
-            json.int(0),
-            json.string(identifier_fixture.point_type),
-            json.bool(False),
-            stream([
-              json.string("id"),
-              stream([json.int(4), json.int(-1)]),
-              json.string("label"),
-              stream([
-                json.int(0),
-                json.string("com.fluidframework.leaf.string"),
-                json.bool(True),
-                json.string("captured"),
-                stream([]),
-              ]),
-            ]),
-          ]),
-        ]),
-      ],
-    )
-  encoded |> expect.to_equal(expected)
+pub fn shared_tree_codec_field_batch_decodes_pinned_upstream_identifier_test() {
+  let assert Ok(fixture) = fixtures.load("identifier-field-batches")
+  let assert Ok(input) = fixture_codec.parse(fixture.input)
+  let assert Ok(expected) = fixture_codec.parse(fixture.expected)
+  let assert Ok(scenarios) =
+    fixture_codec.field(input, "scenarios", fixture_codec.items)
+  let assert Ok(scenario) =
+    list.find(scenarios, fn(value) {
+      fixture_codec.field(value, "id", fixture_codec.text)
+      == Ok("remote-finalized-id")
+    })
+  let assert Ok(actions) =
+    fixture_codec.field(scenario, "actions", fixture_codec.items)
+  let assert Ok(delivery) =
+    list.find(actions, fn(value) {
+      fixture_codec.field(value, "op", fixture_codec.text)
+      == Ok("deliver-range")
+    })
+  let assert Ok(compressor_name) =
+    fixture_codec.field(delivery, "compressor", fixture_codec.text)
+  let assert Ok(range_index) =
+    fixture_codec.field(delivery, "range", fixture_codec.integer)
+  let assert Ok(decode_action) =
+    list.find(actions, fn(value) {
+      fixture_codec.field(value, "op", fixture_codec.text)
+      == Ok("decode-field-batch")
+    })
+  let assert Ok("message") =
+    fixture_codec.field(decode_action, "purpose", fixture_codec.text)
+  let assert Ok(originator_raw) =
+    fixture_codec.field(decode_action, "originator", fixture_codec.text)
+  let assert Ok(originator) = fluid_ids.session_id(originator_raw)
+  let assert Ok(encoded) = fixture_codec.get(decode_action, "encoded")
+  let assert Ok(encoded_value) = fixture_codec.get(encoded, "value")
 
-  let range =
-    fluid_ids.CreationRange(
-      sender_session,
-      Some(fluid_ids.RangeIds(1, 1, 512, [#(1, 1)])),
+  let assert Ok(sessions) = fixture_codec.get(input, "sessions")
+  let assert Ok(local_raw) =
+    fixture_codec.field(sessions, "local", fixture_codec.text)
+  let assert Ok(local) = fluid_ids.session_id(local_raw)
+  let assert Ok(compressors) = fixture_codec.get(input, "compressors")
+  let assert Ok(compressor_raw) =
+    fixture_codec.field(compressors, compressor_name, fixture_codec.text)
+  let assert Ok(compressor) =
+    fluid_ids.deserialize(json.string(compressor_raw), local)
+  let assert Ok(ranges) =
+    fixture_codec.field(input, "idRanges", fixture_codec.items)
+  let assert Ok(range_value) =
+    ranges
+    |> list.drop(range_index)
+    |> list.first
+  let assert Ok(range) =
+    fluid_ids.creation_range_from_json(json_ot.to_json(range_value))
+  let assert Ok(compressor) = fluid_ids.finalize(compressor, range)
+
+  let assert Ok(observations) =
+    fixture_codec.field(expected, "observations", fixture_codec.items)
+  let assert Ok(observation) =
+    list.find(observations, fn(value) {
+      fixture_codec.field(value, "id", fixture_codec.text)
+      == Ok("remote-finalized-id")
+    })
+  let assert Ok(upstream_decoded) =
+    fixture_codec.field(observation, "decoded", fixture_codec.text)
+  let assert Ok([[StringValue(actual)]]) =
+    field_batch.decode_with_context(
+      identifier_batch(json_ot.to_json(encoded_value)),
+      None,
+      field_batch.MessageIds(compressor, originator),
     )
-  let assert Ok(receiver) =
-    fluid_ids.new(identifier_fixture.receiver_session())
-    |> fluid_ids.finalize(range)
-  field_batch.decode_with_context(
-    expected,
-    Some(identifier_fixture.stored()),
-    field_batch.MessageIds(receiver, sender_session),
-  )
-  |> expect.to_equal(Ok([[value]]))
+  actual |> expect.to_equal(upstream_decoded)
 }
 
 pub fn shared_tree_codec_field_batch_preserves_reserved_unallocated_identifiers_test() {
