@@ -2008,6 +2008,15 @@ pub fn replace_revisions(
   obsolete: List(Option(StableId)),
   updated: StableId,
 ) -> Result(Changeset, TreeError) {
+  replace_revisions_with_mapping(change, obsolete, updated)
+  |> result.map(fn(replaced) { replaced.0 })
+}
+
+pub fn replace_revisions_with_mapping(
+  change: Changeset,
+  obsolete: List(Option(StableId)),
+  updated: StableId,
+) -> Result(#(Changeset, List(#(AtomId, AtomId))), TreeError) {
   use _ <- result.try(unique_by(
     obsolete,
     fn(revision) { revision },
@@ -2064,7 +2073,7 @@ pub fn replace_revisions(
       cross_field_keys: cross_field_keys,
     )
   use replaced <- result.try(from_data(data, change.identity_order))
-  Ok(replaced)
+  Ok(#(replaced, state.mappings))
 }
 
 pub fn prune(change: Changeset) -> Result(Changeset, TreeError) {

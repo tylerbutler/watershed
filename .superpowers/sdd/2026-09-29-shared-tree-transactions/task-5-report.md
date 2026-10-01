@@ -187,3 +187,84 @@ Plan and report:
   task intentionally does not add those public or actor APIs.
 - The repository-wide `just format` command stalled during this run. Targeted
   Gleam formatting completed successfully.
+
+## Review fix: authored constraints and retained repair identity
+
+Two reviewed Task5 defects were reproduced and fixed without adding Task 6 or
+later APIs.
+
+### RED
+
+The corrected regressions were applied alone to the untouched `5abf36e0`
+baseline and run on both targets:
+
+```bash
+gleam test --target erlang -- shared_tree_transaction
+gleam test --target javascript -- shared_tree_transaction
+```
+
+Both targets reported 23 passed and 3 failed out of 26 tests:
+
+- Removing constrained `B` after `[A, B, Z]` became `[C, A, B, Z]` left the
+  violation count at 0.
+- Removing unconstrained `Z` set the violation count to 1.
+- A retained detached reference to `A` became invalid after transaction finish.
+
+The constraint regressions include an additional authored edit after nested
+begin. The detached-reference regression reads `A` before finish, after finish,
+after a remote reconciliation, and after local acknowledgement.
+
+### GREEN
+
+The required Task5 matrix passed:
+
+```bash
+gleam test --target erlang -- shared_tree_runtime shared_tree_transaction shared_tree_array_kernel shared_tree_schema_evolution
+gleam test --target javascript -- shared_tree_runtime shared_tree_transaction shared_tree_array_kernel shared_tree_schema_evolution
+```
+
+```text
+Erlang:     162 passed
+JavaScript: 151 passed
+```
+
+Direct coverage for the changed change, forest, and history helpers also
+passed:
+
+```bash
+gleam test --target erlang -- shared_tree_change shared_tree_forest shared_tree_array_forest shared_tree_map_forest shared_tree_history
+gleam test --target javascript -- shared_tree_change shared_tree_forest shared_tree_array_forest shared_tree_map_forest shared_tree_history
+```
+
+```text
+Erlang:     225 passed
+JavaScript: 225 passed
+```
+
+### Fix
+
+- `ConstraintSet` retains the authored change count. Finish attaches each
+  constraint set to the change at that boundary before composing the sequence
+  and before final revision squashing. A set authored after the last edit is
+  attached to that final authored change. Saved authoring state still validates
+  identity, duplicates still collapse in the existing constraint helper, and
+  nested abort still truncates constraint sets at its savepoint.
+- `change.replace_revisions_with_mapping` returns the exact atom replacements
+  produced by the existing replacement pass. `forest.promote_preview_identity`
+  uses that map to find the corresponding preview detached key while retaining
+  the canonical squashed key and repair metadata. Visible-root equality and
+  compressor order remain on the existing paths.
+
+### Files
+
+- `src/watershed/tree/change.gleam`
+- `src/watershed/tree/forest.gleam`
+- `src/watershed/tree/transaction.gleam`
+- `src/watershed/tree_kernel.gleam`
+- `test/watershed/shared_tree_transaction_test.gleam`
+- `docs/superpowers/plans/2026-09-29-shared-tree-transactions.md`
+- `.superpowers/sdd/2026-09-29-shared-tree-transactions/task-5-report.md`
+
+### Concerns
+
+- None for Task5 scope. Existing repository warnings remain unchanged.

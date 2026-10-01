@@ -189,6 +189,7 @@ pub fn preserve_allocation_watermark(
 pub fn promote_preview_identity(
   canonical: Forest,
   preview: Forest,
+  replacements: List(#(AtomId, AtomId)),
 ) -> Result(Forest, TreeError) {
   use _ <- result.try(check(
     canonical.view_id == preview.view_id,
@@ -227,12 +228,13 @@ pub fn promote_preview_identity(
       promoted,
       fn(promoted, pair) {
         let #(id, canonical_entry) = pair
+        let preview_id = replacement_input(id, replacements)
         use #(canonical_value, _) <- result.try(materialize(
           canonical,
           canonical_entry.node_id,
           set.new(),
         ))
-        case dict.get(preview.detached.entries, id) {
+        case dict.get(preview.detached.entries, preview_id) {
           Ok(preview_entry) -> {
             use #(preview_value, _) <- result.try(materialize(
               preview,
@@ -280,6 +282,20 @@ pub fn promote_preview_identity(
     "transaction preview does not match the composed commit",
   ))
   Ok(promoted)
+}
+
+fn replacement_input(
+  id: AtomId,
+  replacements: List(#(AtomId, AtomId)),
+) -> AtomId {
+  case replacements {
+    [] -> id
+    [replacement, ..rest] ->
+      case replacement.1 == id {
+        True -> replacement.0
+        False -> replacement_input(id, rest)
+      }
+  }
 }
 
 pub fn replace_schema(

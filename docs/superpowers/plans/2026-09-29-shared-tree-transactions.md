@@ -990,6 +990,44 @@ git commit -m "feat(tree): submit atomic transactions"
   `just format` command stalled in Trellis after starting both format jobs, so
   the changed Gleam files were formatted directly.
 
+**Review fix evidence (2026-09-30):**
+
+- Added transaction regressions for a nested constraint authored after an
+  outer array insertion and for a retained detached `NodeRef` across finish,
+  remote reconciliation, and local acknowledgement.
+- On the untouched `5abf36e0` baseline, both targets failed the corrected
+  transaction regressions with 23 passed and 3 failed:
+
+  ```bash
+  gleam test --target erlang -- shared_tree_transaction
+  gleam test --target javascript -- shared_tree_transaction
+  ```
+
+  The failures showed the constrained `B` removal at count 0, the unconstrained
+  `Z` removal at count 1, and the detached `A` reference becoming invalid after
+  finish.
+- `ConstraintSet` now retains its authored change boundary. Finish adds each
+  set to the change authored at that boundary before composing and squashing
+  the outer transaction. A trailing set is added to the final authored change.
+- Revision replacement now returns the exact old-to-squashed atom map.
+  Preview identity promotion uses its reverse lookup for canonical detached
+  keys, so retained repair nodes keep their preview node identities.
+- The required focused matrix passed:
+
+  ```bash
+  gleam test --target erlang -- shared_tree_runtime shared_tree_transaction shared_tree_array_kernel shared_tree_schema_evolution
+  gleam test --target javascript -- shared_tree_runtime shared_tree_transaction shared_tree_array_kernel shared_tree_schema_evolution
+  ```
+
+  Erlang passed 162 tests. JavaScript passed 151 tests.
+- Direct change, forest, and history coverage also passed 225 tests on each
+  target:
+
+  ```bash
+  gleam test --target erlang -- shared_tree_change shared_tree_forest shared_tree_array_forest shared_tree_map_forest shared_tree_history
+  gleam test --target javascript -- shared_tree_change shared_tree_forest shared_tree_array_forest shared_tree_map_forest shared_tree_history
+  ```
+
 ### Task 6: Expose the JavaScript callback API
 
 **Files:**

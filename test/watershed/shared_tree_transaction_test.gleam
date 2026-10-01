@@ -395,6 +395,90 @@ pub fn shared_tree_transaction_finish_preserves_preview_node_references_test() -
   |> expect.to_equal(Ok(types.StringValue("C")))
 }
 
+pub fn shared_tree_transaction_finish_preserves_detached_preview_reference_test() -> Nil {
+  let base =
+    array_state(session(), [
+      types.StringValue("A"),
+      types.StringValue("B"),
+    ])
+  let assert Ok(a_reference) = tree_kernel.reference_at(base, ["0"])
+  let assert Ok(value) = transaction.begin(base, fluid_ids.new(session()), [])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.ArrayInsert([], 2, [types.StringValue("C")]),
+    )
+  let assert Ok(value) =
+    transaction.apply_edit(value, types.ArrayRemove([], 0, 1))
+  tree_kernel.read_reference(transaction.state(value), a_reference)
+  |> expect.to_equal(Ok(types.StringValue("A")))
+
+  let assert Ok(#(transaction.Commit(state, _, commit), _)) =
+    transaction.finish(value)
+  tree_kernel.read_reference(state, a_reference)
+  |> expect.to_equal(Ok(types.StringValue("A")))
+
+  let remote_base =
+    array_state(other_session(), [
+      types.StringValue("A"),
+      types.StringValue("B"),
+    ])
+  let assert Ok(remote_order) = change.identity_order([#(remote_revision(), 0)])
+  let assert Ok(#(_, remote_commit, _)) =
+    tree_kernel.apply_local(
+      remote_base,
+      remote_revision(),
+      remote_order,
+      types.ArrayInsert([], 0, [types.StringValue("remote")]),
+    )
+  let rollback_revisions = [
+    rollback_revision_one(),
+    rollback_revision_two(),
+    rollback_revision_three(),
+  ]
+  let revisions =
+    [
+      remote_revision(),
+      ..list.append(rollback_revisions, [
+        commit.revision,
+        ..shared_change.identity_revisions(commit.change)
+      ])
+    ]
+    |> list.unique
+  let assert Ok(order) =
+    revisions
+    |> list.index_map(fn(revision, index) { #(revision, index) })
+    |> change.identity_order
+  let allocation = Allocation(rollback_revisions, order)
+  let assert Ok(#(reconciled, _, allocation)) =
+    tree_kernel.receive_ordered(
+      state,
+      remote_commit,
+      order,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      allocation,
+      mint,
+    )
+  tree_kernel.read_reference(reconciled, a_reference)
+  |> expect.to_equal(Ok(types.StringValue("A")))
+
+  let assert Ok(#(acknowledged, _, _)) =
+    tree_kernel.receive_ordered(
+      reconciled,
+      commit,
+      order,
+      types.SequencePoint(2, 0),
+      0,
+      0,
+      allocation,
+      mint,
+    )
+  tree_kernel.read_reference(acknowledged, a_reference)
+  |> expect.to_equal(Ok(types.StringValue("A")))
+}
+
 pub fn shared_tree_transaction_abort_restores_document_and_summary_test() -> Nil {
   let base = initial_state()
   let compressor = fluid_ids.new(session())
@@ -622,6 +706,102 @@ pub fn shared_tree_transaction_nested_constraints_use_current_author_order_test(
   |> list.length
   |> expect.to_equal(1)
   Nil
+}
+
+pub fn shared_tree_transaction_nested_constraint_detects_target_remove_test() -> Nil {
+  transaction_constraint_violation_after_remote_remove(1)
+  |> expect.to_equal(1)
+}
+
+pub fn shared_tree_transaction_nested_constraint_ignores_other_remove_test() -> Nil {
+  transaction_constraint_violation_after_remote_remove(2)
+  |> expect.to_equal(0)
+}
+
+fn transaction_constraint_violation_after_remote_remove(index: Int) -> Int {
+  let values = [
+    types.StringValue("A"),
+    types.StringValue("B"),
+    types.StringValue("Z"),
+  ]
+  let base = array_state(session(), values)
+  let assert Ok(value) = transaction.begin(base, fluid_ids.new(session()), [])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.ArrayInsert([], 0, [types.StringValue("C")]),
+    )
+  tree_kernel.read(transaction.state(value), ["2"])
+  |> expect.to_equal(Ok(Some(types.StringValue("B"))))
+  let assert Ok(target) =
+    tree_kernel.resolve_constraint(transaction.state(value), ["2"])
+  let assert Ok(value) =
+    transaction.begin_nested_with_constraints(value, [target])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.ArrayInsert([], 4, [types.StringValue("D")]),
+    )
+  let assert Ok(value) = transaction.commit_nested(value)
+  let assert Ok(#(transaction.Commit(state, _, commit), _)) =
+    transaction.finish(value)
+
+  let remote_base = array_state(other_session(), values)
+  let assert Ok(remote_order) = change.identity_order([#(remote_revision(), 0)])
+  let assert Ok(#(_, remote_commit, _)) =
+    tree_kernel.apply_local(
+      remote_base,
+      remote_revision(),
+      remote_order,
+      types.ArrayRemove([], index, index + 1),
+    )
+  let rollback_revisions = [
+    rollback_revision_one(),
+    rollback_revision_two(),
+    rollback_revision_three(),
+  ]
+  let revisions =
+    [
+      remote_revision(),
+      ..list.append(rollback_revisions, [
+        commit.revision,
+        ..shared_change.identity_revisions(commit.change)
+      ])
+    ]
+    |> list.unique
+  let assert Ok(order) =
+    revisions
+    |> list.index_map(fn(revision, index) { #(revision, index) })
+    |> change.identity_order
+  let #(rebased, _, _) =
+    tree_kernel.receive_ordered(
+      state,
+      remote_commit,
+      order,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Allocation(rollback_revisions, order),
+      mint,
+    )
+    |> expect.to_be_ok
+  let pending =
+    tree_kernel.history_view(rebased).pending
+    |> list.first
+    |> expect.to_be_ok
+  let item =
+    pending.change
+    |> shared_change.to_changes
+    |> list.filter(fn(item) {
+      case item {
+        shared_change.DataChange(_) -> True
+        shared_change.SchemaChange(_, _, _) -> False
+      }
+    })
+    |> list.first
+    |> expect.to_be_ok
+  let assert shared_change.DataChange(data) = item
+  change.to_data(data).constraint_violation_count
 }
 
 pub fn shared_tree_transaction_nested_abort_discards_nested_constraints_test() -> Nil {

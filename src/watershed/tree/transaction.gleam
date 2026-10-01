@@ -8,7 +8,7 @@ import watershed/tree/change
 import watershed/tree/history
 import watershed/tree/runtime
 import watershed/tree/shared_change
-import watershed/tree/types.{type Edit, type TreeError}
+import watershed/tree/types.{type AtomId, type Edit, type TreeError}
 import watershed/tree_kernel
 
 type AuthoredChange {
@@ -19,6 +19,7 @@ type ConstraintSet {
   ConstraintSet(
     state: tree_kernel.TreeState,
     targets: List(change.ConstraintTarget),
+    change_count: Int,
   )
 }
 
@@ -65,7 +66,7 @@ pub fn begin(
       state,
       compressor,
       compressor,
-      constraint_set(state, constraints),
+      constraint_set(state, constraints, 0),
       [],
       [],
       [],
@@ -105,7 +106,11 @@ fn push_savepoint(
     ],
     constraint_sets: list.append(
       value.constraint_sets,
-      constraint_set(value.current_state, constraints),
+      constraint_set(
+        value.current_state,
+        constraints,
+        list.length(value.changes),
+      ),
     ),
   )
 }
@@ -238,7 +243,6 @@ fn finish_change(
   outer: shared_change.Changeset,
 ) -> Result(#(Finish, tree_kernel.ChangeEvents), TreeError) {
   use _ <- result.try(reject_schema_changes(outer))
-  use outer <- result.try(squash_revisions(outer, revision))
   let draft =
     history.Commit(
       revision,
@@ -250,23 +254,15 @@ fn finish_change(
     draft,
     value.current_compressor,
   ))
-  use outer <- result.try(
-    list.try_fold(value.constraint_sets, outer, fn(outer, constraints) {
-      tree_kernel.add_node_exists_constraints(
-        constraints.state,
-        outer,
-        constraints.targets,
-        revision,
-        order,
-      )
-    }),
-  )
+  use outer <- result.try(compose_constraints(value, order))
+  use #(outer, replacements) <- result.try(squash_revisions(outer, revision))
   use #(state, commit, events) <- result.try(tree_kernel.commit_local_preview(
     value.base_state,
     value.current_state,
     revision,
     order,
     outer,
+    replacements,
   ))
   Ok(#(
     Commit(state, value.current_compressor, commit),
@@ -274,17 +270,112 @@ fn finish_change(
   ))
 }
 
+fn compose_constraints(
+  value: Transaction,
+  order: change.IdentityOrder,
+) -> Result(shared_change.Changeset, TreeError) {
+  use empty <- result.try(shared_change.compose([]))
+  compose_constraint_sequence(
+    value.changes,
+    value.constraint_sets,
+    0,
+    empty,
+    order,
+  )
+}
+
+fn compose_constraint_sequence(
+  changes: List(AuthoredChange),
+  constraints: List(ConstraintSet),
+  index: Int,
+  outer: shared_change.Changeset,
+  order: change.IdentityOrder,
+) -> Result(shared_change.Changeset, TreeError) {
+  let #(at_position, remaining) = take_constraint_sets(constraints, index, [])
+  case changes {
+    [authored, ..rest] -> {
+      let #(at_position, remaining_constraints) = case rest {
+        [] -> {
+          let #(trailing, remaining) =
+            take_constraint_sets(remaining, index + 1, [])
+          #(list.append(at_position, trailing), remaining)
+        }
+        _ -> #(at_position, remaining)
+      }
+      use authored <- result.try(
+        list.try_fold(at_position, authored, fn(authored, constraint) {
+          use change <- result.try(tree_kernel.add_node_exists_constraints(
+            constraint.state,
+            authored.change,
+            constraint.targets,
+            authored.revision,
+            order,
+          ))
+          Ok(AuthoredChange(..authored, change:))
+        }),
+      )
+      use outer <- result.try(append_authored(outer, authored))
+      compose_constraint_sequence(
+        rest,
+        remaining_constraints,
+        index + 1,
+        outer,
+        order,
+      )
+    }
+    [] -> Ok(outer)
+  }
+}
+
+fn take_constraint_sets(
+  constraints: List(ConstraintSet),
+  position: Int,
+  output: List(ConstraintSet),
+) -> #(List(ConstraintSet), List(ConstraintSet)) {
+  case constraints {
+    [constraint, ..rest] if constraint.change_count == position ->
+      take_constraint_sets(rest, position, [constraint, ..output])
+    _ -> #(list.reverse(output), constraints)
+  }
+}
+
+fn append_authored(
+  outer: shared_change.Changeset,
+  authored: AuthoredChange,
+) -> Result(shared_change.Changeset, TreeError) {
+  append_change(
+    outer,
+    shared_change.TaggedChange(Some(authored.revision), None, authored.change),
+  )
+}
+
+fn append_change(
+  outer: shared_change.Changeset,
+  authored: shared_change.TaggedChange,
+) -> Result(shared_change.Changeset, TreeError) {
+  let tagged = case shared_change.to_changes(outer) {
+    [] -> [authored]
+    _ -> [
+      shared_change.TaggedChange(None, None, outer),
+      authored,
+    ]
+  }
+  shared_change.compose(tagged)
+}
+
 fn squash_revisions(
   value: shared_change.Changeset,
   revision: fluid_ids.StableId,
-) -> Result(shared_change.Changeset, TreeError) {
+) -> Result(#(shared_change.Changeset, List(#(AtomId, AtomId))), TreeError) {
   case shared_change.to_changes(value) {
     [shared_change.DataChange(data)] -> {
       let obsolete =
         change.revision_infos(change.TaggedChange(None, None, data))
         |> list.map(fn(info) { Some(info.revision) })
-      change.replace_revisions(data, obsolete, revision)
-      |> result.map(shared_change.from_data)
+      use #(data, replacements) <- result.try(
+        change.replace_revisions_with_mapping(data, obsolete, revision),
+      )
+      Ok(#(shared_change.from_data(data), replacements))
     }
     _ ->
       Error(types.UnsupportedFeature(
@@ -353,9 +444,10 @@ fn preserve_array_events(
 fn constraint_set(
   state: tree_kernel.TreeState,
   targets: List(change.ConstraintTarget),
+  change_count: Int,
 ) -> List(ConstraintSet) {
   case targets {
     [] -> []
-    _ -> [ConstraintSet(state, targets)]
+    _ -> [ConstraintSet(state, targets, change_count)]
   }
 }

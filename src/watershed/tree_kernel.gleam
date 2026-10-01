@@ -620,6 +620,7 @@ pub fn commit_local_preview(
   revision: fluid_ids.StableId,
   order: change.IdentityOrder,
   outer: shared_change.Changeset,
+  replacements: List(#(types.AtomId, types.AtomId)),
 ) -> Result(#(TreeState, history.Commit, ChangeEvents), TreeError) {
   use #(committed, commit, events) <- result.try(apply_local_change(
     base,
@@ -630,6 +631,7 @@ pub fn commit_local_preview(
   use visible <- result.try(forest.promote_preview_identity(
     committed.visible,
     preview.visible,
+    replacements,
   ))
   Ok(#(
     TreeState(
