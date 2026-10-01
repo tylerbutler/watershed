@@ -33,7 +33,7 @@ import {
 	TreeCompressionStrategy,
 	type ModularChangeset,
 } from "../feature-libraries/index.js";
-import { tagChange, type RevisionTag } from "../core/index.js";
+import { tagChange, type RevisionTag, type TreeStoredSchema } from "../core/index.js";
 import { SchemaFactory, TreeViewConfiguration } from "../simple-tree/index.js";
 import { configuredSharedTreeInternal } from "../treeFactory.js";
 import { makeTestFieldBatchContexts, assertIsSessionId } from "./utils.js";
@@ -322,7 +322,12 @@ function visibleArray(root: ArrayRoot | undefined) {
 function visibleIdentifier(root: IdentifierRoot | undefined) {
 	const value = (item: IdentifierPoint | IdentifierPair): unknown =>
 		item instanceof IdentifierPair
-			? { firstId: item.firstId, secondId: item.secondId, label: item.label }
+			? {
+					firstId: item.firstId,
+					secondId: item.secondId,
+					label: item.label,
+					pairOnly: item.pairOnly,
+				}
 			: { id: item.id, label: item.label };
 	return root === undefined ? null : {
 		child: value(root.child),
@@ -646,6 +651,23 @@ function stableRevision(idCompressor: IIdCompressor, revision: unknown): string 
 	return idCompressor.decompress(revision as SessionSpaceCompressedId);
 }
 
+const historicalSchemaCodec = schemaCodecBuilder.build({
+	jsonValidator: FormatValidatorNoOp,
+	minVersionForCollab: FluidClientVersion.v2_117,
+});
+
+function historicalSchemaChange(value: unknown, id: string, location: string) {
+	const change = asObject(value, `${id}: ${location} schema change`);
+	const schemas = asObject(change.schema, `${id}: ${location} schemas`);
+	return {
+		schema: {
+			new: historicalSchemaCodec.encode(schemas.new as TreeStoredSchema),
+			old: historicalSchemaCodec.encode(schemas.old as TreeStoredSchema),
+		},
+		isInverse: change.isInverse,
+	};
+}
+
 function historyChanges(commit: Record<string, unknown>, id: string, location: string) {
 	const change = asObject(commit.change, `${id}: ${location} change`);
 	assert(Array.isArray(change.changes), `${id}: ${location} changes`);
@@ -655,7 +677,7 @@ function historyChanges(commit: Record<string, unknown>, id: string, location: s
 			type: entry.type,
 			data: entry.type === "data"
 				? encodeModularGraph(entry.innerChange as ModularChangeset)
-				: entry.innerChange,
+				: historicalSchemaChange(entry.innerChange, id, `${location} change ${index}`),
 		};
 	});
 }

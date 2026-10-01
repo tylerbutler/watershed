@@ -889,11 +889,13 @@ fn identifier_value_json(value: types.TreeValue) -> Result(Json, String) {
           use first <- result.try(identifier_text_field(fields, "firstId"))
           use second <- result.try(identifier_text_field(fields, "secondId"))
           use label <- result.try(identifier_text_field(fields, "label"))
+          use pair_only <- result.try(identifier_text_field(fields, "pairOnly"))
           Ok(
             json.object([
               #("firstId", json.string(first)),
               #("secondId", json.string(second)),
               #("label", json.string(label)),
+              #("pairOnly", json.string(pair_only)),
             ]),
           )
         }
@@ -1116,28 +1118,21 @@ fn compact_empty_json_value(value: JsonValue) -> JsonValue {
 }
 
 fn identifier_schema_state_json(value: schema.SchemaState) -> Json {
-  let cardinality = case value {
-    schema.EmptySchema -> "Forbidden"
-    schema.FixedSchema(value) -> {
-      let schema.FieldSchema(cardinality, _) = schema.root_field_schema(value)
-      case cardinality {
-        schema.Required -> "Value"
-        schema.Optional -> "Optional"
-        schema.Sequence -> "Sequence"
-        schema.Identifier -> "Identifier"
-      }
-    }
-  }
-  json.object([
-    #(
-      "rootFieldSchema",
+  case value {
+    schema.EmptySchema ->
       json.object([
-        #("kind", json.string(cardinality)),
-        #("types", json.object([])),
-      ]),
-    ),
-    #("nodeSchema", json.object([])),
-  ])
+        #("nodes", json.object([])),
+        #(
+          "root",
+          json.object([
+            #("kind", json.string("Forbidden")),
+            #("types", json.array([], fn(value) { value })),
+          ]),
+        ),
+        #("version", json.int(2)),
+      ])
+    schema.FixedSchema(value) -> schema.stored_to_json(value)
+  }
 }
 
 fn identifier_summary_revision_json(

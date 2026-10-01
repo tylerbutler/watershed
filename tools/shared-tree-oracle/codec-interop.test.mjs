@@ -197,6 +197,7 @@ test("Identifier observations reject complete semantic loss and corruption", asy
         firstId: "10000000-0000-4000-8000-000000000001",
         secondId: "10000000-0000-4000-8000-000000000002",
         label: "pair",
+        pairOnly: "pair",
       }],
       right: [],
       byKey: [],
@@ -232,6 +233,37 @@ test("Identifier observations reject complete semantic loss and corruption", asy
               id: { revision: "root", localId: 1 },
               trees: [{ fields: { id: [{ value: "refresher-id" }] } }],
             }],
+          },
+        }, {
+          type: "schema",
+          data: {
+            schema: {
+              new: {
+                nodes: {
+                  "org.watershed.shared-tree.identifiers.Pair": {
+                    kind: {
+                      object: {
+                        pairOnly: {
+                          kind: "Value",
+                          types: ["com.fluidframework.leaf.string"],
+                        },
+                      },
+                    },
+                  },
+                },
+                root: {
+                  kind: "Value",
+                  types: ["org.watershed.shared-tree.identifiers.Root"],
+                },
+                version: 2,
+              },
+              old: {
+                nodes: {},
+                root: { kind: "Forbidden", types: [] },
+                version: 2,
+              },
+            },
+            isInverse: false,
           },
         }],
       }],
@@ -270,6 +302,15 @@ test("Identifier observations reject complete semantic loss and corruption", asy
     },
     (value) => {
       value.observations[0].visible.left[1].label = "corrupted-label";
+    },
+    (value) => {
+      value.observations[0].visible.left[1].pairOnly = "corrupted-pair-only";
+    },
+    (value) => {
+      value.observations[0].history.trunk[0].changes[1]
+        .data.schema.new.nodes[
+          "org.watershed.shared-tree.identifiers.Pair"
+        ].kind.object.pairOnly.types = [];
     },
     (value) => {
       value.observations[0].removed[0].tree.fields.child[0]
