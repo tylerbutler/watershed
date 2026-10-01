@@ -194,7 +194,12 @@ pub fn decode(
     "DetachedFieldIndexBlob",
     "summary.indexes.DetachedFieldIndex.DetachedFieldIndexBlob",
   ))
-  use forest <- result.try(decode_forest_string_with_schema(forest_raw, stored))
+  let codec.DecodeContext(compressor: compressor, ..) = context
+  use forest <- result.try(decode_forest_string_with_context(
+    forest_raw,
+    stored,
+    compressor,
+  ))
   use detached <- result.try(decode_detached_string(
     detached_raw,
     session,
@@ -217,7 +222,12 @@ pub fn encode(
 ) -> Result(fluid_summary.SummaryEntry, TreeError) {
   let TreeSummaryData(stored, forest, detached, history) = value
   use _ <- result.try(validate_tree_summary(stored, forest, detached))
-  use forest_json <- result.try(encode_forest(forest))
+  let codec.EncodeContext(compressor: compressor, ..) = context
+  use forest_json <- result.try(encode_forest_with_context(
+    forest,
+    stored,
+    compressor,
+  ))
   use detached_json <- result.try(encode_detached(detached, session, context))
   use history_json <- result.try(encode_edit_manager(history, context))
   Ok(
@@ -255,7 +265,7 @@ pub fn encode(
 
 /// Decode Forest V2 content from JSON.
 pub fn decode_forest(encoded: Json) -> Result(ForestSummary, TreeError) {
-  decode_forest_value(encoded, None)
+  decode_forest_value(encoded, None, None)
 }
 
 /// Decode Forest V2 content with its active stored schema.
@@ -263,12 +273,26 @@ pub fn decode_forest_with_schema(
   encoded: Json,
   stored: schema.StoredSchema,
 ) -> Result(ForestSummary, TreeError) {
-  decode_forest_value(encoded, Some(stored))
+  decode_forest_value(encoded, Some(stored), None)
+}
+
+/// Decode Forest V2 content with its schema and summary ID context.
+pub fn decode_forest_with_context(
+  encoded: Json,
+  stored: schema.StoredSchema,
+  compressor: fluid_ids.Compressor,
+) -> Result(ForestSummary, TreeError) {
+  decode_forest_value(
+    encoded,
+    Some(stored),
+    Some(field_batch.SummaryIds(compressor)),
+  )
 }
 
 fn decode_forest_value(
   encoded: Json,
   stored: Option(schema.StoredSchema),
+  ids: Option(field_batch.IdContext),
 ) -> Result(ForestSummary, TreeError) {
   use value <- result.try(json_value(encoded, "forest"))
   use members <- result.try(object(value, "forest"))
@@ -289,10 +313,16 @@ fn decode_forest_value(
   )
   use _ <- result.try(unique_strings(keys, "forest.keys"))
   use fields_value <- result.try(required(members, "fields", "forest.fields"))
-  use fields <- result.try(field_batch.decode_with_schema(
-    json_ot.to_json(fields_value),
-    stored,
-  ))
+  use fields <- result.try(case ids {
+    None ->
+      field_batch.decode_with_schema(json_ot.to_json(fields_value), stored)
+    Some(ids) ->
+      field_batch.decode_with_context(
+        json_ot.to_json(fields_value),
+        stored,
+        ids,
+      )
+  })
   case list.length(keys) == list.length(fields) {
     True -> Ok(ForestSummary(list.zip(keys, fields)))
     False ->
@@ -310,6 +340,31 @@ pub fn encode_forest(value: ForestSummary) -> Result(Json, TreeError) {
   use encoded <- result.try(
     field_batch.encode(list.map(fields, fn(field) { field.1 })),
   )
+  Ok(
+    json.object([
+      #("keys", json.array(fields, fn(field) { json.string(field.0) })),
+      #("fields", encoded),
+      #("version", json.int(2)),
+    ]),
+  )
+}
+
+/// Encode Forest V2 content with its schema and summary ID context.
+pub fn encode_forest_with_context(
+  value: ForestSummary,
+  stored: schema.StoredSchema,
+  compressor: fluid_ids.Compressor,
+) -> Result(Json, TreeError) {
+  let ForestSummary(fields) = value
+  use _ <- result.try(unique_strings(
+    list.map(fields, fn(field) { field.0 }),
+    "forest.keys",
+  ))
+  use encoded <- result.try(field_batch.encode_with_context(
+    list.map(fields, fn(field) { field.1 }),
+    Some(stored),
+    field_batch.SummaryIds(compressor),
+  ))
   Ok(
     json.object([
       #("keys", json.array(fields, fn(field) { json.string(field.0) })),
@@ -550,12 +605,13 @@ pub fn encode_edit_manager(
   )
 }
 
-fn decode_forest_string_with_schema(
+fn decode_forest_string_with_context(
   raw: String,
   stored: schema.StoredSchema,
+  compressor: fluid_ids.Compressor,
 ) -> Result(ForestSummary, TreeError) {
   use value <- result.try(parse(raw, "forest"))
-  decode_forest_with_schema(json_ot.to_json(value), stored)
+  decode_forest_with_context(json_ot.to_json(value), stored, compressor)
 }
 
 fn decode_detached_string(

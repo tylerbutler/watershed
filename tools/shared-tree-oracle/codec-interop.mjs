@@ -50,6 +50,13 @@ const requiredItemIds = [
   "summary-schema-initial",
   "summary-schema-peer-before-upgrade",
   "summary-schema-upgrade-tail",
+  "identifier-explicit-custom",
+  "identifier-generated-uuid",
+  "identifier-message-compressed",
+  "identifier-summary-finalized",
+  "identifier-summary-unfinalized",
+  "identifier-retained-repair",
+  "identifier-post-load-edit",
 ];
 const point = (x, y) => ({
   type: "org.watershed.shared-tree.m1.Point",
@@ -375,7 +382,8 @@ export function validateNativeArtifact(artifact) {
       `${item.id} kind`);
     requireValue(item.schemaProfile === undefined
       || item.schemaProfile === "map"
-      || item.schemaProfile === "array",
+      || item.schemaProfile === "array"
+      || item.schemaProfile === "identifier",
       `${item.id} schemaProfile`);
     requireValue(Object.hasOwn(item, "encoded"), `${item.id} encoded`);
     if (item.kind === "message" || item.kind === "summary") {
@@ -585,6 +593,38 @@ export function validateConsumerOutput(
         "summary-schema-upgrade-tail retained schema tail");
       requireValue(observation.continued === "upstream-continuation",
         "summary-schema-upgrade-tail continuation");
+    }
+    if (observation.id === "identifier-explicit-custom") {
+      requireValue(observation.visible?.child?.id === "literal-custom-id",
+        "identifier explicit custom ID");
+    }
+    if (observation.id === "identifier-generated-uuid"
+      || observation.id === "identifier-summary-finalized") {
+      requireValue(observation.visible?.child?.id
+        === "10000000-0000-4000-8000-000000000004",
+      `${observation.id} generated UUID`);
+    }
+    if (observation.id === "identifier-message-compressed") {
+      requireValue(observation.decoded === true
+        && observation.afterApply?.child?.id
+          === "10000000-0000-4000-8000-000000000004"
+        && observation.afterApply?.child?.label === "message",
+      "identifier compressed message");
+    }
+    if (observation.id === "identifier-summary-unfinalized") {
+      requireValue(typeof observation.visible?.child?.id === "string"
+        && observation.visible.child.label === "unfinalized",
+      "identifier unfinalized summary fallback");
+    }
+    if (observation.id === "identifier-retained-repair") {
+      requireValue(observation.removed.some(({ tree }) =>
+        tree?.fields?.child?.[0]?.fields?.id?.[0]?.value
+          === "retained-custom-id"),
+      "identifier retained repair");
+    }
+    if (observation.id === "identifier-post-load-edit") {
+      requireValue(observation.continued === "upstream-continuation",
+        "identifier post-load edit");
     }
   }
   requireValue(expectedIds.length === ids.size

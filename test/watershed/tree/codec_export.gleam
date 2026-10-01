@@ -37,6 +37,8 @@ const array_fixture_path = "test/fixtures/shared_tree/cases/array-codecs.json"
 
 const array_schema_fixture_path = "test/fixtures/shared_tree/cases/array-schema-content.json"
 
+const identifier_fixture_path = "test/fixtures/shared_tree/cases/identifier-persistence.json"
+
 const reference_commit = "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
 
 const reference_version = "3.1.0"
@@ -91,7 +93,18 @@ pub fn main() {
     Ok(value) -> value
     Error(error) -> panic as { error }
   }
-  let artifact = case build_artifact(input, map_initial, array_input) {
+  let identifier_raw = case simplifile.read(identifier_fixture_path) {
+    Ok(value) -> value
+    Error(error) ->
+      panic as { "could not read identifier fixture: " <> string.inspect(error) }
+  }
+  let identifier_input = case decode_identifier_input(identifier_raw) {
+    Ok(value) -> value
+    Error(error) -> panic as { error }
+  }
+  let artifact = case
+    build_artifact(input, map_initial, array_input, identifier_input)
+  {
     Ok(value) -> value
     Error(error) -> panic as { error }
   }
@@ -284,6 +297,14 @@ type ArrayInput {
   )
 }
 
+type IdentifierInput {
+  IdentifierInput(
+    summary: JsonValue,
+    session: fluid_ids.SessionId,
+    compressor: fluid_ids.Compressor,
+  )
+}
+
 fn decode_input(raw: String) -> Result(Input, String) {
   use root <- result.try(
     json_ot.parse_json(raw)
@@ -471,6 +492,46 @@ fn decode_array_input(
   ))
 }
 
+fn decode_identifier_input(raw: String) -> Result(IdentifierInput, String) {
+  use value <- result.try(
+    json_ot.parse_json(raw) |> result.map_error(string.inspect),
+  )
+  use input <- result.try(field(value, "input"))
+  use scenarios <- result.try(field(input, "scenarios"))
+  use scenarios <- result.try(array(scenarios))
+  use scenario <- result.try(
+    list.find(scenarios, fn(value) {
+      case field(value, "id") {
+        Ok(VString("summary-tail")) -> True
+        _ -> False
+      }
+    })
+    |> result.map_error(fn(_) { "missing identifier summary-tail scenario" }),
+  )
+  use actions <- result.try(field(scenario, "actions"))
+  use actions <- result.try(array(actions))
+  use action <- result.try(
+    list.find(actions, fn(value) {
+      case field(value, "op") {
+        Ok(VString("load-summary")) -> True
+        _ -> False
+      }
+    })
+    |> result.map_error(fn(_) { "missing identifier load-summary action" }),
+  )
+  use encoded <- result.try(field(action, "summary"))
+  use session_raw <- result.try(field_text(action, "session"))
+  use source_session <- result.try(
+    fluid_ids.session_id(session_raw) |> result.map_error(string.inspect),
+  )
+  use compressor_raw <- result.try(field_text(action, "compressor"))
+  use #(session, compressor) <- result.try(restore_summary_compressor(
+    compressor_raw,
+    source_session,
+  ))
+  Ok(IdentifierInput(encoded, session, compressor))
+}
+
 fn find_scenario(
   scenarios: List(JsonValue),
   id: String,
@@ -483,6 +544,7 @@ fn build_artifact(
   input: Input,
   map_initial: InitialState,
   array_input: ArrayInput,
+  identifier_input: IdentifierInput,
 ) -> Result(Json, String) {
   let Input(schemas, batches, summaries, message_bases) = input
   use schema_items <- result.try(
@@ -529,6 +591,7 @@ fn build_artifact(
   use restored_summary <- result.try(restored_summary_item(summaries))
   use map_summary <- result.try(map_summary_item(map_initial))
   use array_items <- result.try(array_codec_items(array_input))
+  use identifier_items <- result.try(identifier_codec_items(identifier_input))
   let items =
     list.flatten([
       schema_items,
@@ -538,6 +601,7 @@ fn build_artifact(
       schema_history_items,
       [authored_summary, restored_summary, map_message, map_summary],
       array_items,
+      identifier_items,
     ])
   case items {
     [] -> Error("codec artifact has no items")
@@ -558,6 +622,206 @@ fn build_artifact(
         ]),
       )
   }
+}
+
+fn identifier_codec_items(
+  input: IdentifierInput,
+) -> Result(List(Json), String) {
+  let IdentifierInput(encoded, session, compressor) = input
+  use base <- result.try(
+    summary.decode(
+      summary_entry(encoded),
+      None,
+      session,
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+    |> native,
+  )
+  use root <- result.try(summary_root(base))
+  use custom_root <- result.try(identifier_child(
+    root,
+    "literal-custom-id",
+    "custom",
+  ))
+  let custom = replace_summary_root(base, custom_root)
+  use custom_item <- result.try(identifier_summary_item(
+    "identifier-explicit-custom",
+    custom,
+    compressor,
+    False,
+  ))
+  use generated_item <- result.try(identifier_summary_item(
+    "identifier-generated-uuid",
+    base,
+    compressor,
+    False,
+  ))
+  use message_item <- result.try(native_message(
+    "identifier-message-compressed",
+    InitialState(base, session, compressor),
+    SetField(
+      ["child"],
+      types.ObjectValue("org.watershed.shared-tree.identifiers.Point", [
+        #("id", StringValue("10000000-0000-4000-8000-000000000004")),
+        #("label", StringValue("message")),
+      ]),
+    ),
+    False,
+    Some("identifier"),
+    None,
+  ))
+  use finalized_item <- result.try(identifier_summary_item(
+    "identifier-summary-finalized",
+    base,
+    compressor,
+    False,
+  ))
+  use #(ongoing, local) <- result.try(
+    fluid_ids.generate(compressor) |> result.map_error(string.inspect),
+  )
+  use stable <- result.try(
+    fluid_ids.decompress(ongoing, local) |> result.map_error(string.inspect),
+  )
+  use unfinalized_root <- result.try(identifier_child(
+    root,
+    fluid_ids.stable_id_to_string(stable),
+    "unfinalized",
+  ))
+  let unfinalized = replace_summary_root(base, unfinalized_root)
+  use unfinalized_item <- result.try(identifier_summary_item(
+    "identifier-summary-unfinalized",
+    unfinalized,
+    ongoing,
+    True,
+  ))
+  let summary.TreeSummaryData(stored, summary.ForestSummary(fields), _, history) =
+    base
+  use repair_root <- result.try(identifier_child(
+    root,
+    "retained-custom-id",
+    "removed",
+  ))
+  let retained =
+    summary.TreeSummaryData(
+      stored,
+      summary.ForestSummary([#("repair-1", [repair_root]), ..fields]),
+      summary.DetachedFieldIndex(
+        [
+          summary.DetachedField(summary.RootRevision, 0, 1),
+        ],
+        1,
+      ),
+      history,
+    )
+  use retained_item <- result.try(identifier_summary_item(
+    "identifier-retained-repair",
+    retained,
+    compressor,
+    False,
+  ))
+  use continuation_item <- result.try(identifier_summary_item(
+    "identifier-post-load-edit",
+    base,
+    compressor,
+    False,
+  ))
+  Ok([
+    custom_item,
+    generated_item,
+    message_item,
+    finalized_item,
+    unfinalized_item,
+    retained_item,
+    continuation_item,
+  ])
+}
+
+fn identifier_summary_item(
+  id: String,
+  value: summary.TreeSummaryData,
+  compressor: fluid_ids.Compressor,
+  ongoing: Bool,
+) -> Result(Json, String) {
+  use encoded <- result.try(
+    summary.encode(
+      value,
+      fluid_ids.local_session(compressor),
+      codec.EncodeContext(codec.Fluid310, compressor, Some(value.schema)),
+    )
+    |> native,
+  )
+  use serialized <- result.try(serialize_compressor(compressor, ongoing))
+  Ok(
+    item(id, "summary", summary_json(encoded), [
+      #("schemaProfile", json.string("identifier")),
+      #("compressor", json.string(serialized)),
+      #(
+        "compressorMode",
+        json.string(case ongoing {
+          True -> "ongoing"
+          False -> "summary"
+        }),
+      ),
+      #(
+        "session",
+        json.string(
+          fluid_ids.session_id_to_string(fluid_ids.local_session(compressor)),
+        ),
+      ),
+    ]),
+  )
+}
+
+fn identifier_child(
+  root: types.TreeValue,
+  identifier: String,
+  label: String,
+) -> Result(types.TreeValue, String) {
+  case root {
+    types.ObjectValue(root_type, fields) -> {
+      use child <- result.try(
+        list.key_find(fields, "child")
+        |> result.map_error(fn(_) { "identifier root has no child" }),
+      )
+      case child {
+        types.ObjectValue(child_type, child_fields) ->
+          Ok(types.ObjectValue(
+            root_type,
+            list.key_set(
+              fields,
+              "child",
+              types.ObjectValue(child_type, [
+                #("id", StringValue(identifier)),
+                #("label", StringValue(label)),
+                ..list.filter(child_fields, fn(field) {
+                  field.0 != "id" && field.0 != "label"
+                })
+              ]),
+            ),
+          ))
+        _ -> Error("identifier child is not an object")
+      }
+    }
+    _ -> Error("identifier root is not an object")
+  }
+}
+
+fn replace_summary_root(
+  value: summary.TreeSummaryData,
+  root: types.TreeValue,
+) -> summary.TreeSummaryData {
+  let summary.TreeSummaryData(
+    stored,
+    summary.ForestSummary(fields),
+    detached,
+    history,
+  ) = value
+  summary.TreeSummaryData(
+    stored,
+    summary.ForestSummary(list.key_set(fields, "rootFieldKey", [root])),
+    detached,
+    history,
+  )
 }
 
 fn array_codec_items(input: ArrayInput) -> Result(List(Json), String) {

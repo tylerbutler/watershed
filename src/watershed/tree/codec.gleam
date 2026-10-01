@@ -1420,8 +1420,13 @@ fn decode_builds(
   use members <- result.try(object(value, location))
   use _ <- result.try(exact_keys(members, ["builds", "trees"], location))
   use trees <- result.try(required(members, "trees", location <> ".trees"))
+  let DecodeContext(compressor: compressor, ..) = context
   use trees <- result.try(
-    field_batch.decode_with_schema(json_ot.to_json(trees), stored)
+    field_batch.decode_with_context(
+      json_ot.to_json(trees),
+      stored,
+      id_context(compressor, change_context),
+    )
     |> result.map_error(fn(error) { at_location(error, location <> ".trees") }),
   )
   use groups <- result.try(required(members, "builds", location <> ".builds"))
@@ -1882,9 +1887,11 @@ fn encode_builds(
   case builds {
     [] -> Ok(None)
     _ -> {
-      use trees <- result.try(field_batch.encode_with_schema(
+      let EncodeContext(compressor: compressor, ..) = context
+      use trees <- result.try(field_batch.encode_with_context(
         list.map(builds, fn(build) { build.trees }),
         context.schema,
+        id_context(compressor, change_context),
       ))
       use trees <- result.try(json_value(trees, location <> ".trees"))
       use entries <- result.try(
@@ -1937,6 +1944,16 @@ fn encode_builds(
         ),
       )
     }
+  }
+}
+
+fn id_context(
+  compressor: fluid_ids.Compressor,
+  context: ChangeContext,
+) -> field_batch.IdContext {
+  case context.purpose {
+    Message -> field_batch.MessageIds(compressor, context.originator)
+    Summary -> field_batch.SummaryIds(compressor)
   }
 }
 

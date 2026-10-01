@@ -1,3 +1,4 @@
+import gleam/bit_array
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
@@ -66,6 +67,7 @@ import watershed/tree/change
 import watershed/tree/codec
 import watershed/tree/codec/summary
 import watershed/tree/fixtures
+import watershed/tree/forest
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
 import watershed/tree/shared_change
@@ -126,6 +128,33 @@ fn array_summary_fixture(
   #(decode_summary_entry(encoded), session, compressor)
 }
 
+fn identifier_summary_fixture(
+  id: String,
+) -> #(fluid_summary.SummaryEntry, fluid_ids.SessionId, fluid_ids.Compressor) {
+  let assert Ok(fixtures.Case(input: input, ..)) =
+    fixtures.load("identifier-persistence")
+  let assert Ok(VObject(input)) = json_ot.parse_json(json.to_string(input))
+  let assert Ok(VArray(scenarios)) = list.key_find(input, "scenarios")
+  let assert Ok(VObject(found)) =
+    list.find(scenarios, fn(value) {
+      let assert VObject(members) = value
+      list.key_find(members, "id") == Ok(VString(id))
+    })
+  let assert Ok(VArray(actions)) = list.key_find(found, "actions")
+  let assert Ok(VObject(load)) =
+    list.find(actions, fn(value) {
+      let assert VObject(members) = value
+      list.key_find(members, "op") == Ok(VString("load-summary"))
+    })
+  let assert Ok(encoded) = list.key_find(load, "summary")
+  let assert Ok(VString(compressor_raw)) = list.key_find(load, "compressor")
+  let assert Ok(fresh_session) =
+    fluid_ids.session_id("22222222-2222-4222-8222-222222222222")
+  let assert Ok(compressor) =
+    fluid_ids.deserialize(json.string(compressor_raw), fresh_session)
+  #(decode_summary_entry(encoded), fresh_session, compressor)
+}
+
 fn decode_summary_entry(value: JsonValue) -> fluid_summary.SummaryEntry {
   let assert VObject(members) = value
   let assert Ok(VNumber(NInt(kind))) = list.key_find(members, "type")
@@ -142,6 +171,255 @@ fn decode_summary_entry(value: JsonValue) -> fluid_summary.SummaryEntry {
     }
     _ -> panic as "unsupported fixture summary entry"
   }
+}
+
+pub fn shared_tree_summary_decodes_identifier_forest_and_history_test() {
+  let #(entry, session, compressor) = identifier_summary_fixture("summary-tail")
+  let context = codec.DecodeContext(codec.Fluid310, compressor)
+  let assert Ok(decoded) = summary.decode(entry, None, session, context)
+  let assert summary.TreeSummaryData(
+    _,
+    summary.ForestSummary(fields),
+    summary.DetachedFieldIndex([], 0),
+    summary.EditManagerSummary(
+      [
+        summary.SummaryCommit(
+          codec.WireCommit(
+            changes: [
+              shared_change.SchemaChange(_, _, False),
+              shared_change.DataChange(initial),
+              shared_change.SchemaChange(_, _, False),
+            ],
+            ..,
+          ),
+          Some(2),
+          None,
+        ),
+      ],
+      [],
+    ),
+  ) = decoded
+  let assert Ok([root]) = list.key_find(fields, "rootFieldKey")
+  let assert types.ObjectValue(_, root_fields) = root
+  let assert Ok(types.ObjectValue(_, child_fields)) =
+    list.key_find(root_fields, "child")
+  list.key_find(child_fields, "id")
+  |> expect.to_equal(
+    Ok(types.StringValue("10000000-0000-4000-8000-000000000004")),
+  )
+  let initial = change.to_data(initial)
+  let assert [forest.Build(_, [history_root])] = initial.builds
+  history_root |> expect.to_equal(root)
+  let encode_context =
+    codec.EncodeContext(codec.Fluid310, compressor, Some(decoded.schema))
+  let assert Ok(encoded) = summary.encode(decoded, session, encode_context)
+  let assert Ok(round_trip) = summary.decode(encoded, None, session, context)
+  let summary.TreeSummaryData(_, round_trip_forest, _, round_trip_history) =
+    round_trip
+  round_trip_forest |> expect.to_equal(decoded.forest)
+  summary_history_semantics_equal(round_trip_history, decoded.history)
+  |> expect.to_be_true()
+}
+
+pub fn shared_tree_summary_preserves_historical_identifier_context_test() {
+  let #(entry, session, compressor) = identifier_summary_fixture("summary-tail")
+  let context = codec.DecodeContext(codec.Fluid310, compressor)
+  let base_result = summary.decode(entry, None, session, context)
+  base_result |> expect.to_be_ok()
+  let assert Ok(summary.TreeSummaryData(before, forest, detached, base_history)) =
+    base_result
+  let summary.EditManagerSummary(base_trunk, base_peers) = base_history
+  base_trunk |> list.length |> expect.to_equal(1)
+  base_peers |> expect.to_equal([])
+  let assert Ok(initial_commit) = list.first(base_trunk)
+  let summary.SummaryCommit(
+    codec.WireCommit(
+      revision: initial_revision,
+      originator: originator,
+      changes: initial_changes,
+      ..,
+    ),
+    _,
+    _,
+  ) = initial_commit
+  initial_changes |> list.length |> expect.to_equal(3)
+  initial_changes
+  |> list.any(fn(item) {
+    case item {
+      shared_change.DataChange(_) -> True
+      _ -> False
+    }
+  })
+  |> expect.to_be_true()
+  let after_raw =
+    before
+    |> schema.stored_to_json
+    |> json.to_string
+    |> string.replace("\"Identifier\"", "\"Value\"")
+  let after_result = schema.stored_from_string(after_raw)
+  after_result |> expect.to_be_ok()
+  let assert Ok(after) = after_result
+  let widen_result = fluid_ids.generate(compressor)
+  widen_result |> expect.to_be_ok()
+  let assert Ok(#(compressor, widen_local)) = widen_result
+  let peer_result = fluid_ids.generate(compressor)
+  peer_result |> expect.to_be_ok()
+  let assert Ok(#(compressor, peer_local)) = peer_result
+  let #(compressor, range) = fluid_ids.take_creation_range(compressor)
+  let range = case range {
+    Some(range) -> range
+    None -> panic as "historical summary generated no creation range"
+  }
+  let finalize_result = fluid_ids.finalize(compressor, range)
+  finalize_result |> expect.to_be_ok()
+  let assert Ok(compressor) = finalize_result
+  let widen_revision_result = fluid_ids.decompress(compressor, widen_local)
+  widen_revision_result |> expect.to_be_ok()
+  let assert Ok(widen_revision) = widen_revision_result
+  let peer_revision_result = fluid_ids.decompress(compressor, peer_local)
+  peer_revision_result |> expect.to_be_ok()
+  let assert Ok(peer_revision) = peer_revision_result
+  let peer_order_result =
+    codec.identity_order([initial_revision, peer_revision], compressor, "peer")
+  peer_order_result |> expect.to_be_ok()
+  let assert Ok(peer_order) = peer_order_result
+  let peer_data_result =
+    change.from_data(
+      change.ChangeData(
+        max_local_id: 0,
+        revisions: [change.RevisionInfo(peer_revision, None)],
+        fields: [],
+        nodes: [],
+        parents: [],
+        aliases: [],
+        builds: [
+          forest.Build(types.AtomId(None, 0), [
+            types.ObjectValue("org.watershed.shared-tree.identifiers.Point", [
+              #("id", types.StringValue("10000000-0000-4000-8000-000000000004")),
+              #("label", types.StringValue("peer")),
+            ]),
+          ]),
+        ],
+        destroys: [],
+        refreshers: [],
+        cross_field_keys: [],
+        constraint_violation_count: 0,
+      ),
+      peer_order,
+    )
+  peer_data_result |> expect.to_be_ok()
+  let assert Ok(peer_data) = peer_data_result
+  let peer_session = fluid_ids.local_session(compressor)
+  let value =
+    summary.TreeSummaryData(
+      after,
+      forest,
+      detached,
+      summary.EditManagerSummary(
+        [
+          initial_commit,
+          summary.SummaryCommit(
+            codec.WireCommit(
+              widen_revision,
+              originator,
+              [
+                shared_change.SchemaChange(
+                  schema.FixedSchema(before),
+                  schema.FixedSchema(after),
+                  False,
+                ),
+              ],
+              None,
+            ),
+            Some(3),
+            None,
+          ),
+        ],
+        [
+          summary.PeerBranch(
+            peer_session,
+            summary.StableRevision(initial_revision),
+            [
+              summary.SummaryCommit(
+                codec.WireCommit(
+                  peer_revision,
+                  peer_session,
+                  [shared_change.DataChange(peer_data)],
+                  None,
+                ),
+                None,
+                None,
+              ),
+            ],
+          ),
+        ],
+      ),
+    )
+  let encode_context =
+    codec.EncodeContext(codec.Fluid310, compressor, Some(after))
+  let encoded_result = summary.encode(value, session, encode_context)
+  encoded_result |> expect.to_be_ok()
+  let assert Ok(encoded) = encoded_result
+  let decoded_result =
+    summary.decode(
+      encoded,
+      None,
+      session,
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+  decoded_result |> expect.to_be_ok()
+  let assert Ok(decoded) = decoded_result
+  let summary.TreeSummaryData(decoded_schema, _, _, decoded_history) = decoded
+  let summary.EditManagerSummary(decoded_trunk, decoded_peers) = decoded_history
+  decoded_schema |> expect.to_equal(after)
+  decoded_trunk |> list.length |> expect.to_equal(2)
+  decoded_peers |> list.length |> expect.to_equal(1)
+  let assert Ok(decoded_peer) = list.first(decoded_peers)
+  decoded_peer.base
+  |> expect.to_equal(summary.StableRevision(initial_revision))
+  decoded_peer.commits |> list.length |> expect.to_equal(1)
+  let assert Ok(peer_commit) = list.first(decoded_peer.commits)
+  let summary.SummaryCommit(
+    codec.WireCommit(changes: peer_changes, ..),
+    peer_sequence,
+    peer_index,
+  ) = peer_commit
+  peer_sequence |> expect.to_equal(None)
+  peer_index |> expect.to_equal(None)
+  peer_changes |> list.length |> expect.to_equal(1)
+  let peer_data = case list.first(peer_changes) {
+    Ok(shared_change.DataChange(peer_data)) -> peer_data
+    _ -> panic as "peer history did not retain its data change"
+  }
+  let peer_data = change.to_data(peer_data)
+  peer_data.builds |> list.length |> expect.to_equal(1)
+  let assert Ok(peer_build) = list.first(peer_data.builds)
+  let forest.Build(_, peer_trees) = peer_build
+  peer_trees |> list.length |> expect.to_equal(1)
+  let assert Ok(peer_root) = list.first(peer_trees)
+  let peer_fields = case peer_root {
+    types.ObjectValue(_, fields) -> fields
+    _ -> panic as "peer build root was not an object"
+  }
+  list.key_find(peer_fields, "id")
+  |> expect.to_equal(
+    Ok(types.StringValue("10000000-0000-4000-8000-000000000004")),
+  )
+  let assert Ok(before_corruption) = fluid_ids.serialize(compressor, True)
+  let corrupted = corrupt_edit_manager_identifier(encoded)
+  case
+    summary.decode(
+      corrupted,
+      None,
+      session,
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+  {
+    Error(_) -> Nil
+    Ok(_) -> panic as "corrupt Identifier summary was accepted"
+  }
+  fluid_ids.serialize(compressor, True)
+  |> expect.to_equal(Ok(before_corruption))
 }
 
 pub fn shared_tree_summary_decodes_initial_bootstrap_test() {
@@ -186,6 +464,46 @@ pub fn shared_tree_summary_decodes_initial_bootstrap_test() {
     )
   list.map(fields, fn(field) { field.0 })
   |> expect.to_equal(["rootFieldKey"])
+}
+
+fn corrupt_edit_manager_identifier(
+  entry: fluid_summary.SummaryEntry,
+) -> fluid_summary.SummaryEntry {
+  let assert fluid_summary.SummaryTree(root) = entry
+  let assert Ok(fluid_summary.SummaryTree(indexes)) =
+    list.key_find(root, "indexes")
+  let assert Ok(fluid_summary.SummaryTree(edit_manager)) =
+    list.key_find(indexes, "EditManager")
+  let assert Ok(fluid_summary.SummaryBlob(bytes)) =
+    list.key_find(edit_manager, "String")
+  let assert Ok(raw) = bit_array.to_string(bytes)
+  let corrupted =
+    raw
+    |> string.replace(
+      "\"id\",[4,3],\"label\",[0,\"com.fluidframework.leaf.string\",true,\"peer\"",
+      "\"id\",[4,9007199254740991],\"label\",[0,\"com.fluidframework.leaf.string\",true,\"peer\"",
+    )
+  case corrupted == raw {
+    True -> panic as "Identifier history corruption target was not found"
+    False -> Nil
+  }
+  let edit_manager =
+    list.key_set(
+      edit_manager,
+      "String",
+      fluid_summary.SummaryBlob(<<corrupted:utf8>>),
+    )
+  let indexes =
+    list.key_set(
+      indexes,
+      "EditManager",
+      fluid_summary.SummaryTree(edit_manager),
+    )
+  fluid_summary.SummaryTree(list.key_set(
+    root,
+    "indexes",
+    fluid_summary.SummaryTree(indexes),
+  ))
 }
 
 pub fn shared_tree_summary_reencodes_initial_bootstrap_with_schema_history_test() {

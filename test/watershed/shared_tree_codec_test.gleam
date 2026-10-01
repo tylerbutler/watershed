@@ -173,6 +173,157 @@ pub fn shared_tree_codec_decodes_raw_v7_generic_message_test() {
   fluid_ids.serialize(compressor, True) |> expect.to_equal(Ok(before))
 }
 
+pub fn shared_tree_codec_decodes_identifier_builds_and_refreshers_test() {
+  let assert Ok(fixtures.Case(input: input, ..)) =
+    fixtures.load("transaction-wire")
+  let assert Ok(nonviolated_raw) =
+    json.parse(
+      json.to_string(input),
+      decode.at(["messageBytes", "nonviolated"], decode.string),
+    )
+  let assert Ok(violated_raw) =
+    json.parse(
+      json.to_string(input),
+      decode.at(["messageBytes", "violated"], decode.string),
+    )
+  let assert Ok(nonviolated_compressor_raw) =
+    json.parse(
+      json.to_string(input),
+      decode.at(["compressor", "nonviolated", "serialized"], decode.string),
+    )
+  let assert Ok(nonviolated_session_raw) =
+    json.parse(
+      json.to_string(input),
+      decode.at(["compressor", "nonviolated", "sessionId"], decode.string),
+    )
+  let assert Ok(violated_compressor_raw) =
+    json.parse(
+      json.to_string(input),
+      decode.at(["compressor", "violated", "serialized"], decode.string),
+    )
+  let assert Ok(violated_session_raw) =
+    json.parse(
+      json.to_string(input),
+      decode.at(["compressor", "violated", "sessionId"], decode.string),
+    )
+  let nonviolated_session_result = fluid_ids.session_id(nonviolated_session_raw)
+  nonviolated_session_result |> expect.to_be_ok()
+  let assert Ok(nonviolated_session) = nonviolated_session_result
+  let nonviolated_compressor_result =
+    fluid_ids.deserialize(
+      json.string(nonviolated_compressor_raw),
+      nonviolated_session,
+    )
+  nonviolated_compressor_result |> expect.to_be_ok()
+  let assert Ok(nonviolated_compressor) = nonviolated_compressor_result
+  let violated_session_result = fluid_ids.session_id(violated_session_raw)
+  violated_session_result |> expect.to_be_ok()
+  let assert Ok(violated_session) = violated_session_result
+  let violated_compressor_result =
+    fluid_ids.deserialize(
+      json.string(violated_compressor_raw),
+      violated_session,
+    )
+  violated_compressor_result |> expect.to_be_ok()
+  let assert Ok(violated_compressor) = violated_compressor_result
+  let stored = transaction_identifier_schema()
+
+  let nonviolated_decoded =
+    codec.decode_message_with_schema(
+      nonviolated_raw,
+      codec.DecodeContext(codec.Fluid310, nonviolated_compressor),
+      stored,
+    )
+  nonviolated_decoded |> expect.to_be_ok()
+  let assert Ok(codec.TreeMessage(nonviolated_commit, _)) = nonviolated_decoded
+  let codec.WireCommit(
+    revision: nonviolated_revision,
+    originator: nonviolated_originator,
+    changes: nonviolated_changes,
+    ..,
+  ) = nonviolated_commit
+  nonviolated_changes |> list.length |> expect.to_equal(1)
+  let assert Ok(shared_change.DataChange(nonviolated)) =
+    list.first(nonviolated_changes)
+  fluid_ids.stable_id_to_string(nonviolated_revision)
+  |> expect.to_equal("8f95be09-8376-4ff7-8755-ccd7e8124b0a")
+  fluid_ids.session_id_to_string(nonviolated_originator)
+  |> expect.to_equal("8f95be09-8376-4ff7-8755-ccd7e8124b06")
+  let nonviolated = change.to_data(nonviolated)
+  nonviolated.builds |> list.length |> expect.to_equal(2)
+  let assert Ok(forest.Build(_, [types.StringValue("wire")])) =
+    list.find(nonviolated.builds, fn(build) { build.id.local_id == 6 })
+  let assert Ok(forest.Build(
+    _,
+    [
+      types.ObjectValue(
+        "org.watershed.shared-tree.transactions.Point",
+        created_fields,
+      ),
+    ],
+  )) = list.find(nonviolated.builds, fn(build) { build.id.local_id == 11 })
+  list.key_find(created_fields, "id")
+  |> expect.to_equal(
+    Ok(types.StringValue("8f95be09-8376-4ff7-8755-ccd7e8124b0b")),
+  )
+  list.key_find(created_fields, "label")
+  |> expect.to_equal(Ok(types.StringValue("wire-created")))
+  list.key_find(created_fields, "x")
+  |> expect.to_equal(Ok(types.NumberValue(10.0)))
+  nonviolated.refreshers |> expect.to_equal([])
+  nonviolated.constraint_violation_count |> expect.to_equal(0)
+
+  let violated_decoded =
+    codec.decode_message_with_schema(
+      violated_raw,
+      codec.DecodeContext(codec.Fluid310, violated_compressor),
+      stored,
+    )
+  violated_decoded |> expect.to_be_ok()
+  let assert Ok(codec.TreeMessage(violated_commit, _)) = violated_decoded
+  let codec.WireCommit(
+    revision: violated_revision,
+    originator: violated_originator,
+    changes: violated_changes,
+    ..,
+  ) = violated_commit
+  violated_changes |> list.length |> expect.to_equal(1)
+  let assert Ok(shared_change.DataChange(violated)) =
+    list.first(violated_changes)
+  fluid_ids.stable_id_to_string(violated_revision)
+  |> expect.to_equal("8f95be09-8376-4ff7-8755-ccd7e8124b0a")
+  fluid_ids.session_id_to_string(violated_originator)
+  |> expect.to_equal("8f95be09-8376-4ff7-8755-ccd7e8124b06")
+  let violated = change.to_data(violated)
+  violated.refreshers |> list.length |> expect.to_equal(1)
+  let assert Ok(forest.Build(
+    _,
+    [
+      types.ObjectValue(
+        "org.watershed.shared-tree.transactions.Point",
+        refresher_fields,
+      ),
+    ],
+  )) = list.find(violated.refreshers, fn(build) { build.id.local_id == 0 })
+  list.key_find(refresher_fields, "id")
+  |> expect.to_equal(
+    Ok(types.StringValue("8f95be09-8376-4ff7-8755-ccd7e8124b08")),
+  )
+  list.key_find(refresher_fields, "label")
+  |> expect.to_equal(Ok(types.StringValue("left-a")))
+  list.key_find(refresher_fields, "x")
+  |> expect.to_equal(Ok(types.NumberValue(1.0)))
+  violated.constraint_violation_count |> expect.to_equal(1)
+  violated.nodes
+  |> list.any(fn(entry) {
+    case entry.1.node_exists_constraint {
+      Some(constraint) -> constraint.violated
+      None -> False
+    }
+  })
+  |> expect.to_be_true()
+}
+
 pub fn shared_tree_codec_decodes_optional_clear_test() {
   let scenario = scenario_message("optional", 2)
   scenario |> expect.to_be_ok
@@ -208,6 +359,16 @@ pub fn shared_tree_codec_decodes_optional_clear_test() {
   replacement.was_empty |> expect.to_be_false
   replacement.source |> expect.to_equal(None)
   replacement.detach_id.local_id |> expect.to_equal(0)
+}
+
+fn transaction_identifier_schema() -> schema.StoredSchema {
+  let parsed =
+    schema.stored_from_string(
+      "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.transactions.Point\":{\"kind\":{\"object\":{\"id\":{\"kind\":\"Identifier\",\"types\":[\"com.fluidframework.leaf.string\"]},\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.transactions.Point\"]}}",
+    )
+  parsed |> expect.to_be_ok()
+  let assert Ok(stored) = parsed
+  stored
 }
 
 pub fn shared_tree_codec_preserves_bootstrap_change_order_test() {

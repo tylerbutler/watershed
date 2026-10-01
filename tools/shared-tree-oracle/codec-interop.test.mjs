@@ -59,6 +59,13 @@ test("native codec artifact validation rejects stale, empty, duplicate, and inco
   }
 });
 
+test("native codec artifact validation accepts the Identifier schema profile", async () => {
+  const { validateNativeArtifact } = await import("./codec-interop.mjs");
+  const value = artifact();
+  value.items[0].schemaProfile = "identifier";
+  assert.doesNotThrow(() => validateNativeArtifact(value));
+});
+
 test("message and summary artifacts require their explicit compressor context", async () => {
   const { validateNativeArtifact } = await import("./codec-interop.mjs");
   for (const kind of ["message", "summary"]) {

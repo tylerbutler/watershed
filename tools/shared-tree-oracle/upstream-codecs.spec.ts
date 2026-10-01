@@ -209,6 +209,7 @@ class IdentifierPair extends identifierSchema.object("Pair", {
 	firstId: identifierSchema.identifier,
 	secondId: identifierSchema.identifier,
 	label: identifierSchema.string,
+	pairOnly: identifierSchema.string,
 }) {}
 class IdentifierItems extends identifierSchema.array("Items", [IdentifierPoint, IdentifierPair]) {}
 class IdentifierMap extends identifierSchema.map("PointsByKey", [IdentifierPoint, IdentifierPair]) {}
