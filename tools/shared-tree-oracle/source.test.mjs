@@ -10,6 +10,7 @@ import {
   arraySupportInjectedPath,
   forestInjectedTestPath,
   historyInjectedTestPath,
+  identifierInjectedTestPath,
   injectedTestPath,
   modularInjectedTestPath,
   publishCapture,
@@ -208,6 +209,20 @@ test("source runner declares the owned transaction injection", () => {
   );
 });
 
+test("source runner declares the owned Identifier injection", () => {
+  assert.equal(
+    identifierInjectedTestPath,
+    "packages/dds/tree/src/test/watershedIdentifier.spec.ts",
+  );
+});
+
+test("source capture executes the Identifier contract", () => {
+  assert.deepEqual(source.sourceTestBatches(false), [
+    ["lib/test/watershedOracle.spec.js"],
+    ["lib/test/watershedIdentifier.spec.js"],
+  ]);
+});
+
 test("source runner isolates transaction entropy from the existing corpus", () => {
   assert.deepEqual(source.sourceTestBatches(true), [
     [
@@ -221,6 +236,7 @@ test("source runner isolates transaction entropy from the existing corpus", () =
       "lib/test/watershedSequence.spec.js",
       "lib/test/watershedArray.spec.js",
     ],
+    ["lib/test/watershedIdentifier.spec.js"],
   ]);
 });
 
@@ -228,6 +244,17 @@ test("source verification byte-checks the owned transaction injection", async (t
   const { directory, commit } = await checkoutFixture(t);
   const target = join(directory, source.transactionInjectedTestPath);
   const contents = await readFile(new URL("./upstream-transaction.spec.ts", import.meta.url));
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, contents);
+  await verifyCheckout(directory, commit);
+  await writeFile(target, "// unexpected replacement\n");
+  await assert.rejects(verifyCheckout(directory, commit), /injected/);
+});
+
+test("source verification byte-checks the owned Identifier injection", async (t) => {
+  const { directory, commit } = await checkoutFixture(t);
+  const target = join(directory, identifierInjectedTestPath);
+  const contents = await readFile(new URL("./upstream-identifier.spec.ts", import.meta.url));
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, contents);
   await verifyCheckout(directory, commit);

@@ -205,7 +205,32 @@
         "opGroupingEnabled": true
       }
     },
-    "gcMetadataVersion": 3
+    "gcMetadataVersion": 3,
+    "identifierContract": {
+      "cases": [
+        "identifier-schema",
+        "identifier-values",
+        "identifier-field-batches",
+        "identifier-persistence"
+      ],
+      "valueShapeDiscriminator": 0,
+      "allocationOrder": [
+        {
+          "kind": "revision",
+          "op": 4
+        },
+        {
+          "kind": "identifier",
+          "field": "firstId",
+          "op": 2
+        },
+        {
+          "kind": "identifier",
+          "field": "secondId",
+          "op": 3
+        }
+      ]
+    }
   },
   "nativeSemanticRunners": {
     "javascript": [
@@ -493,6 +518,26 @@
       "id": "transaction-history",
       "domain": "history",
       "file": "cases/transaction-history.json"
+    },
+    {
+      "id": "identifier-schema",
+      "domain": "schema",
+      "file": "cases/identifier-schema.json"
+    },
+    {
+      "id": "identifier-values",
+      "domain": "values",
+      "file": "cases/identifier-values.json"
+    },
+    {
+      "id": "identifier-field-batches",
+      "domain": "codec",
+      "file": "cases/identifier-field-batches.json"
+    },
+    {
+      "id": "identifier-persistence",
+      "domain": "history",
+      "file": "cases/identifier-persistence.json"
     }
   ]
 }

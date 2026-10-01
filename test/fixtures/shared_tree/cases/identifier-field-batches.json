@@ -1,0 +1,536 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "identifier-field-batches",
+  "domain": "codec",
+  "input": {
+    "version": 1,
+    "schema": {
+      "version": 2,
+      "nodes": {
+        "com.fluidframework.leaf.string": {
+          "kind": {
+            "leaf": 1
+          }
+        },
+        "org.watershed.shared-tree.identifiers.Items": {
+          "kind": {
+            "object": {
+              "": {
+                "kind": "Sequence",
+                "types": [
+                  "org.watershed.shared-tree.identifiers.Pair",
+                  "org.watershed.shared-tree.identifiers.Point"
+                ]
+              }
+            }
+          }
+        },
+        "org.watershed.shared-tree.identifiers.Pair": {
+          "kind": {
+            "object": {
+              "firstId": {
+                "kind": "Identifier",
+                "types": [
+                  "com.fluidframework.leaf.string"
+                ]
+              },
+              "label": {
+                "kind": "Value",
+                "types": [
+                  "com.fluidframework.leaf.string"
+                ]
+              },
+              "secondId": {
+                "kind": "Identifier",
+                "types": [
+                  "com.fluidframework.leaf.string"
+                ]
+              }
+            }
+          }
+        },
+        "org.watershed.shared-tree.identifiers.Point": {
+          "kind": {
+            "object": {
+              "id": {
+                "kind": "Identifier",
+                "types": [
+                  "com.fluidframework.leaf.string"
+                ]
+              },
+              "label": {
+                "kind": "Value",
+                "types": [
+                  "com.fluidframework.leaf.string"
+                ]
+              }
+            }
+          }
+        },
+        "org.watershed.shared-tree.identifiers.PointsByKey": {
+          "kind": {
+            "map": {
+              "kind": "Optional",
+              "types": [
+                "org.watershed.shared-tree.identifiers.Pair",
+                "org.watershed.shared-tree.identifiers.Point"
+              ]
+            }
+          }
+        },
+        "org.watershed.shared-tree.identifiers.Root": {
+          "kind": {
+            "object": {
+              "byKey": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.identifiers.PointsByKey"
+                ]
+              },
+              "child": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.identifiers.Point"
+                ]
+              },
+              "left": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.identifiers.Items"
+                ]
+              },
+              "right": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.identifiers.Items"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "root": {
+        "kind": "Value",
+        "types": [
+          "org.watershed.shared-tree.identifiers.Root"
+        ]
+      }
+    },
+    "initialTree": {
+      "schema": "org.watershed.shared-tree.identifiers.Root",
+      "fields": {
+        "child": {
+          "schema": "org.watershed.shared-tree.identifiers.Point",
+          "fields": {
+            "id": "initial",
+            "label": "initial"
+          }
+        },
+        "left": [],
+        "right": [],
+        "byKey": []
+      }
+    },
+    "sessions": {
+      "local": "10000000-0000-4000-8000-000000000001",
+      "remote": "20000000-0000-4000-8000-000000000002",
+      "summary": "30000000-0000-4000-8000-000000000003"
+    },
+    "compressors": {
+      "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAABAAAAAAAAA8D8BAAAAAAAAAAAAAAAAAEAAAgAAAAAAAAAAAAAAAACAAAAAAAAAAPA/AAAAAAAIgEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8=",
+      "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw==",
+      "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+    },
+    "idRanges": [
+      {
+        "sessionId": "20000000-0000-4000-8000-000000000002",
+        "ids": {
+          "firstGenCount": 1,
+          "count": 1,
+          "requestedClusterSize": 512,
+          "localIdRanges": [
+            [
+              1,
+              1
+            ]
+          ]
+        }
+      },
+      {
+        "sessionId": "30000000-0000-4000-8000-000000000003",
+        "ids": {
+          "firstGenCount": 1,
+          "count": 1,
+          "requestedClusterSize": 512,
+          "localIdRanges": [
+            [
+              1,
+              1
+            ]
+          ]
+        }
+      }
+    ],
+    "scenarios": [
+      {
+        "id": "literal-zero-string",
+        "actions": [
+          {
+            "op": "decode-field-batch",
+            "path": [
+              "identifier"
+            ],
+            "encoded": {
+              "value": "0"
+            },
+            "purpose": "message",
+            "originator": "10000000-0000-4000-8000-000000000001"
+          }
+        ]
+      },
+      {
+        "id": "local-negative-op-id",
+        "actions": [
+          {
+            "op": "decode-field-batch",
+            "path": [
+              "identifier"
+            ],
+            "encoded": {
+              "value": -1
+            },
+            "purpose": "message",
+            "originator": "10000000-0000-4000-8000-000000000001"
+          }
+        ]
+      },
+      {
+        "id": "remote-finalized-id",
+        "actions": [
+          {
+            "op": "decode-field-batch",
+            "path": [
+              "identifier"
+            ],
+            "encoded": {
+              "value": -1
+            },
+            "purpose": "message",
+            "originator": "20000000-0000-4000-8000-000000000002"
+          }
+        ]
+      },
+      {
+        "id": "eager-final-id",
+        "actions": [
+          {
+            "op": "decode-field-batch",
+            "path": [
+              "identifier"
+            ],
+            "encoded": {
+              "value": 0
+            },
+            "purpose": "summary"
+          }
+        ]
+      },
+      {
+        "id": "unknown-uuid-string",
+        "actions": [
+          {
+            "op": "encode-field-batch",
+            "path": [
+              "identifier"
+            ],
+            "value": "50000000-0000-4000-8000-000000000005",
+            "purpose": "message"
+          }
+        ]
+      },
+      {
+        "id": "message-summary-same-id",
+        "actions": [
+          {
+            "op": "encode-field-batch",
+            "path": [
+              "identifier"
+            ],
+            "value": "20000000-0000-4000-8000-000000000002",
+            "purpose": "message",
+            "originator": "10000000-0000-4000-8000-000000000001"
+          },
+          {
+            "op": "encode-field-batch",
+            "path": [
+              "identifier"
+            ],
+            "value": "20000000-0000-4000-8000-000000000002",
+            "purpose": "summary"
+          }
+        ]
+      },
+      {
+        "id": "unfinalized-summary-string",
+        "actions": [
+          {
+            "op": "encode-field-batch",
+            "path": [
+              "identifier"
+            ],
+            "value": "10000000-0000-4000-8000-000000000001",
+            "purpose": "summary"
+          }
+        ]
+      },
+      {
+        "id": "numeric-originatorless-refusal",
+        "actions": [
+          {
+            "op": "decode-field-batch",
+            "path": [
+              "identifier"
+            ],
+            "encoded": {
+              "value": -1
+            },
+            "purpose": "summary"
+          }
+        ]
+      },
+      {
+        "id": "invalid-payload-shapes",
+        "actions": [
+          {
+            "op": "decode-field-batch",
+            "path": [
+              "identifier"
+            ],
+            "encoded": {
+              "value": 1.5
+            },
+            "purpose": "message",
+            "originator": "10000000-0000-4000-8000-000000000001"
+          },
+          {
+            "op": "decode-field-batch",
+            "path": [
+              "identifier"
+            ],
+            "encoded": {
+              "value": 9007199254740992
+            },
+            "purpose": "message",
+            "originator": "10000000-0000-4000-8000-000000000001"
+          },
+          {
+            "op": "decode-field-batch",
+            "path": [
+              "identifier"
+            ],
+            "encoded": {
+              "value": true
+            },
+            "purpose": "message",
+            "originator": "10000000-0000-4000-8000-000000000001"
+          },
+          {
+            "op": "decode-field-batch",
+            "path": [
+              "identifier"
+            ],
+            "encoded": {
+              "value": null
+            },
+            "purpose": "message",
+            "originator": "10000000-0000-4000-8000-000000000001"
+          },
+          {
+            "op": "decode-field-batch",
+            "path": [
+              "identifier"
+            ],
+            "encoded": {
+              "value": []
+            },
+            "purpose": "message",
+            "originator": "10000000-0000-4000-8000-000000000001"
+          },
+          {
+            "op": "decode-field-batch",
+            "path": [
+              "identifier"
+            ],
+            "encoded": {
+              "value": {}
+            },
+            "purpose": "message",
+            "originator": "10000000-0000-4000-8000-000000000001"
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "literal-zero-string",
+        "decoded": "0",
+        "discriminator": 0
+      },
+      {
+        "id": "local-negative-op-id",
+        "encoded": -1,
+        "decoded": "10000000-0000-4000-8000-000000000001"
+      },
+      {
+        "id": "remote-finalized-id",
+        "encoded": -1,
+        "decoded": "20000000-0000-4000-8000-000000000002"
+      },
+      {
+        "id": "eager-final-id",
+        "encoded": 0,
+        "decoded": "30000000-0000-4000-8000-000000000003"
+      },
+      {
+        "id": "unknown-uuid-string",
+        "encoded": "50000000-0000-4000-8000-000000000005"
+      },
+      {
+        "id": "message-summary-same-id",
+        "message": 0,
+        "summary": 0
+      },
+      {
+        "id": "unfinalized-summary-string",
+        "encoded": "10000000-0000-4000-8000-000000000001"
+      },
+      {
+        "id": "numeric-originatorless-refusal",
+        "refused": true,
+        "originalError": "Error: Summary could not be loaded due to an incorrectly encoded identifier. See SharedTreeOptionsBeta.healUnresolvableIdentifiersOnDecode for mitigation.",
+        "nativeErrorCategory": "Error"
+      },
+      {
+        "id": "invalid-payload-shapes",
+        "refusals": [
+          {
+            "value": 1.5,
+            "originalError": "Error: Unknown op space ID.",
+            "nativeErrorCategory": "Error"
+          },
+          {
+            "value": 9007199254740992,
+            "originalError": "Error: Unknown op space ID.",
+            "nativeErrorCategory": "Error"
+          },
+          {
+            "value": true,
+            "originalError": "Error: 0x997",
+            "nativeErrorCategory": "Error"
+          },
+          {
+            "value": null,
+            "originalError": "Error: Array index is out of bounds",
+            "nativeErrorCategory": "Error"
+          },
+          {
+            "value": [],
+            "originalError": "Error: 0x997",
+            "nativeErrorCategory": "Error"
+          },
+          {
+            "value": {},
+            "originalError": "Error: 0x997",
+            "nativeErrorCategory": "Error"
+          }
+        ]
+      }
+    ]
+  },
+  "raw": {
+    "scenarios": [
+      {
+        "id": "literal-zero-string",
+        "decoded": "0",
+        "discriminator": 0
+      },
+      {
+        "id": "local-negative-op-id",
+        "encoded": -1,
+        "decoded": "10000000-0000-4000-8000-000000000001"
+      },
+      {
+        "id": "remote-finalized-id",
+        "encoded": -1,
+        "decoded": "20000000-0000-4000-8000-000000000002"
+      },
+      {
+        "id": "eager-final-id",
+        "encoded": 0,
+        "decoded": "30000000-0000-4000-8000-000000000003"
+      },
+      {
+        "id": "unknown-uuid-string",
+        "encoded": "50000000-0000-4000-8000-000000000005"
+      },
+      {
+        "id": "message-summary-same-id",
+        "message": 0,
+        "summary": 0
+      },
+      {
+        "id": "unfinalized-summary-string",
+        "encoded": "10000000-0000-4000-8000-000000000001"
+      },
+      {
+        "id": "numeric-originatorless-refusal",
+        "refused": true,
+        "originalError": "Error: Summary could not be loaded due to an incorrectly encoded identifier. See SharedTreeOptionsBeta.healUnresolvableIdentifiersOnDecode for mitigation.",
+        "nativeErrorCategory": "Error"
+      },
+      {
+        "id": "invalid-payload-shapes",
+        "refusals": [
+          {
+            "value": 1.5,
+            "originalError": "Error: Unknown op space ID.",
+            "nativeErrorCategory": "Error"
+          },
+          {
+            "value": 9007199254740992,
+            "originalError": "Error: Unknown op space ID.",
+            "nativeErrorCategory": "Error"
+          },
+          {
+            "value": true,
+            "originalError": "Error: 0x997",
+            "nativeErrorCategory": "Error"
+          },
+          {
+            "value": null,
+            "originalError": "Error: Array index is out of bounds",
+            "nativeErrorCategory": "Error"
+          },
+          {
+            "value": [],
+            "originalError": "Error: 0x997",
+            "nativeErrorCategory": "Error"
+          },
+          {
+            "value": {},
+            "originalError": "Error: 0x997",
+            "nativeErrorCategory": "Error"
+          }
+        ]
+      }
+    ],
+    "discriminator": 0
+  }
+}

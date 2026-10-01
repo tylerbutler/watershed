@@ -50,6 +50,134 @@ const schemaValidationCheckIds = [
   "maximum-finite-number",
 ];
 
+const identifierCases = [
+  ["identifier-schema", "schema"],
+  ["identifier-values", "values"],
+  ["identifier-field-batches", "codec"],
+  ["identifier-persistence", "history"],
+];
+
+const identifierScenarioIds = {
+  "identifier-schema": [
+    "valid-string-field",
+    "two-identifier-fields",
+    "non-string-refusal",
+    "union-refusal",
+    "identifier-to-value",
+    "value-to-identifier-refusal",
+    "canonical-field-change",
+  ],
+  "identifier-values": [
+    "custom-string",
+    "empty-string",
+    "uuid",
+    "duplicate-custom-strings",
+    "omitted-default",
+    "multiple-defaults",
+    "nested-insertion",
+    "direct-assignment-refusal",
+    "clear-refusal",
+    "parent-replacement",
+    "allocation-order",
+  ],
+  "identifier-field-batches": [
+    "literal-zero-string",
+    "local-negative-op-id",
+    "remote-finalized-id",
+    "eager-final-id",
+    "unknown-uuid-string",
+    "message-summary-same-id",
+    "unfinalized-summary-string",
+    "numeric-originatorless-refusal",
+    "invalid-payload-shapes",
+  ],
+  "identifier-persistence": [
+    "initial-summary-defaults",
+    "summary-tail",
+    "transaction-abort",
+    "nested-abort",
+    "retry-resubmit",
+    "remove-retain-repair",
+    "equal-custom-id-replacement",
+    "node-moves",
+  ],
+};
+
+function identifierCaseFixture(id, domain) {
+  const scenarios = identifierScenarioIds[id].map((scenarioId) => ({
+    id: scenarioId,
+    actions: [{ op: "observe", path: [], purpose: "message" }],
+  }));
+  if (id === "identifier-field-batches") {
+    scenarios.find(({ id: scenarioId }) => scenarioId === "local-negative-op-id").actions = [{
+      op: "decode-field-batch",
+      path: ["identifier"],
+      encoded: { value: -1 },
+      purpose: "message",
+      originator: "11111111-1111-4111-8111-111111111111",
+    }];
+  }
+  const observations = scenarios.map(({ id: scenarioId }) => ({
+    id: scenarioId,
+    observed: true,
+  }));
+  if (id === "identifier-values") {
+    observations.find(({ id: scenarioId }) => scenarioId === "allocation-order").order = [
+      { kind: "revision", op: 4 },
+      { kind: "identifier", field: "firstId", op: 2 },
+      { kind: "identifier", field: "secondId", op: 3 },
+    ];
+  }
+  if (id === "identifier-field-batches") {
+    observations.find(({ id: scenarioId }) => scenarioId === "literal-zero-string")
+      .discriminator = 0;
+    Object.assign(
+      observations.find(({ id: scenarioId }) => scenarioId === "numeric-originatorless-refusal"),
+      {
+        refused: true,
+        originalError: "Error: refused",
+        nativeErrorCategory: "Error",
+      },
+    );
+    observations.find(({ id: scenarioId }) => scenarioId === "invalid-payload-shapes")
+      .refusals = [{
+        value: null,
+        originalError: "Error: refused",
+        nativeErrorCategory: "Error",
+      }];
+  }
+  return {
+    formatVersion: 1,
+    reference: {
+      package: "@fluidframework/tree",
+      version: "3.1.0",
+      commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+    },
+    id,
+    domain,
+    input: {
+      version: 1,
+      schema: { version: 2 },
+      initialTree: null,
+      sessions: {
+        local: "11111111-1111-4111-8111-111111111111",
+        remote: "22222222-2222-4222-8222-222222222222",
+      },
+      compressors: {
+        initial: "serialized-compressor",
+      },
+      idRanges: [],
+      scenarios,
+    },
+    expected: {
+      observations,
+    },
+    raw: {
+      scenarios: structuredClone(observations),
+    },
+  };
+}
+
 function cases(exclude = []) {
   const synthetic = {
     "map-schema-content": mapSchemaCaseFixture,
@@ -85,6 +213,10 @@ function cases(exclude = []) {
     ),
     "transaction-wire": () => transactionCaseFixture("transaction-wire", "codec"),
     "transaction-history": () => transactionCaseFixture("transaction-history", "history"),
+    ...Object.fromEntries(identifierCases.map(([id, domain]) => [
+      id,
+      () => identifierCaseFixture(id, domain),
+    ])),
   };
   return requiredCases.filter(([id]) => !exclude.includes(id)).map(([id]) =>
     synthetic[id]?.() ?? JSON.parse(readFileSync(
@@ -1297,8 +1429,58 @@ test("tree codec case validator rejects missing context and observations", () =>
 });
 
 test("corpus requires the tree codecs case", () => {
-  assert.equal(requiredCases.length, 46);
+  assert.equal(requiredCases.length, 50);
   assert(requiredCases.some(([id, domain]) => id === "tree-codecs" && domain === "codec"));
+});
+
+test("corpus registers the complete Identifier contract", () => {
+  assert.deepEqual(
+    requiredCases.filter(([id]) => id.startsWith("identifier-")),
+    identifierCases,
+  );
+});
+
+test("Identifier corpus rejects missing cases and incomplete executable evidence", () => {
+  const withoutIdentifierCase = (capture, id) =>
+    capture.filter(({ id: candidate }) => candidate !== id);
+  const complete = cases();
+  assert.doesNotThrow(() => validateCases(complete));
+  assert.throws(
+    () => validateCases(withoutIdentifierCase(complete, "identifier-field-batches")),
+    /identifier-field-batches/,
+  );
+
+  const withoutCompressor = structuredClone(complete);
+  delete withoutCompressor.find(({ id }) => id === "identifier-values").input.compressors;
+  assert.throws(() => validateCases(withoutCompressor), /identifier-values/);
+
+  const withoutNumericId = structuredClone(complete);
+  withoutNumericId.find(({ id }) => id === "identifier-field-batches").input.scenarios
+    .find(({ id }) => id === "local-negative-op-id").actions = [];
+  assert.throws(() => validateCases(withoutNumericId), /identifier-field-batches/);
+
+  const withoutObservation = structuredClone(complete);
+  withoutObservation.find(({ id }) => id === "identifier-persistence")
+    .expected.observations.pop();
+  assert.throws(() => validateCases(withoutObservation), /identifier-persistence/);
+
+  const withoutOriginalError = structuredClone(complete);
+  delete withoutOriginalError.find(({ id }) => id === "identifier-field-batches")
+    .expected.observations.find(({ id }) => id === "numeric-originatorless-refusal")
+    .originalError;
+  delete withoutOriginalError.find(({ id }) => id === "identifier-field-batches")
+    .raw.scenarios.find(({ id }) => id === "numeric-originatorless-refusal")
+    .originalError;
+  assert.throws(() => validateCases(withoutOriginalError), /original error/);
+
+  const withoutErrorCategory = structuredClone(complete);
+  delete withoutErrorCategory.find(({ id }) => id === "identifier-field-batches")
+    .expected.observations.find(({ id }) => id === "invalid-payload-shapes")
+    .refusals[0].nativeErrorCategory;
+  delete withoutErrorCategory.find(({ id }) => id === "identifier-field-batches")
+    .raw.scenarios.find(({ id }) => id === "invalid-payload-shapes")
+    .refusals[0].nativeErrorCategory;
+  assert.throws(() => validateCases(withoutErrorCategory), /error category/);
 });
 
 test("M3 requires sequence replay evidence", () => {
@@ -2683,6 +2865,15 @@ test("manifest records complete native runners and actual wire field kinds", asy
   const manifest = JSON.parse(readFileSync(join(output, "manifest.json"), "utf8"));
   assert.deepEqual(manifest.inventory.observedFieldKinds,
     ["ModularEditBuilder.Generic", "Optional", "Sequence", "Value"]);
+  assert.deepEqual(manifest.inventory.identifierContract, {
+    cases: identifierCases.map(([id]) => id),
+    valueShapeDiscriminator: 0,
+    allocationOrder: [
+      { kind: "revision", op: 4 },
+      { kind: "identifier", field: "firstId", op: 2 },
+      { kind: "identifier", field: "secondId", op: 3 },
+    ],
+  });
   for (const target of ["javascript", "erlang"]) {
     assert.deepEqual(manifest.nativeSemanticRunners[target], [
       "id-ranges", "schema-validation", "forest-delta",
@@ -2700,7 +2891,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
 });
 
 test("corpus validation requires every named case and nonempty observations", () => {
-  assert.equal(requiredCases.length, 46);
+  assert.equal(requiredCases.length, 50);
   assert.doesNotThrow(() => validateCases(cases()));
   assert.throws(() => validateCases([]), /empty|missing/i);
   assert.throws(() => validateCases(cases().slice(1)), /schema-profile/);

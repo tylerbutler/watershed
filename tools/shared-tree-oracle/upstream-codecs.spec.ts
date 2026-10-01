@@ -56,7 +56,7 @@ type ArtifactItem = {
 	id: string;
 	kind: "schema" | "fieldBatch" | "message" | "summary";
 	encoded: unknown;
-	schemaProfile?: "map" | "array";
+	schemaProfile?: "map" | "array" | "identifier";
 	compressor?: string;
 	compressorMode?: "ongoing" | "summary";
 	session?: string;
@@ -200,6 +200,39 @@ const arrayTreeFactory = configuredSharedTreeInternal({
 	minVersionForCollab: FluidClientVersion.v2_117,
 }).getFactory();
 
+const identifierSchema = new SchemaFactory("org.watershed.shared-tree.identifiers");
+class IdentifierPoint extends identifierSchema.object("Point", {
+	id: identifierSchema.identifier,
+	label: identifierSchema.string,
+}) {}
+class IdentifierPair extends identifierSchema.object("Pair", {
+	firstId: identifierSchema.identifier,
+	secondId: identifierSchema.identifier,
+	label: identifierSchema.string,
+}) {}
+class IdentifierItems extends identifierSchema.array("Items", [IdentifierPoint, IdentifierPair]) {}
+class IdentifierMap extends identifierSchema.map("PointsByKey", [IdentifierPoint, IdentifierPair]) {}
+class IdentifierRoot extends identifierSchema.object("Root", {
+	child: IdentifierPoint,
+	left: IdentifierItems,
+	right: IdentifierItems,
+	byKey: IdentifierMap,
+}) {}
+const identifierConfiguration = new TreeViewConfiguration({ schema: IdentifierRoot });
+const identifierTreeFactory = configuredSharedTreeInternal({
+	minVersionForCollab: FluidClientVersion.v2_117,
+}).getFactory();
+
+function factoryFor(item: ArtifactItem) {
+	return item.schemaProfile === "map"
+		? mapTreeFactory
+		: item.schemaProfile === "array"
+			? arrayTreeFactory
+			: item.schemaProfile === "identifier"
+				? identifierTreeFactory
+				: factory;
+}
+
 function compressor(item: ArtifactItem): IIdCompressor {
 	assert(typeof item.compressor === "string" && item.compressor.length > 0,
 		`${item.id}: missing compressor`);
@@ -224,9 +257,7 @@ async function loadSummary(item: ArtifactItem, idCompressor = compressor(item)) 
 	assert(item.encoded !== null && typeof item.encoded === "object",
 		`${item.id}: summary encoding`);
 	const runtime = new MockFluidDataStoreRuntime({ idCompressor });
-	const selectedFactory = item.schemaProfile === "map"
-		? mapTreeFactory
-		: item.schemaProfile === "array" ? arrayTreeFactory : factory;
+	const selectedFactory = factoryFor(item);
 	return selectedFactory.load(
 		runtime,
 		`codec-${item.id}`,
@@ -284,6 +315,19 @@ function visibleArray(root: ArrayRoot | undefined) {
 		right: arrayValue(root.right),
 		byKey: arrayValue(root.byKey),
 		narrow: arrayValue(root.narrow),
+	};
+}
+
+function visibleIdentifier(root: IdentifierRoot | undefined) {
+	const value = (item: IdentifierPoint | IdentifierPair): unknown =>
+		item instanceof IdentifierPair
+			? { firstId: item.firstId, secondId: item.secondId, label: item.label }
+			: { id: item.id, label: item.label };
+	return root === undefined ? null : {
+		child: value(root.child),
+		left: [...root.left].map(value),
+		right: [...root.right].map(value),
+		byKey: [...root.byKey].map(([key, item]) => [key, value(item)]),
 	};
 }
 
@@ -736,9 +780,7 @@ async function consume(item: ArtifactItem) {
 			const runtime = new MockFluidDataStoreRuntime({ idCompressor: compressor(item) });
 			const idCompressor = runtime.idCompressor;
 			assert(idCompressor !== undefined, `${item.id}: runtime compressor`);
-			const selectedFactory = item.schemaProfile === "map"
-				? mapTreeFactory
-				: item.schemaProfile === "array" ? arrayTreeFactory : factory;
+			const selectedFactory = factoryFor(item);
 			const submitted: unknown[] = [];
 			const loadedServices = services(
 				item.initialSummary as Parameters<
@@ -953,6 +995,38 @@ async function consume(item: ArtifactItem) {
 					continued: view.root.items.get("upstream-continuation"),
 				};
 			}
+			if (item.schemaProfile === "identifier") {
+				const view = tree.viewWith(identifierConfiguration);
+				const beforeApply = visibleIdentifier(view.root);
+				process.call(kernel, {
+					envelope: {
+						clientId: "watershed-codec-consumer",
+						clientSequenceNumber: 1,
+						contents: item.encoded,
+						referenceSequenceNumber: item.referenceSequenceNumber,
+						sequenceNumber: item.sequenceNumber,
+						minimumSequenceNumber: item.minimumSequenceNumber,
+						timestamp: 0,
+						type: "op",
+					},
+					local: false,
+					messagesContent: [{
+						contents: item.encoded,
+						localOpMetadata: undefined,
+						clientSequenceNumber: 1,
+					}],
+				});
+				const afterApply = visibleIdentifier(view.root);
+				view.root.child.label = "upstream-continuation";
+				return {
+					id: item.id,
+					kind: item.kind,
+					decoded: true,
+					beforeApply,
+					afterApply,
+					continued: view.root.child.label,
+				};
+			}
 			const view = tree.viewWith(configuration);
 			const beforeApply = visibleRoot(view.root);
 			process.call(kernel, {
@@ -1005,6 +1079,26 @@ async function consume(item: ArtifactItem) {
 					removed: removedContent(snapshot.removed, idCompressor, item.id),
 					history,
 					continued: view.root.items.get("upstream-continuation"),
+				};
+			}
+			if (item.schemaProfile === "identifier") {
+				const view = tree.viewWith(identifierConfiguration);
+				const visible = visibleIdentifier(view.root);
+				const history = summaryHistory(tree, idCompressor, item.id);
+				const contentSnapshot: unknown = Reflect.get(tree, "contentSnapshot");
+				assert(typeof contentSnapshot === "function", `${item.id}: missing content snapshot`);
+				const snapshot: unknown = contentSnapshot.call(tree);
+				assert(snapshot !== null && typeof snapshot === "object"
+					&& "removed" in snapshot && Array.isArray(snapshot.removed),
+				`${item.id}: missing removed content`);
+				view.root.child.label = "upstream-continuation";
+				return {
+					id: item.id,
+					kind: item.kind,
+					visible,
+					removed: removedContent(snapshot.removed, idCompressor, item.id),
+					history,
+					continued: view.root.child.label,
 				};
 			}
 			if (item.schemaProfile === "array") {

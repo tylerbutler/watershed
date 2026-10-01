@@ -435,15 +435,48 @@ an injected test whose contents differ from its committed oracle source.
 Only `packages/dds/tree/src/test/watershedOracle.spec.ts`,
 `watershedAlgebra.spec.ts`, `watershedForest.spec.ts`, and
 `watershedModular.spec.ts`, `watershedHistory.spec.ts`, and
-`watershedCodecs.spec.ts` in that same directory
+`watershedCodecs.spec.ts`, `watershedIdentifier.spec.ts` in that same directory
 are injected. They must match `upstream-oracle.spec.ts`,
 `upstream-algebra.spec.ts`, `upstream-forest.spec.ts`, and
 `upstream-modular.spec.ts`, `upstream-history.spec.ts`, and
-`upstream-codecs.spec.ts`, respectively. If you
+`upstream-codecs.spec.ts`, `upstream-identifier.spec.ts`, respectively. If you
 intentionally edit an oracle after preparing a checkout, review the old injected
 copy and remove that one file before preparing again. Do not discard other
 reference changes to make verification pass. Avoid code-map queries inside the
 reference checkout: their generated cache is an unrelated untracked file.
+
+### Identifier capture inputs
+
+The four Identifier cases are input-only contracts. Each `input` contains
+`version: 1`, Schema V2 JSON, an initial tree, fixed sessions, serialized
+compressors, delivered ID ranges, and ordered scenarios. The native adapter
+must execute `input.scenarios`; it must not read `expected` or `raw`.
+
+Every scenario contains ordered `actions`. Paths are arrays of field keys and
+array indexes. Tree values use `{ "schema": "<type>", "fields": { ... } }`.
+The action records are:
+
+| `op` | Required fields |
+| --- | --- |
+| `validate-schema` | `schema` |
+| `compare-schema` | `from`, `to` |
+| `decode-field-change` | `encoded` |
+| `construct` | `schema`, `fields` |
+| `insert` | `path`, `index`, `value` |
+| `set` | `path`, `value` |
+| `clear` | `path` |
+| `remove` | `path`, `index`, `count` |
+| `move` | `from`, `to`, `count` |
+| `encode-field-batch` | `path`, `value`, `purpose`; `originator` for an originator-dependent message |
+| `decode-field-batch` | `path`, `encoded`, `purpose`; `originator` for an originator-dependent message |
+| `summarize`, `load-summary`, `apply-tail` | `purpose` |
+| `transaction` | nested `actions`; optional `result: "rollback"` |
+| `disconnect`, `reconnect`, `resubmit` | no additional fields |
+
+`purpose` is `message` or `summary`. Encoded Identifier data uses
+`{ "value": <string-or-number> }`; numeric message values require the recorded
+originator. Refusal observations keep the original upstream error separately
+from `nativeErrorCategory`, because exception wording is not a parity contract.
 
 The checkout excludes upstream's generated
 `packages/dds/tree/src/test/snapshots/output/` directory. The release contains

@@ -67,6 +67,61 @@ export const requiredTransactionCases = [
   "transaction-history",
 ];
 
+export const requiredIdentifierCases = [
+  ["identifier-schema", "schema"],
+  ["identifier-values", "values"],
+  ["identifier-field-batches", "codec"],
+  ["identifier-persistence", "history"],
+];
+
+requiredCases.push(...requiredIdentifierCases);
+
+const identifierScenarioIds = {
+  "identifier-schema": [
+    "valid-string-field",
+    "two-identifier-fields",
+    "non-string-refusal",
+    "union-refusal",
+    "identifier-to-value",
+    "value-to-identifier-refusal",
+    "canonical-field-change",
+  ],
+  "identifier-values": [
+    "custom-string",
+    "empty-string",
+    "uuid",
+    "duplicate-custom-strings",
+    "omitted-default",
+    "multiple-defaults",
+    "nested-insertion",
+    "direct-assignment-refusal",
+    "clear-refusal",
+    "parent-replacement",
+    "allocation-order",
+  ],
+  "identifier-field-batches": [
+    "literal-zero-string",
+    "local-negative-op-id",
+    "remote-finalized-id",
+    "eager-final-id",
+    "unknown-uuid-string",
+    "message-summary-same-id",
+    "unfinalized-summary-string",
+    "numeric-originatorless-refusal",
+    "invalid-payload-shapes",
+  ],
+  "identifier-persistence": [
+    "initial-summary-defaults",
+    "summary-tail",
+    "transaction-abort",
+    "nested-abort",
+    "retry-resubmit",
+    "remove-retain-repair",
+    "equal-custom-id-replacement",
+    "node-moves",
+  ],
+};
+
 export const arrayScenarioIds = {
   "array-schema-content": [
     "root-array",
@@ -3774,6 +3829,72 @@ function validateTransactionHistory(value) {
     `${label}: history observation differs from raw execution`);
 }
 
+function validateIdentifierCase(value) {
+  const label = value.id;
+  const check = (condition, detail) => assert(condition, `${label}: ${detail}`);
+  check(value.input.version === 1, "input version");
+  check(object(value.input.schema) && Object.keys(value.input.schema).length > 0, "schema");
+  check(Object.hasOwn(value.input, "initialTree"), "initial tree");
+  check(object(value.input.sessions) && Object.keys(value.input.sessions).length >= 2
+    && Object.values(value.input.sessions).every((session) =>
+      typeof session === "string" && session.length > 0), "sessions");
+  check(object(value.input.compressors) && Object.keys(value.input.compressors).length > 0
+    && Object.values(value.input.compressors).every((compressor) =>
+      typeof compressor === "string" && compressor.length > 0), "compressors");
+  check(Array.isArray(value.input.idRanges), "ID ranges");
+  check(Array.isArray(value.input.scenarios), "scenarios");
+  assert.deepEqual(
+    value.input.scenarios.map(({ id }) => id),
+    identifierScenarioIds[label],
+    `${label}: scenario matrix`,
+  );
+  for (const scenario of value.input.scenarios) {
+    check(nonemptyArray(scenario.actions), `${scenario.id} actions`);
+    check(scenario.actions.every((action) => object(action)
+      && typeof action.op === "string" && action.op.length > 0),
+    `${scenario.id} action records`);
+  }
+  assert.deepEqual(
+    value.expected.observations.map(({ id }) => id),
+    identifierScenarioIds[label],
+    `${label}: observations`,
+  );
+  check(Array.isArray(value.raw.scenarios), "raw scenarios");
+  assert.deepEqual(
+    value.raw.scenarios.map(({ id }) => id),
+    identifierScenarioIds[label],
+    `${label}: raw scenario evidence`,
+  );
+  assert.deepEqual(value.raw.scenarios, value.expected.observations,
+    `${label}: observations differ from raw execution`);
+  if (label === "identifier-field-batches") {
+    const numeric = value.input.scenarios
+      .find(({ id }) => id === "local-negative-op-id")?.actions
+      .find((action) => action.op === "decode-field-batch");
+    check(Number.isSafeInteger(numeric?.encoded?.value) && numeric.encoded.value < 0,
+      "numeric Identifier action");
+    check(typeof numeric.originator === "string" && numeric.purpose === "message",
+      "numeric Identifier context");
+    const refusal = value.expected.observations
+      .find(({ id }) => id === "numeric-originatorless-refusal");
+    check(refusal?.refused === true, "originatorless refusal");
+    check(typeof refusal.originalError === "string" && refusal.originalError.length > 0,
+      "originatorless original error");
+    check(typeof refusal.nativeErrorCategory === "string"
+      && refusal.nativeErrorCategory.length > 0, "originatorless error category");
+    const invalid = value.expected.observations
+      .find(({ id }) => id === "invalid-payload-shapes");
+    check(nonemptyArray(invalid?.refusals), "invalid payload refusals");
+    for (const item of invalid.refusals) {
+      check(Object.hasOwn(item, "value"), "invalid payload value");
+      check(typeof item.originalError === "string" && item.originalError.length > 0,
+        "invalid payload original error");
+      check(typeof item.nativeErrorCategory === "string"
+        && item.nativeErrorCategory.length > 0, "invalid payload error category");
+    }
+  }
+}
+
 export function validateCases(cases) {
   assert(Array.isArray(cases) && cases.length > 0, "The corpus is empty");
   const ids = new Set();
@@ -3873,6 +3994,7 @@ export function validateCases(cases) {
     if (value.id === "transaction-constraints") validateTransactionConstraints(value);
     if (value.id === "transaction-wire") validateTransactionWire(value);
     if (value.id === "transaction-history") validateTransactionHistory(value);
+    if (identifierScenarioIds[value.id] !== undefined) validateIdentifierCase(value);
     if (value.id === "summary-writer-matrix") validateSummaryPersistence(value);
     if (value.id === "id-ranges") {
       assert(object(value.input.sessions) && typeof value.input.sessions.summaryRestoration === "string"
@@ -4090,6 +4212,12 @@ export async function writeCorpus(output, cases, smoke) {
   }
   await mkdir(join(output, "cases"), { recursive: true });
   const messages = messageInventory(cases);
+  const identifierAllocationOrder = cases
+    .find((item) => item.id === "identifier-values")
+    .expected.observations.find((item) => item.id === "allocation-order").order;
+  const identifierDiscriminator = cases
+    .find((item) => item.id === "identifier-field-batches")
+    .expected.observations.find((item) => item.id === "literal-zero-string").discriminator;
   const manifest = {
     formatVersion: 1,
     reference: identity,
@@ -4110,6 +4238,11 @@ export async function writeCorpus(output, cases, smoke) {
       serviceSummaryPaths: profile.container.summaryPaths,
       documentSchema: profile.container.documentSchema,
       gcMetadataVersion: profile.container.gcFeature,
+      identifierContract: {
+        cases: requiredIdentifierCases.map(([id]) => id),
+        valueShapeDiscriminator: identifierDiscriminator,
+        allocationOrder: identifierAllocationOrder,
+      },
     },
     nativeSemanticRunners: {
       javascript: [
@@ -4178,6 +4311,7 @@ export async function generate({ check = false } = {}) {
       ...await read(join(source, "sequence-cases.json")),
       ...await read(join(source, "schema-evolution-cases.json")),
       ...await read(join(source, "transaction-cases.json")),
+      ...await read(join(source, "identifier-cases.json")),
       ...await read(join(container, "container-cases.json")),
     ];
     const malformed = cases.find((item) => item.id === "id-ranges")?.raw.malformedAllocation;

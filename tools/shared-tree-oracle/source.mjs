@@ -20,6 +20,7 @@ const sequenceSource = join(directory, "upstream-sequence.spec.ts");
 const replaySource = join(directory, "upstream-replay.spec.ts");
 const schemaEvolutionSource = join(directory, "upstream-schema-evolution.spec.ts");
 const transactionSource = join(directory, "upstream-transaction.spec.ts");
+const identifierSource = join(directory, "upstream-identifier.spec.ts");
 
 export const reference = {
   version: "3.1.0",
@@ -55,6 +56,8 @@ export const schemaEvolutionInjectedTestPath =
   "packages/dds/tree/src/test/watershedSchemaEvolution.spec.ts";
 export const transactionInjectedTestPath =
   "packages/dds/tree/src/test/watershedTransaction.spec.ts";
+export const identifierInjectedTestPath =
+  "packages/dds/tree/src/test/watershedIdentifier.spec.ts";
 const injections = new Map([
   [injectedTestPath, oracleSource],
   ["packages/dds/tree/src/test/watershedAlgebra.spec.ts", join(directory, "upstream-algebra.spec.ts")],
@@ -69,6 +72,7 @@ const injections = new Map([
   [replayInjectedTestPath, replaySource],
   [schemaEvolutionInjectedTestPath, schemaEvolutionSource],
   [transactionInjectedTestPath, transactionSource],
+  [identifierInjectedTestPath, identifierSource],
 ]);
 
 export async function verifyPackages(root = directory) {
@@ -228,7 +232,10 @@ export async function publishCapture(output, produce) {
 
 export function sourceTestBatches(corpus) {
   if (!corpus) {
-    return [["lib/test/watershedOracle.spec.js"]];
+    return [
+      ["lib/test/watershedOracle.spec.js"],
+      ["lib/test/watershedIdentifier.spec.js"],
+    ];
   }
   return [
     [
@@ -242,6 +249,7 @@ export function sourceTestBatches(corpus) {
       "lib/test/watershedSequence.spec.js",
       "lib/test/watershedArray.spec.js",
     ],
+    ["lib/test/watershedIdentifier.spec.js"],
   ];
 }
 

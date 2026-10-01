@@ -1,0 +1,635 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "identifier-values",
+  "domain": "values",
+  "input": {
+    "version": 1,
+    "schema": {
+      "version": 2,
+      "nodes": {
+        "com.fluidframework.leaf.string": {
+          "kind": {
+            "leaf": 1
+          }
+        },
+        "org.watershed.shared-tree.identifiers.Items": {
+          "kind": {
+            "object": {
+              "": {
+                "kind": "Sequence",
+                "types": [
+                  "org.watershed.shared-tree.identifiers.Pair",
+                  "org.watershed.shared-tree.identifiers.Point"
+                ]
+              }
+            }
+          }
+        },
+        "org.watershed.shared-tree.identifiers.Pair": {
+          "kind": {
+            "object": {
+              "firstId": {
+                "kind": "Identifier",
+                "types": [
+                  "com.fluidframework.leaf.string"
+                ]
+              },
+              "label": {
+                "kind": "Value",
+                "types": [
+                  "com.fluidframework.leaf.string"
+                ]
+              },
+              "secondId": {
+                "kind": "Identifier",
+                "types": [
+                  "com.fluidframework.leaf.string"
+                ]
+              }
+            }
+          }
+        },
+        "org.watershed.shared-tree.identifiers.Point": {
+          "kind": {
+            "object": {
+              "id": {
+                "kind": "Identifier",
+                "types": [
+                  "com.fluidframework.leaf.string"
+                ]
+              },
+              "label": {
+                "kind": "Value",
+                "types": [
+                  "com.fluidframework.leaf.string"
+                ]
+              }
+            }
+          }
+        },
+        "org.watershed.shared-tree.identifiers.PointsByKey": {
+          "kind": {
+            "map": {
+              "kind": "Optional",
+              "types": [
+                "org.watershed.shared-tree.identifiers.Pair",
+                "org.watershed.shared-tree.identifiers.Point"
+              ]
+            }
+          }
+        },
+        "org.watershed.shared-tree.identifiers.Root": {
+          "kind": {
+            "object": {
+              "byKey": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.identifiers.PointsByKey"
+                ]
+              },
+              "child": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.identifiers.Point"
+                ]
+              },
+              "left": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.identifiers.Items"
+                ]
+              },
+              "right": {
+                "kind": "Value",
+                "types": [
+                  "org.watershed.shared-tree.identifiers.Items"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "root": {
+        "kind": "Value",
+        "types": [
+          "org.watershed.shared-tree.identifiers.Root"
+        ]
+      }
+    },
+    "initialTree": {
+      "schema": "org.watershed.shared-tree.identifiers.Root",
+      "fields": {
+        "child": {
+          "schema": "org.watershed.shared-tree.identifiers.Point",
+          "fields": {
+            "id": "initial",
+            "label": "initial"
+          }
+        },
+        "left": [],
+        "right": [],
+        "byKey": []
+      }
+    },
+    "sessions": {
+      "local": "10000000-0000-4000-8000-000000000001",
+      "remote": "20000000-0000-4000-8000-000000000002",
+      "summary": "30000000-0000-4000-8000-000000000003"
+    },
+    "compressors": {
+      "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+      "document": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAAAiAQAAAAAAAABRAAAAAAAAAFEAAAAAAAAAYQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+    },
+    "idRanges": [],
+    "scenarios": [
+      {
+        "id": "custom-string",
+        "actions": [
+          {
+            "op": "construct",
+            "schema": "org.watershed.shared-tree.identifiers.Point",
+            "fields": {
+              "id": "custom-id",
+              "label": "custom"
+            }
+          }
+        ]
+      },
+      {
+        "id": "empty-string",
+        "actions": [
+          {
+            "op": "construct",
+            "schema": "org.watershed.shared-tree.identifiers.Point",
+            "fields": {
+              "id": "",
+              "label": "empty"
+            }
+          }
+        ]
+      },
+      {
+        "id": "uuid",
+        "actions": [
+          {
+            "op": "construct",
+            "schema": "org.watershed.shared-tree.identifiers.Point",
+            "fields": {
+              "id": "11111111-2222-4333-8444-555555555555",
+              "label": "uuid"
+            }
+          }
+        ]
+      },
+      {
+        "id": "duplicate-custom-strings",
+        "actions": [
+          {
+            "op": "construct",
+            "schema": "org.watershed.shared-tree.identifiers.Point",
+            "fields": {
+              "id": "duplicate",
+              "label": "a"
+            }
+          },
+          {
+            "op": "construct",
+            "schema": "org.watershed.shared-tree.identifiers.Point",
+            "fields": {
+              "id": "duplicate",
+              "label": "b"
+            }
+          }
+        ]
+      },
+      {
+        "id": "omitted-default",
+        "actions": [
+          {
+            "op": "construct",
+            "schema": "org.watershed.shared-tree.identifiers.Point",
+            "fields": {
+              "label": "generated"
+            }
+          }
+        ]
+      },
+      {
+        "id": "multiple-defaults",
+        "actions": [
+          {
+            "op": "construct",
+            "schema": "org.watershed.shared-tree.identifiers.Pair",
+            "fields": {
+              "label": "pair"
+            }
+          }
+        ]
+      },
+      {
+        "id": "nested-insertion",
+        "actions": [
+          {
+            "op": "insert",
+            "path": [
+              "left"
+            ],
+            "index": 0,
+            "value": {
+              "schema": "org.watershed.shared-tree.identifiers.Point",
+              "fields": {
+                "label": "array"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "direct-assignment-refusal",
+        "actions": [
+          {
+            "op": "set",
+            "path": [
+              "child",
+              "id"
+            ],
+            "value": "changed"
+          }
+        ]
+      },
+      {
+        "id": "clear-refusal",
+        "actions": [
+          {
+            "op": "clear",
+            "path": [
+              "child",
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "parent-replacement",
+        "actions": [
+          {
+            "op": "set",
+            "path": [
+              "child"
+            ],
+            "value": {
+              "schema": "org.watershed.shared-tree.identifiers.Point",
+              "fields": {
+                "id": "replacement",
+                "label": "replacement"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "allocation-order",
+        "actions": [
+          {
+            "op": "insert",
+            "path": [
+              "left"
+            ],
+            "index": 1,
+            "value": {
+              "schema": "org.watershed.shared-tree.identifiers.Pair",
+              "fields": {
+                "label": "allocation"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "custom-string",
+        "value": "custom-id"
+      },
+      {
+        "id": "empty-string",
+        "value": ""
+      },
+      {
+        "id": "uuid",
+        "value": "11111111-2222-4333-8444-555555555555"
+      },
+      {
+        "id": "duplicate-custom-strings",
+        "values": [
+          "duplicate",
+          "duplicate"
+        ]
+      },
+      {
+        "id": "omitted-default",
+        "value": "42e4ad58-3e85-4f79-828e-af111354b1a4"
+      },
+      {
+        "id": "multiple-defaults",
+        "values": [
+          "42e4ad58-3e85-4f79-828e-af111354b1a5",
+          "42e4ad58-3e85-4f79-828e-af111354b1a6"
+        ]
+      },
+      {
+        "id": "nested-insertion",
+        "value": {
+          "child": {
+            "id": "42e4ad58-3e85-4f79-828e-af111354b1a7",
+            "label": "child"
+          },
+          "left": [
+            {
+              "id": "42e4ad58-3e85-4f79-828e-af111354b1a8",
+              "label": "array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "map",
+              {
+                "id": "42e4ad58-3e85-4f79-828e-af111354b1a9",
+                "label": "map"
+              }
+            ]
+          ]
+        }
+      },
+      {
+        "id": "direct-assignment-refusal",
+        "refused": true,
+        "originalError": "Error: 0xade",
+        "nativeErrorCategory": "Error"
+      },
+      {
+        "id": "clear-refusal",
+        "refused": true,
+        "originalError": "Error: Got undefined for non-optional field expecting one of [\"com.fluidframework.leaf.string\" (name: undefined)]",
+        "nativeErrorCategory": "UsageError"
+      },
+      {
+        "id": "parent-replacement",
+        "value": {
+          "id": "replacement",
+          "label": "replacement"
+        }
+      },
+      {
+        "id": "allocation-order",
+        "order": [
+          {
+            "kind": "revision",
+            "op": 4
+          },
+          {
+            "kind": "identifier",
+            "field": "firstId",
+            "op": 2
+          },
+          {
+            "kind": "identifier",
+            "field": "secondId",
+            "op": 3
+          }
+        ]
+      }
+    ]
+  },
+  "raw": {
+    "scenarios": [
+      {
+        "id": "custom-string",
+        "value": "custom-id"
+      },
+      {
+        "id": "empty-string",
+        "value": ""
+      },
+      {
+        "id": "uuid",
+        "value": "11111111-2222-4333-8444-555555555555"
+      },
+      {
+        "id": "duplicate-custom-strings",
+        "values": [
+          "duplicate",
+          "duplicate"
+        ]
+      },
+      {
+        "id": "omitted-default",
+        "value": "42e4ad58-3e85-4f79-828e-af111354b1a4"
+      },
+      {
+        "id": "multiple-defaults",
+        "values": [
+          "42e4ad58-3e85-4f79-828e-af111354b1a5",
+          "42e4ad58-3e85-4f79-828e-af111354b1a6"
+        ]
+      },
+      {
+        "id": "nested-insertion",
+        "value": {
+          "child": {
+            "id": "42e4ad58-3e85-4f79-828e-af111354b1a7",
+            "label": "child"
+          },
+          "left": [
+            {
+              "id": "42e4ad58-3e85-4f79-828e-af111354b1a8",
+              "label": "array"
+            }
+          ],
+          "right": [],
+          "byKey": [
+            [
+              "map",
+              {
+                "id": "42e4ad58-3e85-4f79-828e-af111354b1a9",
+                "label": "map"
+              }
+            ]
+          ]
+        }
+      },
+      {
+        "id": "direct-assignment-refusal",
+        "refused": true,
+        "originalError": "Error: 0xade",
+        "nativeErrorCategory": "Error"
+      },
+      {
+        "id": "clear-refusal",
+        "refused": true,
+        "originalError": "Error: Got undefined for non-optional field expecting one of [\"com.fluidframework.leaf.string\" (name: undefined)]",
+        "nativeErrorCategory": "UsageError"
+      },
+      {
+        "id": "parent-replacement",
+        "value": {
+          "id": "replacement",
+          "label": "replacement"
+        }
+      },
+      {
+        "id": "allocation-order",
+        "order": [
+          {
+            "kind": "revision",
+            "op": 4
+          },
+          {
+            "kind": "identifier",
+            "field": "firstId",
+            "op": 2
+          },
+          {
+            "kind": "identifier",
+            "field": "secondId",
+            "op": 3
+          }
+        ]
+      }
+    ],
+    "messages": [
+      {
+        "revision": 4,
+        "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        "changeset": [
+          {
+            "data": {
+              "maxId": 5,
+              "changes": [
+                {
+                  "fieldKey": "rootFieldKey",
+                  "fieldKind": "ModularEditBuilder.Generic",
+                  "change": [
+                    [
+                      0,
+                      {
+                        "fieldChanges": [
+                          {
+                            "fieldKey": "left",
+                            "fieldKind": "ModularEditBuilder.Generic",
+                            "change": [
+                              [
+                                0,
+                                {
+                                  "fieldChanges": [
+                                    {
+                                      "fieldKey": "",
+                                      "fieldKind": "Sequence",
+                                      "change": [
+                                        {
+                                          "count": 1
+                                        },
+                                        {
+                                          "count": 1,
+                                          "effect": {
+                                            "insert": {
+                                              "id": 3
+                                            }
+                                          },
+                                          "cellId": 3
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "builds": {
+                "builds": [
+                  [
+                    [
+                      [
+                        3,
+                        0
+                      ]
+                    ]
+                  ]
+                ],
+                "trees": {
+                  "version": 2,
+                  "identifiers": [
+                    "com.fluidframework.leaf.string"
+                  ],
+                  "shapes": [
+                    {
+                      "c": {
+                        "type": "org.watershed.shared-tree.identifiers.Pair",
+                        "value": false,
+                        "fields": [
+                          [
+                            "firstId",
+                            1
+                          ],
+                          [
+                            "secondId",
+                            2
+                          ],
+                          [
+                            "label",
+                            3
+                          ]
+                        ]
+                      }
+                    },
+                    {
+                      "c": {
+                        "type": 0,
+                        "value": 0
+                      }
+                    },
+                    {
+                      "c": {
+                        "type": 0,
+                        "value": 0
+                      }
+                    },
+                    {
+                      "c": {
+                        "type": 0,
+                        "value": true
+                      }
+                    }
+                  ],
+                  "data": [
+                    [
+                      0,
+                      2,
+                      3,
+                      "allocation"
+                    ]
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "version": 7
+      }
+    ]
+  }
+}
