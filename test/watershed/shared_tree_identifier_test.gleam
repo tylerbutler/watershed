@@ -82,6 +82,40 @@ pub fn identifier_nested_defaults_follow_pinned_order_test() {
   compressor |> expect.to_equal(expected)
 }
 
+pub fn identifier_array_insert_roots_allocate_forward_test() {
+  let stored = identifier_fixture.full_stored()
+  let base = fluid_ids.new(identifier_fixture.session())
+  let #(expected, ids) = generated_ids(base, 3)
+  let initial =
+    identifier_fixture.full_root(
+      identifier_fixture.point("child-explicit", "before"),
+      [],
+      [],
+      [],
+    )
+  let state =
+    identifier_fixture.state(stored, identifier_fixture.full_view(), initial)
+  let roots = [
+    types.ObjectValue(identifier_fixture.point_type, [
+      #("label", types.StringValue("A")),
+    ]),
+    types.ObjectValue(identifier_fixture.point_type, [
+      #("label", types.StringValue("B")),
+    ]),
+  ]
+  let assert Ok(#(state, Some(commit), _, compressor)) =
+    tree_runtime.author_edit(state, types.ArrayInsert(["left"], 0, roots), base)
+  let assert [a_id, b_id, revision] = ids
+  tree_kernel.read(state, ["left", "0", "id"])
+  |> expect.to_equal(Ok(Some(types.StringValue(a_id))))
+  tree_kernel.read(state, ["left", "1", "id"])
+  |> expect.to_equal(Ok(Some(types.StringValue(b_id))))
+  commit.revision
+  |> fluid_ids.stable_id_to_string
+  |> expect.to_equal(revision)
+  compressor |> expect.to_equal(expected)
+}
+
 pub fn identifier_explicit_strings_do_not_allocate_test() {
   let stored = identifier_fixture.stored()
   let before =

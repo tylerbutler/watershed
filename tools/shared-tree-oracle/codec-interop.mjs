@@ -57,6 +57,7 @@ const requiredItemIds = [
   "identifier-summary-unfinalized",
   "identifier-retained-repair",
   "identifier-post-load-edit",
+  "identifier-native-initial-summary",
 ];
 const point = (x, y) => ({
   type: "org.watershed.shared-tree.m1.Point",
@@ -708,6 +709,12 @@ export function validateConsumerOutput(
     if (observation.id === "identifier-post-load-edit") {
       requireValue(observation.continued === "upstream-continuation",
         "identifier post-load edit");
+    }
+    if (observation.id === "identifier-native-initial-summary") {
+      requireValue(observation.continued?.insertedLabel === "upstream-default"
+        && observation.continued.generatedIdentifier === true
+        && observation.continued.noCollision === true,
+      "identifier native initial summary continuation");
     }
   }
   requireValue(expectedIds.length === ids.size

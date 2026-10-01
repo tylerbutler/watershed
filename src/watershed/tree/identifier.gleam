@@ -40,9 +40,9 @@ pub fn materialize_edit(
       Ok(#(types.MapSet(path, key, value), compressor))
     }
     types.ArrayInsert(path, index, values) -> {
-      use #(values, compressor) <- result.try(materialize_values(
+      use #(values, compressor) <- result.try(materialize_inserted_values(
         stored,
-        list.reverse(values),
+        values,
         [],
         compressor,
       ))
@@ -52,6 +52,25 @@ pub fn materialize_edit(
     | types.MapDelete(_, _)
     | types.ArrayRemove(_, _, _)
     | types.ArrayMove(_, _, _, _, _) -> Ok(#(edit, compressor))
+  }
+}
+
+fn materialize_inserted_values(
+  stored: schema.StoredSchema,
+  remaining: List(types.TreeValue),
+  output: List(types.TreeValue),
+  compressor: fluid_ids.Compressor,
+) -> Result(#(List(types.TreeValue), fluid_ids.Compressor), types.TreeError) {
+  case remaining {
+    [] -> Ok(#(list.reverse(output), compressor))
+    [value, ..rest] -> {
+      use #(value, compressor) <- result.try(materialize(
+        stored,
+        value,
+        compressor,
+      ))
+      materialize_inserted_values(stored, rest, [value, ..output], compressor)
+    }
   }
 }
 

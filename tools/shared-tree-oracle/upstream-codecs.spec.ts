@@ -1114,6 +1114,39 @@ async function consume(item: ArtifactItem) {
 				assert(snapshot !== null && typeof snapshot === "object"
 					&& "removed" in snapshot && Array.isArray(snapshot.removed),
 				`${item.id}: missing removed content`);
+				if (item.id === "identifier-native-initial-summary") {
+					const identifiers = new Set<string>();
+					const addIdentifiers = (value: IdentifierPoint | IdentifierPair) => {
+						if (value instanceof IdentifierPair) {
+							identifiers.add(value.firstId);
+							identifiers.add(value.secondId);
+						} else {
+							identifiers.add(value.id);
+						}
+					};
+					addIdentifiers(view.root.child);
+					for (const value of view.root.left) addIdentifiers(value);
+					for (const value of view.root.right) addIdentifiers(value);
+					for (const [, value] of view.root.byKey) addIdentifiers(value);
+					view.root.left.insertAt(view.root.left.length, {
+						label: "upstream-default",
+					});
+					const inserted = view.root.left.at(-1);
+					assert(inserted instanceof IdentifierPoint,
+						`${item.id}: continuation did not insert a Point`);
+					return {
+						id: item.id,
+						kind: item.kind,
+						visible,
+						removed: removedContent(snapshot.removed, idCompressor, item.id),
+						history,
+						continued: {
+							insertedLabel: inserted.label,
+							generatedIdentifier: typeof inserted.id === "string",
+							noCollision: !identifiers.has(inserted.id),
+						},
+					};
+				}
 				view.root.child.label = "upstream-continuation";
 				return {
 					id: item.id,

@@ -10,6 +10,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import simplifile
+import watershed/channel
 import watershed/fluid_ids
 import watershed/json_ot.{
   type JsonValue, NInt, VArray, VNumber, VObject, VString,
@@ -20,6 +21,7 @@ import watershed/tree/codec
 import watershed/tree/codec/field_batch
 import watershed/tree/codec/summary
 import watershed/tree/forest
+import watershed/tree/identifier_fixture
 import watershed/tree/schema
 import watershed/tree/sequence_field
 import watershed/tree/shared_change
@@ -27,6 +29,7 @@ import watershed/tree/summary as tree_summary
 import watershed/tree/types.{
   ArrayMove, AtomId, ClearField, MapSet, SetField, StringValue,
 }
+import watershed/wire/fluid_document
 import watershed/wire/fluid_summary
 
 const fixture_path = "test/fixtures/shared_tree/cases/tree-codecs.json"
@@ -725,6 +728,9 @@ fn identifier_codec_items(
     compressor,
     False,
   ))
+  use native_initial_item <- result.try(
+    native_identifier_initial_summary_item(),
+  )
   Ok([
     custom_item,
     generated_item,
@@ -733,7 +739,68 @@ fn identifier_codec_items(
     unfinalized_item,
     retained_item,
     continuation_item,
+    native_initial_item,
   ])
+}
+
+fn native_identifier_initial_summary_item() -> Result(Json, String) {
+  use view <- result.try(
+    fluid_ids.stable_id("70000000-0000-4000-8000-000000000007")
+    |> result.map_error(string.inspect),
+  )
+  let initial =
+    identifier_fixture.full_root(
+      types.ObjectValue(identifier_fixture.point_type, [
+        #("label", StringValue("child")),
+      ]),
+      [
+        types.ObjectValue(identifier_fixture.point_type, [
+          #("label", StringValue("point")),
+        ]),
+        types.ObjectValue(identifier_fixture.pair_type, [
+          #("label", StringValue("pair")),
+          #("pairOnly", StringValue("pair")),
+        ]),
+      ],
+      [],
+      [],
+    )
+  use created <- result.try(
+    fluid_document.initial_tree(
+      identifier_fixture.full_stored(),
+      Some(initial),
+      identifier_fixture.session(),
+      view,
+    )
+    |> result.map_error(string.inspect),
+  )
+  use compressor <- result.try(case fluid_document.compressor(created) {
+    Some(value) -> Ok(value)
+    None -> Error("native Identifier initial summary has no compressor")
+  })
+  use store <- result.try(
+    list.find(fluid_document.datastores(created), fn(store) { store.id == "A" })
+    |> result.map_error(fn(_) {
+      "native Identifier initial summary has no root datastore"
+    }),
+  )
+  use tree <- result.try(
+    list.find(store.channels, fn(channel) { channel.id == "_C" })
+    |> result.map_error(fn(_) {
+      "native Identifier initial summary has no tree channel"
+    }),
+  )
+  use value <- result.try(case tree.snapshot {
+    channel.TreeSnapshot(snapshot) ->
+      tree_summary.to_wire(snapshot) |> result.map_error(string.inspect)
+    _ -> Error("native Identifier initial summary channel is not a tree")
+  })
+  identifier_summary_item(
+    "identifier-native-initial-summary",
+    value,
+    compressor,
+    True,
+  )
 }
 
 fn identifier_summary_item(
@@ -815,6 +882,15 @@ fn identifier_summary_expected(
   use visible <- result.try(identifier_summary_visible(value))
   use removed <- result.try(identifier_removed_json(value, compressor))
   use history <- result.try(identifier_history_json(value.history, compressor))
+  let continued = case id {
+    "identifier-native-initial-summary" ->
+      json.object([
+        #("insertedLabel", json.string("upstream-default")),
+        #("generatedIdentifier", json.bool(True)),
+        #("noCollision", json.bool(True)),
+      ])
+    _ -> json.string("upstream-continuation")
+  }
   Ok(
     json.object([
       #("id", json.string(id)),
@@ -822,7 +898,7 @@ fn identifier_summary_expected(
       #("visible", visible),
       #("removed", removed),
       #("history", history),
-      #("continued", json.string("upstream-continuation")),
+      #("continued", continued),
     ]),
   )
 }
