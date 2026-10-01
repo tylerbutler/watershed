@@ -3930,7 +3930,7 @@ fn adopt_reconnect_state(
               && state.generation == generation
             -> {
               notify_presence_session(state, core)
-              #(settle_reconnect_state(state, core, checkpoint), Ok(Nil))
+              settle_reconnect_state(state, core, checkpoint)
             }
             _ -> #(
               state,
@@ -4015,10 +4015,8 @@ fn handle_operation_delivery(
                 // about to restamp that whole queue with fresh client sequence
                 // numbers and send it. Sending them here as well would put two
                 // copies of each on the wire.
-                _, Some(checkpoint) -> {
-                  let state = settle_reconnect_state(state, core, checkpoint)
-                  #(state, Ok(Nil))
-                }
+                _, Some(checkpoint) ->
+                  settle_reconnect_state(state, core, checkpoint)
                 _, None -> {
                   let #(state, outcome) =
                     send_ready(state, core, None, released)
@@ -4079,22 +4077,22 @@ fn settle_reconnect_state(
   state: State,
   core: runtime_core.Core,
   checkpoint: Int,
-) -> State {
+) -> #(State, Result(Nil, String)) {
   case runtime_core.reconnect_ready(core, checkpoint) {
     True -> {
       case runtime_core.resubmit(runtime_core.go_live(core)) {
-        Ok(#(core, outbound)) -> {
-          let #(state, _) = send_ready(state, core, None, outbound)
-          state
-        }
-        Error(error) ->
-          case runtime_core.has_pending_tree(core) {
-            True -> suspend_or_fail(state, string.inspect(error))
-            False -> fail(state, string.inspect(error))
+        Ok(#(core, outbound)) -> send_ready(state, core, None, outbound)
+        Error(error) -> {
+          let reason = string.inspect(error)
+          let state = case runtime_core.has_pending_tree(core) {
+            True -> suspend_or_fail(state, reason)
+            False -> fail(state, reason)
           }
+          #(state, Error(reason))
+        }
       }
     }
-    False -> State(..state, phase: Ready(core, Some(checkpoint)))
+    False -> #(State(..state, phase: Ready(core, Some(checkpoint))), Ok(Nil))
   }
 }
 

@@ -1338,6 +1338,26 @@ git commit -m "feat(tree): expose BEAM transactions"
   `shared_tree_runtime_beam`, `shared_tree_array_facade`,
   `shared_tree_map_facade`, `facade_parity`, and `presence`.
 
+**Settlement transport fix evidence (2026-09-30, baseline `7f4342a1`):**
+
+- RED: `gleam test --target erlang -- shared_tree_map_facade` passed 12 tests
+  and failed the controlled reconnect settlement case. An unacknowledged tree
+  edit survived reconnect, the held checkpoint stayed ahead until replayed
+  join and leave messages closed the reconnect barrier, and the resubmit
+  `submitOp` returned `Error("resubmit refused")`. The outer callback still
+  returned `Aborted(Stop)` because `settle_reconnect_state` discarded that
+  transport result.
+- GREEN: `settle_reconnect_state` now returns its state and `Result` together.
+  Handshake adoption and normal operation delivery propagate that result, so
+  deferred FIFO replay stops before the callback reply and reports
+  `TransactionFailed("resubmit refused")`. The actor remains reconnecting with
+  one pending tree edit, and the optimistic `"retained"` value remains
+  readable.
+- The focused Task 7 and reconnect-adjacent Erlang selection passed 65 tests:
+  `shared_tree_runtime_beam`, `shared_tree_array_facade`,
+  `shared_tree_map_facade`, `facade_parity`, and `presence`. Scoped `gleam
+  format` and `git diff --check` also passed.
+
 ### Task 8: Prove reconnect, summary, and native facade parity
 
 **Files:**

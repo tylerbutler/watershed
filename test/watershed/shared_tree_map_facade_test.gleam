@@ -182,6 +182,27 @@ fn invalid_operation(sequence_number: Int) -> json.Json {
   ])
 }
 
+fn membership_operation(
+  sequence_number: Int,
+  operation_type: String,
+  data: String,
+) -> json.Json {
+  frame.encode_operation_event([
+    frame.Sequenced(
+      client_id: None,
+      sequence_number: sequence_number,
+      minimum_sequence_number: 0,
+      client_sequence_number: -1,
+      reference_sequence_number: 0,
+      operation_type: operation_type,
+      contents: json.null(),
+      metadata: None,
+      timestamp: 0,
+      data: Some(data),
+    ),
+  ])
+}
+
 fn combined_acknowledgement(
   first_payload: json.Json,
   second_payload: json.Json,
@@ -1482,6 +1503,77 @@ pub fn shared_tree_map_facade_beam_reconnect_replay_failure_replaces_abort_test(
   let observation = runtime_beam.connection_observation(owner)
   observation.phase |> expect.to_equal("failed")
   observation.error |> expect.to_not_equal(None)
+  process.send(owner, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_map_facade_beam_reconnect_resubmit_failure_replaces_abort_test() {
+  let input = input(True)
+  let #(document, connections, submissions) = beam_document(input)
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  beam_transport(callbacks, submissions)
+  callbacks.on_event("connect_document_success", connected("reader", 0))
+  let tree = beam_tree(document, input)
+  let owner = watershed_beam.runtime_subject(document)
+
+  watershed_beam.tree_map_set(
+    tree,
+    [],
+    "retained",
+    types.StringValue("optimistic"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  process.receive(submissions, 1000) |> expect.to_be_ok()
+
+  let result =
+    watershed_beam.tree_transaction(tree, [], fn(tree) {
+      let nested =
+        watershed_beam.tree_transaction(tree, [], fn(_) {
+          callbacks.on_close("transport lost")
+          let reconnect =
+            process.receive(connections, 1000) |> expect.to_be_ok()
+          reconnect.on_ready(
+            runtime_beam.TransportHandle(
+              push: fn(event, _) {
+                case event {
+                  "submitOp" -> Error("resubmit refused")
+                  _ -> Ok(Nil)
+                }
+              },
+              close: fn() { Nil },
+              drop: fn() { Nil },
+            ),
+          )
+          reconnect.on_event(
+            "connect_document_success",
+            connected("reader-reconnected", 2),
+          )
+          reconnect.on_event(
+            "op",
+            membership_operation(
+              1,
+              "join",
+              "{\"clientId\":\"reader-reconnected\",\"detail\":{}}",
+            ),
+          )
+          reconnect.on_event(
+            "op",
+            membership_operation(2, "leave", "\"reader\""),
+          )
+          Ok(Nil)
+        })
+      let assert watershed_beam.TransactionFailed(_) =
+        nested |> expect.to_be_error()
+      Error(Stop)
+    })
+
+  let assert Error(watershed_beam.TransactionFailed("resubmit refused")) =
+    result
+  let observation = runtime_beam.connection_observation(owner)
+  observation.phase |> expect.to_equal("reconnecting")
+  observation.pending_tree_count |> expect.to_equal(1)
+  watershed_beam.tree_map_get(tree, [], "retained")
+  |> expect.to_equal(Ok(Some(types.StringValue("optimistic"))))
   process.send(owner, runtime_beam.Shutdown)
 }
 
