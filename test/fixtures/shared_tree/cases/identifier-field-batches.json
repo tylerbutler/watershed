@@ -45,6 +45,12 @@
                   "com.fluidframework.leaf.string"
                 ]
               },
+              "pairOnly": {
+                "kind": "Value",
+                "types": [
+                  "com.fluidframework.leaf.string"
+                ]
+              },
               "secondId": {
                 "kind": "Identifier",
                 "types": [
@@ -127,7 +133,7 @@
         "child": {
           "schema": "org.watershed.shared-tree.identifiers.Point",
           "fields": {
-            "id": "initial",
+            "id": "literal-custom-id",
             "label": "initial"
           }
         },
@@ -139,11 +145,12 @@
     "sessions": {
       "local": "10000000-0000-4000-8000-000000000001",
       "remote": "20000000-0000-4000-8000-000000000002",
-      "summary": "30000000-0000-4000-8000-000000000003"
+      "summary": "30000000-0000-4000-8000-000000000003",
+      "unknown": "50000000-0000-4000-8000-000000000005"
     },
     "compressors": {
-      "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAABAAAAAAAAA8D8BAAAAAAAAAAAAAAAAAEAAAgAAAAAAAAAAAAAAAACAAAAAAAAAAPA/AAAAAAAIgEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8=",
-      "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw==",
+      "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+      "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
       "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
     },
     "idRanges": [
@@ -197,6 +204,10 @@
         "id": "local-negative-op-id",
         "actions": [
           {
+            "op": "allocate-id",
+            "compressor": "initial"
+          },
+          {
             "op": "decode-field-batch",
             "path": [
               "identifier"
@@ -212,6 +223,15 @@
       {
         "id": "remote-finalized-id",
         "actions": [
+          {
+            "op": "allocate-id",
+            "compressor": "remote"
+          },
+          {
+            "op": "deliver-range",
+            "compressor": "initial",
+            "range": 0
+          },
           {
             "op": "decode-field-batch",
             "path": [
@@ -229,12 +249,17 @@
         "id": "eager-final-id",
         "actions": [
           {
+            "op": "allocate-id",
+            "compressor": "summary"
+          },
+          {
             "op": "decode-field-batch",
+            "compressor": "summary",
             "path": [
               "identifier"
             ],
             "encoded": {
-              "value": 0
+              "value": 1
             },
             "purpose": "summary"
           }
@@ -256,6 +281,15 @@
       {
         "id": "message-summary-same-id",
         "actions": [
+          {
+            "op": "allocate-id",
+            "compressor": "remote"
+          },
+          {
+            "op": "deliver-range",
+            "compressor": "initial",
+            "range": 0
+          },
           {
             "op": "encode-field-batch",
             "path": [
@@ -279,6 +313,10 @@
         "id": "unfinalized-summary-string",
         "actions": [
           {
+            "op": "allocate-id",
+            "compressor": "initial"
+          },
+          {
             "op": "encode-field-batch",
             "path": [
               "identifier"
@@ -291,6 +329,10 @@
       {
         "id": "numeric-originatorless-refusal",
         "actions": [
+          {
+            "op": "allocate-id",
+            "compressor": "initial"
+          },
           {
             "op": "decode-field-batch",
             "path": [
@@ -306,6 +348,10 @@
       {
         "id": "invalid-payload-shapes",
         "actions": [
+          {
+            "op": "allocate-id",
+            "compressor": "initial"
+          },
           {
             "op": "decode-field-batch",
             "path": [
@@ -395,8 +441,10 @@
       },
       {
         "id": "eager-final-id",
-        "encoded": 0,
-        "decoded": "30000000-0000-4000-8000-000000000003"
+        "encoded": 1,
+        "value": "30000000-0000-4000-8000-000000000004",
+        "decodedByUpstream": "30000000-0000-4000-8000-000000000004",
+        "allocatedAfterFinalization": true
       },
       {
         "id": "unknown-uuid-string",
@@ -458,77 +506,822 @@
     "scenarios": [
       {
         "id": "literal-zero-string",
-        "decoded": "0",
-        "discriminator": 0
+        "input": {
+          "id": "literal-zero-string",
+          "actions": [
+            {
+              "op": "decode-field-batch",
+              "path": [
+                "identifier"
+              ],
+              "encoded": {
+                "value": "0"
+              },
+              "purpose": "message",
+              "originator": "10000000-0000-4000-8000-000000000001"
+            }
+          ]
+        },
+        "before": {
+          "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+        },
+        "after": {
+          "compressors": {
+            "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+            "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+            "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+          },
+          "results": [
+            {
+              "op": "decode-field-batch",
+              "value": "0"
+            }
+          ],
+          "errors": []
+        },
+        "results": [
+          {
+            "op": "decode-field-batch",
+            "value": "0"
+          }
+        ],
+        "errors": [],
+        "observation": {
+          "id": "literal-zero-string",
+          "decoded": "0",
+          "discriminator": 0
+        }
       },
       {
         "id": "local-negative-op-id",
-        "encoded": -1,
-        "decoded": "10000000-0000-4000-8000-000000000001"
+        "input": {
+          "id": "local-negative-op-id",
+          "actions": [
+            {
+              "op": "allocate-id",
+              "compressor": "initial"
+            },
+            {
+              "op": "decode-field-batch",
+              "path": [
+                "identifier"
+              ],
+              "encoded": {
+                "value": -1
+              },
+              "purpose": "message",
+              "originator": "10000000-0000-4000-8000-000000000001"
+            }
+          ]
+        },
+        "before": {
+          "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+        },
+        "after": {
+          "compressors": {
+            "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAA8D8AAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw==",
+            "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+            "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+          },
+          "results": [
+            {
+              "op": "allocate-id",
+              "value": {
+                "stable": "10000000-0000-4000-8000-000000000001",
+                "encoded": -1
+              }
+            },
+            {
+              "op": "decode-field-batch",
+              "value": "10000000-0000-4000-8000-000000000001"
+            }
+          ],
+          "errors": []
+        },
+        "results": [
+          {
+            "op": "allocate-id",
+            "value": {
+              "stable": "10000000-0000-4000-8000-000000000001",
+              "encoded": -1
+            }
+          },
+          {
+            "op": "decode-field-batch",
+            "value": "10000000-0000-4000-8000-000000000001"
+          }
+        ],
+        "errors": [],
+        "observation": {
+          "id": "local-negative-op-id",
+          "encoded": -1,
+          "decoded": "10000000-0000-4000-8000-000000000001"
+        }
       },
       {
         "id": "remote-finalized-id",
-        "encoded": -1,
-        "decoded": "20000000-0000-4000-8000-000000000002"
+        "input": {
+          "id": "remote-finalized-id",
+          "actions": [
+            {
+              "op": "allocate-id",
+              "compressor": "remote"
+            },
+            {
+              "op": "deliver-range",
+              "compressor": "initial",
+              "range": 0
+            },
+            {
+              "op": "decode-field-batch",
+              "path": [
+                "identifier"
+              ],
+              "encoded": {
+                "value": -1
+              },
+              "purpose": "message",
+              "originator": "20000000-0000-4000-8000-000000000002"
+            }
+          ]
+        },
+        "before": {
+          "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+        },
+        "after": {
+          "compressors": {
+            "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAABAAAAAAAAA8D8BAAAAAAAAAAAAAAAAAEAAAgAAAAAAAAAAAAAAAACAAAAAAAAAAPA/AAAAAAAIgEAAAAAAAADwPwAAAAAAAAAAAAAAAAAA8D8AAAAAAAAAAA==",
+            "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAA8D8AAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw==",
+            "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+          },
+          "results": [
+            {
+              "op": "allocate-id",
+              "value": {
+                "stable": "20000000-0000-4000-8000-000000000002",
+                "encoded": -1
+              }
+            },
+            {
+              "op": "deliver-range",
+              "value": {
+                "sessionId": "20000000-0000-4000-8000-000000000002",
+                "ids": {
+                  "firstGenCount": 1,
+                  "count": 1,
+                  "requestedClusterSize": 512,
+                  "localIdRanges": [
+                    [
+                      1,
+                      1
+                    ]
+                  ]
+                }
+              }
+            },
+            {
+              "op": "decode-field-batch",
+              "value": "20000000-0000-4000-8000-000000000002"
+            }
+          ],
+          "errors": []
+        },
+        "results": [
+          {
+            "op": "allocate-id",
+            "value": {
+              "stable": "20000000-0000-4000-8000-000000000002",
+              "encoded": -1
+            }
+          },
+          {
+            "op": "deliver-range",
+            "value": {
+              "sessionId": "20000000-0000-4000-8000-000000000002",
+              "ids": {
+                "firstGenCount": 1,
+                "count": 1,
+                "requestedClusterSize": 512,
+                "localIdRanges": [
+                  [
+                    1,
+                    1
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "op": "decode-field-batch",
+            "value": "20000000-0000-4000-8000-000000000002"
+          }
+        ],
+        "errors": [],
+        "observation": {
+          "id": "remote-finalized-id",
+          "encoded": -1,
+          "decoded": "20000000-0000-4000-8000-000000000002"
+        }
       },
       {
         "id": "eager-final-id",
-        "encoded": 0,
-        "decoded": "30000000-0000-4000-8000-000000000003"
+        "input": {
+          "id": "eager-final-id",
+          "actions": [
+            {
+              "op": "allocate-id",
+              "compressor": "summary"
+            },
+            {
+              "op": "decode-field-batch",
+              "compressor": "summary",
+              "path": [
+                "identifier"
+              ],
+              "encoded": {
+                "value": 1
+              },
+              "purpose": "summary"
+            }
+          ]
+        },
+        "before": {
+          "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+        },
+        "after": {
+          "compressors": {
+            "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+            "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+            "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAAAEAAAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+          },
+          "results": [
+            {
+              "op": "allocate-id",
+              "value": {
+                "stable": "30000000-0000-4000-8000-000000000004",
+                "encoded": 1
+              }
+            },
+            {
+              "op": "decode-field-batch",
+              "value": "30000000-0000-4000-8000-000000000004"
+            }
+          ],
+          "errors": []
+        },
+        "results": [
+          {
+            "op": "allocate-id",
+            "value": {
+              "stable": "30000000-0000-4000-8000-000000000004",
+              "encoded": 1
+            }
+          },
+          {
+            "op": "decode-field-batch",
+            "value": "30000000-0000-4000-8000-000000000004"
+          }
+        ],
+        "errors": [],
+        "observation": {
+          "id": "eager-final-id",
+          "encoded": 1,
+          "value": "30000000-0000-4000-8000-000000000004",
+          "decodedByUpstream": "30000000-0000-4000-8000-000000000004",
+          "allocatedAfterFinalization": true
+        }
       },
       {
         "id": "unknown-uuid-string",
-        "encoded": "50000000-0000-4000-8000-000000000005"
+        "input": {
+          "id": "unknown-uuid-string",
+          "actions": [
+            {
+              "op": "encode-field-batch",
+              "path": [
+                "identifier"
+              ],
+              "value": "50000000-0000-4000-8000-000000000005",
+              "purpose": "message"
+            }
+          ]
+        },
+        "before": {
+          "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+        },
+        "after": {
+          "compressors": {
+            "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+            "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+            "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+          },
+          "results": [
+            {
+              "op": "encode-field-batch",
+              "value": "50000000-0000-4000-8000-000000000005"
+            }
+          ],
+          "errors": []
+        },
+        "results": [
+          {
+            "op": "encode-field-batch",
+            "value": "50000000-0000-4000-8000-000000000005"
+          }
+        ],
+        "errors": [],
+        "observation": {
+          "id": "unknown-uuid-string",
+          "encoded": "50000000-0000-4000-8000-000000000005"
+        }
       },
       {
         "id": "message-summary-same-id",
-        "message": 0,
-        "summary": 0
+        "input": {
+          "id": "message-summary-same-id",
+          "actions": [
+            {
+              "op": "allocate-id",
+              "compressor": "remote"
+            },
+            {
+              "op": "deliver-range",
+              "compressor": "initial",
+              "range": 0
+            },
+            {
+              "op": "encode-field-batch",
+              "path": [
+                "identifier"
+              ],
+              "value": "20000000-0000-4000-8000-000000000002",
+              "purpose": "message",
+              "originator": "10000000-0000-4000-8000-000000000001"
+            },
+            {
+              "op": "encode-field-batch",
+              "path": [
+                "identifier"
+              ],
+              "value": "20000000-0000-4000-8000-000000000002",
+              "purpose": "summary"
+            }
+          ]
+        },
+        "before": {
+          "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+        },
+        "after": {
+          "compressors": {
+            "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAABAAAAAAAAA8D8BAAAAAAAAAAAAAAAAAEAAAgAAAAAAAAAAAAAAAACAAAAAAAAAAPA/AAAAAAAIgEAAAAAAAADwPwAAAAAAAAAAAAAAAAAA8D8AAAAAAAAAAA==",
+            "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAA8D8AAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw==",
+            "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+          },
+          "results": [
+            {
+              "op": "allocate-id",
+              "value": {
+                "stable": "20000000-0000-4000-8000-000000000002",
+                "encoded": -1
+              }
+            },
+            {
+              "op": "deliver-range",
+              "value": {
+                "sessionId": "20000000-0000-4000-8000-000000000002",
+                "ids": {
+                  "firstGenCount": 1,
+                  "count": 1,
+                  "requestedClusterSize": 512,
+                  "localIdRanges": [
+                    [
+                      1,
+                      1
+                    ]
+                  ]
+                }
+              }
+            },
+            {
+              "op": "encode-field-batch",
+              "value": 0
+            },
+            {
+              "op": "encode-field-batch",
+              "value": 0
+            }
+          ],
+          "errors": []
+        },
+        "results": [
+          {
+            "op": "allocate-id",
+            "value": {
+              "stable": "20000000-0000-4000-8000-000000000002",
+              "encoded": -1
+            }
+          },
+          {
+            "op": "deliver-range",
+            "value": {
+              "sessionId": "20000000-0000-4000-8000-000000000002",
+              "ids": {
+                "firstGenCount": 1,
+                "count": 1,
+                "requestedClusterSize": 512,
+                "localIdRanges": [
+                  [
+                    1,
+                    1
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "op": "encode-field-batch",
+            "value": 0
+          },
+          {
+            "op": "encode-field-batch",
+            "value": 0
+          }
+        ],
+        "errors": [],
+        "observation": {
+          "id": "message-summary-same-id",
+          "message": 0,
+          "summary": 0
+        }
       },
       {
         "id": "unfinalized-summary-string",
-        "encoded": "10000000-0000-4000-8000-000000000001"
+        "input": {
+          "id": "unfinalized-summary-string",
+          "actions": [
+            {
+              "op": "allocate-id",
+              "compressor": "initial"
+            },
+            {
+              "op": "encode-field-batch",
+              "path": [
+                "identifier"
+              ],
+              "value": "10000000-0000-4000-8000-000000000001",
+              "purpose": "summary"
+            }
+          ]
+        },
+        "before": {
+          "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+        },
+        "after": {
+          "compressors": {
+            "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAA8D8AAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw==",
+            "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+            "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+          },
+          "results": [
+            {
+              "op": "allocate-id",
+              "value": {
+                "stable": "10000000-0000-4000-8000-000000000001",
+                "encoded": -1
+              }
+            },
+            {
+              "op": "encode-field-batch",
+              "value": "10000000-0000-4000-8000-000000000001"
+            }
+          ],
+          "errors": []
+        },
+        "results": [
+          {
+            "op": "allocate-id",
+            "value": {
+              "stable": "10000000-0000-4000-8000-000000000001",
+              "encoded": -1
+            }
+          },
+          {
+            "op": "encode-field-batch",
+            "value": "10000000-0000-4000-8000-000000000001"
+          }
+        ],
+        "errors": [],
+        "observation": {
+          "id": "unfinalized-summary-string",
+          "encoded": "10000000-0000-4000-8000-000000000001"
+        }
       },
       {
         "id": "numeric-originatorless-refusal",
-        "refused": true,
-        "originalError": "Error: Summary could not be loaded due to an incorrectly encoded identifier. See SharedTreeOptionsBeta.healUnresolvableIdentifiersOnDecode for mitigation.",
-        "nativeErrorCategory": "Error"
+        "input": {
+          "id": "numeric-originatorless-refusal",
+          "actions": [
+            {
+              "op": "allocate-id",
+              "compressor": "initial"
+            },
+            {
+              "op": "decode-field-batch",
+              "path": [
+                "identifier"
+              ],
+              "encoded": {
+                "value": -1
+              },
+              "purpose": "summary"
+            }
+          ]
+        },
+        "before": {
+          "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+        },
+        "after": {
+          "compressors": {
+            "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAA8D8AAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw==",
+            "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+            "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+          },
+          "results": [
+            {
+              "op": "allocate-id",
+              "value": {
+                "stable": "10000000-0000-4000-8000-000000000001",
+                "encoded": -1
+              }
+            }
+          ],
+          "errors": [
+            {
+              "op": "decode-field-batch",
+              "value": -1,
+              "originalError": "Error: Summary could not be loaded due to an incorrectly encoded identifier. See SharedTreeOptionsBeta.healUnresolvableIdentifiersOnDecode for mitigation.",
+              "nativeErrorCategory": "Error"
+            }
+          ]
+        },
+        "results": [
+          {
+            "op": "allocate-id",
+            "value": {
+              "stable": "10000000-0000-4000-8000-000000000001",
+              "encoded": -1
+            }
+          }
+        ],
+        "errors": [
+          {
+            "op": "decode-field-batch",
+            "value": -1,
+            "originalError": "Error: Summary could not be loaded due to an incorrectly encoded identifier. See SharedTreeOptionsBeta.healUnresolvableIdentifiersOnDecode for mitigation.",
+            "nativeErrorCategory": "Error"
+          }
+        ],
+        "observation": {
+          "id": "numeric-originatorless-refusal",
+          "refused": true,
+          "originalError": "Error: Summary could not be loaded due to an incorrectly encoded identifier. See SharedTreeOptionsBeta.healUnresolvableIdentifiersOnDecode for mitigation.",
+          "nativeErrorCategory": "Error"
+        }
       },
       {
         "id": "invalid-payload-shapes",
-        "refusals": [
+        "input": {
+          "id": "invalid-payload-shapes",
+          "actions": [
+            {
+              "op": "allocate-id",
+              "compressor": "initial"
+            },
+            {
+              "op": "decode-field-batch",
+              "path": [
+                "identifier"
+              ],
+              "encoded": {
+                "value": 1.5
+              },
+              "purpose": "message",
+              "originator": "10000000-0000-4000-8000-000000000001"
+            },
+            {
+              "op": "decode-field-batch",
+              "path": [
+                "identifier"
+              ],
+              "encoded": {
+                "value": 9007199254740992
+              },
+              "purpose": "message",
+              "originator": "10000000-0000-4000-8000-000000000001"
+            },
+            {
+              "op": "decode-field-batch",
+              "path": [
+                "identifier"
+              ],
+              "encoded": {
+                "value": true
+              },
+              "purpose": "message",
+              "originator": "10000000-0000-4000-8000-000000000001"
+            },
+            {
+              "op": "decode-field-batch",
+              "path": [
+                "identifier"
+              ],
+              "encoded": {
+                "value": null
+              },
+              "purpose": "message",
+              "originator": "10000000-0000-4000-8000-000000000001"
+            },
+            {
+              "op": "decode-field-batch",
+              "path": [
+                "identifier"
+              ],
+              "encoded": {
+                "value": []
+              },
+              "purpose": "message",
+              "originator": "10000000-0000-4000-8000-000000000001"
+            },
+            {
+              "op": "decode-field-batch",
+              "path": [
+                "identifier"
+              ],
+              "encoded": {
+                "value": {}
+              },
+              "purpose": "message",
+              "originator": "10000000-0000-4000-8000-000000000001"
+            }
+          ]
+        },
+        "before": {
+          "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+        },
+        "after": {
+          "compressors": {
+            "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAA8D8AAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw==",
+            "remote": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+            "summary": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8DAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+          },
+          "results": [
+            {
+              "op": "allocate-id",
+              "value": {
+                "stable": "10000000-0000-4000-8000-000000000001",
+                "encoded": -1
+              }
+            }
+          ],
+          "errors": [
+            {
+              "op": "decode-field-batch",
+              "value": 1.5,
+              "originalError": "Error: Unknown op space ID.",
+              "nativeErrorCategory": "Error"
+            },
+            {
+              "op": "decode-field-batch",
+              "value": 9007199254740992,
+              "originalError": "Error: Unknown op space ID.",
+              "nativeErrorCategory": "Error"
+            },
+            {
+              "op": "decode-field-batch",
+              "value": true,
+              "originalError": "Error: 0x997",
+              "nativeErrorCategory": "Error"
+            },
+            {
+              "op": "decode-field-batch",
+              "value": null,
+              "originalError": "Error: Array index is out of bounds",
+              "nativeErrorCategory": "Error"
+            },
+            {
+              "op": "decode-field-batch",
+              "value": [],
+              "originalError": "Error: 0x997",
+              "nativeErrorCategory": "Error"
+            },
+            {
+              "op": "decode-field-batch",
+              "value": {},
+              "originalError": "Error: 0x997",
+              "nativeErrorCategory": "Error"
+            }
+          ]
+        },
+        "results": [
           {
+            "op": "allocate-id",
+            "value": {
+              "stable": "10000000-0000-4000-8000-000000000001",
+              "encoded": -1
+            }
+          }
+        ],
+        "errors": [
+          {
+            "op": "decode-field-batch",
             "value": 1.5,
             "originalError": "Error: Unknown op space ID.",
             "nativeErrorCategory": "Error"
           },
           {
+            "op": "decode-field-batch",
             "value": 9007199254740992,
             "originalError": "Error: Unknown op space ID.",
             "nativeErrorCategory": "Error"
           },
           {
+            "op": "decode-field-batch",
             "value": true,
             "originalError": "Error: 0x997",
             "nativeErrorCategory": "Error"
           },
           {
+            "op": "decode-field-batch",
             "value": null,
             "originalError": "Error: Array index is out of bounds",
             "nativeErrorCategory": "Error"
           },
           {
+            "op": "decode-field-batch",
             "value": [],
             "originalError": "Error: 0x997",
             "nativeErrorCategory": "Error"
           },
           {
+            "op": "decode-field-batch",
             "value": {},
             "originalError": "Error: 0x997",
             "nativeErrorCategory": "Error"
           }
-        ]
+        ],
+        "observation": {
+          "id": "invalid-payload-shapes",
+          "refusals": [
+            {
+              "value": 1.5,
+              "originalError": "Error: Unknown op space ID.",
+              "nativeErrorCategory": "Error"
+            },
+            {
+              "value": 9007199254740992,
+              "originalError": "Error: Unknown op space ID.",
+              "nativeErrorCategory": "Error"
+            },
+            {
+              "value": true,
+              "originalError": "Error: 0x997",
+              "nativeErrorCategory": "Error"
+            },
+            {
+              "value": null,
+              "originalError": "Error: Array index is out of bounds",
+              "nativeErrorCategory": "Error"
+            },
+            {
+              "value": [],
+              "originalError": "Error: 0x997",
+              "nativeErrorCategory": "Error"
+            },
+            {
+              "value": {},
+              "originalError": "Error: 0x997",
+              "nativeErrorCategory": "Error"
+            }
+          ]
+        }
       }
     ],
     "discriminator": 0

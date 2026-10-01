@@ -216,18 +216,30 @@
       "valueShapeDiscriminator": 0,
       "allocationOrder": [
         {
-          "kind": "revision",
-          "op": 4
-        },
-        {
+          "ordinal": 1,
           "kind": "identifier",
-          "field": "firstId",
+          "path": [
+            "left",
+            1,
+            "firstId"
+          ],
           "op": 2
         },
         {
+          "ordinal": 2,
           "kind": "identifier",
-          "field": "secondId",
+          "path": [
+            "left",
+            1,
+            "secondId"
+          ],
           "op": 3
+        },
+        {
+          "ordinal": 3,
+          "kind": "revision",
+          "path": [],
+          "op": 4
         }
       ]
     }

@@ -10,11 +10,18 @@ import { isAbsolute, join } from "node:path";
 import type { IIdCompressor, OpSpaceCompressedId } from "@fluidframework/id-compressor";
 import {
 	createIdCompressor,
+	deserializeIdCompressor,
 	isFinalId,
 	isStableId,
 	serializeIdCompressor,
 	toIdCompressorWithCore,
 } from "@fluidframework/id-compressor/internal";
+import {
+	MockDeltaConnection,
+	MockFluidDataStoreRuntime,
+	MockSharedObjectServices,
+	MockStorage,
+} from "@fluidframework/test-runtime-utils/internal";
 
 import { FluidClientVersion } from "../codec/index.js";
 import {
@@ -45,7 +52,10 @@ import {
 import { createFieldSchema } from "../simple-tree/fieldSchema.js";
 import { Tree } from "../shared-tree/index.js";
 import { configuredSharedTreeInternal } from "../treeFactory.js";
-import { MockContainerRuntimeWithOpBunching } from "./mocksForOpBunching.js";
+import {
+	MockContainerRuntimeFactoryWithOpBunching,
+	MockContainerRuntimeWithOpBunching,
+} from "./mocksForOpBunching.js";
 import { assertIsSessionId, TestTreeProviderLite } from "./utils.js";
 import { brand } from "../util/index.js";
 
@@ -60,6 +70,7 @@ const sessions = {
 	local: assertIsSessionId("10000000-0000-4000-8000-000000000001"),
 	remote: assertIsSessionId("20000000-0000-4000-8000-000000000002"),
 	summary: assertIsSessionId("30000000-0000-4000-8000-000000000003"),
+	unknown: assertIsSessionId("50000000-0000-4000-8000-000000000005"),
 };
 
 const sf = new SchemaFactory("org.watershed.shared-tree.identifiers");
@@ -71,6 +82,7 @@ class Pair extends sf.object("Pair", {
 	firstId: sf.identifier,
 	secondId: sf.identifier,
 	label: sf.string,
+	pairOnly: sf.string,
 }) {}
 class Items extends sf.array("Items", [Point, Pair]) {}
 class PointsByKey extends sf.map("PointsByKey", [Point, Pair]) {}
@@ -82,6 +94,39 @@ class Root extends sf.object("Root", {
 }) {}
 
 type TreeInstance = TestTreeProviderLite["trees"][number];
+type ConstructResult = {
+	value: Record<string, unknown>;
+	allocationEvents: ReturnType<typeof allocationEvents>;
+};
+type ValueExecution = {
+	input: { id: string; actions: object[] };
+	before: unknown;
+	after: unknown;
+	result?: ConstructResult[];
+	refusal?: ReturnType<typeof errorObservation>;
+	beforeNode?: number;
+	afterNode?: number;
+	allocationEvents?: ReturnType<typeof allocationEvents>;
+	messages?: Record<string, unknown>[];
+};
+type PersistenceExecution = {
+	input: { id: string; actions: object[] };
+	before: unknown;
+	after: unknown;
+	summary?: unknown;
+	initialAllocationEvents?: ReturnType<typeof allocationEvents>;
+	idRanges?: unknown[];
+	messages?: unknown[];
+	generated?: string;
+	visible?: boolean;
+	compressorAdvanced?: boolean;
+	identifier?: string;
+	peerObserved?: boolean;
+	repair?: unknown[];
+	beforeNode?: string;
+	afterNode?: string;
+	identityPreserved?: boolean;
+};
 type PersistedSchema = {
 	nodes: Record<string, {
 		kind: {
@@ -98,6 +143,12 @@ type IdentifierInput = {
 	idRanges: unknown[];
 	scenarios: object[];
 };
+type FixedProvider = {
+	trees: TreeInstance[];
+	compressors: IIdCompressor[];
+	runtimes: MockContainerRuntimeWithOpBunching[];
+	synchronizeMessages: () => void;
+};
 
 function copy<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value));
@@ -113,9 +164,18 @@ function errorObservation(error: unknown) {
 function captureRefusal(run: () => unknown) {
 	try {
 		run();
-		assert.fail("Expected the operation to be refused.");
 	} catch (error) {
 		return errorObservation(error);
+	}
+	assert.fail("Expected the operation to be refused.");
+}
+
+function captureOutcome(run: () => unknown) {
+	try {
+		run();
+		return { upstreamAccepted: true };
+	} catch (error) {
+		return { upstreamAccepted: false, ...errorObservation(error) };
 	}
 }
 
@@ -140,6 +200,110 @@ function sharedTreeFactory() {
 	return configuredSharedTreeInternal({
 		minVersionForCollab: FluidClientVersion.v2_117,
 	}).getFactory();
+}
+
+function fixedProvider(initialCompressor: string, treeCount = 2): FixedProvider {
+	const factory = sharedTreeFactory();
+	const runtimeFactory = new MockContainerRuntimeFactoryWithOpBunching();
+	const treeSessions = [sessions.local, sessions.remote];
+	const trees: TreeInstance[] = [];
+	const compressors: IIdCompressor[] = [];
+	const runtimes: MockContainerRuntimeWithOpBunching[] = [];
+	for (let index = 0; index < treeCount; index++) {
+		const compressor = index === 0
+			? deserializeIdCompressor(initialCompressor as never)
+			: createIdCompressor(treeSessions[index]);
+		const runtime = new MockFluidDataStoreRuntime({
+			clientId: `identifier-client-${index}`,
+			id: `identifier-tree-${index}`,
+			idCompressor: compressor,
+		});
+		const tree = factory.create(runtime, `identifier-tree-${index}`) as TreeInstance;
+		const containerRuntime = runtimeFactory.createContainerRuntime(runtime);
+		tree.connect({
+			deltaConnection: runtime.createDeltaConnection(),
+			objectStorage: new MockStorage(),
+		});
+		Reflect.set(tree, "containerRuntime", containerRuntime);
+		trees.push(tree);
+		compressors.push(compressor);
+		runtimes.push(containerRuntime);
+	}
+	return {
+		trees,
+		compressors,
+		runtimes,
+		synchronizeMessages: () => runtimeFactory.processAllMessages(),
+	};
+}
+
+function trackedAllocations(compressor: IIdCompressor) {
+	const generated: { ordinal: number; id: number }[] = [];
+	const original = compressor.generateCompressedId.bind(compressor);
+	Reflect.set(compressor, "generateCompressedId", () => {
+		const id = original();
+		generated.push({ ordinal: generated.length + 1, id });
+		return id;
+	});
+	return generated;
+}
+
+function identifierEntries(value: Point | Pair | Root) {
+	const entries: { path: (string | number)[]; value: string }[] = [];
+	const stack: { path: (string | number)[]; value: Point | Pair | Root }[] = [{
+		path: [],
+		value,
+	}];
+	while (stack.length > 0) {
+		const current = stack.pop();
+		assert(current !== undefined);
+		if (current.value instanceof Point) {
+			entries.push({ path: [...current.path, "id"], value: current.value.id });
+		} else if (current.value instanceof Pair) {
+			entries.push(
+				{ path: [...current.path, "firstId"], value: current.value.firstId },
+				{ path: [...current.path, "secondId"], value: current.value.secondId },
+			);
+		} else {
+			for (const [key, item] of [...current.value.byKey].reverse()) {
+				stack.push({ path: [...current.path, "byKey", key], value: item });
+			}
+			for (let index = current.value.right.length - 1; index >= 0; index--) {
+				stack.push({ path: [...current.path, "right", index], value: current.value.right[index] });
+			}
+			for (let index = current.value.left.length - 1; index >= 0; index--) {
+				stack.push({ path: [...current.path, "left", index], value: current.value.left[index] });
+			}
+			stack.push({ path: [...current.path, "child"], value: current.value.child });
+		}
+	}
+	return entries;
+}
+
+function allocationEvents(
+	compressor: IIdCompressor,
+	generated: { ordinal: number; id: number }[],
+	value: Point | Pair | Root,
+	revision?: unknown,
+) {
+	const paths = new Map<number, (string | number)[]>();
+	for (const entry of identifierEntries(value)) {
+		if (!isStableId(entry.value)) continue;
+		const compressed = compressor.tryRecompress(entry.value as never);
+		if (compressed !== undefined) {
+			paths.set(compressor.normalizeToOpSpace(compressed), entry.path);
+		}
+	}
+	return generated.map(({ ordinal, id }) => {
+		const op = compressor.normalizeToOpSpace(id as never);
+		const path = paths.get(op);
+		if (path !== undefined) return { ordinal, kind: "identifier", path, op };
+		assert(
+			id === revision || op === revision,
+			`Unclassified allocation ${op}`,
+		);
+		return { ordinal, kind: "revision", path: [], op };
+	});
 }
 
 function visible(root: Root) {
@@ -172,13 +336,8 @@ function messagesIn(value: unknown): Record<string, unknown>[] {
 	return messages;
 }
 
-function interceptProcessed(provider: TestTreeProviderLite, client = 0): unknown[] {
+function interceptRuntime(runtime: MockContainerRuntimeWithOpBunching): unknown[] {
 	const processed: unknown[] = [];
-	const runtime = provider.trees[client].containerRuntime;
-	assert(
-		runtime instanceof MockContainerRuntimeWithOpBunching,
-		"Expected the bunching test runtime.",
-	);
 	const process = runtime.process.bind(runtime);
 	runtime.process = (message) => {
 		processed.push(copy(message));
@@ -200,19 +359,26 @@ function observe(id: string, value: object) {
 	return { id, ...value };
 }
 
-function baseInput(scenarios: object[], compressor: IIdCompressor): IdentifierInput {
+function baseInput(
+	scenarios: object[],
+	compressor: IIdCompressor,
+	initialTree: unknown = {
+		schema: Root.identifier,
+		fields: {
+			child: {
+				schema: Point.identifier,
+				fields: { id: "literal-custom-id", label: "initial" },
+			},
+			left: [],
+			right: [],
+			byKey: [],
+		},
+	},
+): IdentifierInput {
 	return {
 		version: 1,
 		schema: schemaJson(Root),
-		initialTree: {
-			schema: Root.identifier,
-			fields: {
-				child: { schema: Point.identifier, fields: { id: "initial", label: "initial" } },
-				left: [],
-				right: [],
-				byKey: [],
-			},
-		},
+		initialTree,
 		sessions,
 		compressors: { initial: compressorInput(compressor) },
 		idRanges: [],
@@ -221,6 +387,10 @@ function baseInput(scenarios: object[], compressor: IIdCompressor): IdentifierIn
 }
 
 function captureSchema() {
+	assert.throws(
+		() => captureRefusal(() => undefined),
+		/Expected the operation to be refused/,
+	);
 	const compressor = createIdCompressor(sessions.local);
 	const persisted = schemaJson(Root);
 	const root = persisted.nodes[Root.identifier];
@@ -239,9 +409,9 @@ function captureSchema() {
 	const invalidUnion = createFieldSchema(FieldKind.Identifier, [sf.string, sf.number]);
 	class NumberIdentifier extends sf.object("NumberIdentifier", { id: invalidNumber }) {}
 	class UnionIdentifier extends sf.object("UnionIdentifier", { id: invalidUnion }) {}
-	const numberRefusal = captureRefusal(() =>
+	const numberOutcome = captureOutcome(() =>
 		new TreeViewConfiguration({ schema: NumberIdentifier }));
-	const unionRefusal = captureRefusal(() =>
+	const unionOutcome = captureOutcome(() =>
 		new TreeViewConfiguration({ schema: UnionIdentifier }));
 
 	const stringType = brand<TreeNodeSchemaIdentifier>("com.fluidframework.leaf.string");
@@ -281,8 +451,16 @@ function captureSchema() {
 	const scenarios = [
 		scenario("valid-string-field", [{ op: "validate-schema", schema: persisted }]),
 		scenario("two-identifier-fields", [{ op: "validate-schema", schema: persisted }]),
-		scenario("non-string-refusal", [{ op: "validate-schema", schema: schemaJson(NumberIdentifier) }]),
-		scenario("union-refusal", [{ op: "validate-schema", schema: schemaJson(UnionIdentifier) }]),
+		scenario("non-string-refusal", [{
+			op: "validate-schema",
+			schema: schemaJson(NumberIdentifier),
+			nativeProfileSupported: false,
+		}]),
+		scenario("union-refusal", [{
+			op: "validate-schema",
+			schema: schemaJson(UnionIdentifier),
+			nativeProfileSupported: false,
+		}]),
 		scenario("identifier-to-value", [{ op: "compare-schema", from: "Identifier", to: "Value" }]),
 		scenario("value-to-identifier-refusal", [{ op: "compare-schema", from: "Value", to: "Identifier" }]),
 		scenario("canonical-field-change", [{ op: "decode-field-change", encoded: 0 }]),
@@ -292,8 +470,14 @@ function captureSchema() {
 		observe("two-identifier-fields", {
 			fields: [pair.kind.object.firstId, pair.kind.object.secondId],
 		}),
-		observe("non-string-refusal", { refused: true, ...numberRefusal }),
-		observe("union-refusal", { refused: true, ...unionRefusal }),
+		observe("non-string-refusal", {
+			...numberOutcome,
+			nativeProfileSupported: false,
+		}),
+		observe("union-refusal", {
+			...unionOutcome,
+			nativeProfileSupported: false,
+		}),
 		observe("identifier-to-value", { allowed: identifierToValue }),
 		observe("value-to-identifier-refusal", { allowed: valueToIdentifier }),
 		observe("canonical-field-change", { encoded: canonical, decodedNoncanonical }),
@@ -303,80 +487,221 @@ function captureSchema() {
 		"schema",
 		baseInput(scenarios, compressor),
 		observations,
-		{ scenarios: copy(observations), persisted },
+		{
+			scenarios: scenarios.map((input, index) => ({
+				id: input.id,
+				input: copy(input),
+				before: null,
+				after: copy(observations[index]),
+				observation: copy(observations[index]),
+			})),
+			persisted,
+		},
 	);
+}
+
+function pointInput(value: { fields: Record<string, unknown> }) {
+	return copy(value.fields);
+}
+
+function pairInput(value: { fields: Record<string, unknown> }) {
+	return copy(value.fields);
+}
+
+function typedItem(
+	view: object,
+	value: { schema: string; fields: Record<string, unknown> },
+) {
+	const manager = Reflect.get(view, "nodeKeyManager") as {
+		generateLocalNodeIdentifier: () => unknown;
+		stabilizeNodeIdentifier: (id: unknown) => string;
+	};
+	const identifier = () =>
+		manager.stabilizeNodeIdentifier(manager.generateLocalNodeIdentifier());
+	if (value.schema === Pair.identifier) {
+		return new Pair({
+			...pairInput(value),
+			firstId: value.fields.firstId ?? identifier(),
+			secondId: value.fields.secondId ?? identifier(),
+		} as never);
+	}
+	return new Point({
+		...pointInput(value),
+		id: value.fields.id ?? identifier(),
+	} as never);
+}
+
+function rootInput(value: {
+	fields: {
+		child: { fields: Record<string, unknown> };
+		left: { schema: string; fields: Record<string, unknown> }[];
+		right: { schema: string; fields: Record<string, unknown> }[];
+		byKey: [string, { schema: string; fields: Record<string, unknown> }][];
+	};
+}, view?: object) {
+	const item = (entry: { schema: string; fields: Record<string, unknown> }) =>
+		view === undefined
+			? entry.schema === Pair.identifier ? pairInput(entry) : pointInput(entry)
+			: typedItem(view, entry);
+	const left = new Array(value.fields.left.length);
+	for (let index = value.fields.left.length - 1; index >= 0; index--) {
+		left[index] = item(value.fields.left[index]);
+	}
+	const right = new Array(value.fields.right.length);
+	for (let index = value.fields.right.length - 1; index >= 0; index--) {
+		right[index] = item(value.fields.right[index]);
+	}
+	const byKey = new Map<string, Point | Pair | Record<string, unknown>>();
+	for (let index = value.fields.byKey.length - 1; index >= 0; index--) {
+		const [key, entry] = value.fields.byKey[index];
+		byKey.set(key, item(entry));
+	}
+	return {
+		child: pointInput(value.fields.child),
+		left,
+		right,
+		byKey,
+	};
+}
+
+function constructValue(
+	input: IdentifierInput,
+	action: { schema: string; fields: Record<string, unknown> },
+): ConstructResult {
+	const provider = fixedProvider(input.compressors.initial, 1);
+	const processed = interceptRuntime(provider.runtimes[0]);
+	const generated = trackedAllocations(provider.compressors[0]);
+	if (action.schema === Point.identifier) {
+		const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Point }));
+		view.initialize(pointInput(action) as never);
+		provider.synchronizeMessages();
+		const revision = messagesIn(processed).at(-1)?.revision;
+		return {
+			value: { id: view.root.id, label: view.root.label },
+			allocationEvents: allocationEvents(
+				provider.compressors[0], generated, view.root, revision,
+			),
+		};
+	}
+	if (action.schema === Pair.identifier) {
+		const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Pair }));
+		view.initialize(pairInput(action) as never);
+		provider.synchronizeMessages();
+		const revision = messagesIn(processed).at(-1)?.revision;
+		return {
+			value: {
+				firstId: view.root.firstId,
+				secondId: view.root.secondId,
+				label: view.root.label,
+			},
+			allocationEvents: allocationEvents(
+				provider.compressors[0], generated, view.root, revision,
+			),
+		};
+	}
+	assert.equal(action.schema, Root.identifier);
+	const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
+	view.initialize(rootInput(action as never, view) as never);
+	provider.synchronizeMessages();
+	const revision = messagesIn(processed).at(-1)?.revision;
+	return {
+		value: visible(view.root) as unknown as Record<string, unknown>,
+		allocationEvents: allocationEvents(
+			provider.compressors[0], generated, view.root, revision,
+		),
+	};
+}
+
+function executeValueScenario(input: IdentifierInput, item: {
+	id: string;
+	actions: {
+		op: string;
+		path?: (string | number)[];
+		index?: number;
+		value?: { schema: string; fields: Record<string, unknown> } | string;
+		schema?: string;
+		fields?: Record<string, unknown>;
+	}[];
+}): ValueExecution {
+	if (item.actions.every(({ op }) => op === "construct")) {
+		const results = item.actions.map((action) =>
+			constructValue(input, action as { schema: string; fields: Record<string, unknown> }));
+		return {
+			input: copy(item),
+			before: null,
+			after: results.map(({ value }) => value),
+			result: results,
+		};
+	}
+	const provider = fixedProvider(input.compressors.initial, 1);
+	const processed = interceptRuntime(provider.runtimes[0]);
+	const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
+	view.initialize(rootInput(input.initialTree as never, view) as never);
+	provider.synchronizeMessages();
+	const before = visible(view.root);
+	processed.length = 0;
+	const generated = trackedAllocations(provider.compressors[0]);
+	let refusal: ReturnType<typeof errorObservation> | undefined;
+	let beforeNode: number | undefined;
+	let afterNode: number | undefined;
+	const nodeTokens = new WeakMap<object, number>();
+	let nextNodeToken = 1;
+	const token = (node: object) => {
+		const existing = nodeTokens.get(node);
+		if (existing !== undefined) return existing;
+		const next = nextNodeToken++;
+		nodeTokens.set(node, next);
+		return next;
+	};
+	for (const action of item.actions) {
+		if (action.op === "insert") {
+			assert.deepEqual(action.path, ["left"]);
+			assert(typeof action.index === "number" && typeof action.value === "object");
+			view.root.left.insertAt(
+				action.index,
+				typedItem(view, action.value),
+			);
+		} else if (action.op === "set" && action.path?.at(-1) === "id") {
+			refusal = captureRefusal(() => {
+				view.root.child.id = action.value as string;
+			});
+		} else if (action.op === "clear") {
+			refusal = captureRefusal(() => {
+				delete (view.root.child as { id?: string }).id;
+			});
+		} else if (action.op === "set") {
+			assert.deepEqual(action.path, ["child"]);
+			assert(typeof action.value === "object");
+			beforeNode = token(view.root.child);
+			view.root.child = pointInput(action.value) as never;
+			afterNode = token(view.root.child);
+		} else {
+			assert.fail(`Unsupported Identifier value action: ${action.op}`);
+		}
+	}
+	provider.synchronizeMessages();
+	const after = visible(view.root);
+	const revision = messagesIn(processed).at(-1)?.revision;
+	return {
+		input: copy(item),
+		before,
+		after,
+		refusal,
+		beforeNode,
+		afterNode,
+		allocationEvents: allocationEvents(
+			provider.compressors[0], generated, view.root, revision,
+		),
+		messages: messagesIn(processed),
+	};
 }
 
 async function captureValues() {
 	const compressor = createIdCompressor(sessions.local);
-	const custom = new Point({ id: "custom-id", label: "custom" });
-	const empty = new Point({ id: "", label: "empty" });
+	compressor.generateCompressedId();
+	const compressorCore = toIdCompressorWithCore(compressor);
+	compressorCore.finalizeCreationRange(compressorCore.takeNextCreationRange());
 	const uuid = "11111111-2222-4333-8444-555555555555";
-	const uuidPoint = new Point({ id: uuid, label: "uuid" });
-	const duplicateA = new Point({ id: "duplicate", label: "a" });
-	const duplicateB = new Point({ id: "duplicate", label: "b" });
-	const generated = new Point({ label: "generated" });
-	const pair = new Pair({ label: "pair" });
-	const nested = new Root({
-		child: new Point({ label: "child" }),
-		left: new Items([new Point({ label: "array" })]),
-		right: new Items([]),
-		byKey: new PointsByKey([["map", new Point({ label: "map" })]]),
-	});
-	assert.equal(custom.id, "custom-id");
-	assert.equal(empty.id, "");
-	assert.equal(uuidPoint.id, uuid);
-	assert.equal(duplicateA.id, duplicateB.id);
-	assert.notEqual(generated.id, "");
-	assert.notEqual(pair.firstId, pair.secondId);
-	assert.notEqual(nested.child.id, nested.left[0] instanceof Point && nested.left[0].id);
-
-	const provider = new TestTreeProviderLite(2, sharedTreeFactory());
-	const processed = interceptProcessed(provider);
-	const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
-	view.initialize({
-		child: new Point({ id: "attached-child", label: "child" }),
-		left: new Items([new Point({ id: "left", label: "left" })]),
-		right: new Items([]),
-		byKey: new PointsByKey(),
-	});
-	provider.synchronizeMessages();
-	const peer = provider.trees[1].viewWith(new TreeViewConfiguration({ schema: Root }));
-	const direct = captureRefusal(() => {
-		view.root.child.id = "changed";
-	});
-	const clear = captureRefusal(() => {
-		delete (view.root.child as { id?: string }).id;
-	});
-	assert.equal(view.root.child.id, "attached-child");
-	const oldChild = view.root.child;
-	view.root.child = new Point({ id: "replacement", label: "replacement" });
-	provider.synchronizeMessages();
-	assert.equal(view.root.child.id, "replacement");
-	assert.notEqual(view.root.child, oldChild);
-
-	const before = processed.length;
-	const inserted = new Pair({ label: "allocation" });
-	view.root.left.insertAtEnd(inserted);
-	provider.synchronizeMessages();
-	assert(peer.root.left[peer.root.left.length - 1] instanceof Pair);
-	const allocationMessages = messagesIn(processed.slice(before));
-	assert.equal(allocationMessages.length, 1);
-	const allocationMessage = allocationMessages[0];
-	const revision = allocationMessage.revision;
-	const documentCompressor = provider.getCompressor(provider.trees[0]);
-	assert(isStableId(inserted.firstId));
-	assert(isStableId(inserted.secondId));
-	const first = documentCompressor.tryRecompress(inserted.firstId);
-	const second = documentCompressor.tryRecompress(inserted.secondId);
-	assert(first !== undefined && second !== undefined);
-	const allocationOrder = [
-		{ kind: "revision", op: revision },
-		{ kind: "identifier", field: "firstId", op: documentCompressor.normalizeToOpSpace(first) },
-		{ kind: "identifier", field: "secondId", op: documentCompressor.normalizeToOpSpace(second) },
-	];
-	assert(allocationOrder.every(({ op }) => Number.isSafeInteger(op)));
-
 	const scenarios = [
 		scenario("custom-string", [{ op: "construct", schema: Point.identifier, fields: { id: "custom-id", label: "custom" } }]),
 		scenario("empty-string", [{ op: "construct", schema: Point.identifier, fields: { id: "", label: "empty" } }]),
@@ -386,12 +711,20 @@ async function captureValues() {
 			{ op: "construct", schema: Point.identifier, fields: { id: "duplicate", label: "b" } },
 		]),
 		scenario("omitted-default", [{ op: "construct", schema: Point.identifier, fields: { label: "generated" } }]),
-		scenario("multiple-defaults", [{ op: "construct", schema: Pair.identifier, fields: { label: "pair" } }]),
+		scenario("multiple-defaults", [{
+			op: "construct",
+			schema: Pair.identifier,
+			fields: { label: "pair", pairOnly: "pair" },
+		}]),
 		scenario("nested-insertion", [{
-			op: "insert",
-			path: ["left"],
-			index: 0,
-			value: { schema: Point.identifier, fields: { label: "array" } },
+			op: "construct",
+			schema: Root.identifier,
+			fields: {
+				child: { schema: Point.identifier, fields: { label: "child" } },
+				left: [{ schema: Point.identifier, fields: { label: "array" } }],
+				right: [],
+				byKey: [["map", { schema: Point.identifier, fields: { label: "map" } }]],
+			},
 		}]),
 		scenario("direct-assignment-refusal", [{ op: "set", path: ["child", "id"], value: "changed" }]),
 		scenario("clear-refusal", [{ op: "clear", path: ["child", "id"] }]),
@@ -404,30 +737,84 @@ async function captureValues() {
 			op: "insert",
 			path: ["left"],
 			index: 1,
-			value: { schema: Pair.identifier, fields: { label: "allocation" } },
+			value: {
+				schema: Pair.identifier,
+				fields: { label: "allocation", pairOnly: "allocation" },
+			},
 		}]),
 	];
+	const input = baseInput(scenarios, compressor, {
+		schema: Root.identifier,
+		fields: {
+			child: {
+				schema: Point.identifier,
+				fields: { id: "attached-child", label: "child" },
+			},
+			left: [{
+				schema: Point.identifier,
+				fields: { id: "left", label: "left" },
+			}],
+			right: [],
+			byKey: [],
+		},
+	});
+	const executions = scenarios.map((item) => executeValueScenario(input, item as never));
+	const execution = (id: string) => {
+		const found = executions.find((item) => item.input.id === id);
+		assert(found !== undefined);
+		return found;
+	};
+	const constructed = (id: string, index = 0) => {
+		const result = execution(id).result?.[index];
+		assert(result !== undefined);
+		return result;
+	};
 	const observations = [
-		observe("custom-string", { value: custom.id }),
-		observe("empty-string", { value: empty.id }),
-		observe("uuid", { value: uuidPoint.id }),
-		observe("duplicate-custom-strings", { values: [duplicateA.id, duplicateB.id] }),
-		observe("omitted-default", { value: generated.id }),
-		observe("multiple-defaults", { values: [pair.firstId, pair.secondId] }),
-		observe("nested-insertion", { value: visible(nested) }),
-		observe("direct-assignment-refusal", { refused: true, ...direct }),
-		observe("clear-refusal", { refused: true, ...clear }),
-		observe("parent-replacement", { value: visible(view.root).child }),
-		observe("allocation-order", { order: allocationOrder }),
+		observe("custom-string", { value: constructed("custom-string").value.id }),
+		observe("empty-string", { value: constructed("empty-string").value.id }),
+		observe("uuid", { value: constructed("uuid").value.id }),
+		observe("duplicate-custom-strings", {
+			values: [0, 1].map((index) =>
+				constructed("duplicate-custom-strings", index).value.id),
+		}),
+		observe("omitted-default", { value: constructed("omitted-default").value.id }),
+		observe("multiple-defaults", {
+			values: [
+				constructed("multiple-defaults").value.firstId,
+				constructed("multiple-defaults").value.secondId,
+			],
+		}),
+		observe("nested-insertion", {
+			value: constructed("nested-insertion").value,
+			allocationEvents: constructed("nested-insertion").allocationEvents,
+		}),
+		observe("direct-assignment-refusal", {
+			refused: true,
+			...execution("direct-assignment-refusal").refusal,
+		}),
+		observe("clear-refusal", {
+			refused: true,
+			...execution("clear-refusal").refusal,
+		}),
+		observe("parent-replacement", {
+			value: (execution("parent-replacement").after as ReturnType<typeof visible>).child,
+		}),
+		observe("allocation-order", {
+			events: execution("allocation-order").allocationEvents,
+		}),
 	];
-	const input = baseInput(scenarios, compressor);
-	input.compressors.document = serializeIdCompressor(documentCompressor, true);
 	return caseFile(
 		"identifier-values",
 		"values",
 		input,
 		observations,
-		{ scenarios: copy(observations), messages: allocationMessages },
+		{
+			scenarios: executions.map((item, index) => ({
+				id: item.input.id,
+				...copy(item),
+				observation: copy(observations[index]),
+			})),
+		},
 	);
 }
 
@@ -439,11 +826,114 @@ function decodeIdentifier(value: unknown, context: IdDecodingContext) {
 	);
 }
 
+function executeFieldScenario(input: IdentifierInput, item: {
+	id: string;
+	actions: {
+		op: string;
+		compressor?: string;
+		range?: number;
+		encoded?: { value: unknown };
+		value?: string;
+		purpose?: "message" | "summary";
+		originator?: typeof sessions[keyof typeof sessions];
+	}[];
+}) {
+	const compressors = Object.fromEntries(Object.entries(input.compressors).map(
+		([name, serialized]) => [
+			name,
+			toIdCompressorWithCore(deserializeIdCompressor(serialized as never)),
+		],
+	));
+	const before = Object.fromEntries(Object.entries(compressors).map(
+		([name, value]) => [name, serializeIdCompressor(value, true)],
+	));
+	const results: { op: string; value: unknown }[] = [];
+	const errors: { op: string; value: unknown; originalError: string; nativeErrorCategory: string }[] = [];
+	for (const action of item.actions) {
+		if (action.op === "allocate-id") {
+			assert(action.compressor !== undefined);
+			const compressor = compressors[action.compressor];
+			assert(compressor !== undefined);
+			const id = compressor.generateCompressedId();
+			results.push({
+				op: action.op,
+				value: {
+					stable: compressor.decompress(id),
+					encoded: compressor.normalizeToOpSpace(id),
+				},
+			});
+		} else if (action.op === "deliver-range") {
+			assert(action.compressor !== undefined && action.range !== undefined);
+			const compressor = compressors[action.compressor];
+			const range = input.idRanges[action.range];
+			assert(compressor !== undefined && range !== undefined);
+			compressor.finalizeCreationRange(range as never);
+			results.push({ op: action.op, value: copy(range) });
+		} else if (action.op === "decode-field-batch") {
+			assert(action.encoded !== undefined && action.purpose !== undefined);
+			const compressor = compressors[action.compressor ?? "initial"];
+			assert(compressor !== undefined);
+			let context: IdDecodingContext;
+			if (action.purpose === "message") {
+				assert(action.originator !== undefined);
+				context = new IdDecodingContext({
+					idCompressor: compressor,
+					originatorId: action.originator,
+				});
+			} else {
+				context = new IdDecodingContext({ idCompressor: compressor, healing: undefined });
+			}
+			try {
+				results.push({
+					op: action.op,
+					value: decodeIdentifier(action.encoded.value, context),
+				});
+			} catch (error) {
+				errors.push({
+					op: action.op,
+					value: copy(action.encoded.value),
+					...errorObservation(error),
+				});
+			}
+		} else if (action.op === "encode-field-batch") {
+			assert(action.value !== undefined && action.purpose !== undefined);
+			results.push({
+				op: action.op,
+				value: encodePossiblyCompressedId(
+					action.value,
+					compressors.initial,
+					action.purpose === "message"
+						? EncodedIdType.OriginatorDependent
+						: EncodedIdType.Originatorless,
+				),
+			});
+		} else {
+			assert.fail(`Unsupported Identifier FieldBatch action: ${action.op}`);
+		}
+	}
+	return {
+		id: item.id,
+		input: copy(item),
+		before,
+		after: {
+			compressors: Object.fromEntries(Object.entries(compressors).map(
+				([name, value]) => [name, serializeIdCompressor(value, true)],
+			)),
+			results: copy(results),
+			errors: copy(errors),
+		},
+		results,
+		errors,
+	};
+}
+
 function captureFieldBatches() {
 	assert.equal(SpecialField.Identifier, 0);
 	const local = toIdCompressorWithCore(createIdCompressor(sessions.local));
 	const remote = toIdCompressorWithCore(createIdCompressor(sessions.remote));
 	const summary = toIdCompressorWithCore(createIdCompressor(sessions.summary));
+	const localInitial = serializeIdCompressor(local, true);
+	const remoteInitial = serializeIdCompressor(remote, true);
 	const localId = local.generateCompressedId();
 	const localStable = local.decompress(localId);
 	const localOp = local.normalizeToOpSpace(localId);
@@ -465,10 +955,13 @@ function captureFieldBatches() {
 	});
 	assert.equal(decodeIdentifier(remoteOp, remoteContext), remoteStable);
 
-	const eagerId = summary.generateCompressedId();
-	const eagerStable = summary.decompress(eagerId);
+	const establishedId = summary.generateCompressedId();
 	const eagerRange = summary.takeNextCreationRange();
 	summary.finalizeCreationRange(eagerRange);
+	assert(isFinalId(summary.normalizeToOpSpace(establishedId)));
+	const summaryInitial = serializeIdCompressor(summary, true);
+	const eagerId = summary.generateCompressedId();
+	const eagerStable = summary.decompress(eagerId);
 	const eagerEncoded = encodePossiblyCompressedId(
 		eagerStable,
 		summary,
@@ -476,10 +969,13 @@ function captureFieldBatches() {
 	);
 	assert.equal(typeof eagerEncoded, "number");
 	assert(isFinalId(eagerEncoded as OpSpaceCompressedId));
-
-	const unknownCompressor = createIdCompressor(
-		assertIsSessionId("50000000-0000-4000-8000-000000000005"),
+	const eagerDecoded = decodeIdentifier(
+		eagerEncoded,
+		new IdDecodingContext({ idCompressor: summary, healing: undefined }),
 	);
+	assert.equal(eagerDecoded, eagerStable);
+
+	const unknownCompressor = createIdCompressor(sessions.unknown);
 	const unknownId = unknownCompressor.generateCompressedId();
 	const unknownStable = unknownCompressor.decompress(unknownId);
 	assert.equal(
@@ -508,29 +1004,55 @@ function captureFieldBatches() {
 
 	const scenarios = [
 		scenario("literal-zero-string", [{ op: "decode-field-batch", path: ["identifier"], encoded: { value: "0" }, purpose: "message", originator: sessions.local }]),
-		scenario("local-negative-op-id", [{ op: "decode-field-batch", path: ["identifier"], encoded: { value: localOp }, purpose: "message", originator: sessions.local }]),
-		scenario("remote-finalized-id", [{ op: "decode-field-batch", path: ["identifier"], encoded: { value: remoteOp }, purpose: "message", originator: sessions.remote }]),
-		scenario("eager-final-id", [{ op: "decode-field-batch", path: ["identifier"], encoded: { value: eagerEncoded }, purpose: "summary" }]),
+		scenario("local-negative-op-id", [
+			{ op: "allocate-id", compressor: "initial" },
+			{ op: "decode-field-batch", path: ["identifier"], encoded: { value: localOp }, purpose: "message", originator: sessions.local },
+		]),
+		scenario("remote-finalized-id", [
+			{ op: "allocate-id", compressor: "remote" },
+			{ op: "deliver-range", compressor: "initial", range: 0 },
+			{ op: "decode-field-batch", path: ["identifier"], encoded: { value: remoteOp }, purpose: "message", originator: sessions.remote },
+		]),
+		scenario("eager-final-id", [
+			{ op: "allocate-id", compressor: "summary" },
+			{ op: "decode-field-batch", compressor: "summary", path: ["identifier"], encoded: { value: eagerEncoded }, purpose: "summary" },
+		]),
 		scenario("unknown-uuid-string", [{ op: "encode-field-batch", path: ["identifier"], value: unknownStable, purpose: "message" }]),
 		scenario("message-summary-same-id", [
+			{ op: "allocate-id", compressor: "remote" },
+			{ op: "deliver-range", compressor: "initial", range: 0 },
 			{ op: "encode-field-batch", path: ["identifier"], value: remoteStable, purpose: "message", originator: sessions.local },
 			{ op: "encode-field-batch", path: ["identifier"], value: remoteStable, purpose: "summary" },
 		]),
-		scenario("unfinalized-summary-string", [{ op: "encode-field-batch", path: ["identifier"], value: localStable, purpose: "summary" }]),
-		scenario("numeric-originatorless-refusal", [{ op: "decode-field-batch", path: ["identifier"], encoded: { value: localOp }, purpose: "summary" }]),
-		scenario("invalid-payload-shapes", invalidPayloads.map(({ value }) => ({
-			op: "decode-field-batch",
-			path: ["identifier"],
-			encoded: { value },
-			purpose: "message",
-			originator: sessions.local,
-		}))),
+		scenario("unfinalized-summary-string", [
+			{ op: "allocate-id", compressor: "initial" },
+			{ op: "encode-field-batch", path: ["identifier"], value: localStable, purpose: "summary" },
+		]),
+		scenario("numeric-originatorless-refusal", [
+			{ op: "allocate-id", compressor: "initial" },
+			{ op: "decode-field-batch", path: ["identifier"], encoded: { value: localOp }, purpose: "summary" },
+		]),
+		scenario("invalid-payload-shapes", [
+			{ op: "allocate-id", compressor: "initial" },
+			...invalidPayloads.map(({ value }) => ({
+				op: "decode-field-batch",
+				path: ["identifier"],
+				encoded: { value },
+				purpose: "message",
+				originator: sessions.local,
+			})),
+		]),
 	];
 	const observations = [
 		observe("literal-zero-string", { decoded: "0", discriminator: SpecialField.Identifier }),
 		observe("local-negative-op-id", { encoded: localOp, decoded: localStable }),
 		observe("remote-finalized-id", { encoded: remoteOp, decoded: remoteStable }),
-		observe("eager-final-id", { encoded: eagerEncoded, decoded: eagerStable }),
+		observe("eager-final-id", {
+			encoded: eagerEncoded,
+			value: eagerStable,
+			decodedByUpstream: eagerDecoded,
+			allocatedAfterFinalization: true,
+		}),
 		observe("unknown-uuid-string", { encoded: unknownStable }),
 		observe("message-summary-same-id", { message: messageEncoded, summary: summaryEncoded }),
 		observe("unfinalized-summary-string", { encoded: unfinalizedSummary }),
@@ -538,105 +1060,278 @@ function captureFieldBatches() {
 		observe("invalid-payload-shapes", { refusals: invalidPayloads }),
 	];
 	const input = baseInput(scenarios, local);
-	input.compressors.remote = serializeIdCompressor(remote, true);
-	input.compressors.summary = serializeIdCompressor(summary, true);
+	input.compressors.initial = localInitial;
+	input.compressors.remote = remoteInitial;
+	input.compressors.summary = summaryInitial;
 	input.idRanges = [remoteRange, eagerRange];
+	const executions = scenarios.map((item) => executeFieldScenario(input, item as never));
+	const executed = (id: string) => {
+		const value = executions.find((item) => item.id === id);
+		assert(value !== undefined);
+		return value;
+	};
+	assert.equal(executed("literal-zero-string").results[0].value, "0");
+	assert.equal(executed("local-negative-op-id").results.at(-1)?.value, localStable);
+	assert.equal(executed("remote-finalized-id").results.at(-1)?.value, remoteStable);
+	assert.equal(executed("eager-final-id").results.at(-1)?.value, eagerStable);
+	assert.equal(executed("unknown-uuid-string").results[0].value, unknownStable);
+	assert.equal(executed("message-summary-same-id").results.at(-2)?.value, messageEncoded);
+	assert.equal(executed("message-summary-same-id").results.at(-1)?.value, summaryEncoded);
+	assert.equal(executed("unfinalized-summary-string").results.at(-1)?.value, unfinalizedSummary);
+	assert.equal(executed("numeric-originatorless-refusal").errors.length, 1);
+	assert.equal(executed("invalid-payload-shapes").errors.length, invalidPayloads.length);
 	return caseFile(
 		"identifier-field-batches",
 		"codec",
 		input,
 		observations,
-		{ scenarios: copy(observations), discriminator: SpecialField.Identifier },
+		{
+			scenarios: executions.map((execution, index) => ({
+				...copy(execution),
+				observation: copy(observations[index]),
+			})),
+			discriminator: SpecialField.Identifier,
+		},
 	);
+}
+
+async function prepareSummaryTail(input: IdentifierInput) {
+	const provider = fixedProvider(input.compressors.initial);
+	const processed = interceptRuntime(provider.runtimes[0]);
+	const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
+	view.initialize(rootInput(input.initialTree as never, view) as never);
+	provider.synchronizeMessages();
+	const summary = (await provider.trees[0].summarize(true)).summary;
+	const summaryCompressor = serializeIdCompressor(provider.compressors[0], false);
+	processed.length = 0;
+	view.root.byKey.set("tail", { label: "tail" });
+	provider.synchronizeMessages();
+	const idRanges = processed.flatMap((message) => {
+		const contents = (message as { contents?: {
+			type?: string;
+			contents?: unknown;
+		} }).contents;
+		return contents?.type === "idAllocation" ? [copy(contents.contents)] : [];
+	});
+	const messages = processed.filter((message) => {
+		const contents = (message as { contents?: Record<string, unknown> }).contents;
+		return contents !== undefined && "changeset" in contents;
+	}).map(copy);
+	assert(idRanges.length > 0);
+	assert(messages.length > 0);
+	return scenario("summary-tail", [
+		{
+			op: "load-summary",
+			purpose: "summary",
+			summary,
+			compressor: summaryCompressor,
+			session: sessions.summary,
+		},
+		{
+			op: "apply-tail",
+			purpose: "message",
+			idRanges,
+			messages,
+		},
+	]);
+}
+
+async function loadSummaryTail(item: {
+	id: string;
+	actions: {
+		op: string;
+		summary?: unknown;
+		compressor?: string;
+		session?: typeof sessions.summary;
+		idRanges?: unknown[];
+		messages?: Record<string, unknown>[];
+	}[];
+}): Promise<PersistenceExecution> {
+	const load = item.actions.find(({ op }) => op === "load-summary");
+	const apply = item.actions.find(({ op }) => op === "apply-tail");
+	assert(load?.summary !== undefined && load.compressor !== undefined && load.session !== undefined);
+	assert(apply?.idRanges !== undefined && apply.messages !== undefined);
+	const compressor = deserializeIdCompressor(load.compressor as never, load.session);
+	const runtime = new MockFluidDataStoreRuntime({ idCompressor: compressor });
+	const services = MockSharedObjectServices.createFromSummary(load.summary as never);
+	services.deltaConnection = new MockDeltaConnection(() => 1, () => {});
+	const tree = await sharedTreeFactory().load(
+		runtime,
+		"identifier-summary-reader",
+		services,
+		sharedTreeFactory().attributes,
+	);
+	const view = tree.viewWith(new TreeViewConfiguration({ schema: Root }));
+	const before = visible(view.root);
+	const compressorCore = toIdCompressorWithCore(compressor);
+	for (const range of apply.idRanges) compressorCore.finalizeCreationRange(range as never);
+	const kernel = Reflect.get(tree, "kernel") as object;
+	const process = Reflect.get(kernel, "processMessagesCore");
+	assert(typeof process === "function");
+	for (const message of apply.messages) {
+		process.call(kernel, {
+			envelope: {
+				clientId: message.clientId,
+				clientSequenceNumber: message.clientSequenceNumber,
+				contents: message.contents,
+				referenceSequenceNumber: message.referenceSequenceNumber,
+				sequenceNumber: message.sequenceNumber,
+				minimumSequenceNumber: message.minimumSequenceNumber,
+				timestamp: 0,
+				type: "op",
+			},
+			local: false,
+			messagesContent: [{
+				contents: message.contents,
+				localOpMetadata: undefined,
+				clientSequenceNumber: message.clientSequenceNumber,
+			}],
+		});
+	}
+	return {
+		input: copy(item),
+		before,
+		after: visible(view.root),
+		idRanges: copy(apply.idRanges),
+		messages: copy(apply.messages),
+	};
+}
+
+async function executePersistenceScenario(input: IdentifierInput, item: {
+	id: string;
+	actions: {
+		op: string;
+		path?: (string | number)[];
+		from?: (string | number)[];
+		to?: (string | number)[];
+		index?: number;
+		count?: number;
+		result?: string;
+		actions?: object[];
+		value?: { schema: string; fields: Record<string, unknown> };
+	}[];
+}): Promise<PersistenceExecution> {
+	if (item.id === "summary-tail") return loadSummaryTail(item as never);
+	const provider = fixedProvider(input.compressors.initial);
+	const processed = interceptRuntime(provider.runtimes[0]);
+	const generated = trackedAllocations(provider.compressors[0]);
+	const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
+	view.initialize(rootInput(input.initialTree as never, view) as never);
+	provider.synchronizeMessages();
+	const peer = provider.trees[1].viewWith(new TreeViewConfiguration({ schema: Root }));
+	const initialRevision = messagesIn(processed).at(-1)?.revision;
+	const initialAllocationEvents = allocationEvents(
+		provider.compressors[0], generated, view.root, initialRevision,
+	);
+	const before = visible(view.root);
+	processed.length = 0;
+	const compressorBefore = serializeIdCompressor(provider.compressors[0], true);
+	let generatedIdentifier: string | undefined;
+	let removedIdentifier: string | undefined;
+	let repair: unknown[] | undefined;
+	let movedIdentifier: string | undefined;
+	let movedNode: Point | Pair | undefined;
+	const replacementNodes: object[] = [];
+	let summary: unknown;
+	const runActions = (actions: typeof item.actions): void => {
+		for (const action of actions) {
+			if (action.op === "transaction") {
+				const result = Tree.runTransaction(view, () => {
+					runActions(action.actions as typeof item.actions);
+					return action.result === "rollback" ? Tree.runTransaction.rollback : undefined;
+				});
+				assert(action.result !== "rollback" || result === Tree.runTransaction.rollback);
+			} else if (action.op === "insert") {
+				assert.deepEqual(action.path, ["left"]);
+				assert(action.index !== undefined && action.value !== undefined);
+				view.root.left.insertAt(action.index, typedItem(view, action.value));
+				const inserted = view.root.left[action.index];
+				generatedIdentifier = inserted instanceof Pair ? inserted.firstId : inserted.id;
+			} else if (action.op === "disconnect") {
+				provider.runtimes[0].connected = false;
+			} else if (action.op === "reconnect") {
+				provider.runtimes[0].connected = true;
+			} else if (action.op === "resubmit") {
+				provider.synchronizeMessages();
+			} else if (action.op === "remove") {
+				assert.deepEqual(action.path, ["left"]);
+				assert(action.index !== undefined && action.count !== undefined);
+				const removed = view.root.left[action.index];
+				removedIdentifier = removed instanceof Pair ? removed.firstId : removed.id;
+				view.root.left.removeRange(action.index, action.index + action.count);
+				const snapshot = Reflect.get(provider.trees[0], "contentSnapshot") as
+					() => { removed: unknown[] };
+				repair = copy(snapshot.call(provider.trees[0]).removed);
+			} else if (action.op === "set") {
+				assert.deepEqual(action.path, ["child"]);
+				assert(action.value !== undefined);
+				view.root.child = pointInput(action.value) as never;
+				replacementNodes.push(view.root.child);
+			} else if (action.op === "move") {
+				assert.deepEqual(action.from, ["left", 0]);
+				assert.deepEqual(action.to, ["right", "end"]);
+				assert(action.count !== undefined);
+				movedNode = view.root.left[0];
+				movedIdentifier = movedNode instanceof Pair ? movedNode.firstId : movedNode.id;
+				view.root.right.moveRangeToEnd(0, action.count, view.root.left);
+			} else if (action.op === "summarize") {
+				summary = provider.trees[0].summarize(true);
+			} else {
+				assert.fail(`Unsupported Identifier persistence action: ${action.op}`);
+			}
+		}
+	};
+	runActions(item.actions);
+	provider.synchronizeMessages();
+	if (summary instanceof Promise) summary = (await summary).summary;
+	const after = visible(view.root);
+	const compressorAfter = serializeIdCompressor(provider.compressors[0], true);
+	const nodeToken = (node: object | undefined, index: number) =>
+		node === undefined ? undefined : `${index}:${Object.prototype.toString.call(node)}`;
+	return {
+		input: copy(item),
+		before,
+		after,
+		summary,
+		initialAllocationEvents,
+		generated: generatedIdentifier,
+		visible: generatedIdentifier === undefined
+			? undefined
+			: [...view.root.left].some((entry) =>
+				(entry instanceof Pair ? entry.firstId : entry.id) === generatedIdentifier),
+		compressorAdvanced: compressorBefore !== compressorAfter,
+		identifier: generatedIdentifier ?? removedIdentifier ?? movedIdentifier,
+		peerObserved: generatedIdentifier === undefined
+			? undefined
+			: [...peer.root.left].some((entry) =>
+				(entry instanceof Pair ? entry.firstId : entry.id) === generatedIdentifier),
+		repair,
+		beforeNode: nodeToken(replacementNodes.at(-2), 1),
+		afterNode: nodeToken(replacementNodes.at(-1), 2),
+		identityPreserved: movedNode === view.root.right.at(-1),
+		messages: copy(processed),
+	};
 }
 
 async function capturePersistence() {
 	const compressor = createIdCompressor(sessions.local);
-	const provider = new TestTreeProviderLite(2, sharedTreeFactory());
-	const processed = interceptProcessed(provider);
-	const view = provider.trees[0].viewWith(new TreeViewConfiguration({ schema: Root }));
-	view.initialize({
-		child: new Point({ label: "child" }),
-		left: new Items([new Point({ label: "left" }), new Pair({ label: "pair" })]),
-		right: new Items([]),
-		byKey: new PointsByKey(),
-	});
-	provider.synchronizeMessages();
-	const peer = provider.trees[1].viewWith(new TreeViewConfiguration({ schema: Root }));
-	const initial = visible(view.root);
-	const initialSummary = (await provider.trees[0].summarize(true)).summary;
-	assert(typeof initial.child.id === "string" && initial.child.id.length > 0);
-
-	const tailStart = processed.length;
-	view.root.byKey.set("tail", new Point({ label: "tail" }));
-	provider.synchronizeMessages();
-	const tailMessages = messagesIn(processed.slice(tailStart));
-	assert.equal(tailMessages.length, 1);
-
-	const documentCompressor = provider.getCompressor(provider.trees[0]);
-	const beforeAbort = serializeIdCompressor(documentCompressor, true);
-	let abortedId = "";
-	Tree.runTransaction(view, () => {
-		const inserted = new Point({ label: "aborted" });
-		view.root.left.insertAtEnd(inserted);
-		abortedId = inserted.id;
-		return Tree.runTransaction.rollback;
-	});
-	const afterAbort = serializeIdCompressor(documentCompressor, true);
-	assert.notEqual(afterAbort, beforeAbort);
-	assert.equal([...view.root.left].some((item) => item instanceof Point && item.id === abortedId), false);
-
-	const beforeNested = serializeIdCompressor(documentCompressor, true);
-	let nestedId = "";
-	Tree.runTransaction(view, () => {
-		Tree.runTransaction(view, () => {
-			const inserted = new Point({ label: "nested-aborted" });
-			view.root.left.insertAtEnd(inserted);
-			nestedId = inserted.id;
-			return Tree.runTransaction.rollback;
-		});
-	});
-	const afterNested = serializeIdCompressor(documentCompressor, true);
-	assert.notEqual(afterNested, beforeNested);
-	assert.equal([...view.root.left].some((item) => item instanceof Point && item.id === nestedId), false);
-
-	provider.trees[0].containerRuntime.connected = false;
-	const retry = new Point({ label: "retry" });
-	view.root.left.insertAtEnd(retry);
-	const retryId = retry.id;
-	provider.trees[0].containerRuntime.connected = true;
-	provider.synchronizeMessages();
-	assert([...peer.root.left].some((item) => item instanceof Point && item.id === retryId));
-
-	const removed = view.root.left[0];
-	assert(removed instanceof Point);
-	const removedId = removed.id;
-	view.root.left.removeAt(0);
-	const snapshot = Reflect.get(provider.trees[0], "contentSnapshot") as () => { removed: unknown[] };
-	const repair = copy(snapshot.call(provider.trees[0]).removed);
-	assert(repair.length > 0);
-
-	const oldChild = view.root.child;
-	const equalId = oldChild.id;
-	view.root.child = new Point({ id: equalId, label: "replacement-equal" });
-	assert.equal(view.root.child.id, equalId);
-	assert.notEqual(view.root.child, oldChild);
-
-	const moved = view.root.left[0];
-	assert(moved instanceof Point || moved instanceof Pair);
-	const movedId = moved instanceof Pair ? moved.firstId : moved.id;
-	view.root.right.moveRangeToEnd(0, 1, view.root.left);
-	const movedAfter = view.root.right[view.root.right.length - 1];
-	assert.equal(movedAfter, moved);
-	assert.equal(movedAfter instanceof Pair ? movedAfter.firstId : movedAfter.id, movedId);
-	provider.synchronizeMessages();
-
-	const scenarios = [
+	const initialTree = {
+		schema: Root.identifier,
+		fields: {
+			child: { schema: Point.identifier, fields: { label: "child" } },
+			left: [
+				{ schema: Point.identifier, fields: { label: "left" } },
+				{
+					schema: Pair.identifier,
+					fields: { label: "pair", pairOnly: "pair" },
+				},
+			],
+			right: [],
+			byKey: [],
+		},
+	};
+	const scenarios: ReturnType<typeof scenario>[] = [
 		scenario("initial-summary-defaults", [{ op: "summarize", purpose: "summary" }]),
-		scenario("summary-tail", [
-			{ op: "load-summary", purpose: "summary" },
-			{ op: "apply-tail", purpose: "message" },
-		]),
 		scenario("transaction-abort", [{
 			op: "transaction",
 			result: "rollback",
@@ -653,41 +1348,78 @@ async function capturePersistence() {
 			{ op: "resubmit" },
 		]),
 		scenario("remove-retain-repair", [{ op: "remove", path: ["left"], index: 0, count: 1 }]),
-		scenario("equal-custom-id-replacement", [{ op: "set", path: ["child"], value: { schema: Point.identifier, fields: { id: equalId, label: "replacement-equal" } } }]),
+		scenario("equal-custom-id-replacement", [
+			{ op: "set", path: ["child"], value: { schema: Point.identifier, fields: { id: "literal-custom-id", label: "custom-before" } } },
+			{ op: "set", path: ["child"], value: { schema: Point.identifier, fields: { id: "literal-custom-id", label: "custom-after" } } },
+		]),
 		scenario("node-moves", [{ op: "move", from: ["left", 0], to: ["right", "end"], count: 1 }]),
 	];
+	const input = baseInput(scenarios, compressor, initialTree);
+	const tailInput = await prepareSummaryTail(input);
+	scenarios.splice(1, 0, tailInput);
+	const executions: PersistenceExecution[] = [];
+	for (const item of scenarios) {
+		executions.push(await executePersistenceScenario(input, item as never));
+	}
+	const execution = (id: string) => {
+		const found = executions.find((item) => item.input.id === id);
+		assert(found !== undefined);
+		return found;
+	};
+	const initial = execution("initial-summary-defaults");
+	const tail = execution("summary-tail");
+	const aborted = execution("transaction-abort");
+	const nested = execution("nested-abort");
+	const retry = execution("retry-resubmit");
+	const removed = execution("remove-retain-repair");
+	const replaced = execution("equal-custom-id-replacement");
+	const moved = execution("node-moves");
 	const observations = [
-		observe("initial-summary-defaults", { value: initial, summary: initialSummary }),
-		observe("summary-tail", { messages: tailMessages, value: visible(peer.root) }),
+		observe("initial-summary-defaults", {
+			value: initial.after,
+			summary: initial.summary,
+			allocationEvents: initial.initialAllocationEvents,
+		}),
+		observe("summary-tail", {
+			value: tail.after,
+			before: tail.before,
+			messages: tail.messages,
+			idRanges: tail.idRanges,
+		}),
 		observe("transaction-abort", {
-			id: "transaction-abort",
-			generated: abortedId,
-			visible: false,
-			compressorAdvanced: beforeAbort !== afterAbort,
+			generated: aborted.generated,
+			visible: aborted.visible,
+			compressorAdvanced: aborted.compressorAdvanced,
 		}),
 		observe("nested-abort", {
-			id: "nested-abort",
-			generated: nestedId,
-			visible: false,
-			compressorAdvanced: beforeNested !== afterNested,
+			generated: nested.generated,
+			visible: nested.visible,
+			compressorAdvanced: nested.compressorAdvanced,
 		}),
-		observe("retry-resubmit", { identifier: retryId, peerObserved: true }),
-		observe("remove-retain-repair", { identifier: removedId, repair }),
-		observe("equal-custom-id-replacement", { identifier: equalId, nodeReplaced: true }),
-		observe("node-moves", { identifier: movedId, identityPreserved: true }),
+		observe("retry-resubmit", { identifier: retry.identifier, peerObserved: retry.peerObserved }),
+		observe("remove-retain-repair", { identifier: removed.identifier, repair: removed.repair }),
+		observe("equal-custom-id-replacement", {
+			identifier: "literal-custom-id",
+			nodeReplaced: replaced.beforeNode !== replaced.afterNode,
+			beforeNode: replaced.beforeNode,
+			afterNode: replaced.afterNode,
+		}),
+		observe("node-moves", {
+			identifier: moved.identifier,
+			identityPreserved: moved.identityPreserved,
+		}),
 	];
-	const input = baseInput(scenarios, compressor);
-	input.compressors.document = serializeIdCompressor(documentCompressor, true);
 	return caseFile(
 		"identifier-persistence",
 		"history",
 		input,
 		observations,
 		{
-			scenarios: copy(observations),
-			initialSummary,
-			tailMessages,
-			processed: copy(processed),
+			scenarios: executions.map((item, index) => ({
+				id: item.input.id,
+				...copy(item),
+				observation: copy(observations[index]),
+			})),
 		},
 	);
 }

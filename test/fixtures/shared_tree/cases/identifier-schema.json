@@ -45,6 +45,12 @@
                   "com.fluidframework.leaf.string"
                 ]
               },
+              "pairOnly": {
+                "kind": "Value",
+                "types": [
+                  "com.fluidframework.leaf.string"
+                ]
+              },
               "secondId": {
                 "kind": "Identifier",
                 "types": [
@@ -127,7 +133,7 @@
         "child": {
           "schema": "org.watershed.shared-tree.identifiers.Point",
           "fields": {
-            "id": "initial",
+            "id": "literal-custom-id",
             "label": "initial"
           }
         },
@@ -139,7 +145,8 @@
     "sessions": {
       "local": "10000000-0000-4000-8000-000000000001",
       "remote": "20000000-0000-4000-8000-000000000002",
-      "summary": "30000000-0000-4000-8000-000000000003"
+      "summary": "30000000-0000-4000-8000-000000000003",
+      "unknown": "50000000-0000-4000-8000-000000000005"
     },
     "compressors": {
       "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA"
@@ -182,6 +189,12 @@
                         ]
                       },
                       "label": {
+                        "kind": "Value",
+                        "types": [
+                          "com.fluidframework.leaf.string"
+                        ]
+                      },
+                      "pairOnly": {
                         "kind": "Value",
                         "types": [
                           "com.fluidframework.leaf.string"
@@ -302,6 +315,12 @@
                         ]
                       },
                       "label": {
+                        "kind": "Value",
+                        "types": [
+                          "com.fluidframework.leaf.string"
+                        ]
+                      },
+                      "pairOnly": {
                         "kind": "Value",
                         "types": [
                           "com.fluidframework.leaf.string"
@@ -418,7 +437,8 @@
                   "org.watershed.shared-tree.identifiers.NumberIdentifier"
                 ]
               }
-            }
+            },
+            "nativeProfileSupported": false
           }
         ]
       },
@@ -460,7 +480,8 @@
                   "org.watershed.shared-tree.identifiers.UnionIdentifier"
                 ]
               }
-            }
+            },
+            "nativeProfileSupported": false
           }
         ]
       },
@@ -525,15 +546,13 @@
       },
       {
         "id": "non-string-refusal",
-        "refused": true,
-        "originalError": "AssertionError [ERR_ASSERTION]: Expected the operation to be refused.",
-        "nativeErrorCategory": "AssertionError"
+        "upstreamAccepted": true,
+        "nativeProfileSupported": false
       },
       {
         "id": "union-refusal",
-        "refused": true,
-        "originalError": "AssertionError [ERR_ASSERTION]: Expected the operation to be refused.",
-        "nativeErrorCategory": "AssertionError"
+        "upstreamAccepted": true,
+        "nativeProfileSupported": false
       },
       {
         "id": "identifier-to-value",
@@ -554,54 +573,490 @@
     "scenarios": [
       {
         "id": "valid-string-field",
-        "field": {
-          "kind": "Identifier",
-          "types": [
-            "com.fluidframework.leaf.string"
+        "input": {
+          "id": "valid-string-field",
+          "actions": [
+            {
+              "op": "validate-schema",
+              "schema": {
+                "version": 2,
+                "nodes": {
+                  "com.fluidframework.leaf.string": {
+                    "kind": {
+                      "leaf": 1
+                    }
+                  },
+                  "org.watershed.shared-tree.identifiers.Items": {
+                    "kind": {
+                      "object": {
+                        "": {
+                          "kind": "Sequence",
+                          "types": [
+                            "org.watershed.shared-tree.identifiers.Pair",
+                            "org.watershed.shared-tree.identifiers.Point"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "org.watershed.shared-tree.identifiers.Pair": {
+                    "kind": {
+                      "object": {
+                        "firstId": {
+                          "kind": "Identifier",
+                          "types": [
+                            "com.fluidframework.leaf.string"
+                          ]
+                        },
+                        "label": {
+                          "kind": "Value",
+                          "types": [
+                            "com.fluidframework.leaf.string"
+                          ]
+                        },
+                        "pairOnly": {
+                          "kind": "Value",
+                          "types": [
+                            "com.fluidframework.leaf.string"
+                          ]
+                        },
+                        "secondId": {
+                          "kind": "Identifier",
+                          "types": [
+                            "com.fluidframework.leaf.string"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "org.watershed.shared-tree.identifiers.Point": {
+                    "kind": {
+                      "object": {
+                        "id": {
+                          "kind": "Identifier",
+                          "types": [
+                            "com.fluidframework.leaf.string"
+                          ]
+                        },
+                        "label": {
+                          "kind": "Value",
+                          "types": [
+                            "com.fluidframework.leaf.string"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "org.watershed.shared-tree.identifiers.PointsByKey": {
+                    "kind": {
+                      "map": {
+                        "kind": "Optional",
+                        "types": [
+                          "org.watershed.shared-tree.identifiers.Pair",
+                          "org.watershed.shared-tree.identifiers.Point"
+                        ]
+                      }
+                    }
+                  },
+                  "org.watershed.shared-tree.identifiers.Root": {
+                    "kind": {
+                      "object": {
+                        "byKey": {
+                          "kind": "Value",
+                          "types": [
+                            "org.watershed.shared-tree.identifiers.PointsByKey"
+                          ]
+                        },
+                        "child": {
+                          "kind": "Value",
+                          "types": [
+                            "org.watershed.shared-tree.identifiers.Point"
+                          ]
+                        },
+                        "left": {
+                          "kind": "Value",
+                          "types": [
+                            "org.watershed.shared-tree.identifiers.Items"
+                          ]
+                        },
+                        "right": {
+                          "kind": "Value",
+                          "types": [
+                            "org.watershed.shared-tree.identifiers.Items"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "root": {
+                  "kind": "Value",
+                  "types": [
+                    "org.watershed.shared-tree.identifiers.Root"
+                  ]
+                }
+              }
+            }
           ]
-        }
-      },
-      {
-        "id": "two-identifier-fields",
-        "fields": [
-          {
-            "kind": "Identifier",
-            "types": [
-              "com.fluidframework.leaf.string"
-            ]
-          },
-          {
+        },
+        "before": null,
+        "after": {
+          "id": "valid-string-field",
+          "field": {
             "kind": "Identifier",
             "types": [
               "com.fluidframework.leaf.string"
             ]
           }
-        ]
+        },
+        "observation": {
+          "id": "valid-string-field",
+          "field": {
+            "kind": "Identifier",
+            "types": [
+              "com.fluidframework.leaf.string"
+            ]
+          }
+        }
+      },
+      {
+        "id": "two-identifier-fields",
+        "input": {
+          "id": "two-identifier-fields",
+          "actions": [
+            {
+              "op": "validate-schema",
+              "schema": {
+                "version": 2,
+                "nodes": {
+                  "com.fluidframework.leaf.string": {
+                    "kind": {
+                      "leaf": 1
+                    }
+                  },
+                  "org.watershed.shared-tree.identifiers.Items": {
+                    "kind": {
+                      "object": {
+                        "": {
+                          "kind": "Sequence",
+                          "types": [
+                            "org.watershed.shared-tree.identifiers.Pair",
+                            "org.watershed.shared-tree.identifiers.Point"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "org.watershed.shared-tree.identifiers.Pair": {
+                    "kind": {
+                      "object": {
+                        "firstId": {
+                          "kind": "Identifier",
+                          "types": [
+                            "com.fluidframework.leaf.string"
+                          ]
+                        },
+                        "label": {
+                          "kind": "Value",
+                          "types": [
+                            "com.fluidframework.leaf.string"
+                          ]
+                        },
+                        "pairOnly": {
+                          "kind": "Value",
+                          "types": [
+                            "com.fluidframework.leaf.string"
+                          ]
+                        },
+                        "secondId": {
+                          "kind": "Identifier",
+                          "types": [
+                            "com.fluidframework.leaf.string"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "org.watershed.shared-tree.identifiers.Point": {
+                    "kind": {
+                      "object": {
+                        "id": {
+                          "kind": "Identifier",
+                          "types": [
+                            "com.fluidframework.leaf.string"
+                          ]
+                        },
+                        "label": {
+                          "kind": "Value",
+                          "types": [
+                            "com.fluidframework.leaf.string"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "org.watershed.shared-tree.identifiers.PointsByKey": {
+                    "kind": {
+                      "map": {
+                        "kind": "Optional",
+                        "types": [
+                          "org.watershed.shared-tree.identifiers.Pair",
+                          "org.watershed.shared-tree.identifiers.Point"
+                        ]
+                      }
+                    }
+                  },
+                  "org.watershed.shared-tree.identifiers.Root": {
+                    "kind": {
+                      "object": {
+                        "byKey": {
+                          "kind": "Value",
+                          "types": [
+                            "org.watershed.shared-tree.identifiers.PointsByKey"
+                          ]
+                        },
+                        "child": {
+                          "kind": "Value",
+                          "types": [
+                            "org.watershed.shared-tree.identifiers.Point"
+                          ]
+                        },
+                        "left": {
+                          "kind": "Value",
+                          "types": [
+                            "org.watershed.shared-tree.identifiers.Items"
+                          ]
+                        },
+                        "right": {
+                          "kind": "Value",
+                          "types": [
+                            "org.watershed.shared-tree.identifiers.Items"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "root": {
+                  "kind": "Value",
+                  "types": [
+                    "org.watershed.shared-tree.identifiers.Root"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "before": null,
+        "after": {
+          "id": "two-identifier-fields",
+          "fields": [
+            {
+              "kind": "Identifier",
+              "types": [
+                "com.fluidframework.leaf.string"
+              ]
+            },
+            {
+              "kind": "Identifier",
+              "types": [
+                "com.fluidframework.leaf.string"
+              ]
+            }
+          ]
+        },
+        "observation": {
+          "id": "two-identifier-fields",
+          "fields": [
+            {
+              "kind": "Identifier",
+              "types": [
+                "com.fluidframework.leaf.string"
+              ]
+            },
+            {
+              "kind": "Identifier",
+              "types": [
+                "com.fluidframework.leaf.string"
+              ]
+            }
+          ]
+        }
       },
       {
         "id": "non-string-refusal",
-        "refused": true,
-        "originalError": "AssertionError [ERR_ASSERTION]: Expected the operation to be refused.",
-        "nativeErrorCategory": "AssertionError"
+        "input": {
+          "id": "non-string-refusal",
+          "actions": [
+            {
+              "op": "validate-schema",
+              "schema": {
+                "version": 2,
+                "nodes": {
+                  "com.fluidframework.leaf.number": {
+                    "kind": {
+                      "leaf": 0
+                    }
+                  },
+                  "org.watershed.shared-tree.identifiers.NumberIdentifier": {
+                    "kind": {
+                      "object": {
+                        "id": {
+                          "kind": "Identifier",
+                          "types": [
+                            "com.fluidframework.leaf.number"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "root": {
+                  "kind": "Value",
+                  "types": [
+                    "org.watershed.shared-tree.identifiers.NumberIdentifier"
+                  ]
+                }
+              },
+              "nativeProfileSupported": false
+            }
+          ]
+        },
+        "before": null,
+        "after": {
+          "id": "non-string-refusal",
+          "upstreamAccepted": true,
+          "nativeProfileSupported": false
+        },
+        "observation": {
+          "id": "non-string-refusal",
+          "upstreamAccepted": true,
+          "nativeProfileSupported": false
+        }
       },
       {
         "id": "union-refusal",
-        "refused": true,
-        "originalError": "AssertionError [ERR_ASSERTION]: Expected the operation to be refused.",
-        "nativeErrorCategory": "AssertionError"
+        "input": {
+          "id": "union-refusal",
+          "actions": [
+            {
+              "op": "validate-schema",
+              "schema": {
+                "version": 2,
+                "nodes": {
+                  "com.fluidframework.leaf.number": {
+                    "kind": {
+                      "leaf": 0
+                    }
+                  },
+                  "com.fluidframework.leaf.string": {
+                    "kind": {
+                      "leaf": 1
+                    }
+                  },
+                  "org.watershed.shared-tree.identifiers.UnionIdentifier": {
+                    "kind": {
+                      "object": {
+                        "id": {
+                          "kind": "Identifier",
+                          "types": [
+                            "com.fluidframework.leaf.number",
+                            "com.fluidframework.leaf.string"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "root": {
+                  "kind": "Value",
+                  "types": [
+                    "org.watershed.shared-tree.identifiers.UnionIdentifier"
+                  ]
+                }
+              },
+              "nativeProfileSupported": false
+            }
+          ]
+        },
+        "before": null,
+        "after": {
+          "id": "union-refusal",
+          "upstreamAccepted": true,
+          "nativeProfileSupported": false
+        },
+        "observation": {
+          "id": "union-refusal",
+          "upstreamAccepted": true,
+          "nativeProfileSupported": false
+        }
       },
       {
         "id": "identifier-to-value",
-        "allowed": true
+        "input": {
+          "id": "identifier-to-value",
+          "actions": [
+            {
+              "op": "compare-schema",
+              "from": "Identifier",
+              "to": "Value"
+            }
+          ]
+        },
+        "before": null,
+        "after": {
+          "id": "identifier-to-value",
+          "allowed": true
+        },
+        "observation": {
+          "id": "identifier-to-value",
+          "allowed": true
+        }
       },
       {
         "id": "value-to-identifier-refusal",
-        "allowed": false
+        "input": {
+          "id": "value-to-identifier-refusal",
+          "actions": [
+            {
+              "op": "compare-schema",
+              "from": "Value",
+              "to": "Identifier"
+            }
+          ]
+        },
+        "before": null,
+        "after": {
+          "id": "value-to-identifier-refusal",
+          "allowed": false
+        },
+        "observation": {
+          "id": "value-to-identifier-refusal",
+          "allowed": false
+        }
       },
       {
         "id": "canonical-field-change",
-        "encoded": 0,
-        "decodedNoncanonical": 0
+        "input": {
+          "id": "canonical-field-change",
+          "actions": [
+            {
+              "op": "decode-field-change",
+              "encoded": 0
+            }
+          ]
+        },
+        "before": null,
+        "after": {
+          "id": "canonical-field-change",
+          "encoded": 0,
+          "decodedNoncanonical": 0
+        },
+        "observation": {
+          "id": "canonical-field-change",
+          "encoded": 0,
+          "decodedNoncanonical": 0
+        }
       }
     ],
     "persisted": {
@@ -635,6 +1090,12 @@
                 ]
               },
               "label": {
+                "kind": "Value",
+                "types": [
+                  "com.fluidframework.leaf.string"
+                ]
+              },
+              "pairOnly": {
                 "kind": "Value",
                 "types": [
                   "com.fluidframework.leaf.string"

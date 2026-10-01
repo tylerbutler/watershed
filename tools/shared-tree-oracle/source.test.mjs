@@ -223,6 +223,14 @@ test("source capture executes the Identifier contract", () => {
   ]);
 });
 
+test("Identifier capture rejects a successful refusal callback", async () => {
+  const contents = await readFile(
+    new URL("./upstream-identifier.spec.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(contents, /\(\) => captureRefusal\(\(\) => undefined\)/);
+});
+
 test("source runner isolates transaction entropy from the existing corpus", () => {
   assert.deepEqual(source.sourceTestBatches(true), [
     [

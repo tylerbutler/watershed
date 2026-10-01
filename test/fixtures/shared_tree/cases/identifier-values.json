@@ -45,6 +45,12 @@
                   "com.fluidframework.leaf.string"
                 ]
               },
+              "pairOnly": {
+                "kind": "Value",
+                "types": [
+                  "com.fluidframework.leaf.string"
+                ]
+              },
               "secondId": {
                 "kind": "Identifier",
                 "types": [
@@ -127,11 +133,19 @@
         "child": {
           "schema": "org.watershed.shared-tree.identifiers.Point",
           "fields": {
-            "id": "initial",
-            "label": "initial"
+            "id": "attached-child",
+            "label": "child"
           }
         },
-        "left": [],
+        "left": [
+          {
+            "schema": "org.watershed.shared-tree.identifiers.Point",
+            "fields": {
+              "id": "left",
+              "label": "left"
+            }
+          }
+        ],
         "right": [],
         "byKey": []
       }
@@ -139,11 +153,11 @@
     "sessions": {
       "local": "10000000-0000-4000-8000-000000000001",
       "remote": "20000000-0000-4000-8000-000000000002",
-      "summary": "30000000-0000-4000-8000-000000000003"
+      "summary": "30000000-0000-4000-8000-000000000003",
+      "unknown": "50000000-0000-4000-8000-000000000005"
     },
     "compressors": {
-      "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAABAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
-      "document": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAAAiAQAAAAAAAABRAAAAAAAAAFEAAAAAAAAAYQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
+      "initial": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8BAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw=="
     },
     "idRanges": [],
     "scenarios": [
@@ -226,7 +240,8 @@
             "op": "construct",
             "schema": "org.watershed.shared-tree.identifiers.Pair",
             "fields": {
-              "label": "pair"
+              "label": "pair",
+              "pairOnly": "pair"
             }
           }
         ]
@@ -235,16 +250,35 @@
         "id": "nested-insertion",
         "actions": [
           {
-            "op": "insert",
-            "path": [
-              "left"
-            ],
-            "index": 0,
-            "value": {
-              "schema": "org.watershed.shared-tree.identifiers.Point",
-              "fields": {
-                "label": "array"
-              }
+            "op": "construct",
+            "schema": "org.watershed.shared-tree.identifiers.Root",
+            "fields": {
+              "child": {
+                "schema": "org.watershed.shared-tree.identifiers.Point",
+                "fields": {
+                  "label": "child"
+                }
+              },
+              "left": [
+                {
+                  "schema": "org.watershed.shared-tree.identifiers.Point",
+                  "fields": {
+                    "label": "array"
+                  }
+                }
+              ],
+              "right": [],
+              "byKey": [
+                [
+                  "map",
+                  {
+                    "schema": "org.watershed.shared-tree.identifiers.Point",
+                    "fields": {
+                      "label": "map"
+                    }
+                  }
+                ]
+              ]
             }
           }
         ]
@@ -304,7 +338,8 @@
             "value": {
               "schema": "org.watershed.shared-tree.identifiers.Pair",
               "fields": {
-                "label": "allocation"
+                "label": "allocation",
+                "pairOnly": "allocation"
               }
             }
           }
@@ -335,25 +370,25 @@
       },
       {
         "id": "omitted-default",
-        "value": "42e4ad58-3e85-4f79-828e-af111354b1a4"
+        "value": "10000000-0000-4000-8000-000000000002"
       },
       {
         "id": "multiple-defaults",
         "values": [
-          "42e4ad58-3e85-4f79-828e-af111354b1a5",
-          "42e4ad58-3e85-4f79-828e-af111354b1a6"
+          "10000000-0000-4000-8000-000000000002",
+          "10000000-0000-4000-8000-000000000003"
         ]
       },
       {
         "id": "nested-insertion",
         "value": {
           "child": {
-            "id": "42e4ad58-3e85-4f79-828e-af111354b1a7",
+            "id": "10000000-0000-4000-8000-000000000004",
             "label": "child"
           },
           "left": [
             {
-              "id": "42e4ad58-3e85-4f79-828e-af111354b1a8",
+              "id": "10000000-0000-4000-8000-000000000002",
               "label": "array"
             }
           ],
@@ -362,12 +397,49 @@
             [
               "map",
               {
-                "id": "42e4ad58-3e85-4f79-828e-af111354b1a9",
+                "id": "10000000-0000-4000-8000-000000000003",
                 "label": "map"
               }
             ]
           ]
-        }
+        },
+        "allocationEvents": [
+          {
+            "ordinal": 1,
+            "kind": "identifier",
+            "path": [
+              "left",
+              0,
+              "id"
+            ],
+            "op": 1
+          },
+          {
+            "ordinal": 2,
+            "kind": "identifier",
+            "path": [
+              "byKey",
+              "map",
+              "id"
+            ],
+            "op": 2
+          },
+          {
+            "ordinal": 3,
+            "kind": "identifier",
+            "path": [
+              "child",
+              "id"
+            ],
+            "op": 3
+          },
+          {
+            "ordinal": 4,
+            "kind": "revision",
+            "path": [],
+            "op": 4
+          }
+        ]
       },
       {
         "id": "direct-assignment-refusal",
@@ -390,20 +462,32 @@
       },
       {
         "id": "allocation-order",
-        "order": [
+        "events": [
           {
-            "kind": "revision",
-            "op": 4
-          },
-          {
+            "ordinal": 1,
             "kind": "identifier",
-            "field": "firstId",
+            "path": [
+              "left",
+              1,
+              "firstId"
+            ],
             "op": 2
           },
           {
+            "ordinal": 2,
             "kind": "identifier",
-            "field": "secondId",
+            "path": [
+              "left",
+              1,
+              "secondId"
+            ],
             "op": 3
+          },
+          {
+            "ordinal": 3,
+            "kind": "revision",
+            "path": [],
+            "op": 4
           }
         ]
       }
@@ -413,222 +497,1025 @@
     "scenarios": [
       {
         "id": "custom-string",
-        "value": "custom-id"
+        "input": {
+          "id": "custom-string",
+          "actions": [
+            {
+              "op": "construct",
+              "schema": "org.watershed.shared-tree.identifiers.Point",
+              "fields": {
+                "id": "custom-id",
+                "label": "custom"
+              }
+            }
+          ]
+        },
+        "before": null,
+        "after": [
+          {
+            "id": "custom-id",
+            "label": "custom"
+          }
+        ],
+        "result": [
+          {
+            "value": {
+              "id": "custom-id",
+              "label": "custom"
+            },
+            "allocationEvents": [
+              {
+                "ordinal": 1,
+                "kind": "revision",
+                "path": [],
+                "op": 1
+              }
+            ]
+          }
+        ],
+        "observation": {
+          "id": "custom-string",
+          "value": "custom-id"
+        }
       },
       {
         "id": "empty-string",
-        "value": ""
+        "input": {
+          "id": "empty-string",
+          "actions": [
+            {
+              "op": "construct",
+              "schema": "org.watershed.shared-tree.identifiers.Point",
+              "fields": {
+                "id": "",
+                "label": "empty"
+              }
+            }
+          ]
+        },
+        "before": null,
+        "after": [
+          {
+            "id": "",
+            "label": "empty"
+          }
+        ],
+        "result": [
+          {
+            "value": {
+              "id": "",
+              "label": "empty"
+            },
+            "allocationEvents": [
+              {
+                "ordinal": 1,
+                "kind": "revision",
+                "path": [],
+                "op": 1
+              }
+            ]
+          }
+        ],
+        "observation": {
+          "id": "empty-string",
+          "value": ""
+        }
       },
       {
         "id": "uuid",
-        "value": "11111111-2222-4333-8444-555555555555"
+        "input": {
+          "id": "uuid",
+          "actions": [
+            {
+              "op": "construct",
+              "schema": "org.watershed.shared-tree.identifiers.Point",
+              "fields": {
+                "id": "11111111-2222-4333-8444-555555555555",
+                "label": "uuid"
+              }
+            }
+          ]
+        },
+        "before": null,
+        "after": [
+          {
+            "id": "11111111-2222-4333-8444-555555555555",
+            "label": "uuid"
+          }
+        ],
+        "result": [
+          {
+            "value": {
+              "id": "11111111-2222-4333-8444-555555555555",
+              "label": "uuid"
+            },
+            "allocationEvents": [
+              {
+                "ordinal": 1,
+                "kind": "revision",
+                "path": [],
+                "op": 1
+              }
+            ]
+          }
+        ],
+        "observation": {
+          "id": "uuid",
+          "value": "11111111-2222-4333-8444-555555555555"
+        }
       },
       {
         "id": "duplicate-custom-strings",
-        "values": [
-          "duplicate",
-          "duplicate"
-        ]
+        "input": {
+          "id": "duplicate-custom-strings",
+          "actions": [
+            {
+              "op": "construct",
+              "schema": "org.watershed.shared-tree.identifiers.Point",
+              "fields": {
+                "id": "duplicate",
+                "label": "a"
+              }
+            },
+            {
+              "op": "construct",
+              "schema": "org.watershed.shared-tree.identifiers.Point",
+              "fields": {
+                "id": "duplicate",
+                "label": "b"
+              }
+            }
+          ]
+        },
+        "before": null,
+        "after": [
+          {
+            "id": "duplicate",
+            "label": "a"
+          },
+          {
+            "id": "duplicate",
+            "label": "b"
+          }
+        ],
+        "result": [
+          {
+            "value": {
+              "id": "duplicate",
+              "label": "a"
+            },
+            "allocationEvents": [
+              {
+                "ordinal": 1,
+                "kind": "revision",
+                "path": [],
+                "op": 1
+              }
+            ]
+          },
+          {
+            "value": {
+              "id": "duplicate",
+              "label": "b"
+            },
+            "allocationEvents": [
+              {
+                "ordinal": 1,
+                "kind": "revision",
+                "path": [],
+                "op": 1
+              }
+            ]
+          }
+        ],
+        "observation": {
+          "id": "duplicate-custom-strings",
+          "values": [
+            "duplicate",
+            "duplicate"
+          ]
+        }
       },
       {
         "id": "omitted-default",
-        "value": "42e4ad58-3e85-4f79-828e-af111354b1a4"
+        "input": {
+          "id": "omitted-default",
+          "actions": [
+            {
+              "op": "construct",
+              "schema": "org.watershed.shared-tree.identifiers.Point",
+              "fields": {
+                "label": "generated"
+              }
+            }
+          ]
+        },
+        "before": null,
+        "after": [
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "label": "generated"
+          }
+        ],
+        "result": [
+          {
+            "value": {
+              "id": "10000000-0000-4000-8000-000000000002",
+              "label": "generated"
+            },
+            "allocationEvents": [
+              {
+                "ordinal": 1,
+                "kind": "identifier",
+                "path": [
+                  "id"
+                ],
+                "op": 1
+              },
+              {
+                "ordinal": 2,
+                "kind": "revision",
+                "path": [],
+                "op": 2
+              }
+            ]
+          }
+        ],
+        "observation": {
+          "id": "omitted-default",
+          "value": "10000000-0000-4000-8000-000000000002"
+        }
       },
       {
         "id": "multiple-defaults",
-        "values": [
-          "42e4ad58-3e85-4f79-828e-af111354b1a5",
-          "42e4ad58-3e85-4f79-828e-af111354b1a6"
-        ]
+        "input": {
+          "id": "multiple-defaults",
+          "actions": [
+            {
+              "op": "construct",
+              "schema": "org.watershed.shared-tree.identifiers.Pair",
+              "fields": {
+                "label": "pair",
+                "pairOnly": "pair"
+              }
+            }
+          ]
+        },
+        "before": null,
+        "after": [
+          {
+            "firstId": "10000000-0000-4000-8000-000000000002",
+            "secondId": "10000000-0000-4000-8000-000000000003",
+            "label": "pair"
+          }
+        ],
+        "result": [
+          {
+            "value": {
+              "firstId": "10000000-0000-4000-8000-000000000002",
+              "secondId": "10000000-0000-4000-8000-000000000003",
+              "label": "pair"
+            },
+            "allocationEvents": [
+              {
+                "ordinal": 1,
+                "kind": "identifier",
+                "path": [
+                  "firstId"
+                ],
+                "op": 1
+              },
+              {
+                "ordinal": 2,
+                "kind": "identifier",
+                "path": [
+                  "secondId"
+                ],
+                "op": 2
+              },
+              {
+                "ordinal": 3,
+                "kind": "revision",
+                "path": [],
+                "op": 3
+              }
+            ]
+          }
+        ],
+        "observation": {
+          "id": "multiple-defaults",
+          "values": [
+            "10000000-0000-4000-8000-000000000002",
+            "10000000-0000-4000-8000-000000000003"
+          ]
+        }
       },
       {
         "id": "nested-insertion",
-        "value": {
-          "child": {
-            "id": "42e4ad58-3e85-4f79-828e-af111354b1a7",
-            "label": "child"
-          },
-          "left": [
+        "input": {
+          "id": "nested-insertion",
+          "actions": [
             {
-              "id": "42e4ad58-3e85-4f79-828e-af111354b1a8",
-              "label": "array"
+              "op": "construct",
+              "schema": "org.watershed.shared-tree.identifiers.Root",
+              "fields": {
+                "child": {
+                  "schema": "org.watershed.shared-tree.identifiers.Point",
+                  "fields": {
+                    "label": "child"
+                  }
+                },
+                "left": [
+                  {
+                    "schema": "org.watershed.shared-tree.identifiers.Point",
+                    "fields": {
+                      "label": "array"
+                    }
+                  }
+                ],
+                "right": [],
+                "byKey": [
+                  [
+                    "map",
+                    {
+                      "schema": "org.watershed.shared-tree.identifiers.Point",
+                      "fields": {
+                        "label": "map"
+                      }
+                    }
+                  ]
+                ]
+              }
             }
-          ],
-          "right": [],
-          "byKey": [
-            [
-              "map",
+          ]
+        },
+        "before": null,
+        "after": [
+          {
+            "child": {
+              "id": "10000000-0000-4000-8000-000000000004",
+              "label": "child"
+            },
+            "left": [
               {
-                "id": "42e4ad58-3e85-4f79-828e-af111354b1a9",
-                "label": "map"
+                "id": "10000000-0000-4000-8000-000000000002",
+                "label": "array"
+              }
+            ],
+            "right": [],
+            "byKey": [
+              [
+                "map",
+                {
+                  "id": "10000000-0000-4000-8000-000000000003",
+                  "label": "map"
+                }
+              ]
+            ]
+          }
+        ],
+        "result": [
+          {
+            "value": {
+              "child": {
+                "id": "10000000-0000-4000-8000-000000000004",
+                "label": "child"
+              },
+              "left": [
+                {
+                  "id": "10000000-0000-4000-8000-000000000002",
+                  "label": "array"
+                }
+              ],
+              "right": [],
+              "byKey": [
+                [
+                  "map",
+                  {
+                    "id": "10000000-0000-4000-8000-000000000003",
+                    "label": "map"
+                  }
+                ]
+              ]
+            },
+            "allocationEvents": [
+              {
+                "ordinal": 1,
+                "kind": "identifier",
+                "path": [
+                  "left",
+                  0,
+                  "id"
+                ],
+                "op": 1
+              },
+              {
+                "ordinal": 2,
+                "kind": "identifier",
+                "path": [
+                  "byKey",
+                  "map",
+                  "id"
+                ],
+                "op": 2
+              },
+              {
+                "ordinal": 3,
+                "kind": "identifier",
+                "path": [
+                  "child",
+                  "id"
+                ],
+                "op": 3
+              },
+              {
+                "ordinal": 4,
+                "kind": "revision",
+                "path": [],
+                "op": 4
               }
             ]
+          }
+        ],
+        "observation": {
+          "id": "nested-insertion",
+          "value": {
+            "child": {
+              "id": "10000000-0000-4000-8000-000000000004",
+              "label": "child"
+            },
+            "left": [
+              {
+                "id": "10000000-0000-4000-8000-000000000002",
+                "label": "array"
+              }
+            ],
+            "right": [],
+            "byKey": [
+              [
+                "map",
+                {
+                  "id": "10000000-0000-4000-8000-000000000003",
+                  "label": "map"
+                }
+              ]
+            ]
+          },
+          "allocationEvents": [
+            {
+              "ordinal": 1,
+              "kind": "identifier",
+              "path": [
+                "left",
+                0,
+                "id"
+              ],
+              "op": 1
+            },
+            {
+              "ordinal": 2,
+              "kind": "identifier",
+              "path": [
+                "byKey",
+                "map",
+                "id"
+              ],
+              "op": 2
+            },
+            {
+              "ordinal": 3,
+              "kind": "identifier",
+              "path": [
+                "child",
+                "id"
+              ],
+              "op": 3
+            },
+            {
+              "ordinal": 4,
+              "kind": "revision",
+              "path": [],
+              "op": 4
+            }
           ]
         }
       },
       {
         "id": "direct-assignment-refusal",
-        "refused": true,
-        "originalError": "Error: 0xade",
-        "nativeErrorCategory": "Error"
+        "input": {
+          "id": "direct-assignment-refusal",
+          "actions": [
+            {
+              "op": "set",
+              "path": [
+                "child",
+                "id"
+              ],
+              "value": "changed"
+            }
+          ]
+        },
+        "before": {
+          "child": {
+            "id": "attached-child",
+            "label": "child"
+          },
+          "left": [
+            {
+              "id": "left",
+              "label": "left"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        },
+        "after": {
+          "child": {
+            "id": "attached-child",
+            "label": "child"
+          },
+          "left": [
+            {
+              "id": "left",
+              "label": "left"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        },
+        "refusal": {
+          "originalError": "Error: 0xade",
+          "nativeErrorCategory": "Error"
+        },
+        "allocationEvents": [],
+        "messages": [],
+        "observation": {
+          "id": "direct-assignment-refusal",
+          "refused": true,
+          "originalError": "Error: 0xade",
+          "nativeErrorCategory": "Error"
+        }
       },
       {
         "id": "clear-refusal",
-        "refused": true,
-        "originalError": "Error: Got undefined for non-optional field expecting one of [\"com.fluidframework.leaf.string\" (name: undefined)]",
-        "nativeErrorCategory": "UsageError"
+        "input": {
+          "id": "clear-refusal",
+          "actions": [
+            {
+              "op": "clear",
+              "path": [
+                "child",
+                "id"
+              ]
+            }
+          ]
+        },
+        "before": {
+          "child": {
+            "id": "attached-child",
+            "label": "child"
+          },
+          "left": [
+            {
+              "id": "left",
+              "label": "left"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        },
+        "after": {
+          "child": {
+            "id": "attached-child",
+            "label": "child"
+          },
+          "left": [
+            {
+              "id": "left",
+              "label": "left"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        },
+        "refusal": {
+          "originalError": "Error: Got undefined for non-optional field expecting one of [\"com.fluidframework.leaf.string\" (name: undefined)]",
+          "nativeErrorCategory": "UsageError"
+        },
+        "allocationEvents": [],
+        "messages": [],
+        "observation": {
+          "id": "clear-refusal",
+          "refused": true,
+          "originalError": "Error: Got undefined for non-optional field expecting one of [\"com.fluidframework.leaf.string\" (name: undefined)]",
+          "nativeErrorCategory": "UsageError"
+        }
       },
       {
         "id": "parent-replacement",
-        "value": {
-          "id": "replacement",
-          "label": "replacement"
+        "input": {
+          "id": "parent-replacement",
+          "actions": [
+            {
+              "op": "set",
+              "path": [
+                "child"
+              ],
+              "value": {
+                "schema": "org.watershed.shared-tree.identifiers.Point",
+                "fields": {
+                  "id": "replacement",
+                  "label": "replacement"
+                }
+              }
+            }
+          ]
+        },
+        "before": {
+          "child": {
+            "id": "attached-child",
+            "label": "child"
+          },
+          "left": [
+            {
+              "id": "left",
+              "label": "left"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        },
+        "after": {
+          "child": {
+            "id": "replacement",
+            "label": "replacement"
+          },
+          "left": [
+            {
+              "id": "left",
+              "label": "left"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        },
+        "beforeNode": 1,
+        "afterNode": 2,
+        "allocationEvents": [
+          {
+            "ordinal": 1,
+            "kind": "revision",
+            "path": [],
+            "op": 2
+          }
+        ],
+        "messages": [
+          {
+            "revision": 2,
+            "originatorId": "10000000-0000-4000-8000-000000000001",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 2,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
+                          {
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "child",
+                                "fieldKind": "Value",
+                                "change": {
+                                  "r": {
+                                    "e": false,
+                                    "d": 1,
+                                    "s": 0
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  "builds": {
+                    "builds": [
+                      [
+                        [
+                          [
+                            0,
+                            0
+                          ]
+                        ]
+                      ]
+                    ],
+                    "trees": {
+                      "version": 2,
+                      "identifiers": [
+                        "com.fluidframework.leaf.string"
+                      ],
+                      "shapes": [
+                        {
+                          "c": {
+                            "type": "org.watershed.shared-tree.identifiers.Point",
+                            "value": false,
+                            "fields": [
+                              [
+                                "id",
+                                1
+                              ],
+                              [
+                                "label",
+                                2
+                              ]
+                            ]
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": 0,
+                            "value": 0
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": 0,
+                            "value": true
+                          }
+                        }
+                      ],
+                      "data": [
+                        [
+                          0,
+                          "replacement",
+                          "replacement"
+                        ]
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "version": 7
+          }
+        ],
+        "observation": {
+          "id": "parent-replacement",
+          "value": {
+            "id": "replacement",
+            "label": "replacement"
+          }
         }
       },
       {
         "id": "allocation-order",
-        "order": [
-          {
-            "kind": "revision",
-            "op": 4
+        "input": {
+          "id": "allocation-order",
+          "actions": [
+            {
+              "op": "insert",
+              "path": [
+                "left"
+              ],
+              "index": 1,
+              "value": {
+                "schema": "org.watershed.shared-tree.identifiers.Pair",
+                "fields": {
+                  "label": "allocation",
+                  "pairOnly": "allocation"
+                }
+              }
+            }
+          ]
+        },
+        "before": {
+          "child": {
+            "id": "attached-child",
+            "label": "child"
           },
+          "left": [
+            {
+              "id": "left",
+              "label": "left"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        },
+        "after": {
+          "child": {
+            "id": "attached-child",
+            "label": "child"
+          },
+          "left": [
+            {
+              "id": "left",
+              "label": "left"
+            },
+            {
+              "firstId": "10000000-0000-4000-8000-000000000003",
+              "secondId": "10000000-0000-4000-8000-000000000004",
+              "label": "allocation"
+            }
+          ],
+          "right": [],
+          "byKey": []
+        },
+        "allocationEvents": [
           {
+            "ordinal": 1,
             "kind": "identifier",
-            "field": "firstId",
+            "path": [
+              "left",
+              1,
+              "firstId"
+            ],
             "op": 2
           },
           {
+            "ordinal": 2,
             "kind": "identifier",
-            "field": "secondId",
+            "path": [
+              "left",
+              1,
+              "secondId"
+            ],
             "op": 3
-          }
-        ]
-      }
-    ],
-    "messages": [
-      {
-        "revision": 4,
-        "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
-        "changeset": [
+          },
           {
-            "data": {
-              "maxId": 5,
-              "changes": [
-                {
-                  "fieldKey": "rootFieldKey",
-                  "fieldKind": "ModularEditBuilder.Generic",
-                  "change": [
-                    [
-                      0,
-                      {
-                        "fieldChanges": [
+            "ordinal": 3,
+            "kind": "revision",
+            "path": [],
+            "op": 4
+          }
+        ],
+        "messages": [
+          {
+            "revision": 4,
+            "originatorId": "10000000-0000-4000-8000-000000000001",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 2,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
                           {
-                            "fieldKey": "left",
-                            "fieldKind": "ModularEditBuilder.Generic",
-                            "change": [
-                              [
-                                0,
-                                {
-                                  "fieldChanges": [
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "left",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
                                     {
-                                      "fieldKey": "",
-                                      "fieldKind": "Sequence",
-                                      "change": [
+                                      "fieldChanges": [
                                         {
-                                          "count": 1
-                                        },
-                                        {
-                                          "count": 1,
-                                          "effect": {
-                                            "insert": {
-                                              "id": 3
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "insert": {
+                                                  "id": 0
+                                                }
+                                              },
+                                              "cellId": 0
                                             }
-                                          },
-                                          "cellId": 3
+                                          ]
                                         }
                                       ]
                                     }
                                   ]
-                                }
-                              ]
+                                ]
+                              }
                             ]
                           }
                         ]
-                      }
-                    ]
-                  ]
-                }
-              ],
-              "builds": {
-                "builds": [
-                  [
-                    [
-                      [
-                        3,
-                        0
                       ]
-                    ]
-                  ]
-                ],
-                "trees": {
-                  "version": 2,
-                  "identifiers": [
-                    "com.fluidframework.leaf.string"
-                  ],
-                  "shapes": [
-                    {
-                      "c": {
-                        "type": "org.watershed.shared-tree.identifiers.Pair",
-                        "value": false,
-                        "fields": [
-                          [
-                            "firstId",
-                            1
-                          ],
-                          [
-                            "secondId",
-                            2
-                          ],
-                          [
-                            "label",
-                            3
-                          ]
-                        ]
-                      }
-                    },
-                    {
-                      "c": {
-                        "type": 0,
-                        "value": 0
-                      }
-                    },
-                    {
-                      "c": {
-                        "type": 0,
-                        "value": 0
-                      }
-                    },
-                    {
-                      "c": {
-                        "type": 0,
-                        "value": true
-                      }
                     }
                   ],
-                  "data": [
-                    [
-                      0,
-                      2,
-                      3,
-                      "allocation"
-                    ]
-                  ]
+                  "builds": {
+                    "builds": [
+                      [
+                        [
+                          [
+                            0,
+                            0
+                          ]
+                        ]
+                      ]
+                    ],
+                    "trees": {
+                      "version": 2,
+                      "identifiers": [
+                        "com.fluidframework.leaf.string"
+                      ],
+                      "shapes": [
+                        {
+                          "c": {
+                            "type": 0,
+                            "value": true
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": "org.watershed.shared-tree.identifiers.Pair",
+                            "value": false,
+                            "fields": [
+                              [
+                                "firstId",
+                                2
+                              ],
+                              [
+                                "secondId",
+                                3
+                              ],
+                              [
+                                "label",
+                                0
+                              ],
+                              [
+                                "pairOnly",
+                                0
+                              ]
+                            ]
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": 0,
+                            "value": 0
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": 0,
+                            "value": 0
+                          }
+                        }
+                      ],
+                      "data": [
+                        [
+                          1,
+                          2,
+                          3,
+                          "allocation",
+                          "allocation"
+                        ]
+                      ]
+                    }
+                  }
                 }
               }
-            }
+            ],
+            "version": 7
           }
         ],
-        "version": 7
+        "observation": {
+          "id": "allocation-order",
+          "events": [
+            {
+              "ordinal": 1,
+              "kind": "identifier",
+              "path": [
+                "left",
+                1,
+                "firstId"
+              ],
+              "op": 2
+            },
+            {
+              "ordinal": 2,
+              "kind": "identifier",
+              "path": [
+                "left",
+                1,
+                "secondId"
+              ],
+              "op": 3
+            },
+            {
+              "ordinal": 3,
+              "kind": "revision",
+              "path": [],
+              "op": 4
+            }
+          ]
+        }
       }
     ]
   }

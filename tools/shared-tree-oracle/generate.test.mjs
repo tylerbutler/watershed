@@ -116,17 +116,67 @@ function identifierCaseFixture(id, domain) {
       purpose: "message",
       originator: "11111111-1111-4111-8111-111111111111",
     }];
+    scenarios.find(({ id: scenarioId }) => scenarioId === "eager-final-id").actions = [
+      { op: "allocate-id", compressor: "summary" },
+      {
+        op: "decode-field-batch",
+        path: ["identifier"],
+        encoded: { value: 0 },
+        purpose: "summary",
+      },
+    ];
+  }
+  if (id === "identifier-persistence") {
+    scenarios.find(({ id: scenarioId }) => scenarioId === "summary-tail").actions = [
+      {
+        op: "load-summary",
+        purpose: "summary",
+        summary: { type: "tree", tree: {} },
+        compressor: "summary-compressor",
+        session: "33333333-3333-4333-8333-333333333333",
+      },
+      {
+        op: "apply-tail",
+        purpose: "message",
+        messages: [{ contents: { changeset: [] } }],
+        idRanges: [{
+          sessionId: "11111111-1111-4111-8111-111111111111",
+          ids: { firstGenCount: 1, count: 1, localIdRanges: [[1, 1]] },
+        }],
+      },
+    ];
+    scenarios.find(({ id: scenarioId }) =>
+      scenarioId === "equal-custom-id-replacement").actions = [0, 1].map(() => ({
+        op: "set",
+        path: ["child"],
+        value: {
+          schema: "org.watershed.shared-tree.identifiers.Point",
+          fields: { id: "literal-custom-id", label: "replacement" },
+        },
+      }));
   }
   const observations = scenarios.map(({ id: scenarioId }) => ({
     id: scenarioId,
     observed: true,
   }));
   if (id === "identifier-values") {
-    observations.find(({ id: scenarioId }) => scenarioId === "allocation-order").order = [
-      { kind: "revision", op: 4 },
-      { kind: "identifier", field: "firstId", op: 2 },
-      { kind: "identifier", field: "secondId", op: 3 },
+    observations.find(({ id: scenarioId }) => scenarioId === "allocation-order").events = [
+      { ordinal: 1, kind: "identifier", path: ["left", 1, "firstId"], op: 2 },
+      { ordinal: 2, kind: "identifier", path: ["left", 1, "secondId"], op: 3 },
+      { ordinal: 3, kind: "revision", path: [], op: 4 },
     ];
+    observations.find(({ id: scenarioId }) => scenarioId === "nested-insertion")
+      .allocationEvents = [
+        { ordinal: 1, kind: "identifier", path: ["child", "id"], op: 1 },
+      ];
+  }
+  if (id === "identifier-schema") {
+    for (const scenarioId of ["non-string-refusal", "union-refusal"]) {
+      Object.assign(observations.find(({ id }) => id === scenarioId), {
+        upstreamAccepted: true,
+        nativeProfileSupported: false,
+      });
+    }
   }
   if (id === "identifier-field-batches") {
     observations.find(({ id: scenarioId }) => scenarioId === "literal-zero-string")
@@ -145,6 +195,26 @@ function identifierCaseFixture(id, domain) {
         originalError: "Error: refused",
         nativeErrorCategory: "Error",
       }];
+    Object.assign(
+      observations.find(({ id: scenarioId }) => scenarioId === "eager-final-id"),
+      {
+        value: "eager",
+        decodedByUpstream: "eager",
+        allocatedAfterFinalization: true,
+      },
+    );
+  }
+  if (id === "identifier-persistence") {
+    observations.find(({ id: scenarioId }) => scenarioId === "summary-tail").value =
+      { child: { id: "tail" } };
+    Object.assign(
+      observations.find(({ id: scenarioId }) => scenarioId === "equal-custom-id-replacement"),
+      {
+        nodeReplaced: true,
+        beforeNode: "1:node",
+        afterNode: "2:node",
+      },
+    );
   }
   return {
     formatVersion: 1,
@@ -173,7 +243,15 @@ function identifierCaseFixture(id, domain) {
       observations,
     },
     raw: {
-      scenarios: structuredClone(observations),
+      scenarios: scenarios.map((input, index) => ({
+        id: input.id,
+        input: structuredClone(input),
+        before: null,
+        after: id === "identifier-persistence" && input.id === "summary-tail"
+          ? structuredClone(observations[index].value)
+          : structuredClone(observations[index]),
+        observation: structuredClone(observations[index]),
+      })),
     },
   };
 }
@@ -1470,7 +1548,7 @@ test("Identifier corpus rejects missing cases and incomplete executable evidence
     .originalError;
   delete withoutOriginalError.find(({ id }) => id === "identifier-field-batches")
     .raw.scenarios.find(({ id }) => id === "numeric-originatorless-refusal")
-    .originalError;
+    .observation.originalError;
   assert.throws(() => validateCases(withoutOriginalError), /original error/);
 
   const withoutErrorCategory = structuredClone(complete);
@@ -1479,8 +1557,67 @@ test("Identifier corpus rejects missing cases and incomplete executable evidence
     .refusals[0].nativeErrorCategory;
   delete withoutErrorCategory.find(({ id }) => id === "identifier-field-batches")
     .raw.scenarios.find(({ id }) => id === "invalid-payload-shapes")
-    .refusals[0].nativeErrorCategory;
+    .observation.refusals[0].nativeErrorCategory;
   assert.throws(() => validateCases(withoutErrorCategory), /error category/);
+});
+
+test("Identifier fixtures preserve executable capture evidence", () => {
+  const fixture = (id) => JSON.parse(readFileSync(
+    new URL(`../../test/fixtures/shared_tree/cases/${id}.json`, import.meta.url),
+    "utf8",
+  ));
+  const schema = fixture("identifier-schema");
+  for (const id of ["non-string-refusal", "union-refusal"]) {
+    const observation = schema.expected.observations.find((item) => item.id === id);
+    assert.equal(typeof observation.upstreamAccepted, "boolean", id);
+    assert.equal(observation.nativeProfileSupported, false, id);
+    assert.doesNotMatch(observation.originalError ?? "", /Expected the operation to be refused/);
+  }
+
+  const values = fixture("identifier-values");
+  const allocation = values.expected.observations
+    .find(({ id }) => id === "allocation-order").events;
+  assert.deepEqual(allocation.map(({ ordinal, kind, path }) => ({ ordinal, kind, path })), [
+    { ordinal: 1, kind: "identifier", path: ["left", 1, "firstId"] },
+    { ordinal: 2, kind: "identifier", path: ["left", 1, "secondId"] },
+    { ordinal: 3, kind: "revision", path: [] },
+  ]);
+  const nested = values.expected.observations
+    .find(({ id }) => id === "nested-insertion").allocationEvents;
+  assert(nested.length >= 3);
+  assert(nested.every(({ ordinal, path }) =>
+    Number.isSafeInteger(ordinal) && ordinal > 0 && Array.isArray(path)));
+  for (const scenario of values.input.scenarios) {
+    const execution = values.raw.scenarios.find(({ id }) => id === scenario.id);
+    assert.deepEqual(execution.input, scenario);
+    assert(Object.hasOwn(execution, "before"));
+    assert(Object.hasOwn(execution, "after"));
+  }
+  assert.deepEqual(Object.keys(values.input.compressors), ["initial"]);
+
+  const batches = fixture("identifier-field-batches");
+  const eager = batches.expected.observations.find(({ id }) => id === "eager-final-id");
+  assert.equal(eager.allocatedAfterFinalization, true);
+  assert.equal(eager.decodedByUpstream, eager.value);
+
+  const persistence = fixture("identifier-persistence");
+  const tail = persistence.input.scenarios.find(({ id }) => id === "summary-tail");
+  const load = tail.actions.find(({ op }) => op === "load-summary");
+  const apply = tail.actions.find(({ op }) => op === "apply-tail");
+  assert(load.summary && typeof load.compressor === "string");
+  assert(Array.isArray(apply.messages) && apply.messages.length > 0);
+  assert(Array.isArray(apply.idRanges));
+  const tailExecution = persistence.raw.scenarios.find(({ id }) => id === "summary-tail");
+  assert.deepEqual(
+    persistence.expected.observations.find(({ id }) => id === "summary-tail").value,
+    tailExecution.after,
+  );
+  const replacement = persistence.input.scenarios
+    .find(({ id }) => id === "equal-custom-id-replacement").actions[0];
+  assert.equal(replacement.value.fields.id, "literal-custom-id");
+  const replacementObservation = persistence.expected.observations
+    .find(({ id }) => id === "equal-custom-id-replacement");
+  assert.notEqual(replacementObservation.beforeNode, replacementObservation.afterNode);
 });
 
 test("M3 requires sequence replay evidence", () => {
@@ -2869,9 +3006,9 @@ test("manifest records complete native runners and actual wire field kinds", asy
     cases: identifierCases.map(([id]) => id),
     valueShapeDiscriminator: 0,
     allocationOrder: [
-      { kind: "revision", op: 4 },
-      { kind: "identifier", field: "firstId", op: 2 },
-      { kind: "identifier", field: "secondId", op: 3 },
+      { ordinal: 1, kind: "identifier", path: ["left", 1, "firstId"], op: 2 },
+      { ordinal: 2, kind: "identifier", path: ["left", 1, "secondId"], op: 3 },
+      { ordinal: 3, kind: "revision", path: [], op: 4 },
     ],
   });
   for (const target of ["javascript", "erlang"]) {

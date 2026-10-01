@@ -454,6 +454,10 @@ must execute `input.scenarios`; it must not read `expected` or `raw`.
 
 Every scenario contains ordered `actions`. Paths are arrays of field keys and
 array indexes. Tree values use `{ "schema": "<type>", "fields": { ... } }`.
+Tree scenarios start from the exact recorded `initialTree` and
+`compressors.initial`. Each raw scenario records the matching input plus the
+immediate before and after boundaries. The expected observation is paired with
+that execution; it is not an execution operand.
 The action records are:
 
 | `op` | Required fields |
@@ -467,9 +471,13 @@ The action records are:
 | `clear` | `path` |
 | `remove` | `path`, `index`, `count` |
 | `move` | `from`, `to`, `count` |
+| `allocate-id` | `compressor` |
+| `deliver-range` | `compressor`, `range` index into `input.idRanges` |
 | `encode-field-batch` | `path`, `value`, `purpose`; `originator` for an originator-dependent message |
 | `decode-field-batch` | `path`, `encoded`, `purpose`; `originator` for an originator-dependent message |
-| `summarize`, `load-summary`, `apply-tail` | `purpose` |
+| `summarize` | `purpose` |
+| `load-summary` | `purpose`, `summary`, `compressor`, `session` |
+| `apply-tail` | `purpose`, `idRanges`, `messages` |
 | `transaction` | nested `actions`; optional `result: "rollback"` |
 | `disconnect`, `reconnect`, `resubmit` | no additional fields |
 
@@ -477,6 +485,18 @@ The action records are:
 `{ "value": <string-or-number> }`; numeric message values require the recorded
 originator. Refusal observations keep the original upstream error separately
 from `nativeErrorCategory`, because exception wording is not a parity contract.
+
+The pinned low-level schema APIs accept the captured non-string and union
+Identifier schemas. The native profile remains restricted to Identifier object
+fields containing `com.fluidframework.leaf.string`; the fixtures record the
+upstream acceptance and the native profile restriction separately.
+
+Allocation observations use measured call ordinals and tree paths. For the
+attached two-Identifier insertion, the calls are `left[1].firstId`,
+`left[1].secondId`, then the revision, with op-space IDs 2, 3, and 4. Numeric ID
+sorting is not chronology. Persistence initialization records the nested stack
+order separately: `left[1].firstId`, `left[1].secondId`, `left[0].id`,
+`child.id`, then the revision.
 
 The checkout excludes upstream's generated
 `packages/dds/tree/src/test/snapshots/output/` directory. The release contains

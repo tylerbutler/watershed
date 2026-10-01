@@ -3865,8 +3865,46 @@ function validateIdentifierCase(value) {
     identifierScenarioIds[label],
     `${label}: raw scenario evidence`,
   );
-  assert.deepEqual(value.raw.scenarios, value.expected.observations,
-    `${label}: observations differ from raw execution`);
+  for (const [index, execution] of value.raw.scenarios.entries()) {
+    assert.deepEqual(execution.input, value.input.scenarios[index],
+      `${label}: ${execution.id} execution input`);
+    check(Object.hasOwn(execution, "before") && Object.hasOwn(execution, "after"),
+      `${execution.id} execution boundaries`);
+    assert.deepEqual(execution.observation, value.expected.observations[index],
+      `${label}: ${execution.id} observation differs from raw execution`);
+  }
+  if (label === "identifier-schema") {
+    for (const id of ["non-string-refusal", "union-refusal"]) {
+      const boundary = value.expected.observations.find((item) => item.id === id);
+      check(typeof boundary?.upstreamAccepted === "boolean", `${id} upstream outcome`);
+      check(boundary.nativeProfileSupported === false, `${id} native profile restriction`);
+      check(!String(boundary.originalError ?? "").includes("Expected the operation to be refused"),
+        `${id} fabricated refusal`);
+    }
+  }
+  if (label === "identifier-values") {
+    check(Object.keys(value.input.compressors).length === 1
+      && typeof value.input.compressors.initial === "string",
+    "pre-execution compressor");
+    const allocation = value.expected.observations
+      .find((item) => item.id === "allocation-order")?.events;
+    check(nonemptyArray(allocation) && allocation.length === 3, "allocation events");
+    assert.deepEqual(
+      allocation.map(({ ordinal, kind }) => ({ ordinal, kind })),
+      [
+        { ordinal: 1, kind: "identifier" },
+        { ordinal: 2, kind: "identifier" },
+        { ordinal: 3, kind: "revision" },
+      ],
+      `${label}: measured allocation chronology`,
+    );
+    check(allocation.every(({ path }) => Array.isArray(path)), "allocation paths");
+    const nested = value.expected.observations
+      .find((item) => item.id === "nested-insertion")?.allocationEvents;
+    check(nonemptyArray(nested)
+      && nested.every(({ ordinal, path }) => Number.isSafeInteger(ordinal) && Array.isArray(path)),
+    "nested allocation traversal");
+  }
   if (label === "identifier-field-batches") {
     const numeric = value.input.scenarios
       .find(({ id }) => id === "local-negative-op-id")?.actions
@@ -3892,6 +3930,34 @@ function validateIdentifierCase(value) {
       check(typeof item.nativeErrorCategory === "string"
         && item.nativeErrorCategory.length > 0, "invalid payload error category");
     }
+    const eagerInput = value.input.scenarios.find(({ id }) => id === "eager-final-id");
+    check(eagerInput?.actions[0]?.op === "allocate-id", "eager final allocation action");
+    const eager = value.expected.observations.find(({ id }) => id === "eager-final-id");
+    check(eager?.allocatedAfterFinalization === true
+      && eager.decodedByUpstream === eager.value, "eager final decode");
+  }
+  if (label === "identifier-persistence") {
+    const tail = value.input.scenarios.find(({ id }) => id === "summary-tail");
+    const load = tail?.actions.find(({ op }) => op === "load-summary");
+    const apply = tail?.actions.find(({ op }) => op === "apply-tail");
+    check(object(load?.summary) && typeof load.compressor === "string"
+      && typeof load.session === "string", "summary load operands");
+    check(nonemptyArray(apply?.messages) && nonemptyArray(apply?.idRanges),
+      "tail replay operands");
+    const tailExecution = value.raw.scenarios.find(({ id }) => id === "summary-tail");
+    const tailObservation = value.expected.observations.find(({ id }) => id === "summary-tail");
+    assert.deepEqual(tailObservation?.value, tailExecution?.after,
+      `${label}: immediate tail snapshot`);
+    const replacement = value.input.scenarios
+      .find(({ id }) => id === "equal-custom-id-replacement");
+    check(replacement?.actions.length === 2
+      && replacement.actions.every((action) =>
+        action.value?.fields?.id === "literal-custom-id"),
+    "literal equal custom ID actions");
+    const replaced = value.expected.observations
+      .find(({ id }) => id === "equal-custom-id-replacement");
+    check(replaced?.nodeReplaced === true && replaced.beforeNode !== replaced.afterNode,
+      "replacement node identity");
   }
 }
 
@@ -4214,7 +4280,7 @@ export async function writeCorpus(output, cases, smoke) {
   const messages = messageInventory(cases);
   const identifierAllocationOrder = cases
     .find((item) => item.id === "identifier-values")
-    .expected.observations.find((item) => item.id === "allocation-order").order;
+    .expected.observations.find((item) => item.id === "allocation-order").events;
   const identifierDiscriminator = cases
     .find((item) => item.id === "identifier-field-batches")
     .expected.observations.find((item) => item.id === "literal-zero-string").discriminator;
