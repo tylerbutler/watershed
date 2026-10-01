@@ -614,6 +614,47 @@ pub fn apply_local_change(
   ))
 }
 
+pub fn commit_local_preview(
+  base: TreeState,
+  preview: TreeState,
+  revision: fluid_ids.StableId,
+  order: change.IdentityOrder,
+  outer: shared_change.Changeset,
+) -> Result(#(TreeState, history.Commit, ChangeEvents), TreeError) {
+  use #(committed, commit, events) <- result.try(apply_local_change(
+    base,
+    revision,
+    order,
+    outer,
+  ))
+  use visible <- result.try(forest.promote_preview_identity(
+    committed.visible,
+    preview.visible,
+  ))
+  Ok(#(
+    TreeState(
+      ..committed,
+      visible:,
+      next_local_id: int_max(committed.next_local_id, preview.next_local_id),
+    ),
+    commit,
+    events,
+  ))
+}
+
+pub fn preserve_identity_allocation(
+  state: TreeState,
+  advanced: TreeState,
+) -> TreeState {
+  TreeState(
+    ..state,
+    visible: forest.preserve_allocation_watermark(
+      state.visible,
+      advanced.visible,
+    ),
+  )
+}
+
 pub fn add_node_exists_constraints(
   state: TreeState,
   outer: shared_change.Changeset,

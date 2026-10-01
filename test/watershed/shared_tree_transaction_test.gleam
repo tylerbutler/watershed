@@ -1,4 +1,5 @@
 import gleam/json
+
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
@@ -153,6 +154,36 @@ fn view_id() -> fluid_ids.StableId {
   id
 }
 
+fn other_session() -> fluid_ids.SessionId {
+  let assert Ok(id) =
+    fluid_ids.session_id("00000000-0000-4000-8000-000000000005")
+  id
+}
+
+fn remote_revision() -> fluid_ids.StableId {
+  let assert Ok(id) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000006")
+  id
+}
+
+fn rollback_revision_one() -> fluid_ids.StableId {
+  let assert Ok(id) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000007")
+  id
+}
+
+fn rollback_revision_two() -> fluid_ids.StableId {
+  let assert Ok(id) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000008")
+  id
+}
+
+fn rollback_revision_three() -> fluid_ids.StableId {
+  let assert Ok(id) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000009")
+  id
+}
+
 fn root() -> types.TreeValue {
   types.ObjectValue("Root", [
     #(
@@ -186,6 +217,49 @@ fn initial_state() -> tree_kernel.TreeState {
   state
 }
 
+fn array_state(
+  local_session: fluid_ids.SessionId,
+  values: List(types.TreeValue),
+) -> tree_kernel.TreeState {
+  let initial = history.inspect(history.new(local_session)).sequenced
+  let assert Ok(snapshot) =
+    tree_kernel.snapshot_from_parts(
+      array_fixture.view_id(),
+      array_fixture.stored("rootArray"),
+      forest.ForestData(
+        Some(types.ArrayValue("org.watershed.shared-tree.m3.Items", values)),
+        [],
+        0,
+      ),
+      initial,
+    )
+  let assert Ok(state) =
+    tree_kernel.restore(
+      snapshot,
+      array_fixture.view_id(),
+      local_session,
+      array_fixture.view("rootArray"),
+    )
+  state
+}
+
+type Allocation {
+  Allocation(revisions: List(fluid_ids.StableId), order: change.IdentityOrder)
+}
+
+fn mint(
+  allocation: Allocation,
+) -> Result(
+  #(fluid_ids.StableId, change.IdentityOrder, Allocation),
+  types.TreeError,
+) {
+  case allocation.revisions {
+    [] -> Error(types.InvalidHistory("rollback allocation is exhausted"))
+    [revision, ..rest] ->
+      Ok(#(revision, allocation.order, Allocation(rest, allocation.order)))
+  }
+}
+
 pub fn shared_tree_transaction_commits_one_outer_change_test() -> Nil {
   let base = initial_state()
   let compressor = fluid_ids.new(session())
@@ -217,6 +291,104 @@ pub fn shared_tree_transaction_commits_one_outer_change_test() -> Nil {
   events.events |> expect.to_equal([tree_kernel.TreeChanged(True)])
 }
 
+pub fn shared_tree_transaction_finish_preserves_preview_node_references_test() -> Nil {
+  let base = array_state(session(), [types.StringValue("A")])
+  let assert Ok(value) = transaction.begin(base, fluid_ids.new(session()), [])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.ArrayInsert([], 1, [types.StringValue("B")]),
+    )
+  let assert Ok(b_reference) =
+    tree_kernel.reference_at(transaction.state(value), ["1"])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.ArrayInsert([], 2, [types.StringValue("C")]),
+    )
+  let assert Ok(c_reference) =
+    tree_kernel.reference_at(transaction.state(value), ["2"])
+
+  let assert Ok(#(transaction.Commit(state, _, commit), _)) =
+    transaction.finish(value)
+  tree_kernel.reference_at(state, ["1"])
+  |> expect.to_equal(Ok(b_reference))
+  tree_kernel.reference_at(state, ["2"])
+  |> expect.to_equal(Ok(c_reference))
+  tree_kernel.read_reference(state, b_reference)
+  |> expect.to_equal(Ok(types.StringValue("B")))
+  tree_kernel.read_reference(state, c_reference)
+  |> expect.to_equal(Ok(types.StringValue("C")))
+
+  let remote_base = array_state(other_session(), [types.StringValue("A")])
+  let assert Ok(remote_order) = change.identity_order([#(remote_revision(), 0)])
+  let assert Ok(#(_, remote_commit, _)) =
+    tree_kernel.apply_local(
+      remote_base,
+      remote_revision(),
+      remote_order,
+      types.ArrayInsert([], 0, [types.StringValue("remote")]),
+    )
+  let rollback_revisions = [
+    rollback_revision_one(),
+    rollback_revision_two(),
+    rollback_revision_three(),
+  ]
+  let revisions =
+    [
+      remote_revision(),
+      ..list.append(rollback_revisions, [
+        commit.revision,
+        ..shared_change.identity_revisions(commit.change)
+      ])
+    ]
+    |> list.unique
+  let assert Ok(order) =
+    revisions
+    |> list.index_map(fn(revision, index) { #(revision, index) })
+    |> change.identity_order
+  let allocation = Allocation(rollback_revisions, order)
+  let assert Ok(#(reconciled, _, allocation)) =
+    tree_kernel.receive_ordered(
+      state,
+      remote_commit,
+      order,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      allocation,
+      mint,
+    )
+  tree_kernel.reference_at(reconciled, ["2"])
+  |> expect.to_equal(Ok(b_reference))
+  tree_kernel.reference_at(reconciled, ["3"])
+  |> expect.to_equal(Ok(c_reference))
+  tree_kernel.read_reference(reconciled, b_reference)
+  |> expect.to_equal(Ok(types.StringValue("B")))
+  tree_kernel.read_reference(reconciled, c_reference)
+  |> expect.to_equal(Ok(types.StringValue("C")))
+
+  let assert Ok(#(acknowledged, _, _)) =
+    tree_kernel.receive_ordered(
+      reconciled,
+      commit,
+      order,
+      types.SequencePoint(2, 0),
+      0,
+      0,
+      allocation,
+      mint,
+    )
+  tree_kernel.reference_at(acknowledged, ["2"])
+  |> expect.to_equal(Ok(b_reference))
+  tree_kernel.reference_at(acknowledged, ["3"])
+  |> expect.to_equal(Ok(c_reference))
+  tree_kernel.read_reference(acknowledged, b_reference)
+  |> expect.to_equal(Ok(types.StringValue("B")))
+  tree_kernel.read_reference(acknowledged, c_reference)
+  |> expect.to_equal(Ok(types.StringValue("C")))
+}
+
 pub fn shared_tree_transaction_abort_restores_document_and_summary_test() -> Nil {
   let base = initial_state()
   let compressor = fluid_ids.new(session())
@@ -239,6 +411,81 @@ pub fn shared_tree_transaction_abort_restores_document_and_summary_test() -> Nil
   fluid_ids.serialize(advanced, False) |> expect.to_equal(Ok(base_summary))
   fluid_ids.serialize(advanced, True)
   |> expect.to_not_equal(Ok(base_ongoing))
+}
+
+pub fn shared_tree_transaction_nested_abort_does_not_reuse_node_references_test() -> Nil {
+  let base =
+    array_state(session(), [
+      types.StringValue("A"),
+      types.StringValue("B"),
+      types.StringValue("C"),
+    ])
+  let assert Ok(value) = transaction.begin(base, fluid_ids.new(session()), [])
+  let value = transaction.begin_nested(value)
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.ArrayInsert([], 3, [types.StringValue("discarded")]),
+    )
+  let assert Ok(discarded_reference) =
+    tree_kernel.reference_at(transaction.state(value), ["3"])
+  let assert Ok(discarded_target) =
+    tree_kernel.resolve_constraint(transaction.state(value), ["3"])
+  let assert Ok(value) = transaction.abort_nested(value)
+  tree_kernel.read_reference(transaction.state(value), discarded_reference)
+  |> expect.to_be_error
+
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.ArrayInsert([], 3, [types.StringValue("replacement")]),
+    )
+  let assert Ok(replacement_reference) =
+    tree_kernel.reference_at(transaction.state(value), ["3"])
+  replacement_reference |> expect.to_not_equal(discarded_reference)
+  tree_kernel.read_reference(transaction.state(value), discarded_reference)
+  |> expect.to_be_error
+  tree_kernel.validate_constraints(transaction.state(value), [discarded_target])
+  |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_transaction_outer_abort_does_not_reuse_node_references_test() -> Nil {
+  let base =
+    array_state(session(), [
+      types.StringValue("A"),
+      types.StringValue("B"),
+      types.StringValue("C"),
+    ])
+  let compressor = fluid_ids.new(session())
+  let assert Ok(value) = transaction.begin(base, compressor, [])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.ArrayInsert([], 3, [types.StringValue("discarded")]),
+    )
+  let assert Ok(discarded_reference) =
+    tree_kernel.reference_at(transaction.state(value), ["3"])
+  let assert Ok(discarded_target) =
+    tree_kernel.resolve_constraint(transaction.state(value), ["3"])
+  let assert Ok(#(aborted, compressor)) = transaction.abort(value)
+  tree_kernel.read_reference(aborted, discarded_reference)
+  |> expect.to_be_error
+
+  let assert Ok(value) = transaction.begin(aborted, compressor, [])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.ArrayInsert([], 3, [types.StringValue("replacement")]),
+    )
+  let assert Ok(replacement_reference) =
+    tree_kernel.reference_at(transaction.state(value), ["3"])
+  replacement_reference |> expect.to_not_equal(discarded_reference)
+  tree_kernel.read_reference(transaction.state(value), discarded_reference)
+  |> expect.to_be_error
+  tree_kernel.validate_constraints(transaction.state(value), [discarded_target])
+  |> expect.to_be_error
+  Nil
 }
 
 pub fn shared_tree_transaction_nested_savepoints_restore_inner_state_test() -> Nil {
@@ -277,6 +524,8 @@ pub fn shared_tree_transaction_nested_savepoints_restore_inner_state_test() -> N
 pub fn shared_tree_transaction_outer_abort_after_inner_commit_restores_base_test() -> Nil {
   let base = initial_state()
   let compressor = fluid_ids.new(session())
+  let assert Ok(base_reference) = tree_kernel.reference_at(base, ["point"])
+  let assert Ok(base_snapshot) = tree_kernel.snapshot(base)
   let assert Ok(value) = transaction.begin(base, compressor, [])
   let value = transaction.begin_nested(value)
   let assert Ok(value) =
@@ -287,7 +536,21 @@ pub fn shared_tree_transaction_outer_abort_after_inner_commit_restores_base_test
   let assert Ok(value) = transaction.commit_nested(value)
   let advanced = transaction.compressor(value)
   let assert Ok(#(state, aborted_compressor)) = transaction.abort(value)
-  state |> expect.to_equal(base)
+  tree_kernel.visible_data(state)
+  |> expect.to_equal(tree_kernel.visible_data(base))
+  tree_kernel.history_view(state)
+  |> expect.to_equal(tree_kernel.history_view(base))
+  tree_kernel.snapshot(state) |> expect.to_equal(Ok(base_snapshot))
+  tree_kernel.reference_at(state, ["point"])
+  |> expect.to_equal(Ok(base_reference))
+  tree_kernel.read_reference(state, base_reference)
+  |> expect.to_equal(
+    Ok(
+      types.ObjectValue("Point", [
+        #("x", types.NumberValue(1.0)),
+      ]),
+    ),
+  )
   aborted_compressor |> expect.to_equal(advanced)
   fluid_ids.serialize(aborted_compressor, False)
   |> expect.to_equal(fluid_ids.serialize(compressor, False))

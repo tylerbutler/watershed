@@ -774,6 +774,57 @@ git commit -m "feat(tree): add nested transactions"
 - `gleam format --check src test` and `git diff --check` passed.
 - Task 5 runtime integration and public callback APIs remain unimplemented.
 
+**Review fix round 1 evidence (2026-09-30):**
+
+- Added permanent regressions for preview `NodeRef` identity across outer
+  finish, pending reconciliation, and local acknowledgement.
+- Added nested and outer abort regressions that retain a discarded node
+  reference, insert a replacement at the same path, and require a distinct
+  reference plus rejection of the stale constraint target.
+- RED on both targets:
+
+  ```text
+  gleam test --target erlang -- shared_tree_transaction
+  17 passed, 3 failed
+
+  gleam test --target javascript -- shared_tree_transaction
+  17 passed, 3 failed
+  ```
+
+  Finish assigned B's retained reference to C, and both rollback forms reused
+  node ID 4 for the replacement.
+- Outer finish still applies the composed change to the base to derive the
+  canonical commit, history, repair data, detached identities, and events.
+  It then promotes preview node IDs into that canonical forest. Preview-only
+  intermediate detached trees are dropped, canonical-only repair trees are
+  allocated above the preview watermark, and exported `ForestData` must match
+  the canonical application exactly.
+- Nested and outer abort restore document and history state while preserving
+  the maximum nonserialized forest node-allocation watermark. Discarded nodes
+  are not retained, and their IDs cannot alias later nodes in the same view.
+- The former full `TreeState` equality assertion on outer abort now compares
+  visible data, history, snapshot state, and surviving base references. Full
+  equality is no longer correct because the invisible allocator watermark
+  must advance.
+- Required focused commands passed 64 tests on each target:
+
+  ```bash
+  gleam test --target erlang -- shared_tree_transaction shared_tree_kernel shared_tree_array_kernel
+  gleam test --target javascript -- shared_tree_transaction shared_tree_kernel shared_tree_array_kernel
+  ```
+
+- Focused forest, history, map, channel, and summary coverage passed 189 tests
+  on each target:
+
+  ```bash
+  gleam test --target erlang -- shared_tree_forest shared_tree_array_forest shared_tree_map_forest shared_tree_history shared_tree_history_resubmit shared_tree_map_kernel shared_tree_channel shared_tree_summary_codec shared_tree_summary shared_tree_document_summary
+  gleam test --target javascript -- shared_tree_forest shared_tree_array_forest shared_tree_map_forest shared_tree_history shared_tree_history_resubmit shared_tree_map_kernel shared_tree_channel shared_tree_summary_codec shared_tree_summary shared_tree_document_summary
+  ```
+
+- `gleam format --check src test` and `git diff --check` passed.
+- No Task 5 runtime state, facade, callback, or public transaction API was
+  added.
+
 ### Task 5: Integrate transactions with runtime core
 
 **Files:**

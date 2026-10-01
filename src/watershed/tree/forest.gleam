@@ -175,6 +175,113 @@ pub fn stored_schema(state: Forest) -> StoredSchema {
   state.schema
 }
 
+/// Keep node identifiers from being reused after a state rollback.
+pub fn preserve_allocation_watermark(
+  state: Forest,
+  advanced: Forest,
+) -> Forest {
+  Forest(
+    ..state,
+    next_node_id: int.max(state.next_node_id, advanced.next_node_id),
+  )
+}
+
+pub fn promote_preview_identity(
+  canonical: Forest,
+  preview: Forest,
+) -> Result(Forest, TreeError) {
+  use _ <- result.try(check(
+    canonical.view_id == preview.view_id,
+    "forest",
+    "transaction preview belongs to another view",
+  ))
+  use _ <- result.try(check(
+    canonical.schema == preview.schema,
+    "forest",
+    "transaction preview has another schema",
+  ))
+  use canonical_root <- result.try(visible_root(canonical))
+  use preview_root <- result.try(visible_root(preview))
+  use _ <- result.try(check(
+    canonical_root == preview_root,
+    "forest",
+    "transaction preview has another visible root",
+  ))
+  use nodes <- result.try(
+    list.try_fold(preview.root, dict.new(), fn(nodes, id) {
+      copy_subtree(preview, id, nodes)
+    }),
+  )
+  let promoted =
+    Forest(
+      canonical.view_id,
+      canonical.schema,
+      preview.root,
+      nodes,
+      int.max(canonical.next_node_id, preview.next_node_id),
+      DetachedIndex(dict.new(), canonical.detached.next_root_id),
+    )
+  use promoted <- result.try(
+    list.try_fold(
+      dict.to_list(canonical.detached.entries),
+      promoted,
+      fn(promoted, pair) {
+        let #(id, canonical_entry) = pair
+        use #(canonical_value, _) <- result.try(materialize(
+          canonical,
+          canonical_entry.node_id,
+          set.new(),
+        ))
+        case dict.get(preview.detached.entries, id) {
+          Ok(preview_entry) -> {
+            use #(preview_value, _) <- result.try(materialize(
+              preview,
+              preview_entry.node_id,
+              set.new(),
+            ))
+            use _ <- result.try(check(
+              canonical_value == preview_value,
+              atom_location(id),
+              "transaction preview has another detached tree",
+            ))
+            use nodes <- result.try(copy_subtree(
+              preview,
+              preview_entry.node_id,
+              promoted.nodes,
+            ))
+            Ok(
+              Forest(..promoted, nodes:)
+              |> put_entry(
+                id,
+                DetachedEntry(..canonical_entry, node_id: preview_entry.node_id),
+              ),
+            )
+          }
+          Error(Nil) -> {
+            use #(promoted, node_id) <- result.try(allocate(
+              promoted,
+              canonical_value,
+            ))
+            Ok(put_entry(
+              promoted,
+              id,
+              DetachedEntry(..canonical_entry, node_id:),
+            ))
+          }
+        }
+      },
+    ),
+  )
+  use canonical_data <- result.try(export_data(canonical))
+  use promoted_data <- result.try(export_data(promoted))
+  use _ <- result.try(check(
+    canonical_data == promoted_data,
+    "forest",
+    "transaction preview does not match the composed commit",
+  ))
+  Ok(promoted)
+}
+
 pub fn replace_schema(
   state: Forest,
   stored: StoredSchema,
@@ -1611,6 +1718,31 @@ fn get_node(state: Forest, id: Int) -> Result(Node, TreeError) {
   |> result.map_error(fn(_) {
     CorruptData("forest node " <> int.to_string(id), "node is missing")
   })
+}
+
+fn copy_subtree(
+  source: Forest,
+  id: Int,
+  nodes: Dict(Int, Node),
+) -> Result(Dict(Int, Node), TreeError) {
+  case dict.has_key(nodes, id) {
+    True -> Ok(nodes)
+    False -> {
+      use node <- result.try(get_node(source, id))
+      let children = case node {
+        Leaf(_) -> []
+        Object(_, fields) | Map(_, fields) ->
+          list.flat_map(fields, fn(field) { field.1 })
+        Array(_, elements) -> elements
+      }
+      use nodes <- result.try(
+        list.try_fold(children, nodes, fn(nodes, child) {
+          copy_subtree(source, child, nodes)
+        }),
+      )
+      Ok(dict.insert(nodes, id, node))
+    }
+  }
 }
 
 fn allocate(

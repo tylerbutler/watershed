@@ -111,7 +111,10 @@ pub fn abort_nested(value: Transaction) -> Result(Transaction, TreeError) {
       Ok(
         Transaction(
           ..value,
-          current_state: savepoint.state,
+          current_state: tree_kernel.preserve_identity_allocation(
+            savepoint.state,
+            value.current_state,
+          ),
           changes: list.take(value.changes, savepoint.change_count),
           events: list.take(value.events, savepoint.event_count),
           savepoints: rest,
@@ -150,7 +153,13 @@ pub fn abort(
   value: Transaction,
 ) -> Result(#(tree_kernel.TreeState, fluid_ids.Compressor), TreeError) {
   use _ <- result.try(require_outer_scope(value))
-  Ok(#(value.base_state, value.current_compressor))
+  Ok(#(
+    tree_kernel.preserve_identity_allocation(
+      value.base_state,
+      value.current_state,
+    ),
+    value.current_compressor,
+  ))
 }
 
 fn finish_change(
@@ -177,8 +186,9 @@ fn finish_change(
     revision,
     order,
   ))
-  use #(state, commit, events) <- result.try(tree_kernel.apply_local_change(
+  use #(state, commit, events) <- result.try(tree_kernel.commit_local_preview(
     value.base_state,
+    value.current_state,
     revision,
     order,
     outer,
