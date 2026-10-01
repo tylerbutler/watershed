@@ -358,6 +358,75 @@ function requireValue(condition, detail) {
   if (!condition) throw new Error(`Invalid native codec artifact: ${detail}`);
 }
 
+function containsValue(value, expected) {
+  if (value === expected) return true;
+  if (Array.isArray(value)) return value.some((item) => containsValue(item, expected));
+  if (object(value)) return Object.values(value).some((item) => containsValue(item, expected));
+  return false;
+}
+
+function identifierPayloads(value, field, label) {
+  const payloads = [];
+  function visit(item) {
+    if (Array.isArray(item)) {
+      const hasLabel = item.some((value, index) =>
+        value === "label" && containsValue(item[index + 1], label));
+      if (hasLabel) {
+        item.forEach((value, index) => {
+          if (value === field && Array.isArray(item[index + 1])) {
+            payloads.push(item[index + 1]);
+          }
+        });
+      }
+      item.forEach(visit);
+    } else if (object(item)) {
+      Object.values(item).forEach(visit);
+    }
+  }
+  visit(value);
+  return payloads;
+}
+
+function identifierWireInput(item) {
+  if (item.kind === "message") return item.encoded;
+  const content = item.encoded?.tree?.indexes?.tree?.Forest?.tree?.contents?.content;
+  requireValue(typeof content === "string", `${item.id} Identifier forest content`);
+  try {
+    return JSON.parse(content);
+  } catch (error) {
+    throw new Error(
+      `Invalid native codec artifact: ${item.id} Identifier forest content`,
+      { cause: error },
+    );
+  }
+}
+
+function validateIdentifierEncoding(item) {
+  const encoding = item.identifierEncoding;
+  requireValue(object(encoding)
+    && typeof encoding.field === "string"
+    && typeof encoding.label === "string"
+    && (encoding.representation === "number" || encoding.representation === "string")
+    && typeof encoding.stableId === "string",
+  `${item.id} Identifier encoding`);
+  const payloads = identifierPayloads(
+    identifierWireInput(item),
+    encoding.field,
+    encoding.label,
+  );
+  requireValue(payloads.length === 1, `${item.id} Identifier payload`);
+  const payload = payloads[0];
+  const valid = encoding.representation === "number"
+    ? typeof payload[1] === "number"
+    : payload[1] === encoding.stableId;
+  requireValue(valid, `${item.id} Identifier payload representation`);
+  requireValue(
+    containsValue(item.expected, encoding.stableId)
+      && containsValue(item.expected, encoding.label),
+    `${item.id} Identifier expected resolution`,
+  );
+}
+
 function comparableObservation(observation) {
   if (!observation.id?.startsWith("summary-array-")) return observation;
   const {
@@ -393,6 +462,9 @@ export function validateNativeArtifact(artifact) {
         `${item.id} compressorMode`);
       requireValue(typeof item.session === "string" && item.session.length > 0,
         `${item.id} session`);
+      if (item.schemaProfile === "identifier") {
+        requireValue(object(item.expected), `${item.id} expected Identifier semantics`);
+      }
     }
     if (item.kind === "message") {
       requireValue(object(item.initialSummary), `${item.id} initialSummary`);
@@ -422,6 +494,11 @@ export function validateNativeArtifact(artifact) {
           || (Number.isSafeInteger(item.indexInBatch) && item.indexInBatch >= 0),
         `${item.id} indexInBatch`);
       }
+    }
+    if (item.id === "identifier-message-compressed"
+      || item.id === "identifier-summary-finalized"
+      || item.id === "identifier-summary-unfinalized") {
+      validateIdentifierEncoding(item);
     }
   }
   return artifact;
@@ -453,6 +530,12 @@ export function validateConsumerOutput(
     requireValue(item !== undefined, `unexpected consumer observation ${observation.id}`);
     requireValue(observation.kind === item.kind,
       `${observation.id} consumer kind`);
+    if (item.schemaProfile === "identifier") {
+      requireValue(
+        isDeepStrictEqual(observation, item.expected),
+        `${observation.id} expected Identifier semantics`,
+      );
+    }
     if (item.kind === "summary") {
       requireValue(Array.isArray(observation.removed), `${observation.id} removed content`);
       requireValue(object(observation.history)

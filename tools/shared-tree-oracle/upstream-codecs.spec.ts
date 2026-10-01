@@ -1085,7 +1085,7 @@ async function consume(item: ArtifactItem) {
 			if (item.schemaProfile === "identifier") {
 				const view = tree.viewWith(identifierConfiguration);
 				const visible = visibleIdentifier(view.root);
-				const history = summaryHistory(tree, idCompressor, item.id);
+				const history = summaryHistory(tree, idCompressor, item.id, true);
 				const contentSnapshot: unknown = Reflect.get(tree, "contentSnapshot");
 				assert(typeof contentSnapshot === "function", `${item.id}: missing content snapshot`);
 				const snapshot: unknown = contentSnapshot.call(tree);

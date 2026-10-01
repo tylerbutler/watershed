@@ -742,6 +742,7 @@ fn identifier_summary_item(
   compressor: fluid_ids.Compressor,
   ongoing: Bool,
 ) -> Result(Json, String) {
+  use expected <- result.try(identifier_summary_expected(id, value, compressor))
   use encoded <- result.try(
     summary.encode(
       value,
@@ -751,9 +752,29 @@ fn identifier_summary_item(
     |> native,
   )
   use serialized <- result.try(serialize_compressor(compressor, ongoing))
+  let encoding = case id {
+    "identifier-summary-finalized" -> [
+      #(
+        "identifierEncoding",
+        identifier_encoding_json(
+          "child",
+          "number",
+          "10000000-0000-4000-8000-000000000004",
+        ),
+      ),
+    ]
+    "identifier-summary-unfinalized" -> [
+      #(
+        "identifierEncoding",
+        identifier_encoding_json("unfinalized", "string", fresh_summary_session),
+      ),
+    ]
+    _ -> []
+  }
   Ok(
     item(id, "summary", summary_json(encoded), [
       #("schemaProfile", json.string("identifier")),
+      #("expected", expected),
       #("compressor", json.string(serialized)),
       #(
         "compressorMode",
@@ -768,8 +789,419 @@ fn identifier_summary_item(
           fluid_ids.session_id_to_string(fluid_ids.local_session(compressor)),
         ),
       ),
+      ..encoding
     ]),
   )
+}
+
+fn identifier_encoding_json(
+  label: String,
+  representation: String,
+  stable_id: String,
+) -> Json {
+  json.object([
+    #("field", json.string("id")),
+    #("label", json.string(label)),
+    #("representation", json.string(representation)),
+    #("stableId", json.string(stable_id)),
+  ])
+}
+
+fn identifier_summary_expected(
+  id: String,
+  value: summary.TreeSummaryData,
+  compressor: fluid_ids.Compressor,
+) -> Result(Json, String) {
+  use visible <- result.try(identifier_summary_visible(value))
+  use removed <- result.try(identifier_removed_json(value, compressor))
+  use history <- result.try(identifier_history_json(value.history, compressor))
+  Ok(
+    json.object([
+      #("id", json.string(id)),
+      #("kind", json.string("summary")),
+      #("visible", visible),
+      #("removed", removed),
+      #("history", history),
+      #("continued", json.string("upstream-continuation")),
+    ]),
+  )
+}
+
+fn identifier_summary_visible(
+  value: summary.TreeSummaryData,
+) -> Result(Json, String) {
+  let summary.ForestSummary(fields) = value.forest
+  case list.key_find(fields, "rootFieldKey") {
+    Ok([root]) -> identifier_root_json(root)
+    Error(_) -> Ok(json.null())
+    _ -> Error("identifier root field must contain at most one tree")
+  }
+}
+
+fn identifier_root_json(value: types.TreeValue) -> Result(Json, String) {
+  case value {
+    types.ObjectValue(_, fields) -> {
+      use child <- result.try(identifier_field(fields, "child"))
+      use left <- result.try(identifier_field(fields, "left"))
+      use right <- result.try(identifier_field(fields, "right"))
+      use by_key <- result.try(identifier_field(fields, "byKey"))
+      use child <- result.try(identifier_value_json(child))
+      use left <- result.try(identifier_array_json(left))
+      use right <- result.try(identifier_array_json(right))
+      use by_key <- result.try(identifier_map_json(by_key))
+      Ok(
+        json.object([
+          #("child", child),
+          #("left", left),
+          #("right", right),
+          #("byKey", by_key),
+        ]),
+      )
+    }
+    _ -> Error("identifier root is not an object")
+  }
+}
+
+fn identifier_field(
+  fields: List(#(String, types.TreeValue)),
+  name: String,
+) -> Result(types.TreeValue, String) {
+  list.key_find(fields, name)
+  |> result.map_error(fn(_) { "identifier value has no " <> name <> " field" })
+}
+
+fn identifier_text_field(
+  fields: List(#(String, types.TreeValue)),
+  name: String,
+) -> Result(String, String) {
+  use value <- result.try(identifier_field(fields, name))
+  case value {
+    types.StringValue(value) -> Ok(value)
+    _ -> Error("identifier " <> name <> " field is not a string")
+  }
+}
+
+fn identifier_value_json(value: types.TreeValue) -> Result(Json, String) {
+  case value {
+    types.ObjectValue(_, fields) -> {
+      case list.key_find(fields, "firstId") {
+        Ok(_) -> {
+          use first <- result.try(identifier_text_field(fields, "firstId"))
+          use second <- result.try(identifier_text_field(fields, "secondId"))
+          use label <- result.try(identifier_text_field(fields, "label"))
+          Ok(
+            json.object([
+              #("firstId", json.string(first)),
+              #("secondId", json.string(second)),
+              #("label", json.string(label)),
+            ]),
+          )
+        }
+        Error(_) -> {
+          use id <- result.try(identifier_text_field(fields, "id"))
+          use label <- result.try(identifier_text_field(fields, "label"))
+          Ok(
+            json.object([
+              #("id", json.string(id)),
+              #("label", json.string(label)),
+            ]),
+          )
+        }
+      }
+    }
+    _ -> Error("identifier item is not an object")
+  }
+}
+
+fn identifier_array_json(value: types.TreeValue) -> Result(Json, String) {
+  case value {
+    types.ArrayValue(_, values) -> {
+      use values <- result.try(list.try_map(values, identifier_value_json))
+      Ok(json.array(values, fn(value) { value }))
+    }
+    _ -> Error("identifier list is not an array")
+  }
+}
+
+fn identifier_map_json(value: types.TreeValue) -> Result(Json, String) {
+  case value {
+    types.MapValue(_, entries) -> {
+      use entries <- result.try(
+        list.try_map(entries, fn(entry) {
+          use value <- result.try(identifier_value_json(entry.1))
+          Ok(json.array([json.string(entry.0), value], fn(value) { value }))
+        }),
+      )
+      Ok(json.array(entries, fn(value) { value }))
+    }
+    _ -> Error("identifier map is not a map")
+  }
+}
+
+fn identifier_removed_json(
+  value: summary.TreeSummaryData,
+  compressor: fluid_ids.Compressor,
+) -> Result(Json, String) {
+  let summary.TreeSummaryData(
+    _,
+    summary.ForestSummary(fields),
+    summary.DetachedFieldIndex(entries, _),
+    _,
+  ) = value
+  use entries <- result.try(
+    list.try_map(entries, fn(entry) {
+      let summary.DetachedField(major, minor, root) = entry
+      use trees <- result.try(
+        list.key_find(fields, "repair-" <> int.to_string(root))
+        |> result.map_error(fn(_) { "identifier repair tree is missing" }),
+      )
+      use tree <- result.try(case trees {
+        [tree] -> Ok(identifier_source_tree_json(tree))
+        _ -> Error("identifier repair field must contain one tree")
+      })
+      use major <- result.try(identifier_summary_revision_json(
+        major,
+        compressor,
+      ))
+      Ok(
+        json.object([
+          #("major", major),
+          #("minor", json.int(minor)),
+          #("tree", tree),
+        ]),
+      )
+    }),
+  )
+  Ok(json.array(entries, fn(value) { value }))
+}
+
+fn identifier_history_json(
+  value: summary.EditManagerSummary,
+  compressor: fluid_ids.Compressor,
+) -> Result(Json, String) {
+  let summary.EditManagerSummary(trunk, branches) = value
+  use trunk <- result.try(
+    list.try_map(trunk, identifier_trunk_commit_json(_, compressor)),
+  )
+  use peers <- result.try(
+    list.try_map(branches, fn(branch) {
+      let summary.PeerBranch(session, base, commits) = branch
+      use base <- result.try(identifier_summary_revision_json(base, compressor))
+      use revisions <- result.try(
+        list.try_map(commits, fn(commit) {
+          let summary.SummaryCommit(
+            codec.WireCommit(revision: revision, ..),
+            _,
+            _,
+          ) = commit
+          Ok(json.string(fluid_ids.stable_id_to_string(revision)))
+        }),
+      )
+      use commits <- result.try(
+        list.try_map(commits, identifier_peer_commit_json(_, compressor)),
+      )
+      Ok(
+        json.object([
+          #("session", json.string(fluid_ids.session_id_to_string(session))),
+          #("base", base),
+          #("revisions", json.array(revisions, fn(value) { value })),
+          #("commits", json.array(commits, fn(value) { value })),
+        ]),
+      )
+    }),
+  )
+  Ok(
+    json.object([
+      #("trunk", json.array(trunk, fn(value) { value })),
+      #("peers", json.array(peers, fn(value) { value })),
+    ]),
+  )
+}
+
+fn identifier_trunk_commit_json(
+  value: summary.SummaryCommit,
+  compressor: fluid_ids.Compressor,
+) -> Result(Json, String) {
+  let summary.SummaryCommit(
+    codec.WireCommit(revision, session, changes, _),
+    sequence_number,
+    index_in_batch,
+  ) = value
+  use changes <- result.try(
+    list.try_map(changes, identifier_history_change_json(_, compressor)),
+  )
+  Ok(
+    json.object([
+      #("revision", json.string(fluid_ids.stable_id_to_string(revision))),
+      #("session", json.string(fluid_ids.session_id_to_string(session))),
+      #("sequenceNumber", identifier_optional_int_json(sequence_number)),
+      #("indexInBatch", identifier_optional_int_json(index_in_batch)),
+      #("changes", json.array(changes, fn(value) { value })),
+    ]),
+  )
+}
+
+fn identifier_peer_commit_json(
+  value: summary.SummaryCommit,
+  compressor: fluid_ids.Compressor,
+) -> Result(Json, String) {
+  let summary.SummaryCommit(codec.WireCommit(revision, _, changes, _), _, _) =
+    value
+  use changes <- result.try(
+    list.try_map(changes, identifier_history_change_json(_, compressor)),
+  )
+  Ok(
+    json.object([
+      #("revision", json.string(fluid_ids.stable_id_to_string(revision))),
+      #("changes", json.array(changes, fn(value) { value })),
+    ]),
+  )
+}
+
+fn identifier_history_change_json(
+  value: shared_change.TreeChange,
+  compressor: fluid_ids.Compressor,
+) -> Result(Json, String) {
+  case value {
+    shared_change.DataChange(value) -> {
+      use data <- result.try(array_change_fixture.graph_json_with_compressor(
+        value,
+        compressor,
+      ))
+      Ok(
+        json.object([
+          #("type", json.string("data")),
+          #("data", compact_empty_fields(data)),
+        ]),
+      )
+    }
+    shared_change.SchemaChange(before, after, is_inverse) ->
+      Ok(
+        json.object([
+          #("type", json.string("schema")),
+          #(
+            "data",
+            json.object([
+              #(
+                "schema",
+                json.object([
+                  #("new", identifier_schema_state_json(after)),
+                  #("old", identifier_schema_state_json(before)),
+                ]),
+              ),
+              #("isInverse", json.bool(is_inverse)),
+            ]),
+          ),
+        ]),
+      )
+  }
+}
+
+fn compact_empty_fields(value: Json) -> Json {
+  let assert Ok(value) = json_ot.parse_json(json.to_string(value))
+  compact_empty_json_value(value) |> json_ot.to_json
+}
+
+fn compact_empty_json_value(value: JsonValue) -> JsonValue {
+  case value {
+    VArray(values) -> VArray(list.map(values, compact_empty_json_value))
+    VObject(entries) ->
+      VObject(
+        entries
+        |> list.filter(fn(entry) { entry != #("fields", VObject([])) })
+        |> list.map(fn(entry) { #(entry.0, compact_empty_json_value(entry.1)) }),
+      )
+    value -> value
+  }
+}
+
+fn identifier_schema_state_json(value: schema.SchemaState) -> Json {
+  let cardinality = case value {
+    schema.EmptySchema -> "Forbidden"
+    schema.FixedSchema(value) -> {
+      let schema.FieldSchema(cardinality, _) = schema.root_field_schema(value)
+      case cardinality {
+        schema.Required -> "Value"
+        schema.Optional -> "Optional"
+        schema.Sequence -> "Sequence"
+        schema.Identifier -> "Identifier"
+      }
+    }
+  }
+  json.object([
+    #(
+      "rootFieldSchema",
+      json.object([
+        #("kind", json.string(cardinality)),
+        #("types", json.object([])),
+      ]),
+    ),
+    #("nodeSchema", json.object([])),
+  ])
+}
+
+fn identifier_summary_revision_json(
+  value: summary.SummaryRevision,
+  _compressor: fluid_ids.Compressor,
+) -> Result(Json, String) {
+  case value {
+    summary.RootRevision -> Ok(json.string("root"))
+    summary.StableRevision(value) ->
+      Ok(json.string(fluid_ids.stable_id_to_string(value)))
+  }
+}
+
+fn identifier_source_tree_json(value: types.TreeValue) -> Json {
+  case value {
+    types.ObjectValue(identifier, fields)
+    | types.MapValue(identifier, fields) -> {
+      let members = [#("type", json.string(identifier))]
+      case fields {
+        [] -> json.object(members)
+        _ ->
+          json.object(
+            list.append(members, [
+              #("fields", identifier_source_fields_json(fields)),
+            ]),
+          )
+      }
+    }
+    types.ArrayValue(identifier, elements) -> {
+      let members = [#("type", json.string(identifier))]
+      case elements {
+        [] -> json.object(members)
+        _ ->
+          json.object(
+            list.append(members, [
+              #(
+                "fields",
+                json.object([
+                  #("", json.array(elements, identifier_source_tree_json)),
+                ]),
+              ),
+            ]),
+          )
+      }
+    }
+    _ -> array_change_fixture.source_tree_json(value)
+  }
+}
+
+fn identifier_source_fields_json(
+  fields: List(#(String, types.TreeValue)),
+) -> Json {
+  json.object(
+    list.map(fields, fn(field) {
+      #(field.0, json.array([field.1], identifier_source_tree_json))
+    }),
+  )
+}
+
+fn identifier_optional_int_json(value: Option(Int)) -> Json {
+  case value {
+    Some(value) -> json.int(value)
+    None -> json.null()
+  }
 }
 
 fn identifier_child(
@@ -1963,6 +2395,36 @@ fn native_message(
     Some(profile) -> [#("schemaProfile", json.string(profile))]
     None -> []
   }
+  use identifier_fields <- result.try(case schema_profile {
+    Some("identifier") -> {
+      use delta <- result.try(
+        change.into_delta(change.TaggedChange(Some(revision), None, authored))
+        |> native,
+      )
+      use applied <- result.try(forest.apply_delta(state, delta) |> native)
+      use after <- result.try(
+        forest.visible_root(applied)
+        |> native,
+      )
+      use after <- result.try(case after {
+        Some(value) -> Ok(value)
+        None -> Error("identifier message removed the root")
+      })
+      use expected <- result.try(identifier_message_expected(id, root, after))
+      Ok([
+        #("expected", expected),
+        #(
+          "identifierEncoding",
+          identifier_encoding_json(
+            "message",
+            "number",
+            "10000000-0000-4000-8000-000000000004",
+          ),
+        ),
+      ])
+    }
+    _ -> Ok([])
+  })
   Ok(
     item(id, "message", encoded, [
       #("compressor", json.string(serialized)),
@@ -1974,7 +2436,26 @@ fn native_message(
       #("referenceSequenceNumber", json.int(reference_sequence_number)),
       #("minimumSequenceNumber", json.int(minimum_sequence_number)),
       #("indexInBatch", json.null()),
-      ..profile_fields
+      ..list.append(profile_fields, identifier_fields)
+    ]),
+  )
+}
+
+fn identifier_message_expected(
+  id: String,
+  before: types.TreeValue,
+  after: types.TreeValue,
+) -> Result(Json, String) {
+  use before <- result.try(identifier_root_json(before))
+  use after <- result.try(identifier_root_json(after))
+  Ok(
+    json.object([
+      #("id", json.string(id)),
+      #("kind", json.string("message")),
+      #("decoded", json.bool(True)),
+      #("beforeApply", before),
+      #("afterApply", after),
+      #("continued", json.string("upstream-continuation")),
     ]),
   )
 }

@@ -66,6 +66,242 @@ test("native codec artifact validation accepts the Identifier schema profile", a
   assert.doesNotThrow(() => validateNativeArtifact(value));
 });
 
+test("Identifier artifacts require their declared wire representation", async () => {
+  const { validateNativeArtifact } = await import("./codec-interop.mjs");
+  const value = artifact();
+  value.items[0] = {
+    id: "identifier-message-compressed",
+    kind: "message",
+    schemaProfile: "identifier",
+    encoded: {
+      changeset: [{
+        data: {
+          builds: {
+            trees: {
+              data: [[0, [
+                "id", [99, 3],
+                "label", [0, "com.fluidframework.leaf.string", true, "message", []],
+              ]]],
+            },
+          },
+        },
+      }],
+    },
+    compressor: "serialized",
+    compressorMode: "summary",
+    session: "11111111-1111-4111-8111-111111111111",
+    initialSummary: {},
+    allocationRanges: [],
+    sequenceNumber: 1,
+    referenceSequenceNumber: 0,
+    minimumSequenceNumber: 0,
+    indexInBatch: null,
+    identifierEncoding: {
+      field: "id",
+      label: "message",
+      representation: "number",
+      stableId: "10000000-0000-4000-8000-000000000004",
+    },
+    expected: {
+      afterApply: {
+        child: {
+          id: "10000000-0000-4000-8000-000000000004",
+          label: "message",
+        },
+      },
+    },
+  };
+  assert.doesNotThrow(() => validateNativeArtifact(value));
+
+  const stringPayload = structuredClone(value);
+  stringPayload.items[0].encoded.changeset[0].data.builds.trees
+    .data[0][1][1][1] = "10000000-0000-4000-8000-000000000004";
+  assert.throws(
+    () => validateNativeArtifact(stringPayload),
+    /Identifier payload representation/,
+  );
+
+  const fallback = structuredClone(value);
+  fallback.items[0].id = "identifier-summary-unfinalized";
+  fallback.items[0].kind = "summary";
+  fallback.items[0].encoded = {
+    tree: {
+      indexes: {
+        tree: {
+          Forest: {
+            tree: {
+              contents: {
+                content: JSON.stringify({
+                  fields: {
+                    data: [[0, [
+                      "id", [17, "30000000-0000-4000-8000-000000000003"],
+                      "label", [
+                        0,
+                        "com.fluidframework.leaf.string",
+                        true,
+                        "unfinalized",
+                        [],
+                      ],
+                    ]]],
+                  },
+                }),
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+  fallback.items[0].identifierEncoding = {
+    field: "id",
+    label: "unfinalized",
+    representation: "string",
+    stableId: "30000000-0000-4000-8000-000000000003",
+  };
+  fallback.items[0].expected = {
+    visible: {
+      child: {
+        id: "30000000-0000-4000-8000-000000000003",
+        label: "unfinalized",
+      },
+    },
+  };
+  assert.doesNotThrow(() => validateNativeArtifact(fallback));
+  const wrongFallback = structuredClone(fallback);
+  const contents = JSON.parse(
+    wrongFallback.items[0].encoded.tree.indexes.tree.Forest.tree.contents.content,
+  );
+  contents.fields.data[0][1][1][1] = "wrong-id";
+  wrongFallback.items[0].encoded.tree.indexes.tree.Forest.tree.contents.content =
+    JSON.stringify(contents);
+  assert.throws(
+    () => validateNativeArtifact(wrongFallback),
+    /Identifier payload representation/,
+  );
+});
+
+test("Identifier observations reject complete semantic loss and corruption", async () => {
+  const { validateConsumerOutput } = await import("./codec-interop.mjs");
+  const expected = {
+    id: "identifier-retained-repair",
+    kind: "summary",
+    visible: {
+      child: {
+        id: "10000000-0000-4000-8000-000000000004",
+        label: "child",
+      },
+      left: [{
+        id: "10000000-0000-4000-8000-000000000003",
+        label: "left",
+      }, {
+        firstId: "10000000-0000-4000-8000-000000000001",
+        secondId: "10000000-0000-4000-8000-000000000002",
+        label: "pair",
+      }],
+      right: [],
+      byKey: [],
+    },
+    removed: [{
+      major: "root",
+      minor: 0,
+      tree: {
+        fields: {
+          child: [{
+            fields: {
+              id: [{ value: "retained-custom-id" }],
+              label: [{ value: "removed" }],
+            },
+          }],
+        },
+      },
+    }],
+    history: {
+      trunk: [{
+        revision: "10000000-0000-4000-8000-000000000005",
+        session: "10000000-0000-4000-8000-000000000001",
+        sequenceNumber: 2,
+        indexInBatch: null,
+        changes: [{
+          type: "data",
+          data: {
+            builds: [{
+              id: { revision: "root", localId: 0 },
+              trees: [{ fields: { id: [{ value: "history-id" }] } }],
+            }],
+            refreshers: [{
+              id: { revision: "root", localId: 1 },
+              trees: [{ fields: { id: [{ value: "refresher-id" }] } }],
+            }],
+          },
+        }],
+      }],
+      peers: [],
+    },
+    continued: "upstream-continuation",
+  };
+  const artifactValue = {
+    target: "erlang",
+    items: [{
+      id: expected.id,
+      kind: expected.kind,
+      schemaProfile: "identifier",
+      expected,
+    }],
+  };
+  const output = {
+    formatVersion: 1,
+    reference,
+    target: "erlang",
+    observations: [structuredClone(expected)],
+  };
+  assert.doesNotThrow(() =>
+    validateConsumerOutput(output, artifactValue, [expected.id]));
+
+  for (const mutate of [
+    (value) => { value.observations[0].history.trunk = []; },
+    (value) => {
+      value.observations[0].history.trunk[0].changes[0].data.builds = [];
+    },
+    (value) => {
+      value.observations[0].history.trunk[0].changes[0].data.refreshers = [];
+    },
+    (value) => {
+      value.observations[0].visible.left[0].id = "corrupted-id";
+    },
+    (value) => {
+      value.observations[0].visible.left[1].label = "corrupted-label";
+    },
+    (value) => {
+      value.observations[0].removed[0].tree.fields.child[0]
+        .fields.id[0].value = "corrupted-removed-id";
+    },
+  ]) {
+    const changed = structuredClone(output);
+    mutate(changed);
+    assert.throws(
+      () => validateConsumerOutput(changed, artifactValue, [expected.id]),
+      /expected Identifier semantics/,
+    );
+  }
+
+  const fallback = structuredClone(output);
+  fallback.observations[0].id = "identifier-summary-unfinalized";
+  fallback.observations[0].visible.child.id =
+    "30000000-0000-4000-8000-000000000003";
+  artifactValue.items[0].id = "identifier-summary-unfinalized";
+  artifactValue.items[0].expected = structuredClone(fallback.observations[0]);
+  const wrongFallback = structuredClone(fallback);
+  wrongFallback.observations[0].visible.child.id = "wrong-id";
+  assert.throws(
+    () => validateConsumerOutput(
+      wrongFallback,
+      artifactValue,
+      ["identifier-summary-unfinalized"],
+    ),
+    /expected Identifier semantics/,
+  );
+});
+
 test("message and summary artifacts require their explicit compressor context", async () => {
   const { validateNativeArtifact } = await import("./codec-interop.mjs");
   for (const kind of ["message", "summary"]) {
