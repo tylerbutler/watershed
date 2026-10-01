@@ -3105,46 +3105,54 @@ fn handle_inbound(
           }
         }
         Reconnecting(core) -> {
-          let core = runtime_core.adopt_reconnect(core, connected)
-          let checkpoint =
-            option.unwrap(
-              connected.checkpoint_sequence_number,
-              core.last_seen_sequence_number,
-            )
-          case runtime_core.reconnect_barrier_active(core) {
-            True -> {
-              let _ =
-                process.send_after(
-                  state.self,
-                  connect_timeout_milliseconds,
-                  ReconnectTimedOut(core.client_id),
+          case runtime_core.adopt_reconnect(core, connected) {
+            Error(error) ->
+              actor.continue(fail(
+                state,
+                "reconnect failed: " <> string.inspect(error),
+              ))
+            Ok(core) -> {
+              let checkpoint =
+                option.unwrap(
+                  connected.checkpoint_sequence_number,
+                  core.last_seen_sequence_number,
                 )
-              Nil
+              case runtime_core.reconnect_barrier_active(core) {
+                True -> {
+                  let _ =
+                    process.send_after(
+                      state.self,
+                      connect_timeout_milliseconds,
+                      ReconnectTimedOut(core.client_id),
+                    )
+                  Nil
+                }
+                False -> Nil
+              }
+              // Ask for the gap. Nothing else will: no server pushes it unprompted,
+              // and the reactive `requestOps` in the `"op"` handler below needs an
+              // operation to react to. See `runtime_core.catch_up_from`.
+              let generation = state.generation
+              let state =
+                request_operations(
+                  State(..state, phase: Reconnecting(core)),
+                  core,
+                  runtime_core.catch_up_from(core, checkpoint),
+                )
+              // Presence is unsequenced, so it does not wait for the operation
+              // catch-up `settle_reconnect` may still be pending — rejoining now is
+              // both correct and the fastest way back to a roster.
+              case state.phase {
+                Reconnecting(current)
+                  if current.client_id == core.client_id
+                  && state.generation == generation
+                -> {
+                  notify_presence_session(state, core)
+                  settle_reconnect(state, core, checkpoint)
+                }
+                _ -> actor.continue(state)
+              }
             }
-            False -> Nil
-          }
-          // Ask for the gap. Nothing else will: no server pushes it unprompted,
-          // and the reactive `requestOps` in the `"op"` handler below needs an
-          // operation to react to. See `runtime_core.catch_up_from`.
-          let generation = state.generation
-          let state =
-            request_operations(
-              State(..state, phase: Reconnecting(core)),
-              core,
-              runtime_core.catch_up_from(core, checkpoint),
-            )
-          // Presence is unsequenced, so it does not wait for the operation
-          // catch-up `settle_reconnect` may still be pending — rejoining now is
-          // both correct and the fastest way back to a roster.
-          case state.phase {
-            Reconnecting(current)
-              if current.client_id == core.client_id
-              && state.generation == generation
-            -> {
-              notify_presence_session(state, core)
-              settle_reconnect(state, core, checkpoint)
-            }
-            _ -> actor.continue(state)
           }
         }
         // A late duplicate success; nothing to do.

@@ -1353,7 +1353,7 @@ pub fn reconnect_reconciles_then_resubmits_test() -> Nil {
 
   // Reconnect: fresh client_id, and the server assigned SN 2 to operation "a"
   // under the OLD id while we were disconnected, so the new join lands at SN 3.
-  let core =
+  let assert Ok(core) =
     runtime_core.adopt_reconnect(
       core,
       reconnect_connected(client_id: reconnect_client_id, checkpoint: 3),
@@ -1437,7 +1437,7 @@ pub fn reconnect_with_all_operations_reconciled_resubmits_nothing_test() -> Nil 
   let #(core, _, _) = root_set(core, "a", json.int(1))
   let #(core, _, _) = root_set(core, "b", json.int(2))
 
-  let core =
+  let assert Ok(core) =
     runtime_core.adopt_reconnect(
       core,
       reconnect_connected(client_id: reconnect_client_id, checkpoint: 4),
@@ -1477,7 +1477,7 @@ pub fn reconnect_with_all_operations_reconciled_resubmits_nothing_test() -> Nil 
 pub fn reconnect_applies_missed_delta_from_others_test() -> Nil {
   // Changes other clients made while we were offline must surface as events.
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core =
+  let assert Ok(core) =
     runtime_core.adopt_reconnect(
       core,
       reconnect_connected(client_id: reconnect_client_id, checkpoint: 3),
@@ -1516,7 +1516,7 @@ pub fn resubmit_restamps_in_flight_in_order_test() -> Nil {
   let #(core, _, _) = root_set(core, "b", json.int(2))
   let #(core, _, _) = root_delete(core, "a")
 
-  let core =
+  let assert Ok(core) =
     runtime_core.adopt_reconnect(
       core,
       reconnect_connected(client_id: reconnect_client_id, checkpoint: 9),
@@ -2161,7 +2161,7 @@ pub fn reconnect_resubmit_preserves_interleaved_attach_and_operation_queue_test(
   let assert Ok(#(core, _, _)) =
     runtime_core.set(core, "watershed/child", "a", json.int(2))
 
-  let core =
+  let assert Ok(core) =
     runtime_core.adopt_reconnect(
       core,
       reconnect_connected(client_id: reconnect_client_id, checkpoint: 5),
@@ -2821,7 +2821,7 @@ pub fn reconnect_resubmits_counter_operations_restamped_test() -> Nil {
   let assert Ok(#(core, _, [_])) =
     runtime_core.increment(core, "watershed/tally", 2)
 
-  let core =
+  let assert Ok(core) =
     runtime_core.adopt_reconnect(
       core,
       reconnect_connected(client_id: reconnect_client_id, checkpoint: 2),
@@ -2948,7 +2948,7 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() -> Nil {
     )),
   ))
 
-  let core =
+  let assert Ok(core) =
     runtime_core.adopt_reconnect(
       core,
       reconnect_connected(client_id: reconnect_client_id, checkpoint: 3),
@@ -3667,6 +3667,7 @@ pub fn mv_or_map_runtime_submit_ack_resubmit_and_summary_test() -> Nil {
   let assert Ok(#(core, [resubmitted])) =
     core
     |> runtime_core.adopt_reconnect(reconnect_connected("new-client", 4))
+    |> expect.to_be_ok
     |> runtime_core.resubmit
   json.to_string(resubmitted.contents)
   |> expect.to_equal(json.to_string(outbound.contents))
@@ -5270,7 +5271,7 @@ pub fn wants_summary_is_false_while_replaying_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 3)
   runtime_core.wants_summary(core, policy) |> expect.to_be_true()
 
-  let core =
+  let assert Ok(core) =
     runtime_core.adopt_reconnect(
       core,
       reconnect_connected(client_id: reconnect_client_id, checkpoint: 12),

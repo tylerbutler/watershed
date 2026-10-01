@@ -116,6 +116,34 @@ fn optional_title_view(
   |> expect.to_be_ok
 }
 
+fn transaction_core() -> #(runtime_core.Core, String, tree_schema.ViewSchema) {
+  let core = map_core()
+  let address = "A/_C"
+  let assert Ok(channel.TreeState(state)) = dict.get(core.channels, address)
+  let view =
+    tree_kernel.stored_schema(state)
+    |> tree_schema.stored_to_json
+    |> tree_schema.view_from_json
+    |> expect.to_be_ok
+  #(core, address, view)
+}
+
+fn transaction_wrong_view(
+  core: runtime_core.Core,
+  address: String,
+) -> tree_schema.ViewSchema {
+  let assert Ok(channel.TreeState(state)) = dict.get(core.channels, address)
+  tree_kernel.stored_schema(state)
+  |> tree_schema.stored_to_json
+  |> json.to_string
+  |> string.replace(
+    "\"root\":{\"kind\":\"Value\"",
+    "\"root\":{\"kind\":\"Optional\"",
+  )
+  |> tree_schema.view_from_string
+  |> expect.to_be_ok
+}
+
 pub fn shared_tree_runtime_map_reads_check_channel_and_node_test() {
   let core = map_core()
   runtime_core.tree_map_get(core, "A/_C", ["items"], "missing")
@@ -219,7 +247,7 @@ pub fn shared_tree_runtime_map_reconnect_preserves_pending_identity_test() {
     runtime_core.submit_tree_edits(core, "A/_C", [
       tree_types.MapSet(["items"], "key", tree_types.StringValue("pending")),
     ])
-  let reconnected =
+  let assert Ok(reconnected) =
     runtime_core.adopt_reconnect(
       pending,
       runtime_fixture.connected("rejoined", [], 0),
@@ -273,10 +301,12 @@ pub fn shared_tree_runtime_map_pending_edits_cross_remote_test() {
   )
   let assert Ok(#(resubmitted, [resent])) =
     runtime_core.resubmit(
-      runtime_core.go_live(runtime_core.adopt_reconnect(
+      runtime_core.adopt_reconnect(
         rebased,
         runtime_fixture.connected("rejoined", [], 1),
-      )),
+      )
+      |> expect.to_be_ok
+      |> runtime_core.go_live,
     )
   let assert Ok(#(settled, _)) =
     runtime_core.handle_sequenced(
@@ -398,6 +428,192 @@ pub fn shared_tree_core_guards_each_view_access_atomically_test() -> Nil {
   Nil
 }
 
+pub fn shared_tree_runtime_transaction_isolates_nested_edits_until_outer_commit_test() -> Nil {
+  let #(core, address, view) = transaction_core()
+  let assert Ok(active) =
+    runtime_core.begin_tree_transaction(core, address, view, [])
+  runtime_core.tree_transaction_depth(active) |> expect.to_equal(1)
+
+  let assert Ok(#(active, events, outbound)) =
+    runtime_core.submit_tree_edits_view(active, address, view, [
+      tree_types.MapSet(
+        ["items"],
+        "transaction",
+        tree_types.StringValue("outer"),
+      ),
+    ])
+  events |> expect.to_equal([])
+  outbound |> expect.to_equal([])
+  runtime_core.tree_map_get_view(
+    active,
+    address,
+    view,
+    ["items"],
+    "transaction",
+  )
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("outer"))))
+  let assert Ok(channel.TreeState(committed)) = dict.get(core.channels, address)
+  tree_kernel.map_get(committed, ["items"], "transaction")
+  |> expect.to_equal(Ok(None))
+  tree_kernel.history_view(committed).pending |> expect.to_equal([])
+
+  let assert Ok(active) =
+    runtime_core.begin_tree_transaction(active, address, view, [["items"]])
+  runtime_core.tree_transaction_depth(active) |> expect.to_equal(2)
+  let assert Ok(#(active, [], [])) =
+    runtime_core.submit_tree_edits_view(active, address, view, [
+      tree_types.MapSet(
+        ["items"],
+        "transaction",
+        tree_types.StringValue("inner"),
+      ),
+    ])
+  runtime_core.tree_map_get_view(
+    active,
+    address,
+    view,
+    ["items"],
+    "transaction",
+  )
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("inner"))))
+  let assert Ok(#(active, [])) =
+    runtime_core.abort_tree_transaction(active, address)
+  runtime_core.tree_transaction_depth(active) |> expect.to_equal(1)
+  runtime_core.tree_map_get_view(
+    active,
+    address,
+    view,
+    ["items"],
+    "transaction",
+  )
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("outer"))))
+
+  let #(committed, events, outbounds) =
+    runtime_core.commit_tree_transaction(active, address) |> expect.to_be_ok
+  let assert [outbound] = outbounds
+  runtime_core.tree_transaction_depth(committed) |> expect.to_equal(0)
+  events
+  |> expect.to_equal([
+    #(address, channel.TreeEvent(tree_kernel.TreeChanged(True))),
+  ])
+  let assert Ok(batch) =
+    fluid_container.decode(outbound.contents, outbound.metadata)
+  let assert [
+    fluid_container.ContainerMessage(fluid_container.IdAllocation(_), 0, _),
+    fluid_container.ContainerMessage(
+      fluid_container.ChannelOperation(_, _),
+      1,
+      _,
+    ),
+  ] = batch.messages
+  runtime_core.tree_map_get_view(
+    committed,
+    address,
+    view,
+    ["items"],
+    "transaction",
+  )
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("outer"))))
+  let assert Ok(channel.TreeState(state)) =
+    dict.get(committed.channels, address)
+  list.length(tree_kernel.history_view(state).pending) |> expect.to_equal(1)
+  Nil
+}
+
+pub fn shared_tree_runtime_transaction_abort_restores_document_summary_test() -> Nil {
+  let #(core, address, view) = transaction_core()
+  let assert Some(compressor) = core.compressor
+  let assert Ok(summary_before) = fluid_ids.serialize(compressor, False)
+  let assert Ok(ongoing_before) = fluid_ids.serialize(compressor, True)
+  let assert Ok(active) =
+    runtime_core.begin_tree_transaction(core, address, view, [])
+  let #(active, edit_events, edit_outbound) =
+    runtime_core.submit_tree_edits_view(active, address, view, [
+      tree_types.MapSet(["items"], "discarded", tree_types.StringValue("value")),
+    ])
+    |> expect.to_be_ok
+  edit_events |> expect.to_equal([])
+  edit_outbound |> expect.to_equal([])
+
+  let #(aborted, events) =
+    runtime_core.abort_tree_transaction(active, address) |> expect.to_be_ok
+  events |> expect.to_equal([])
+  runtime_core.tree_transaction_depth(aborted) |> expect.to_equal(0)
+  runtime_core.tree_map_get_view(aborted, address, view, ["items"], "discarded")
+  |> expect.to_equal(Ok(None))
+  aborted.in_flight |> expect.to_equal(core.in_flight)
+  aborted.next_client_sequence_number
+  |> expect.to_equal(core.next_client_sequence_number)
+  let assert Some(compressor) = aborted.compressor
+  fluid_ids.serialize(compressor, False)
+  |> expect.to_equal(Ok(summary_before))
+  fluid_ids.serialize(compressor, True)
+  |> expect.to_not_equal(Ok(ongoing_before))
+  Nil
+}
+
+pub fn shared_tree_runtime_transaction_noop_restores_base_core_test() -> Nil {
+  let #(core, address, view) = transaction_core()
+  let assert Ok(active) =
+    runtime_core.begin_tree_transaction(core, address, view, [])
+  let assert Ok(#(finished, events, outbound)) =
+    runtime_core.commit_tree_transaction(active, address)
+  finished |> expect.to_equal(core)
+  events |> expect.to_equal([])
+  outbound |> expect.to_equal([])
+  Nil
+}
+
+pub fn shared_tree_runtime_transaction_rejects_wrong_owner_and_lifecycle_test() -> Nil {
+  let #(core, address, view) = transaction_core()
+  runtime_core.commit_tree_transaction(core, address) |> expect.to_be_error
+  runtime_core.abort_tree_transaction(core, address) |> expect.to_be_error
+
+  let assert Ok(active) =
+    runtime_core.begin_tree_transaction(core, address, view, [])
+  runtime_core.begin_tree_transaction(active, "A/root", view, [])
+  |> expect.to_be_error
+  runtime_core.submit_tree_edits(active, "A/root", [
+    tree_types.SetField([], tree_types.StringValue("wrong tree")),
+  ])
+  |> expect.to_be_error
+  let other_view = transaction_wrong_view(core, address)
+  runtime_core.begin_tree_transaction(active, address, other_view, [])
+  |> expect.to_be_error
+  runtime_core.submit_tree_upgrade(active, address, other_view)
+  |> expect.to_be_error
+  let assert Ok(#(aborted, [])) =
+    runtime_core.abort_tree_transaction(active, address)
+  aborted |> expect.to_equal(core)
+  Nil
+}
+
+pub fn shared_tree_runtime_transaction_guards_document_transitions_test() -> Nil {
+  let #(core, address, view) = transaction_core()
+  runtime_core.begin_tree_transaction(core, address, view, [["missing"]])
+  |> expect.to_be_error
+  let assert Ok(active) =
+    runtime_core.begin_tree_transaction(core, address, view, [])
+  runtime_core.is_synced(active) |> expect.to_be_false
+  runtime_core.summary_channels(active) |> expect.to_be_error
+  runtime_core.capture_summary(active) |> expect.to_be_error
+  runtime_core.pending_summary_evidence(active) |> expect.to_be_error
+  runtime_core.resubmit(active) |> expect.to_be_error
+  let peer = map_core_for("peer", "50000000-0000-4000-8000-000000000005")
+  let assert Ok(#(_, _, [outbound])) =
+    runtime_core.submit_tree_edits(peer, address, [
+      tree_types.MapSet(["items"], "remote", tree_types.StringValue("value")),
+    ])
+  runtime_core.handle_sequenced(active, map_message(peer, outbound, 1))
+  |> expect.to_be_error
+  runtime_core.adopt_reconnect(
+    active,
+    runtime_fixture.connected("reconnected", [], 0),
+  )
+  |> expect.to_be_error
+  Nil
+}
+
 pub fn shared_tree_equivalent_upgrade_does_not_allocate_or_submit_test() -> Nil {
   let assert Ok(before) = runtime_fixture.routed_core()
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
@@ -485,7 +701,7 @@ pub fn shared_tree_upgrade_reconnects_before_ack_test() -> Nil {
   let view = upgraded_view(core, address, "Optional")
   let assert Ok(#(pending, _, [outbound])) =
     runtime_core.submit_tree_upgrade(core, address, view)
-  let rejoined =
+  let assert Ok(rejoined) =
     runtime_core.adopt_reconnect(
       pending,
       runtime_fixture.connected(
@@ -514,7 +730,7 @@ pub fn shared_tree_upgrade_ack_before_reconnect_is_not_resubmitted_test() -> Nil
   let view = upgraded_view(core, address, "Optional")
   let assert Ok(#(pending, _, [outbound])) =
     runtime_core.submit_tree_upgrade(core, address, view)
-  let rejoined =
+  let assert Ok(rejoined) =
     runtime_core.adopt_reconnect(
       pending,
       runtime_fixture.connected(
@@ -740,7 +956,7 @@ pub fn shared_tree_upgrade_reconnects_with_dependent_data_test() -> Nil {
     runtime_core.submit_tree_edits(upgraded, address, [
       tree_types.SetField(["score"], tree_types.NumberValue(7.0)),
     ])
-  let rejoined =
+  let assert Ok(rejoined) =
     runtime_core.adopt_reconnect(
       pending,
       runtime_fixture.connected(
@@ -785,7 +1001,7 @@ pub fn shared_tree_losing_upgrade_resubmits_empty_commit_test() -> Nil {
     runtime_core.submit_tree_upgrade(right, address, right_view)
   let assert Ok(#(right, _)) =
     runtime_core.handle_sequenced(right, map_message(left, left_outbound, 3))
-  let rejoined =
+  let assert Ok(rejoined) =
     runtime_core.adopt_reconnect(
       right,
       runtime_fixture.connected("right-next", [], 3),
@@ -838,7 +1054,7 @@ pub fn shared_tree_upgrade_after_losing_upgrade_resubmits_test() -> Nil {
   let next_view = optional_title_view(right, address)
   let assert Ok(#(right, _, [_])) =
     runtime_core.submit_tree_upgrade(right, address, next_view)
-  let rejoined =
+  let assert Ok(rejoined) =
     runtime_core.adopt_reconnect(
       right,
       runtime_fixture.connected("right-next", [], 3),
@@ -860,7 +1076,7 @@ pub fn shared_tree_resubmit_keeps_identity_and_visible_state_test() -> Nil {
     runtime_core.submit_tree_edits(core, "A/_C", [
       tree_types.SetField(["title"], tree_types.StringValue("pending")),
     ])
-  let reconnected =
+  let assert Ok(reconnected) =
     runtime_core.adopt_reconnect(
       pending,
       runtime_fixture.connected(
@@ -896,14 +1112,16 @@ pub fn shared_tree_resubmit_preserves_grouped_and_separate_batches_test() -> Nil
     ])
   let assert Ok(#(rebuilt, [one, two])) =
     runtime_core.resubmit(
-      runtime_core.go_live(runtime_core.adopt_reconnect(
+      runtime_core.adopt_reconnect(
         pending,
         runtime_fixture.connected(
           "rejoined",
           [],
           pending.last_seen_sequence_number,
         ),
-      )),
+      )
+      |> expect.to_be_ok
+      |> runtime_core.go_live,
     )
   let assert [
     runtime_core.InFlightBatch(batch_id: old_one, ..),
@@ -933,7 +1151,7 @@ pub fn shared_tree_resubmit_does_not_duplicate_old_session_ack_test() -> Nil {
     runtime_core.submit_tree_edits(core, "A/_C", [
       tree_types.SetField(["title"], tree_types.StringValue("accepted")),
     ])
-  let rejoined =
+  let assert Ok(rejoined) =
     runtime_core.adopt_reconnect(
       pending,
       runtime_fixture.connected(
@@ -966,7 +1184,7 @@ pub fn shared_tree_resubmit_after_remote_rebase_keeps_pending_batch_test() -> Ni
     runtime_core.submit_tree_edits(first, "A/_C", [
       tree_types.SetField(["title"], tree_types.StringValue("remaining")),
     ])
-  let rejoined =
+  let assert Ok(rejoined) =
     runtime_core.adopt_reconnect(
       pending,
       runtime_fixture.connected(
@@ -1005,7 +1223,7 @@ pub fn shared_tree_resubmit_includes_rebase_rollback_allocation_test() -> Nil {
   let assert Ok(input) =
     runtime_fixture.read(fixture.input, fluid_ids.local_session(compressor))
   let assert [remote] = input.operations
-  let rejoined =
+  let assert Ok(rejoined) =
     runtime_core.adopt_reconnect(
       pending,
       runtime_fixture.connected(
@@ -1061,7 +1279,7 @@ pub fn shared_tree_resubmit_allocates_in_original_batch_order_after_rebase_test(
   let assert Ok(input) =
     runtime_fixture.read(fixture.input, fluid_ids.local_session(compressor))
   let assert [remote] = input.operations
-  let rejoined =
+  let assert Ok(rejoined) =
     runtime_core.adopt_reconnect(
       pending,
       runtime_fixture.connected(
@@ -1134,7 +1352,7 @@ pub fn shared_tree_resubmit_orders_allocations_after_repeated_rebases_test() -> 
         )
       let #(writer, _) =
         runtime_core.handle_sequenced(writer, remote) |> expect.to_be_ok
-      let rejoined =
+      let assert Ok(rejoined) =
         runtime_core.adopt_reconnect(
           reader,
           runtime_fixture.connected(
@@ -1189,14 +1407,16 @@ pub fn shared_tree_resubmit_preserves_interleaved_map_submission_test() -> Nil {
     ])
   let assert Ok(#(ready, outbounds)) =
     runtime_core.resubmit(
-      runtime_core.go_live(runtime_core.adopt_reconnect(
+      runtime_core.adopt_reconnect(
         pending,
         runtime_fixture.connected(
           "rejoined",
           [],
           pending.last_seen_sequence_number,
         ),
-      )),
+      )
+      |> expect.to_be_ok
+      |> runtime_core.go_live,
     )
   list.length(outbounds) |> expect.to_equal(3)
   list.length(ready.in_flight) |> expect.to_equal(3)
@@ -1210,7 +1430,7 @@ pub fn shared_tree_reconnect_waits_for_old_leave_after_new_join_test() -> Nil {
     runtime_core.submit_tree_edits(core, "A/_C", [
       tree_types.SetField(["title"], tree_types.StringValue("accepted")),
     ])
-  let rejoined =
+  let assert Ok(rejoined) =
     runtime_core.adopt_reconnect(
       pending,
       runtime_fixture.connected(

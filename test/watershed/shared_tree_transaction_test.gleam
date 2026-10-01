@@ -288,6 +288,12 @@ pub fn shared_tree_transaction_commits_one_outer_change_test() -> Nil {
   tree_kernel.read(state, ["point", "x"])
   |> expect.to_equal(Ok(Some(types.NumberValue(3.0))))
   tree_kernel.history_view(state).pending |> expect.to_equal([commit])
+  shared_change.revision_infos(shared_change.TaggedChange(
+    None,
+    None,
+    commit.change,
+  ))
+  |> expect.to_equal([change.RevisionInfo(commit.revision, None)])
   events.events |> expect.to_equal([tree_kernel.TreeChanged(True)])
 }
 
@@ -572,6 +578,82 @@ pub fn shared_tree_transaction_nested_savepoints_restore_inner_state_test() -> N
   tree_kernel.read(state, ["point", "x"])
   |> expect.to_equal(Ok(Some(types.NumberValue(3.0))))
   events.events |> expect.to_equal([tree_kernel.TreeChanged(True)])
+}
+
+pub fn shared_tree_transaction_nested_constraints_use_current_author_order_test() -> Nil {
+  let base = initial_state()
+  let assert Ok(value) = transaction.begin(base, fluid_ids.new(session()), [])
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.SetField(
+        ["note"],
+        types.ObjectValue("Point", [
+          #("x", types.NumberValue(2.0)),
+        ]),
+      ),
+    )
+  let assert Ok(target) =
+    tree_kernel.resolve_constraint(transaction.state(value), ["note"])
+  let assert Ok(value) =
+    transaction.begin_nested_with_constraints(value, [target])
+  transaction.depth(value) |> expect.to_equal(2)
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.SetField(["note", "x"], types.NumberValue(3.0)),
+    )
+  let assert Ok(value) = transaction.commit_nested(value)
+  let #(finished, _) = transaction.finish(value) |> expect.to_be_ok
+  let assert transaction.Commit(_, _, commit) = finished
+  let assert [shared_change.DataChange(data)] =
+    shared_change.to_changes(commit.change)
+  data
+  |> change.to_data
+  |> fn(data) {
+    data.nodes
+    |> list.filter(fn(entry) {
+      case entry.1.node_exists_constraint {
+        Some(_) -> True
+        None -> False
+      }
+    })
+  }
+  |> list.length
+  |> expect.to_equal(1)
+  Nil
+}
+
+pub fn shared_tree_transaction_nested_abort_discards_nested_constraints_test() -> Nil {
+  let base = initial_state()
+  let assert Ok(value) = transaction.begin(base, fluid_ids.new(session()), [])
+  let assert Ok(target) = tree_kernel.resolve_constraint(base, ["point"])
+  let assert Ok(value) =
+    transaction.begin_nested_with_constraints(value, [target])
+  let assert Ok(value) = transaction.abort_nested(value)
+  let assert Ok(value) =
+    transaction.apply_edit(
+      value,
+      types.SetField(["point", "x"], types.NumberValue(2.0)),
+    )
+  let assert Ok(#(transaction.Commit(_, _, commit), _)) =
+    transaction.finish(value)
+  let assert [shared_change.DataChange(data)] =
+    shared_change.to_changes(commit.change)
+  data
+  |> change.to_data
+  |> fn(data) {
+    data.nodes
+    |> list.filter(fn(entry) {
+      case entry.1.node_exists_constraint {
+        Some(_) -> True
+        None -> False
+      }
+    })
+  }
+  |> list.length
+  |> expect.to_equal(0)
+  Nil
 }
 
 pub fn shared_tree_transaction_outer_abort_after_inner_commit_restores_base_test() -> Nil {

@@ -203,7 +203,10 @@ pub fn lww_map_core_attach_reconnect_summary_and_errors_test() -> Nil {
       checkpoint_sequence_number: Some(core.last_seen_sequence_number),
     )
   let assert Ok(#(core, [resubmitted])) =
-    core |> runtime_core.adopt_reconnect(reconnect) |> runtime_core.resubmit
+    core
+    |> runtime_core.adopt_reconnect(reconnect)
+    |> expect.to_be_ok
+    |> runtime_core.resubmit
   json.parse(
     json.to_string(resubmitted.contents),
     op.lww_map_envelope_decoder(),

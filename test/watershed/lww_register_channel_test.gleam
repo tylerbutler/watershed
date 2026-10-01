@@ -171,7 +171,7 @@ pub fn detached_attach_reconnect_and_ack_preserve_register_metadata_test() -> Ni
       client_id: "default_doc_2",
       checkpoint_sequence_number: Some(core.last_seen_sequence_number),
     )
-  let core = runtime_core.adopt_reconnect(core, reconnect)
+  let assert Ok(core) = runtime_core.adopt_reconnect(core, reconnect)
   let #(core, resubmitted) = expect.to_be_ok(runtime_core.resubmit(core))
   let assert [resubmitted] = resubmitted
   json.parse(

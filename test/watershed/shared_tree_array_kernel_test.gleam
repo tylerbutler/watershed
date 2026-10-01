@@ -306,6 +306,44 @@ pub fn shared_tree_array_transaction_net_zero_mutation_still_emits_event_test() 
   ))
 }
 
+pub fn shared_tree_array_runtime_transaction_net_zero_mutation_emits_once_test() {
+  let writer = core()
+  let view = array_fixture.view("rootArray")
+  let active =
+    runtime_core.begin_tree_transaction(writer, "A/_C", view, [])
+    |> expect.to_be_ok
+  let #(active, edit_events, edit_outbound) =
+    runtime_core.submit_tree_edits_view(active, "A/_C", view, [
+      types.ArrayInsert([], 1, [types.StringValue("C")]),
+      types.ArrayRemove([], 1, 2),
+    ])
+    |> expect.to_be_ok
+  edit_events |> expect.to_equal([])
+  edit_outbound |> expect.to_equal([])
+  runtime_core.tree_read(active, "A/_C", [])
+  |> expect.to_equal(runtime_core.tree_read(writer, "A/_C", []))
+
+  let #(committed, events, outbounds) =
+    runtime_core.commit_tree_transaction(active, "A/_C") |> expect.to_be_ok
+  let assert [outbound] = outbounds
+  events
+  |> expect.to_equal([
+    #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(True))),
+  ])
+  let assert Ok(batch) =
+    fluid_container.decode(outbound.contents, outbound.metadata)
+  let assert [
+    fluid_container.ContainerMessage(fluid_container.IdAllocation(_), 0, _),
+    fluid_container.ContainerMessage(
+      fluid_container.ChannelOperation(_, _),
+      1,
+      _,
+    ),
+  ] = batch.messages
+  runtime_core.tree_read(committed, "A/_C", [])
+  |> expect.to_equal(runtime_core.tree_read(writer, "A/_C", []))
+}
+
 pub fn shared_tree_array_transaction_edits_newly_inserted_node_test() {
   let writer = core()
   let assert Some(compressor) = writer.compressor
@@ -580,7 +618,7 @@ pub fn shared_tree_array_reconnect_keeps_moves_across_interrupted_catchup_test()
       types.ArrayInsert([], 0, [types.StringValue("remote")]),
     ])
   let remote_message = message(reader, remote, 2)
-  let first_rejoin =
+  let assert Ok(first_rejoin) =
     runtime_core.adopt_reconnect(
       pending,
       runtime_fixture.connected("first-rejoin", [], 2),
@@ -590,7 +628,7 @@ pub fn shared_tree_array_reconnect_keeps_moves_across_interrupted_catchup_test()
   ack.events |> expect.to_equal([])
   list.length(caught_up_once.in_flight) |> expect.to_equal(1)
   runtime_core.reconnect_ready(caught_up_once, 2) |> expect.to_equal(False)
-  let second_rejoin =
+  let assert Ok(second_rejoin) =
     runtime_core.adopt_reconnect(
       caught_up_once,
       runtime_fixture.connected("second-rejoin", [], 5),
@@ -736,7 +774,7 @@ pub fn shared_tree_array_repair_uses_each_sequenced_predecessor_test() {
       types.StringValue("B"),
     ]),
   ])
-  let reconnected =
+  let assert Ok(reconnected) =
     runtime_core.adopt_reconnect(
       advanced,
       runtime_fixture.connected("rejoined", [], 2),

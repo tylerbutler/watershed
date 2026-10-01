@@ -234,6 +234,13 @@ pub fn begin(
 
 pub fn begin_nested(value: Transaction) -> Transaction
 
+pub fn begin_nested_with_constraints(
+  value: Transaction,
+  constraints: List(change.ConstraintTarget),
+) -> Result(Transaction, TreeError)
+
+pub fn depth(value: Transaction) -> Int
+
 pub fn state(value: Transaction) -> tree_kernel.TreeState
 
 pub fn compressor(value: Transaction) -> fluid_ids.Compressor
@@ -294,6 +301,11 @@ the active transaction. Existing tree edit submission routes matching edits to
 `transaction.apply_edit`, returns no local events, and returns no outbound
 operation until outer commit. Another tree address and schema upgrades return a
 typed error while a transaction is active.
+
+Task 5 changes `adopt_reconnect` from an infallible transition to
+`Result(Core, CoreError)`. A reconnect cannot silently carry an active
+transaction into a new connection epoch. Existing JavaScript, BEAM, and test
+callers must handle the result.
 
 ### Public API, owned by Tasks 6 and 7
 
@@ -881,13 +893,13 @@ git commit -m "feat(tree): add nested transactions"
 - Produces: the runtime-core API in section 3 and transaction-aware existing
   tree read/edit functions.
 
-- [ ] **Step 1: Add failing runtime-core lifecycle tests.**
+- [x] **Step 1: Add failing runtime-core lifecycle tests.**
 
 Test begin, intermediate reads without events, nested begin/abort, one outer
 commit event, outer abort without events, no-op, wrong address, wrong view,
 schema upgrade rejection, and calls outside an active transaction.
 
-- [ ] **Step 2: Store one active single-tree transaction in `Core`.**
+- [x] **Step 2: Store one active single-tree transaction in `Core`.**
 
 Add:
 
@@ -898,14 +910,14 @@ active_tree_transaction:
 
 Initialize it to `None` in every core constructor and restore path.
 
-- [ ] **Step 3: Route reads and edits through active state.**
+- [x] **Step 3: Route reads and edits through active state.**
 
 When the address matches, existing reads use `tree_transaction.state`.
 Matching edits call `tree_transaction.apply_edit`, replace the active
 transaction, return no events, and return `[]` outbound. Another address
 returns `TreeOperationFailed` with a literal cross-tree error.
 
-- [ ] **Step 4: Implement begin, nested begin, commit, and abort.**
+- [x] **Step 4: Implement begin, nested begin, commit, and abort.**
 
 Resolve `NodeInDocument` paths before invoking `transaction.begin`. Nested
 begin requires the same address and view. Inner commit/abort update only active
@@ -913,32 +925,70 @@ state. Outer commit calls existing `submit_tree_commits` once. Outer abort
 restores the core tree and summary compressor state, retains pinned ongoing
 local compressor advancement, and returns no events.
 
-- [ ] **Step 5: Preserve batch and allocation invariants.**
+- [x] **Step 5: Preserve batch and allocation invariants.**
 
 Assert one outer commit produces one tree operation plus its required
 allocation item in one container batch. No-op and abort produce no allocation
 message or outbound operation. An abort after authored edits can retain local
 compressor advancement. Existing ordinary edit batching remains unchanged.
 
-- [ ] **Step 6: Add schema and reconnect guards.**
+- [x] **Step 6: Add schema and reconnect guards.**
 
 `submit_tree_upgrade`, summary creation, reconnect transition, and resubmission
 must reject or defer while a transaction is active. The pure core does not
 silently discard active transaction state.
 
-- [ ] **Step 7: Run runtime-core and schema regression tests.**
+- [x] **Step 7: Run runtime-core and schema regression tests.**
 
 ```bash
 gleam test --target erlang -- shared_tree_runtime shared_tree_transaction shared_tree_array_kernel shared_tree_schema_evolution
 gleam test --target javascript -- shared_tree_runtime shared_tree_transaction shared_tree_array_kernel shared_tree_schema_evolution
 ```
 
-- [ ] **Step 8: Commit runtime-core integration.**
+- [x] **Step 8: Commit runtime-core integration.**
 
 ```bash
 git add src/watershed/runtime_core.gleam src/watershed/channel.gleam test/watershed
 git commit -m "feat(tree): submit atomic transactions"
 ```
+
+**Results (2026-09-30):**
+
+- `Core` now stores one active transaction with its tree address and immutable
+  view. Matching reads and retained snapshots use isolated state. Matching
+  edits update only the transaction and emit no event or outbound operation.
+- Outer commit installs one composed pending commit and submits one grouped
+  allocation-plus-tree batch. Nested commit and abort update only the active
+  transaction. Outer abort and no-op install the state and compressor returned
+  by Task 4 without adding pending history.
+- Before the composed outer commit reaches the existing encoder, its authored
+  revisions are replaced with the single outer commit revision. This preserves
+  identity order while satisfying the pinned tagged-change wire contract.
+- Nested constraint begin uses a new fallible
+  `begin_nested_with_constraints` helper. The pure transaction records each
+  constraint set with its authoring state, so a nested constraint on content
+  authored earlier by the outer transaction follows author order. Nested abort
+  removes only constraint sets authored in that scope.
+- Schema upgrade, summary channel capture, document summary capture, pending
+  summary evidence, reconnect adoption, resubmission, and sequenced inbound
+  application return typed errors while a transaction is active.
+  `is_synced` and `wants_summary` are false during an active transaction.
+- `adopt_reconnect` now returns `Result(Core, CoreError)`. The JavaScript and
+  BEAM runtimes fail the reconnect explicitly on error. Existing core tests
+  unwrap the result on their transaction-free paths.
+- `channel.gleam` and the schema-evolution test did not need changes. Event
+  mapping already covered `TreeChanged`, and the runtime lifecycle tests cover
+  schema rejection directly.
+- RED first failed to compile on the missing runtime-core lifecycle API and
+  nested constraint helper. Behavioral RED runs then exposed unguarded summary
+  channels, synchronized-state reporting during a transaction, and the need to
+  retain nested constraint authoring state. An array integration RED also
+  exposed multiple revision records in the composed tagged commit.
+- The required focused matrix passed 159 tests on Erlang and 148 tests on
+  JavaScript. Reconnect-signature regressions passed 137 tests on each target.
+- Targeted `gleam format --check` and `git diff --check` passed. The repository
+  `just format` command stalled in Trellis after starting both format jobs, so
+  the changed Gleam files were formatted directly.
 
 ### Task 6: Expose the JavaScript callback API
 

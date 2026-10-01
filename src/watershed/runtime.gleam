@@ -3240,37 +3240,42 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
       case state.phase {
         Connecting -> begin_bootstrap(cell, connected)
         Reconnecting(core) -> {
-          let core = runtime_core.adopt_reconnect(core, connected)
-          let checkpoint =
-            option.unwrap(
-              connected.checkpoint_sequence_number,
-              core.last_seen_sequence_number,
-            )
-          // Ask for the gap. Nothing else will: no server pushes it unprompted,
-          // and the reactive `requestOps` in `on_operation` needs an operation
-          // to react to. See `runtime_core.catch_up_from`.
-          settle_reconnect(cell, core, checkpoint)
-          case runtime_core.reconnect_barrier_active(core) {
-            True -> {
-              let _ =
-                state.scheduler.schedule(
-                  fn() { reconnect_deadline(cell, core.client_id) },
-                  10_000,
+          case runtime_core.adopt_reconnect(core, connected) {
+            Error(error) ->
+              fail(cell, "reconnect failed: " <> string.inspect(error))
+            Ok(core) -> {
+              let checkpoint =
+                option.unwrap(
+                  connected.checkpoint_sequence_number,
+                  core.last_seen_sequence_number,
                 )
-              Nil
+              // Ask for the gap. Nothing else will: no server pushes it unprompted,
+              // and the reactive `requestOps` in `on_operation` needs an operation
+              // to react to. See `runtime_core.catch_up_from`.
+              settle_reconnect(cell, core, checkpoint)
+              case runtime_core.reconnect_barrier_active(core) {
+                True -> {
+                  let _ =
+                    state.scheduler.schedule(
+                      fn() { reconnect_deadline(cell, core.client_id) },
+                      10_000,
+                    )
+                  Nil
+                }
+                False -> Nil
+              }
+              maybe_request_operations(
+                state.channel,
+                runtime_core.catch_up_from(core, checkpoint),
+              )
+              // Presence is unsequenced, so it does not wait for the operation
+              // catch-up `settle_reconnect` may still be pending — rejoining now is
+              // both correct and the fastest way back to a roster.
+              case session_current(cell, state.bootstrap_generation) {
+                True -> notify_presence_session(cell, core)
+                False -> Nil
+              }
             }
-            False -> Nil
-          }
-          maybe_request_operations(
-            state.channel,
-            runtime_core.catch_up_from(core, checkpoint),
-          )
-          // Presence is unsequenced, so it does not wait for the operation
-          // catch-up `settle_reconnect` may still be pending — rejoining now is
-          // both correct and the fastest way back to a roster.
-          case session_current(cell, state.bootstrap_generation) {
-            True -> notify_presence_session(cell, core)
-            False -> Nil
           }
         }
         Ready(_, _) ->

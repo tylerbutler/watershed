@@ -15,8 +15,20 @@ type AuthoredChange {
   AuthoredChange(revision: fluid_ids.StableId, change: shared_change.Changeset)
 }
 
+type ConstraintSet {
+  ConstraintSet(
+    state: tree_kernel.TreeState,
+    targets: List(change.ConstraintTarget),
+  )
+}
+
 type Savepoint {
-  Savepoint(state: tree_kernel.TreeState, change_count: Int, event_count: Int)
+  Savepoint(
+    state: tree_kernel.TreeState,
+    constraint_set_count: Int,
+    change_count: Int,
+    event_count: Int,
+  )
 }
 
 pub opaque type Transaction {
@@ -25,7 +37,7 @@ pub opaque type Transaction {
     current_state: tree_kernel.TreeState,
     base_compressor: fluid_ids.Compressor,
     current_compressor: fluid_ids.Compressor,
-    constraints: List(change.ConstraintTarget),
+    constraint_sets: List(ConstraintSet),
     changes: List(AuthoredChange),
     events: List(tree_kernel.ChangeEvents),
     savepoints: List(Savepoint),
@@ -47,18 +59,59 @@ pub fn begin(
   constraints: List(change.ConstraintTarget),
 ) -> Result(Transaction, TreeError) {
   use _ <- result.try(tree_kernel.validate_constraints(state, constraints))
-  Ok(Transaction(state, state, compressor, compressor, constraints, [], [], []))
+  Ok(
+    Transaction(
+      state,
+      state,
+      compressor,
+      compressor,
+      constraint_set(state, constraints),
+      [],
+      [],
+      [],
+    ),
+  )
 }
 
 pub fn begin_nested(value: Transaction) -> Transaction {
-  Transaction(..value, savepoints: [
-    Savepoint(
-      value.current_state,
-      list.length(value.changes),
-      list.length(value.events),
+  push_savepoint(value, [])
+}
+
+pub fn begin_nested_with_constraints(
+  value: Transaction,
+  constraints: List(change.ConstraintTarget),
+) -> Result(Transaction, TreeError) {
+  use _ <- result.try(tree_kernel.validate_constraints(
+    value.current_state,
+    constraints,
+  ))
+  Ok(push_savepoint(value, constraints))
+}
+
+fn push_savepoint(
+  value: Transaction,
+  constraints: List(change.ConstraintTarget),
+) -> Transaction {
+  Transaction(
+    ..value,
+    savepoints: [
+      Savepoint(
+        value.current_state,
+        list.length(value.constraint_sets),
+        list.length(value.changes),
+        list.length(value.events),
+      ),
+      ..value.savepoints
+    ],
+    constraint_sets: list.append(
+      value.constraint_sets,
+      constraint_set(value.current_state, constraints),
     ),
-    ..value.savepoints
-  ])
+  )
+}
+
+pub fn depth(value: Transaction) -> Int {
+  list.length(value.savepoints) + 1
 }
 
 pub fn state(value: Transaction) -> tree_kernel.TreeState {
@@ -114,6 +167,10 @@ pub fn abort_nested(value: Transaction) -> Result(Transaction, TreeError) {
           current_state: tree_kernel.preserve_identity_allocation(
             savepoint.state,
             value.current_state,
+          ),
+          constraint_sets: list.take(
+            value.constraint_sets,
+            savepoint.constraint_set_count,
           ),
           changes: list.take(value.changes, savepoint.change_count),
           events: list.take(value.events, savepoint.event_count),
@@ -181,6 +238,7 @@ fn finish_change(
   outer: shared_change.Changeset,
 ) -> Result(#(Finish, tree_kernel.ChangeEvents), TreeError) {
   use _ <- result.try(reject_schema_changes(outer))
+  use outer <- result.try(squash_revisions(outer, revision))
   let draft =
     history.Commit(
       revision,
@@ -192,13 +250,17 @@ fn finish_change(
     draft,
     value.current_compressor,
   ))
-  use outer <- result.try(tree_kernel.add_node_exists_constraints(
-    value.base_state,
-    outer,
-    value.constraints,
-    revision,
-    order,
-  ))
+  use outer <- result.try(
+    list.try_fold(value.constraint_sets, outer, fn(outer, constraints) {
+      tree_kernel.add_node_exists_constraints(
+        constraints.state,
+        outer,
+        constraints.targets,
+        revision,
+        order,
+      )
+    }),
+  )
   use #(state, commit, events) <- result.try(tree_kernel.commit_local_preview(
     value.base_state,
     value.current_state,
@@ -210,6 +272,26 @@ fn finish_change(
     Commit(state, value.current_compressor, commit),
     preserve_array_events(value.events, events),
   ))
+}
+
+fn squash_revisions(
+  value: shared_change.Changeset,
+  revision: fluid_ids.StableId,
+) -> Result(shared_change.Changeset, TreeError) {
+  case shared_change.to_changes(value) {
+    [shared_change.DataChange(data)] -> {
+      let obsolete =
+        change.revision_infos(change.TaggedChange(None, None, data))
+        |> list.map(fn(info) { Some(info.revision) })
+      change.replace_revisions(data, obsolete, revision)
+      |> result.map(shared_change.from_data)
+    }
+    _ ->
+      Error(types.UnsupportedFeature(
+        "tree.transaction",
+        "schema changes are not supported",
+      ))
+  }
 }
 
 fn authored_revision(
@@ -266,4 +348,14 @@ fn preserve_array_events(
     False -> committed.events
   }
   tree_kernel.ChangeEvents(events, array_changed)
+}
+
+fn constraint_set(
+  state: tree_kernel.TreeState,
+  targets: List(change.ConstraintTarget),
+) -> List(ConstraintSet) {
+  case targets {
+    [] -> []
+    _ -> [ConstraintSet(state, targets)]
+  }
 }

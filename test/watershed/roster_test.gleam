@@ -227,7 +227,7 @@ pub fn a_proposal_after_the_checkpoint_reconstructs_the_present_signoff_list_tes
 pub fn reconnect_holds_the_roster_for_the_gap_test() -> Nil {
   let core = bootstrap_with([peer_client_id, third_client_id])
 
-  let core =
+  let assert Ok(core) =
     runtime_core.adopt_reconnect(
       core,
       message.ConnectedMessage(
@@ -256,7 +256,7 @@ pub fn a_gap_operation_is_judged_against_the_pre_reconnect_room_test() -> Nil {
     )
 
   // We drop and come back with a fresh id, into a room that has since shrunk.
-  let core =
+  let assert Ok(core) =
     runtime_core.adopt_reconnect(
       core,
       message.ConnectedMessage(

@@ -57,10 +57,12 @@ import watershed/sequence_kernel
 import watershed/summary_policy.{type Policy}
 import watershed/task_manager_kernel
 import watershed/text_kernel
+import watershed/tree/change as tree_change
 import watershed/tree/history
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema as tree_schema
 import watershed/tree/shared_change
+import watershed/tree/transaction as tree_transaction
 import watershed/tree/types as tree_types
 import watershed/tree_kernel
 import watershed/two_p_set_kernel
@@ -91,6 +93,9 @@ pub type Core {
     client_id: String,
     routing: Routing,
     compressor: Option(fluid_ids.Compressor),
+    active_tree_transaction: Option(
+      #(String, tree_schema.ViewSchema, tree_transaction.Transaction),
+    ),
     persistence: Option(fluid_document.DocumentSummary),
     minimum_sequence_number: Int,
     channels: Dict(String, ChannelState),
@@ -875,6 +880,7 @@ fn start_core(
       client_id: connected.client_id,
       routing: routing,
       compressor: compressor,
+      active_tree_transaction: None,
       persistence: persistence,
       minimum_sequence_number: minimum_sequence_number,
       channels: channels,
@@ -1113,6 +1119,7 @@ pub fn summary_members(core: Core) -> List(Int) {
 pub fn summary_channels(
   core: Core,
 ) -> Result(List(#(String, Snapshot)), CoreError) {
+  use _ <- result.try(require_no_tree_transaction(core, "summary"))
   list.try_map(core.channel_order, fn(address) {
     use state <- result.try(
       dict.get(core.channels, address)
@@ -1138,6 +1145,7 @@ fn capture_summary_state(
   core: Core,
   require_synced: Bool,
 ) -> Result(fluid_document.DocumentSummary, CoreError) {
+  use _ <- result.try(require_no_tree_transaction(core, "summary"))
   use _ <- result.try(
     seed_requirement(
       core.ingest == Live
@@ -1220,7 +1228,7 @@ fn summary_entry_evidence(entry: fluid_summary.SummaryEntry) -> Json {
 }
 
 pub fn is_synced(core: Core) -> Bool {
-  core.in_flight == []
+  core.in_flight == [] && core.active_tree_transaction == None
 }
 
 /// How far the document moved past the newest checkpoint that this client knows
@@ -1254,6 +1262,7 @@ pub fn operations_since_summary(core: Core) -> Int {
 pub fn wants_summary(core: Core, policy: Policy) -> Bool {
   core.ingest == Live
   && core.in_flight == []
+  && core.active_tree_transaction == None
   && core.out_of_order == []
   && operations_since_summary(core) >= summary_policy.policy_threshold(policy)
 }
@@ -1370,7 +1379,11 @@ fn load_channels(
 /// reconnect. That is the same shift in time that breaks a cold join, over a
 /// shorter interval. `settle_bootstrap` takes the new roster after the gap
 /// closes.
-pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
+pub fn adopt_reconnect(
+  core: Core,
+  connected: ConnectedMessage,
+) -> Result(Core, CoreError) {
+  use _ <- result.try(require_no_tree_transaction(core, "reconnect"))
   // `members` is left exactly as it was: it is the roster at
   // `last_seen_sequence_number`, which is precisely where the replay about to
   // happen starts. The gap's own `join`/`leave` messages then advance it —
@@ -1383,28 +1396,30 @@ pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
   // merge hazard away — nothing is unioned, so a client that left during the
   // gap cannot be resurrected, and its signoffs still drain at the sequence
   // point its `leave` actually occupies.
-  Core(
-    ..core,
-    client_id: connected.client_id,
-    reconnect_barrier: case core.reconnect_barrier, has_pending_tree(core) {
-      Some(barrier), _ ->
-        Some(ReconnectBarrier(
-          list.unique([core.client_id, ..barrier.previous_clients]),
-          False,
-        ))
-      None, True -> Some(ReconnectBarrier([core.client_id], False))
-      None, False -> None
-    },
-    live_members: roster_of(connected),
-    // The gap about to be replayed is history, not live traffic, so the
-    // defences in `quorum_of` must be off for it. They exist for a hazard that
-    // cannot occur here — a `join` lost or reordered against the operation
-    // after it — and applying them is actively wrong on this path: unioning
-    // *self* into the quorum of an operation sequenced before we reconnected
-    // claims a signoff for an id that did not exist when that operation was
-    // made, and no other replica agrees. `go_live` clears this when the gap
-    // closes.
-    ingest: Replaying,
+  Ok(
+    Core(
+      ..core,
+      client_id: connected.client_id,
+      reconnect_barrier: case core.reconnect_barrier, has_pending_tree(core) {
+        Some(barrier), _ ->
+          Some(ReconnectBarrier(
+            list.unique([core.client_id, ..barrier.previous_clients]),
+            False,
+          ))
+        None, True -> Some(ReconnectBarrier([core.client_id], False))
+        None, False -> None
+      },
+      live_members: roster_of(connected),
+      // The gap about to be replayed is history, not live traffic, so the
+      // defences in `quorum_of` must be off for it. They exist for a hazard that
+      // cannot occur here — a `join` lost or reordered against the operation
+      // after it — and applying them is actively wrong on this path: unioning
+      // *self* into the quorum of an operation sequenced before we reconnected
+      // claims a signoff for an id that did not exist when that operation was
+      // made, and no other replica agrees. `go_live` clears this when the gap
+      // closes.
+      ingest: Replaying,
+    ),
   )
 }
 
@@ -1518,6 +1533,7 @@ fn roster_of(connected: ConnectedMessage) -> Set(Int) {
 pub fn resubmit(
   core: Core,
 ) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
+  use _ <- result.try(require_no_tree_transaction(core, "resubmit"))
   use prepared <- result.try(
     core.channels
     |> dict.to_list
@@ -2045,6 +2061,7 @@ pub fn handle_sequenced(
   core: Core,
   msg: SequencedDocumentMessage,
 ) -> Result(#(Core, Ingested), CoreError) {
+  use _ <- result.try(require_no_tree_transaction(core, "remote operation"))
   let next = core.last_seen_sequence_number + 1
   case msg.sequence_number {
     sequence_number if sequence_number < next ->
@@ -3535,7 +3552,7 @@ pub fn tree_read(
   address: String,
   path: tree_types.FieldPath,
 ) -> Result(Option(tree_types.TreeValue), CoreError) {
-  use state <- result.try(tree_channel(core, address))
+  use state <- result.try(read_tree_channel(core, address))
   tree_kernel.read(state, path)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3544,12 +3561,17 @@ pub fn tree_retained_snapshot(
   core: Core,
   address: String,
 ) -> Result(TreeRetainedSnapshot, CoreError) {
-  use state <- result.try(tree_channel(core, address))
+  use state <- result.try(read_tree_channel(core, address))
   use snapshot <- result.try(
     tree_kernel.snapshot(state)
     |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
   )
-  Ok(TreeRetainedSnapshot(snapshot, core.compressor))
+  let compressor = case core.active_tree_transaction {
+    Some(#(active_address, _, value)) if active_address == address ->
+      Some(tree_transaction.compressor(value))
+    _ -> core.compressor
+  }
+  Ok(TreeRetainedSnapshot(snapshot, compressor))
 }
 
 pub fn tree_compatibility(
@@ -3557,7 +3579,7 @@ pub fn tree_compatibility(
   address: String,
   view: tree_schema.ViewSchema,
 ) -> Result(tree_schema.Compatibility, CoreError) {
-  use state <- result.try(tree_channel(core, address))
+  use state <- result.try(read_tree_channel(core, address))
   tree_kernel.compatibility(state, view)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3568,7 +3590,7 @@ pub fn tree_read_view(
   view: tree_schema.ViewSchema,
   path: tree_types.FieldPath,
 ) -> Result(Option(tree_types.TreeValue), CoreError) {
-  use state <- result.try(checked_tree_channel(core, address, view))
+  use state <- result.try(checked_read_tree_channel(core, address, view))
   tree_kernel.read(state, path)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3579,7 +3601,7 @@ pub fn tree_map_get(
   path: tree_types.FieldPath,
   key: String,
 ) -> Result(Option(tree_types.TreeValue), CoreError) {
-  use state <- result.try(tree_channel(core, address))
+  use state <- result.try(read_tree_channel(core, address))
   tree_kernel.map_get(state, path, key)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3591,7 +3613,7 @@ pub fn tree_map_get_view(
   path: tree_types.FieldPath,
   key: String,
 ) -> Result(Option(tree_types.TreeValue), CoreError) {
-  use state <- result.try(checked_tree_channel(core, address, view))
+  use state <- result.try(checked_read_tree_channel(core, address, view))
   tree_kernel.map_get(state, path, key)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3601,7 +3623,7 @@ pub fn tree_map_entries(
   address: String,
   path: tree_types.FieldPath,
 ) -> Result(List(#(String, tree_types.TreeValue)), CoreError) {
-  use state <- result.try(tree_channel(core, address))
+  use state <- result.try(read_tree_channel(core, address))
   tree_kernel.map_entries(state, path)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3612,7 +3634,7 @@ pub fn tree_array_get(
   path: tree_types.FieldPath,
   index: Int,
 ) -> Result(Option(tree_types.TreeValue), CoreError) {
-  use state <- result.try(tree_channel(core, address))
+  use state <- result.try(read_tree_channel(core, address))
   tree_kernel.array_get(state, path, index)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3622,7 +3644,7 @@ pub fn tree_array_values(
   address: String,
   path: tree_types.FieldPath,
 ) -> Result(List(tree_types.TreeValue), CoreError) {
-  use state <- result.try(tree_channel(core, address))
+  use state <- result.try(read_tree_channel(core, address))
   tree_kernel.array_values(state, path)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3633,7 +3655,7 @@ pub fn tree_map_entries_view(
   view: tree_schema.ViewSchema,
   path: tree_types.FieldPath,
 ) -> Result(List(#(String, tree_types.TreeValue)), CoreError) {
-  use state <- result.try(checked_tree_channel(core, address, view))
+  use state <- result.try(checked_read_tree_channel(core, address, view))
   tree_kernel.map_entries(state, path)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3642,8 +3664,13 @@ pub fn tree_history_evidence(
   core: Core,
   address: String,
 ) -> Result(Json, CoreError) {
-  use state <- result.try(tree_channel(core, address))
-  let Core(compressor:, last_seen_sequence_number:, ..) = core
+  use state <- result.try(read_tree_channel(core, address))
+  let Core(last_seen_sequence_number:, ..) = core
+  let compressor = case core.active_tree_transaction {
+    Some(#(active_address, _, value)) if active_address == address ->
+      Some(tree_transaction.compressor(value))
+    _ -> core.compressor
+  }
   use compressor <- result.try(
     compressor
     |> option.to_result(TreeOperationFailed(
@@ -3744,6 +3771,36 @@ fn checked_tree_channel(
   Ok(state)
 }
 
+fn checked_read_tree_channel(
+  core: Core,
+  address: String,
+  view: tree_schema.ViewSchema,
+) -> Result(tree_kernel.TreeState, CoreError) {
+  use state <- result.try(read_tree_channel(core, address))
+  use _ <- result.try(case core.active_tree_transaction {
+    Some(#(active_address, active_view, _))
+      if active_address == address && active_view != view
+    -> transaction_error(address, "tree transaction uses another view")
+    _ -> Ok(Nil)
+  })
+  use _ <- result.try(
+    tree_schema.can_view(tree_kernel.stored_schema(state), view)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  Ok(state)
+}
+
+fn read_tree_channel(
+  core: Core,
+  address: String,
+) -> Result(tree_kernel.TreeState, CoreError) {
+  case core.active_tree_transaction {
+    Some(#(active_address, _, value)) if active_address == address ->
+      Ok(tree_transaction.state(value))
+    _ -> tree_channel(core, address)
+  }
+}
+
 fn tree_channel(
   core: Core,
   address: String,
@@ -3772,6 +3829,35 @@ pub fn submit_tree_edits(
     [] -> Error(EmptyTreeEditBatch)
     _ -> Ok(Nil)
   })
+  case core.active_tree_transaction {
+    Some(#(active_address, view, value)) if active_address == address -> {
+      use value <- result.try(
+        list.try_fold(edits, value, fn(value, edit) {
+          tree_transaction.apply_edit(value, edit)
+        })
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
+      Ok(
+        #(
+          Core(..core, active_tree_transaction: Some(#(address, view, value))),
+          [],
+          [],
+        ),
+      )
+    }
+    Some(_) -> transaction_error(address, "tree transaction uses another tree")
+    None -> submit_tree_edits_now(core, address, edits)
+  }
+}
+
+fn submit_tree_edits_now(
+  core: Core,
+  address: String,
+  edits: List(tree_types.Edit),
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
   use state <- result.try(tree_channel(core, address))
   use compressor <- result.try(case core.compressor {
     Some(compressor) -> Ok(compressor)
@@ -3824,8 +3910,163 @@ pub fn submit_tree_edits_view(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
-  use _ <- result.try(checked_tree_channel(core, address, view))
+  use _ <- result.try(case core.active_tree_transaction {
+    Some(#(active_address, _, _)) if active_address != address ->
+      transaction_error(address, "tree transaction uses another tree")
+    Some(#(active_address, active_view, _))
+      if active_address == address && active_view != view
+    -> transaction_error(address, "tree transaction uses another view")
+    _ -> checked_tree_channel(core, address, view) |> result.map(fn(_) { Nil })
+  })
   submit_tree_edits(core, address, edits)
+}
+
+pub fn begin_tree_transaction(
+  core: Core,
+  address: String,
+  view: tree_schema.ViewSchema,
+  constraints: List(tree_types.FieldPath),
+) -> Result(Core, CoreError) {
+  case core.active_tree_transaction {
+    Some(#(active_address, _, _)) if active_address != address ->
+      transaction_error(address, "tree transaction uses another tree")
+    Some(#(_, active_view, _)) if active_view != view ->
+      transaction_error(address, "tree transaction uses another view")
+    Some(#(_, _, value)) -> {
+      use targets <- result.try(resolve_transaction_constraints(
+        tree_transaction.state(value),
+        address,
+        constraints,
+      ))
+      use value <- result.try(
+        tree_transaction.begin_nested_with_constraints(value, targets)
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
+      Ok(Core(..core, active_tree_transaction: Some(#(address, view, value))))
+    }
+    None -> {
+      use state <- result.try(checked_tree_channel(core, address, view))
+      use compressor <- result.try(case core.compressor {
+        Some(compressor) -> Ok(compressor)
+        None ->
+          Error(BadBootstrapSeed("tree channel has no document compressor"))
+      })
+      use targets <- result.try(resolve_transaction_constraints(
+        state,
+        address,
+        constraints,
+      ))
+      use value <- result.try(
+        tree_transaction.begin(state, compressor, targets)
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
+      Ok(Core(..core, active_tree_transaction: Some(#(address, view, value))))
+    }
+  }
+}
+
+pub fn commit_tree_transaction(
+  core: Core,
+  address: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use #(view, value) <- result.try(active_tree_transaction(core, address))
+  case tree_transaction.depth(value) > 1 {
+    True -> {
+      use value <- result.try(
+        tree_transaction.commit_nested(value)
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
+      Ok(
+        #(
+          Core(..core, active_tree_transaction: Some(#(address, view, value))),
+          [],
+          [],
+        ),
+      )
+    }
+    False -> {
+      use #(finished, events) <- result.try(
+        tree_transaction.finish(value)
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
+      let core = Core(..core, active_tree_transaction: None)
+      case finished {
+        tree_transaction.NoCommit(state, compressor) ->
+          Ok(
+            #(
+              install_transaction_state(core, address, state, compressor),
+              [],
+              [],
+            ),
+          )
+        tree_transaction.Commit(state, compressor, commit) -> {
+          use route <- result.try(
+            fluid_container.route_from_path("/" <> address)
+            |> result.map_error(ContainerOperationFailed),
+          )
+          submit_tree_commits(
+            core,
+            address,
+            route,
+            state,
+            compressor,
+            [commit],
+            list.map(events.events, fn(event) {
+              #(address, channel.TreeEvent(event))
+            }),
+          )
+        }
+      }
+    }
+  }
+}
+
+pub fn abort_tree_transaction(
+  core: Core,
+  address: String,
+) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
+  use #(view, value) <- result.try(active_tree_transaction(core, address))
+  case tree_transaction.depth(value) > 1 {
+    True -> {
+      use value <- result.try(
+        tree_transaction.abort_nested(value)
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
+      Ok(
+        #(
+          Core(..core, active_tree_transaction: Some(#(address, view, value))),
+          [],
+        ),
+      )
+    }
+    False -> {
+      use #(state, compressor) <- result.try(
+        tree_transaction.abort(value)
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
+      Ok(
+        #(
+          install_transaction_state(
+            Core(..core, active_tree_transaction: None),
+            address,
+            state,
+            compressor,
+          ),
+          [],
+        ),
+      )
+    }
+  }
+}
+
+pub fn tree_transaction_depth(core: Core) -> Int {
+  case core.active_tree_transaction {
+    Some(#(_, _, value)) -> tree_transaction.depth(value)
+    None -> 0
+  }
 }
 
 pub fn submit_tree_upgrade(
@@ -3836,6 +4077,7 @@ pub fn submit_tree_upgrade(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
+  use _ <- result.try(require_no_tree_transaction(core, "schema upgrade"))
   use state <- result.try(tree_channel(core, address))
   use compressor <- result.try(case core.compressor {
     Some(compressor) -> Ok(compressor)
@@ -3865,6 +4107,57 @@ pub fn submit_tree_upgrade(
       )
     }
   }
+}
+
+fn resolve_transaction_constraints(
+  state: tree_kernel.TreeState,
+  address: String,
+  constraints: List(tree_types.FieldPath),
+) -> Result(List(tree_change.ConstraintTarget), CoreError) {
+  list.try_map(constraints, fn(path) {
+    tree_kernel.resolve_constraint(state, path)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+  })
+}
+
+fn active_tree_transaction(
+  core: Core,
+  address: String,
+) -> Result(#(tree_schema.ViewSchema, tree_transaction.Transaction), CoreError) {
+  case core.active_tree_transaction {
+    None -> transaction_error(address, "tree transaction is not active")
+    Some(#(active_address, _, _)) if active_address != address ->
+      transaction_error(address, "tree transaction uses another tree")
+    Some(#(_, view, value)) -> Ok(#(view, value))
+  }
+}
+
+fn install_transaction_state(
+  core: Core,
+  address: String,
+  state: tree_kernel.TreeState,
+  compressor: fluid_ids.Compressor,
+) -> Core {
+  Core(
+    ..core,
+    channels: dict.insert(core.channels, address, channel.TreeState(state)),
+    compressor: Some(compressor),
+  )
+}
+
+fn require_no_tree_transaction(
+  core: Core,
+  operation: String,
+) -> Result(Nil, CoreError) {
+  case core.active_tree_transaction {
+    Some(#(address, _, _)) ->
+      transaction_error(address, "tree transaction blocks " <> operation)
+    None -> Ok(Nil)
+  }
+}
+
+fn transaction_error(address: String, detail: String) -> Result(a, CoreError) {
+  Error(TreeOperationFailed(address, tree_types.InvalidHistory(detail)))
 }
 
 fn submit_tree_commits(
