@@ -345,19 +345,57 @@ function canonicalGraph<T extends {
 		}
 		return current;
 	};
+	const aliasTargets = new Set<string>();
 	const flattenedAliases = value.aliases
 		.map(({ id, target }) => ({ id, target: resolve(target) }))
-		.filter(({ target }, index, entries) =>
-			index === 0 || atomKey(entries[index - 1].target) !== atomKey(target));
+		.filter(({ target }) => {
+			const key = atomKey(target);
+			if (aliasTargets.has(key)) return false;
+			aliasTargets.add(key);
+			return true;
+		});
+	const parents = value.parents.map(({ id, parent, field }) => ({
+		id,
+		parent: parent === null ? null : resolve(parent),
+		field,
+	}));
+	const parentById = new Map(parents.map((entry) => [atomKey(entry.id), entry]));
+	const parentDepth = (id: StableAtom, seen = new Set<string>()): number => {
+		const key = atomKey(id);
+		assert(!seen.has(key), "Transaction parent graph must be acyclic.");
+		const entry = parentById.get(key);
+		if (entry?.parent === null || entry === undefined) return 0;
+		return 1 + parentDepth(entry.parent, new Set([...seen, key]));
+	};
+	parents.sort((left, right) =>
+		parentDepth(left.id) - parentDepth(right.id)
+		|| left.field.localeCompare(right.field)
+		|| left.id.localId - right.id.localId);
 	const graph = {
 		...value,
-		parents: value.parents.map(({ id, parent, field }) => ({
-			id,
-			parent: parent === null ? null : resolve(parent),
-			field,
-		})),
+		parents,
 		aliases: flattenedAliases,
 	};
+	const graphRecord = graph as T & Record<string, unknown>;
+	const nodes = graphRecord.nodes;
+	if (Array.isArray(nodes)) {
+		nodes.sort((left, right) => {
+			const leftId = (left as { id: StableAtom }).id;
+			const rightId = (right as { id: StableAtom }).id;
+			return parentDepth(leftId) - parentDepth(rightId)
+				|| leftId.localId - rightId.localId;
+		});
+	}
+	for (const key of ["aliases", "builds", "refreshers", "destroys"]) {
+		const entries = graphRecord[key];
+		if (Array.isArray(entries)) {
+			entries.sort((left, right) => {
+				const leftId = (left as { id: StableAtom }).id;
+				const rightId = (right as { id: StableAtom }).id;
+				return leftId.localId - rightId.localId;
+			});
+		}
+	}
 	const ids = new Map<string, StableAtom>();
 	let next = 0;
 	const canonicalize = (item: unknown): unknown => {
@@ -387,6 +425,17 @@ function canonicalGraph<T extends {
 		);
 	};
 	const canonical = canonicalize(graph) as T;
+	const canonicalRecord = canonical as T & Record<string, unknown>;
+	for (const key of ["aliases", "parents", "nodes", "builds", "refreshers", "destroys"]) {
+		const entries = canonicalRecord[key];
+		if (Array.isArray(entries)) {
+			entries.sort((left, right) => {
+				const leftId = (left as { id: StableAtom }).id;
+				const rightId = (right as { id: StableAtom }).id;
+				return leftId.localId - rightId.localId;
+			});
+		}
+	}
 	canonical.maxId = next - 1;
 	return canonical;
 }

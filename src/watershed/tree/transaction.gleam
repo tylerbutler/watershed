@@ -39,6 +39,7 @@ pub opaque type Transaction {
     base_compressor: fluid_ids.Compressor,
     current_compressor: fluid_ids.Compressor,
     revision_compressor: fluid_ids.Compressor,
+    next_local_id: Int,
     constraint_sets: List(ConstraintSet),
     changes: List(AuthoredChange),
     events: List(tree_kernel.ChangeEvents),
@@ -68,6 +69,7 @@ pub fn begin(
       compressor,
       compressor,
       compressor,
+      constraint_local_ids(constraints),
       constraint_set(state, constraints, 0),
       [],
       [],
@@ -97,6 +99,7 @@ fn push_savepoint(
 ) -> Transaction {
   Transaction(
     ..value,
+    next_local_id: value.next_local_id + constraint_local_ids(constraints),
     savepoints: [
       Savepoint(
         value.current_state,
@@ -115,6 +118,13 @@ fn push_savepoint(
       ),
     ),
   )
+}
+
+fn constraint_local_ids(values: List(change.ConstraintTarget)) -> Int {
+  list.fold(values, 0, fn(total, value) {
+    let change.ConstraintTarget(_, path) = value
+    total + list.length(path) + 1
+  })
 }
 
 pub fn depth(value: Transaction) -> Int {
@@ -154,6 +164,7 @@ pub fn apply_edit(
     outer_compressor,
     revision,
     order,
+    value.next_local_id,
   ))
   case authored {
     None -> Ok(value)
@@ -165,6 +176,7 @@ pub fn apply_edit(
           current_state: authored.state,
           current_compressor: authored.compressor,
           revision_compressor: revision_compressor,
+          next_local_id: shared_change.max_local_id(authored.change) + 1,
           changes: list.append(value.changes, [
             AuthoredChange(revision, authored.change),
           ]),
@@ -274,7 +286,7 @@ fn finish_change(
     draft,
     value.revision_compressor,
   ))
-  use outer <- result.try(compose_constraints(value, outer, revision, order))
+  use outer <- result.try(compose_constraints(value, revision, order))
   use #(outer, replacements) <- result.try(squash_revisions(outer, revision))
   use #(state, commit, events) <- result.try(tree_kernel.commit_local_preview(
     value.base_state,
@@ -292,7 +304,6 @@ fn finish_change(
 
 fn compose_constraints(
   value: Transaction,
-  authored: shared_change.Changeset,
   revision: fluid_ids.StableId,
   order: change.IdentityOrder,
 ) -> Result(shared_change.Changeset, TreeError) {
@@ -303,7 +314,7 @@ fn compose_constraints(
     0,
     empty,
     revision,
-    shared_change.max_local_id(authored) + 1,
+    0,
     order,
   )
 }
@@ -328,6 +339,11 @@ fn compose_constraint_sequence(
   case changes {
     [authored, ..rest] -> {
       use outer <- result.try(append_authored(outer, authored))
+      let authored_next = shared_change.max_local_id(authored.change) + 1
+      let next_local_id = case next_local_id > authored_next {
+        True -> next_local_id
+        False -> authored_next
+      }
       let revision = case rest {
         [next, ..] -> next.revision
         [] -> authored.revision

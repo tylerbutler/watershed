@@ -351,7 +351,7 @@ fn encode_compressed_fields(
           encode_compressed_tree(
             value,
             stored,
-            schema.root_field_schema(stored),
+            inferred_field_schema(value),
             ids,
           )
           |> result.map(fn(tree) { [tree] })
@@ -392,6 +392,18 @@ fn encode_compressed_fields(
     ])
     |> json_ot.to_json,
   )
+}
+
+fn inferred_field_schema(value: TreeValue) -> schema.FieldSchema {
+  let type_id = case value {
+    StringValue(_) -> string_leaf
+    NumberValue(_) -> number_leaf
+    BooleanValue(_) -> boolean_leaf
+    NullValue -> null_leaf
+    ObjectValue(type_id, _) | MapValue(type_id, _) | ArrayValue(type_id, _) ->
+      type_id
+  }
+  schema.FieldSchema(schema.Required, [type_id])
 }
 
 fn encode_compressed_tree(
@@ -499,12 +511,7 @@ fn shape_children(shape: EncodeShape) -> List(EncodeShape) {
 
 fn shape_identifiers(shape: EncodeShape) -> List(String) {
   let EncodeNode(type_id, _, fields) = shape
-  [
-    type_id,
-    ..list.flat_map(fields, fn(field) {
-      [field.0, ..shape_identifiers(field.1)]
-    })
-  ]
+  [type_id, ..list.map(fields, fn(field) { field.0 })]
 }
 
 fn counted_identifiers(values: List(String)) -> List(String) {

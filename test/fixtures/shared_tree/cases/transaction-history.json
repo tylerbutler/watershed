@@ -3446,13 +3446,11 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "label",
-                                "kind": "Value"
+                                "field": "",
+                                "kind": "Sequence"
                               }
                             ],
-                            "nodeExistsConstraint": {
-                              "violated": true
-                            },
+                            "nodeExistsConstraint": null,
                             "nodeExistsConstraintOnRevert": null
                           },
                           "id": {
@@ -3464,11 +3462,13 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "",
-                                "kind": "Sequence"
+                                "field": "label",
+                                "kind": "Value"
                               }
                             ],
-                            "nodeExistsConstraint": null,
+                            "nodeExistsConstraint": {
+                              "violated": true
+                            },
                             "nodeExistsConstraintOnRevert": null
                           },
                           "id": {
@@ -3498,25 +3498,25 @@
                           }
                         },
                         {
-                          "field": "",
+                          "field": "right",
                           "id": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                             "localId": 5
                           },
                           "parent": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                            "localId": 4
+                            "localId": 3
                           }
                         },
                         {
-                          "field": "right",
+                          "field": "",
                           "id": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                             "localId": 6
                           },
                           "parent": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                            "localId": 3
+                            "localId": 4
                           }
                         }
                       ],
@@ -3833,8 +3833,8 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "",
-                                "kind": "Sequence"
+                                "field": "right",
+                                "kind": "Generic"
                               }
                             ],
                             "nodeExistsConstraint": null,
@@ -3849,8 +3849,8 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "right",
-                                "kind": "Generic"
+                                "field": "",
+                                "kind": "Sequence"
                               }
                             ],
                             "nodeExistsConstraint": null,
@@ -3864,23 +3864,23 @@
                       ],
                       "parents": [
                         {
-                          "field": "right",
+                          "field": "rootFieldKey",
                           "id": {
                             "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
                             "localId": 1
                           },
-                          "parent": {
-                            "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
-                            "localId": 2
-                          }
+                          "parent": null
                         },
                         {
-                          "field": "rootFieldKey",
+                          "field": "right",
                           "id": {
                             "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
                             "localId": 2
                           },
-                          "parent": null
+                          "parent": {
+                            "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
+                            "localId": 1
+                          }
                         }
                       ],
                       "refreshers": [],
@@ -4224,13 +4224,11 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "label",
-                                "kind": "Value"
+                                "field": "",
+                                "kind": "Sequence"
                               }
                             ],
-                            "nodeExistsConstraint": {
-                              "violated": true
-                            },
+                            "nodeExistsConstraint": null,
                             "nodeExistsConstraintOnRevert": null
                           },
                           "id": {
@@ -4242,11 +4240,13 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "",
-                                "kind": "Sequence"
+                                "field": "label",
+                                "kind": "Value"
                               }
                             ],
-                            "nodeExistsConstraint": null,
+                            "nodeExistsConstraint": {
+                              "violated": true
+                            },
                             "nodeExistsConstraintOnRevert": null
                           },
                           "id": {
@@ -4276,25 +4276,25 @@
                           }
                         },
                         {
-                          "field": "",
+                          "field": "right",
                           "id": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                             "localId": 5
                           },
                           "parent": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                            "localId": 4
+                            "localId": 3
                           }
                         },
                         {
-                          "field": "right",
+                          "field": "",
                           "id": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                             "localId": 6
                           },
                           "parent": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                            "localId": 3
+                            "localId": 4
                           }
                         }
                       ],
@@ -4793,13 +4793,11 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "label",
-                                "kind": "Value"
+                                "field": "",
+                                "kind": "Sequence"
                               }
                             ],
-                            "nodeExistsConstraint": {
-                              "violated": true
-                            },
+                            "nodeExistsConstraint": null,
                             "nodeExistsConstraintOnRevert": null
                           },
                           "id": {
@@ -4811,11 +4809,13 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "",
-                                "kind": "Sequence"
+                                "field": "label",
+                                "kind": "Value"
                               }
                             ],
-                            "nodeExistsConstraint": null,
+                            "nodeExistsConstraint": {
+                              "violated": true
+                            },
                             "nodeExistsConstraintOnRevert": null
                           },
                           "id": {
@@ -4845,25 +4845,25 @@
                           }
                         },
                         {
-                          "field": "",
+                          "field": "right",
                           "id": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                             "localId": 5
                           },
                           "parent": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                            "localId": 4
+                            "localId": 3
                           }
                         },
                         {
-                          "field": "right",
+                          "field": "",
                           "id": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                             "localId": 6
                           },
                           "parent": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                            "localId": 3
+                            "localId": 4
                           }
                         }
                       ],
@@ -6411,8 +6411,8 @@
                             "change": {
                               "fields": [
                                 {
-                                  "field": "",
-                                  "kind": "Sequence"
+                                  "field": "left",
+                                  "kind": "Generic"
                                 }
                               ],
                               "nodeExistsConstraint": null,
@@ -6427,8 +6427,8 @@
                             "change": {
                               "fields": [
                                 {
-                                  "field": "left",
-                                  "kind": "Generic"
+                                  "field": "",
+                                  "kind": "Sequence"
                                 }
                               ],
                               "nodeExistsConstraint": null,
@@ -6442,23 +6442,23 @@
                         ],
                         "parents": [
                           {
-                            "field": "left",
+                            "field": "rootFieldKey",
                             "id": {
                               "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
                               "localId": 1
                             },
-                            "parent": {
-                              "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
-                              "localId": 2
-                            }
+                            "parent": null
                           },
                           {
-                            "field": "rootFieldKey",
+                            "field": "left",
                             "id": {
                               "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
                               "localId": 2
                             },
-                            "parent": null
+                            "parent": {
+                              "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                              "localId": 1
+                            }
                           }
                         ],
                         "refreshers": [],
@@ -7641,13 +7641,11 @@
                             "change": {
                               "fields": [
                                 {
-                                  "field": "label",
-                                  "kind": "Value"
+                                  "field": "",
+                                  "kind": "Sequence"
                                 }
                               ],
-                              "nodeExistsConstraint": {
-                                "violated": true
-                              },
+                              "nodeExistsConstraint": null,
                               "nodeExistsConstraintOnRevert": null
                             },
                             "id": {
@@ -7659,11 +7657,13 @@
                             "change": {
                               "fields": [
                                 {
-                                  "field": "",
-                                  "kind": "Sequence"
+                                  "field": "label",
+                                  "kind": "Value"
                                 }
                               ],
-                              "nodeExistsConstraint": null,
+                              "nodeExistsConstraint": {
+                                "violated": true
+                              },
                               "nodeExistsConstraintOnRevert": null
                             },
                             "id": {
@@ -7693,25 +7693,25 @@
                             }
                           },
                           {
-                            "field": "",
+                            "field": "right",
                             "id": {
                               "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                               "localId": 5
                             },
                             "parent": {
                               "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                              "localId": 4
+                              "localId": 3
                             }
                           },
                           {
-                            "field": "right",
+                            "field": "",
                             "id": {
                               "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                               "localId": 6
                             },
                             "parent": {
                               "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                              "localId": 3
+                              "localId": 4
                             }
                           }
                         ],
@@ -8028,8 +8028,8 @@
                             "change": {
                               "fields": [
                                 {
-                                  "field": "",
-                                  "kind": "Sequence"
+                                  "field": "right",
+                                  "kind": "Generic"
                                 }
                               ],
                               "nodeExistsConstraint": null,
@@ -8044,8 +8044,8 @@
                             "change": {
                               "fields": [
                                 {
-                                  "field": "right",
-                                  "kind": "Generic"
+                                  "field": "",
+                                  "kind": "Sequence"
                                 }
                               ],
                               "nodeExistsConstraint": null,
@@ -8059,23 +8059,23 @@
                         ],
                         "parents": [
                           {
-                            "field": "right",
+                            "field": "rootFieldKey",
                             "id": {
                               "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
                               "localId": 1
                             },
-                            "parent": {
-                              "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
-                              "localId": 2
-                            }
+                            "parent": null
                           },
                           {
-                            "field": "rootFieldKey",
+                            "field": "right",
                             "id": {
                               "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
                               "localId": 2
                             },
-                            "parent": null
+                            "parent": {
+                              "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
+                              "localId": 1
+                            }
                           }
                         ],
                         "refreshers": [],
@@ -8419,13 +8419,11 @@
                             "change": {
                               "fields": [
                                 {
-                                  "field": "label",
-                                  "kind": "Value"
+                                  "field": "",
+                                  "kind": "Sequence"
                                 }
                               ],
-                              "nodeExistsConstraint": {
-                                "violated": true
-                              },
+                              "nodeExistsConstraint": null,
                               "nodeExistsConstraintOnRevert": null
                             },
                             "id": {
@@ -8437,11 +8435,13 @@
                             "change": {
                               "fields": [
                                 {
-                                  "field": "",
-                                  "kind": "Sequence"
+                                  "field": "label",
+                                  "kind": "Value"
                                 }
                               ],
-                              "nodeExistsConstraint": null,
+                              "nodeExistsConstraint": {
+                                "violated": true
+                              },
                               "nodeExistsConstraintOnRevert": null
                             },
                             "id": {
@@ -8471,25 +8471,25 @@
                             }
                           },
                           {
-                            "field": "",
+                            "field": "right",
                             "id": {
                               "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                               "localId": 5
                             },
                             "parent": {
                               "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                              "localId": 4
+                              "localId": 3
                             }
                           },
                           {
-                            "field": "right",
+                            "field": "",
                             "id": {
                               "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                               "localId": 6
                             },
                             "parent": {
                               "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                              "localId": 3
+                              "localId": 4
                             }
                           }
                         ],
@@ -8988,13 +8988,11 @@
                             "change": {
                               "fields": [
                                 {
-                                  "field": "label",
-                                  "kind": "Value"
+                                  "field": "",
+                                  "kind": "Sequence"
                                 }
                               ],
-                              "nodeExistsConstraint": {
-                                "violated": true
-                              },
+                              "nodeExistsConstraint": null,
                               "nodeExistsConstraintOnRevert": null
                             },
                             "id": {
@@ -9006,11 +9004,13 @@
                             "change": {
                               "fields": [
                                 {
-                                  "field": "",
-                                  "kind": "Sequence"
+                                  "field": "label",
+                                  "kind": "Value"
                                 }
                               ],
-                              "nodeExistsConstraint": null,
+                              "nodeExistsConstraint": {
+                                "violated": true
+                              },
                               "nodeExistsConstraintOnRevert": null
                             },
                             "id": {
@@ -9040,25 +9040,25 @@
                             }
                           },
                           {
-                            "field": "",
+                            "field": "right",
                             "id": {
                               "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                               "localId": 5
                             },
                             "parent": {
                               "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                              "localId": 4
+                              "localId": 3
                             }
                           },
                           {
-                            "field": "right",
+                            "field": "",
                             "id": {
                               "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                               "localId": 6
                             },
                             "parent": {
                               "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                              "localId": 3
+                              "localId": 4
                             }
                           }
                         ],
@@ -13084,13 +13084,11 @@
                         "change": {
                           "fields": [
                             {
-                              "field": "label",
-                              "kind": "Value"
+                              "field": "",
+                              "kind": "Sequence"
                             }
                           ],
-                          "nodeExistsConstraint": {
-                            "violated": true
-                          },
+                          "nodeExistsConstraint": null,
                           "nodeExistsConstraintOnRevert": null
                         },
                         "id": {
@@ -13102,11 +13100,13 @@
                         "change": {
                           "fields": [
                             {
-                              "field": "",
-                              "kind": "Sequence"
+                              "field": "label",
+                              "kind": "Value"
                             }
                           ],
-                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraint": {
+                            "violated": true
+                          },
                           "nodeExistsConstraintOnRevert": null
                         },
                         "id": {
@@ -13136,25 +13136,25 @@
                         }
                       },
                       {
-                        "field": "",
+                        "field": "right",
                         "id": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 5
                         },
                         "parent": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 4
+                          "localId": 3
                         }
                       },
                       {
-                        "field": "right",
+                        "field": "",
                         "id": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 6
                         },
                         "parent": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 3
+                          "localId": 4
                         }
                       }
                     ],
@@ -13471,8 +13471,8 @@
                         "change": {
                           "fields": [
                             {
-                              "field": "",
-                              "kind": "Sequence"
+                              "field": "right",
+                              "kind": "Generic"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -13487,8 +13487,8 @@
                         "change": {
                           "fields": [
                             {
-                              "field": "right",
-                              "kind": "Generic"
+                              "field": "",
+                              "kind": "Sequence"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -13502,23 +13502,23 @@
                     ],
                     "parents": [
                       {
-                        "field": "right",
+                        "field": "rootFieldKey",
                         "id": {
                           "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
                           "localId": 1
                         },
-                        "parent": {
-                          "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
-                          "localId": 2
-                        }
+                        "parent": null
                       },
                       {
-                        "field": "rootFieldKey",
+                        "field": "right",
                         "id": {
                           "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
                           "localId": 2
                         },
-                        "parent": null
+                        "parent": {
+                          "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
+                          "localId": 1
+                        }
                       }
                     ],
                     "refreshers": [],
@@ -13862,13 +13862,11 @@
                         "change": {
                           "fields": [
                             {
-                              "field": "label",
-                              "kind": "Value"
+                              "field": "",
+                              "kind": "Sequence"
                             }
                           ],
-                          "nodeExistsConstraint": {
-                            "violated": true
-                          },
+                          "nodeExistsConstraint": null,
                           "nodeExistsConstraintOnRevert": null
                         },
                         "id": {
@@ -13880,11 +13878,13 @@
                         "change": {
                           "fields": [
                             {
-                              "field": "",
-                              "kind": "Sequence"
+                              "field": "label",
+                              "kind": "Value"
                             }
                           ],
-                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraint": {
+                            "violated": true
+                          },
                           "nodeExistsConstraintOnRevert": null
                         },
                         "id": {
@@ -13914,25 +13914,25 @@
                         }
                       },
                       {
-                        "field": "",
+                        "field": "right",
                         "id": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 5
                         },
                         "parent": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 4
+                          "localId": 3
                         }
                       },
                       {
-                        "field": "right",
+                        "field": "",
                         "id": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 6
                         },
                         "parent": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 3
+                          "localId": 4
                         }
                       }
                     ],
@@ -14431,13 +14431,11 @@
                         "change": {
                           "fields": [
                             {
-                              "field": "label",
-                              "kind": "Value"
+                              "field": "",
+                              "kind": "Sequence"
                             }
                           ],
-                          "nodeExistsConstraint": {
-                            "violated": true
-                          },
+                          "nodeExistsConstraint": null,
                           "nodeExistsConstraintOnRevert": null
                         },
                         "id": {
@@ -14449,11 +14447,13 @@
                         "change": {
                           "fields": [
                             {
-                              "field": "",
-                              "kind": "Sequence"
+                              "field": "label",
+                              "kind": "Value"
                             }
                           ],
-                          "nodeExistsConstraint": null,
+                          "nodeExistsConstraint": {
+                            "violated": true
+                          },
                           "nodeExistsConstraintOnRevert": null
                         },
                         "id": {
@@ -14483,25 +14483,25 @@
                         }
                       },
                       {
-                        "field": "",
+                        "field": "right",
                         "id": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 5
                         },
                         "parent": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 4
+                          "localId": 3
                         }
                       },
                       {
-                        "field": "right",
+                        "field": "",
                         "id": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 6
                         },
                         "parent": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 3
+                          "localId": 4
                         }
                       }
                     ],
@@ -16049,8 +16049,8 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "",
-                                "kind": "Sequence"
+                                "field": "left",
+                                "kind": "Generic"
                               }
                             ],
                             "nodeExistsConstraint": null,
@@ -16065,8 +16065,8 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "left",
-                                "kind": "Generic"
+                                "field": "",
+                                "kind": "Sequence"
                               }
                             ],
                             "nodeExistsConstraint": null,
@@ -16080,23 +16080,23 @@
                       ],
                       "parents": [
                         {
-                          "field": "left",
+                          "field": "rootFieldKey",
                           "id": {
                             "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
                             "localId": 1
                           },
-                          "parent": {
-                            "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
-                            "localId": 2
-                          }
+                          "parent": null
                         },
                         {
-                          "field": "rootFieldKey",
+                          "field": "left",
                           "id": {
                             "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
                             "localId": 2
                           },
-                          "parent": null
+                          "parent": {
+                            "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                            "localId": 1
+                          }
                         }
                       ],
                       "refreshers": [],
@@ -17279,13 +17279,11 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "label",
-                                "kind": "Value"
+                                "field": "",
+                                "kind": "Sequence"
                               }
                             ],
-                            "nodeExistsConstraint": {
-                              "violated": true
-                            },
+                            "nodeExistsConstraint": null,
                             "nodeExistsConstraintOnRevert": null
                           },
                           "id": {
@@ -17297,11 +17295,13 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "",
-                                "kind": "Sequence"
+                                "field": "label",
+                                "kind": "Value"
                               }
                             ],
-                            "nodeExistsConstraint": null,
+                            "nodeExistsConstraint": {
+                              "violated": true
+                            },
                             "nodeExistsConstraintOnRevert": null
                           },
                           "id": {
@@ -17331,25 +17331,25 @@
                           }
                         },
                         {
-                          "field": "",
+                          "field": "right",
                           "id": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                             "localId": 5
                           },
                           "parent": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                            "localId": 4
+                            "localId": 3
                           }
                         },
                         {
-                          "field": "right",
+                          "field": "",
                           "id": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                             "localId": 6
                           },
                           "parent": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                            "localId": 3
+                            "localId": 4
                           }
                         }
                       ],
@@ -17666,8 +17666,8 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "",
-                                "kind": "Sequence"
+                                "field": "right",
+                                "kind": "Generic"
                               }
                             ],
                             "nodeExistsConstraint": null,
@@ -17682,8 +17682,8 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "right",
-                                "kind": "Generic"
+                                "field": "",
+                                "kind": "Sequence"
                               }
                             ],
                             "nodeExistsConstraint": null,
@@ -17697,23 +17697,23 @@
                       ],
                       "parents": [
                         {
-                          "field": "right",
+                          "field": "rootFieldKey",
                           "id": {
                             "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
                             "localId": 1
                           },
-                          "parent": {
-                            "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
-                            "localId": 2
-                          }
+                          "parent": null
                         },
                         {
-                          "field": "rootFieldKey",
+                          "field": "right",
                           "id": {
                             "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
                             "localId": 2
                           },
-                          "parent": null
+                          "parent": {
+                            "revision": "38bb634c-7159-4e8c-9025-d44c689aae46",
+                            "localId": 1
+                          }
                         }
                       ],
                       "refreshers": [],
@@ -18057,13 +18057,11 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "label",
-                                "kind": "Value"
+                                "field": "",
+                                "kind": "Sequence"
                               }
                             ],
-                            "nodeExistsConstraint": {
-                              "violated": true
-                            },
+                            "nodeExistsConstraint": null,
                             "nodeExistsConstraintOnRevert": null
                           },
                           "id": {
@@ -18075,11 +18073,13 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "",
-                                "kind": "Sequence"
+                                "field": "label",
+                                "kind": "Value"
                               }
                             ],
-                            "nodeExistsConstraint": null,
+                            "nodeExistsConstraint": {
+                              "violated": true
+                            },
                             "nodeExistsConstraintOnRevert": null
                           },
                           "id": {
@@ -18109,25 +18109,25 @@
                           }
                         },
                         {
-                          "field": "",
+                          "field": "right",
                           "id": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                             "localId": 5
                           },
                           "parent": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                            "localId": 4
+                            "localId": 3
                           }
                         },
                         {
-                          "field": "right",
+                          "field": "",
                           "id": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                             "localId": 6
                           },
                           "parent": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                            "localId": 3
+                            "localId": 4
                           }
                         }
                       ],
@@ -18626,13 +18626,11 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "label",
-                                "kind": "Value"
+                                "field": "",
+                                "kind": "Sequence"
                               }
                             ],
-                            "nodeExistsConstraint": {
-                              "violated": true
-                            },
+                            "nodeExistsConstraint": null,
                             "nodeExistsConstraintOnRevert": null
                           },
                           "id": {
@@ -18644,11 +18642,13 @@
                           "change": {
                             "fields": [
                               {
-                                "field": "",
-                                "kind": "Sequence"
+                                "field": "label",
+                                "kind": "Value"
                               }
                             ],
-                            "nodeExistsConstraint": null,
+                            "nodeExistsConstraint": {
+                              "violated": true
+                            },
                             "nodeExistsConstraintOnRevert": null
                           },
                           "id": {
@@ -18678,25 +18678,25 @@
                           }
                         },
                         {
-                          "field": "",
+                          "field": "right",
                           "id": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                             "localId": 5
                           },
                           "parent": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                            "localId": 4
+                            "localId": 3
                           }
                         },
                         {
-                          "field": "right",
+                          "field": "",
                           "id": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                             "localId": 6
                           },
                           "parent": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                            "localId": 3
+                            "localId": 4
                           }
                         }
                       ],

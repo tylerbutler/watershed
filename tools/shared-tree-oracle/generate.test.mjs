@@ -2731,12 +2731,11 @@ test("transaction history canonicalizes alias and parent graph evidence", () => 
       assert.deepEqual([...graphIds].sort((left, right) => left - right),
         Array.from({ length: change.maxId + 1 }, (_, index) => index),
         `${id}: anonymous graph IDs are not canonical`);
-      for (let index = 1; index < change.aliases.length; index += 1) {
-        assert.notEqual(
-          atomKey(change.aliases[index - 1].target),
-          atomKey(change.aliases[index].target),
-          `${id}: duplicate intermediate alias`,
-        );
+      const aliasTargets = new Set();
+      for (const alias of change.aliases) {
+        const key = atomKey(alias.target);
+        assert(!aliasTargets.has(key), `${id}: duplicate intermediate alias`);
+        aliasTargets.add(key);
       }
       for (const build of [...change.builds, ...change.refreshers]) {
         assert(build.trees.every((tree) => typeof tree.kind === "string"),

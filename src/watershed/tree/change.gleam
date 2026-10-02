@@ -1745,16 +1745,17 @@ fn finish_cross_array_graph(
   // ponytail: Panicking in libraries. This let assert can panic. Match the
   // value and return a TreeError for [].
   let assert [forest.FieldStep(root_field, root_index), ..] = common
+  let reserved_alias = AtomId(Some(revision), next_id)
   from_data(
     ChangeData(
-      max_local_id: next_id - 1,
+      max_local_id: next_id,
       revisions: [RevisionInfo(revision, None)],
       fields: [#(root_field, GenericField([#(root_index, top)]))],
       nodes: nodes,
       parents: list.append(parents, [
         #(top, ParentField(None, root_field)),
       ]),
-      aliases: [],
+      aliases: [#(reserved_alias, top)],
       builds: [],
       destroys: [],
       refreshers: [],

@@ -2,7 +2,9 @@ import gleam/json
 import gleam/list
 import gleam/string
 import startest/expect
+import watershed/json_ot.{NInt, VArray, VNumber, VObject, VString}
 import watershed/tree/fixtures
+import watershed/tree/transaction_fixture
 
 const reference = "\"reference\":{\"package\":\"@fluidframework/tree\",\"version\":\"3.1.0\",\"commit\":\"c3c5bf0ecd313362e83fe8a02b7d39e7e0736960\"}"
 
@@ -319,6 +321,10 @@ pub fn shared_tree_fixture_loads_all_required_corpus_ids_test() -> Nil {
     #("identifier-values", "values"),
     #("identifier-field-batches", "codec"),
     #("identifier-persistence", "history"),
+    #("transaction-callbacks", "tree"),
+    #("transaction-constraints", "modular"),
+    #("transaction-wire", "codec"),
+    #("transaction-history", "history"),
   ]
   |> list.each(fn(required) {
     let #(id, domain) = required
@@ -326,4 +332,180 @@ pub fn shared_tree_fixture_loads_all_required_corpus_ids_test() -> Nil {
     fixture_case.id |> expect.to_equal(id)
     fixture_case.domain |> expect.to_equal(domain)
   })
+}
+
+pub fn shared_tree_transaction_callbacks_match_upstream_test() -> Nil {
+  fixtures.assert_case(
+    "transaction-callbacks",
+    transaction_fixture.run_callbacks,
+  )
+}
+
+pub fn shared_tree_transaction_constraints_match_upstream_test() -> Nil {
+  fixtures.assert_case(
+    "transaction-constraints",
+    transaction_fixture.run_constraints,
+  )
+}
+
+pub fn shared_tree_transaction_history_matches_upstream_test() -> Nil {
+  fixtures.assert_case("transaction-history", transaction_fixture.run_history)
+}
+
+pub fn shared_tree_transaction_runners_reject_scenario_mutations_test() -> Nil {
+  let assert Ok(fixtures.Case(input: callback_input, ..)) =
+    fixtures.load("transaction-callbacks")
+  let assert Ok(VObject(callback_root)) =
+    json_ot.parse_json(json.to_string(callback_input))
+  let assert Ok(VArray([VObject(first), ..rest])) =
+    list.key_find(callback_root, "scenarios")
+  callback_root
+  |> list.key_set(
+    "scenarios",
+    VArray([VObject(list.key_set(first, "id", VString("unknown"))), ..rest]),
+  )
+  |> VObject
+  |> json_ot.to_json
+  |> transaction_fixture.run_callbacks
+  |> expect.to_be_error
+
+  let assert Ok(fixtures.Case(input: constraint_input, ..)) =
+    fixtures.load("transaction-constraints")
+  let assert Ok(VObject(constraint_root)) =
+    json_ot.parse_json(json.to_string(constraint_input))
+  let assert Ok(VArray([detached, same, cross, VObject(concurrent)])) =
+    list.key_find(constraint_root, "scenarios")
+  constraint_root
+  |> list.key_set(
+    "scenarios",
+    VArray([
+      detached,
+      same,
+      cross,
+      VObject(list.key_set(
+        concurrent,
+        "constraints",
+        VArray([VString("nodeInDocument")]),
+      )),
+    ]),
+  )
+  |> VObject
+  |> json_ot.to_json
+  |> transaction_fixture.run_constraints
+  |> expect.to_be_error
+
+  let assert Ok(fixtures.Case(input: history_input, ..)) =
+    fixtures.load("transaction-history")
+  let assert Ok(VObject(history_root)) =
+    json_ot.parse_json(json.to_string(history_input))
+  let assert Ok(VArray([VObject(history_scenario)])) =
+    list.key_find(history_root, "scenarios")
+  let assert Ok(VArray([VObject(first_action), ..actions])) =
+    list.key_find(history_scenario, "actions")
+  let _ =
+    history_root
+    |> list.key_set(
+      "scenarios",
+      VArray([
+        VObject(list.key_set(
+          history_scenario,
+          "actions",
+          VArray([
+            VObject(list.key_set(first_action, "op", VString("unknown"))),
+            ..actions
+          ]),
+        )),
+      ]),
+    )
+    |> VObject
+    |> json_ot.to_json
+    |> transaction_fixture.run_history
+    |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_transaction_history_rejects_replay_input_mutations_test() {
+  let assert Ok(fixtures.Case(input: input, ..)) =
+    fixtures.load("transaction-history")
+  let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(input))
+  let assert Ok(VObject(compressor)) = list.key_find(root, "compressor")
+  let assert Ok(VObject(tail)) = list.key_find(root, "tailEnvelope")
+  let assert Ok(VObject(continuation)) = list.key_find(root, "continuation")
+
+  [
+    list.key_set(
+      root,
+      "compressor",
+      VObject(list.key_set(compressor, "serialized", VString("invalid"))),
+    ),
+    list.key_set(root, "tailAllocationRanges", VArray([])),
+    list.key_set(root, "summary", VObject([])),
+    list.key_set(
+      root,
+      "tailEnvelope",
+      VObject(list.key_set(tail, "contents", VObject([]))),
+    ),
+    list.key_set(
+      root,
+      "continuation",
+      VObject(list.key_set(
+        continuation,
+        "envelope",
+        VObject([
+          #("clientId", VString("38bb634c-7159-4e8c-9025-d44c689aae45")),
+          #("clientSequenceNumber", VNumber(NInt(1))),
+          #("referenceSequenceNumber", VNumber(NInt(6))),
+          #("sequenceNumber", VNumber(NInt(7))),
+          #("minimumSequenceNumber", VNumber(NInt(2))),
+          #("contents", VObject([])),
+        ]),
+      )),
+    ),
+  ]
+  |> list.each(fn(changed) {
+    changed
+    |> VObject
+    |> json_ot.to_json
+    |> transaction_fixture.run_history
+    |> expect.to_be_error
+  })
+}
+
+pub fn shared_tree_transaction_history_observes_continuation_edit_test() {
+  let assert Ok(fixtures.Case(input: input, ..)) =
+    fixtures.load("transaction-history")
+  let original = transaction_fixture.run_history(input) |> expect.to_be_ok
+  let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(input))
+  let assert Ok(VObject(continuation)) = list.key_find(root, "continuation")
+  let assert Ok(VArray([VObject(edit)])) = list.key_find(continuation, "edits")
+  let assert Ok(VArray([VObject(value)])) = list.key_find(edit, "values")
+  let changed =
+    root
+    |> list.key_set(
+      "continuation",
+      VObject(list.key_set(
+        continuation,
+        "edits",
+        VArray([
+          VObject(list.key_set(
+            edit,
+            "values",
+            VArray([
+              VObject(list.key_set(
+                value,
+                "label",
+                VString("mutated-continuation"),
+              )),
+            ]),
+          )),
+        ]),
+      )),
+    )
+    |> VObject
+    |> json_ot.to_json
+    |> transaction_fixture.run_history
+    |> expect.to_be_ok
+
+  let unchanged = json.to_string(changed) == json.to_string(original)
+  unchanged |> expect.to_be_false
 }

@@ -317,6 +317,7 @@ pub fn author_transaction_edit_change(
   compressor: fluid_ids.Compressor,
   revision: fluid_ids.StableId,
   order: change.IdentityOrder,
+  first_local_id: Int,
 ) -> Result(Option(AuthoredEdit), TreeError) {
   use #(edit, compressor) <- result.try(identifier.materialize_edit(
     tree_kernel.stored_schema(state),
@@ -331,11 +332,12 @@ pub fn author_transaction_edit_change(
     _ -> False
   }
   use <- bool.guard(empty, Ok(None))
-  use change <- result.try(tree_kernel.author_local_change(
+  use change <- result.try(tree_kernel.author_local_change_from(
     state,
     revision,
     order,
     edit,
+    first_local_id,
   ))
   use #(state, events) <- result.try(tree_kernel.apply_local_preview(
     state,

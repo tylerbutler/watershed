@@ -1402,13 +1402,11 @@
                     "change": {
                       "fields": [
                         {
-                          "field": "label",
-                          "kind": "Value"
+                          "field": "",
+                          "kind": "Sequence"
                         }
                       ],
-                      "nodeExistsConstraint": {
-                        "violated": true
-                      },
+                      "nodeExistsConstraint": null,
                       "nodeExistsConstraintOnRevert": null
                     },
                     "id": {
@@ -1420,11 +1418,13 @@
                     "change": {
                       "fields": [
                         {
-                          "field": "",
-                          "kind": "Sequence"
+                          "field": "label",
+                          "kind": "Value"
                         }
                       ],
-                      "nodeExistsConstraint": null,
+                      "nodeExistsConstraint": {
+                        "violated": true
+                      },
                       "nodeExistsConstraintOnRevert": null
                     },
                     "id": {
@@ -1454,25 +1454,25 @@
                     }
                   },
                   {
-                    "field": "",
+                    "field": "right",
                     "id": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                       "localId": 5
                     },
                     "parent": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                      "localId": 4
+                      "localId": 3
                     }
                   },
                   {
-                    "field": "right",
+                    "field": "",
                     "id": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                       "localId": 6
                     },
                     "parent": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                      "localId": 3
+                      "localId": 4
                     }
                   }
                 ],
@@ -1942,43 +1942,13 @@
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                           "localId": 5
                         }
-                      },
-                      {
-                        "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 6
-                        },
-                        "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 1
-                        }
-                      },
-                      {
-                        "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 7
-                        },
-                        "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 3
-                        }
-                      },
-                      {
-                        "id": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 8
-                        },
-                        "target": {
-                          "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 5
-                        }
                       }
                     ],
                     "builds": [
                       {
                         "id": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 9
+                          "localId": 6
                         },
                         "trees": [
                           {
@@ -1990,7 +1960,7 @@
                       {
                         "id": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 10
+                          "localId": 7
                         },
                         "trees": [
                           {
@@ -2029,7 +1999,7 @@
                         {
                           "id": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                            "localId": 9
+                            "localId": 6
                           },
                           "trees": [
                             {
@@ -2041,7 +2011,7 @@
                         {
                           "id": {
                             "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                            "localId": 10
+                            "localId": 7
                           },
                           "trees": [
                             {
@@ -2106,12 +2076,12 @@
                                                     {
                                                       "attach": {
                                                         "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                                                        "localId": 9
+                                                        "localId": 6
                                                       },
                                                       "count": 1,
                                                       "detach": {
                                                         "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                                                        "localId": 11
+                                                        "localId": 8
                                                       },
                                                       "fields": []
                                                     }
@@ -2145,7 +2115,7 @@
                                             {
                                               "attach": {
                                                 "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                                                "localId": 10
+                                                "localId": 7
                                               },
                                               "count": 1,
                                               "detach": null,
@@ -2173,7 +2143,7 @@
                         "kind": "Generic"
                       }
                     ],
-                    "maxId": 12,
+                    "maxId": 9,
                     "nodes": [
                       {
                         "change": {
@@ -2242,7 +2212,7 @@
                         },
                         "id": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 12
+                          "localId": 9
                         }
                       }
                     ],
@@ -2281,7 +2251,7 @@
                         "field": "right",
                         "id": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                          "localId": 12
+                          "localId": 9
                         },
                         "parent": {
                           "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
@@ -3267,13 +3237,11 @@
                     "change": {
                       "fields": [
                         {
-                          "field": "label",
-                          "kind": "Value"
+                          "field": "",
+                          "kind": "Sequence"
                         }
                       ],
-                      "nodeExistsConstraint": {
-                        "violated": false
-                      },
+                      "nodeExistsConstraint": null,
                       "nodeExistsConstraintOnRevert": null
                     },
                     "id": {
@@ -3285,11 +3253,13 @@
                     "change": {
                       "fields": [
                         {
-                          "field": "",
-                          "kind": "Sequence"
+                          "field": "label",
+                          "kind": "Value"
                         }
                       ],
-                      "nodeExistsConstraint": null,
+                      "nodeExistsConstraint": {
+                        "violated": false
+                      },
                       "nodeExistsConstraintOnRevert": null
                     },
                     "id": {
@@ -3319,25 +3289,25 @@
                     }
                   },
                   {
-                    "field": "",
+                    "field": "right",
                     "id": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                       "localId": 5
                     },
                     "parent": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                      "localId": 4
+                      "localId": 3
                     }
                   },
                   {
-                    "field": "right",
+                    "field": "",
                     "id": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                       "localId": 6
                     },
                     "parent": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                      "localId": 3
+                      "localId": 4
                     }
                   }
                 ],
@@ -3550,13 +3520,11 @@
                     "change": {
                       "fields": [
                         {
-                          "field": "label",
-                          "kind": "Value"
+                          "field": "",
+                          "kind": "Sequence"
                         }
                       ],
-                      "nodeExistsConstraint": {
-                        "violated": true
-                      },
+                      "nodeExistsConstraint": null,
                       "nodeExistsConstraintOnRevert": null
                     },
                     "id": {
@@ -3568,11 +3536,13 @@
                     "change": {
                       "fields": [
                         {
-                          "field": "",
-                          "kind": "Sequence"
+                          "field": "label",
+                          "kind": "Value"
                         }
                       ],
-                      "nodeExistsConstraint": null,
+                      "nodeExistsConstraint": {
+                        "violated": true
+                      },
                       "nodeExistsConstraintOnRevert": null
                     },
                     "id": {
@@ -3602,25 +3572,25 @@
                     }
                   },
                   {
-                    "field": "",
+                    "field": "right",
                     "id": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                       "localId": 5
                     },
                     "parent": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                      "localId": 4
+                      "localId": 3
                     }
                   },
                   {
-                    "field": "right",
+                    "field": "",
                     "id": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                       "localId": 6
                     },
                     "parent": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                      "localId": 3
+                      "localId": 4
                     }
                   }
                 ],
@@ -3938,13 +3908,11 @@
                   "change": {
                     "fields": [
                       {
-                        "field": "label",
-                        "kind": "Value"
+                        "field": "",
+                        "kind": "Sequence"
                       }
                     ],
-                    "nodeExistsConstraint": {
-                      "violated": false
-                    },
+                    "nodeExistsConstraint": null,
                     "nodeExistsConstraintOnRevert": null
                   },
                   "id": {
@@ -3956,11 +3924,13 @@
                   "change": {
                     "fields": [
                       {
-                        "field": "",
-                        "kind": "Sequence"
+                        "field": "label",
+                        "kind": "Value"
                       }
                     ],
-                    "nodeExistsConstraint": null,
+                    "nodeExistsConstraint": {
+                      "violated": false
+                    },
                     "nodeExistsConstraintOnRevert": null
                   },
                   "id": {
@@ -3990,25 +3960,25 @@
                   }
                 },
                 {
-                  "field": "",
+                  "field": "right",
                   "id": {
                     "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                     "localId": 5
                   },
                   "parent": {
                     "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                    "localId": 4
+                    "localId": 3
                   }
                 },
                 {
-                  "field": "right",
+                  "field": "",
                   "id": {
                     "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                     "localId": 6
                   },
                   "parent": {
                     "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                    "localId": 3
+                    "localId": 4
                   }
                 }
               ],
@@ -4172,14 +4142,12 @@
                   "change": {
                     "fields": [
                       {
-                        "field": "label",
-                        "kind": "Value"
+                        "field": "",
+                        "kind": "Sequence"
                       }
                     ],
                     "nodeExistsConstraint": null,
-                    "nodeExistsConstraintOnRevert": {
-                      "violated": false
-                    }
+                    "nodeExistsConstraintOnRevert": null
                   },
                   "id": {
                     "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
@@ -4190,12 +4158,14 @@
                   "change": {
                     "fields": [
                       {
-                        "field": "",
-                        "kind": "Sequence"
+                        "field": "label",
+                        "kind": "Value"
                       }
                     ],
                     "nodeExistsConstraint": null,
-                    "nodeExistsConstraintOnRevert": null
+                    "nodeExistsConstraintOnRevert": {
+                      "violated": false
+                    }
                   },
                   "id": {
                     "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
@@ -4224,25 +4194,25 @@
                   }
                 },
                 {
-                  "field": "",
+                  "field": "right",
                   "id": {
                     "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                     "localId": 5
                   },
                   "parent": {
                     "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                    "localId": 4
+                    "localId": 3
                   }
                 },
                 {
-                  "field": "right",
+                  "field": "",
                   "id": {
                     "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                     "localId": 6
                   },
                   "parent": {
                     "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                    "localId": 3
+                    "localId": 4
                   }
                 }
               ],
@@ -4453,13 +4423,11 @@
                     "change": {
                       "fields": [
                         {
-                          "field": "label",
-                          "kind": "Value"
+                          "field": "",
+                          "kind": "Sequence"
                         }
                       ],
-                      "nodeExistsConstraint": {
-                        "violated": true
-                      },
+                      "nodeExistsConstraint": null,
                       "nodeExistsConstraintOnRevert": null
                     },
                     "id": {
@@ -4471,11 +4439,13 @@
                     "change": {
                       "fields": [
                         {
-                          "field": "",
-                          "kind": "Sequence"
+                          "field": "label",
+                          "kind": "Value"
                         }
                       ],
-                      "nodeExistsConstraint": null,
+                      "nodeExistsConstraint": {
+                        "violated": true
+                      },
                       "nodeExistsConstraintOnRevert": null
                     },
                     "id": {
@@ -4505,25 +4475,25 @@
                     }
                   },
                   {
-                    "field": "",
+                    "field": "right",
                     "id": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                       "localId": 5
                     },
                     "parent": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                      "localId": 4
+                      "localId": 3
                     }
                   },
                   {
-                    "field": "right",
+                    "field": "",
                     "id": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                       "localId": 6
                     },
                     "parent": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                      "localId": 3
+                      "localId": 4
                     }
                   }
                 ],
@@ -5249,13 +5219,11 @@
                   "change": {
                     "fields": [
                       {
-                        "field": "label",
-                        "kind": "Value"
+                        "field": "",
+                        "kind": "Sequence"
                       }
                     ],
-                    "nodeExistsConstraint": {
-                      "violated": false
-                    },
+                    "nodeExistsConstraint": null,
                     "nodeExistsConstraintOnRevert": null
                   },
                   "id": {
@@ -5267,11 +5235,13 @@
                   "change": {
                     "fields": [
                       {
-                        "field": "",
-                        "kind": "Sequence"
+                        "field": "label",
+                        "kind": "Value"
                       }
                     ],
-                    "nodeExistsConstraint": null,
+                    "nodeExistsConstraint": {
+                      "violated": false
+                    },
                     "nodeExistsConstraintOnRevert": null
                   },
                   "id": {
@@ -5301,25 +5271,25 @@
                   }
                 },
                 {
-                  "field": "",
+                  "field": "right",
                   "id": {
                     "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                     "localId": 5
                   },
                   "parent": {
                     "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                    "localId": 4
+                    "localId": 3
                   }
                 },
                 {
-                  "field": "right",
+                  "field": "",
                   "id": {
                     "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                     "localId": 6
                   },
                   "parent": {
                     "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                    "localId": 3
+                    "localId": 4
                   }
                 }
               ],
@@ -5601,13 +5571,11 @@
                 "change": {
                   "fields": [
                     {
-                      "field": "label",
-                      "kind": "Value"
+                      "field": "",
+                      "kind": "Sequence"
                     }
                   ],
-                  "nodeExistsConstraint": {
-                    "violated": false
-                  },
+                  "nodeExistsConstraint": null,
                   "nodeExistsConstraintOnRevert": null
                 },
                 "id": {
@@ -5619,11 +5587,13 @@
                 "change": {
                   "fields": [
                     {
-                      "field": "",
-                      "kind": "Sequence"
+                      "field": "label",
+                      "kind": "Value"
                     }
                   ],
-                  "nodeExistsConstraint": null,
+                  "nodeExistsConstraint": {
+                    "violated": false
+                  },
                   "nodeExistsConstraintOnRevert": null
                 },
                 "id": {
@@ -5653,25 +5623,25 @@
                 }
               },
               {
-                "field": "",
+                "field": "right",
                 "id": {
                   "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                   "localId": 5
                 },
                 "parent": {
                   "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                  "localId": 4
+                  "localId": 3
                 }
               },
               {
-                "field": "right",
+                "field": "",
                 "id": {
                   "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                   "localId": 6
                 },
                 "parent": {
                   "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                  "localId": 3
+                  "localId": 4
                 }
               }
             ],
@@ -5835,14 +5805,12 @@
                 "change": {
                   "fields": [
                     {
-                      "field": "label",
-                      "kind": "Value"
+                      "field": "",
+                      "kind": "Sequence"
                     }
                   ],
                   "nodeExistsConstraint": null,
-                  "nodeExistsConstraintOnRevert": {
-                    "violated": false
-                  }
+                  "nodeExistsConstraintOnRevert": null
                 },
                 "id": {
                   "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
@@ -5853,12 +5821,14 @@
                 "change": {
                   "fields": [
                     {
-                      "field": "",
-                      "kind": "Sequence"
+                      "field": "label",
+                      "kind": "Value"
                     }
                   ],
                   "nodeExistsConstraint": null,
-                  "nodeExistsConstraintOnRevert": null
+                  "nodeExistsConstraintOnRevert": {
+                    "violated": false
+                  }
                 },
                 "id": {
                   "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
@@ -5887,25 +5857,25 @@
                 }
               },
               {
-                "field": "",
+                "field": "right",
                 "id": {
                   "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                   "localId": 5
                 },
                 "parent": {
                   "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                  "localId": 4
+                  "localId": 3
                 }
               },
               {
-                "field": "right",
+                "field": "",
                 "id": {
                   "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                   "localId": 6
                 },
                 "parent": {
                   "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                  "localId": 3
+                  "localId": 4
                 }
               }
             ],
@@ -6118,13 +6088,11 @@
                     "change": {
                       "fields": [
                         {
-                          "field": "label",
-                          "kind": "Value"
+                          "field": "",
+                          "kind": "Sequence"
                         }
                       ],
-                      "nodeExistsConstraint": {
-                        "violated": true
-                      },
+                      "nodeExistsConstraint": null,
                       "nodeExistsConstraintOnRevert": null
                     },
                     "id": {
@@ -6136,11 +6104,13 @@
                     "change": {
                       "fields": [
                         {
-                          "field": "",
-                          "kind": "Sequence"
+                          "field": "label",
+                          "kind": "Value"
                         }
                       ],
-                      "nodeExistsConstraint": null,
+                      "nodeExistsConstraint": {
+                        "violated": true
+                      },
                       "nodeExistsConstraintOnRevert": null
                     },
                     "id": {
@@ -6170,25 +6140,25 @@
                     }
                   },
                   {
-                    "field": "",
+                    "field": "right",
                     "id": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                       "localId": 5
                     },
                     "parent": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                      "localId": 4
+                      "localId": 3
                     }
                   },
                   {
-                    "field": "right",
+                    "field": "",
                     "id": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                       "localId": 6
                     },
                     "parent": {
                       "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                      "localId": 3
+                      "localId": 4
                     }
                   }
                 ],
@@ -6566,13 +6536,11 @@
                 "change": {
                   "fields": [
                     {
-                      "field": "label",
-                      "kind": "Value"
+                      "field": "",
+                      "kind": "Sequence"
                     }
                   ],
-                  "nodeExistsConstraint": {
-                    "violated": true
-                  },
+                  "nodeExistsConstraint": null,
                   "nodeExistsConstraintOnRevert": null
                 },
                 "id": {
@@ -6584,11 +6552,13 @@
                 "change": {
                   "fields": [
                     {
-                      "field": "",
-                      "kind": "Sequence"
+                      "field": "label",
+                      "kind": "Value"
                     }
                   ],
-                  "nodeExistsConstraint": null,
+                  "nodeExistsConstraint": {
+                    "violated": true
+                  },
                   "nodeExistsConstraintOnRevert": null
                 },
                 "id": {
@@ -6618,25 +6588,25 @@
                 }
               },
               {
-                "field": "",
+                "field": "right",
                 "id": {
                   "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                   "localId": 5
                 },
                 "parent": {
                   "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                  "localId": 4
+                  "localId": 3
                 }
               },
               {
-                "field": "right",
+                "field": "",
                 "id": {
                   "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
                   "localId": 6
                 },
                 "parent": {
                   "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
-                  "localId": 3
+                  "localId": 4
                 }
               }
             ],
