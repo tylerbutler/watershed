@@ -260,9 +260,20 @@ pub fn encode_with_context(
   case stored {
     None -> encode(fields)
     Some(stored) -> {
-      case encode_compressed_fields(fields, stored, ids) {
-        Ok(encoded) -> Ok(encoded)
-        Error(Nil) -> encode_with_context_generic(fields, stored, ids)
+      use _ <- result.try(
+        list.try_each(fields, fn(field) {
+          list.try_each(field, fn(value) {
+            schema.validate_subtree(stored, value)
+          })
+        }),
+      )
+      case schema.has_identifier_fields(stored) {
+        False -> encode_with_context_generic(fields, stored, ids)
+        True ->
+          case encode_compressed_fields(fields, stored, ids) {
+            Ok(encoded) -> Ok(encoded)
+            Error(Nil) -> encode_with_context_generic(fields, stored, ids)
+          }
       }
     }
   }

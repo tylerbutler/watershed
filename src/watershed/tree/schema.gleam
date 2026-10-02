@@ -121,6 +121,26 @@ pub fn node_schema(
   }
 }
 
+/// Return true when the stored schema declares an Identifier field.
+pub fn has_identifier_fields(schema: StoredSchema) -> Bool {
+  field_has_identifier(schema.repository.root)
+  || schema.repository.nodes
+  |> dict.values
+  |> list.any(fn(node) {
+    case node {
+      Leaf(_) -> False
+      Object(fields) ->
+        list.any(fields, fn(field) { field_has_identifier(field.1) })
+      Map(entries) | Array(entries) -> field_has_identifier(entries)
+    }
+  })
+}
+
+fn field_has_identifier(field: FieldSchema) -> Bool {
+  let FieldSchema(cardinality, _) = field
+  cardinality == Identifier
+}
+
 /// Decode a schema that is already JSON. Earlier parsers can erase duplicate
 /// keys. Use `stored_from_string` for a schema blob from storage or the wire.
 pub fn stored_from_json(data: Json) -> Result(StoredSchema, TreeError) {

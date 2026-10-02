@@ -87,6 +87,14 @@ fn array_schema() -> schema.StoredSchema {
   stored
 }
 
+fn plain_string_schema() -> schema.StoredSchema {
+  let assert Ok(stored) =
+    schema.stored_from_string(
+      "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}}},\"root\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}",
+    )
+  stored
+}
+
 fn identifier_nesting_schema() -> schema.StoredSchema {
   let field = fn(kind, types) {
     json.object([
@@ -750,6 +758,98 @@ pub fn shared_tree_codec_field_batch_contextual_identifier_round_trip_test() {
     field_batch.MessageIds(receiver, sender_session),
   )
   |> expect.to_equal(Ok([[value]]))
+}
+
+pub fn shared_tree_codec_field_batch_keeps_ordinary_context_bytes_test() {
+  let assert Ok(encoded) =
+    field_batch.encode_with_context(
+      [[StringValue("ordinary")]],
+      Some(plain_string_schema()),
+      field_batch.SummaryIds(
+        fluid_ids.new(identifier_fixture.receiver_session()),
+      ),
+    )
+  encoded
+  |> expect.to_equal(
+    json.object([
+      #("version", json.int(2)),
+      #("identifiers", json.array([], fn(value) { value })),
+      #(
+        "shapes",
+        json.array(
+          [
+            json.object([
+              #("c", json.object([#("extraFields", json.int(1))])),
+            ]),
+            json.object([#("a", json.int(2))]),
+            json.object([#("d", json.int(0))]),
+            json.object([
+              #(
+                "c",
+                json.object([
+                  #("type", json.string("com.fluidframework.leaf.null")),
+                  #("value", json.array([json.null()], fn(value) { value })),
+                ]),
+              ),
+            ]),
+            json.object([
+              #(
+                "c",
+                json.object([
+                  #("type", json.string("com.fluidframework.leaf.string")),
+                  #("value", json.int(0)),
+                ]),
+              ),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
+      #(
+        "data",
+        json.array(
+          [
+            stream([
+              json.int(1),
+              stream([
+                json.int(0),
+                json.string("com.fluidframework.leaf.string"),
+                json.bool(True),
+                json.string("ordinary"),
+                stream([]),
+              ]),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
+    ]),
+  )
+}
+
+pub fn shared_tree_codec_field_batch_rejects_unknown_and_duplicate_compressed_fields_test() {
+  let compressor = fluid_ids.new(identifier_fixture.receiver_session())
+  let context = field_batch.SummaryIds(compressor)
+  [
+    ObjectValue(identifier_fixture.point_type, [
+      #("id", StringValue("id")),
+      #("label", StringValue("label")),
+      #("extra", StringValue("extra")),
+    ]),
+    ObjectValue(identifier_fixture.point_type, [
+      #("id", StringValue("id")),
+      #("label", StringValue("first")),
+      #("label", StringValue("second")),
+    ]),
+  ]
+  |> list.each(fn(value) {
+    let assert Error(types.InvalidEdit(_, _)) =
+      field_batch.encode_with_context(
+        [[value]],
+        Some(identifier_fixture.stored()),
+        context,
+      )
+  })
 }
 
 pub fn shared_tree_codec_field_batch_summary_encodes_final_identifier_test() {
