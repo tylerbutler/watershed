@@ -2290,7 +2290,14 @@ fn replace_revisions_with_alias_policy(
       refreshers: refreshers,
       cross_field_keys: cross_field_keys,
     )
-  use replaced <- result.try(from_data(data, change.identity_order))
+  let IdentityOrder(entries) = change.identity_order
+  let identity_order =
+    entries
+    |> list.filter(fn(entry) {
+      entry.0 == updated || !list.contains(obsolete, Some(entry.0))
+    })
+    |> IdentityOrder
+  use replaced <- result.try(from_data(data, identity_order))
   Ok(#(replaced, state.mappings))
 }
 

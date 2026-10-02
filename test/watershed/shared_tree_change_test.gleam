@@ -464,6 +464,23 @@ pub fn shared_tree_change_identifier_field_preserves_atoms_across_transforms_tes
   ])
 }
 
+pub fn shared_tree_change_revision_replacement_prunes_obsolete_identity_order_test() {
+  let authored =
+    authored(revision_a(), SetField(["point", "x"], NumberValue(7.0)))
+  let assert Ok(#(replaced, _)) =
+    change.replace_revisions_preserving_aliases(
+      authored,
+      [Some(revision_a()), Some(revision_b())],
+      revision_c(),
+    )
+
+  change.identity_revisions(replaced)
+  |> expect.to_equal([
+    revision_c(),
+    revision("00000000-0000-4000-8000-0000000000d0"),
+  ])
+}
+
 fn identifier_changeset() -> change.Changeset {
   checked(
     change.ChangeData(..empty_data(), fields: [#("id", change.IdentifierField)]),
