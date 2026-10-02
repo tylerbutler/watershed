@@ -1,15 +1,25 @@
 import gleam/dict
+import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/string
+import spillway/types as spillway_types
 import startest/expect
+import watershed/channel
 import watershed/fluid_ids
+import watershed/runtime_core
+import watershed/tree/change
 import watershed/tree/fixtures
 import watershed/tree/identifier_fixture
+import watershed/tree/runtime_fixture
+import watershed/tree/shared_change
 import watershed/tree/summary_fixture
 import watershed/tree/transaction
 import watershed/tree/types
 import watershed/tree_kernel
+import watershed/wire
+import watershed/wire/fluid_document
 import watershed/wire/fluid_summary
 
 fn array(values: List(json.Json)) -> json.Json {
@@ -109,6 +119,236 @@ fn refusal_scenario(label: String, path: String, kind: String) -> json.Json {
   ])
 }
 
+fn identifier_core(client_id: String, session_id: String) -> runtime_core.Core {
+  let assert Ok(session) = fluid_ids.session_id(session_id)
+  let assert Ok(view) =
+    fluid_ids.stable_id("90000000-0000-4000-8000-000000000009")
+  let assert Ok(summary) =
+    fluid_document.initial_tree(
+      identifier_fixture.full_stored(),
+      Some(
+        identifier_fixture.full_root(
+          identifier_fixture.point("child", "child"),
+          [identifier_fixture.point("existing", "existing")],
+          [],
+          [],
+        ),
+      ),
+      session,
+      view,
+    )
+  let bootstrapped =
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected(client_id, [], 0),
+      summary,
+    )
+    |> expect.to_be_ok()
+  case bootstrapped {
+    runtime_core.Complete(core) -> core
+    runtime_core.MissingPrefix(..) ->
+      panic as "initial identifier summary requested a missing prefix"
+  }
+}
+
+fn pending_summary(core: runtime_core.Core) -> fluid_document.DocumentSummary {
+  let channels = runtime_core.summary_channels(core) |> expect.to_be_ok()
+  case core.persistence {
+    Some(previous) -> {
+      fluid_document.capture(
+        previous,
+        channels,
+        core.compressor,
+        fluid_document.CaptureRouting(
+          dict.to_list(core.routing.aliases),
+          dict.to_list(core.routing.datastores),
+          dict.to_list(core.routing.channel_attributes),
+        ),
+      )
+      |> expect.to_be_ok()
+    }
+    None -> {
+      fluid_document.native(
+        core.last_seen_sequence_number,
+        core.minimum_sequence_number,
+        runtime_core.summary_members(core),
+        channels,
+      )
+      |> expect.to_be_ok()
+    }
+  }
+}
+
+fn load_summary(
+  summary: fluid_document.DocumentSummary,
+  client_id: String,
+  session_id: String,
+  view_id: String,
+) -> runtime_core.Core {
+  let encoded = fluid_document.encode(summary) |> expect.to_be_ok()
+  let assert Ok(session) = fluid_ids.session_id(session_id)
+  let assert Ok(view) = fluid_ids.stable_id(view_id)
+  let decoded =
+    fluid_document.decode(encoded, None, session, view) |> expect.to_be_ok()
+  case
+    runtime_core.bootstrap_document(
+      runtime_fixture.connected(
+        client_id,
+        [],
+        fluid_document.sequence_number(decoded),
+      ),
+      decoded,
+    )
+  {
+    Ok(runtime_core.Complete(core)) -> core
+    Ok(runtime_core.MissingPrefix(..)) ->
+      panic as "summary reload requested a missing prefix"
+    Error(error) ->
+      panic as { "summary reload failed: " <> string.inspect(error) }
+  }
+}
+
+fn sequenced(
+  outbound: wire.OutboundOperation,
+  client_id: String,
+  sequence_number: Int,
+) -> spillway_types.SequencedDocumentMessage {
+  let contents =
+    json.parse(json.to_string(outbound.contents), decode.dynamic)
+    |> expect.to_be_ok()
+  let metadata = case outbound.metadata {
+    None -> None
+    Some(value) -> {
+      let value =
+        json.parse(json.to_string(value), decode.dynamic) |> expect.to_be_ok()
+      Some(value)
+    }
+  }
+  spillway_types.SequencedDocumentMessage(
+    client_id: Some(client_id),
+    sequence_number: sequence_number,
+    minimum_sequence_number: 0,
+    client_sequence_number: outbound.client_sequence_number,
+    reference_sequence_number: outbound.reference_sequence_number,
+    message_type: outbound.operation_type,
+    contents: contents,
+    metadata: metadata,
+    server_metadata: None,
+    origin: None,
+    traces: None,
+    timestamp: 0,
+    data: None,
+  )
+}
+
+fn tree(core: runtime_core.Core) -> tree_kernel.TreeState {
+  case dict.get(core.channels, "A/_C") {
+    Ok(channel.TreeState(state)) -> state
+    Ok(_) -> panic as "summary fixture channel is not a tree"
+    Error(_) -> panic as "summary fixture tree channel is missing"
+  }
+}
+
+fn latest_violation_count(core: runtime_core.Core) -> Int {
+  let assert Ok(entry) =
+    tree_kernel.history_view(tree(core)).sequenced.trunk
+    |> list.reverse
+    |> list.first
+  shared_change.to_changes(entry.commit.change)
+  |> list.fold(0, fn(count, item) {
+    case item {
+      shared_change.DataChange(value) ->
+        count + change.to_data(value).constraint_violation_count
+      shared_change.SchemaChange(_, _, _) -> count
+    }
+  })
+}
+
+fn commit_insert_transaction(
+  core: runtime_core.Core,
+) -> #(runtime_core.Core, wire.OutboundOperation) {
+  let view = identifier_fixture.full_view()
+  let active =
+    runtime_core.begin_tree_transaction(core, "A/_C", view, [])
+    |> expect.to_be_ok()
+  let #(active, edit_events, edit_outbound) =
+    runtime_core.submit_tree_edits_view(active, "A/_C", view, [
+      types.ArrayInsert(["left"], 1, [
+        types.ObjectValue(identifier_fixture.point_type, [
+          #("label", types.StringValue("tail")),
+        ]),
+      ]),
+      types.SetField(["left", "1", "label"], types.StringValue("tail-final")),
+    ])
+    |> expect.to_be_ok()
+  edit_events |> expect.to_equal([])
+  edit_outbound |> expect.to_equal([])
+  let #(pending, commit_events, commit_outbound) =
+    runtime_core.commit_tree_transaction(active, "A/_C")
+    |> expect.to_be_ok()
+  list.length(commit_events) |> expect.to_equal(1)
+  list.length(commit_outbound) |> expect.to_equal(1)
+  let outbound = commit_outbound |> list.first |> expect.to_be_ok()
+  #(pending, outbound)
+}
+
+fn commit_constrained_transaction(
+  core: runtime_core.Core,
+) -> #(runtime_core.Core, wire.OutboundOperation) {
+  let view = identifier_fixture.full_view()
+  let active =
+    runtime_core.begin_tree_transaction(core, "A/_C", view, [["left", "0"]])
+    |> expect.to_be_ok()
+  let #(active, edit_events, edit_outbound) =
+    runtime_core.submit_tree_edits_view(active, "A/_C", view, [
+      types.SetField(
+        ["left", "0", "label"],
+        types.StringValue("constrained-tail"),
+      ),
+    ])
+    |> expect.to_be_ok()
+  edit_events |> expect.to_equal([])
+  edit_outbound |> expect.to_equal([])
+  let #(pending, commit_events, commit_outbound) =
+    runtime_core.commit_tree_transaction(active, "A/_C")
+    |> expect.to_be_ok()
+  list.length(commit_events) |> expect.to_equal(1)
+  list.length(commit_outbound) |> expect.to_equal(1)
+  let outbound = commit_outbound |> list.first |> expect.to_be_ok()
+  #(pending, outbound)
+}
+
+fn continue_editing(core: runtime_core.Core, sequence_number: Int) {
+  let view = identifier_fixture.full_view()
+  let before = tree_kernel.reference_at(tree(core), ["child"])
+  let active =
+    runtime_core.begin_tree_transaction(core, "A/_C", view, [])
+    |> expect.to_be_ok()
+  let #(active, edit_events, edit_outbound) =
+    runtime_core.submit_tree_edits_view(active, "A/_C", view, [
+      types.SetField(["child", "label"], types.StringValue("continued")),
+    ])
+    |> expect.to_be_ok()
+  edit_events |> expect.to_equal([])
+  edit_outbound |> expect.to_equal([])
+  let #(pending, commit_events, commit_outbound) =
+    runtime_core.commit_tree_transaction(active, "A/_C")
+    |> expect.to_be_ok()
+  list.length(commit_events) |> expect.to_equal(1)
+  list.length(commit_outbound) |> expect.to_equal(1)
+  let outbound = commit_outbound |> list.first |> expect.to_be_ok()
+  let #(settled, received) =
+    runtime_core.handle_sequenced(
+      pending,
+      sequenced(outbound, pending.client_id, sequence_number),
+    )
+    |> expect.to_be_ok()
+  received.events |> expect.to_equal([])
+  runtime_core.tree_read(settled, "A/_C", ["child", "label"])
+  |> expect.to_equal(Ok(Some(types.StringValue("continued"))))
+  tree_kernel.reference_at(tree(settled), ["child"])
+  |> expect.to_equal(before)
+}
+
 pub fn identifier_pending_transaction_keeps_sequenced_summary_test() {
   let base =
     identifier_fixture.state(
@@ -152,6 +392,115 @@ pub fn identifier_pending_transaction_keeps_sequenced_summary_test() {
   |> list.length
   |> expect.to_equal(1)
   tree_kernel.snapshot(pending) |> expect.to_equal(Ok(sequenced))
+}
+
+pub fn pending_transaction_summary_replays_tail_and_continues_test() {
+  let writer = identifier_core("writer", "30000000-0000-4000-8000-000000000003")
+  let #(pending, outbound) = commit_insert_transaction(writer)
+  let summary = pending_summary(pending)
+  let fresh =
+    load_summary(
+      summary,
+      "reader",
+      "50000000-0000-4000-8000-000000000005",
+      "60000000-0000-4000-8000-000000000006",
+    )
+  runtime_core.tree_read(fresh, "A/_C", ["left", "1"])
+  |> expect.to_equal(Ok(None))
+  tree_kernel.history_view(tree(fresh)).sequenced.trunk
+  |> expect.to_equal([])
+
+  let #(after_tail, received) =
+    runtime_core.handle_sequenced(
+      fresh,
+      sequenced(outbound, pending.client_id, 1),
+    )
+    |> expect.to_be_ok()
+  received.events
+  |> expect.to_equal([
+    #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
+  ])
+  runtime_core.tree_read(after_tail, "A/_C", ["left", "1", "label"])
+  |> expect.to_equal(Ok(Some(types.StringValue("tail-final"))))
+  tree_kernel.history_view(tree(after_tail)).sequenced.trunk
+  |> list.length
+  |> expect.to_equal(1)
+  continue_editing(after_tail, 2)
+}
+
+pub fn explicitly_violated_transaction_tail_continues_test() {
+  let writer = identifier_core("writer", "30000000-0000-4000-8000-000000000003")
+  let remover =
+    identifier_core("remover", "50000000-0000-4000-8000-000000000005")
+  let #(pending, _) = commit_constrained_transaction(writer)
+  let assert Ok(#(remover, _, [removal])) =
+    runtime_core.submit_tree_edits(remover, "A/_C", [
+      types.ArrayRemove(["left"], 0, 1),
+    ])
+  let assert Ok(#(violated, remote)) =
+    runtime_core.handle_sequenced(
+      pending,
+      sequenced(removal, remover.client_id, 1),
+    )
+  remote.events
+  |> expect.to_equal([
+    #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
+  ])
+  let assert Ok(#(violated, [tail])) = runtime_core.resubmit(violated)
+  let summary = pending_summary(violated)
+  let fresh =
+    load_summary(
+      summary,
+      "reader",
+      "70000000-0000-4000-8000-000000000007",
+      "80000000-0000-4000-8000-000000000008",
+    )
+  runtime_core.tree_read(fresh, "A/_C", ["left", "0"])
+  |> expect.to_equal(Ok(None))
+  let assert Ok(#(after_tail, received)) =
+    runtime_core.handle_sequenced(fresh, sequenced(tail, violated.client_id, 2))
+  received.events |> expect.to_equal([])
+  latest_violation_count(after_tail) |> expect.to_equal(1)
+  runtime_core.tree_read(after_tail, "A/_C", ["left", "0"])
+  |> expect.to_equal(Ok(None))
+  continue_editing(after_tail, 3)
+}
+
+pub fn pending_transaction_tail_becomes_explicitly_violated_test() {
+  let writer = identifier_core("writer", "30000000-0000-4000-8000-000000000003")
+  let remover =
+    identifier_core("remover", "50000000-0000-4000-8000-000000000005")
+  let #(pending, tail) = commit_constrained_transaction(writer)
+  let assert Ok(#(remover, _, [removal])) =
+    runtime_core.submit_tree_edits(remover, "A/_C", [
+      types.ArrayRemove(["left"], 0, 1),
+    ])
+  let fresh =
+    load_summary(
+      pending_summary(pending),
+      "reader",
+      "70000000-0000-4000-8000-000000000007",
+      "80000000-0000-4000-8000-000000000008",
+    )
+  let assert Ok(#(after_removal, removed)) =
+    runtime_core.handle_sequenced(
+      fresh,
+      sequenced(removal, remover.client_id, 1),
+    )
+  removed.events
+  |> expect.to_equal([
+    #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
+  ])
+  let assert Ok(#(after_tail, received)) =
+    runtime_core.handle_sequenced(
+      after_removal,
+      sequenced(tail, pending.client_id, 2),
+    )
+  received.events |> expect.to_equal([])
+  latest_violation_count(after_tail) |> expect.to_equal(1)
+  runtime_core.tree_read(after_tail, "A/_C", ["left", "0"])
+  |> expect.to_equal(Ok(None))
+  continue_editing(after_tail, 3)
 }
 
 pub fn shared_tree_summary_resolves_binary_blob_from_previous_test() -> Nil {
