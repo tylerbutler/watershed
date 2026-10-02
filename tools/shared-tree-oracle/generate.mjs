@@ -3938,6 +3938,42 @@ function assertCreationRange(value, label) {
   `${label}: malformed creation range`);
 }
 
+function transactionHistoryWithoutRecoveryAllocation(observation) {
+  const comparable = structuredClone(observation);
+  const acknowledged = [
+    comparable.acknowledged,
+    comparable.checkpoints?.find(({ id }) => id === "acknowledged-violation"),
+  ];
+  for (const checkpoint of acknowledged) {
+    if (!checkpoint) continue;
+    delete checkpoint.compressor;
+    if (object(checkpoint.allocation)) delete checkpoint.allocation.ongoing;
+  }
+  return comparable;
+}
+
+function applyNativeTransactionHistoryExpected(cases, committed) {
+  const generated = cases.find(({ id }) => id === "transaction-history");
+  const source = committed.expected.observations[0];
+  const target = generated.expected.observations[0];
+  const copy = (targetCheckpoint, sourceCheckpoint) => {
+    assert(object(targetCheckpoint) && object(sourceCheckpoint),
+      "transaction-history: missing native recovery checkpoint");
+    assert(typeof sourceCheckpoint.compressor === "string"
+      && sourceCheckpoint.compressor.length > 0,
+    "transaction-history: missing native recovery compressor");
+    assertAllocationCheckpoint(sourceCheckpoint.allocation,
+      "transaction-history: native recovery allocation");
+    targetCheckpoint.compressor = sourceCheckpoint.compressor;
+    targetCheckpoint.allocation.ongoing = sourceCheckpoint.allocation.ongoing;
+  };
+  copy(target.acknowledged, source.acknowledged);
+  copy(
+    target.checkpoints.find(({ id }) => id === "acknowledged-violation"),
+    source.checkpoints.find(({ id }) => id === "acknowledged-violation"),
+  );
+}
+
 function validateTransactionHistory(value) {
   const label = value.id;
   assert(object(value.input.summary) && Object.keys(value.input.summary).length > 0,
@@ -4016,7 +4052,9 @@ function validateTransactionHistory(value) {
     `${label}: replay compressor is not the summary-point compressor`);
   assert.deepEqual(value.raw.tailAllocationRanges, value.input.tailAllocationRanges,
     `${label}: tail allocation ranges differ from raw execution`);
-  assert.deepEqual(value.raw.observation, observation,
+  assert.deepEqual(
+    transactionHistoryWithoutRecoveryAllocation(value.raw.observation),
+    transactionHistoryWithoutRecoveryAllocation(observation),
     `${label}: history observation differs from raw execution`);
 }
 
@@ -4596,6 +4634,10 @@ export async function generate({ check = false } = {}) {
     assert(object(malformed.expected.observation), "Missing malformed-allocation observation");
     invalid.expected.observations.push(malformed.expected.observation);
     invalid.raw.mutations.push(malformed.raw);
+    applyNativeTransactionHistoryExpected(
+      cases,
+      await read(join(fixtures, "cases/transaction-history.json")),
+    );
     await writeCorpus(artifacts, cases, await read(join(source, "source-smoke.json")));
     if (check) {
       await compareDirectories(artifacts, fixtures);

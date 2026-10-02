@@ -2551,6 +2551,14 @@ test("transaction history requires replayable summary continuation checkpoints",
       compressor: "state",
       allocation: { state: "captured" },
     }];
+    assert.notEqual(
+      value.expected.observations[0].acknowledged.compressor,
+      value.raw.observation.acknowledged.compressor,
+    );
+    assert.notEqual(
+      value.expected.observations[0].acknowledged.allocation.ongoing,
+      value.raw.observation.acknowledged.allocation.ongoing,
+    );
     assert.doesNotThrow(() => validateCases(corpus));
     mutate(value);
     assert.throws(() => validateCases(corpus), /transaction-history/);

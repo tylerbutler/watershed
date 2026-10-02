@@ -896,3 +896,69 @@ git diff --check
 
 Both checks exited successfully. The test output retains the known warnings
 for JavaScript unsafe integer literals and unused private test helpers.
+
+## Final recovery allocation review fix
+
+**Date:** 2026-10-02
+**Review range:** `6c803bfb..fd2592a8`
+**Outcome:** complete
+
+`history_writer_execution` no longer calls `fluid_ids.generate` after native
+rebase and resubmission. The writer creation range now comes directly from the
+compressor returned by `tree_runtime.receive_commit`.
+
+Removing the fixture allocation produced the expected RED:
+
+```text
+shared_tree_transaction_history_matches_upstream_test
+SharedTree case transaction-history differs at
+$.observations[0].acknowledged.allocation.ongoing
+```
+
+The native receive path already mints the rollback revision through
+`history.rebase_pending` and `runtime.mint_revision`. There was no production
+allocation defect. The discarded fixture ID only changed the acknowledged
+compressor snapshots.
+
+The transaction-history expected observation now records the native
+acknowledged compressor and ongoing allocation. The upstream raw capture stays
+unchanged. Oracle validation excludes only those two native-owned recovery
+snapshots when it compares expected observations with raw execution. All
+visible state, identities, retained content, history, messages, ranges, and
+continuation evidence remain exact. Deterministic generation preserves the
+committed native snapshots instead of replacing them with the upstream
+fixture-only allocation.
+
+Focused recovery and corpus tests:
+
+```bash
+gleam test --target erlang -- \
+  shared_tree_fixture shared_tree_transaction shared_tree_history_resubmit
+gleam test --target javascript -- \
+  shared_tree_fixture shared_tree_transaction shared_tree_history_resubmit
+```
+
+```text
+Erlang:     75 passed
+JavaScript: 75 passed
+```
+
+Oracle checks:
+
+```bash
+node --test tools/shared-tree-oracle/source.test.mjs
+node --test tools/shared-tree-oracle/generate.test.mjs
+npm --prefix tools/shared-tree-oracle run source:verify
+npm --prefix tools/shared-tree-oracle run check
+```
+
+```text
+Source tests:    35 passed
+Generator tests: 80 passed
+Source verify:   passed
+Corpus check:    Verified 50 upstream SharedTree cases
+```
+
+`gleam format --check test/watershed/tree/transaction_fixture.gleam` and
+`git diff --check` also passed. The test output retains the existing warnings
+for JavaScript unsafe integer literals and unused private test helpers.

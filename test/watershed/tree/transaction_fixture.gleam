@@ -457,10 +457,6 @@ fn history_writer_execution() -> Result(HistoryWriter, String) {
     tree_runtime.encode_commit(writer_commit, writer_state, writer_compressor)
     |> result.map_error(string.inspect),
   )
-  // Fluid allocates one rollback revision when it rebases the pending branch.
-  use #(writer_compressor, _) <- result.try(
-    fluid_ids.generate(writer_compressor) |> result.map_error(string.inspect),
-  )
   let #(writer_compressor, writer_range) =
     fluid_ids.take_creation_range(writer_compressor)
   use writer_range <- result.try(
