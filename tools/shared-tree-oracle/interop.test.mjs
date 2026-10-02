@@ -18,6 +18,7 @@ import {
 } from "./interop.mjs";
 import {
   generateSchedules,
+  identifierPairCells,
   requiredFailureCells,
   requiredSchemaRaceCells,
   requiredScenarioCells,
@@ -45,8 +46,14 @@ test("corpus commands select SharedTree test files and cannot use function filte
 });
 
 test("coordinator failure diagnostics retain artifact and cleanup errors", () => {
+  const cause = {
+    code: "facade-error",
+    operation: "array-insert",
+    message: "identifier field is absent",
+  };
   const error = Object.assign(new Error("primary failure"), {
     code: "PRIMARY",
+    cause,
     artifactCaptureError: Object.assign(new Error("artifact write failed"), {
       code: "ENOTDIR",
     }),
@@ -60,6 +67,7 @@ test("coordinator failure diagnostics retain artifact and cleanup errors", () =>
     message: "primary failure",
     code: "PRIMARY",
     stack: error.stack,
+    cause,
     artifactCaptureError: {
       name: "Error",
       message: "artifact write failed",
@@ -1417,6 +1425,110 @@ async function validFixture() {
       return [reader, item];
     })),
   ]));
+  const identifierFields = {
+    pairs: identifierPairCells().map((cell) => {
+      const documentId = `identifier-${cell.id}`;
+      const item = {
+        ...cell,
+        runId: "current",
+        profileDigest: loaded.profileDigest,
+        documentId,
+        passed: true,
+        skipped: false,
+        authors: Object.fromEntries(cell.authors.map((author) => [author, {
+          defaultId: `${author}-generated`,
+          explicitId: "shared-custom-id",
+          peerObserved: true,
+          constraintsUseNodeIdentity: true,
+          movedWithinArray: true,
+          movedBetweenArrays: true,
+          equalIdReplacementChangedReference: true,
+        }])),
+        artifacts: [],
+      };
+      item.artifacts = [artifact("identifier-fields", item.id, documentId, {
+        measured: {
+          authors: item.authors,
+          passed: true,
+          skipped: false,
+        },
+      })];
+      return item;
+    }),
+    failures: failures
+      .filter(({ caseId }) => [
+        "missing-allocation",
+        "wrong-originator",
+        "corrupt-numeric-identifier",
+        "negative-originatorless-summary",
+      ].includes(caseId))
+      .map((item) => ({
+        caseId: item.caseId,
+        target: item.target,
+        runId: item.runId,
+        profileDigest: item.profileDigest,
+        documentId: item.documentId,
+        outcome: item.outcome,
+        failureObserved: true,
+        partialReadinessObserved: false,
+        partialMutationObserved: false,
+        typedError: item.typedError,
+        artifacts: item.artifacts,
+      })),
+  };
+  const identifierReloadMatrix = Object.fromEntries(implementations.map((writer) => [
+    writer,
+    Object.fromEntries(implementations.map((reader) => {
+      const documentId = `${writer}-identifier-document`;
+      const item = {
+        runId: "current",
+        profileDigest: loaded.profileDigest,
+        profile: "identifier",
+        writer,
+        reader,
+        writerVersion: `${writer}-identifier-version`,
+        loadedVersion: `${writer}-identifier-version`,
+        readerInstanceId: `${writer}-${reader}-identifier-reader`,
+        scenarioId: "identifier-summary-postload",
+        loaded: true,
+        writerAuthored: {
+          defaultId: `${writer}-generated`,
+          explicitId: "shared-custom-id",
+        },
+        postLoadAuthored: {
+          author: reader,
+          id: `${writer}-${reader}-generated`,
+          originatorId: `${reader}-originator`,
+          allocationRange: {
+            sessionId: `${reader}-session`,
+            ids: { first: 0, count: 1 },
+          },
+        },
+        peerObservation: {
+          implementation: "upstream",
+          id: `${writer}-${reader}-generated`,
+          observed: true,
+        },
+        pendingTreeCount: 0,
+        inflightSubmissionCount: 0,
+        documentId,
+        artifacts: [],
+      };
+      item.artifacts = [artifact(
+        "identifier-reload",
+        `${writer}->${reader}`,
+        documentId,
+        {
+          measured: {
+            writerAuthored: item.writerAuthored,
+            postLoadAuthored: item.postLoadAuthored,
+            peerObservation: item.peerObservation,
+          },
+        },
+      )];
+      return [reader, item];
+    })),
+  ]));
   const report = {
     formatVersion: 1,
     runId: "current",
@@ -1443,11 +1555,12 @@ async function validFixture() {
       generated: 300,
       executed: 300,
       seed: 42,
-      profiles: { object: 75, map: 75, schema: 75, array: 75 },
+      profiles: { object: 60, map: 60, schema: 60, array: 60, identifier: 60 },
     },
     deterministic,
     reconnect,
     failures,
+    identifierFields,
     seeded,
     reload,
     mapReload,
@@ -1457,6 +1570,7 @@ async function validFixture() {
     schemaReloadMatrix,
     schemaTailReloadMatrix,
     arrayReload,
+    identifierReloadMatrix,
     corpus: Object.fromEntries(implementations.slice(1).map((target) => {
       const output = "Running 1 tests\nTests: 1 passed (1)";
       return [target, {
@@ -1527,6 +1641,44 @@ test("an empty result cannot prove interoperability", async () => {
 test("a complete current-run report satisfies the Task 15 coverage gate", async () => {
   const { expected, report } = await validFixture();
   assert.equal(validateInteropReport(report, expected), report);
+});
+
+test("Identifier coverage rejects missing authors, refusals, and reload cells", async () => {
+  const cases = [
+    {
+      mutate(report) {
+        report.identifierFields.pairs = report.identifierFields.pairs.filter(
+          ({ id }) => !id.includes("erlang"),
+        );
+      },
+      pattern: /pair|erlang|coverage/i,
+    },
+    {
+      mutate(report) {
+        report.identifierFields.pairs = report.identifierFields.pairs.filter(
+          ({ id }) => !id.includes("upstream"),
+        );
+      },
+      pattern: /pair|upstream|coverage/i,
+    },
+    {
+      mutate(report) {
+        report.identifierFields.failures.pop();
+      },
+      pattern: /refusal|failure|coverage/i,
+    },
+    {
+      mutate(report) {
+        delete report.identifierReloadMatrix.upstream.erlang;
+      },
+      pattern: /reload|reader|cell/i,
+    },
+  ];
+  for (const { mutate, pattern } of cases) {
+    const { expected, report } = await validFixture();
+    mutate(report);
+    assert.throws(() => validateInteropReport(report, expected), pattern);
+  }
 });
 
 test("sequence refusals require distinct diagnostics and a stopped document", async () => {
@@ -2270,7 +2422,7 @@ test("the committed profile is hashed and every compatibility pin is validated",
   assert.match(loaded.profileDigest, /^[0-9a-f]{64}$/);
   assert.equal(
     loaded.profileDigest,
-    "e998806cdd3c9b6a25e5e4ef306b6d4c9376ff3dd5d4418f8a16024d4e04b55e",
+    "588a2f41621f4f352497915168a5dc8af55140721066a04f217ab03e639a1813",
   );
   assert.deepEqual(loaded.profile.reference, reference);
   assert.deepEqual(
@@ -2293,6 +2445,10 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "recursive-array-values",
     "range-array-edits",
     "cross-array-moves",
+    "identifier-fields",
+    "identifier-defaults",
+    "identifier-compression",
+    "identifier-summary-reload",
     "grouped-batches",
     "gc-metadata",
     "strict-view-object-map-schema-evolution",
@@ -2308,6 +2464,16 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "gc-sweep",
     "compressed-ops",
     "chunked-ops",
+    "identifier-handles",
+    "incremental-field-batch-chunks",
+    "arbitrary-container-layouts",
+    "tree-short-id",
+    "identifier-index",
+    "custom-identifier-global-uniqueness",
+    "detached-node-builder",
+    "uuidv5-healing",
+    "undo-redo",
+    "async-cross-tree-transactions",
   ]);
   assert(!loaded.profile.excludedFeatures.includes("arrays"));
   assert(!loaded.profile.excludedFeatures.includes("maps-in-tree"));

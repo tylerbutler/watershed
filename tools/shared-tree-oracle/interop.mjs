@@ -32,10 +32,12 @@ import {
   requiredScenarioCells,
   runDeterministicCases,
   runFailureCases,
+  runIdentifierFields,
   runSchemaCompatibility,
   runSchemaRaces,
   runSchemaReconnect,
   runSeededSchedules,
+  validateIdentifierFields,
 } from "./interop-scenarios.mjs";
 import {
   preflight,
@@ -47,10 +49,12 @@ import {
 } from "./service.mjs";
 import {
   runArrayReloadMatrix,
+  runIdentifierReloadMatrix,
   runMapReloadMatrix,
   runReloadMatrix,
   runSchemaReloadMatrices,
   validateArrayResults,
+  validateIdentifierReloadResults,
   validateMapResults,
   validateSchemaReloadResults,
   validateSchemaTailReloadResults,
@@ -79,7 +83,7 @@ const service = {
   revision: "0eb493fc46d1bb9baf1151a6ccdde93544e057e7",
 };
 const profileDigest =
-  "e998806cdd3c9b6a25e5e4ef306b6d4c9376ff3dd5d4418f8a16024d4e04b55e";
+  "588a2f41621f4f352497915168a5dc8af55140721066a04f217ab03e639a1813";
 const runtimeOptions = {
   enableRuntimeIdCompressor: "on",
   compressionOptions: {
@@ -436,6 +440,11 @@ export function failureDiagnostic(error) {
     message: error?.message ?? String(error),
     ...(error?.code === undefined ? {} : { code: error.code }),
     ...(error?.stack === undefined ? {} : { stack: error.stack }),
+    ...(error?.cause === undefined ? {} : {
+      cause: error.cause instanceof Error
+        ? failureDiagnostic(error.cause)
+        : error.cause,
+    }),
     ...(error?.artifactCaptureError === undefined ? {} : {
       artifactCaptureError: failureDiagnostic(error.artifactCaptureError),
     }),
@@ -519,7 +528,17 @@ async function readViewSchemas() {
     "Pinned array schema reference changed");
   const array = arrayFixture.input.schemas.objectArrays;
   assert.equal(typeof array, "string", "Fixture lacks the object-contained array schema");
-  return { object, map, schema, array };
+  const identifierFixture = JSON.parse(await readFile(join(
+    repository,
+    "test/fixtures/shared_tree/cases/identifier-schema.json",
+  ), "utf8"));
+  assert.equal(identifierFixture.reference.version, reference.version,
+    "Pinned Identifier schema reference changed");
+  const identifier = JSON.stringify(identifierFixture.input.schema);
+  assert.equal(JSON.parse(identifier).nodes[
+    "org.watershed.shared-tree.identifiers.Point"
+  ].kind.object.id.kind, "Identifier", "Fixture lacks the Identifier field kind");
+  return { object, map, schema, array, identifier };
 }
 
 export function assertPreflightProfile(actual, expected) {
@@ -625,6 +644,10 @@ function artifactReferences(report) {
     ...report.schemaCompatibility.flatMap(({ artifacts }) => artifacts),
     ...report.schemaRaces.flatMap(({ artifacts }) => artifacts),
     ...report.schemaReconnect.flatMap(({ artifacts }) => artifacts),
+    ...report.identifierFields.pairs.flatMap(({ artifacts }) => artifacts),
+    ...report.identifierFields.failures.flatMap(({ artifacts }) => artifacts),
+    ...Object.values(report.identifierReloadMatrix).flatMap((row) =>
+      Object.values(row).flatMap(({ artifacts }) => artifacts)),
     ...Object.values(report.schemaReloadMatrix).flatMap((row) =>
       Object.values(row).flatMap(({ artifacts }) => artifacts)),
     ...Object.values(report.schemaTailReloadMatrix).flatMap((row) =>
@@ -660,6 +683,28 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
   await writeStatus(runDirectory, "refusals");
   log("shared-tree interop: refusal scenarios");
   const failures = await runFailureCases(config, context);
+
+  await writeStatus(runDirectory, "identifier-fields");
+  log("shared-tree interop: Identifier mixed-client fields");
+  const identifierFields = await runIdentifierFields(config, context, {
+    failures: failures.filter(({ caseId }) => [
+      "missing-allocation",
+      "wrong-originator",
+      "corrupt-numeric-identifier",
+      "negative-originatorless-summary",
+    ].includes(caseId)).map((item) => ({
+      caseId: item.caseId,
+      target: item.target,
+      outcome: item.outcome,
+      failureObserved: true,
+      partialReadinessObserved: item.clientState !== "never-ready"
+        ? false
+        : item.writableTreeExposedAfterRefusal,
+      partialMutationObserved: item.partialMutationObserved,
+      typedError: item.typedError,
+      artifacts: item.artifacts,
+    })),
+  });
 
   await writeStatus(runDirectory, "reload");
   log("shared-tree interop: selected-summary reload matrix");
@@ -712,6 +757,10 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
   log("shared-tree interop: array selected-summary reload matrix");
   const arrayReload = await runArrayReloadMatrix(config, context);
 
+  await writeStatus(runDirectory, "identifier-reload");
+  log("shared-tree interop: Identifier selected-summary reload matrix");
+  const identifierReloadMatrix = await runIdentifierReloadMatrix(config, context);
+
   await writeStatus(runDirectory, "seeded", {
     requested: options.iterations,
     seed: options.seed,
@@ -743,6 +792,7 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
     deterministic,
     reconnect,
     failures,
+    identifierFields,
     seeded: seeded.results,
     reload,
     mapReload,
@@ -752,6 +802,7 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
     schemaReloadMatrix,
     schemaTailReloadMatrix,
     arrayReload,
+    identifierReloadMatrix,
     corpus,
     skipped: [],
     divergences: [],
@@ -773,6 +824,7 @@ async function acceptance(options, { env, stderr }) {
     mapViewSchema: viewSchemas.map,
     schemaViews: viewSchemas.schema,
     arrayViewSchema: viewSchemas.array,
+    identifierViewSchema: viewSchemas.identifier,
     artifactDirectory: runDirectory,
   };
   try {
@@ -988,9 +1040,10 @@ function exactImplementations(values, label) {
 }
 
 function schedulesForProfile(iterations, profile) {
-  const offset = ["object", "map", "schema", "array"].indexOf(profile);
+  const profiles = ["object", "map", "schema", "array", "identifier"];
+  const offset = profiles.indexOf(profile);
   assert(offset >= 0, `Unknown seeded profile: ${profile}`);
-  return Math.floor((iterations + 3 - offset) / 4);
+  return Math.floor((iterations + profiles.length - 1 - offset) / profiles.length);
 }
 
 function measuredPayload(item) {
@@ -2200,6 +2253,47 @@ function validateArrayReload(report, expected, evidence) {
   }
 }
 
+function validateIdentifierSections(report, expected, evidence) {
+  validateIdentifierFields(report.identifierFields);
+  for (const item of report.identifierFields.pairs) {
+    assert.equal(item.runId, expected.runId,
+      "Identifier pair belongs to another run");
+    assert.equal(item.profileDigest, expected.profileDigest,
+      "Identifier pair uses another profile");
+    artifacts(item, evidence, expected, {
+      kind: "identifier-fields",
+      subject: item.id,
+      documentId: item.documentId,
+    }, `Identifier pair ${item.id}`);
+  }
+  for (const item of report.identifierFields.failures) {
+    assert.equal(item.runId, expected.runId,
+      "Identifier refusal belongs to another run");
+    assert.equal(item.profileDigest, expected.profileDigest,
+      "Identifier refusal uses another profile");
+    artifacts(item, evidence, expected, {
+      kind: "failure",
+      subject: `${item.caseId}:${item.target}`,
+      documentId: item.documentId,
+    }, `Identifier refusal ${item.caseId}:${item.target}`);
+  }
+  validateIdentifierReloadResults(report.identifierReloadMatrix);
+  for (const writer of implementations) {
+    for (const reader of implementations) {
+      const item = report.identifierReloadMatrix[writer][reader];
+      assert.equal(item.runId, expected.runId,
+        "Identifier reload belongs to another run");
+      assert.equal(item.profileDigest, expected.profileDigest,
+        "Identifier reload uses another profile");
+      artifacts(item, evidence, expected, {
+        kind: "identifier-reload",
+        subject: `${writer}->${reader}`,
+        documentId: item.documentId,
+      }, `Identifier reload ${writer}->${reader}`);
+    }
+  }
+}
+
 export function validateInteropReport(report, expected) {
   object(report, "Missing interoperability report");
   object(expected, "Missing report expectations");
@@ -2254,6 +2348,7 @@ export function validateInteropReport(report, expected) {
   assert.deepEqual(report.skipped, [], "Report contains skipped work");
   assert.deepEqual(report.divergences, [], "Report contains divergences");
   validateSchemaSections(report, expected, evidence);
+  validateIdentifierSections(report, expected, evidence);
 
   const requiredScenarios = requiredScenarioCells();
   const scenariosById = exactCells(
@@ -2293,10 +2388,12 @@ export function validateInteropReport(report, expected) {
     generated: expected.iterations,
     executed: expected.iterations,
     seed: expected.seed,
-    profiles: Object.fromEntries(["object", "map", "schema", "array"].map((profile) => [
-      profile,
-      schedulesForProfile(expected.iterations, profile),
-    ])),
+    profiles: Object.fromEntries(
+      ["object", "map", "schema", "array", "identifier"].map((profile) => [
+        profile,
+        schedulesForProfile(expected.iterations, profile),
+      ]),
+    ),
   }, "Seeded producer accounting is incomplete");
   const schedules = generateSchedules({
     seed: expected.seed,
