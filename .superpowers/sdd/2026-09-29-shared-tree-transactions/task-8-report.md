@@ -818,3 +818,81 @@ repository-wide Gleam format check was run directly.
 The test output still contains the known warnings for two JavaScript unsafe
 integer literals and unused private test helpers. No warning was introduced by
 Steps 2-4 or their coupled fixes.
+
+## Recovery review fixes
+
+**Date:** 2026-10-02
+**Review range:** `faa84bb3..816d92a2`
+**Outcome:** all three Important findings fixed
+
+### Native reconnect readiness and independent resubmit proof
+
+The pending and accepted-before-drop tests now enter recovery through the
+existing JavaScript and Erlang runtime transport harnesses. Each sender closes
+its live transport, completes a new handshake, catches up through the
+sequenced join, and crosses the old-session leave barrier before the test
+allows resubmission. Both targets assert that the pending operation is not
+resent while the runtime remains in `catching-up`.
+
+The pending case applies the actual resent operation to a second native
+runtime after that receiver processes the same join/leave history. The
+receiver observes one remote tree event, one sequenced commit, and one new
+array element. The inserted node has the second edit's `pending-final` label
+and the same generated Identifier observed by the sender. The sender then
+receives its real sequenced acknowledgement, clears pending history, records
+one trunk commit, preserves the Identifier, and emits no duplicate local
+event.
+
+The accepted-before-drop case now replays the accepted operation, join, and
+leave through the reconnect catch-up path. It reaches readiness with no
+resubmission, one sender commit, and no duplicate sender event.
+
+Commit:
+
+```text
+e4b4cdc52bb35763045095d281377c3556b4b2b4 test(tree): drive native reconnect recovery
+```
+
+### Violated summary tails preserve unrelated nodes
+
+The constrained transaction now edits both the constrained `left[0]` node and
+the surviving `child` node. Both violated summary-tail scenarios assert that
+`child.label` stays `child` before replay and after the suppressed tail. The
+existing continuation transaction still changes that node to `continued`,
+which proves the fresh runtime remains editable after the violation.
+
+Commit:
+
+```text
+36bd07f9cbb49121b25e7193ffc9357ffe92969d test(tree): preserve surviving edits on violation
+```
+
+### Verification
+
+```bash
+gleam test --target erlang -- \
+  shared_tree_transaction shared_tree_history_resubmit shared_tree_summary \
+  shared_tree_document_summary shared_tree_client shared_tree_fixture
+gleam test --target javascript -- \
+  shared_tree_transaction shared_tree_history_resubmit shared_tree_summary \
+  shared_tree_document_summary shared_tree_client shared_tree_fixture
+```
+
+```text
+Erlang:     141 passed
+JavaScript: 141 passed
+```
+
+Formatting and diff checks:
+
+```bash
+gleam format --check \
+  test/watershed/shared_tree_history_resubmit_test.gleam \
+  test/watershed/shared_tree_runtime_beam_test.gleam \
+  test/watershed/shared_tree_runtime_js_test.gleam \
+  test/watershed/shared_tree_summary_test.gleam
+git diff --check
+```
+
+Both checks exited successfully. The test output retains the known warnings
+for JavaScript unsafe integer literals and unused private test helpers.
