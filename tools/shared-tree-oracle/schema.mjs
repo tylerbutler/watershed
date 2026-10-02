@@ -125,6 +125,56 @@ export const arrayRootStore = defineTreeDataStore({
   initializer: initialArrayRoot,
 });
 
+const identifierFactory =
+  new SchemaFactory("org.watershed.shared-tree.identifiers");
+
+export class IdentifierPoint extends identifierFactory.object("Point", {
+  id: identifierFactory.identifier,
+  label: identifierFactory.string,
+}) {}
+
+export class IdentifierPair extends identifierFactory.object("Pair", {
+  firstId: identifierFactory.identifier,
+  label: identifierFactory.string,
+  pairOnly: identifierFactory.string,
+  secondId: identifierFactory.identifier,
+}) {}
+
+export class IdentifierItems extends identifierFactory.array(
+  "Items",
+  [IdentifierPair, IdentifierPoint],
+) {}
+
+export class IdentifierPointsByKey extends identifierFactory.map(
+  "PointsByKey",
+  [IdentifierPair, IdentifierPoint],
+) {}
+
+export class IdentifierRoot extends identifierFactory.object("Root", {
+  byKey: IdentifierPointsByKey,
+  child: IdentifierPoint,
+  left: IdentifierItems,
+  right: IdentifierItems,
+}) {}
+
+export const identifierTreeConfig =
+  new TreeViewConfiguration({ schema: IdentifierRoot });
+
+export function initialIdentifierRoot() {
+  return new IdentifierRoot({
+    byKey: new IdentifierPointsByKey([]),
+    child: new IdentifierPoint({ label: "root-child" }),
+    left: new IdentifierItems([]),
+    right: new IdentifierItems([]),
+  });
+}
+
+export const identifierRootStore = defineTreeDataStore({
+  type: "org.watershed.shared-tree.identifiers.root",
+  config: identifierTreeConfig,
+  initializer: initialIdentifierRoot,
+});
+
 function schemaEvolutionSchema({
   includeScore = false,
   noteTypes = "string",

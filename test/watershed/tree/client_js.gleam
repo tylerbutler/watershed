@@ -318,6 +318,22 @@ fn execute(
             ),
             fn(_) { json.null() },
           )
+        protocol.ConstrainedArrayRemove(target_path, path, start, end) ->
+          case
+            watershed.tree_transaction(
+              tree,
+              [watershed.NodeInDocument(target_path)],
+              fn(transaction_tree) {
+                watershed.tree_array_remove(transaction_tree, path, start, end)
+              },
+            )
+          {
+            Ok(_) -> Ok(json.null())
+            Error(watershed.TransactionFailed(reason)) ->
+              Error(facade("constrained-array-remove", reason))
+            Error(watershed.Aborted(reason)) ->
+              Error(facade("constrained-array-remove", reason))
+          }
         protocol.Checkpoint -> checkpoint(tree, events)
         protocol.Disconnect -> {
           watershed.go_offline(document)

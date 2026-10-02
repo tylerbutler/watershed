@@ -28,9 +28,11 @@ import { SharedTree } from "@fluidframework/tree/internal";
 import {
   arrayTreeConfig,
   initialArrayRoot,
+  initialIdentifierRoot,
   initialMapRoot,
   initialRoot,
   initialSchemaEvolutionRoot,
+  identifierTreeConfig,
   mapTreeConfig,
   schemaEvolutionConfigurations,
   treeConfig,
@@ -83,6 +85,10 @@ export const supportedFeatures = [
   "recursive-array-values",
   "range-array-edits",
   "cross-array-moves",
+  "identifier-fields",
+  "identifier-defaults",
+  "identifier-compression",
+  "identifier-summary-reload",
   "grouped-batches",
   "gc-metadata",
   "strict-view-object-map-schema-evolution",
@@ -98,6 +104,16 @@ export const excludedFeatures = [
   "gc-sweep",
   "compressed-ops",
   "chunked-ops",
+  "identifier-handles",
+  "incremental-field-batch-chunks",
+  "arbitrary-container-layouts",
+  "tree-short-id",
+  "identifier-index",
+  "custom-identifier-global-uniqueness",
+  "detached-node-builder",
+  "uuidv5-healing",
+  "undo-redo",
+  "async-cross-tree-transactions",
 ];
 
 function createServiceStore(config, initialRoot) {
@@ -130,6 +146,8 @@ function createServiceStore(config, initialRoot) {
 export const serviceStore = createServiceStore(treeConfig, initialRoot);
 export const mapServiceStore = createServiceStore(mapTreeConfig, initialMapRoot);
 export const arrayServiceStore = createServiceStore(arrayTreeConfig, initialArrayRoot);
+export const identifierServiceStore =
+  createServiceStore(identifierTreeConfig, initialIdentifierRoot);
 export const schemaEvolutionServiceStore = createServiceStore(
   schemaEvolutionConfigurations.v1.config,
   initialSchemaEvolutionRoot,

@@ -23,6 +23,7 @@ import {
 
 test("service profile names the restricted schema evolution support", () => {
   assert(supportedFeatures.includes("strict-view-object-map-schema-evolution"));
+  assert(supportedFeatures.includes("identifier-summary-reload"));
   assert(!excludedFeatures.includes("schema-evolution"));
   for (const feature of [
     "staged-schema-upgrades",
@@ -31,6 +32,16 @@ test("service profile names the restricted schema evolution support", () => {
     "data-migrations",
     "public-transactions",
     "additional-upstream-versions",
+    "identifier-handles",
+    "incremental-field-batch-chunks",
+    "arbitrary-container-layouts",
+    "tree-short-id",
+    "identifier-index",
+    "custom-identifier-global-uniqueness",
+    "detached-node-builder",
+    "uuidv5-healing",
+    "undo-redo",
+    "async-cross-tree-transactions",
   ]) {
     assert(excludedFeatures.includes(feature), `Missing exclusion: ${feature}`);
   }

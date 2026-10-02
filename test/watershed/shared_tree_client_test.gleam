@@ -169,6 +169,18 @@ pub fn shared_tree_client_decodes_array_commands_test() -> Nil {
   )
 }
 
+pub fn shared_tree_client_decodes_constrained_array_remove_test() -> Nil {
+  client_protocol.decode_request(
+    "{\"requestId\":9,\"command\":\"constrained-array-remove\",\"targetPath\":[\"left\",\"0\"],\"path\":[\"right\"],\"start\":0,\"end\":1}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(
+      9,
+      client_protocol.ConstrainedArrayRemove(["left", "0"], ["right"], 0, 1),
+    )),
+  )
+}
+
 pub fn shared_tree_client_rejects_invalid_array_commands_test() -> Nil {
   list.each(
     [

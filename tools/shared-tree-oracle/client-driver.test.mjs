@@ -128,6 +128,35 @@ test("schema helpers send explicit view commands", async (t) => {
   assert.equal(await channel.openView("v1"), null);
 });
 
+test("constraint helper sends a client-authored node constraint command", async (t) => {
+  const process = child(`
+    process.stdin.once("data", (chunk) => {
+      const request = JSON.parse(chunk.toString());
+      const { requestId, ...command } = request;
+      const expected = {
+        command: "constrained-array-remove",
+        targetPath: ["left", "0"],
+        path: ["right"],
+        start: 0,
+        end: 1,
+      };
+      process.stdout.write(JSON.stringify({
+        requestId,
+        ok: JSON.stringify(command) === JSON.stringify(expected),
+        result: null,
+      }) + "\\n");
+    });
+  `);
+  t.after(() => process.kill());
+  const channel = new JsonLinesChannel(process, 2000);
+  assert.equal(await channel.constrainedArrayRemove(
+    ["left", "0"],
+    ["right"],
+    0,
+    1,
+  ), null);
+});
+
 test("map helpers retain correlation when replies arrive in reverse", async (t) => {
   const process = child(`
     const requests = [];

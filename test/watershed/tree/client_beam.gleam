@@ -428,6 +428,32 @@ fn execute(
           active,
           False,
         )
+        protocol.ConstrainedArrayRemove(target_path, path, start, end) -> {
+          let outcome = case
+            watershed.tree_transaction(
+              tree,
+              [watershed.NodeInDocument(target_path)],
+              fn(transaction_tree) {
+                watershed.tree_array_remove(transaction_tree, path, start, end)
+              },
+            )
+          {
+            Ok(_) -> Ok(json.null())
+            Error(watershed.TransactionFailed(reason)) ->
+              Error(protocol.ProtocolError(
+                "facade-error",
+                "constrained-array-remove",
+                reason,
+              ))
+            Error(watershed.Aborted(reason)) ->
+              Error(protocol.ProtocolError(
+                "facade-error",
+                "constrained-array-remove",
+                reason,
+              ))
+          }
+          #(outcome, tree, events, active, False)
+        }
         protocol.Checkpoint -> #(
           checkpoint(tree, events, active),
           tree,

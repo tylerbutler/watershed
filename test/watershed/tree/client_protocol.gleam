@@ -122,6 +122,7 @@ pub type Command {
   ArrayInsert(FieldPath, Int, List(TreeValue))
   ArrayRemove(FieldPath, Int, Int)
   ArrayMove(FieldPath, Int, Int, FieldPath, Int)
+  ConstrainedArrayRemove(FieldPath, FieldPath, Int, Int)
   AwaitSynced(Int)
   Checkpoint
   PendingSummaryEvidence
@@ -256,6 +257,13 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
         destination_path,
         destination_gap,
       ))
+    }
+    "constrained-array-remove" -> {
+      use target_path <- result.try(decode_named_path(data, "targetPath"))
+      use path <- result.try(decode_path(data))
+      use start <- result.try(decode_safe_index(data, "start"))
+      use end <- result.try(decode_safe_index(data, "end"))
+      Ok(ConstrainedArrayRemove(target_path, path, start, end))
     }
     "await-synced" -> {
       use watermark <- result.try(required(

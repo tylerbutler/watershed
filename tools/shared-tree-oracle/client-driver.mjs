@@ -190,6 +190,16 @@ export class JsonLinesChannel {
     });
   }
 
+  constrainedArrayRemove(targetPath, path, start, end) {
+    return this.#result({
+      command: "constrained-array-remove",
+      targetPath,
+      path,
+      start,
+      end,
+    });
+  }
+
   end() {
     this.#child.stdin.end();
   }
@@ -497,6 +507,8 @@ export async function startClient(target, descriptor, environment, options = {})
           destinationPath,
           destinationGap,
         ),
+      constrainedArrayRemove: (targetPath, path, start, end) =>
+        channel.constrainedArrayRemove(targetPath, path, start, end),
       async close() {
         const cleanupErrors = [];
         try {
