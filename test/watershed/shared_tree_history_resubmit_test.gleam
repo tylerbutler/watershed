@@ -264,6 +264,91 @@ pub fn pending_multi_edit_transaction_resubmits_once_test() {
   |> expect.to_equal(outbound.client_sequence_number + 1)
 }
 
+pub fn accepted_transaction_before_drop_deduplicates_by_revision_test() {
+  let writer = identifier_core("writer", "30000000-0000-4000-8000-000000000003")
+  let service =
+    identifier_core("service", "50000000-0000-4000-8000-000000000005")
+  let address = "A/_C"
+  let view = identifier_fixture.full_view()
+  let assert Ok(active) =
+    runtime_core.begin_tree_transaction(writer, address, view, [])
+  let assert Ok(#(active, [], [])) =
+    runtime_core.submit_tree_edits_view(active, address, view, [
+      ArrayInsert(["left"], 1, [
+        ObjectValue(identifier_fixture.point_type, [
+          #("label", StringValue("accepted")),
+        ]),
+      ]),
+      SetField(["left", "1", "label"], StringValue("accepted-final")),
+    ])
+  let assert Ok(#(pending, local_events, [outbound])) =
+    runtime_core.commit_tree_transaction(active, address)
+  local_events
+  |> expect.to_equal([
+    #(address, channel.TreeEvent(tree_kernel.TreeChanged(True))),
+  ])
+  let assert Ok(channel.TreeState(pending_tree)) =
+    dict.get(pending.channels, address)
+  let assert [pending_commit] = tree_kernel.history_view(pending_tree).pending
+  let assert Ok(pending_reference) =
+    tree_kernel.reference_at(pending_tree, ["left", "1"])
+  let assert Ok(pending_identifier) =
+    tree_kernel.read(pending_tree, ["left", "1", "id"])
+
+  let accepted = sequenced(outbound, pending.client_id, 1)
+  let assert Ok(#(service, delivered)) =
+    runtime_core.handle_sequenced(service, accepted)
+  delivered.events
+  |> expect.to_equal([
+    #(address, channel.TreeEvent(tree_kernel.TreeChanged(False))),
+  ])
+  let assert Ok(channel.TreeState(service_tree)) =
+    dict.get(service.channels, address)
+  let assert Ok(reference) =
+    tree_kernel.reference_at(service_tree, ["left", "1"])
+  let assert Ok(identifier) =
+    tree_kernel.read(service_tree, ["left", "1", "id"])
+  let assert [service_commit] =
+    tree_kernel.history_view(service_tree).sequenced.trunk
+  service_commit.commit.revision |> expect.to_equal(pending_commit.revision)
+
+  let assert Ok(reconnected) =
+    runtime_core.adopt_reconnect(
+      pending,
+      runtime_fixture.connected("rejoined", [], 1),
+    )
+  let assert Ok(#(caught_up, acknowledged)) =
+    runtime_core.handle_sequenced(reconnected, accepted)
+  acknowledged.events |> expect.to_equal([])
+  let assert Ok(#(ready, [])) =
+    runtime_core.resubmit(runtime_core.go_live(caught_up))
+  ready.in_flight |> expect.to_equal([])
+  let assert Ok(channel.TreeState(ready_tree)) =
+    dict.get(ready.channels, address)
+  tree_kernel.history_view(ready_tree).pending |> expect.to_equal([])
+  let assert [ready_commit] =
+    tree_kernel.history_view(ready_tree).sequenced.trunk
+  ready_commit.commit.revision |> expect.to_equal(pending_commit.revision)
+  tree_kernel.reference_at(ready_tree, ["left", "1"])
+  |> expect.to_equal(Ok(pending_reference))
+  tree_kernel.read(ready_tree, ["left", "1", "id"])
+  |> expect.to_equal(Ok(pending_identifier))
+
+  tree_kernel.history_view(service_tree).sequenced.trunk
+  |> list.length
+  |> expect.to_equal(1)
+  tree_kernel.reference_at(service_tree, ["left", "1"])
+  |> expect.to_equal(Ok(reference))
+  tree_kernel.read(service_tree, ["left", "1", "id"])
+  |> expect.to_equal(Ok(identifier))
+  tree_kernel.read(service_tree, ["left", "1", "label"])
+  |> expect.to_equal(Ok(Some(StringValue("accepted-final"))))
+  tree_kernel.array_values(service_tree, ["left"])
+  |> expect.to_be_ok()
+  |> list.length
+  |> expect.to_equal(2)
+}
+
 pub fn identifier_retry_acknowledges_once_without_changing_id_test() {
   let retry = identifier_observation("retry-resubmit")
   let assert Ok(identifier) = list.key_find(retry, "identifier")
