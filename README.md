@@ -85,14 +85,33 @@ guide](https://watershed.tylerbutler.com/guide/connect) for both.
 
 ## SharedTree runtime (experimental)
 
-Watershed supports fixed objects, dynamic maps, named recursive arrays, and
-explicit schema evolution for the object/map subset on JavaScript and BEAM.
+Watershed supports fixed objects, dynamic maps, named recursive arrays,
+Identifier fields, and explicit schema evolution for the object/map subset on
+JavaScript and BEAM.
 Interoperability coverage
 uses Fluid Framework **3.1.0** and the pinned Floodgate service. The gate
 compares upstream, JavaScript, and BEAM authors, reconnects pending edits, and
 loads and continues editing across object, map, and schema-evolution summary
 matrices. This claim applies to the declared profile, not arbitrary Fluid
 documents, services, or package versions.
+
+Identifier fields contain ordinary strings. Omit an Identifier when you insert
+a new object and the document compressor generates one; provide a string when
+you need an external ID. Reads return that string unchanged. An attached
+Identifier field is read-only, so changing an ID requires replacing its parent
+object. Duplicate custom strings are allowed and do not make two nodes the same
+node: moves, references, and `NodeInDocument` constraints still use node
+identity.
+
+Messages can compress known IDs with the author's session and allocation
+range. Summaries resolve finalized IDs from their stored compressor state and
+have no author session. Loading, reading, moving, and validating nodes never
+generate replacement IDs.
+
+The Identifier profile does not add handles, incremental FieldBatch chunks,
+arbitrary container layouts, `Tree.shortId`, an identifier index, global
+uniqueness checks, a detached JavaScript-style node builder, UUIDv5 healing,
+undo/redo, or asynchronous or cross-tree transactions.
 
 The [profile manifest](test/fixtures/shared_tree/profile.json) records upstream
 commit `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960` and Floodgate commit

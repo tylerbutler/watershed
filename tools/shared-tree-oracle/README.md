@@ -284,8 +284,8 @@ check.
 | `just shared-tree-test` | Native suites and HTTP smokes on both targets. |
 | `npm --prefix tools/shared-tree-oracle test` | Oracle/report/recipe tests. |
 | `just shared-tree-oracle-check` | Regenerate from the pinned source and compare committed fixtures. |
-| `just shared-tree-interop` | Real-service object, map, and schema-evolution matrices plus 200 seeded schedules. |
-| `just shared-tree-create-interop` | Six native-creator/fresh-reader cells and continued editing. |
+| `just shared-tree-interop` | Real-service object, map, array, schema-evolution, and Identifier matrices plus 300 seeded schedules. |
+| `just shared-tree-create-interop` | Eighteen object, array, and Identifier native-creator/fresh-reader cells with continued editing. |
 | `just shared-tree-interop-deep` | Manual 7,500-schedule acceptance through the same runner. |
 
 The service job uploads `.output/interop/` and `.output/creation/` on success or
@@ -294,8 +294,8 @@ failure as `shared-tree-evidence-<run-id>-<run-attempt>`. It includes the hidden
 output directories. Each runner verifies its own current-run artifacts; an
 older `report.json` cannot turn a failed command into success. Cleanup failure
 also fails the command. The reports establish separate claims: M1's nine
-object-summary cells, M2's nine map-summary cells, and native creation's six
-creator/reader cells.
+object-summary cells, M2's nine map-summary cells, Identifier's nine
+writer/reader cells, and native creation's eighteen creator/reader cells.
 
 The workflow starts no shared development server. The existing service wrapper
 verifies Floodgate commit `0eb493fc46d1bb9baf1151a6ccdde93544e057e7`, allocates a
@@ -320,10 +320,13 @@ container bytes.
 `shared-tree-create-test` runs both native targets and the owned HTTP
 failure-injection smoke without a live service or upstream npm dependencies.
 `shared-tree-create-interop` adds `creation:interop -- --local-floodgate`.
-That gate calls the production creation facade on JavaScript and BEAM, closes
-each creator, and opens fresh JavaScript, BEAM, and upstream readers from the
-initial stored summary before publishing a replacement summary. It checks edits,
-peer observations, native summaries with a later operation tail, and upstream
+That gate calls the production creation facade on JavaScript and BEAM for the
+object, array, and Identifier profiles. It closes each creator and opens fresh
+JavaScript, BEAM, and upstream readers from the initial stored summary before
+publishing a replacement summary. The Identifier rows prove that a native first
+summary contains a generated default and an explicit string, and that upstream
+can load and continue the document. The gate also checks edits, peer
+observations, native summaries with a later operation tail, and upstream
 continuation. A missing creator, reader, service, or evidence cell fails the run.
 Run artifacts live under `.output/creation/<run-id>/`; they contain no tokens
 or tenant secrets.
@@ -490,6 +493,26 @@ The pinned low-level schema APIs accept the captured non-string and union
 Identifier schemas. The native profile remains restricted to Identifier object
 fields containing `com.fluidframework.leaf.string`; the fixtures record the
 upstream acceptance and the native profile restriction separately.
+
+The live profile exercises upstream/JavaScript, upstream/BEAM, and
+JavaScript/BEAM authorship pairs. Each author inserts one object with a
+generated Identifier and one with an explicit string. The matrix moves those
+nodes within and between arrays, replaces a node with a new node that has the
+same custom string, and checks `NodeInDocument` constraints against reference
+identity. Equal strings do not merge node identity.
+
+Attached Identifier fields are read-only. Callers read them through the normal
+tree APIs as strings and replace the containing object when they need another
+ID. Custom strings can repeat; the application owns any uniqueness policy.
+The document compressor can encode a known ID numerically in an authored
+message, where the originator session supplies the op-space context. A summary
+has no originator and can use only finalized numeric IDs from its stored
+compressor state. Neither decoding nor loading allocates IDs.
+
+The supported profile excludes handles, incremental FieldBatch chunks,
+arbitrary container layouts, `Tree.shortId`, an identifier index, global
+custom-ID uniqueness checks, a detached JavaScript-style node-builder API,
+UUIDv5 healing, undo/redo, and asynchronous or cross-tree transactions.
 
 Allocation observations use measured call ordinals and tree paths. For the
 attached two-Identifier insertion, the calls are `left[1].firstId`,
