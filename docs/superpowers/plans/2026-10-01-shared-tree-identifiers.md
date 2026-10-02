@@ -1169,7 +1169,7 @@ of scenario labels.
 - Produces: enforced Identifier profile claims, service evidence, and a
   precise handoff to unfinished transaction work.
 
-- [ ] **Step 1: Add failing required-section and client-authorship tests.**
+- [x] **Step 1: Add failing required-section and client-authorship tests.**
 
   Require `identifierFields` and `identifierReloadMatrix` sections using the
   existing report-validation conventions. Reject a report after removing
@@ -1177,7 +1177,7 @@ of scenario labels.
   or any writer/reader cell. Coordinators schedule commands; the real
   clients must create defaults and emit their own operations.
 
-- [ ] **Step 2: Exercise both authorship directions and nine reload cells.**
+- [x] **Step 2: Exercise both authorship directions and nine reload cells.**
 
   Run upstream/JavaScript, upstream/BEAM, and JavaScript/BEAM pairs. Each client
   authors a missing-default insertion and an explicit-string insertion.
@@ -1190,13 +1190,13 @@ of scenario labels.
   fresh Identifier-bearing node, and exposes that edit to a peer. Add a
   native-created first-summary case through the creation interop harness.
 
-- [ ] **Step 3: Add Identifier-specific protocol failure cases.**
+- [x] **Step 3: Add Identifier-specific protocol failure cases.**
 
   Missing allocation, wrong originator, corrupt integer value, and negative
   originatorless summary data must fail without partial readiness or state
   mutation. Preserve all existing profile refusal cases.
 
-- [ ] **Step 4: Run required local service and creation gates.**
+- [x] **Step 4: Run required local service and creation gates.**
 
   ```bash
   npm --prefix tools/shared-tree-oracle test
@@ -1216,7 +1216,7 @@ of scenario labels.
   Do not publish, push, or trigger an external workflow without appropriate
   authorization. Record missing hosted evidence as incomplete.
 
-- [ ] **Step 5: Document the supported feature without overclaiming.**
+- [x] **Step 5: Document the supported feature without overclaiming.**
 
   Add generated/default and explicit-ID examples. Explain read-only fields,
   duplicate custom IDs, parent replacement, ordinary string reads, ID
@@ -1226,7 +1226,7 @@ of scenario labels.
   Generate profile labels from the source generator only after the required
   gates pass. Do not hand-edit generated profile/manifest files.
 
-- [ ] **Step 6: Run full regression closure and record failures honestly.**
+- [x] **Step 6: Run full regression closure and record failures honestly.**
 
   ```bash
   just test
@@ -1239,7 +1239,7 @@ of scenario labels.
   another path to evade the policy. Do not infer that a failure is baseline
   from this plan alone.
 
-- [ ] **Step 7: Commit scoped closure and resume the parent plan.**
+- [x] **Step 7: Commit scoped closure and resume the parent plan.**
 
   ```bash
   git add tools/shared-tree-oracle test/watershed test/fixtures/shared_tree README.md .github/workflows docs/superpowers/plans/2026-09-29-shared-tree-transactions.md
@@ -1250,6 +1250,35 @@ of scenario labels.
   open external blockers, and the next unchecked task. Resume at transaction
   Task 8, then complete Tasks 9–11. Do not recapture its Identifier fields
   as ordinary strings and do not mark M5 undo/redo complete.
+
+**Task 7 evidence (2026-10-02):**
+
+- Commits: `bdc6f2a2`, `81917395`, `a76991a1`, `1f4edf9b`,
+  `98e95385`, `d81740ea`, `fb2bb53b`, and `f5d57d7e`.
+- `npm --prefix tools/shared-tree-oracle test`: 343 passed.
+- `npm --prefix tools/shared-tree-oracle run check`: verified 50 pinned
+  upstream cases.
+- `just shared-tree-codec-interop`: 2 targets, 38 items each.
+- `just shared-tree-test`: 923 Erlang tests and 903 JavaScript tests passed;
+  storage, bootstrap, and creation smokes passed.
+- `just shared-tree-interop`: passed 300 schedules with seed 42. Run
+  `aa20c5fe-b0ca-47d0-b3db-b384440a57e8` wrote
+  `tools/shared-tree-oracle/.output/interop/aa20c5fe-b0ca-47d0-b3db-b384440a57e8/report.json`.
+- `just shared-tree-create-interop`: passed the 18-cell matrix. Run
+  `b350cf7f-e90e-405c-8453-db9888392d19` wrote
+  `tools/shared-tree-oracle/.output/creation/b350cf7f-e90e-405c-8453-db9888392d19/report.json`.
+- `just lint`: passed.
+- `just test`: the Gleam, oracle, and website build portions passed, but the
+  browser suite failed twice because
+  `guide race styles reach dynamically created notes` timed out waiting for
+  `[data-flow-layer] .flow-dot-label`. This test is outside the Identifier
+  surfaces.
+- `just build`: stopped at the supply-chain policy as required.
+  `shared_tree_checklist_lustre` reported 28
+  `ERR_PNPM_TARBALL_URL_MISMATCH` entries for the existing Visual Studio
+  registry URLs versus npm registry metadata. No URL or policy was changed.
+- No hosted workflow was triggered. Hosted evidence remains external to this
+  local Task 7 closure.
 
 ## 6. Acceptance and review checklist
 

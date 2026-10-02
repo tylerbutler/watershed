@@ -63,19 +63,28 @@ atomicity remain deferred.
 
 ### Identifier prerequisite for Task 8
 
-Tasks 2–7 are implemented through `afc32c65`. Task 8 remains blocked on
-Identifier-field support: the pinned transaction oracle uses `sf.identifier`,
-while the native schema and FieldBatch codecs exclude that field kind and its
-compressed value representation.
+Tasks 2–7 remain implemented through `afc32c65`. The Identifier prerequisite
+is complete through `bdc6f2a2`, `81917395`, `a76991a1`, `1f4edf9b`,
+`98e95385`, `d81740ea`, `fb2bb53b`, and `f5d57d7e`.
 
-Execute the [Identifier support plan](2026-10-01-shared-tree-identifiers.md)
-before resuming Task 8. Keep the oracle's Identifier fields and complete
+The [Identifier support plan](2026-10-01-shared-tree-identifiers.md) now proves
+native schema and FieldBatch support, compressed message values, originatorless
+summary values, all mixed-client authorship directions, nine summary
+writer/reader reload cells with post-load authoring, and native-created first
+summaries. The local 300-schedule service run
+`aa20c5fe-b0ca-47d0-b3db-b384440a57e8` and creation run
+`b350cf7f-e90e-405c-8453-db9888392d19` passed.
+
+Resume this plan at Task 8. Keep the oracle's Identifier fields and complete
 builds, refreshers, and summaries. Do not substitute ordinary string fields
 or strip content to make parity pass. Identifier values use ordinary string
 leaves; they do not require a new `TreeValue` node kind.
 
 The Identifier plan does not close transaction Tasks 8–11 or M5 undo/redo.
-Resume the unchecked tasks here after its acceptance gates pass.
+`just lint` passed. `just test` remains blocked by the unrelated guide-race
+browser timeout, and `just build` remains blocked by the existing pnpm tarball
+URL supply-chain policy. No registry URL or policy was changed, and no hosted
+workflow was triggered.
 
 ### Current constraints to remove
 
