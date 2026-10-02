@@ -1469,7 +1469,7 @@ git commit -m "test(tree): prove transaction recovery"
 - Consumes: native public APIs and Task 1 upstream scenario definitions.
 - Produces: required transaction sections in local and hosted interop reports.
 
-- [ ] **Step 1: Add failing command-protocol tests.**
+- [x] **Step 1: Add failing command-protocol tests.**
 
 Add explicit actions:
 
@@ -1481,7 +1481,7 @@ Add explicit actions:
 Clients return callback observations, events, commit revision, outbound count,
 and final tree. Coordinators must not author changes for clients.
 
-- [ ] **Step 2: Require transaction report sections.**
+- [x] **Step 2: Require transaction report sections.**
 
 Require:
 
@@ -1497,27 +1497,27 @@ const requiredTransactionSections = [
 Test rejection after removing a section, target, race ordering, reload cell, or
 observation.
 
-- [ ] **Step 3: Run deterministic mixed-client scenarios.**
+- [x] **Step 3: Run deterministic mixed-client scenarios.**
 
 Use JS/upstream, BEAM/upstream, and JS/BEAM pairs. Each implementation authors
 commit and abort cases. Run concurrent constrained transaction versus node
 remove in both sequencing orders. Include same-array and cross-array node
 moves as nonviolating controls.
 
-- [ ] **Step 4: Run reconnect and nine writer/reader cells.**
+- [x] **Step 4: Run reconnect and nine writer/reader cells.**
 
 For each writer in `upstream`, `javascript`, `erlang`, publish a summary after
 a constrained transaction. Each reader loads it, verifies history and node
 identity, authors another transaction, and exposes the result to a peer.
 
-- [ ] **Step 5: Extend seeded schedules.**
+- [x] **Step 5: Extend seeded schedules.**
 
 Add transaction start/edit/commit/abort, nested scopes, node moves, constrained
 removals, disconnects, acknowledgements, and summary reloads. Keep the seed,
 schedule, constraints, callback result, and event trace in failure artifacts.
 Run 300 schedules with seed 42 in the required gate.
 
-- [ ] **Step 6: Run local real-service gates.**
+- [x] **Step 6: Run local real-service gates.**
 
 ```bash
 node --test tools/shared-tree-oracle/client-driver.test.mjs tools/shared-tree-oracle/client-interop.test.mjs tools/shared-tree-oracle/summary-interop.test.mjs tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/service.test.mjs
@@ -1528,12 +1528,31 @@ Expected: pinned service identity; all three implementations; both constraint
 race orders; reconnect evidence; nine reload cells; no skipped required target,
 service, or corpus.
 
-- [ ] **Step 7: Commit interoperability proof.**
+- [x] **Step 7: Commit interoperability proof.**
 
 ```bash
 git add tools/shared-tree-oracle test/fixtures/shared_tree
 git commit -m "test(tree): prove transaction interoperability"
 ```
+
+**Task 9 evidence (2026-10-02):**
+
+- Commits: `6eb9f24b`, `195a6a3d`, and `bb078942`.
+- `node --test` over the five oracle suites: 97 passed.
+- `just shared-tree-interop`: passed 300 seeded schedules with seed 42 and no
+  skipped target, service, or corpus. Run `ef34e6a5` reports 3 callback pairs,
+  6 constraint race cells, 2 reconnect cases, 9 reload cells, and 120 seeded
+  transactions.
+- Gleam client tests passed on both targets.
+- The reload matrix gates are falsifiable: mutation checks for
+  `nodeIdentityVerified` and `historyVerified` failed against the real service,
+  then were reverted.
+- Upstream fires a local change event for each edit and for rollback, so the
+  one-event rule is asserted for the native authors. Atomicity for all three
+  implementations uses the sequenced `acceptedCommitCount`.
+- `historyVerified` matches the composed commit by content because upstream
+  reports session-local compressed IDs and the BEAM reader evicts its trunk
+  below the loaded base.
 
 ### Task 10: Close permanent gates and document the transaction profile
 
