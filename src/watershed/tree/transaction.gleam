@@ -197,7 +197,11 @@ pub fn commit_nested(value: Transaction) -> Result(Transaction, TreeError) {
 pub fn abort_nested(value: Transaction) -> Result(Transaction, TreeError) {
   case value.savepoints {
     [] -> Error(types.InvalidHistory("tree transaction has no nested scope"))
-    [savepoint, ..rest] ->
+    [savepoint, ..rest] -> {
+      let revision_compressor = case savepoint.change_count {
+        0 -> value.current_compressor
+        _ -> value.revision_compressor
+      }
       Ok(
         Transaction(
           ..value,
@@ -205,6 +209,7 @@ pub fn abort_nested(value: Transaction) -> Result(Transaction, TreeError) {
             savepoint.state,
             value.current_state,
           ),
+          revision_compressor: revision_compressor,
           constraint_sets: list.take(
             value.constraint_sets,
             savepoint.constraint_set_count,
@@ -214,6 +219,7 @@ pub fn abort_nested(value: Transaction) -> Result(Transaction, TreeError) {
           savepoints: rest,
         ),
       )
+    }
   }
 }
 

@@ -94,6 +94,43 @@ pub fn identifier_nested_abort_does_not_reuse_reference_test() {
   second_reference |> expect.to_not_equal(first_reference)
 }
 
+pub fn identifier_nested_abort_preserves_outer_revision_test() {
+  let base = identifier_array_state(session(), [])
+  let compressor = fluid_ids.new(session())
+  let assert Ok(open) = transaction.begin(base, compressor, [])
+  let nested = transaction.begin_nested(open)
+  let assert Ok(nested) =
+    transaction.apply_edit(
+      nested,
+      types.ArrayInsert(["left"], 0, [
+        types.ObjectValue(identifier_fixture.point_type, [
+          #("label", types.StringValue("aborted")),
+        ]),
+      ]),
+    )
+  let assert Ok(Some(types.StringValue(aborted_identifier))) =
+    tree_kernel.read(transaction.state(nested), ["left", "0", "id"])
+  let assert Ok(open) = transaction.abort_nested(nested)
+  let assert Ok(open) =
+    transaction.apply_edit(
+      open,
+      types.ArrayInsert(["left"], 0, [
+        types.ObjectValue(identifier_fixture.point_type, [
+          #("label", types.StringValue("committed")),
+        ]),
+      ]),
+    )
+  let assert Ok(#(transaction.Commit(state, _, commit), _)) =
+    transaction.finish(open)
+  let assert Ok(Some(types.StringValue(committed_identifier))) =
+    tree_kernel.read(state, ["left", "0", "id"])
+
+  fluid_ids.stable_id_to_string(commit.revision)
+  |> expect.to_not_equal(aborted_identifier)
+  fluid_ids.stable_id_to_string(commit.revision)
+  |> expect.to_not_equal(committed_identifier)
+}
+
 pub fn identifier_noop_finish_restores_base_compressor_test() {
   let stored = identifier_fixture.full_stored()
   let base =
