@@ -109,6 +109,482 @@ fn membership_frame(
 }
 
 @target(javascript)
+fn identifier_seed() -> runtime_core.BootstrapSeed {
+  identifier_fixture.full_seed_input(
+    identifier_fixture.full_root(
+      identifier_fixture.point("child", "child"),
+      [identifier_fixture.point("existing", "existing")],
+      [],
+      [],
+    ),
+  )
+  |> runtime_core.bootstrap_seed
+  |> expect.to_be_ok()
+}
+
+@target(javascript)
+fn history_count(owner: runtime.Runtime, field: String) -> Int {
+  runtime.tree_history_evidence(owner, "A/_C")
+  |> expect.to_be_ok()
+  |> json.to_string
+  |> json.parse(decode.at([field], decode.list(decode.dynamic)))
+  |> expect.to_be_ok()
+  |> list.length
+}
+
+@target(javascript)
+fn sequenced_submission(
+  submitted: frame.SubmittedOperation,
+  client_id: String,
+  sequence_number: Int,
+) -> frame.Sequenced {
+  frame.Sequenced(
+    client_id: Some(client_id),
+    sequence_number: sequence_number,
+    minimum_sequence_number: 0,
+    client_sequence_number: submitted.client_sequence_number,
+    reference_sequence_number: submitted.reference_sequence_number,
+    operation_type: submitted.operation_type,
+    contents: submitted.contents,
+    metadata: submitted.metadata,
+    timestamp: 0,
+    data: None,
+  )
+}
+
+@target(javascript)
+pub fn assert_pending_multi_edit_transaction_resubmit() {
+  let sender_callbacks = transport_js.new_cell(None)
+  let receiver_callbacks = transport_js.new_cell(None)
+  let submissions = transport_js.new_cell([])
+  let sender_events = transport_js.new_cell([])
+  let receiver_events = transport_js.new_cell([])
+  let sender =
+    runtime.start_with_transport_and_seed(
+      http_base_url: "https://seed.invalid",
+      connect_message: connect_message(),
+      seed: identifier_seed(),
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(sender_callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(event, payload) {
+            case event {
+              "submitOp" -> {
+                let assert Ok(dynamic) =
+                  json.parse(json.to_string(payload), decode.dynamic)
+                let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+                  frame.decode_submit_operation(dynamic)
+                transport_js.set_cell(submissions, [
+                  submitted,
+                  ..transport_js.get_cell(submissions)
+                ])
+              }
+              _ -> Nil
+            }
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let receiver =
+    runtime.start_with_transport_and_seed(
+      http_base_url: "https://seed.invalid",
+      connect_message: connect_message(),
+      seed: identifier_seed(),
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(receiver_callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(_, _) { Nil },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(sender_transport) = transport_js.get_cell(sender_callbacks)
+  let assert Some(receiver_transport) =
+    transport_js.get_cell(receiver_callbacks)
+  sender_transport.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "writer",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["writer"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  receiver_transport.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "receiver",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["receiver"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  let _ =
+    runtime.subscribe(sender, "A/_C", fn(event) {
+      transport_js.set_cell(sender_events, [
+        event,
+        ..transport_js.get_cell(sender_events)
+      ])
+    })
+  let _ =
+    runtime.subscribe(receiver, "A/_C", fn(event) {
+      transport_js.set_cell(receiver_events, [
+        event,
+        ..transport_js.get_cell(receiver_events)
+      ])
+    })
+  let view = identifier_fixture.full_view()
+  runtime.begin_tree_transaction(sender, "A/_C", view, [])
+  |> expect.to_equal(Ok(Nil))
+  runtime.tree_edit_view(
+    sender,
+    "A/_C",
+    view,
+    tree_types.ArrayInsert(["left"], 1, [
+      tree_types.ObjectValue(identifier_fixture.point_type, [
+        #("label", tree_types.StringValue("pending")),
+      ]),
+    ]),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime.tree_edit_view(
+    sender,
+    "A/_C",
+    view,
+    tree_types.SetField(
+      ["left", "1", "label"],
+      tree_types.StringValue("pending-final"),
+    ),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime.commit_tree_transaction(sender, "A/_C")
+  |> expect.to_equal(Ok(Nil))
+  let assert [original] = transport_js.get_cell(submissions)
+  let identifier =
+    runtime.tree_read(sender, "A/_C", ["left", "1", "id"])
+    |> expect.to_be_ok()
+  transport_js.get_cell(sender_events)
+  |> expect.to_equal([
+    channel.TreeEvent(tree_kernel.TreeChanged(True)),
+  ])
+
+  sender_transport.on_close()
+  runtime.connection_observation(sender).phase
+  |> expect.to_equal("reconnecting")
+  sender_transport.on_join()
+  sender_transport.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "writer-2",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["writer-2"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  sender_transport.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(1, "join", "{\"clientId\":\"writer-2\",\"detail\":{}}"),
+    ])
+      |> json.to_string,
+  )
+  runtime.connection_observation(sender).phase
+  |> expect.to_equal("catching-up")
+  transport_js.get_cell(submissions) |> expect.to_equal([original])
+  sender_transport.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(2, "leave", "\"writer\""),
+    ])
+      |> json.to_string,
+  )
+  runtime.connection_observation(sender).phase |> expect.to_equal("ready")
+  let assert [resent, initial] = transport_js.get_cell(submissions)
+  resent.client_sequence_number
+  |> expect.to_equal(initial.client_sequence_number + 1)
+  let assert Ok(batch) =
+    fluid_container.decode(resent.contents, resent.metadata)
+  batch.messages
+  |> list.count(fn(message) {
+    case message.kind {
+      fluid_container.ChannelOperation(_, _) -> True
+      _ -> False
+    }
+  })
+  |> expect.to_equal(1)
+
+  receiver_transport.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(1, "join", "{\"clientId\":\"writer-2\",\"detail\":{}}"),
+      membership_frame(2, "leave", "\"writer\""),
+      sequenced_submission(resent, "writer-2", 3),
+    ])
+      |> json.to_string,
+  )
+  transport_js.get_cell(receiver_events)
+  |> expect.to_equal([
+    channel.TreeEvent(tree_kernel.TreeChanged(False)),
+  ])
+  history_count(receiver, "trunk") |> expect.to_equal(1)
+  runtime.tree_array_values(receiver, "A/_C", ["left"])
+  |> expect.to_be_ok()
+  |> list.length
+  |> expect.to_equal(2)
+  runtime.tree_read(receiver, "A/_C", ["left", "1", "label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("pending-final"))))
+  runtime.tree_read(receiver, "A/_C", ["left", "1", "id"])
+  |> expect.to_equal(Ok(identifier))
+
+  sender_transport.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(resent, "writer-2", 3),
+    ])
+      |> json.to_string,
+  )
+  history_count(sender, "pending") |> expect.to_equal(0)
+  history_count(sender, "trunk") |> expect.to_equal(1)
+  transport_js.get_cell(sender_events)
+  |> expect.to_equal([
+    channel.TreeEvent(tree_kernel.TreeChanged(True)),
+  ])
+  runtime.tree_read(sender, "A/_C", ["left", "1", "id"])
+  |> expect.to_equal(Ok(identifier))
+  runtime.close(sender)
+  runtime.close(receiver)
+}
+
+@target(javascript)
+pub fn assert_accepted_transaction_before_drop() {
+  let sender_callbacks = transport_js.new_cell(None)
+  let receiver_callbacks = transport_js.new_cell(None)
+  let submissions = transport_js.new_cell([])
+  let sender_events = transport_js.new_cell([])
+  let receiver_events = transport_js.new_cell([])
+  let sender =
+    runtime.start_with_transport_and_seed(
+      http_base_url: "https://seed.invalid",
+      connect_message: connect_message(),
+      seed: identifier_seed(),
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(sender_callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(event, payload) {
+            case event {
+              "submitOp" -> {
+                let assert Ok(dynamic) =
+                  json.parse(json.to_string(payload), decode.dynamic)
+                let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+                  frame.decode_submit_operation(dynamic)
+                transport_js.set_cell(submissions, [
+                  submitted,
+                  ..transport_js.get_cell(submissions)
+                ])
+              }
+              _ -> Nil
+            }
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let receiver =
+    runtime.start_with_transport_and_seed(
+      http_base_url: "https://seed.invalid",
+      connect_message: connect_message(),
+      seed: identifier_seed(),
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(receiver_callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(_, _) { Nil },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(sender_transport) = transport_js.get_cell(sender_callbacks)
+  let assert Some(receiver_transport) =
+    transport_js.get_cell(receiver_callbacks)
+  sender_transport.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "writer",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["writer"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  receiver_transport.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "receiver",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["receiver"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  let _ =
+    runtime.subscribe(sender, "A/_C", fn(event) {
+      transport_js.set_cell(sender_events, [
+        event,
+        ..transport_js.get_cell(sender_events)
+      ])
+    })
+  let _ =
+    runtime.subscribe(receiver, "A/_C", fn(event) {
+      transport_js.set_cell(receiver_events, [
+        event,
+        ..transport_js.get_cell(receiver_events)
+      ])
+    })
+  let view = identifier_fixture.full_view()
+  runtime.begin_tree_transaction(sender, "A/_C", view, [])
+  |> expect.to_equal(Ok(Nil))
+  runtime.tree_edit_view(
+    sender,
+    "A/_C",
+    view,
+    tree_types.ArrayInsert(["left"], 1, [
+      tree_types.ObjectValue(identifier_fixture.point_type, [
+        #("label", tree_types.StringValue("accepted")),
+      ]),
+    ]),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime.tree_edit_view(
+    sender,
+    "A/_C",
+    view,
+    tree_types.SetField(
+      ["left", "1", "label"],
+      tree_types.StringValue("accepted-final"),
+    ),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime.commit_tree_transaction(sender, "A/_C")
+  |> expect.to_equal(Ok(Nil))
+  let assert [submitted] = transport_js.get_cell(submissions)
+  let identifier =
+    runtime.tree_read(sender, "A/_C", ["left", "1", "id"])
+    |> expect.to_be_ok()
+  receiver_transport.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(submitted, "writer", 1),
+    ])
+      |> json.to_string,
+  )
+  transport_js.get_cell(receiver_events)
+  |> expect.to_equal([
+    channel.TreeEvent(tree_kernel.TreeChanged(False)),
+  ])
+  history_count(receiver, "trunk") |> expect.to_equal(1)
+  runtime.tree_array_values(receiver, "A/_C", ["left"])
+  |> expect.to_be_ok()
+  |> list.length
+  |> expect.to_equal(2)
+  runtime.tree_read(receiver, "A/_C", ["left", "1", "label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("accepted-final"))))
+  runtime.tree_read(receiver, "A/_C", ["left", "1", "id"])
+  |> expect.to_equal(Ok(identifier))
+
+  sender_transport.on_close()
+  sender_transport.on_join()
+  sender_transport.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "writer-2",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 3,
+      initial_clients: ["writer-2"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  sender_transport.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(submitted, "writer", 1),
+      membership_frame(2, "join", "{\"clientId\":\"writer-2\",\"detail\":{}}"),
+    ])
+      |> json.to_string,
+  )
+  runtime.connection_observation(sender).phase
+  |> expect.to_equal("catching-up")
+  transport_js.get_cell(submissions) |> expect.to_equal([submitted])
+  sender_transport.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(3, "leave", "\"writer\""),
+    ])
+      |> json.to_string,
+  )
+  runtime.connection_observation(sender).phase |> expect.to_equal("ready")
+  transport_js.get_cell(submissions) |> expect.to_equal([submitted])
+  history_count(sender, "pending") |> expect.to_equal(0)
+  history_count(sender, "trunk") |> expect.to_equal(1)
+  transport_js.get_cell(sender_events)
+  |> expect.to_equal([
+    channel.TreeEvent(tree_kernel.TreeChanged(True)),
+  ])
+  runtime.tree_read(sender, "A/_C", ["left", "1", "id"])
+  |> expect.to_equal(Ok(identifier))
+  runtime.close(sender)
+  runtime.close(receiver)
+}
+
+@target(javascript)
 pub type BootstrapTreeFixture {
   BootstrapTreeFixture(
     connect: fn() -> Nil,

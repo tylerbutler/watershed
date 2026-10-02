@@ -219,6 +219,496 @@ fn membership_frame(
 }
 
 @target(erlang)
+fn identifier_seed() -> runtime_core.BootstrapSeed {
+  identifier_fixture.full_seed_input(
+    identifier_fixture.full_root(
+      identifier_fixture.point("child", "child"),
+      [identifier_fixture.point("existing", "existing")],
+      [],
+      [],
+    ),
+  )
+  |> runtime_core.bootstrap_seed
+  |> expect.to_be_ok()
+}
+
+@target(erlang)
+fn history_count(
+  actor: process.Subject(runtime_beam.Msg),
+  field: String,
+) -> Int {
+  runtime_beam.tree_history_evidence(actor, "A/_C")
+  |> expect.to_be_ok()
+  |> json.to_string
+  |> json.parse(decode.at([field], decode.list(decode.dynamic)))
+  |> expect.to_be_ok()
+  |> list.length
+}
+
+@target(erlang)
+fn sequenced_submission(
+  submitted: frame.SubmittedOperation,
+  client_id: String,
+  sequence_number: Int,
+) -> frame.Sequenced {
+  frame.Sequenced(
+    client_id: Some(client_id),
+    sequence_number: sequence_number,
+    minimum_sequence_number: 0,
+    client_sequence_number: submitted.client_sequence_number,
+    reference_sequence_number: submitted.reference_sequence_number,
+    operation_type: submitted.operation_type,
+    contents: submitted.contents,
+    metadata: submitted.metadata,
+    timestamp: 0,
+    data: None,
+  )
+}
+
+@target(erlang)
+pub fn assert_pending_multi_edit_transaction_resubmit() {
+  let sender_connections = process.new_subject()
+  let receiver_connections = process.new_subject()
+  let submissions = process.new_subject()
+  let sender_events = process.new_subject()
+  let receiver_events = process.new_subject()
+  let assert Ok(sender) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      seed: identifier_seed(),
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(sender_connections, callbacks)
+      }),
+    )
+  let assert Ok(receiver) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      seed: identifier_seed(),
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(receiver_connections, callbacks)
+      }),
+    )
+  let assert Ok(sender_transport) = process.receive(sender_connections, 1000)
+  let assert Ok(receiver_transport) =
+    process.receive(receiver_connections, 1000)
+  sender_transport.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> {
+            let assert Ok(dynamic) =
+              json.parse(json.to_string(payload), decode.dynamic)
+            let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+              frame.decode_submit_operation(dynamic)
+            process.send(submissions, submitted)
+          }
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  receiver_transport.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  sender_transport.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "writer",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["writer"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  receiver_transport.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "receiver",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["receiver"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(sender) |> expect.to_equal(Ok(Nil))
+  runtime_beam.await_ready(receiver) |> expect.to_equal(Ok(Nil))
+  process.send(
+    sender,
+    runtime_beam.Subscribe("A/_C", fn(event) {
+      process.send(sender_events, event)
+    }),
+  )
+  process.send(
+    receiver,
+    runtime_beam.Subscribe("A/_C", fn(event) {
+      process.send(receiver_events, event)
+    }),
+  )
+  let view = identifier_fixture.full_view()
+  runtime_beam.begin_tree_transaction(sender, "A/_C", view, [])
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_edit_view(
+    sender,
+    "A/_C",
+    view,
+    tree_types.ArrayInsert(["left"], 1, [
+      tree_types.ObjectValue(identifier_fixture.point_type, [
+        #("label", tree_types.StringValue("pending")),
+      ]),
+    ]),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_edit_view(
+    sender,
+    "A/_C",
+    view,
+    tree_types.SetField(
+      ["left", "1", "label"],
+      tree_types.StringValue("pending-final"),
+    ),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.commit_tree_transaction(sender, "A/_C")
+  |> expect.to_equal(Ok(Nil))
+  let assert Ok(original) = process.receive(submissions, 1000)
+  let identifier =
+    runtime_beam.tree_read(sender, "A/_C", ["left", "1", "id"])
+    |> expect.to_be_ok()
+  process.receive(sender_events, 1000)
+  |> expect.to_equal(Ok(channel.TreeEvent(tree_kernel.TreeChanged(True))))
+
+  sender_transport.on_close("transport lost")
+  runtime_beam.connection_observation(sender).phase
+  |> expect.to_equal("reconnecting")
+  let assert Ok(rejoined) = process.receive(sender_connections, 1000)
+  rejoined.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> {
+            let assert Ok(dynamic) =
+              json.parse(json.to_string(payload), decode.dynamic)
+            let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+              frame.decode_submit_operation(dynamic)
+            process.send(submissions, submitted)
+          }
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  rejoined.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "writer-2",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["writer-2"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  rejoined.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(1, "join", "{\"clientId\":\"writer-2\",\"detail\":{}}"),
+    ]),
+  )
+  runtime_beam.connection_observation(sender).phase
+  |> expect.to_equal("catching-up")
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  rejoined.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(2, "leave", "\"writer\""),
+    ]),
+  )
+  let assert Ok(resent) = process.receive(submissions, 1000)
+  runtime_beam.connection_observation(sender).phase |> expect.to_equal("ready")
+  resent.client_sequence_number
+  |> expect.to_equal(original.client_sequence_number + 1)
+  let assert Ok(batch) =
+    fluid_container.decode(resent.contents, resent.metadata)
+  batch.messages
+  |> list.count(fn(message) {
+    case message.kind {
+      fluid_container.ChannelOperation(_, _) -> True
+      _ -> False
+    }
+  })
+  |> expect.to_equal(1)
+
+  receiver_transport.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(1, "join", "{\"clientId\":\"writer-2\",\"detail\":{}}"),
+      membership_frame(2, "leave", "\"writer\""),
+      sequenced_submission(resent, "writer-2", 3),
+    ]),
+  )
+  process.receive(receiver_events, 1000)
+  |> expect.to_equal(Ok(channel.TreeEvent(tree_kernel.TreeChanged(False))))
+  history_count(receiver, "trunk") |> expect.to_equal(1)
+  runtime_beam.tree_array_values(receiver, "A/_C", ["left"])
+  |> expect.to_be_ok()
+  |> list.length
+  |> expect.to_equal(2)
+  runtime_beam.tree_read(receiver, "A/_C", ["left", "1", "label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("pending-final"))))
+  runtime_beam.tree_read(receiver, "A/_C", ["left", "1", "id"])
+  |> expect.to_equal(Ok(identifier))
+
+  rejoined.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(resent, "writer-2", 3),
+    ]),
+  )
+  history_count(sender, "pending") |> expect.to_equal(0)
+  history_count(sender, "trunk") |> expect.to_equal(1)
+  process.receive(sender_events, 0) |> expect.to_equal(Error(Nil))
+  runtime_beam.tree_read(sender, "A/_C", ["left", "1", "id"])
+  |> expect.to_equal(Ok(identifier))
+  process.send(sender, runtime_beam.Shutdown)
+  process.send(receiver, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn assert_accepted_transaction_before_drop() {
+  let sender_connections = process.new_subject()
+  let receiver_connections = process.new_subject()
+  let submissions = process.new_subject()
+  let sender_events = process.new_subject()
+  let receiver_events = process.new_subject()
+  let assert Ok(sender) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      seed: identifier_seed(),
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(sender_connections, callbacks)
+      }),
+    )
+  let assert Ok(receiver) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      seed: identifier_seed(),
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(receiver_connections, callbacks)
+      }),
+    )
+  let assert Ok(sender_transport) = process.receive(sender_connections, 1000)
+  let assert Ok(receiver_transport) =
+    process.receive(receiver_connections, 1000)
+  sender_transport.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> {
+            let assert Ok(dynamic) =
+              json.parse(json.to_string(payload), decode.dynamic)
+            let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+              frame.decode_submit_operation(dynamic)
+            process.send(submissions, submitted)
+          }
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  receiver_transport.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  sender_transport.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "writer",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["writer"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  receiver_transport.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "receiver",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["receiver"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(sender) |> expect.to_equal(Ok(Nil))
+  runtime_beam.await_ready(receiver) |> expect.to_equal(Ok(Nil))
+  process.send(
+    sender,
+    runtime_beam.Subscribe("A/_C", fn(event) {
+      process.send(sender_events, event)
+    }),
+  )
+  process.send(
+    receiver,
+    runtime_beam.Subscribe("A/_C", fn(event) {
+      process.send(receiver_events, event)
+    }),
+  )
+  let view = identifier_fixture.full_view()
+  runtime_beam.begin_tree_transaction(sender, "A/_C", view, [])
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_edit_view(
+    sender,
+    "A/_C",
+    view,
+    tree_types.ArrayInsert(["left"], 1, [
+      tree_types.ObjectValue(identifier_fixture.point_type, [
+        #("label", tree_types.StringValue("accepted")),
+      ]),
+    ]),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_edit_view(
+    sender,
+    "A/_C",
+    view,
+    tree_types.SetField(
+      ["left", "1", "label"],
+      tree_types.StringValue("accepted-final"),
+    ),
+  )
+  |> expect.to_equal(Ok(Nil))
+  runtime_beam.commit_tree_transaction(sender, "A/_C")
+  |> expect.to_equal(Ok(Nil))
+  let assert Ok(submitted) = process.receive(submissions, 1000)
+  let identifier =
+    runtime_beam.tree_read(sender, "A/_C", ["left", "1", "id"])
+    |> expect.to_be_ok()
+  process.receive(sender_events, 1000)
+  |> expect.to_equal(Ok(channel.TreeEvent(tree_kernel.TreeChanged(True))))
+  receiver_transport.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(submitted, "writer", 1),
+    ]),
+  )
+  process.receive(receiver_events, 1000)
+  |> expect.to_equal(Ok(channel.TreeEvent(tree_kernel.TreeChanged(False))))
+  history_count(receiver, "trunk") |> expect.to_equal(1)
+  runtime_beam.tree_array_values(receiver, "A/_C", ["left"])
+  |> expect.to_be_ok()
+  |> list.length
+  |> expect.to_equal(2)
+  runtime_beam.tree_read(receiver, "A/_C", ["left", "1", "label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("accepted-final"))))
+  runtime_beam.tree_read(receiver, "A/_C", ["left", "1", "id"])
+  |> expect.to_equal(Ok(identifier))
+
+  sender_transport.on_close("transport lost")
+  let assert Ok(rejoined) = process.receive(sender_connections, 1000)
+  rejoined.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> {
+            let assert Ok(dynamic) =
+              json.parse(json.to_string(payload), decode.dynamic)
+            let assert Ok(frame.SubmitOperation(_, [[resent]])) =
+              frame.decode_submit_operation(dynamic)
+            process.send(submissions, resent)
+          }
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  rejoined.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "writer-2",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 3,
+      initial_clients: ["writer-2"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  rejoined.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(submitted, "writer", 1),
+      membership_frame(2, "join", "{\"clientId\":\"writer-2\",\"detail\":{}}"),
+    ]),
+  )
+  runtime_beam.connection_observation(sender).phase
+  |> expect.to_equal("catching-up")
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  rejoined.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(3, "leave", "\"writer\""),
+    ]),
+  )
+  runtime_beam.connection_observation(sender).phase |> expect.to_equal("ready")
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  history_count(sender, "pending") |> expect.to_equal(0)
+  history_count(sender, "trunk") |> expect.to_equal(1)
+  process.receive(sender_events, 0) |> expect.to_equal(Error(Nil))
+  runtime_beam.tree_read(sender, "A/_C", ["left", "1", "id"])
+  |> expect.to_equal(Ok(identifier))
+  process.send(sender, runtime_beam.Shutdown)
+  process.send(receiver, runtime_beam.Shutdown)
+}
+
+@target(erlang)
 fn pending_reconnect_actor() {
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)
