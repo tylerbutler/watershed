@@ -1698,7 +1698,20 @@ async function validFixture() {
         scenarioId: "transaction-summary-postload",
         loaded: true,
         historyVerified: true,
+        historyEvidence: {
+          trunkCount: 3,
+          pendingCount: 0,
+          retainedCount: 0,
+          composedCommitCount: 1,
+          partialCommitCount: 0,
+        },
         nodeIdentityVerified: true,
+        constrainedNode: {
+          field: "left",
+          index: 0,
+          label: "anchor",
+          value: { kind: "object", fields: [["label", { value: "anchor" }]] },
+        },
         writerAuthored: {
           outcome: "committed",
           outboundCount: 1,
@@ -1982,6 +1995,20 @@ test("transaction coverage rejects missing sections, pairs, orders, and cells", 
         report.transactionReloadMatrix.erlang.upstream.historyVerified = false;
       },
       pattern: /did not verify history/i,
+    },
+    {
+      mutate(report) {
+        report.transactionReloadMatrix.erlang.upstream.historyEvidence
+          .composedCommitCount = 0;
+      },
+      pattern: /did not restore the writer's composed commit/i,
+    },
+    {
+      mutate(report) {
+        report.transactionReloadMatrix.javascript.javascript.constrainedNode
+          .index = 2;
+      },
+      pattern: /moved to another position/i,
     },
   ];
   for (const { mutate, pattern } of cases) {

@@ -3770,12 +3770,43 @@ function transactionPointValue(label, x) {
   };
 }
 
-function arrayFieldLabels(checkpoint, field) {
+function arrayFieldElements(checkpoint, field) {
   const entry = checkpoint.wholeTree?.value?.fields
     ?.find(([name]) => name === field)?.[1];
   assert(entry?.kind === "array", `Array checkpoint lacks the ${field} field`);
-  return entry.elements.map((element) =>
+  return entry.elements;
+}
+
+function arrayFieldLabels(checkpoint, field) {
+  return arrayFieldElements(checkpoint, field).map((element) =>
     element?.fields?.find(([name]) => name === "label")?.[1]?.value ?? null);
+}
+
+// The restored commit history a reader exposes after it loads a summary. The
+// upstream reader keeps the retained trunk in its edit manager. A native reader
+// evicts the trunk below its sequenced base and keeps the loaded commits in its
+// retained wire history, so both sources belong to the same claim.
+function restoredHistoryCommits(checkpoint) {
+  return [
+    ...(checkpoint.history?.trunk ?? []),
+    ...(checkpoint.retained?.history ?? []),
+  ];
+}
+
+// Counts the restored commits that carry every label of the writer's composed
+// transaction, and the restored commits that carry only part of it. A reader
+// that rebuilt the transaction as one commit reports at least one composed
+// commit and no partial commit.
+function writerCommitEvidence(checkpoint, labels) {
+  const counts = restoredHistoryCommits(checkpoint).map((entry) => {
+    const text = JSON.stringify(entry);
+    return labels.filter((label) => text.includes(label)).length;
+  });
+  return {
+    composedCommitCount: counts.filter((count) => count === labels.length).length,
+    partialCommitCount: counts
+      .filter((count) => count > 0 && count < labels.length).length,
+  };
 }
 
 export function validateTransactionReloadResults(results) {
@@ -3816,8 +3847,31 @@ export function validateTransactionReloadResults(results) {
       assert.equal(cell.loaded, true, "Transaction reload did not load");
       assert.equal(cell.historyVerified, true,
         "Transaction reader did not verify history");
+      assert(cell.historyEvidence && typeof cell.historyEvidence === "object",
+        "Transaction reader lacks history evidence");
+      assert.equal(cell.historyEvidence.pendingCount, 0,
+        "Transaction reader restored pending commits");
+      assert(Number.isInteger(cell.historyEvidence.trunkCount)
+        && cell.historyEvidence.trunkCount >= 0,
+      "Transaction reader lacks a restored trunk count");
+      assert(Number.isInteger(cell.historyEvidence.composedCommitCount)
+        && cell.historyEvidence.composedCommitCount >= 1,
+      "Transaction reader did not restore the writer's composed commit");
+      assert.equal(cell.historyEvidence.partialCommitCount, 0,
+        "Transaction reader restored the writer's transaction in parts");
       assert.equal(cell.nodeIdentityVerified, true,
         "Transaction reader did not verify node identity");
+      assert(cell.constrainedNode && typeof cell.constrainedNode === "object",
+        "Transaction reload lacks the compared constrained node");
+      assert.equal(cell.constrainedNode.field, "left",
+        "The constrained node moved to another field");
+      assert.equal(cell.constrainedNode.index, 0,
+        "The constrained node moved to another position");
+      assert.equal(cell.constrainedNode.label, "anchor",
+        "The constrained node carries another label");
+      assert(cell.constrainedNode.value
+        && typeof cell.constrainedNode.value === "object",
+      "The constrained node lacks its pre-publication content");
       assert.equal(cell.writerAuthored?.outcome, "committed",
         "Transaction writer did not commit its constrained transaction");
       assert.equal(cell.writerAuthored.outboundCount, 1,
@@ -3872,9 +3926,11 @@ async function writeTransactionReloadArtifact(context, item, raw) {
     documentId: item.documentId,
     measured: {
       writerAuthored: item.writerAuthored,
+      constrainedNode: item.constrainedNode,
       postLoadAuthored: item.postLoadAuthored,
       peerObservation: item.peerObservation,
       historyVerified: item.historyVerified,
+      historyEvidence: item.historyEvidence,
       nodeIdentityVerified: item.nodeIdentityVerified,
     },
     raw,
@@ -3917,9 +3973,23 @@ async function readTransactionCell(config, context, row, reader) {
     `Transaction reload lost the writer's composed commit: ${rightLabels}`);
     assert.equal(leftLabels[0], "anchor",
       `Transaction reload lost the constrained node: ${leftLabels}`);
+    const commitEvidence = writerCommitEvidence(loaded, row.writerAuthored.labels);
+    const historyEvidence = {
+      trunkCount: loaded.history?.trunk?.length ?? null,
+      pendingCount: loaded.history?.pending?.length ?? null,
+      retainedCount: loaded.retained?.history?.length ?? 0,
+      ...commitEvidence,
+    };
     const historyVerified = Array.isArray(loaded.history?.trunk)
       && Array.isArray(loaded.history?.pending)
-      && loaded.history.pending.length === 0;
+      && loaded.history.pending.length === 0
+      && commitEvidence.composedCommitCount >= 1
+      && commitEvidence.partialCommitCount === 0;
+    const reloadedNode = arrayFieldElements(loaded, "left")[
+      row.constrainedNode.index
+    ] ?? null;
+    const nodeIdentityVerified = JSON.stringify(reloadedNode)
+      === JSON.stringify(row.constrainedNode.value);
     const label = `${row.writer}-${reader}-postload`;
     const baseline = loaded.sequenceNumber;
     const authoredResult = await adapter.transaction({
@@ -3960,7 +4030,8 @@ async function readTransactionCell(config, context, row, reader) {
     const peerAdapter = upstreamAdapter(peer);
     await peerAdapter.awaitSynced(continuation.outerSequenceNumber);
     const peerCheckpoint = await peerAdapter.checkpoint();
-    assert(arrayFieldLabels(peerCheckpoint, "left").includes(label),
+    const peerLeftLabels = arrayFieldLabels(peerCheckpoint, "left");
+    assert(peerLeftLabels.includes(label),
       "The post-load transaction is missing on the peer");
     assert(arrayFieldLabels(peerCheckpoint, "right").includes(`${label}-nested`),
       "The nested scope is missing on the peer");
@@ -3978,8 +4049,9 @@ async function readTransactionCell(config, context, row, reader) {
       scenarioId: "transaction-summary-postload",
       loaded: true,
       historyVerified,
-      nodeIdentityVerified: leftLabels[0] === "anchor"
-        && authoredResult.outcome === "committed",
+      historyEvidence,
+      nodeIdentityVerified,
+      constrainedNode: row.constrainedNode,
       writerAuthored: row.writerAuthored,
       postLoadAuthored: {
         author: reader,
@@ -3995,7 +4067,7 @@ async function readTransactionCell(config, context, row, reader) {
       peerObservation: {
         implementation: "upstream",
         label,
-        observed: true,
+        observed: peerLeftLabels.includes(label),
       },
       pendingTreeCount: authored.pendingTreeCount,
       inflightSubmissionCount: authored.inflightSubmissionCount,
@@ -4004,6 +4076,11 @@ async function readTransactionCell(config, context, row, reader) {
     };
     item.artifacts = [await writeTransactionReloadArtifact(context, item, {
       load: rawLoad,
+      restoredHistory: {
+        history: loaded.history ?? null,
+        retained: loaded.retained ?? null,
+      },
+      reloadedConstrainedNode: reloadedNode,
       authoredResult,
       continuation,
       peer: peerCheckpoint,
@@ -4051,7 +4128,18 @@ async function runTransactionWriterRow(config, context, writer) {
     await adapters[writer].arrayInsert(["left"], 0, [
       transactionPointValue("anchor", 0),
     ]);
-    await settle(adapters);
+    const anchored = await settle(adapters);
+    const anchorObservation = anchored.observations
+      .find(({ implementation }) => implementation === writer);
+    assert(anchorObservation, `Missing the ${writer} anchor observation`);
+    const constrainedNode = {
+      field: "left",
+      index: 0,
+      label: "anchor",
+      value: arrayFieldElements(anchorObservation, "left")[0] ?? null,
+    };
+    assert(constrainedNode.value !== null,
+      "The constrained node is missing before publication");
     const labels = [`${writer}-reload-a`, `${writer}-reload-b`];
     const writerResult = await adapters[writer].transaction({
       constraints: [{ type: "nodeInDocument", path: ["left", "0"] }],
@@ -4096,6 +4184,7 @@ async function runTransactionWriterRow(config, context, writer) {
       documentId,
       jwt,
       observer: creator,
+      constrainedNode,
       writerAuthored: {
         labels,
         outcome: writerResult.outcome,

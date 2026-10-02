@@ -207,6 +207,16 @@ export function validateTransactionCallbacks(section) {
           `${author} commit emitted another local event count`);
         assert.equal(abort.localEventCount, 0,
           `${author} abort emitted a local event`);
+      } else {
+        // Fluid 3.1.0 fires one tree event per edit inside a transaction, and
+        // also fires on rollback. The strict native contract does not apply.
+        // The bound still catches an upstream regression to silence.
+        assert(Number.isInteger(commit.localEventCount)
+          && commit.localEventCount >= 1,
+        `${author} commit emitted no local event`);
+        assert(Number.isInteger(abort.localEventCount)
+          && abort.localEventCount >= 0,
+        `${author} abort lacks a local event count`);
       }
       assert.equal(evidence.movedWithinArray, true,
         `${author} lacks an in-array move inside a transaction`);
@@ -6537,7 +6547,7 @@ async function runTransactionConstraintCell(config, context, cell) {
       documentId,
       transactionApplied: applied,
       constraintViolated: absent,
-      converged: true,
+      converged: applied || absent,
       sequenced,
       passed: true,
       skipped: false,

@@ -438,7 +438,20 @@ const transactionReloadCells = Object.fromEntries(
         scenarioId: "transaction-summary-postload",
         loaded: true,
         historyVerified: true,
+        historyEvidence: {
+          trunkCount: 3,
+          pendingCount: 0,
+          retainedCount: 0,
+          composedCommitCount: 1,
+          partialCommitCount: 0,
+        },
         nodeIdentityVerified: true,
+        constrainedNode: {
+          field: "left",
+          index: 0,
+          label: "anchor",
+          value: { kind: "object", fields: [["label", { value: "anchor" }]] },
+        },
         writerAuthored: {
           outcome: "committed",
           outboundCount: 1,
@@ -477,8 +490,29 @@ test("transaction reload validation requires nine atomic post-load cells", () =>
     ["writer", (copy) => { delete copy.erlang; }],
     ["reader", (copy) => { delete copy.javascript.erlang; }],
     ["history", (copy) => { copy.upstream.javascript.historyVerified = false; }],
+    ["restored composed commit", (copy) => {
+      copy.upstream.javascript.historyEvidence.composedCommitCount = 0;
+    }],
+    ["split writer transaction", (copy) => {
+      copy.javascript.erlang.historyEvidence.partialCommitCount = 1;
+    }],
+    ["restored pending commits", (copy) => {
+      copy.erlang.javascript.historyEvidence.pendingCount = 1;
+    }],
+    ["missing history evidence", (copy) => {
+      delete copy.upstream.upstream.historyEvidence;
+    }],
     ["node identity", (copy) => {
       copy.upstream.erlang.nodeIdentityVerified = false;
+    }],
+    ["missing constrained node", (copy) => {
+      delete copy.javascript.javascript.constrainedNode;
+    }],
+    ["constrained node position", (copy) => {
+      copy.erlang.erlang.constrainedNode.index = 1;
+    }],
+    ["constrained node content", (copy) => {
+      copy.erlang.upstream.constrainedNode.value = null;
     }],
     ["writer labels", (copy) => {
       copy.javascript.upstream.writerAuthored.labels = ["other"];
