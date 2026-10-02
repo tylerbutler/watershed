@@ -2212,6 +2212,21 @@ test("Identifier refusal mutations alter real allocation and FieldBatch operands
 test("the failure catalogue covers every native refusal target", () => {
   const cells = requiredFailureCells();
   assert.equal(cells.length, 42);
+  const identifierDiagnostics = Object.fromEntries(cells
+    .filter(({ target, caseId }) =>
+      target === "javascript" && [
+        "missing-allocation",
+        "wrong-originator",
+        "corrupt-numeric-identifier",
+        "negative-originatorless-summary",
+      ].includes(caseId))
+    .map(({ caseId, diagnosticTerms }) => [caseId, diagnosticTerms]));
+  assert.deepEqual(identifierDiagnostics, {
+    "missing-allocation": ["ID compressor", "UnknownSession"],
+    "wrong-originator": ["message.revision", "UnknownSession"],
+    "corrupt-numeric-identifier": ["builds.trees", "identifier value is invalid"],
+    "negative-originatorless-summary": ["summary identifier", "finalized"],
+  });
   assert.deepEqual(cells.map(({ id }) => id), expectedFailureIds);
   assert.deepEqual(cells[0], {
     id: "clear-required-title:javascript",

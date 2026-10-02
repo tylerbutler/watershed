@@ -1655,13 +1655,13 @@ const injectedRefusals = [
     "stopped-after-ready",
     ["message.changeset[0]", "exactly one data or schema member"]],
   ["missing-allocation", "operation-decode", "connection-failed",
-    "stopped-after-ready", ["identifier", "allocation"]],
+    "stopped-after-ready", ["ID compressor", "UnknownSession"]],
   ["wrong-originator", "operation-decode", "connection-failed",
-    "stopped-after-ready", ["identifier", "originator"]],
+    "stopped-after-ready", ["message.revision", "UnknownSession"]],
   ["corrupt-numeric-identifier", "operation-decode", "connection-failed",
-    "stopped-after-ready", ["identifier", "integer"]],
+    "stopped-after-ready", ["builds.trees", "identifier value is invalid"]],
   ["negative-originatorless-summary", "summary-load", "bootstrap-failed",
-    "never-ready", ["identifier", "negative", "summary"]],
+    "never-ready", ["summary identifier", "finalized"]],
 ];
 const failureCells = [
   ...localRefusals.flatMap(([caseId, errorOperation, diagnosticTerms]) =>
