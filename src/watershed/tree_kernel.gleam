@@ -565,6 +565,16 @@ pub fn author_local_change(
   order: change.IdentityOrder,
   edit: Edit,
 ) -> Result(shared_change.Changeset, TreeError) {
+  author_local_change_from(state, revision, order, edit, state.next_local_id)
+}
+
+pub fn author_local_change_from(
+  state: TreeState,
+  revision: fluid_ids.StableId,
+  order: change.IdentityOrder,
+  edit: Edit,
+  first_local_id: Int,
+) -> Result(shared_change.Changeset, TreeError) {
   use _ <- result.try(validate_edit(state, edit))
   change.edit_from(
     forest.stored_schema(state.visible),
@@ -572,7 +582,7 @@ pub fn author_local_change(
     revision,
     edit,
     order,
-    state.next_local_id,
+    first_local_id,
   )
   |> result.map(shared_change.from_data)
 }

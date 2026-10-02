@@ -298,6 +298,60 @@ pub fn author_edit_change(
   edit: Edit,
   compressor: fluid_ids.Compressor,
 ) -> Result(Option(AuthoredEdit), TreeError) {
+  author_edit_change_from(state, edit, compressor, None)
+}
+
+pub fn allocate_transaction_revision(
+  state: tree_kernel.TreeState,
+  compressor: fluid_ids.Compressor,
+) -> Result(
+  #(fluid_ids.StableId, change.IdentityOrder, fluid_ids.Compressor),
+  TreeError,
+) {
+  allocate_revision(state, compressor)
+}
+
+pub fn author_transaction_edit_change(
+  state: tree_kernel.TreeState,
+  edit: Edit,
+  compressor: fluid_ids.Compressor,
+  revision: fluid_ids.StableId,
+  order: change.IdentityOrder,
+) -> Result(Option(AuthoredEdit), TreeError) {
+  use #(edit, compressor) <- result.try(identifier.materialize_edit(
+    tree_kernel.stored_schema(state),
+    edit,
+    compressor,
+  ))
+  use _ <- result.try(tree_kernel.validate_edit(state, edit))
+  let empty = case edit {
+    types.ArrayInsert(_, _, []) -> True
+    types.ArrayRemove(_, start, end) | types.ArrayMove(_, start, end, _, _) ->
+      start == end
+    _ -> False
+  }
+  use <- bool.guard(empty, Ok(None))
+  use change <- result.try(tree_kernel.author_local_change(
+    state,
+    revision,
+    order,
+    edit,
+  ))
+  use #(state, events) <- result.try(tree_kernel.apply_local_preview(
+    state,
+    revision,
+    order,
+    change,
+  ))
+  Ok(Some(AuthoredEdit(state, change, events, compressor)))
+}
+
+fn author_edit_change_from(
+  state: tree_kernel.TreeState,
+  edit: Edit,
+  compressor: fluid_ids.Compressor,
+  first_local_id: Option(Int),
+) -> Result(Option(AuthoredEdit), TreeError) {
   use #(edit, compressor) <- result.try(identifier.materialize_edit(
     tree_kernel.stored_schema(state),
     edit,
@@ -315,12 +369,17 @@ pub fn author_edit_change(
     state,
     compressor,
   ))
-  use change <- result.try(tree_kernel.author_local_change(
-    state,
-    revision,
-    order,
-    edit,
-  ))
+  use change <- result.try(case first_local_id {
+    None -> tree_kernel.author_local_change(state, revision, order, edit)
+    Some(first_local_id) ->
+      tree_kernel.author_local_change_from(
+        state,
+        revision,
+        order,
+        edit,
+        first_local_id,
+      )
+  })
   use #(state, events) <- result.try(tree_kernel.apply_local_preview(
     state,
     revision,

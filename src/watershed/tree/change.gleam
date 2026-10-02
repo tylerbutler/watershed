@@ -2194,15 +2194,38 @@ pub fn replace_revisions_with_mapping(
   obsolete: List(Option(StableId)),
   updated: StableId,
 ) -> Result(#(Changeset, List(#(AtomId, AtomId))), TreeError) {
+  replace_revisions_with_alias_policy(change, obsolete, updated, False)
+}
+
+pub fn replace_revisions_preserving_aliases(
+  change: Changeset,
+  obsolete: List(Option(StableId)),
+  updated: StableId,
+) -> Result(#(Changeset, List(#(AtomId, AtomId))), TreeError) {
+  replace_revisions_with_alias_policy(change, obsolete, updated, True)
+}
+
+fn replace_revisions_with_alias_policy(
+  change: Changeset,
+  obsolete: List(Option(StableId)),
+  updated: StableId,
+  preserve_aliases: Bool,
+) -> Result(#(Changeset, List(#(AtomId, AtomId))), TreeError) {
   use _ <- result.try(unique_by(
     obsolete,
     fn(revision) { revision },
     InvalidHistory("duplicate obsolete revision"),
   ))
-  use state <- result.try(collect_replacements(
-    change.data,
-    ReplaceState(obsolete, updated, [], [], -1),
-  ))
+  let initial = ReplaceState(obsolete, updated, [], [], -1)
+  use state <- result.try(case preserve_aliases {
+    False -> Ok(initial)
+    True ->
+      list.try_fold(change.data.aliases, initial, fn(state, alias) {
+        use state <- result.try(visit_atom(alias.0, 1, state))
+        visit_atom(alias.1, 1, state)
+      })
+  })
+  use state <- result.try(collect_replacements(change.data, state))
   use fields <- result.try(replace_field_map(change.data.fields, state))
   use nodes <- result.try(
     list.try_map(change.data.nodes, fn(entry) {
@@ -2215,7 +2238,10 @@ pub fn replace_revisions_with_mapping(
   use parents <- result.try(
     list.try_map(change.data.parents, fn(entry) {
       use id <- result.try(replaced_atom(entry.0, state))
-      use parent <- result.try(normalize_parent(entry.1, change.data.aliases))
+      use parent <- result.try(case preserve_aliases {
+        True -> Ok(entry.1)
+        False -> normalize_parent(entry.1, change.data.aliases)
+      })
       let ParentField(parent_id, field) = parent
       use parent_id <- result.try(case parent_id {
         None -> Ok(None)
@@ -2237,14 +2263,27 @@ pub fn replace_revisions_with_mapping(
     change.data.aliases,
     state,
   ))
+  use aliases <- result.try(case preserve_aliases {
+    False -> Ok([])
+    True ->
+      list.try_map(change.data.aliases, fn(alias) {
+        use id <- result.try(replaced_atom(alias.0, state))
+        use target <- result.try(replaced_atom(alias.1, state))
+        Ok(#(id, target))
+      })
+  })
   let data =
     ChangeData(
       ..change.data,
+      max_local_id: case preserve_aliases {
+        True -> int_max(change.data.max_local_id, state.max_seen)
+        False -> change.data.max_local_id
+      },
       revisions: [RevisionInfo(updated, None)],
       fields: fields,
       nodes: nodes,
       parents: parents,
-      aliases: [],
+      aliases: aliases,
       builds: builds,
       destroys: destroys,
       refreshers: refreshers,
@@ -5314,8 +5353,8 @@ fn compose_nodes(
       use second_canonical <- result.try(resolve_alias(second_id, state.aliases))
       use #(canonical, aliases) <- result.try(unify_aliases(
         state.aliases,
-        second_canonical,
-        first_canonical,
+        second_id,
+        first_id,
       ))
       let move_context =
         moves.replace_parent(state.move_context, second_canonical, canonical)
@@ -5382,11 +5421,11 @@ fn unify_aliases(
   first: AtomId,
   second: AtomId,
 ) -> Result(#(AtomId, List(#(AtomId, AtomId))), TreeError) {
-  use first <- result.try(resolve_alias(first, aliases))
-  use second <- result.try(resolve_alias(second, aliases))
-  case first == second {
-    True -> Ok(#(second, aliases))
-    False -> Ok(#(second, put_pair(aliases, first, second)))
+  use first_canonical <- result.try(resolve_alias(first, aliases))
+  use second_canonical <- result.try(resolve_alias(second, aliases))
+  case first_canonical == second_canonical {
+    True -> Ok(#(second_canonical, aliases))
+    False -> Ok(#(second_canonical, put_pair(aliases, first_canonical, second)))
   }
 }
 

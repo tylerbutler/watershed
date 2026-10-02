@@ -75,6 +75,25 @@ type RawNode {
   )
 }
 
+type EncodeValueShape {
+  EncodePresentValue
+  EncodeAbsentValue
+  EncodeNullValue
+  EncodeIdentifierValue
+}
+
+type EncodeShape {
+  EncodeNode(
+    type_id: String,
+    value: EncodeValueShape,
+    fields: List(#(String, EncodeShape)),
+  )
+}
+
+type EncodedTree {
+  EncodedTree(shape: EncodeShape, data: List(JsonValue))
+}
+
 pub type IdContext {
   MessageIds(compressor: fluid_ids.Compressor, originator: fluid_ids.SessionId)
   SummaryIds(compressor: fluid_ids.Compressor)
@@ -241,71 +260,335 @@ pub fn encode_with_context(
   case stored {
     None -> encode(fields)
     Some(stored) -> {
-      use data <- result.try(
-        index_try_map(fields, fn(field, field_index) {
-          use values <- result.try(
-            index_try_map(field, fn(value, value_index) {
-              let location =
-                "fieldBatch.data["
-                <> int.to_string(field_index)
-                <> "]["
-                <> int.to_string(value_index)
-                <> "]"
-              use _ <- result.try(validate_value_kind(value, stored, location))
-              encode_node_with_context(
-                value,
-                stored,
-                schema.root_field_schema(stored),
-                ids,
-                location,
-              )
-            }),
-          )
-          Ok(
-            VArray([
-              VNumber(NInt(1)),
-              VArray(list.flatten(values)),
-            ]),
+      case encode_compressed_fields(fields, stored, ids) {
+        Ok(encoded) -> Ok(encoded)
+        Error(Nil) -> encode_with_context_generic(fields, stored, ids)
+      }
+    }
+  }
+}
+
+fn encode_with_context_generic(
+  fields: List(List(TreeValue)),
+  stored: schema.StoredSchema,
+  ids: IdContext,
+) -> Result(Json, TreeError) {
+  use data <- result.try(
+    index_try_map(fields, fn(field, field_index) {
+      use values <- result.try(
+        index_try_map(field, fn(value, value_index) {
+          let location =
+            "fieldBatch.data["
+            <> int.to_string(field_index)
+            <> "]["
+            <> int.to_string(value_index)
+            <> "]"
+          use _ <- result.try(validate_value_kind(value, stored, location))
+          encode_node_with_context(
+            value,
+            stored,
+            schema.root_field_schema(stored),
+            ids,
+            location,
           )
         }),
       )
       Ok(
-        VObject([
-          #("version", VNumber(NInt(2))),
-          #("identifiers", VArray([])),
-          #(
-            "shapes",
-            VArray([
+        VArray([
+          VNumber(NInt(1)),
+          VArray(list.flatten(values)),
+        ]),
+      )
+    }),
+  )
+  Ok(
+    VObject([
+      #("version", VNumber(NInt(2))),
+      #("identifiers", VArray([])),
+      #(
+        "shapes",
+        VArray([
+          VObject([
+            #("c", VObject([#("extraFields", VNumber(NInt(1)))])),
+          ]),
+          VObject([#("a", VNumber(NInt(2)))]),
+          VObject([#("d", VNumber(NInt(0)))]),
+          VObject([
+            #(
+              "c",
               VObject([
-                #("c", VObject([#("extraFields", VNumber(NInt(1)))])),
+                #("type", VString(null_leaf)),
+                #("value", VArray([VNull])),
               ]),
-              VObject([#("a", VNumber(NInt(2)))]),
-              VObject([#("d", VNumber(NInt(0)))]),
+            ),
+          ]),
+          VObject([
+            #(
+              "c",
               VObject([
-                #(
-                  "c",
-                  VObject([
-                    #("type", VString(null_leaf)),
-                    #("value", VArray([VNull])),
-                  ]),
-                ),
+                #("type", VString(string_leaf)),
+                #("value", VNumber(NInt(0))),
               ]),
-              VObject([
-                #(
-                  "c",
-                  VObject([
-                    #("type", VString(string_leaf)),
-                    #("value", VNumber(NInt(0))),
-                  ]),
-                ),
-              ]),
+            ),
+          ]),
+        ]),
+      ),
+      #("data", VArray(data)),
+    ])
+    |> json_ot.to_json,
+  )
+}
+
+fn encode_compressed_fields(
+  fields: List(List(TreeValue)),
+  stored: schema.StoredSchema,
+  ids: IdContext,
+) -> Result(Json, Nil) {
+  use encoded_fields <- result.try(
+    list.try_map(fields, fn(field) {
+      case field {
+        [value] ->
+          encode_compressed_tree(
+            value,
+            stored,
+            schema.root_field_schema(stored),
+            ids,
+          )
+          |> result.map(fn(tree) { [tree] })
+        _ -> Error(Nil)
+      }
+    }),
+  )
+  let trees = list.flatten(encoded_fields)
+  let shapes =
+    trees
+    |> list.map(fn(tree) { tree.shape })
+    |> discover_shapes
+  let identifiers =
+    shapes
+    |> list.flat_map(shape_identifiers)
+    |> counted_identifiers
+  let data =
+    list.map(encoded_fields, fn(field) {
+      VArray(
+        list.flat_map(field, fn(tree) {
+          [VNumber(NInt(shape_index(shapes, tree.shape))), ..tree.data]
+        }),
+      )
+    })
+  Ok(
+    VObject([
+      #("version", VNumber(NInt(2))),
+      #("identifiers", VArray(list.map(identifiers, VString))),
+      #(
+        "shapes",
+        VArray(
+          list.map(shapes, fn(shape) {
+            encode_compressed_shape(shape, shapes, identifiers)
+          }),
+        ),
+      ),
+      #("data", VArray(data)),
+    ])
+    |> json_ot.to_json,
+  )
+}
+
+fn encode_compressed_tree(
+  value: TreeValue,
+  stored: schema.StoredSchema,
+  definition: schema.FieldSchema,
+  ids: IdContext,
+) -> Result(EncodedTree, Nil) {
+  let schema.FieldSchema(cardinality, allowed_types) = definition
+  use type_id <- result.try(single(allowed_types))
+  use node <- result.try(
+    schema.node_schema(stored, type_id) |> result.map_error(fn(_) { Nil }),
+  )
+  case node, value {
+    schema.Leaf(schema.StringLeaf), StringValue(value) -> {
+      case cardinality {
+        schema.Identifier -> {
+          use encoded <- result.try(
+            encode_identifier(value, ids, "fieldBatch")
+            |> result.map_error(fn(_) { Nil }),
+          )
+          Ok(
+            EncodedTree(EncodeNode(type_id, EncodeIdentifierValue, []), [
+              encoded,
             ]),
-          ),
-          #("data", VArray(data)),
-        ])
-        |> json_ot.to_json,
+          )
+        }
+        _ ->
+          Ok(
+            EncodedTree(EncodeNode(type_id, EncodePresentValue, []), [
+              VString(value),
+            ]),
+          )
+      }
+    }
+    schema.Leaf(schema.NumberLeaf), NumberValue(value) ->
+      Ok(
+        EncodedTree(EncodeNode(type_id, EncodePresentValue, []), [
+          VNumber(NFloat(value)),
+        ]),
+      )
+    schema.Leaf(schema.BooleanLeaf), BooleanValue(value) ->
+      Ok(
+        EncodedTree(EncodeNode(type_id, EncodePresentValue, []), [VBool(value)]),
+      )
+    schema.Leaf(schema.NullLeaf), NullValue ->
+      Ok(EncodedTree(EncodeNode(type_id, EncodeNullValue, []), []))
+    schema.Object(definitions), ObjectValue(value_type, fields)
+      if value_type == type_id
+    -> {
+      use encoded <- result.try(
+        list.try_map(definitions, fn(definition) {
+          use field_value <- result.try(
+            list.key_find(fields, definition.0)
+            |> result.map_error(fn(_) { Nil }),
+          )
+          use tree <- result.try(encode_compressed_tree(
+            field_value,
+            stored,
+            definition.1,
+            ids,
+          ))
+          Ok(#(definition.0, tree))
+        }),
+      )
+      Ok(EncodedTree(
+        EncodeNode(
+          type_id,
+          EncodeAbsentValue,
+          list.map(encoded, fn(entry) { #(entry.0, entry.1.shape) }),
+        ),
+        list.flat_map(encoded, fn(entry) { entry.1.data }),
+      ))
+    }
+    _, _ -> Error(Nil)
+  }
+}
+
+fn discover_shapes(roots: List(EncodeShape)) -> List(EncodeShape) {
+  discover_shape_children(list.unique(roots), list.unique(roots))
+}
+
+fn discover_shape_children(
+  remaining: List(EncodeShape),
+  found: List(EncodeShape),
+) -> List(EncodeShape) {
+  case remaining {
+    [] -> found
+    [shape, ..rest] -> {
+      let children = shape_children(shape)
+      let new_children =
+        list.filter(children, fn(child) { !list.contains(found, child) })
+      discover_shape_children(
+        list.append(rest, new_children),
+        list.append(found, new_children),
       )
     }
+  }
+}
+
+fn shape_children(shape: EncodeShape) -> List(EncodeShape) {
+  let EncodeNode(_, _, fields) = shape
+  list.map(fields, fn(field) { field.1 })
+}
+
+fn shape_identifiers(shape: EncodeShape) -> List(String) {
+  let EncodeNode(type_id, _, fields) = shape
+  [
+    type_id,
+    ..list.flat_map(fields, fn(field) {
+      [field.0, ..shape_identifiers(field.1)]
+    })
+  ]
+}
+
+fn counted_identifiers(values: List(String)) -> List(String) {
+  values
+  |> list.unique
+  |> list.filter(fn(value) {
+    values
+    |> list.filter(fn(candidate) { candidate == value })
+    |> list.length
+    |> fn(count) { count > 1 }
+  })
+}
+
+fn encode_compressed_shape(
+  shape: EncodeShape,
+  shapes: List(EncodeShape),
+  identifiers: List(String),
+) -> JsonValue {
+  let EncodeNode(type_id, value, fields) = shape
+  let value_members = case value {
+    EncodePresentValue -> [#("value", VBool(True))]
+    EncodeAbsentValue -> [#("value", VBool(False))]
+    EncodeNullValue -> [#("value", VArray([VNull]))]
+    EncodeIdentifierValue -> [#("value", VNumber(NInt(0)))]
+  }
+  let field_members = case fields {
+    [] -> []
+    _ -> [
+      #(
+        "fields",
+        VArray(
+          list.map(fields, fn(field) {
+            VArray([
+              encode_identifier_token(field.0, identifiers),
+              VNumber(NInt(shape_index(shapes, field.1))),
+            ])
+          }),
+        ),
+      ),
+    ]
+  }
+  VObject([
+    #(
+      "c",
+      VObject([
+        #("type", encode_identifier_token(type_id, identifiers)),
+        ..list.append(value_members, field_members)
+      ]),
+    ),
+  ])
+}
+
+fn encode_identifier_token(
+  value: String,
+  identifiers: List(String),
+) -> JsonValue {
+  case index_of(identifiers, value, 0) {
+    Some(index) -> VNumber(NInt(index))
+    None -> VString(value)
+  }
+}
+
+fn shape_index(shapes: List(EncodeShape), shape: EncodeShape) -> Int {
+  case index_of(shapes, shape, 0) {
+    Some(index) -> index
+    None -> 0
+  }
+}
+
+fn index_of(values: List(a), target: a, index: Int) -> Option(Int) {
+  case values {
+    [] -> None
+    [value, ..rest] ->
+      case value == target {
+        True -> Some(index)
+        False -> index_of(rest, target, index + 1)
+      }
+  }
+}
+
+fn single(values: List(a)) -> Result(a, Nil) {
+  case values {
+    [value] -> Ok(value)
+    _ -> Error(Nil)
   }
 }
 

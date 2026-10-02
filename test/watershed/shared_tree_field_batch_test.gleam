@@ -736,7 +736,8 @@ pub fn shared_tree_codec_field_batch_contextual_identifier_round_trip_test() {
   fluid_ids.serialize(sender, True) |> expect.to_equal(before)
   let encoded_text = json.to_string(encoded)
   string.split(encoded_text, stable) |> list.length |> expect.to_equal(2)
-  string.contains(encoded_text, "\"id\",[4,-1]") |> expect.to_be_true
+  string.contains(encoded_text, "\"value\":0") |> expect.to_be_true
+  string.contains(encoded_text, ",-1,") |> expect.to_be_true
 
   let #(_, range) = fluid_ids.take_creation_range(sender)
   let assert Some(range) = range

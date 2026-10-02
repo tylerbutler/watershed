@@ -127,6 +127,50 @@ pub fn identifier_noop_finish_restores_base_compressor_test() {
   finished |> expect.to_equal(compressor)
 }
 
+pub fn identifier_transaction_allocates_one_outer_revision_test() {
+  let base = identifier_array_state(session(), [])
+  let compressor = fluid_ids.new(session())
+
+  let assert Ok(direct) = transaction.begin(base, compressor, [])
+  let assert Ok(direct) =
+    transaction.apply_edit(
+      direct,
+      types.ArrayInsert(["left"], 0, [
+        types.ObjectValue(identifier_fixture.point_type, [
+          #("label", types.StringValue("created")),
+        ]),
+      ]),
+    )
+  let assert Ok(#(transaction.Commit(_, direct_compressor, _), _)) =
+    transaction.finish(direct)
+
+  let assert Ok(multiple) = transaction.begin(base, compressor, [])
+  let assert Ok(multiple) =
+    transaction.apply_edit(
+      multiple,
+      types.SetField(["child", "label"], types.StringValue("first")),
+    )
+  let assert Ok(multiple) =
+    transaction.apply_edit(
+      multiple,
+      types.SetField(["child", "label"], types.StringValue("second")),
+    )
+  let assert Ok(multiple) =
+    transaction.apply_edit(
+      multiple,
+      types.ArrayInsert(["left"], 0, [
+        types.ObjectValue(identifier_fixture.point_type, [
+          #("label", types.StringValue("created")),
+        ]),
+      ]),
+    )
+  let assert Ok(#(transaction.Commit(_, multiple_compressor, _), _)) =
+    transaction.finish(multiple)
+
+  fluid_ids.serialize(multiple_compressor, True)
+  |> expect.to_equal(fluid_ids.serialize(direct_compressor, True))
+}
+
 fn transaction_revision() -> fluid_ids.StableId {
   let assert Ok(revision) =
     fluid_ids.stable_id("30000000-0000-4000-8000-000000000001")

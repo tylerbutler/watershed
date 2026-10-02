@@ -38,6 +38,7 @@ pub opaque type Transaction {
     current_state: tree_kernel.TreeState,
     base_compressor: fluid_ids.Compressor,
     current_compressor: fluid_ids.Compressor,
+    revision_compressor: fluid_ids.Compressor,
     constraint_sets: List(ConstraintSet),
     changes: List(AuthoredChange),
     events: List(tree_kernel.ChangeEvents),
@@ -64,6 +65,7 @@ pub fn begin(
     Transaction(
       state,
       state,
+      compressor,
       compressor,
       compressor,
       constraint_set(state, constraints, 0),
@@ -131,10 +133,27 @@ pub fn apply_edit(
   value: Transaction,
   edit: Edit,
 ) -> Result(Transaction, TreeError) {
-  use authored <- result.try(runtime.author_edit_change(
+  use #(_, outer_compressor) <- result.try(case value.changes {
+    [] ->
+      runtime.allocate_transaction_revision(
+        value.current_state,
+        value.current_compressor,
+      )
+      |> result.map(fn(allocated) { #(allocated.0, allocated.2) })
+    [first, ..] -> Ok(#(first.revision, value.current_compressor))
+  })
+  use #(revision, order, revision_compressor) <- result.try(
+    runtime.allocate_transaction_revision(
+      value.current_state,
+      value.revision_compressor,
+    ),
+  )
+  use authored <- result.try(runtime.author_transaction_edit_change(
     value.current_state,
     edit,
-    value.current_compressor,
+    outer_compressor,
+    revision,
+    order,
   ))
   case authored {
     None -> Ok(value)
@@ -145,6 +164,7 @@ pub fn apply_edit(
           ..value,
           current_state: authored.state,
           current_compressor: authored.compressor,
+          revision_compressor: revision_compressor,
           changes: list.append(value.changes, [
             AuthoredChange(revision, authored.change),
           ]),
@@ -252,7 +272,7 @@ fn finish_change(
   use order <- result.try(runtime.identity_order(
     value.base_state,
     draft,
-    value.current_compressor,
+    value.revision_compressor,
   ))
   use outer <- result.try(compose_constraints(value, outer, revision, order))
   use #(outer, replacements) <- result.try(squash_revisions(outer, revision))
@@ -395,7 +415,7 @@ fn squash_revisions(
         change.revision_infos(change.TaggedChange(None, None, data))
         |> list.map(fn(info) { Some(info.revision) })
       use #(data, replacements) <- result.try(
-        change.replace_revisions_with_mapping(data, obsolete, revision),
+        change.replace_revisions_preserving_aliases(data, obsolete, revision),
       )
       Ok(#(shared_change.from_data(data), replacements))
     }
