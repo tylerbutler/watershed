@@ -1,19 +1,29 @@
+import gleam/dict
+import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
+import spillway/types as spillway_types
 import startest/expect
+import watershed/channel
 import watershed/fluid_ids
 import watershed/json_ot.{type JsonValue, VArray, VObject, VString}
+import watershed/runtime_core
 import watershed/tree/change
 import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/identifier_fixture
+import watershed/tree/runtime_fixture
 import watershed/tree/schema
 import watershed/tree/shared_change
-import watershed/tree/types.{NumberValue, ObjectValue, SetField, StringValue}
+import watershed/tree/types.{
+  ArrayInsert, NumberValue, ObjectValue, SetField, StringValue,
+}
 import watershed/tree_kernel
+import watershed/wire
+import watershed/wire/fluid_container
 
 const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
@@ -117,6 +127,141 @@ fn title_state() -> tree_kernel.TreeState {
     )
   let assert Ok(state) = tree_kernel.restore(snapshot, view_id, session(), view)
   state
+}
+
+fn identifier_core(client_id: String, session_id: String) -> runtime_core.Core {
+  let input =
+    identifier_fixture.full_seed_input(
+      identifier_fixture.full_root(
+        identifier_fixture.point("child", "child"),
+        [identifier_fixture.point("existing", "existing")],
+        [],
+        [],
+      ),
+    )
+  let assert Some(compressor) = input.compressor
+  let assert Ok(serialized) = fluid_ids.serialize(compressor, False)
+  let assert Ok(local_session) = fluid_ids.session_id(session_id)
+  let assert Ok(compressor) = fluid_ids.deserialize(serialized, local_session)
+  let assert Ok(seed) =
+    runtime_core.bootstrap_seed(
+      runtime_core.BootstrapSeedInput(..input, compressor: Some(compressor)),
+    )
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_seeded(
+      runtime_fixture.connected(client_id, [], 0),
+      seed,
+    )
+  core
+}
+
+fn sequenced(
+  outbound: wire.OutboundOperation,
+  client_id: String,
+  sequence_number: Int,
+) -> spillway_types.SequencedDocumentMessage {
+  let assert Ok(contents) =
+    json.parse(json.to_string(outbound.contents), decode.dynamic)
+  let metadata = case outbound.metadata {
+    None -> None
+    Some(value) -> {
+      let assert Ok(value) = json.parse(json.to_string(value), decode.dynamic)
+      Some(value)
+    }
+  }
+  spillway_types.SequencedDocumentMessage(
+    client_id: Some(client_id),
+    sequence_number: sequence_number,
+    minimum_sequence_number: 0,
+    client_sequence_number: outbound.client_sequence_number,
+    reference_sequence_number: outbound.reference_sequence_number,
+    message_type: outbound.operation_type,
+    contents: contents,
+    metadata: metadata,
+    server_metadata: None,
+    origin: None,
+    traces: None,
+    timestamp: 0,
+    data: None,
+  )
+}
+
+pub fn pending_multi_edit_transaction_resubmits_once_test() {
+  let core = identifier_core("writer", "30000000-0000-4000-8000-000000000003")
+  let address = "A/_C"
+  let view = identifier_fixture.full_view()
+  let assert Ok(active) =
+    runtime_core.begin_tree_transaction(core, address, view, [])
+  let assert Ok(#(active, [], [])) =
+    runtime_core.submit_tree_edits_view(active, address, view, [
+      ArrayInsert(["left"], 1, [
+        ObjectValue(identifier_fixture.point_type, [
+          #("label", StringValue("pending")),
+        ]),
+      ]),
+      SetField(["left", "1", "label"], StringValue("pending-final")),
+    ])
+  let assert Ok(#(pending, local_events, [outbound])) =
+    runtime_core.commit_tree_transaction(active, address)
+  local_events
+  |> expect.to_equal([
+    #(address, channel.TreeEvent(tree_kernel.TreeChanged(True))),
+  ])
+  let assert Ok(channel.TreeState(pending_tree)) =
+    dict.get(pending.channels, address)
+  let assert Ok(reference) =
+    tree_kernel.reference_at(pending_tree, ["left", "1"])
+  let assert Ok(identifier) =
+    tree_kernel.read(pending_tree, ["left", "1", "id"])
+  let assert [pending_commit] = tree_kernel.history_view(pending_tree).pending
+
+  let assert Ok(reconnected) =
+    runtime_core.adopt_reconnect(
+      pending,
+      runtime_fixture.connected("rejoined", [], 0),
+    )
+  let assert Ok(#(resubmitted, [resent])) =
+    runtime_core.resubmit(runtime_core.go_live(reconnected))
+  let assert Ok(batch) =
+    fluid_container.decode(resent.contents, resent.metadata)
+  batch.messages
+  |> list.count(fn(message) {
+    case message.kind {
+      fluid_container.ChannelOperation(_, _) -> True
+      _ -> False
+    }
+  })
+  |> expect.to_equal(1)
+  let assert [runtime_core.InFlightBatch(pending: [], ..)] =
+    resubmitted.in_flight
+
+  let acknowledgement = sequenced(resent, "rejoined", 1)
+  let assert Ok(#(acknowledged, received)) =
+    runtime_core.handle_sequenced(resubmitted, acknowledgement)
+  received.events |> expect.to_equal([])
+  acknowledged.in_flight |> expect.to_equal([])
+  let assert Ok(channel.TreeState(acknowledged_tree)) =
+    dict.get(acknowledged.channels, address)
+  tree_kernel.history_view(acknowledged_tree).pending |> expect.to_equal([])
+  let assert [sequenced_commit] =
+    tree_kernel.history_view(acknowledged_tree).sequenced.trunk
+  sequenced_commit.commit.revision |> expect.to_equal(pending_commit.revision)
+  tree_kernel.reference_at(acknowledged_tree, ["left", "1"])
+  |> expect.to_equal(Ok(reference))
+  tree_kernel.read(acknowledged_tree, ["left", "1", "id"])
+  |> expect.to_equal(Ok(identifier))
+  tree_kernel.read(acknowledged_tree, ["left", "1", "label"])
+  |> expect.to_equal(Ok(Some(StringValue("pending-final"))))
+
+  let assert Ok(#(duplicate, ignored)) =
+    runtime_core.handle_sequenced(acknowledged, acknowledgement)
+  ignored.events |> expect.to_equal([])
+  duplicate.channels |> expect.to_equal(acknowledged.channels)
+  tree_kernel.history_view(acknowledged_tree).sequenced.trunk
+  |> list.length
+  |> expect.to_equal(1)
+  resent.client_sequence_number
+  |> expect.to_equal(outbound.client_sequence_number + 1)
 }
 
 pub fn identifier_retry_acknowledges_once_without_changing_id_test() {
