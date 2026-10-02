@@ -14,6 +14,7 @@ import {
   freshReload,
   interceptedTreeMessageCount,
   generateSchedules,
+  identifierPairCells,
   nativeAdapter,
   matchReconnectOperations,
   reconciledRaceCheckpoint,
@@ -28,10 +29,12 @@ import {
   upstreamAdapter,
   runDeterministicCases,
   runFailureCases,
+  runIdentifierPairActions,
   runSchemaCompatibility,
   runSchemaRaces,
   runSchemaReconnect,
   runSeededSchedule,
+  validateIdentifierFields,
   validateReplayArtifact,
   waitForGapRepair,
   waitForRemoteNotifications,
@@ -60,6 +63,124 @@ test("combined schema and data changes retain both kinds", () => {
   assert.deepEqual(commitKinds({
     changeset: [{ schema: { old: {}, new: {} }, data: { changes: [] } }],
   }), ["schema", "data"]);
+});
+
+test("identifier field validation requires real authors and protocol refusals", () => {
+  const pairs = identifierPairCells().map((cell) => ({
+    ...cell,
+    runId: "run",
+    profileDigest: "a".repeat(64),
+    documentId: cell.id,
+    passed: true,
+    skipped: false,
+    authors: Object.fromEntries(cell.authors.map((author) => [
+      author,
+      {
+        defaultId: `${author}-generated`,
+        explicitId: "shared-custom-id",
+        peerObserved: true,
+        constraintsUseNodeIdentity: true,
+        movedWithinArray: true,
+        movedBetweenArrays: true,
+        equalIdReplacementChangedReference: true,
+      },
+    ])),
+    artifacts: [`identifier-fields/${cell.id}.json`],
+  }));
+  const failures = [
+    "missing-allocation",
+    "wrong-originator",
+    "corrupt-numeric-identifier",
+    "negative-originatorless-summary",
+  ].flatMap((caseId) => ["javascript", "erlang"].map((target) => ({
+    caseId,
+    target,
+    outcome: "refused",
+    failureObserved: true,
+    partialReadinessObserved: false,
+    partialMutationObserved: false,
+    typedError: {
+      code: "tree-codec-error",
+      operation: "identifier",
+      message: caseId,
+    },
+    artifacts: [`identifier-failures/${caseId}-${target}.json`],
+  })));
+  const section = { pairs, failures };
+  assert.equal(validateIdentifierFields(section), section);
+  for (const [label, mutate] of [
+    ["native target", (copy) => {
+      copy.pairs = copy.pairs.filter(({ authors }) => !Object.hasOwn(authors, "erlang"));
+    }],
+    ["upstream author", (copy) => {
+      delete copy.pairs[0].authors.upstream;
+    }],
+    ["failure", (copy) => { copy.failures.pop(); }],
+    ["failure observation", (copy) => {
+      copy.failures[0].failureObserved = false;
+    }],
+  ]) {
+    const copy = structuredClone(section);
+    mutate(copy);
+    assert.throws(() => validateIdentifierFields(copy), undefined, label);
+  }
+});
+
+test("identifier pair actions make both clients author default and explicit inserts", async () => {
+  const calls = [];
+  const adapter = (author) => ({
+    async arrayInsert(path, index, values) {
+      calls.push({ author, operation: "insert", path, index, values });
+    },
+    async arrayMove(sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) {
+      calls.push({
+        author, operation: "move", sourcePath, sourceStart, sourceEnd,
+        destinationPath, destinationGap,
+      });
+    },
+    async constrainedArrayRemove(targetPath, path, start, end) {
+      calls.push({
+        author, operation: "constrained-remove", targetPath, path, start, end,
+      });
+    },
+  });
+  await runIdentifierPairActions({
+    authors: ["upstream", "javascript"],
+    adapters: {
+      upstream: adapter("upstream"),
+      javascript: adapter("javascript"),
+    },
+    afterAuthor(author) {
+      calls.push({ author, operation: "sync" });
+    },
+  });
+  assert.deepEqual(
+    calls.filter(({ operation }) => operation === "insert")
+      .map(({ author, values }) => [
+        author,
+        values[0].fields.some(([field]) => field === "id"),
+      ]),
+    [
+      ["upstream", false],
+      ["upstream", true],
+      ["javascript", false],
+      ["javascript", true],
+      ["javascript", true],
+    ],
+  );
+  assert.deepEqual(
+    calls.filter(({ operation }) => operation === "sync")
+      .map(({ author }) => author),
+    ["upstream", "javascript"],
+  );
+  assert(
+    calls.findIndex(({ author, operation }) =>
+      author === "upstream" && operation === "sync")
+      < calls.findIndex(({ author, operation }) =>
+        author === "javascript" && operation === "insert"),
+  );
+  assert(calls.some(({ operation }) => operation === "move"));
+  assert(calls.some(({ operation }) => operation === "constrained-remove"));
 });
 
 test("race polling waits for every client and the loser's empty changeset", () => {
@@ -1892,6 +2013,14 @@ const expectedFailureIds = [
   "missing-summary-blob:erlang",
   "unknown-runtime-message:javascript",
   "unknown-runtime-message:erlang",
+  "missing-allocation:javascript",
+  "missing-allocation:erlang",
+  "wrong-originator:javascript",
+  "wrong-originator:erlang",
+  "corrupt-numeric-identifier:javascript",
+  "corrupt-numeric-identifier:erlang",
+  "negative-originatorless-summary:javascript",
+  "negative-originatorless-summary:erlang",
 ];
 
 const arrayFamilies = [
@@ -1988,9 +2117,90 @@ test("retained-summary injection targets only the detached-field index", () => {
   });
 });
 
+test("Identifier refusal mutations alter real allocation and FieldBatch operands", () => {
+  const message = (contents) => [{
+    type: "op",
+    sequenceNumber: 9,
+    contents: {
+      type: "groupedBatch",
+      contents,
+    },
+  }];
+  const allocation = {
+    contents: {
+      type: "idAllocation",
+      contents: {
+        sessionId: "30179d01-dadb-4a28-803d-eb57c47b0592",
+        ids: { first: 0, count: 1 },
+      },
+    },
+  };
+  const tree = {
+    contents: {
+      type: "component",
+      contents: {
+        revision: -1,
+        originatorId: "30179d01-dadb-4a28-803d-eb57c47b0592",
+        changeset: [{
+          data: {
+            fieldBatch: {
+              shapes: [
+                { c: { fields: [["id", 1], ["label", 2]] } },
+                { c: { value: 0 } },
+                { c: { value: true } },
+              ],
+              data: [[0, "generated-id", "label"]],
+            },
+          },
+        }],
+        version: 7,
+      },
+    },
+  };
+  const originalOriginator = tree.contents.contents.originatorId;
+  const missing = operationTransform("missing-allocation", {
+    input: { mutations: [] },
+  })(message([allocation, tree]));
+  assert.deepEqual(missing[0].contents.contents, [tree]);
+
+  const wrong = operationTransform("wrong-originator", {
+    input: { mutations: [] },
+  })(message([allocation, tree]));
+  assert.notEqual(
+    wrong[0].contents.contents[1].contents.contents.originatorId,
+    originalOriginator,
+  );
+
+  const corrupt = operationTransform("corrupt-numeric-identifier", {
+    input: { mutations: [] },
+  })(message([allocation, tree]));
+  assert.equal(
+    corrupt[0].contents.contents[1].contents.contents
+      .changeset[0].data.fieldBatch.data[0][1],
+    1.5,
+  );
+
+  const body = {
+    content: Buffer.from(JSON.stringify({
+      shapes: [{ c: { value: 0 } }],
+      data: [[0, 4]],
+    })).toString("base64"),
+    encoding: "base64",
+  };
+  const negative = storageTransform("negative-originatorless-summary")({
+    status: 200,
+    bytes: Buffer.from(JSON.stringify(body)),
+  });
+  const decoded = JSON.parse(Buffer.from(
+    JSON.parse(negative.bytes.toString("utf8")).content,
+    "base64",
+  ).toString("utf8"));
+  assert.equal(decoded.data[0][1], -1);
+});
+
 test("the failure catalogue covers every native refusal target", () => {
   const cells = requiredFailureCells();
-  assert.equal(cells.length, 34);
+  assert.equal(cells.length, 42);
   assert.deepEqual(cells.map(({ id }) => id), expectedFailureIds);
   assert.deepEqual(cells[0], {
     id: "clear-required-title:javascript",
@@ -2027,7 +2237,8 @@ test("the failure catalogue covers every native refusal target", () => {
     diagnosticTerms: ["changes[0].change", "expected an array"],
     clientState: "stopped-after-ready",
   });
-  assert.deepEqual(cells.at(-1), {
+  assert.deepEqual(cells.find(({ id }) =>
+    id === "unknown-runtime-message:erlang"), {
     id: "unknown-runtime-message:erlang",
     caseId: "unknown-runtime-message",
     target: "erlang",
@@ -2524,15 +2735,25 @@ test("schedule generation is deterministic, sized, unique, and covers every auth
     Array.from({ length: 300 }, (_, index) => index));
   assert.equal(
     createHash("sha256").update(JSON.stringify(normal.slice(0, 200))).digest("hex"),
-    "3a3a198bcbf8e806621c31201fc9d31cfcf96e9427fc9909331a9c330667d013",
+    "ccd4e2c69e3b5a27b49645559b68210f37ce03a2b66c8c3d5bc2798bdfc04150",
   );
   assert.deepEqual(
-    Object.fromEntries(["object", "map", "schema", "array"].map((profile) => [
+    Object.fromEntries(["object", "map", "schema", "array", "identifier"].map((profile) => [
       profile,
       normal.filter((schedule) => schedule.profile === profile).length,
     ])),
-    { object: 75, map: 75, schema: 75, array: 75 },
+    { object: 60, map: 60, schema: 60, array: 60, identifier: 60 },
   );
+  for (const schedule of normal.filter(({ profile }) => profile === "identifier")) {
+    const inserted = schedule.actions
+      .filter(({ type }) => type === "array-insert")
+      .flatMap(({ values }) => values);
+    assert(inserted.some(({ fields }) => !fields.some(([name]) => name === "id")),
+      "Identifier schedule lacks a default ID insertion");
+    assert(inserted.some(({ fields }) => fields.some(([name, value]) =>
+      name === "id" && value.value === "shared-custom-id")),
+    "Identifier schedule lacks an explicit ID insertion");
+  }
   for (const schedule of normal) {
     assert.deepEqual([...new Set(schedule.authors)].sort(),
       ["erlang", "javascript", "upstream"]);
@@ -2603,7 +2824,7 @@ test("schedule generation is deterministic, sized, unique, and covers every auth
   assert(normal.some(({ profile, actions }) =>
     profile === "schema" && actions.some(({ type }) => type === "disconnect")));
   const arrays = normal.filter(({ profile }) => profile === "array");
-  assert.equal(arrays.length, 75);
+  assert.equal(arrays.length, 60);
   for (const schedule of arrays) {
     const edits = schedule.actions.filter(({ type }) =>
       ["array-insert", "array-remove", "array-move", "set"].includes(type));

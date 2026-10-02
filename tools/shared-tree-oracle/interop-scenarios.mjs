@@ -20,6 +20,7 @@ import { startClient } from "./client-driver.mjs";
 import { DeliveryGate } from "./delivery-gate.mjs";
 import {
   arrayServiceStore,
+  identifierServiceStore,
   mapServiceStore,
   openSession,
   schemaEvolutionServiceStore,
@@ -30,6 +31,11 @@ import {
   ArrayPoint,
   ArrayRoot,
   DynamicMap,
+  IdentifierItems,
+  IdentifierPair,
+  IdentifierPoint,
+  IdentifierPointsByKey,
+  IdentifierRoot,
   Items,
   MapPoint,
   Points,
@@ -60,6 +66,7 @@ const arraySeededTemplates = [
   "array-cross-parent",
   "array-nested-reconnect",
 ];
+const identifierSeededTemplates = ["identifier-default-explicit"];
 const replayReference = {
   package: "@fluidframework/tree",
   version: "3.1.0",
@@ -72,6 +79,17 @@ const replayService = {
 const orderedPairs = implementations.flatMap((first) =>
   implementations.filter((second) => second !== first)
     .map((second) => [first, second]));
+const identifierPairs = [
+  ["upstream", "javascript"],
+  ["upstream", "erlang"],
+  ["javascript", "erlang"],
+];
+const identifierFailureIds = [
+  "missing-allocation",
+  "wrong-originator",
+  "corrupt-numeric-identifier",
+  "negative-originatorless-summary",
+];
 const invalidProfilePath = join(
   import.meta.dirname,
   "../../test/fixtures/shared_tree/cases/invalid-profile.json",
@@ -79,6 +97,130 @@ const invalidProfilePath = join(
 
 const excludedFactory = new SchemaFactory("org.watershed.shared-tree.m1");
 const ExcludedMap = excludedFactory.map("ExcludedMap", [excludedFactory.number]);
+
+export function identifierPairCells() {
+  return identifierPairs.map((authors) => ({
+    id: `identifier:${authors.join("<->")}`,
+    profile: "identifier",
+    authors,
+  }));
+}
+
+export function validateIdentifierFields(section) {
+  assert(section && typeof section === "object" && !Array.isArray(section),
+    "Identifier fields evidence must be an object");
+  assert(Array.isArray(section.pairs)
+    && section.pairs.length === identifierPairs.length,
+  "Identifier fields evidence requires three client pairs");
+  const pairs = new Map(section.pairs.map((item) => [item.id, item]));
+  for (const expected of identifierPairCells()) {
+    const item = pairs.get(expected.id);
+    assert(item, `Identifier fields evidence lacks ${expected.id}`);
+    assert.equal(item.profile, "identifier", "Identifier pair has another profile");
+    assert.equal(item.passed, true, "Identifier pair failed");
+    assert.equal(item.skipped, false, "Identifier pair was skipped");
+    assert(typeof item.runId === "string" && item.runId.length > 0,
+      "Identifier pair lacks a run ID");
+    assert.match(item.profileDigest, /^[0-9a-f]{64}$/,
+      "Identifier pair lacks a profile digest");
+    assert(typeof item.documentId === "string" && item.documentId.length > 0,
+      "Identifier pair lacks a document");
+    assert(Array.isArray(item.artifacts) && item.artifacts.length > 0,
+      "Identifier pair lacks artifacts");
+    assert.deepEqual(Object.keys(item.authors ?? {}).sort(), [...expected.authors].sort(),
+      "Identifier pair lacks a real author");
+    for (const author of expected.authors) {
+      const evidence = item.authors[author];
+      assert(typeof evidence?.defaultId === "string" && evidence.defaultId.length > 0,
+        `${author} lacks a generated Identifier`);
+      assert.equal(evidence.explicitId, "shared-custom-id",
+        `${author} changed the explicit Identifier`);
+      assert.equal(evidence.peerObserved, true, `${author} lacks peer observation`);
+      assert.equal(evidence.constraintsUseNodeIdentity, true,
+        `${author} constraints used Identifier equality`);
+      assert.equal(evidence.movedWithinArray, true, `${author} lacks an in-array move`);
+      assert.equal(evidence.movedBetweenArrays, true, `${author} lacks a cross-array move`);
+      assert.equal(evidence.equalIdReplacementChangedReference, true,
+        `${author} lacks equal-ID replacement identity evidence`);
+    }
+  }
+  assert(Array.isArray(section.failures)
+    && section.failures.length === identifierFailureIds.length * nativeTargets.length,
+  "Identifier fields evidence requires every protocol refusal target");
+  assert.deepEqual([...new Set(section.failures.map(({ caseId }) => caseId))].sort(),
+    [...identifierFailureIds].sort(), "Identifier protocol refusal coverage changed");
+  assert.equal(new Set(section.failures.map(({ caseId, target }) =>
+    `${caseId}:${target}`)).size, section.failures.length,
+  "Identifier protocol refusal coverage repeats a cell");
+  assert.deepEqual([...new Set(section.failures.map(({ target }) => target))].sort(),
+    [...nativeTargets].sort(), "Identifier refusals lack a native target");
+  assert.deepEqual(
+    section.failures.map(({ caseId, target }) => `${caseId}:${target}`).sort(),
+    identifierFailureIds.flatMap((caseId) =>
+      nativeTargets.map((target) => `${caseId}:${target}`)).sort(),
+    "Identifier protocol refusal coverage changed",
+  );
+  for (const item of section.failures) {
+    assert.equal(item.outcome, "refused", `${item.caseId} was not refused`);
+    assert.equal(item.failureObserved, true, `${item.caseId} lacks failure evidence`);
+    assert.equal(item.partialReadinessObserved, false,
+      `${item.caseId} exposed partial readiness`);
+    assert.equal(item.partialMutationObserved, false,
+      `${item.caseId} exposed partial mutation`);
+    assert(typeof item.typedError?.code === "string"
+      && typeof item.typedError.operation === "string"
+      && typeof item.typedError.message === "string",
+    `${item.caseId} lacks a typed error`);
+    assert(Array.isArray(item.artifacts) && item.artifacts.length > 0,
+      `${item.caseId} lacks artifacts`);
+  }
+  return section;
+}
+
+function identifierPoint(label, id) {
+  return {
+    kind: "object",
+    schemaId: "org.watershed.shared-tree.identifiers.Point",
+    fields: [
+      ...(id === undefined ? [] : [["id", { kind: "string", value: id }]]),
+      ["label", { kind: "string", value: label }],
+    ],
+  };
+}
+
+export async function runIdentifierPairActions({
+  authors,
+  adapters,
+  afterAuthor = () => {},
+  beforeConstrainedRemove = () => {},
+  beforeReplacement = () => {},
+}) {
+  assert.equal(authors.length, 2, "Identifier pair requires two authors");
+  for (const [index, author] of authors.entries()) {
+    const adapter = adapters[author];
+    assert(adapter, `Identifier pair lacks ${author}`);
+    await adapter.arrayInsert(["left"], index, [
+      identifierPoint(`${author}-default`),
+    ]);
+    await adapter.arrayInsert(["right"], index, [
+      identifierPoint(`${author}-explicit`, "shared-custom-id"),
+    ]);
+    await afterAuthor(author);
+  }
+  await adapters[authors[0]].arrayMove(["left"], 0, 1, ["left"], 2);
+  await adapters[authors[1]].arrayMove(["right"], 0, 1, ["left"], 0);
+  await beforeConstrainedRemove();
+  await adapters[authors[1]].constrainedArrayRemove(
+    ["left", "0"],
+    ["right"],
+    0,
+    1,
+  );
+  await beforeReplacement();
+  await adapters[authors[1]].arrayInsert(["right"], 0, [
+    identifierPoint(`${authors[1]}-replacement`, "shared-custom-id"),
+  ]);
+}
 
 function excludedStore() {
   const schema = ExcludedMap;
@@ -1438,6 +1580,15 @@ const sequenceRefusalCases = new Set([
   "bad-child-ownership",
   "invalid-sequence-content",
 ]);
+const identifierOperationRefusalCases = new Set([
+  "missing-allocation",
+  "wrong-originator",
+  "corrupt-numeric-identifier",
+]);
+const identifierRefusalCases = new Set([
+  ...identifierOperationRefusalCases,
+  "negative-originatorless-summary",
+]);
 const injectedRefusals = [
   ["malformed-sequence-payload", "operation-decode", "connection-failed",
     "stopped-after-ready", ["changes[0].change", "expected an array"]],
@@ -1462,6 +1613,14 @@ const injectedRefusals = [
   ["unknown-runtime-message", "runtime-message", "connection-failed",
     "stopped-after-ready",
     ["message.changeset[0]", "exactly one data or schema member"]],
+  ["missing-allocation", "operation-decode", "connection-failed",
+    "stopped-after-ready", ["identifier", "allocation"]],
+  ["wrong-originator", "operation-decode", "connection-failed",
+    "stopped-after-ready", ["identifier", "originator"]],
+  ["corrupt-numeric-identifier", "operation-decode", "connection-failed",
+    "stopped-after-ready", ["identifier", "integer"]],
+  ["negative-originatorless-summary", "summary-load", "bootstrap-failed",
+    "never-ready", ["identifier", "negative", "summary"]],
 ];
 const failureCells = [
   ...localRefusals.flatMap(([caseId, errorOperation, diagnosticTerms]) =>
@@ -2060,6 +2219,7 @@ function generatedArrayActions(seed, index, template, roles, random) {
     actions.push(control("hold-inbound", author, false));
     actions.push(control("hold-outbound", author, false));
   }
+
   actions.push(arrayEdit("array-insert", roles.first, {
     path: ["left"],
     index: 1,
@@ -2176,6 +2336,86 @@ function generatedArrayActions(seed, index, template, roles, random) {
   return actions;
 }
 
+function generatedIdentifierActions(seed, index, template, roles, random) {
+  assert.equal(template, "identifier-default-explicit");
+  const actions = [{
+    type: "checkpoint",
+    label: "initial",
+    stage: "quiescent",
+    preconditions: { connected: [...implementations] },
+  }];
+  for (const author of [roles.first, roles.second, roles.third]) {
+    actions.push(control("hold-inbound", author, false));
+    actions.push(control("hold-outbound", author, false));
+  }
+  for (const author of [roles.first, roles.second, roles.third]) {
+    actions.push(arrayEdit("array-insert", author, {
+      path: ["left"],
+      index: 0,
+      values: [
+        identifierPoint(`seed-${seed}-${index}-${author}-default`),
+        identifierPoint(
+          `seed-${seed}-${index}-${author}-explicit`,
+          "shared-custom-id",
+        ),
+      ],
+    }, true));
+  }
+  actions.push(arrayEdit("array-move", roles.first, {
+    sourcePath: ["left"],
+    sourceStart: 0,
+    sourceEnd: 1,
+    destinationPath: ["right"],
+    destinationGap: 0,
+  }, true));
+  actions.push({
+    type: "checkpoint",
+    label: "optimistic",
+    stage: "intermediate",
+    preconditions: { connected: [...implementations] },
+  });
+  const inboundOrder = random() % 2 === 0 ? "fifo" : "reverse";
+  for (const author of [roles.first, roles.second, roles.third]) {
+    actions.push(release(author, "outbound", "fifo", false));
+  }
+  for (const author of [roles.first, roles.second, roles.third]) {
+    actions.push(release(
+      author,
+      "inbound",
+      author === "upstream" ? "fifo" : inboundOrder,
+      false,
+    ));
+  }
+  if ((index + seed) % 7 === 6) {
+    actions.push({
+      type: "checkpoint",
+      label: "before-publish",
+      stage: "quiescent",
+      preconditions: { connected: [...implementations] },
+    });
+    actions.push({
+      type: "summarize",
+      author: roles.first,
+      preconditions: { connected: [...implementations], quiescent: true },
+    });
+    actions.push({
+      type: "reload",
+      author: roles.reload,
+      preconditions: {
+        connected: [...implementations],
+        summaryAvailable: true,
+      },
+    });
+  }
+  actions.push({
+    type: "checkpoint",
+    label: "settled",
+    stage: "quiescent",
+    preconditions: { connected: [...implementations] },
+  });
+  return actions;
+}
+
 function generateSchedule({ seed, index, profile }) {
   const subSeed = scheduleSubSeed(seed, index);
   let state = subSeed;
@@ -2189,6 +2429,8 @@ function generateSchedule({ seed, index, profile }) {
     ? mapSeededTemplates
     : profile === "array"
       ? arraySeededTemplates
+      : profile === "identifier"
+        ? identifierSeededTemplates
       : profile === "schema"
         ? schemaSeededTemplates
         : seededTemplates;
@@ -2217,6 +2459,8 @@ function generateSchedule({ seed, index, profile }) {
       ? generatedMapActions(seed, index, template, roles, random)
       : profile === "array"
         ? generatedArrayActions(seed, index, template, roles, random)
+        : profile === "identifier"
+          ? generatedIdentifierActions(seed, index, template, roles, random)
         : profile === "schema"
           ? generatedSchemaActions(seed, index, template, roles, random)
           : generatedActions(seed, index, template, roles, random),
@@ -2229,7 +2473,7 @@ export function generateSchedules({ seed, iterations }) {
   assert(Number.isSafeInteger(iterations) && iterations >= 0,
     "Schedule iterations must be a nonnegative integer");
   return Array.from({ length: iterations }, (_, index) => {
-    const profile = ["object", "map", "schema", "array"][index % 4];
+    const profile = ["object", "map", "schema", "array", "identifier"][index % 5];
     return generateSchedule({ seed, index, profile });
   });
 }
@@ -2243,7 +2487,7 @@ function validateSchedule(schedule) {
   assert(Number.isSafeInteger(schedule.seed)
     && schedule.seed >= 0 && schedule.seed <= 0xffff_ffff,
   "Seeded schedule has an invalid seed");
-  assert(["object", "map", "schema", "array"].includes(schedule.profile),
+  assert(["object", "map", "schema", "array", "identifier"].includes(schedule.profile),
     "Seeded schedule has an invalid profile");
   const expected = generateSchedule({
     seed: schedule.seed,
@@ -2457,6 +2701,28 @@ function arrayTreeValue(value) {
       ],
     };
   }
+  if (hasSchema(value, IdentifierPoint)) {
+    return {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.identifiers.Point",
+      fields: [
+        ["id", { kind: "string", value: value.id }],
+        ["label", { kind: "string", value: value.label }],
+      ],
+    };
+  }
+  if (hasSchema(value, IdentifierPair)) {
+    return {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.identifiers.Pair",
+      fields: [
+        ["firstId", { kind: "string", value: value.firstId }],
+        ["label", { kind: "string", value: value.label }],
+        ["pairOnly", { kind: "string", value: value.pairOnly }],
+        ["secondId", { kind: "string", value: value.secondId }],
+      ],
+    };
+  }
   if (hasSchema(value, Items) || hasSchema(value, Points)) {
     return {
       kind: "array",
@@ -2466,10 +2732,24 @@ function arrayTreeValue(value) {
       elements: [...value].map(arrayTreeValue),
     };
   }
+  if (hasSchema(value, IdentifierItems)) {
+    return {
+      kind: "array",
+      schemaId: "org.watershed.shared-tree.identifiers.Items",
+      elements: [...value].map(arrayTreeValue),
+    };
+  }
   if (hasSchema(value, ArrayMap)) {
     return {
       kind: "map",
       schemaId: "org.watershed.shared-tree.m3.ArrayMap",
+      entries: [...value.entries()].map(([key, item]) => [key, arrayTreeValue(item)]),
+    };
+  }
+  if (hasSchema(value, IdentifierPointsByKey)) {
+    return {
+      kind: "map",
+      schemaId: "org.watershed.shared-tree.identifiers.PointsByKey",
       entries: [...value.entries()].map(([key, item]) => [key, arrayTreeValue(item)]),
     };
   }
@@ -2486,6 +2766,22 @@ function arrayRootValue(root) {
         ["byKey", arrayTreeValue(root.byKey)],
         ["left", arrayTreeValue(root.left)],
         ["narrow", arrayTreeValue(root.narrow)],
+        ["right", arrayTreeValue(root.right)],
+      ],
+    },
+  };
+}
+
+function identifierRootValue(root) {
+  return {
+    present: true,
+    value: {
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.identifiers.Root",
+      fields: [
+        ["byKey", arrayTreeValue(root.byKey)],
+        ["child", arrayTreeValue(root.child)],
+        ["left", arrayTreeValue(root.left)],
         ["right", arrayTreeValue(root.right)],
       ],
     },
@@ -2632,6 +2928,15 @@ function upstreamArrayValue(value) {
     case "boolean":
       return value.value;
     case "object": {
+      if (value.schemaId === "org.watershed.shared-tree.identifiers.Point") {
+        const fields = Object.fromEntries(value.fields);
+        assert.deepEqual(Object.keys(fields).sort(),
+          Object.hasOwn(fields, "id") ? ["id", "label"] : ["label"]);
+        return new IdentifierPoint({
+          ...(fields.id ? { id: upstreamArrayValue(fields.id) } : {}),
+          label: upstreamArrayValue(fields.label),
+        });
+      }
       assert.equal(
         value.schemaId,
         "org.watershed.shared-tree.m3.Point",
@@ -2723,7 +3028,8 @@ function arrayAt(root, path) {
     if (hasSchema(node, ArrayMap)) return node.get(segment);
     return node[segment];
   }, root);
-  assert(hasSchema(value, Items) || hasSchema(value, Points),
+  assert(hasSchema(value, Items) || hasSchema(value, Points)
+    || hasSchema(value, IdentifierItems),
     `Path is not an array: ${path.join(".")}`);
   return value;
 }
@@ -2833,6 +3139,20 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
     async arrayRemove(path, start, end) {
       arrayAt(session.data.view.root, path).removeRange(start, end);
     },
+    async constrainedArrayRemove(targetPath, path, start, end) {
+      const target = targetPath.reduce((value, segment) =>
+        Array.isArray(value) || typeof value?.at === "function"
+          ? value.at(Number(segment))
+          : value[segment], session.data.view.root);
+      assert(target, "Missing upstream constraint target");
+      const removal = arrayAt(session.data.view.root, path);
+      removal.removeRange(start, end);
+      assert(targetPath.reduce((value, segment) =>
+        typeof value?.at === "function"
+          ? value.at(Number(segment))
+          : value[segment], session.data.view.root) === target,
+      "Upstream constraint target changed during unrelated removal");
+    },
     async arrayMove(sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) {
       const source = arrayAt(session.data.view.root, sourcePath);
       const destination = arrayAt(session.data.view.root, destinationPath);
@@ -2854,6 +3174,8 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
         wholeTree = canonicalValue(
           hasSchema(root, ArrayRoot)
             ? arrayRootValue(root)
+            : hasSchema(root, IdentifierRoot)
+              ? identifierRootValue(root)
             : root.items instanceof DynamicMap
               ? mapRootValue(root)
               : Tree.schema(root).identifier
@@ -3073,6 +3395,9 @@ export async function nativeAdapter(
     },
     async arrayRemove(path, start, end) {
       await client.arrayRemove(path, start, end);
+    },
+    async constrainedArrayRemove(targetPath, path, start, end) {
+      await client.constrainedArrayRemove(targetPath, path, start, end);
     },
     async arrayMove(sourcePath, sourceStart, sourceEnd, destinationPath, destinationGap) {
       await client.arrayMove(
@@ -4085,7 +4410,9 @@ async function runCell(config, context, cell) {
         runId: context.runId,
         documentId,
         tenant: config.tenantId,
-        viewSchema: context.viewSchema,
+        viewSchema: identifierRefusalCases.has(cell.caseId)
+          ? context.identifierViewSchema
+          : context.viewSchema,
       }, jwt));
     }
     const adapters = {
@@ -5275,6 +5602,197 @@ export async function runDeterministicCases(
   return results;
 }
 
+function identifierNodes(root) {
+  return [...root.left, ...root.right];
+}
+
+function identifierNodeByLabel(root, label) {
+  const node = identifierNodes(root).find((item) => item.label === label);
+  assert(node, `Identifier tree lacks ${label}`);
+  return node;
+}
+
+async function writeIdentifierArtifact(context, item, raw) {
+  const relative = `identifier-fields/${safeName(item.id)}.json`;
+  const path = join(context.artifactDirectory, relative);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({
+    formatVersion: 1,
+    runId: context.runId,
+    profileDigest: context.profileDigest,
+    kind: "identifier-fields",
+    subject: item.id,
+    documentId: item.documentId,
+    measured: {
+      authors: item.authors,
+      passed: item.passed,
+      skipped: item.skipped,
+    },
+    raw,
+  })}\n`, { mode: 0o600 });
+  return relative;
+}
+
+async function runIdentifierPair(config, context, cell) {
+  const containers = [];
+  const natives = [];
+  let failure;
+  try {
+    const creator = await openSession(
+      config,
+      containers,
+      undefined,
+      false,
+      { store: identifierServiceStore },
+    );
+    const documentId = creator.container.resolvedUrl.id;
+    await publishUpstreamSummary(
+      config,
+      containers,
+      documentId,
+      `Task 7 ${cell.id} bootstrap`,
+      { store: identifierServiceStore },
+    );
+    const upstreamSession = await openSession(
+      config,
+      containers,
+      documentId,
+      false,
+      { store: identifierServiceStore },
+    );
+    const upstream = upstreamAdapter(upstreamSession);
+    const { jwt } = await tokenProvider(config)
+      .fetchOrdererToken(config.tenantId, documentId);
+    for (const target of nativeTargets) {
+      natives.push(await nativeAdapter(target, config, {
+        runId: context.runId,
+        documentId,
+        tenant: config.tenantId,
+        viewSchema: context.identifierViewSchema,
+      }, jwt));
+    }
+    const adapters = {
+      upstream,
+      javascript: natives[0],
+      erlang: natives[1],
+    };
+    await settle(adapters);
+    let constrainedReference;
+    let removedReference;
+    let replacementReference;
+    await runIdentifierPairActions({
+      authors: cell.authors,
+      adapters,
+      afterAuthor() {
+        return settle(adapters);
+      },
+      beforeConstrainedRemove() {
+        constrainedReference = upstreamSession.data.view.root.left[0];
+        removedReference = upstreamSession.data.view.root.right[0];
+        assert.equal(constrainedReference.id, removedReference.id,
+          "Identifier constraint fixture requires equal custom IDs");
+      },
+      beforeReplacement() {
+        assert.equal(upstreamSession.data.view.root.left[0], constrainedReference,
+          "Identifier constraint followed string equality instead of node identity");
+        assert(!identifierNodes(upstreamSession.data.view.root).includes(removedReference),
+          "Identifier constrained removal kept the unrelated equal-ID node");
+      },
+    });
+    const settled = await settle(adapters);
+    replacementReference = upstreamSession.data.view.root.right[0];
+    const root = upstreamSession.data.view.root;
+    assert.equal(replacementReference.id, removedReference.id,
+      "Identifier replacement changed the custom ID");
+    assert.notEqual(replacementReference, removedReference,
+      "Identifier replacement reused the removed node reference");
+    const authorEvidence = Object.fromEntries(cell.authors.map((author) => {
+      const generated = identifierNodeByLabel(root, `${author}-default`);
+      const explicit = author === cell.authors[1]
+        ? replacementReference
+        : identifierNodeByLabel(root, `${author}-explicit`);
+      const peerObserved = settled.observations.every(({ wholeTree }) =>
+        JSON.stringify(wholeTree).includes(generated.id)
+          && JSON.stringify(wholeTree).includes(explicit.id));
+      return [author, {
+        defaultId: generated.id,
+        explicitId: explicit.id,
+        peerObserved,
+        constraintsUseNodeIdentity:
+          root.left[0] === constrainedReference
+          && replacementReference !== removedReference
+          && replacementReference.id === removedReference.id,
+        movedWithinArray:
+          identifierNodeByLabel(root, `${cell.authors[0]}-default`) === root.left[2],
+        movedBetweenArrays: root.left[0] === constrainedReference,
+        equalIdReplacementChangedReference:
+          replacementReference !== removedReference,
+      }];
+    }));
+    const item = {
+      ...cell,
+      runId: context.runId,
+      profileDigest: context.profileDigest,
+      documentId,
+      authors: authorEvidence,
+      passed: true,
+      skipped: false,
+      artifacts: [],
+    };
+    item.artifacts = [await writeIdentifierArtifact(context, item, {
+      checkpoints: settled,
+      history: await serverHistory(creator),
+      authorInstanceIds: Object.fromEntries(implementations.map((implementation) =>
+        [implementation, adapters[implementation].instanceId])),
+    })];
+    return item;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    const cleanupErrors = [];
+    for (const native of natives.toReversed()) {
+      try {
+        await native.close();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const container of containers.toReversed()) {
+      try {
+        if (!container.closed) container.dispose();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      if (failure) failure.cleanupErrors = cleanupErrors;
+      else throw new AggregateError(cleanupErrors, `Cleanup failed for ${cell.id}`);
+    }
+  }
+}
+
+export async function runIdentifierFields(config, context, {
+  runPair = runIdentifierPair,
+  failures = [],
+} = {}) {
+  assert(typeof context?.runId === "string" && context.runId.length > 0,
+    "runIdentifierFields context requires runId");
+  assert.match(context.profileDigest ?? "", /^[0-9a-f]{64}$/,
+    "runIdentifierFields context requires profileDigest");
+  assert(typeof context.identifierViewSchema === "string"
+    && context.identifierViewSchema.length > 0,
+  "runIdentifierFields context requires identifierViewSchema");
+  assert(typeof context.artifactDirectory === "string"
+    && context.artifactDirectory.length > 0,
+  "runIdentifierFields context requires artifactDirectory");
+  const pairs = [];
+  for (const cell of identifierPairCells()) {
+    pairs.push(await runPair(config, context, cell));
+  }
+  return validateIdentifierFields({ pairs, failures });
+}
+
 function seededMeasuredPayload(item) {
   return {
     index: item.index,
@@ -5484,6 +6002,8 @@ export async function freshReload(
       ? schemaEvolutionServiceStore
       : profile === "array"
         ? arrayServiceStore
+        : profile === "identifier"
+          ? identifierServiceStore
         : undefined;
   const viewSchema = profile === "map"
     ? context.mapViewSchema
@@ -5491,6 +6011,8 @@ export async function freshReload(
       ? context.schemaViews[view]
       : profile === "array"
         ? context.arrayViewSchema
+        : profile === "identifier"
+          ? context.identifierViewSchema
         : context.viewSchema;
   if (author === "upstream") {
     const containers = [];
@@ -5727,6 +6249,8 @@ export async function executeScheduleAction(
             ? { store: schemaEvolutionServiceStore }
             : schedule.profile === "array"
               ? { store: arrayServiceStore }
+              : schedule.profile === "identifier"
+                ? { store: identifierServiceStore }
               : undefined,
       )
       : await adapters[action.author].summarize();
@@ -5772,6 +6296,11 @@ export async function runSeededSchedule(config, context, schedule) {
       && context.arrayViewSchema.length > 0,
     "runSeededSchedule context requires arrayViewSchema");
   }
+  if (schedule.profile === "identifier") {
+    assert(typeof context.identifierViewSchema === "string"
+      && context.identifierViewSchema.length > 0,
+    "runSeededSchedule context requires identifierViewSchema");
+  }
   const state = {
     adapters: undefined,
     checkpoints: [],
@@ -5801,6 +6330,8 @@ export async function runSeededSchedule(config, context, schedule) {
         ? schemaEvolutionServiceStore
         : schedule.profile === "array"
           ? arrayServiceStore
+          : schedule.profile === "identifier"
+            ? identifierServiceStore
           : undefined;
     state.creator = await openSession(
       config,
@@ -5838,6 +6369,8 @@ export async function runSeededSchedule(config, context, schedule) {
             ? context.schemaViews.v1
             : schedule.profile === "array"
               ? context.arrayViewSchema
+              : schedule.profile === "identifier"
+                ? context.identifierViewSchema
               : context.viewSchema,
         ...(schedule.profile === "schema"
           ? { viewSchemas: context.schemaViews }
@@ -5956,10 +6489,12 @@ export async function runSeededSchedules(config, context, schedules) {
       generated: schedules.length,
       executed: results.length,
       seed: schedules[0]?.seed,
-      profiles: Object.fromEntries(["object", "map", "schema", "array"].map((profile) => [
+      profiles: Object.fromEntries(
+        ["object", "map", "schema", "array", "identifier"].map((profile) => [
         profile,
         results.filter((result) => result.profile === profile).length,
-      ])),
+        ]),
+      ),
     },
   };
 }
@@ -6201,6 +6736,43 @@ function corruptSequenceChange(caseId, data) {
   }
 }
 
+function mutateIdentifierFieldBatch(value, replacement) {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value.shapes) && Array.isArray(value.data)) {
+    const identifierShapes = new Set(value.shapes.flatMap((shape, index) =>
+      shape?.c?.value === 0 ? [index] : []));
+    const identifierFields = new Map(value.shapes.flatMap((shape, index) => {
+      const fields = shape?.c?.fields;
+      if (!Array.isArray(fields)) return [];
+      const positions = fields.flatMap(([name, fieldShape], position) =>
+        name === "id" && identifierShapes.has(fieldShape) ? [position + 1] : []);
+      return positions.length > 0 ? [[index, positions]] : [];
+    }));
+    const pending = [value.data];
+    while (pending.length > 0) {
+      const current = pending.pop();
+      if (!Array.isArray(current)) continue;
+      if (identifierShapes.has(current[0])
+        && (typeof current[1] === "string" || Number.isSafeInteger(current[1]))) {
+        current[1] = replacement;
+        return true;
+      }
+      for (const position of identifierFields.get(current[0]) ?? []) {
+        if (typeof current[position] === "string"
+          || Number.isSafeInteger(current[position])) {
+          current[position] = replacement;
+          return true;
+        }
+      }
+      pending.push(...current);
+    }
+  }
+  for (const child of Object.values(value)) {
+    if (mutateIdentifierFieldBatch(child, replacement)) return true;
+  }
+  return false;
+}
+
 export function operationTransform(caseId, invalidProfile) {
   const mutations = invalidProfile.input.mutations;
   return (payload) => {
@@ -6251,6 +6823,27 @@ export function operationTransform(caseId, invalidProfile) {
         ],
       };
       message.contents = encodedLike(message.contents, grouped);
+    } else if (identifierOperationRefusalCases.has(caseId)) {
+      const contents = parsed(message.contents);
+      assert.equal(contents?.type, "groupedBatch",
+        `${caseId} injection found no grouped Identifier operation`);
+      if (caseId === "missing-allocation") {
+        contents.contents = contents.contents.filter(
+          (item) => item.contents?.type !== "idAllocation",
+        );
+      } else {
+        const inner = treeMessage(contents);
+        assert(inner, `${caseId} injection found no SharedTree message`);
+        if (caseId === "wrong-originator") {
+          inner.originatorId = "50000000-0000-4000-8000-000000000005";
+        } else {
+          assert(mutateIdentifierFieldBatch(inner, 1.5),
+            `${caseId} injection found no numeric Identifier: ${
+              JSON.stringify(inner).slice(0, 4000)
+            }`);
+        }
+      }
+      message.contents = encodedLike(message.contents, contents);
     } else {
       assert.fail(`Unknown operation injection: ${caseId}`);
     }
@@ -6321,6 +6914,21 @@ export function storageTransform(caseId) {
         field: "DetachedFieldIndex",
         range: [2, 1],
       };
+      body.content = Buffer.from(JSON.stringify(decoded)).toString("base64");
+      body.encoding = "base64";
+      return { ...payload, bytes: Buffer.from(JSON.stringify(body)) };
+    }
+    if (caseId === "negative-originatorless-summary") {
+      if (typeof body?.content !== "string") return undefined;
+      let decoded;
+      try {
+        decoded = JSON.parse(
+          Buffer.from(body.content, body.encoding ?? "base64").toString("utf8"),
+        );
+      } catch {
+        return undefined;
+      }
+      if (!mutateIdentifierFieldBatch(decoded, -1)) return undefined;
       body.content = Buffer.from(JSON.stringify(decoded)).toString("base64");
       body.encoding = "base64";
       return { ...payload, bytes: Buffer.from(JSON.stringify(body)) };
@@ -6612,7 +7220,12 @@ async function runInjectedFailure(config, context, cell, control, invalidProfile
   let failure;
   try {
     const sequenceRefusal = sequenceRefusalCases.has(cell.caseId);
-    const sessionOptions = sequenceRefusal ? { store: arrayServiceStore } : undefined;
+    const identifierRefusal = identifierRefusalCases.has(cell.caseId);
+    const sessionOptions = sequenceRefusal
+      ? { store: arrayServiceStore }
+      : identifierRefusal
+        ? { store: identifierServiceStore }
+        : undefined;
     const creator = await openSession(
       config,
       containers,
@@ -6629,6 +7242,12 @@ async function runInjectedFailure(config, context, cell, control, invalidProfile
       ]);
       await creatorAdapter.arrayInsert(["right"], 0, [
         { kind: "string", value: "sequence-destination" },
+      ]);
+      await creatorAdapter.awaitSynced();
+    } else if (identifierRefusal) {
+      const creatorAdapter = upstreamAdapter(creator);
+      await creatorAdapter.arrayInsert(["left"], 0, [
+        identifierPoint(`failure-${cell.caseId}`),
       ]);
       await creatorAdapter.awaitSynced();
     }
@@ -6693,7 +7312,11 @@ async function runInjectedFailure(config, context, cell, control, invalidProfile
       runId: context.runId,
       documentId,
       tenant: config.tenantId,
-      viewSchema: sequenceRefusal ? context.arrayViewSchema : context.viewSchema,
+      viewSchema: sequenceRefusal
+        ? context.arrayViewSchema
+        : identifierRefusal
+          ? context.identifierViewSchema
+          : context.viewSchema,
     }, jwt);
     await native.awaitSynced();
     const before = await native.checkpoint();
@@ -6707,6 +7330,13 @@ async function runInjectedFailure(config, context, cell, control, invalidProfile
     });
     if (sequenceRefusal) {
       await upstream.arrayMove(["left"], 0, 1, ["right"], 0);
+    } else if (identifierRefusal) {
+      const id = cell.caseId === "corrupt-numeric-identifier"
+        ? creator.data.view.root.left[0].id
+        : undefined;
+      await upstream.arrayInsert(["right"], 0, [
+        identifierPoint(`trigger-${cell.caseId}`, id),
+      ]);
     } else {
       upstreamSession.data.view.root.title = `trigger-${randomUUID()}`;
     }
@@ -6805,18 +7435,24 @@ export async function runFailureCases(config, context, { createControl = openCon
     }
     for (const cell of requiredFailureCells()) {
       const control = controls[cell.target];
-      if (cell.kind === "local-refusal") {
-        results.push(await runLocalFailure(config, context, cell, control));
-      } else if (cell.kind === "stored-schema-refusal") {
-        results.push(await runStoredSchemaFailure(config, context, cell, control));
-      } else {
-        results.push(await runInjectedFailure(
-          config,
-          context,
-          cell,
-          control,
-          invalidProfile,
-        ));
+      try {
+        if (cell.kind === "local-refusal") {
+          results.push(await runLocalFailure(config, context, cell, control));
+        } else if (cell.kind === "stored-schema-refusal") {
+          results.push(await runStoredSchemaFailure(config, context, cell, control));
+        } else {
+          results.push(await runInjectedFailure(
+            config,
+            context,
+            cell,
+            control,
+            invalidProfile,
+          ));
+        }
+      } catch (error) {
+        throw new Error(`Failure case ${cell.id} failed: ${error.message}`, {
+          cause: error,
+        });
       }
     }
     return results;
