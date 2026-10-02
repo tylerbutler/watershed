@@ -871,7 +871,36 @@ function validateNativeFieldEntries(value) {
 }
 
 function validateNativeNodeChange(value) {
-  const [fields] = nativeArguments(value, "NodeChange", ["fields"]);
+  const call = nativeCall(value, "NodeChange");
+  let fields;
+  if (call.args.length === 1) {
+    [fields] = nativeArguments(value, "NodeChange", ["fields"]);
+  } else {
+    const [
+      currentFields,
+      constraint,
+      revertConstraint,
+    ] = nativeArguments(value, "NodeChange", [
+      "fields",
+      "node_exists_constraint",
+      "node_exists_constraint_on_revert",
+    ]);
+    const validateConstraint = (item) => {
+      const [violated] = nativeArguments(
+        item,
+        "NodeExistsConstraint",
+        ["violated"],
+      );
+      nativeBoolean(violated, "node-exists constraint violation");
+    };
+    validateNativeOption(constraint, validateConstraint, "node-exists constraint");
+    validateNativeOption(
+      revertConstraint,
+      validateConstraint,
+      "revert node-exists constraint",
+    );
+    fields = currentFields;
+  }
   return validateNativeFieldEntries(fields);
 }
 
@@ -974,7 +1003,9 @@ function validateNativeChangeData(value) {
       "refreshers",
       "revisions",
     ];
-    assert.deepEqual(names, complete,
+    assert.deepEqual(
+      names.filter((name) => name !== "constraint_violation_count"),
+      complete,
       "Reconnect payload has invalid ChangeData argument names");
     const entries = new Map(call.args.map((argument) => [
       argument.name,
@@ -984,7 +1015,7 @@ function validateNativeChangeData(value) {
       "Reconnect payload has duplicate ChangeData arguments");
     values = entries;
   } else {
-    assert.equal(call.args.length, 10,
+    assert([10, 11].includes(call.args.length),
       "Reconnect payload has invalid ChangeData arguments");
     values = new Map([
       ["max_local_id", call.args[0]],
@@ -997,10 +1028,20 @@ function validateNativeChangeData(value) {
       ["destroys", call.args[7]],
       ["refreshers", call.args[8]],
       ["cross_field_keys", call.args[9]],
+      ...(call.args.length === 11
+        ? [["constraint_violation_count", call.args[10]]]
+        : []),
     ]);
   }
   if (values.has("max_local_id")) {
     nativeNumber(values.get("max_local_id"), "maximum local ID", true);
+  }
+  if (values.has("constraint_violation_count")) {
+    nativeNumber(
+      values.get("constraint_violation_count"),
+      "constraint violation count",
+      true,
+    );
   }
   if (values.has("revisions")) {
     nativeList(values.get("revisions"), validateNativeRevisionInfo, "revisions");
@@ -1571,7 +1612,7 @@ const localRefusals = [
   ["numeric-title", "set", ["title", "leaf.number"]],
   ["null-optional-note", "set", ["note", "leaf.null"]],
   ["unknown-field", "set", ["notAField", "unknown field"]],
-  ["wrong-schema-id", "set", ["NotPoint", "node type"]],
+  ["wrong-schema-id", "set", ["NotPoint", "unknown node schema"]],
 ];
 const sequenceRefusalCases = new Set([
   "malformed-sequence-payload",
@@ -5633,6 +5674,31 @@ async function writeIdentifierArtifact(context, item, raw) {
   return relative;
 }
 
+async function writeIdentifierRefusalArtifact(context, item) {
+  const relative = `identifier-fields/refusal-${safeName(
+    `${item.caseId}-${item.target}`,
+  )}.json`;
+  const path = join(context.artifactDirectory, relative);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({
+    formatVersion: 1,
+    runId: context.runId,
+    profileDigest: context.profileDigest,
+    kind: "identifier-refusal",
+    subject: `${item.caseId}:${item.target}`,
+    documentId: item.documentId,
+    measured: {
+      outcome: item.outcome,
+      failureObserved: item.failureObserved,
+      partialReadinessObserved: item.partialReadinessObserved,
+      partialMutationObserved: item.partialMutationObserved,
+      typedError: item.typedError,
+    },
+    sourceArtifacts: item.artifacts,
+  })}\n`, { mode: 0o600 });
+  return relative;
+}
+
 async function runIdentifierPair(config, context, cell) {
   const containers = [];
   const natives = [];
@@ -5686,13 +5752,15 @@ async function runIdentifierPair(config, context, cell) {
       afterAuthor() {
         return settle(adapters);
       },
-      beforeConstrainedRemove() {
+      async beforeConstrainedRemove() {
+        await settle(adapters);
         constrainedReference = upstreamSession.data.view.root.left[0];
         removedReference = upstreamSession.data.view.root.right[0];
         assert.equal(constrainedReference.id, removedReference.id,
           "Identifier constraint fixture requires equal custom IDs");
       },
-      beforeReplacement() {
+      async beforeReplacement() {
+        await settle(adapters);
         assert.equal(upstreamSession.data.view.root.left[0], constrainedReference,
           "Identifier constraint followed string equality instead of node identity");
         assert(!identifierNodes(upstreamSession.data.view.root).includes(removedReference),
@@ -5790,7 +5858,14 @@ export async function runIdentifierFields(config, context, {
   for (const cell of identifierPairCells()) {
     pairs.push(await runPair(config, context, cell));
   }
-  return validateIdentifierFields({ pairs, failures });
+  const refusals = [];
+  for (const failure of failures) {
+    refusals.push({
+      ...failure,
+      artifacts: [await writeIdentifierRefusalArtifact(context, failure)],
+    });
+  }
+  return validateIdentifierFields({ pairs, failures: refusals });
 }
 
 function seededMeasuredPayload(item) {
@@ -6831,6 +6906,10 @@ export function operationTransform(caseId, invalidProfile) {
         contents.contents = contents.contents.filter(
           (item) => item.contents?.type !== "idAllocation",
         );
+        if (Number.isSafeInteger(message.metadata?.groupedOpCount)) {
+          message.metadata.groupedOpCount = contents.contents.length;
+        }
+        delete message.metadata?.batchId;
       } else {
         const inner = treeMessage(contents);
         assert(inner, `${caseId} injection found no SharedTree message`);

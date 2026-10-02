@@ -30,6 +30,7 @@ import {
 } from "./interop-scenarios.mjs";
 import {
   arrayServiceStore,
+  identifierServiceStore,
   mapServiceStore,
   openSession,
   preflight,
@@ -664,6 +665,70 @@ export function validateResults(results) {
       }
       assert(Array.isArray(cell.artifacts) && cell.artifacts.length > 0,
         "Missing reload artifact");
+    }
+  }
+  return results;
+}
+
+export function validateIdentifierReloadResults(results) {
+  assert(results && typeof results === "object" && !Array.isArray(results),
+    "Identifier summary interop needs a nested reload matrix");
+  assert.deepEqual(Object.keys(results).sort(), [...implementations].sort(),
+    "Identifier summary interop needs all three writers");
+  const readerInstances = new Set();
+  for (const writer of implementations) {
+    assert.deepEqual(Object.keys(results[writer] ?? {}).sort(), [...implementations].sort(),
+      `Identifier summary interop needs all three readers for ${writer}`);
+    for (const reader of implementations) {
+      const cell = results[writer][reader];
+      assert.equal(cell.profile, "identifier", "Identifier reload has another profile");
+      assert.equal(cell.writer, writer, "Invalid Identifier writer identity");
+      assert.equal(cell.reader, reader, "Invalid Identifier reader identity");
+      assert(typeof cell.runId === "string" && cell.runId.length > 0,
+        "Missing Identifier reload run ID");
+      assert.match(cell.profileDigest, /^[0-9a-f]{64}$/,
+        "Missing Identifier reload profile digest");
+      assert(typeof cell.documentId === "string" && cell.documentId.length > 0,
+        "Missing Identifier reload document ID");
+      assert(typeof cell.writerVersion === "string" && cell.writerVersion.length > 0,
+        "Missing Identifier writer version");
+      assert.equal(cell.loadedVersion, cell.writerVersion,
+        "Identifier reload selected another version");
+      assert(typeof cell.readerInstanceId === "string"
+        && cell.readerInstanceId.length > 0, "Missing Identifier reader instance");
+      assert(!readerInstances.has(cell.readerInstanceId),
+        "Identifier reload reused a reader instance");
+      readerInstances.add(cell.readerInstanceId);
+      assert.equal(cell.scenarioId, "identifier-summary-postload");
+      assert.equal(cell.loaded, true);
+      assert(typeof cell.writerAuthored?.defaultId === "string"
+        && cell.writerAuthored.defaultId.length > 0,
+      "Identifier writer lacks a generated ID");
+      assert.equal(cell.writerAuthored.explicitId, "shared-custom-id",
+        "Identifier writer changed the explicit ID");
+      assert.equal(cell.postLoadAuthored?.author, reader,
+        "Identifier reader did not author the post-load node");
+      assert(typeof cell.postLoadAuthored.id === "string"
+        && cell.postLoadAuthored.id.length > 0,
+      "Identifier reader lacks a post-load ID");
+      assert(typeof cell.postLoadAuthored.originatorId === "string"
+        && cell.postLoadAuthored.originatorId.length > 0,
+      "Identifier post-load edit lacks an originator");
+      assert(typeof cell.postLoadAuthored.allocationRange?.sessionId === "string"
+        && Number.isSafeInteger(cell.postLoadAuthored.allocationRange?.ids?.first)
+        && Number.isSafeInteger(cell.postLoadAuthored.allocationRange?.ids?.count)
+        && cell.postLoadAuthored.allocationRange.ids.count > 0,
+      "Identifier post-load edit lacks its allocation range");
+      assert.equal(cell.peerObservation?.observed, true,
+        "Identifier post-load edit lacks peer observation");
+      assert.equal(cell.peerObservation.id, cell.postLoadAuthored.id,
+        "Identifier peer observed another ID");
+      assert(implementations.includes(cell.peerObservation.implementation),
+        "Identifier peer has another implementation");
+      assert.equal(cell.pendingTreeCount, 0);
+      assert.equal(cell.inflightSubmissionCount, 0);
+      assert(Array.isArray(cell.artifacts) && cell.artifacts.length > 0,
+        "Missing Identifier reload artifact");
     }
   }
   return results;
@@ -2026,6 +2091,281 @@ const arrayPointValue = (label, x) => ({
     ["x", { kind: "number", value: x }],
   ],
 });
+
+const identifierPointValue = (label, id) => ({
+  kind: "object",
+  schemaId: "org.watershed.shared-tree.identifiers.Point",
+  fields: [
+    ...(id === undefined ? [] : [["id", { kind: "string", value: id }]]),
+    ["label", { kind: "string", value: label }],
+  ],
+});
+
+function identifierNodes(checkpoint) {
+  const fields = Object.fromEntries(checkpoint.wholeTree.value.fields);
+  return ["left", "right"].flatMap((name) => fields[name].elements)
+    .map((node) => Object.fromEntries(node.fields.map(([key, value]) =>
+      [key, value.value])));
+}
+
+function identifierByLabel(checkpoint, label) {
+  const node = identifierNodes(checkpoint).find((item) => item.label === label);
+  assert(node, `Identifier checkpoint lacks ${label}`);
+  return node;
+}
+
+async function writeIdentifierReloadArtifact(context, item, raw) {
+  const relative = `identifier-reload/${item.writer}-${item.reader}.json`;
+  const path = join(context.artifactDirectory, relative);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({
+    formatVersion: 1,
+    runId: context.runId,
+    profileDigest: context.profileDigest,
+    kind: "identifier-reload",
+    subject: `${item.writer}->${item.reader}`,
+    documentId: item.documentId,
+    measured: {
+      writerAuthored: item.writerAuthored,
+      postLoadAuthored: item.postLoadAuthored,
+      peerObservation: item.peerObservation,
+    },
+    raw,
+  })}\n`, { mode: 0o600 });
+  return relative;
+}
+
+async function readIdentifierCell(config, context, row, reader) {
+  const containers = [];
+  let adapter;
+  let failure;
+  try {
+    let load;
+    let rawLoad;
+    if (reader === "upstream") {
+      const session = await openSession(
+        config,
+        containers,
+        row.documentId,
+        false,
+        { cache: false, observeStorage: true, store: identifierServiceStore },
+      );
+      adapter = upstreamAdapter(session);
+      await adapter.awaitSynced(row.publicationSequenceNumber);
+      load = storageLoad(session.storageObservations, row.version);
+      rawLoad = session.storageObservations;
+    } else {
+      adapter = await nativeAdapter(reader, config, {
+        runId: context.runId,
+        documentId: row.documentId,
+        tenant: config.tenantId,
+        viewSchema: context.identifierViewSchema,
+      }, row.jwt);
+      await adapter.awaitSynced(row.publicationSequenceNumber);
+      rawLoad = adapter.evidence();
+      load = loadRequests(rawLoad, row.version, row.snapshotSequenceNumber);
+    }
+    const loaded = await adapter.checkpoint();
+    assert.equal(identifierByLabel(loaded, `${row.writer}-default`).id,
+      row.writerAuthored.defaultId, "Identifier reload changed the generated ID");
+    assert.equal(identifierByLabel(loaded, `${row.writer}-explicit`).id,
+      row.writerAuthored.explicitId, "Identifier reload changed the explicit ID");
+    const label = `${row.writer}-${reader}-postload`;
+    const baseline = loaded.sequenceNumber;
+    await adapter.arrayInsert(["left"], 1, [identifierPointValue(label)]);
+    await adapter.awaitSynced();
+    const continuation = await acknowledgedSubmission(
+      row.observer,
+      adapter,
+      baseline,
+      reader,
+    );
+    const authored = await adapter.checkpoint();
+    const identifier = identifierByLabel(authored, label).id;
+    const peer = await openSession(
+      config,
+      containers,
+      row.documentId,
+      false,
+      { cache: false, store: identifierServiceStore },
+    );
+    const peerAdapter = upstreamAdapter(peer);
+    await peerAdapter.awaitSynced(continuation.outerSequenceNumber);
+    const peerCheckpoint = await peerAdapter.checkpoint();
+    assert.equal(identifierByLabel(peerCheckpoint, label).id, identifier,
+      "Identifier post-load edit differs on the peer");
+    const commit = continuation.commits[0];
+    const range = continuation.allocations[0];
+    assert(commit && range, "Identifier post-load edit lacks operation identity");
+    const item = {
+      runId: context.runId,
+      profileDigest: context.profileDigest,
+      profile: "identifier",
+      writer: row.writer,
+      reader,
+      writerVersion: row.version,
+      loadedVersion: load.loadedVersion,
+      readerInstanceId: adapter.instanceId,
+      scenarioId: "identifier-summary-postload",
+      loaded: true,
+      writerAuthored: row.writerAuthored,
+      postLoadAuthored: {
+        author: reader,
+        id: identifier,
+        originatorId: commit.originatorId,
+        allocationRange: {
+          sessionId: range.sessionId,
+          ids: {
+            first: range.first,
+            count: range.last - range.first + 1,
+          },
+        },
+      },
+      peerObservation: {
+        implementation: "upstream",
+        id: identifier,
+        observed: true,
+      },
+      pendingTreeCount: authored.pendingTreeCount,
+      inflightSubmissionCount: authored.inflightSubmissionCount,
+      documentId: row.documentId,
+      artifacts: [],
+    };
+    item.artifacts = [await writeIdentifierReloadArtifact(context, item, {
+      load: rawLoad,
+      continuation,
+      peer: peerCheckpoint,
+      history: await serverHistory(row.observer),
+    })];
+    return item;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    const cleanup = [];
+    if (adapter && reader !== "upstream") cleanup.push(() => adapter.close());
+    for (const container of containers.toReversed()) {
+      if (!container.closed) cleanup.push(() => container.dispose());
+    }
+    await cleanupAll(failure, `${reader} Identifier reload cleanup failed`, cleanup);
+  }
+}
+
+async function runIdentifierWriterRow(config, context, writer) {
+  const containers = [];
+  const natives = [];
+  let failure;
+  try {
+    const creator = await openSession(
+      config,
+      containers,
+      undefined,
+      false,
+      { store: identifierServiceStore },
+    );
+    const documentId = creator.container.resolvedUrl.id;
+    await publishUpstreamSummary(
+      config,
+      containers,
+      documentId,
+      `Identifier ${writer} bootstrap`,
+      { store: identifierServiceStore },
+    );
+    const upstreamSession = await openSession(
+      config,
+      containers,
+      documentId,
+      false,
+      { store: identifierServiceStore },
+    );
+    const upstream = upstreamAdapter(upstreamSession);
+    const { jwt } = await tokenProvider(config).fetchOrdererToken(
+      config.tenantId,
+      documentId,
+    );
+    for (const target of nativeTargets) {
+      natives.push(await nativeAdapter(target, config, {
+        runId: context.runId,
+        documentId,
+        tenant: config.tenantId,
+        viewSchema: context.identifierViewSchema,
+      }, jwt));
+    }
+    const adapters = {
+      upstream,
+      javascript: natives[0],
+      erlang: natives[1],
+    };
+    await settle(adapters);
+    await adapters[writer].arrayInsert(["left"], 0, [
+      identifierPointValue(`${writer}-default`),
+    ]);
+    await adapters[writer].arrayInsert(["right"], 0, [
+      identifierPointValue(`${writer}-explicit`, "shared-custom-id"),
+    ]);
+    await settle(adapters);
+    const writerCheckpoint = await adapters[writer].checkpoint();
+    const publication = await publishWriterSummary(
+      config,
+      containers,
+      creator,
+      documentId,
+      jwt,
+      writer,
+      adapters,
+      {
+        store: identifierServiceStore,
+        tailEdit: (adapter, label) =>
+          adapter.arrayInsert(["right"], 1, [identifierPointValue(label)]),
+      },
+    );
+    const row = {
+      writer,
+      documentId,
+      jwt,
+      observer: creator,
+      writerAuthored: {
+        defaultId: identifierByLabel(writerCheckpoint, `${writer}-default`).id,
+        explicitId: identifierByLabel(writerCheckpoint, `${writer}-explicit`).id,
+      },
+      ...publication,
+    };
+    for (const native of natives.toReversed()) await native.close();
+    natives.length = 0;
+    if (!upstream.session.container.closed) upstream.session.container.dispose();
+    const results = {};
+    for (const reader of implementations) {
+      results[reader] = await readIdentifierCell(config, context, row, reader);
+    }
+    return results;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    const cleanupErrors = [];
+    for (const native of natives.toReversed()) {
+      try {
+        await native.close();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const container of containers.toReversed()) {
+      try {
+        if (!container.closed) container.dispose();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      if (failure) failure.cleanupErrors = cleanupErrors;
+      else throw new AggregateError(
+        cleanupErrors,
+        `Cleanup failed for ${writer} Identifier reload row`,
+      );
+    }
+  }
+}
 
 const arrayItemsValue = (elements) => ({
   kind: "array",
@@ -3417,6 +3757,26 @@ export async function runArrayReloadMatrix(config, context, {
     results[writer] = await executeRow(config, context, writer);
   }
   return validateArrayResults(results);
+}
+
+export async function runIdentifierReloadMatrix(config, context, {
+  runRow = runIdentifierWriterRow,
+} = {}) {
+  assert(typeof context?.runId === "string" && context.runId.length > 0,
+    "runIdentifierReloadMatrix context requires runId");
+  assert.match(context.profileDigest ?? "", /^[0-9a-f]{64}$/,
+    "runIdentifierReloadMatrix context requires profileDigest");
+  assert(typeof context.identifierViewSchema === "string"
+    && context.identifierViewSchema.length > 0,
+  "runIdentifierReloadMatrix context requires identifierViewSchema");
+  assert(typeof context.artifactDirectory === "string"
+    && context.artifactDirectory.length > 0,
+  "runIdentifierReloadMatrix context requires artifactDirectory");
+  const results = {};
+  for (const writer of implementations) {
+    results[writer] = await runRow(config, context, writer);
+  }
+  return validateIdentifierReloadResults(results);
 }
 
 export async function runService(config) {

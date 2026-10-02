@@ -12,6 +12,7 @@ import {
   runReloadMatrix,
   runSchemaReloadMatrix,
   validateArrayResults,
+  validateIdentifierReloadResults,
   validateMapResults,
   validateResults,
   validateSchemaReloadResults,
@@ -49,6 +50,46 @@ test("array reader continuation preserves pre-existing right-side tail values", 
 });
 
 const implementations = ["upstream", "javascript", "erlang"];
+const identifierReloadCells = Object.fromEntries(implementations.map((writer) => [
+  writer,
+  Object.fromEntries(implementations.map((reader) => [
+    reader,
+    {
+      runId: "run",
+      profileDigest: "a".repeat(64),
+      profile: "identifier",
+      writer,
+      reader,
+      writerVersion: `${writer}-identifier-version`,
+      loadedVersion: `${writer}-identifier-version`,
+      readerInstanceId: `${writer}-${reader}-identifier-reader`,
+      scenarioId: "identifier-summary-postload",
+      loaded: true,
+      writerAuthored: {
+        defaultId: `${writer}-generated`,
+        explicitId: "shared-custom-id",
+      },
+      postLoadAuthored: {
+        author: reader,
+        id: `${writer}-${reader}-generated`,
+        originatorId: `${reader}-originator`,
+        allocationRange: {
+          sessionId: `${reader}-session`,
+          ids: { first: 0, count: 1 },
+        },
+      },
+      peerObservation: {
+        implementation: writer === reader ? "upstream" : writer,
+        id: `${writer}-${reader}-generated`,
+        observed: true,
+      },
+      pendingTreeCount: 0,
+      inflightSubmissionCount: 0,
+      documentId: `${writer}-identifier-document`,
+      artifacts: [`identifier-reload/${writer}-${reader}.json`],
+    },
+  ])),
+]));
 const reference = {
   package: "@fluidframework/tree",
   version: "3.1.0",
@@ -355,6 +396,27 @@ test("reload matrix proves detached identity from fresh restored content", () =>
     const copy = structuredClone(cells);
     mutation(copy);
     assert.throws(() => validateResults(copy), undefined, label);
+  }
+});
+
+test("identifier reload validation requires all nine post-load authoring cells", () => {
+  assert.equal(Object.keys(validateIdentifierReloadResults(identifierReloadCells)).length, 3);
+  for (const [label, mutation] of [
+    ["writer", (copy) => { delete copy.erlang; }],
+    ["reader", (copy) => { delete copy.javascript.erlang; }],
+    ["post-load author", (copy) => {
+      copy.upstream.javascript.postLoadAuthored.author = "upstream";
+    }],
+    ["peer observation", (copy) => {
+      copy.erlang.upstream.peerObservation.observed = false;
+    }],
+    ["allocation", (copy) => {
+      delete copy.javascript.javascript.postLoadAuthored.allocationRange;
+    }],
+  ]) {
+    const copy = structuredClone(identifierReloadCells);
+    mutation(copy);
+    assert.throws(() => validateIdentifierReloadResults(copy), undefined, label);
   }
 });
 

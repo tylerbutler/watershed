@@ -339,7 +339,7 @@ test("native persisted data diagnostics decode exponential numbers", () => {
         + '2, [], [#("score", OptionalField(FieldChange([], [], '
         + "Some(Replacement(False, Some(Detached(AtomId(None, 0))), "
         + "AtomId(None, 1))))))], [], [], [], "
-        + "[Build(AtomId(None, 0), [NumberValue(1.0e3)])], [], [], []), "
+        + "[Build(AtomId(None, 0), [NumberValue(1.0e3)])], [], [], [], 0), "
         + "IdentityOrder([]), []))])",
     ),
     { kind: "data", field: "score", value: 1000 },
@@ -355,10 +355,15 @@ test("native named data diagnostics decode complete changesets", () => {
         + "child_changes: [], replacement: Some(Replacement(was_empty: False, "
         + "source: Some(Detached(AtomId(revision: None, local_id: 0))), "
         + "detach_id: AtomId(revision: None, local_id: 1))))))], "
-        + "nodes: [], parents: [], aliases: [], "
+        + "nodes: [#(AtomId(revision: None, local_id: 2), "
+        + "NodeChange(fields: [], node_exists_constraint: "
+        + "Some(NodeExistsConstraint(violated: False)), "
+        + "node_exists_constraint_on_revert: None))], "
+        + "parents: [], aliases: [], "
         + "builds: [Build(id: AtomId(revision: None, local_id: 0), "
         + "trees: [NumberValue(1000)])], destroys: [], refreshers: [], "
-        + "cross_field_keys: []), identity_order: IdentityOrder([]), "
+        + "cross_field_keys: [], constraint_violation_count: 0), "
+        + "identity_order: IdentityOrder([]), "
         + "cross_field_keys: []))])",
     ),
     { kind: "data", field: "score", value: 1000 },
@@ -2121,6 +2126,10 @@ test("Identifier refusal mutations alter real allocation and FieldBatch operands
   const message = (contents) => [{
     type: "op",
     sequenceNumber: 9,
+    metadata: {
+      batchId: "identifier-batch_[1]",
+      groupedOpCount: contents.length,
+    },
     contents: {
       type: "groupedBatch",
       contents,
@@ -2162,6 +2171,8 @@ test("Identifier refusal mutations alter real allocation and FieldBatch operands
     input: { mutations: [] },
   })(message([allocation, tree]));
   assert.deepEqual(missing[0].contents.contents, [tree]);
+  assert.equal(missing[0].metadata.groupedOpCount, 1);
+  assert.equal(Object.hasOwn(missing[0].metadata, "batchId"), false);
 
   const wrong = operationTransform("wrong-originator", {
     input: { mutations: [] },

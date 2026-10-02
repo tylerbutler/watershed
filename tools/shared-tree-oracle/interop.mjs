@@ -695,6 +695,9 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
     ].includes(caseId)).map((item) => ({
       caseId: item.caseId,
       target: item.target,
+      runId: item.runId,
+      profileDigest: item.profileDigest,
+      documentId: item.documentId,
       outcome: item.outcome,
       failureObserved: true,
       partialReadinessObserved: item.clientState !== "never-ready"
@@ -2272,7 +2275,7 @@ function validateIdentifierSections(report, expected, evidence) {
     assert.equal(item.profileDigest, expected.profileDigest,
       "Identifier refusal uses another profile");
     artifacts(item, evidence, expected, {
-      kind: "failure",
+      kind: "identifier-refusal",
       subject: `${item.caseId}:${item.target}`,
       documentId: item.documentId,
     }, `Identifier refusal ${item.caseId}:${item.target}`);

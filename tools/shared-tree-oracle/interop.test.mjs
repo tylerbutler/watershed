@@ -1473,7 +1473,11 @@ async function validFixture() {
         partialReadinessObserved: false,
         partialMutationObserved: false,
         typedError: item.typedError,
-        artifacts: item.artifacts,
+        artifacts: [artifact(
+          "identifier-refusal",
+          `${item.caseId}:${item.target}`,
+          item.documentId,
+        )],
       })),
   };
   const identifierReloadMatrix = Object.fromEntries(implementations.map((writer) => [
