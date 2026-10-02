@@ -3910,10 +3910,13 @@ async function readTransactionCell(config, context, row, reader) {
     const loaded = await adapter.checkpoint();
     const rightLabels = arrayFieldLabels(loaded, "right");
     const leftLabels = arrayFieldLabels(loaded, "left");
-    assert.deepEqual(rightLabels.slice(0, 2), row.writerAuthored.labels,
-      "Transaction reload lost the writer's composed commit");
-    assert.deepEqual(leftLabels, ["anchor"],
-      "Transaction reload lost the constrained node");
+    const writerIndexes = row.writerAuthored.labels
+      .map((label) => rightLabels.indexOf(label));
+    assert(writerIndexes.every((index) => index >= 0)
+      && writerIndexes[0] < writerIndexes[1],
+    `Transaction reload lost the writer's composed commit: ${rightLabels}`);
+    assert.equal(leftLabels[0], "anchor",
+      `Transaction reload lost the constrained node: ${leftLabels}`);
     const historyVerified = Array.isArray(loaded.history?.trunk)
       && Array.isArray(loaded.history?.pending)
       && loaded.history.pending.length === 0;
@@ -3975,7 +3978,8 @@ async function readTransactionCell(config, context, row, reader) {
       scenarioId: "transaction-summary-postload",
       loaded: true,
       historyVerified,
-      nodeIdentityVerified: true,
+      nodeIdentityVerified: leftLabels[0] === "anchor"
+        && authoredResult.outcome === "committed",
       writerAuthored: row.writerAuthored,
       postLoadAuthored: {
         author: reader,

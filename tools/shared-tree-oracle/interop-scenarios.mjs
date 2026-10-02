@@ -6630,6 +6630,7 @@ function seededMeasuredPayload(item) {
     summaries: item.summaries,
     reloads: item.reloads,
     schemaTransitions: item.schemaTransitions,
+    transactions: item.transactions,
     evidence: item.evidence,
   };
 }
