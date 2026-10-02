@@ -276,6 +276,27 @@ test("source verification byte-checks the owned transaction injection", async (t
   await assert.rejects(verifyCheckout(directory, commit), /injected/);
 });
 
+test("source injection replaces only stale owned injections", async (t) => {
+  const { directory, commit } = await checkoutFixture(t);
+  const target = join(directory, source.transactionInjectedTestPath);
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, "// stale owned transaction injection\n");
+
+  await source.injectSource(directory, commit);
+
+  assert.deepEqual(
+    await readFile(target),
+    await readFile(new URL("./upstream-transaction.spec.ts", import.meta.url)),
+  );
+  await verifyCheckout(directory, commit);
+});
+
+test("source injection refuses unrelated untracked files", async (t) => {
+  const { directory, commit } = await checkoutFixture(t);
+  await writeFile(join(directory, "unrelated.ts"), "export {};\n");
+  await assert.rejects(source.injectSource(directory, commit), /unrelated\.ts/);
+});
+
 test("source verification byte-checks the owned Identifier injection", async (t) => {
   const { directory, commit } = await checkoutFixture(t);
   const target = join(directory, identifierInjectedTestPath);

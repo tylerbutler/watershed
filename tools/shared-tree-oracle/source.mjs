@@ -157,12 +157,24 @@ async function pnpm(args, cwd, env = process.env, timeout) {
   run("npm", ["exec", "--yes", `--package=${manager}`, "--", "pnpm", ...args], cwd, env, timeout);
 }
 
-async function injectOracle() {
+async function injectOracle(root = checkout) {
   for (const [path, source] of injections) {
-    const target = join(checkout, path);
+    const target = join(root, path);
     await mkdir(dirname(target), { recursive: true });
     await copyFile(source, target);
   }
+}
+
+export async function injectSource(root = checkout, expectedCommit = reference.commit) {
+  await verifyRepository(root, expectedCommit, [...injections.keys()]);
+  const manifest = JSON.parse(
+    await readFile(join(root, "packages/dds/tree/package.json"), "utf8"),
+  );
+  if (manifest.name !== "@fluidframework/tree" || manifest.version !== reference.version) {
+    throw new Error(`Reference source is not @fluidframework/tree@${reference.version}`);
+  }
+  await injectOracle(root);
+  return verifyCheckout(root, expectedCommit);
 }
 
 export async function prepareSource() {
@@ -179,8 +191,7 @@ export async function prepareSource() {
       "/*", "!/packages/dds/tree/src/test/snapshots/output/",
     ], directory);
   }
-  await verifyCheckout();
-  await injectOracle();
+  await injectSource();
   await pnpm([
     "install", "--frozen-lockfile",
     "--filter", "@fluidframework/tree...", "--filter", ".",
@@ -255,8 +266,7 @@ export function sourceTestBatches(corpus) {
 
 export async function runSource(output, { corpus = false } = {}) {
   await verifyPackages();
-  await verifyCheckout();
-  await injectOracle();
+  await injectSource();
   const tree = join(checkout, "packages/dds/tree");
   await pnpm(["run", "build:compile"], tree);
   await pnpm(["run", "build:test:esm"], tree);
@@ -295,8 +305,7 @@ export async function captureSource(output) {
 
 export async function runCodecConsumer(inputFile, outputDirectory) {
   await verifyPackages();
-  await verifyCheckout();
-  await injectOracle();
+  await injectSource();
   const tree = join(checkout, "packages/dds/tree");
   await pnpm(["run", "build:compile"], tree);
   await pnpm(["run", "build:test:esm"], tree);
@@ -326,6 +335,9 @@ async function main() {
         source: await verifyCheckout(),
       }, null, 2));
       break;
+    case "inject":
+      console.log(JSON.stringify(await injectSource(), null, 2));
+      break;
     case "generate":
       await captureSource(resolve(input ?? join(directory, ".output/source")));
       break;
@@ -337,7 +349,7 @@ async function main() {
       break;
     default:
       throw new Error(
-        "Usage: node source.mjs prepare|verify|generate [output-directory]"
+        "Usage: node source.mjs prepare|verify|inject|generate [output-directory]"
           + "|codec-consume <input-file> <output-directory>",
       );
   }

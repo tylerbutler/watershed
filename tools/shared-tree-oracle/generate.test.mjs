@@ -306,6 +306,45 @@ function cases(exclude = []) {
     )));
 }
 
+function transactionMessage() {
+  return {
+    version: 7,
+    revision: 0,
+    originatorId: "00000000-0000-4000-8000-000000000001",
+    changeset: [{ data: { changes: [] } }],
+  };
+}
+
+function transactionDataChange(constraintViolationCount = 0) {
+  return {
+    maxId: 0,
+    revisions: [{ revision: "00000000-0000-4000-8000-000000000002", rollbackOf: null }],
+    fields: [],
+    nodes: [],
+    parents: [],
+    aliases: [],
+    builds: [],
+    destroys: [],
+    refreshers: [],
+    constraintViolationCount,
+    delta: {
+      fields: [],
+      builds: [],
+      refreshers: [],
+      global: [],
+      renames: [],
+      destroys: [],
+    },
+  };
+}
+
+function transactionCommit(constraintViolationCount = 0) {
+  return {
+    revision: "00000000-0000-4000-8000-000000000002",
+    changes: [{ type: "data", change: transactionDataChange(constraintViolationCount) }],
+  };
+}
+
 function transactionCaseFixture(id, domain) {
   const value = {
     formatVersion: 1,
@@ -380,7 +419,7 @@ function transactionCaseFixture(id, domain) {
         : 1,
       submittedMessages: ["outer-rollback", "no-op", "invalid-edit-rollback"].includes(scenario)
         ? []
-        : [{ version: 7 }],
+        : [transactionMessage()],
       ...(scenario === "invalid-edit-rollback" ? {
         error: "Error: Expected non-negative index passed to TreeArrayNode.removeAt, got -1.",
         transactionResult: "rollback",
@@ -420,6 +459,9 @@ function transactionCaseFixture(id, domain) {
       refusal: { callbackRan: false, error: "not currently in the document" },
       withinMove: { identityPreserved: true },
       crossMove: { identityPreserved: true },
+      pending: { pending: [transactionCommit()], trunk: [] },
+      settled: { pending: [], trunk: [transactionCommit(1)] },
+      reconnectMessages: [transactionMessage()],
     }];
   }
   if (id === "transaction-wire") {
@@ -540,13 +582,14 @@ function transactionCaseFixture(id, domain) {
     value.expected.observations = [{
       id: "reconnect-summary-history",
       pending: { state: "pending" },
-      pendingViolation: { change: { constraintViolationCount: 1 } },
+      pendingViolation: transactionCommit(1),
       pendingCompressor: "summary-compressor",
       missingTailAllocationError: "Error: unknown compressed ID",
       loaded: { state: "loaded" },
       afterTail: { state: "tail" },
       afterContinuation: { state: "continued" },
       peer: { state: "continued" },
+      reconnectMessages: [transactionMessage()],
       checkpoints: [
         "pending", "sequenced-summary", "acknowledged-violation", "loaded-summary",
         "after-tail", "after-continuation", "peer-after-continuation",
@@ -569,6 +612,10 @@ function transactionCaseFixture(id, domain) {
       identities: ["node"],
     };
     value.raw.tailAllocationRanges = structuredClone(value.input.tailAllocationRanges);
+    value.raw.summary = structuredClone(value.input.summary);
+    value.raw.tailEnvelope = structuredClone(value.input.tailEnvelope);
+    value.raw.continuationEnvelope = transactionMessage();
+    value.raw.messages = [transactionMessage()];
     value.raw.observation = structuredClone(value.expected.observations[0]);
   }
   return value;
@@ -2602,6 +2649,109 @@ test("transaction callbacks reject missing rollback checkpoints in expected and 
     {},
   );
   assert.throws(() => generator.validateTransactionCallbacks(value), /transaction-callbacks/);
+});
+
+function privateImplementationPaths(value) {
+  const paths = [];
+  function visit(item, path) {
+    if (Array.isArray(item)) {
+      item.forEach((child, index) => visit(child, [...path, index]));
+      return;
+    }
+    if (item === null || typeof item !== "object") return;
+    for (const [key, child] of Object.entries(item)) {
+      const childPath = [...path, key];
+      if (
+        ["_root", "_maxNodeSize", "_events", "isShared"].includes(key)
+        || (key === "events" && child !== null && typeof child === "object" && !Array.isArray(child))
+      ) {
+        paths.push(childPath.join("."));
+      }
+      visit(child, childPath);
+    }
+  }
+  visit(value, []);
+  return paths;
+}
+
+test("transaction history uses only stable semantic and wire projections", () => {
+  for (const id of ["transaction-callbacks", "transaction-constraints", "transaction-history"]) {
+    const value = transactionCorpus(id).find((item) => item.id === id);
+    assert.deepEqual(privateImplementationPaths(value), [], `${id}: private implementation state`);
+  }
+});
+
+test("transaction semantic history keeps every load-bearing field mandatory", () => {
+  const mutations = {
+    "transaction-callbacks": [
+      (value) => { delete value.expected.observations[0].history.pending[0].revision; },
+      (value) => { delete value.expected.observations[0].history.pending[0].changes[0].change.fields; },
+      (value) => { delete value.expected.observations[0].submittedMessages[0].changeset; },
+      (value) => { value.expected.observations[0].identity.nodes = []; },
+      (value) => { delete value.expected.observations[0].allocation.after.ongoing; },
+    ],
+    "transaction-constraints": [
+      (value) => { delete value.expected.observations[0].pending.pending[0].revision; },
+      (value) => {
+        delete value.expected.observations[0].pending.pending[0]
+          .changes[0].change.revisions;
+      },
+      (value) => {
+        delete value.expected.observations[0].pending.pending[0]
+          .changes[0].change.fields;
+      },
+      (value) => {
+        delete value.expected.observations[0].pending.pending[0]
+          .changes[0].change.nodes;
+      },
+      (value) => {
+        delete value.expected.observations[0].pending.pending[0]
+          .changes[0].change.parents;
+      },
+      (value) => {
+        delete value.expected.observations[0].pending.pending[0]
+          .changes[0].change.aliases;
+      },
+      (value) => {
+        delete value.expected.observations[0].pending.pending[0]
+          .changes[0].change.builds;
+      },
+      (value) => {
+        delete value.expected.observations[0].pending.pending[0]
+          .changes[0].change.refreshers;
+      },
+      (value) => {
+        delete value.expected.observations[0].pending.pending[0]
+          .changes[0].change.constraintViolationCount;
+      },
+      (value) => { delete value.expected.observations[0].reconnectMessages[0].changeset; },
+    ],
+    "transaction-history": [
+      (value) => { delete value.expected.observations[0].pending.history.pending; },
+      (value) => { delete value.expected.observations[0].pending.history.trunk; },
+      (value) => { delete value.expected.observations[0].pending.history.pending[0].revision; },
+      (value) => {
+        delete value.expected.observations[0].pending.history.pending[0]
+          .changes[0].change.fields;
+      },
+      (value) => { delete value.expected.observations[0].pending.identities; },
+      (value) => { delete value.expected.observations[0].pending.allocation; },
+      (value) => { delete value.expected.observations[0].pendingSummary; },
+      (value) => { delete value.raw.continuationEnvelope; },
+      (value) => { delete value.expected.observations[0].reconnectMessages[0].changeset; },
+    ],
+  };
+  for (const [id, caseMutations] of Object.entries(mutations)) {
+    for (const [mutationIndex, mutate] of caseMutations.entries()) {
+      const corpus = transactionCorpus(id);
+      mutate(corpus.find((value) => value.id === id));
+      assert.throws(
+        () => validateCases(corpus),
+        new RegExp(id),
+        `${id}: mutation ${mutationIndex}`,
+      );
+    }
+  }
 });
 
 test("transaction constraints require converged client outcomes and retained evidence", () => {

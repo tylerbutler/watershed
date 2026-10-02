@@ -126,21 +126,7 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "ModularEditBuilder.Generic",
-                        "change": {
-                          "_root": {
-                            "keys": [
-                              0
-                            ],
-                            "values": [
-                              {
-                                "localId": 2,
-                                "revision": 4
-                              }
-                            ]
-                          },
-                          "_maxNodeSize": 32
-                        }
+                        "kind": "Generic"
                       }
                     ],
                     "nodes": [
@@ -153,22 +139,7 @@
                           "fields": [
                             {
                               "field": "label",
-                              "kind": "Value",
-                              "change": {
-                                "moves": [],
-                                "childChanges": [],
-                                "valueReplace": {
-                                  "isEmpty": false,
-                                  "src": {
-                                    "localId": 6,
-                                    "revision": 4
-                                  },
-                                  "dst": {
-                                    "localId": 7,
-                                    "revision": 4
-                                  }
-                                }
-                              }
+                              "kind": "Value"
                             }
                           ],
                           "nodeExistsConstraint": {
@@ -186,21 +157,7 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "ModularEditBuilder.Generic",
-                              "change": {
-                                "_root": {
-                                  "keys": [
-                                    0
-                                  ],
-                                  "values": [
-                                    {
-                                      "localId": 0,
-                                      "revision": 4
-                                    }
-                                  ]
-                                },
-                                "_maxNodeSize": 32
-                              }
+                              "kind": "Generic"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -216,39 +173,11 @@
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "ModularEditBuilder.Generic",
-                              "change": {
-                                "_root": {
-                                  "keys": [
-                                    0
-                                  ],
-                                  "values": [
-                                    {
-                                      "localId": 1,
-                                      "revision": 4
-                                    }
-                                  ]
-                                },
-                                "_maxNodeSize": 32
-                              }
+                              "kind": "Generic"
                             },
                             {
                               "field": "right",
-                              "kind": "ModularEditBuilder.Generic",
-                              "change": {
-                                "_root": {
-                                  "keys": [
-                                    0
-                                  ],
-                                  "values": [
-                                    {
-                                      "localId": 12,
-                                      "revision": 4
-                                    }
-                                  ]
-                                },
-                                "_maxNodeSize": 32
-                              }
+                              "kind": "Generic"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -264,22 +193,7 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence",
-                              "change": [
-                                {
-                                  "count": 1
-                                },
-                                {
-                                  "type": "Insert",
-                                  "id": 11,
-                                  "count": 1,
-                                  "cellId": {
-                                    "localId": 11,
-                                    "revision": 4
-                                  },
-                                  "revision": 4
-                                }
-                              ]
+                              "kind": "Sequence"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -447,8 +361,147 @@
                         ]
                       }
                     ],
+                    "destroys": [],
                     "refreshers": [],
-                    "constraintViolationCount": 0
+                    "constraintViolationCount": 0,
+                    "delta": {
+                      "fields": [
+                        {
+                          "field": "rootFieldKey",
+                          "marks": [
+                            {
+                              "count": 1,
+                              "attach": null,
+                              "detach": null,
+                              "fields": [
+                                {
+                                  "field": "left",
+                                  "marks": [
+                                    {
+                                      "count": 1,
+                                      "attach": null,
+                                      "detach": null,
+                                      "fields": [
+                                        {
+                                          "field": "",
+                                          "marks": [
+                                            {
+                                              "count": 1,
+                                              "attach": null,
+                                              "detach": null,
+                                              "fields": [
+                                                {
+                                                  "field": "label",
+                                                  "marks": [
+                                                    {
+                                                      "count": 1,
+                                                      "attach": {
+                                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                                        "localId": 6
+                                                      },
+                                                      "detach": {
+                                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                                        "localId": 7
+                                                      },
+                                                      "fields": []
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "field": "right",
+                                  "marks": [
+                                    {
+                                      "count": 1,
+                                      "attach": null,
+                                      "detach": null,
+                                      "fields": [
+                                        {
+                                          "field": "",
+                                          "marks": [
+                                            {
+                                              "count": 1,
+                                              "attach": null,
+                                              "detach": null,
+                                              "fields": []
+                                            },
+                                            {
+                                              "count": 1,
+                                              "attach": {
+                                                "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                                "localId": 11
+                                              },
+                                              "detach": null,
+                                              "fields": []
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "builds": [
+                        {
+                          "id": {
+                            "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                            "localId": 6
+                          },
+                          "trees": [
+                            {
+                              "type": "com.fluidframework.leaf.string",
+                              "value": "suppressed"
+                            }
+                          ]
+                        },
+                        {
+                          "id": {
+                            "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                            "localId": 11
+                          },
+                          "trees": [
+                            {
+                              "type": "org.watershed.shared-tree.transactions.Point",
+                              "fields": {
+                                "id": [
+                                  {
+                                    "type": "com.fluidframework.leaf.string",
+                                    "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0b"
+                                  }
+                                ],
+                                "label": [
+                                  {
+                                    "type": "com.fluidframework.leaf.string",
+                                    "value": "created"
+                                  }
+                                ],
+                                "x": [
+                                  {
+                                    "type": "com.fluidframework.leaf.number",
+                                    "value": 9
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "refreshers": [],
+                      "global": [],
+                      "renames": [],
+                      "destroys": []
+                    }
                   }
                 }
               ]
@@ -462,64 +515,124 @@
                   "type": "schema",
                   "change": {
                     "schema": {
-                      "new": {
-                        "nodeSchema": {},
-                        "rootFieldSchema": {
-                          "kind": "Optional",
-                          "types": {}
+                      "old": {
+                        "version": 2,
+                        "nodes": {},
+                        "root": {
+                          "kind": "Forbidden",
+                          "types": []
                         }
                       },
-                      "old": {
-                        "nodeSchemaData": {
-                          "_root": {
-                            "keys": [],
-                            "values": [
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null
-                            ],
-                            "isShared": true
+                      "new": {
+                        "version": 2,
+                        "nodes": {
+                          "com.fluidframework.leaf.number": {
+                            "kind": {
+                              "leaf": 0
+                            }
                           },
-                          "_maxNodeSize": 32
+                          "com.fluidframework.leaf.string": {
+                            "kind": {
+                              "leaf": 1
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Items": {
+                            "kind": {
+                              "object": {
+                                "": {
+                                  "kind": "Sequence",
+                                  "types": [
+                                    "com.fluidframework.leaf.string",
+                                    "org.watershed.shared-tree.transactions.Point"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.NamedMap": {
+                            "kind": {
+                              "map": {
+                                "kind": "Optional",
+                                "types": [
+                                  "com.fluidframework.leaf.string",
+                                  "org.watershed.shared-tree.transactions.Items",
+                                  "org.watershed.shared-tree.transactions.Point"
+                                ]
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Point": {
+                            "kind": {
+                              "object": {
+                                "id": {
+                                  "kind": "Identifier",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "label": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "x": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.number"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Root": {
+                            "kind": {
+                              "object": {
+                                "byKey": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.NamedMap"
+                                  ]
+                                },
+                                "count": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.number"
+                                  ]
+                                },
+                                "left": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.Items"
+                                  ]
+                                },
+                                "note": {
+                                  "kind": "Optional",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "right": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.Items"
+                                  ]
+                                },
+                                "title": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                }
+                              }
+                            }
+                          }
                         },
-                        "rootFieldSchemaData": {
-                          "kind": "Forbidden",
-                          "types": {}
-                        },
-                        "_events": {
-                          "listeners": {}
-                        },
-                        "events": {
-                          "listeners": {}
+                        "root": {
+                          "kind": "Optional",
+                          "types": [
+                            "org.watershed.shared-tree.transactions.Root"
+                          ]
                         }
                       }
                     },
@@ -539,22 +652,7 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional",
-                        "change": {
-                          "moves": [],
-                          "childChanges": [],
-                          "valueReplace": {
-                            "isEmpty": true,
-                            "src": {
-                              "localId": 1,
-                              "revision": -4
-                            },
-                            "dst": {
-                              "localId": 0,
-                              "revision": -4
-                            }
-                          }
-                        }
+                        "kind": "Optional"
                       }
                     ],
                     "nodes": [],
@@ -693,68 +791,392 @@
                         ]
                       }
                     ],
+                    "destroys": [],
                     "refreshers": [],
-                    "constraintViolationCount": 0
+                    "constraintViolationCount": 0,
+                    "delta": {
+                      "fields": [
+                        {
+                          "field": "rootFieldKey",
+                          "marks": [
+                            {
+                              "count": 1,
+                              "attach": {
+                                "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                                "localId": 1
+                              },
+                              "detach": null,
+                              "fields": []
+                            }
+                          ]
+                        }
+                      ],
+                      "builds": [
+                        {
+                          "id": {
+                            "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                            "localId": 1
+                          },
+                          "trees": [
+                            {
+                              "type": "org.watershed.shared-tree.transactions.Root",
+                              "fields": {
+                                "title": [
+                                  {
+                                    "type": "com.fluidframework.leaf.string",
+                                    "value": "base"
+                                  }
+                                ],
+                                "note": [
+                                  {
+                                    "type": "com.fluidframework.leaf.string",
+                                    "value": "seed"
+                                  }
+                                ],
+                                "count": [
+                                  {
+                                    "type": "com.fluidframework.leaf.number",
+                                    "value": 0
+                                  }
+                                ],
+                                "left": [
+                                  {
+                                    "type": "org.watershed.shared-tree.transactions.Items",
+                                    "fields": {
+                                      "": [
+                                        {
+                                          "type": "org.watershed.shared-tree.transactions.Point",
+                                          "fields": {
+                                            "id": [
+                                              {
+                                                "type": "com.fluidframework.leaf.string",
+                                                "value": "8f95be09-8376-4ff7-8755-ccd7e8124b08"
+                                              }
+                                            ],
+                                            "label": [
+                                              {
+                                                "type": "com.fluidframework.leaf.string",
+                                                "value": "left-a"
+                                              }
+                                            ],
+                                            "x": [
+                                              {
+                                                "type": "com.fluidframework.leaf.number",
+                                                "value": 1
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        {
+                                          "type": "org.watershed.shared-tree.transactions.Point",
+                                          "fields": {
+                                            "id": [
+                                              {
+                                                "type": "com.fluidframework.leaf.string",
+                                                "value": "8f95be09-8376-4ff7-8755-ccd7e8124b07"
+                                              }
+                                            ],
+                                            "label": [
+                                              {
+                                                "type": "com.fluidframework.leaf.string",
+                                                "value": "left-b"
+                                              }
+                                            ],
+                                            "x": [
+                                              {
+                                                "type": "com.fluidframework.leaf.number",
+                                                "value": 2
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ],
+                                "right": [
+                                  {
+                                    "type": "org.watershed.shared-tree.transactions.Items",
+                                    "fields": {
+                                      "": [
+                                        {
+                                          "type": "org.watershed.shared-tree.transactions.Point",
+                                          "fields": {
+                                            "id": [
+                                              {
+                                                "type": "com.fluidframework.leaf.string",
+                                                "value": "8f95be09-8376-4ff7-8755-ccd7e8124b06"
+                                              }
+                                            ],
+                                            "label": [
+                                              {
+                                                "type": "com.fluidframework.leaf.string",
+                                                "value": "right-a"
+                                              }
+                                            ],
+                                            "x": [
+                                              {
+                                                "type": "com.fluidframework.leaf.number",
+                                                "value": 3
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ],
+                                "byKey": [
+                                  {
+                                    "type": "org.watershed.shared-tree.transactions.NamedMap",
+                                    "fields": {
+                                      "seed": [
+                                        {
+                                          "type": "com.fluidframework.leaf.string",
+                                          "value": "value"
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "refreshers": [],
+                      "global": [],
+                      "renames": [],
+                      "destroys": []
+                    }
                   }
                 },
                 {
                   "type": "schema",
                   "change": {
                     "schema": {
-                      "new": {
-                        "nodeSchema": {},
-                        "rootFieldSchema": {
-                          "kind": "Value",
-                          "types": {}
+                      "old": {
+                        "version": 2,
+                        "nodes": {
+                          "com.fluidframework.leaf.number": {
+                            "kind": {
+                              "leaf": 0
+                            }
+                          },
+                          "com.fluidframework.leaf.string": {
+                            "kind": {
+                              "leaf": 1
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Items": {
+                            "kind": {
+                              "object": {
+                                "": {
+                                  "kind": "Sequence",
+                                  "types": [
+                                    "com.fluidframework.leaf.string",
+                                    "org.watershed.shared-tree.transactions.Point"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.NamedMap": {
+                            "kind": {
+                              "map": {
+                                "kind": "Optional",
+                                "types": [
+                                  "com.fluidframework.leaf.string",
+                                  "org.watershed.shared-tree.transactions.Items",
+                                  "org.watershed.shared-tree.transactions.Point"
+                                ]
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Point": {
+                            "kind": {
+                              "object": {
+                                "id": {
+                                  "kind": "Identifier",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "label": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "x": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.number"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Root": {
+                            "kind": {
+                              "object": {
+                                "byKey": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.NamedMap"
+                                  ]
+                                },
+                                "count": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.number"
+                                  ]
+                                },
+                                "left": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.Items"
+                                  ]
+                                },
+                                "note": {
+                                  "kind": "Optional",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "right": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.Items"
+                                  ]
+                                },
+                                "title": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "root": {
+                          "kind": "Optional",
+                          "types": [
+                            "org.watershed.shared-tree.transactions.Root"
+                          ]
                         }
                       },
-                      "old": {
-                        "nodeSchemaData": {
-                          "_root": {
-                            "keys": [
-                              "com.fluidframework.leaf.number",
-                              "com.fluidframework.leaf.string",
-                              "org.watershed.shared-tree.transactions.Items",
-                              "org.watershed.shared-tree.transactions.NamedMap",
-                              "org.watershed.shared-tree.transactions.Point",
-                              "org.watershed.shared-tree.transactions.Root"
-                            ],
-                            "values": [
-                              {
-                                "leafValue": 0
-                              },
-                              {
-                                "leafValue": 1
-                              },
-                              {
-                                "objectNodeFields": {}
-                              },
-                              {
-                                "mapFields": {
-                                  "kind": "Optional",
-                                  "types": {}
-                                }
-                              },
-                              {
-                                "objectNodeFields": {}
-                              },
-                              {
-                                "objectNodeFields": {}
-                              }
-                            ],
-                            "isShared": true
+                      "new": {
+                        "version": 2,
+                        "nodes": {
+                          "com.fluidframework.leaf.number": {
+                            "kind": {
+                              "leaf": 0
+                            }
                           },
-                          "_maxNodeSize": 32
+                          "com.fluidframework.leaf.string": {
+                            "kind": {
+                              "leaf": 1
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Items": {
+                            "kind": {
+                              "object": {
+                                "": {
+                                  "kind": "Sequence",
+                                  "types": [
+                                    "com.fluidframework.leaf.string",
+                                    "org.watershed.shared-tree.transactions.Point"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.NamedMap": {
+                            "kind": {
+                              "map": {
+                                "kind": "Optional",
+                                "types": [
+                                  "com.fluidframework.leaf.string",
+                                  "org.watershed.shared-tree.transactions.Items",
+                                  "org.watershed.shared-tree.transactions.Point"
+                                ]
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Point": {
+                            "kind": {
+                              "object": {
+                                "id": {
+                                  "kind": "Identifier",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "label": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "x": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.number"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Root": {
+                            "kind": {
+                              "object": {
+                                "byKey": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.NamedMap"
+                                  ]
+                                },
+                                "count": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.number"
+                                  ]
+                                },
+                                "left": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.Items"
+                                  ]
+                                },
+                                "note": {
+                                  "kind": "Optional",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "right": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.Items"
+                                  ]
+                                },
+                                "title": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                }
+                              }
+                            }
+                          }
                         },
-                        "rootFieldSchemaData": {
-                          "kind": "Optional",
-                          "types": {}
-                        },
-                        "_events": {
-                          "listeners": {}
-                        },
-                        "events": {
-                          "listeners": {}
+                        "root": {
+                          "kind": "Value",
+                          "types": [
+                            "org.watershed.shared-tree.transactions.Root"
+                          ]
                         }
                       }
                     },
@@ -784,22 +1206,7 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "ModularEditBuilder.Generic",
-                        "change": {
-                          "_root": {
-                            "keys": [
-                              0
-                            ],
-                            "values": [
-                              {
-                                "revision": 516,
-                                "localId": 3
-                              }
-                            ],
-                            "isShared": true
-                          },
-                          "_maxNodeSize": 32
-                        }
+                        "kind": "Generic"
                       }
                     ],
                     "nodes": [
@@ -812,22 +1219,7 @@
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "ModularEditBuilder.Generic",
-                              "change": {
-                                "_root": {
-                                  "keys": [
-                                    0
-                                  ],
-                                  "values": [
-                                    {
-                                      "revision": 516,
-                                      "localId": 4
-                                    }
-                                  ],
-                                  "isShared": true
-                                },
-                                "_maxNodeSize": 32
-                              }
+                              "kind": "Generic"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -843,15 +1235,7 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence",
-                              "change": [
-                                {
-                                  "count": 1,
-                                  "type": "Remove",
-                                  "id": 0,
-                                  "revision": 516
-                                }
-                              ]
+                              "kind": "Sequence"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -882,8 +1266,56 @@
                     ],
                     "aliases": [],
                     "builds": [],
+                    "destroys": [],
                     "refreshers": [],
-                    "constraintViolationCount": 0
+                    "constraintViolationCount": 0,
+                    "delta": {
+                      "fields": [
+                        {
+                          "field": "rootFieldKey",
+                          "marks": [
+                            {
+                              "count": 1,
+                              "attach": null,
+                              "detach": null,
+                              "fields": [
+                                {
+                                  "field": "left",
+                                  "marks": [
+                                    {
+                                      "count": 1,
+                                      "attach": null,
+                                      "detach": null,
+                                      "fields": [
+                                        {
+                                          "field": "",
+                                          "marks": [
+                                            {
+                                              "count": 1,
+                                              "attach": null,
+                                              "detach": {
+                                                "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                                                "localId": 0
+                                              },
+                                              "fields": []
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "builds": [],
+                      "refreshers": [],
+                      "global": [],
+                      "renames": [],
+                      "destroys": []
+                    }
                   }
                 }
               ]
@@ -904,21 +1336,7 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "ModularEditBuilder.Generic",
-                        "change": {
-                          "_root": {
-                            "keys": [
-                              0
-                            ],
-                            "values": [
-                              {
-                                "localId": 2,
-                                "revision": 4
-                              }
-                            ]
-                          },
-                          "_maxNodeSize": 32
-                        }
+                        "kind": "Generic"
                       }
                     ],
                     "nodes": [
@@ -931,22 +1349,7 @@
                           "fields": [
                             {
                               "field": "label",
-                              "kind": "Value",
-                              "change": {
-                                "moves": [],
-                                "childChanges": [],
-                                "valueReplace": {
-                                  "isEmpty": false,
-                                  "src": {
-                                    "localId": 6,
-                                    "revision": 4
-                                  },
-                                  "dst": {
-                                    "localId": 7,
-                                    "revision": 4
-                                  }
-                                }
-                              }
+                              "kind": "Value"
                             }
                           ],
                           "nodeExistsConstraint": {
@@ -964,20 +1367,7 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence",
-                              "change": [
-                                {
-                                  "count": 1,
-                                  "changes": {
-                                    "localId": 0,
-                                    "revision": 4
-                                  },
-                                  "cellId": {
-                                    "revision": 516,
-                                    "localId": 0
-                                  }
-                                }
-                              ]
+                              "kind": "Sequence"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -993,39 +1383,11 @@
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "ModularEditBuilder.Generic",
-                              "change": {
-                                "_root": {
-                                  "keys": [
-                                    0
-                                  ],
-                                  "values": [
-                                    {
-                                      "localId": 1,
-                                      "revision": 4
-                                    }
-                                  ]
-                                },
-                                "_maxNodeSize": 32
-                              }
+                              "kind": "Generic"
                             },
                             {
                               "field": "right",
-                              "kind": "ModularEditBuilder.Generic",
-                              "change": {
-                                "_root": {
-                                  "keys": [
-                                    0
-                                  ],
-                                  "values": [
-                                    {
-                                      "localId": 12,
-                                      "revision": 4
-                                    }
-                                  ]
-                                },
-                                "_maxNodeSize": 32
-                              }
+                              "kind": "Generic"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -1041,22 +1403,7 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence",
-                              "change": [
-                                {
-                                  "count": 1
-                                },
-                                {
-                                  "type": "Insert",
-                                  "id": 11,
-                                  "count": 1,
-                                  "cellId": {
-                                    "localId": 11,
-                                    "revision": 4
-                                  },
-                                  "revision": 4
-                                }
-                              ]
+                              "kind": "Sequence"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -1224,8 +1571,61 @@
                         ]
                       }
                     ],
+                    "destroys": [],
                     "refreshers": [],
-                    "constraintViolationCount": 1
+                    "constraintViolationCount": 1,
+                    "delta": {
+                      "fields": [],
+                      "builds": [
+                        {
+                          "id": {
+                            "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                            "localId": 6
+                          },
+                          "trees": [
+                            {
+                              "type": "com.fluidframework.leaf.string",
+                              "value": "suppressed"
+                            }
+                          ]
+                        },
+                        {
+                          "id": {
+                            "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                            "localId": 11
+                          },
+                          "trees": [
+                            {
+                              "type": "org.watershed.shared-tree.transactions.Point",
+                              "fields": {
+                                "id": [
+                                  {
+                                    "type": "com.fluidframework.leaf.string",
+                                    "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0b"
+                                  }
+                                ],
+                                "label": [
+                                  {
+                                    "type": "com.fluidframework.leaf.string",
+                                    "value": "created"
+                                  }
+                                ],
+                                "x": [
+                                  {
+                                    "type": "com.fluidframework.leaf.number",
+                                    "value": 9
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "refreshers": [],
+                      "global": [],
+                      "renames": [],
+                      "destroys": []
+                    }
                   }
                 }
               ]
@@ -1809,21 +2209,7 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "ModularEditBuilder.Generic",
-                        "change": {
-                          "_root": {
-                            "keys": [
-                              0
-                            ],
-                            "values": [
-                              {
-                                "localId": 2,
-                                "revision": 4
-                              }
-                            ]
-                          },
-                          "_maxNodeSize": 32
-                        }
+                        "kind": "Generic"
                       }
                     ],
                     "nodes": [
@@ -1836,22 +2222,7 @@
                           "fields": [
                             {
                               "field": "label",
-                              "kind": "Value",
-                              "change": {
-                                "moves": [],
-                                "childChanges": [],
-                                "valueReplace": {
-                                  "isEmpty": false,
-                                  "src": {
-                                    "localId": 6,
-                                    "revision": 4
-                                  },
-                                  "dst": {
-                                    "localId": 7,
-                                    "revision": 4
-                                  }
-                                }
-                              }
+                              "kind": "Value"
                             }
                           ],
                           "nodeExistsConstraint": {
@@ -1869,21 +2240,7 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "ModularEditBuilder.Generic",
-                              "change": {
-                                "_root": {
-                                  "keys": [
-                                    0
-                                  ],
-                                  "values": [
-                                    {
-                                      "localId": 0,
-                                      "revision": 4
-                                    }
-                                  ]
-                                },
-                                "_maxNodeSize": 32
-                              }
+                              "kind": "Generic"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -1899,39 +2256,11 @@
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "ModularEditBuilder.Generic",
-                              "change": {
-                                "_root": {
-                                  "keys": [
-                                    0
-                                  ],
-                                  "values": [
-                                    {
-                                      "localId": 1,
-                                      "revision": 4
-                                    }
-                                  ]
-                                },
-                                "_maxNodeSize": 32
-                              }
+                              "kind": "Generic"
                             },
                             {
                               "field": "right",
-                              "kind": "ModularEditBuilder.Generic",
-                              "change": {
-                                "_root": {
-                                  "keys": [
-                                    0
-                                  ],
-                                  "values": [
-                                    {
-                                      "localId": 12,
-                                      "revision": 4
-                                    }
-                                  ]
-                                },
-                                "_maxNodeSize": 32
-                              }
+                              "kind": "Generic"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -1947,22 +2276,7 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence",
-                              "change": [
-                                {
-                                  "count": 1
-                                },
-                                {
-                                  "type": "Insert",
-                                  "id": 11,
-                                  "count": 1,
-                                  "cellId": {
-                                    "localId": 11,
-                                    "revision": 4
-                                  },
-                                  "revision": 4
-                                }
-                              ]
+                              "kind": "Sequence"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -2130,8 +2444,147 @@
                         ]
                       }
                     ],
+                    "destroys": [],
                     "refreshers": [],
-                    "constraintViolationCount": 0
+                    "constraintViolationCount": 0,
+                    "delta": {
+                      "fields": [
+                        {
+                          "field": "rootFieldKey",
+                          "marks": [
+                            {
+                              "count": 1,
+                              "attach": null,
+                              "detach": null,
+                              "fields": [
+                                {
+                                  "field": "left",
+                                  "marks": [
+                                    {
+                                      "count": 1,
+                                      "attach": null,
+                                      "detach": null,
+                                      "fields": [
+                                        {
+                                          "field": "",
+                                          "marks": [
+                                            {
+                                              "count": 1,
+                                              "attach": null,
+                                              "detach": null,
+                                              "fields": [
+                                                {
+                                                  "field": "label",
+                                                  "marks": [
+                                                    {
+                                                      "count": 1,
+                                                      "attach": {
+                                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                                        "localId": 6
+                                                      },
+                                                      "detach": {
+                                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                                        "localId": 7
+                                                      },
+                                                      "fields": []
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "field": "right",
+                                  "marks": [
+                                    {
+                                      "count": 1,
+                                      "attach": null,
+                                      "detach": null,
+                                      "fields": [
+                                        {
+                                          "field": "",
+                                          "marks": [
+                                            {
+                                              "count": 1,
+                                              "attach": null,
+                                              "detach": null,
+                                              "fields": []
+                                            },
+                                            {
+                                              "count": 1,
+                                              "attach": {
+                                                "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                                "localId": 11
+                                              },
+                                              "detach": null,
+                                              "fields": []
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "builds": [
+                        {
+                          "id": {
+                            "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                            "localId": 6
+                          },
+                          "trees": [
+                            {
+                              "type": "com.fluidframework.leaf.string",
+                              "value": "suppressed"
+                            }
+                          ]
+                        },
+                        {
+                          "id": {
+                            "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                            "localId": 11
+                          },
+                          "trees": [
+                            {
+                              "type": "org.watershed.shared-tree.transactions.Point",
+                              "fields": {
+                                "id": [
+                                  {
+                                    "type": "com.fluidframework.leaf.string",
+                                    "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0b"
+                                  }
+                                ],
+                                "label": [
+                                  {
+                                    "type": "com.fluidframework.leaf.string",
+                                    "value": "created"
+                                  }
+                                ],
+                                "x": [
+                                  {
+                                    "type": "com.fluidframework.leaf.number",
+                                    "value": 9
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "refreshers": [],
+                      "global": [],
+                      "renames": [],
+                      "destroys": []
+                    }
                   }
                 }
               ]
@@ -2145,64 +2598,124 @@
                   "type": "schema",
                   "change": {
                     "schema": {
-                      "new": {
-                        "nodeSchema": {},
-                        "rootFieldSchema": {
-                          "kind": "Optional",
-                          "types": {}
+                      "old": {
+                        "version": 2,
+                        "nodes": {},
+                        "root": {
+                          "kind": "Forbidden",
+                          "types": []
                         }
                       },
-                      "old": {
-                        "nodeSchemaData": {
-                          "_root": {
-                            "keys": [],
-                            "values": [
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null,
-                              null
-                            ],
-                            "isShared": true
+                      "new": {
+                        "version": 2,
+                        "nodes": {
+                          "com.fluidframework.leaf.number": {
+                            "kind": {
+                              "leaf": 0
+                            }
                           },
-                          "_maxNodeSize": 32
+                          "com.fluidframework.leaf.string": {
+                            "kind": {
+                              "leaf": 1
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Items": {
+                            "kind": {
+                              "object": {
+                                "": {
+                                  "kind": "Sequence",
+                                  "types": [
+                                    "com.fluidframework.leaf.string",
+                                    "org.watershed.shared-tree.transactions.Point"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.NamedMap": {
+                            "kind": {
+                              "map": {
+                                "kind": "Optional",
+                                "types": [
+                                  "com.fluidframework.leaf.string",
+                                  "org.watershed.shared-tree.transactions.Items",
+                                  "org.watershed.shared-tree.transactions.Point"
+                                ]
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Point": {
+                            "kind": {
+                              "object": {
+                                "id": {
+                                  "kind": "Identifier",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "label": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "x": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.number"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Root": {
+                            "kind": {
+                              "object": {
+                                "byKey": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.NamedMap"
+                                  ]
+                                },
+                                "count": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.number"
+                                  ]
+                                },
+                                "left": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.Items"
+                                  ]
+                                },
+                                "note": {
+                                  "kind": "Optional",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "right": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.Items"
+                                  ]
+                                },
+                                "title": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                }
+                              }
+                            }
+                          }
                         },
-                        "rootFieldSchemaData": {
-                          "kind": "Forbidden",
-                          "types": {}
-                        },
-                        "_events": {
-                          "listeners": {}
-                        },
-                        "events": {
-                          "listeners": {}
+                        "root": {
+                          "kind": "Optional",
+                          "types": [
+                            "org.watershed.shared-tree.transactions.Root"
+                          ]
                         }
                       }
                     },
@@ -2222,22 +2735,7 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional",
-                        "change": {
-                          "moves": [],
-                          "childChanges": [],
-                          "valueReplace": {
-                            "isEmpty": true,
-                            "src": {
-                              "localId": 1,
-                              "revision": -4
-                            },
-                            "dst": {
-                              "localId": 0,
-                              "revision": -4
-                            }
-                          }
-                        }
+                        "kind": "Optional"
                       }
                     ],
                     "nodes": [],
@@ -2376,68 +2874,392 @@
                         ]
                       }
                     ],
+                    "destroys": [],
                     "refreshers": [],
-                    "constraintViolationCount": 0
+                    "constraintViolationCount": 0,
+                    "delta": {
+                      "fields": [
+                        {
+                          "field": "rootFieldKey",
+                          "marks": [
+                            {
+                              "count": 1,
+                              "attach": {
+                                "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                                "localId": 1
+                              },
+                              "detach": null,
+                              "fields": []
+                            }
+                          ]
+                        }
+                      ],
+                      "builds": [
+                        {
+                          "id": {
+                            "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                            "localId": 1
+                          },
+                          "trees": [
+                            {
+                              "type": "org.watershed.shared-tree.transactions.Root",
+                              "fields": {
+                                "title": [
+                                  {
+                                    "type": "com.fluidframework.leaf.string",
+                                    "value": "base"
+                                  }
+                                ],
+                                "note": [
+                                  {
+                                    "type": "com.fluidframework.leaf.string",
+                                    "value": "seed"
+                                  }
+                                ],
+                                "count": [
+                                  {
+                                    "type": "com.fluidframework.leaf.number",
+                                    "value": 0
+                                  }
+                                ],
+                                "left": [
+                                  {
+                                    "type": "org.watershed.shared-tree.transactions.Items",
+                                    "fields": {
+                                      "": [
+                                        {
+                                          "type": "org.watershed.shared-tree.transactions.Point",
+                                          "fields": {
+                                            "id": [
+                                              {
+                                                "type": "com.fluidframework.leaf.string",
+                                                "value": "8f95be09-8376-4ff7-8755-ccd7e8124b08"
+                                              }
+                                            ],
+                                            "label": [
+                                              {
+                                                "type": "com.fluidframework.leaf.string",
+                                                "value": "left-a"
+                                              }
+                                            ],
+                                            "x": [
+                                              {
+                                                "type": "com.fluidframework.leaf.number",
+                                                "value": 1
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        {
+                                          "type": "org.watershed.shared-tree.transactions.Point",
+                                          "fields": {
+                                            "id": [
+                                              {
+                                                "type": "com.fluidframework.leaf.string",
+                                                "value": "8f95be09-8376-4ff7-8755-ccd7e8124b07"
+                                              }
+                                            ],
+                                            "label": [
+                                              {
+                                                "type": "com.fluidframework.leaf.string",
+                                                "value": "left-b"
+                                              }
+                                            ],
+                                            "x": [
+                                              {
+                                                "type": "com.fluidframework.leaf.number",
+                                                "value": 2
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ],
+                                "right": [
+                                  {
+                                    "type": "org.watershed.shared-tree.transactions.Items",
+                                    "fields": {
+                                      "": [
+                                        {
+                                          "type": "org.watershed.shared-tree.transactions.Point",
+                                          "fields": {
+                                            "id": [
+                                              {
+                                                "type": "com.fluidframework.leaf.string",
+                                                "value": "8f95be09-8376-4ff7-8755-ccd7e8124b06"
+                                              }
+                                            ],
+                                            "label": [
+                                              {
+                                                "type": "com.fluidframework.leaf.string",
+                                                "value": "right-a"
+                                              }
+                                            ],
+                                            "x": [
+                                              {
+                                                "type": "com.fluidframework.leaf.number",
+                                                "value": 3
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ],
+                                "byKey": [
+                                  {
+                                    "type": "org.watershed.shared-tree.transactions.NamedMap",
+                                    "fields": {
+                                      "seed": [
+                                        {
+                                          "type": "com.fluidframework.leaf.string",
+                                          "value": "value"
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "refreshers": [],
+                      "global": [],
+                      "renames": [],
+                      "destroys": []
+                    }
                   }
                 },
                 {
                   "type": "schema",
                   "change": {
                     "schema": {
-                      "new": {
-                        "nodeSchema": {},
-                        "rootFieldSchema": {
-                          "kind": "Value",
-                          "types": {}
+                      "old": {
+                        "version": 2,
+                        "nodes": {
+                          "com.fluidframework.leaf.number": {
+                            "kind": {
+                              "leaf": 0
+                            }
+                          },
+                          "com.fluidframework.leaf.string": {
+                            "kind": {
+                              "leaf": 1
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Items": {
+                            "kind": {
+                              "object": {
+                                "": {
+                                  "kind": "Sequence",
+                                  "types": [
+                                    "com.fluidframework.leaf.string",
+                                    "org.watershed.shared-tree.transactions.Point"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.NamedMap": {
+                            "kind": {
+                              "map": {
+                                "kind": "Optional",
+                                "types": [
+                                  "com.fluidframework.leaf.string",
+                                  "org.watershed.shared-tree.transactions.Items",
+                                  "org.watershed.shared-tree.transactions.Point"
+                                ]
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Point": {
+                            "kind": {
+                              "object": {
+                                "id": {
+                                  "kind": "Identifier",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "label": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "x": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.number"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Root": {
+                            "kind": {
+                              "object": {
+                                "byKey": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.NamedMap"
+                                  ]
+                                },
+                                "count": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.number"
+                                  ]
+                                },
+                                "left": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.Items"
+                                  ]
+                                },
+                                "note": {
+                                  "kind": "Optional",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "right": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.Items"
+                                  ]
+                                },
+                                "title": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "root": {
+                          "kind": "Optional",
+                          "types": [
+                            "org.watershed.shared-tree.transactions.Root"
+                          ]
                         }
                       },
-                      "old": {
-                        "nodeSchemaData": {
-                          "_root": {
-                            "keys": [
-                              "com.fluidframework.leaf.number",
-                              "com.fluidframework.leaf.string",
-                              "org.watershed.shared-tree.transactions.Items",
-                              "org.watershed.shared-tree.transactions.NamedMap",
-                              "org.watershed.shared-tree.transactions.Point",
-                              "org.watershed.shared-tree.transactions.Root"
-                            ],
-                            "values": [
-                              {
-                                "leafValue": 0
-                              },
-                              {
-                                "leafValue": 1
-                              },
-                              {
-                                "objectNodeFields": {}
-                              },
-                              {
-                                "mapFields": {
-                                  "kind": "Optional",
-                                  "types": {}
-                                }
-                              },
-                              {
-                                "objectNodeFields": {}
-                              },
-                              {
-                                "objectNodeFields": {}
-                              }
-                            ],
-                            "isShared": true
+                      "new": {
+                        "version": 2,
+                        "nodes": {
+                          "com.fluidframework.leaf.number": {
+                            "kind": {
+                              "leaf": 0
+                            }
                           },
-                          "_maxNodeSize": 32
+                          "com.fluidframework.leaf.string": {
+                            "kind": {
+                              "leaf": 1
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Items": {
+                            "kind": {
+                              "object": {
+                                "": {
+                                  "kind": "Sequence",
+                                  "types": [
+                                    "com.fluidframework.leaf.string",
+                                    "org.watershed.shared-tree.transactions.Point"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.NamedMap": {
+                            "kind": {
+                              "map": {
+                                "kind": "Optional",
+                                "types": [
+                                  "com.fluidframework.leaf.string",
+                                  "org.watershed.shared-tree.transactions.Items",
+                                  "org.watershed.shared-tree.transactions.Point"
+                                ]
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Point": {
+                            "kind": {
+                              "object": {
+                                "id": {
+                                  "kind": "Identifier",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "label": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "x": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.number"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "org.watershed.shared-tree.transactions.Root": {
+                            "kind": {
+                              "object": {
+                                "byKey": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.NamedMap"
+                                  ]
+                                },
+                                "count": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.number"
+                                  ]
+                                },
+                                "left": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.Items"
+                                  ]
+                                },
+                                "note": {
+                                  "kind": "Optional",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                },
+                                "right": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "org.watershed.shared-tree.transactions.Items"
+                                  ]
+                                },
+                                "title": {
+                                  "kind": "Value",
+                                  "types": [
+                                    "com.fluidframework.leaf.string"
+                                  ]
+                                }
+                              }
+                            }
+                          }
                         },
-                        "rootFieldSchemaData": {
-                          "kind": "Optional",
-                          "types": {}
-                        },
-                        "_events": {
-                          "listeners": {}
-                        },
-                        "events": {
-                          "listeners": {}
+                        "root": {
+                          "kind": "Value",
+                          "types": [
+                            "org.watershed.shared-tree.transactions.Root"
+                          ]
                         }
                       }
                     },
@@ -2467,22 +3289,7 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "ModularEditBuilder.Generic",
-                        "change": {
-                          "_root": {
-                            "keys": [
-                              0
-                            ],
-                            "values": [
-                              {
-                                "revision": 516,
-                                "localId": 3
-                              }
-                            ],
-                            "isShared": true
-                          },
-                          "_maxNodeSize": 32
-                        }
+                        "kind": "Generic"
                       }
                     ],
                     "nodes": [
@@ -2495,22 +3302,7 @@
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "ModularEditBuilder.Generic",
-                              "change": {
-                                "_root": {
-                                  "keys": [
-                                    0
-                                  ],
-                                  "values": [
-                                    {
-                                      "revision": 516,
-                                      "localId": 4
-                                    }
-                                  ],
-                                  "isShared": true
-                                },
-                                "_maxNodeSize": 32
-                              }
+                              "kind": "Generic"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -2526,15 +3318,7 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence",
-                              "change": [
-                                {
-                                  "count": 1,
-                                  "type": "Remove",
-                                  "id": 0,
-                                  "revision": 516
-                                }
-                              ]
+                              "kind": "Sequence"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -2565,8 +3349,56 @@
                     ],
                     "aliases": [],
                     "builds": [],
+                    "destroys": [],
                     "refreshers": [],
-                    "constraintViolationCount": 0
+                    "constraintViolationCount": 0,
+                    "delta": {
+                      "fields": [
+                        {
+                          "field": "rootFieldKey",
+                          "marks": [
+                            {
+                              "count": 1,
+                              "attach": null,
+                              "detach": null,
+                              "fields": [
+                                {
+                                  "field": "left",
+                                  "marks": [
+                                    {
+                                      "count": 1,
+                                      "attach": null,
+                                      "detach": null,
+                                      "fields": [
+                                        {
+                                          "field": "",
+                                          "marks": [
+                                            {
+                                              "count": 1,
+                                              "attach": null,
+                                              "detach": {
+                                                "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                                                "localId": 0
+                                              },
+                                              "fields": []
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "builds": [],
+                      "refreshers": [],
+                      "global": [],
+                      "renames": [],
+                      "destroys": []
+                    }
                   }
                 }
               ]
@@ -2587,21 +3419,7 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "ModularEditBuilder.Generic",
-                        "change": {
-                          "_root": {
-                            "keys": [
-                              0
-                            ],
-                            "values": [
-                              {
-                                "localId": 2,
-                                "revision": 4
-                              }
-                            ]
-                          },
-                          "_maxNodeSize": 32
-                        }
+                        "kind": "Generic"
                       }
                     ],
                     "nodes": [
@@ -2614,22 +3432,7 @@
                           "fields": [
                             {
                               "field": "label",
-                              "kind": "Value",
-                              "change": {
-                                "moves": [],
-                                "childChanges": [],
-                                "valueReplace": {
-                                  "isEmpty": false,
-                                  "src": {
-                                    "localId": 6,
-                                    "revision": 4
-                                  },
-                                  "dst": {
-                                    "localId": 7,
-                                    "revision": 4
-                                  }
-                                }
-                              }
+                              "kind": "Value"
                             }
                           ],
                           "nodeExistsConstraint": {
@@ -2647,20 +3450,7 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence",
-                              "change": [
-                                {
-                                  "count": 1,
-                                  "changes": {
-                                    "localId": 0,
-                                    "revision": 4
-                                  },
-                                  "cellId": {
-                                    "revision": 516,
-                                    "localId": 0
-                                  }
-                                }
-                              ]
+                              "kind": "Sequence"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -2676,39 +3466,11 @@
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "ModularEditBuilder.Generic",
-                              "change": {
-                                "_root": {
-                                  "keys": [
-                                    0
-                                  ],
-                                  "values": [
-                                    {
-                                      "localId": 1,
-                                      "revision": 4
-                                    }
-                                  ]
-                                },
-                                "_maxNodeSize": 32
-                              }
+                              "kind": "Generic"
                             },
                             {
                               "field": "right",
-                              "kind": "ModularEditBuilder.Generic",
-                              "change": {
-                                "_root": {
-                                  "keys": [
-                                    0
-                                  ],
-                                  "values": [
-                                    {
-                                      "localId": 12,
-                                      "revision": 4
-                                    }
-                                  ]
-                                },
-                                "_maxNodeSize": 32
-                              }
+                              "kind": "Generic"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -2724,22 +3486,7 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence",
-                              "change": [
-                                {
-                                  "count": 1
-                                },
-                                {
-                                  "type": "Insert",
-                                  "id": 11,
-                                  "count": 1,
-                                  "cellId": {
-                                    "localId": 11,
-                                    "revision": 4
-                                  },
-                                  "revision": 4
-                                }
-                              ]
+                              "kind": "Sequence"
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -2907,8 +3654,61 @@
                         ]
                       }
                     ],
+                    "destroys": [],
                     "refreshers": [],
-                    "constraintViolationCount": 1
+                    "constraintViolationCount": 1,
+                    "delta": {
+                      "fields": [],
+                      "builds": [
+                        {
+                          "id": {
+                            "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                            "localId": 6
+                          },
+                          "trees": [
+                            {
+                              "type": "com.fluidframework.leaf.string",
+                              "value": "suppressed"
+                            }
+                          ]
+                        },
+                        {
+                          "id": {
+                            "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                            "localId": 11
+                          },
+                          "trees": [
+                            {
+                              "type": "org.watershed.shared-tree.transactions.Point",
+                              "fields": {
+                                "id": [
+                                  {
+                                    "type": "com.fluidframework.leaf.string",
+                                    "value": "8f95be09-8376-4ff7-8755-ccd7e8124b0b"
+                                  }
+                                ],
+                                "label": [
+                                  {
+                                    "type": "com.fluidframework.leaf.string",
+                                    "value": "created"
+                                  }
+                                ],
+                                "x": [
+                                  {
+                                    "type": "com.fluidframework.leaf.number",
+                                    "value": 9
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "refreshers": [],
+                      "global": [],
+                      "renames": [],
+                      "destroys": []
+                    }
                   }
                 }
               ]

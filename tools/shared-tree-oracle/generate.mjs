@@ -3420,6 +3420,176 @@ export function validateRuntimeCase(value) {
   }
 }
 
+function privateImplementationPaths(value) {
+  const paths = [];
+  function visit(item, path) {
+    if (Array.isArray(item)) {
+      item.forEach((child, index) => visit(child, [...path, index]));
+      return;
+    }
+    if (item === null || typeof item !== "object") return;
+    for (const [key, child] of Object.entries(item)) {
+      const childPath = [...path, key];
+      if (
+        ["_root", "_maxNodeSize", "_events", "isShared"].includes(key)
+        || (key === "events" && object(child) && !Array.isArray(child))
+      ) {
+        paths.push(childPath.join("."));
+      }
+      visit(child, childPath);
+    }
+  }
+  visit(value, []);
+  return paths;
+}
+
+function assertStableAtom(value, label) {
+  assert(object(value)
+    && Object.hasOwn(value, "revision")
+    && (value.revision === null
+      || (typeof value.revision === "string" && value.revision.length > 0))
+    && Number.isSafeInteger(value.localId)
+    && value.localId >= 0,
+  `${label}: malformed atom`);
+}
+
+function assertStableFields(value, label) {
+  assert(Array.isArray(value), `${label}: missing fields`);
+  for (const [index, field] of value.entries()) {
+    assert(object(field)
+      && typeof field.field === "string"
+      && typeof field.kind === "string"
+      && field.kind.length > 0
+      && !Object.hasOwn(field, "change"),
+    `${label}: malformed field ${index}`);
+  }
+}
+
+function assertStableBuilds(value, label) {
+  assert(Array.isArray(value), `${label}: missing builds`);
+  for (const [index, build] of value.entries()) {
+    assertStableAtom(build?.id, `${label} ${index}`);
+    assert(nonemptyArray(build.trees), `${label}: empty build ${index}`);
+  }
+}
+
+function assertStableDelta(value, label) {
+  assert(object(value), `${label}: missing delta`);
+  for (const name of ["fields", "builds", "refreshers", "global", "renames", "destroys"]) {
+    assert(Array.isArray(value[name]), `${label}: missing delta ${name}`);
+  }
+  for (const [index, field] of value.fields.entries()) {
+    assert(object(field)
+      && typeof field.field === "string"
+      && Array.isArray(field.marks),
+    `${label}: malformed delta field ${index}`);
+  }
+}
+
+function assertStableModularChange(value, label) {
+  assert(object(value)
+    && Number.isSafeInteger(value.maxId)
+    && Array.isArray(value.revisions)
+    && Array.isArray(value.nodes)
+    && Array.isArray(value.parents)
+    && Array.isArray(value.aliases)
+    && Array.isArray(value.destroys)
+    && Number.isSafeInteger(value.constraintViolationCount)
+    && value.constraintViolationCount >= 0,
+  `${label}: incomplete modular change`);
+  assertStableFields(value.fields, `${label} fields`);
+  for (const [index, revision] of value.revisions.entries()) {
+    assert(object(revision)
+      && typeof revision.revision === "string"
+      && revision.revision.length > 0
+      && Object.hasOwn(revision, "rollbackOf")
+      && (revision.rollbackOf === null
+        || (typeof revision.rollbackOf === "string" && revision.rollbackOf.length > 0)),
+    `${label}: malformed revision ${index}`);
+  }
+  for (const [index, node] of value.nodes.entries()) {
+    assertStableAtom(node?.id, `${label} node ${index}`);
+    assert(object(node.change)
+      && Object.hasOwn(node.change, "nodeExistsConstraint")
+      && Object.hasOwn(node.change, "nodeExistsConstraintOnRevert"),
+    `${label}: incomplete node ${index}`);
+    assertStableFields(node.change.fields, `${label} node ${index} fields`);
+  }
+  for (const [index, parent] of value.parents.entries()) {
+    assertStableAtom(parent?.id, `${label} parent ${index}`);
+    assert(parent.parent === null || object(parent.parent),
+      `${label}: malformed parent target ${index}`);
+    if (parent.parent !== null) assertStableAtom(parent.parent, `${label} parent target ${index}`);
+    assert(typeof parent.field === "string", `${label}: malformed parent field ${index}`);
+  }
+  for (const [index, alias] of value.aliases.entries()) {
+    assertStableAtom(alias?.id, `${label} alias ${index}`);
+    assertStableAtom(alias?.target, `${label} alias target ${index}`);
+  }
+  assertStableBuilds(value.builds, `${label} builds`);
+  assertStableBuilds(value.refreshers, `${label} refreshers`);
+  for (const [index, destroy] of value.destroys.entries()) {
+    assertStableAtom(destroy?.id, `${label} destroy ${index}`);
+    assert(Number.isSafeInteger(destroy.count) && destroy.count > 0,
+      `${label}: malformed destroy ${index}`);
+  }
+  assertStableDelta(value.delta, `${label} delta`);
+  assert.deepEqual(privateImplementationPaths(value), [],
+    `${label}: private implementation state`);
+}
+
+function assertStableSchemaChange(value, label) {
+  assert(object(value)
+    && object(value.schema)
+    && object(value.schema.old)
+    && object(value.schema.new)
+    && typeof value.isInverse === "boolean",
+  `${label}: incomplete schema change`);
+  assert.deepEqual(privateImplementationPaths(value), [],
+    `${label}: private schema implementation state`);
+}
+
+function assertStableCommit(value, label) {
+  assert(object(value)
+    && typeof value.revision === "string"
+    && value.revision.length > 0
+    && nonemptyArray(value.changes),
+  `${label}: incomplete commit`);
+  for (const [index, change] of value.changes.entries()) {
+    assert(object(change) && object(change.change), `${label}: malformed change ${index}`);
+    if (change.type === "data") {
+      assertStableModularChange(change.change, `${label} data ${index}`);
+    } else {
+      assert.equal(change.type, "schema", `${label}: unknown change type ${index}`);
+      assertStableSchemaChange(change.change, `${label} schema ${index}`);
+    }
+  }
+}
+
+function assertStableHistory(value, label) {
+  assert(object(value)
+    && Array.isArray(value.pending)
+    && Array.isArray(value.trunk),
+  `${label}: incomplete history`);
+  value.pending.forEach((commit, index) =>
+    assertStableCommit(commit, `${label} pending ${index}`));
+  value.trunk.forEach((commit, index) =>
+    assertStableCommit(commit, `${label} trunk ${index}`));
+}
+
+function assertExactMessages(value, label) {
+  assert(Array.isArray(value), `${label}: missing messages`);
+  for (const [index, message] of value.entries()) {
+    assert(object(message)
+      && message.version === 7
+      && Object.hasOwn(message, "revision")
+      && typeof message.originatorId === "string"
+      && message.originatorId.length > 0
+      && nonemptyArray(message.changeset),
+    `${label}: incomplete Message V7 ${index}`);
+  }
+}
+
 export function validateTransactionCallbacks(value) {
   const label = value.id;
   assert.equal(
@@ -3459,6 +3629,9 @@ export function validateTransactionCallbacks(value) {
       && Array.isArray(observation.history.pending)
       && Array.isArray(observation.history.trunk),
     `${label}: missing ${observation.id} history state`);
+    assertStableHistory(observation.history, `${label}: ${observation.id} history`);
+    assertExactMessages(observation.submittedMessages,
+      `${label}: ${observation.id} submitted messages`);
     assert(Array.isArray(observation.retainedDetached),
       `${label}: missing ${observation.id} retained state`);
     assert(object(observation.allocation),
@@ -3552,6 +3725,9 @@ function validateTransactionConstraints(value) {
   assert(!JSON.stringify(observation.clients).includes("suppressed")
     && !JSON.stringify(observation.clients).includes("created"),
     `${label}: constrained effects remained visible`);
+  assertStableHistory(observation.pending, `${label}: pending history`);
+  assertStableHistory(observation.settled, `${label}: settled history`);
+  assertExactMessages(observation.reconnectMessages, `${label}: reconnect messages`);
 }
 
 function validateTransactionWire(value) {
@@ -3817,7 +3993,16 @@ function validateTransactionHistory(value) {
     `${label}: incomplete ${checkpoint.id ?? "history"} checkpoint`);
     assertAllocationCheckpoint(checkpoint.allocation,
       `${label}: ${checkpoint.id ?? "history"} allocation`);
+    assertStableHistory(checkpoint.history,
+      `${label}: ${checkpoint.id ?? "history"} history`);
   }
+  assertStableCommit(observation.pendingViolation, `${label}: pending violation`);
+  assertExactMessages(observation.reconnectMessages, `${label}: reconnect messages`);
+  assert(object(value.raw.summary)
+    && object(value.raw.tailEnvelope)
+    && object(value.raw.continuationEnvelope)
+    && nonemptyArray(value.raw.messages),
+  `${label}: missing summary-tail wire evidence`);
   assert.deepEqual(observation.peer.visible, observation.afterContinuation.visible,
     `${label}: continuation did not converge`);
   assert.deepEqual(observation.peer.identities, observation.afterContinuation.identities,

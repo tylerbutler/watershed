@@ -24,7 +24,7 @@ import {
 	MockSharedObjectServices,
 } from "@fluidframework/test-runtime-utils/internal";
 
-import { FluidClientVersion } from "../codec/index.js";
+import { FluidClientVersion, FormatValidatorNoOp } from "../codec/index.js";
 import {
 	revisionMetadataSourceFromInfo,
 	tagChange,
@@ -34,6 +34,8 @@ import {
 } from "../core/index.js";
 import {
 	jsonableTreeFromFieldCursor,
+	intoDelta,
+	schemaCodecBuilder,
 	type ModularChangeset,
 } from "../feature-libraries/index.js";
 import type { NodeChangeset } from "../feature-libraries/modular-schema/modularChangeTypes.js";
@@ -294,11 +296,14 @@ function atom(
 	return { revision: revision(value.revision, compressor), localId: value.localId };
 }
 
+function fieldKind(value: string) {
+	return value === "ModularEditBuilder.Generic" ? "Generic" : value;
+}
+
 function fieldChanges(value: ModularChangeset["fieldChanges"]) {
 	return [...value].map(([field, change]) => ({
 		field,
-		kind: change.fieldKind,
-		change: copy(change.change),
+		kind: fieldKind(change.fieldKind),
 	}));
 }
 
@@ -316,6 +321,19 @@ function modularChange(value: ModularChangeset, compressor: IIdCompressor) {
 			id: atom({ revision: major, localId: minor }, compressor),
 			trees: jsonableTreeFromFieldCursor(chunk.cursor()),
 		}));
+	const deltaAtom = (value: { major?: RevisionTag; minor: number }) =>
+		atom({ revision: value.major, localId: value.minor }, compressor);
+	const deltaFields = (value: ReturnType<typeof intoDelta>["fields"]): object[] =>
+		[...(value ?? [])].map(([field, change]) => ({
+			field,
+			marks: change.marks.map((mark) => ({
+				count: mark.count,
+				attach: mark.attach === undefined ? null : deltaAtom(mark.attach),
+				detach: mark.detach === undefined ? null : deltaAtom(mark.detach),
+				fields: deltaFields(mark.fields),
+			})),
+		}));
+	const delta = intoDelta(tagChange(value, undefined));
 	return {
 		maxId: value.maxId ?? -1,
 		revisions: (value.revisions ?? []).map((info) => ({
@@ -337,8 +355,36 @@ function modularChange(value: ModularChangeset, compressor: IIdCompressor) {
 			target: atom(target, compressor),
 		})),
 		builds: chunks(value.builds),
+		destroys: [...(value.destroys?.entries() ?? [])].map(([[major, minor], count]) => ({
+			id: atom({ revision: major, localId: minor }, compressor),
+			count,
+		})),
 		refreshers: chunks(value.refreshers),
 		constraintViolationCount: value.constraintViolationCount ?? 0,
+		delta: {
+			fields: deltaFields(delta.fields),
+			builds: (delta.build ?? []).map((build) => ({
+				id: deltaAtom(build.id),
+				trees: jsonableTreeFromFieldCursor(build.trees.cursor()),
+			})),
+			refreshers: (delta.refreshers ?? []).map((build) => ({
+				id: deltaAtom(build.id),
+				trees: jsonableTreeFromFieldCursor(build.trees.cursor()),
+			})),
+			global: (delta.global ?? []).map((change) => ({
+				id: deltaAtom(change.id),
+				fields: deltaFields(change.fields),
+			})),
+			renames: (delta.rename ?? []).map((rename) => ({
+				old: deltaAtom(rename.oldId),
+				new: deltaAtom(rename.newId),
+				count: rename.count,
+			})),
+			destroys: (delta.destroy ?? []).map((destroy) => ({
+				id: deltaAtom(destroy.id),
+				count: destroy.count,
+			})),
+		},
 	};
 }
 
@@ -346,13 +392,26 @@ type NormalizedSharedChange =
 	| { type: "data"; change: ReturnType<typeof modularChange> }
 	| { type: "schema"; change: unknown };
 
+const schemaCodec = schemaCodecBuilder.build({
+	jsonValidator: FormatValidatorNoOp,
+	minVersionForCollab: FluidClientVersion.v2_117,
+});
+
 function sharedChange(
 	value: SharedTreeChange,
 	compressor: IIdCompressor,
 ): NormalizedSharedChange[] {
 	return value.changes.map((change) => ({
 		type: change.type,
-		change: change.type === "data" ? modularChange(change.innerChange, compressor) : copy(change.innerChange),
+		change: change.type === "data"
+			? modularChange(change.innerChange, compressor)
+			: {
+				schema: {
+					old: schemaCodec.encode(change.innerChange.schema.old),
+					new: schemaCodec.encode(change.innerChange.schema.new),
+				},
+				isInverse: change.innerChange.isInverse,
+			},
 	})) as NormalizedSharedChange[];
 }
 

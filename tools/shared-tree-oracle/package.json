@@ -10,6 +10,7 @@
     "check": "node generate.mjs --check",
     "source:prepare": "node source.mjs prepare",
     "source:verify": "node source.mjs verify",
+    "source:inject": "node source.mjs inject",
     "source:capture": "node source.mjs generate",
     "codec:interop": "node codec-interop.mjs",
     "runtime:interop": "node runtime-interop.mjs",

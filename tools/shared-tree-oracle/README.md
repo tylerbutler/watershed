@@ -435,6 +435,15 @@ Preparation checks the exact source commit and package versions. It refuses
 changed tracked files, unrelated untracked files, a symbolic-link checkout, and
 an injected test whose contents differ from its committed oracle source.
 
+After changing a committed oracle source, refresh only the owned injected files:
+
+```sh
+npm --prefix tools/shared-tree-oracle run source:inject
+```
+
+This command still refuses changed tracked files and unrelated untracked files.
+It replaces only the declared watershed injections, then byte-verifies them.
+
 Only `packages/dds/tree/src/test/watershedOracle.spec.ts`,
 `watershedAlgebra.spec.ts`, `watershedForest.spec.ts`, and
 `watershedModular.spec.ts`, `watershedHistory.spec.ts`, and
@@ -442,11 +451,10 @@ Only `packages/dds/tree/src/test/watershedOracle.spec.ts`,
 are injected. They must match `upstream-oracle.spec.ts`,
 `upstream-algebra.spec.ts`, `upstream-forest.spec.ts`, and
 `upstream-modular.spec.ts`, `upstream-history.spec.ts`, and
-`upstream-codecs.spec.ts`, `upstream-identifier.spec.ts`, respectively. If you
-intentionally edit an oracle after preparing a checkout, review the old injected
-copy and remove that one file before preparing again. Do not discard other
-reference changes to make verification pass. Avoid code-map queries inside the
-reference checkout: their generated cache is an unrelated untracked file.
+`upstream-codecs.spec.ts`, `upstream-identifier.spec.ts`, respectively. Do not
+discard other reference changes to make verification pass. Avoid code-map
+queries inside the reference checkout: their generated cache is an unrelated
+untracked file.
 
 ### Identifier capture inputs
 
@@ -798,6 +806,13 @@ The four `transaction-*` cases pin the synchronous transaction foundation:
 | `transaction-constraints` | `nodeInDocument` follows node identity through same-array and cross-array moves. An already-detached node prevents callback execution. A concurrent removal that sequences first records one explicit violation, suppresses the constrained field edits on both clients, converges, and retains the required created builds. |
 | `transaction-wire` | The fixture input contains executable nonviolated and explicitly violated Message V7 bytes, the compressor and codec context, and compose, invert, and rebase operands. The bytes cover nested paths, duplicate constraints, builds, refreshers, revision information, and the SharedTreeChange V5 and ModularChange V5 forms. Rebase decodes the captured violated transaction and concurrent removal with the recorded compressor context, then executes on those decoded wire changes and records both operands beside the raw result. Inversion exchanges apply-time and revert-time constraint state; the wire omits internal revert-only constraints. |
 | `transaction-history` | A pending composed transaction rebases over a sequenced concurrent removal, records one explicit violation, resubmits once, and acknowledges without duplicate effects. The summary comes from the sequenced peer and excludes pending local work. Fresh runtimes restore that summary-point compressor, finalize the captured tail allocation ranges in wire order, then apply the tail. Replay without those ranges fails. The reader preserves the remaining node identifiers, authors a continuation, and has an independently loaded peer observe the same final state and identities. Every checkpoint records detached content, history, identifiers, and compressor/allocation state. |
+
+Transaction history uses a cross-implementation projection. Data changes keep
+stable revisions, field names and kinds, nodes, parents, aliases, builds,
+refreshers, destroys, constraints, and the resulting delta. Schema changes use
+the pinned Schema V2 codec. Private TypeScript maps, listener tables, and field
+kind backing objects are never captured. Submitted and replayed Message V7
+objects remain exact wire evidence.
 
 The capture follows these pinned files under `packages/dds/tree/src/`:
 
