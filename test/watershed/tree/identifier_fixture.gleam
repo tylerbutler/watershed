@@ -2871,8 +2871,63 @@ fn find_encoded_identifier(value: JsonValue) -> Result(JsonValue, Nil) {
   case value {
     VArray([VNumber(NInt(4)), value, ..]) -> Ok(value)
     VArray(values) -> find_encoded_identifier_values(values)
-    VObject(fields) -> find_encoded_identifier_entries(fields)
+    VObject(fields) ->
+      case find_compressed_identifier(fields) {
+        Ok(value) -> Ok(value)
+        Error(_) -> find_encoded_identifier_entries(fields)
+      }
     _ -> Error(Nil)
+  }
+}
+
+fn find_compressed_identifier(
+  fields: List(#(String, JsonValue)),
+) -> Result(JsonValue, Nil) {
+  use data <- result.try(list.key_find(fields, "data"))
+  use shapes <- result.try(list.key_find(fields, "shapes"))
+  let assert VArray(rows) = data
+  let assert VArray(shapes) = shapes
+  find_compressed_identifier_rows(rows, shapes)
+}
+
+fn find_compressed_identifier_rows(
+  rows: List(JsonValue),
+  shapes: List(JsonValue),
+) -> Result(JsonValue, Nil) {
+  case rows {
+    [] -> Error(Nil)
+    [VArray([VNumber(NInt(shape_index)), ..values]), ..rest] -> {
+      use shape <- result.try(shapes |> list.drop(shape_index) |> list.first)
+      case compressed_identifier_index(shape, 0) {
+        Ok(index) -> values |> list.drop(index) |> list.first
+        Error(_) -> find_compressed_identifier_rows(rest, shapes)
+      }
+    }
+    [_, ..rest] -> find_compressed_identifier_rows(rest, shapes)
+  }
+}
+
+fn compressed_identifier_index(
+  shape: JsonValue,
+  index: Int,
+) -> Result(Int, Nil) {
+  let assert VObject(shape) = shape
+  use content <- result.try(list.key_find(shape, "c"))
+  let assert VObject(content) = content
+  use fields <- result.try(list.key_find(content, "fields"))
+  let assert VArray(fields) = fields
+  compressed_field_index(fields, "id", index)
+}
+
+fn compressed_field_index(
+  fields: List(JsonValue),
+  name: String,
+  index: Int,
+) -> Result(Int, Nil) {
+  case fields {
+    [] -> Error(Nil)
+    [VArray([VString(field), _]), ..] if field == name -> Ok(index)
+    [_, ..rest] -> compressed_field_index(rest, name, index + 1)
   }
 }
 
