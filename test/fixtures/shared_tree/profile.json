@@ -234,6 +234,10 @@
     "recursive-array-values",
     "range-array-edits",
     "cross-array-moves",
+    "identifier-fields",
+    "identifier-defaults",
+    "identifier-compression",
+    "identifier-summary-reload",
     "grouped-batches",
     "gc-metadata",
     "strict-view-object-map-schema-evolution"
@@ -248,6 +252,16 @@
     "shared-branches",
     "gc-sweep",
     "compressed-ops",
-    "chunked-ops"
+    "chunked-ops",
+    "identifier-handles",
+    "incremental-field-batch-chunks",
+    "arbitrary-container-layouts",
+    "tree-short-id",
+    "identifier-index",
+    "custom-identifier-global-uniqueness",
+    "detached-node-builder",
+    "uuidv5-healing",
+    "undo-redo",
+    "async-cross-tree-transactions"
   ]
 }

@@ -270,7 +270,11 @@
       "schema-evolution-compatibility",
       "schema-evolution-algebra",
       "schema-evolution-history",
-      "schema-evolution-codecs"
+      "schema-evolution-codecs",
+      "identifier-schema",
+      "identifier-values",
+      "identifier-field-batches",
+      "identifier-persistence"
     ],
     "erlang": [
       "id-ranges",
@@ -297,7 +301,11 @@
       "schema-evolution-compatibility",
       "schema-evolution-algebra",
       "schema-evolution-history",
-      "schema-evolution-codecs"
+      "schema-evolution-codecs",
+      "identifier-schema",
+      "identifier-values",
+      "identifier-field-batches",
+      "identifier-persistence"
     ]
   },
   "cases": [

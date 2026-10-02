@@ -171,7 +171,7 @@ function completeInteropReport() {
       revision: "0eb493fc46d1bb9baf1151a6ccdde93544e057e7",
       simulated: false,
     },
-    cells: ["object", "array"].flatMap((profile) =>
+    cells: ["object", "array", "identifier"].flatMap((profile) =>
       ["javascript", "erlang"].flatMap((creator) =>
         ["javascript", "erlang", "upstream"].map((reader) => ({
         profile,
@@ -299,13 +299,66 @@ function arrayMatrixTree(creator, {
   };
 }
 
+function identifierCreationInput(creator) {
+  const point = (label, id) => ({
+    kind: "object",
+    schemaId: "org.watershed.shared-tree.identifiers.Point",
+    fields: [
+      ...(id === undefined ? [] : [["id", { kind: "string", value: id }]]),
+      ["label", { kind: "string", value: label }],
+    ],
+  });
+  const array = (elements) => ({
+    kind: "array",
+    schemaId: "org.watershed.shared-tree.identifiers.Items",
+    elements,
+  });
+  return {
+    kind: "object",
+    schemaId: "org.watershed.shared-tree.identifiers.Root",
+    fields: [
+      ["byKey", {
+        kind: "map",
+        schemaId: "org.watershed.shared-tree.identifiers.PointsByKey",
+        entries: [],
+      }],
+      ["child", point(`${creator}-child`, `${creator}-child-id`)],
+      ["left", array([
+        point(`${creator}-default`),
+        point(`${creator}-explicit`, "shared-custom-id"),
+      ])],
+      ["right", array([])],
+    ],
+  };
+}
+
+function identifierMatrixTree(creator, { stage = "initial" } = {}) {
+  const input = identifierCreationInput(creator);
+  const left = input.fields.find(([name]) => name === "left")[1];
+  const right = input.fields.find(([name]) => name === "right")[1];
+  left.elements[0].fields.unshift(
+    ["id", { kind: "string", value: `${creator}-generated` }],
+  );
+  if (stage !== "initial") {
+    right.elements.push({
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.identifiers.Point",
+      fields: [
+        ["id", { kind: "string", value: `${creator}-${stage}-generated` }],
+        ["label", { kind: "string", value: `${creator}-${stage}` }],
+      ],
+    });
+  }
+  return { present: true, value: input };
+}
+
 async function writeInteropEvidence(directory, report) {
   const write = async (relative, value) => {
     const path = join(directory, relative);
     await mkdir(join(path, ".."), { recursive: true });
     await writeFile(path, `${JSON.stringify(value)}\n`);
   };
-  for (const profile of ["object", "array"]) {
+  for (const profile of ["object", "array", "identifier"]) {
     for (const creator of ["javascript", "erlang"]) {
     const cell = report.cells.find((item) =>
       item.profile === profile && item.creator === creator);
@@ -317,19 +370,30 @@ async function writeInteropEvidence(directory, report) {
       creator,
       documentId: cell.documentId,
     };
-    const tree = profile === "array" ? arrayMatrixTree : matrixTree;
+    const tree = profile === "array"
+      ? arrayMatrixTree
+      : profile === "identifier"
+        ? identifierMatrixTree
+        : matrixTree;
     await write(`${profile}/${creator}/creation.json`, {
       ...common,
       kind: "creation",
       readers: ["javascript", "erlang", "upstream"],
       nativeCreated: true,
-      root: tree(creator).value,
+      root: profile === "identifier"
+        ? identifierCreationInput(creator)
+        : tree(creator).value,
+      ...(profile === "identifier"
+        ? { generatedId: `${creator}-generated` }
+        : {}),
     });
     const rating = creator === "javascript" ? 31 : 32;
     const stages = profile === "array" ? [
       ["all-authors", tree(creator)],
       ["range-move", tree(creator)],
       ["nested-edit", tree(creator, { continued: true })],
+    ] : profile === "identifier" ? [
+      ["all-authors", identifierMatrixTree(creator, { stage: "continued" })],
     ] : [
       ["all-authors", matrixTree(creator, {
         title: `${creator}-upstream`, enabled: false, rating,
@@ -357,11 +421,15 @@ async function writeInteropEvidence(directory, report) {
     for (const reader of ["javascript", "erlang", "upstream"]) {
       const binding = { ...common, reader };
       const initial = tree(creator);
-      const tail = profile === "array" ? tree(creator, { continued: true }) : matrixTree(creator, {
+      const tail = profile === "array"
+        ? tree(creator, { continued: true })
+        : profile === "identifier"
+          ? identifierMatrixTree(creator, { stage: "tail" })
+          : matrixTree(creator, {
         title: `${creator}-erlang-conflict`, enabled: false, rating,
         note: `${creator}-after-native-summary`,
         point: { x: 13, y: 21 },
-      });
+          });
       await write(`${profile}/${creator}/${reader}/initial-load.json`, {
         ...binding,
         kind: "initial-load",
@@ -433,6 +501,8 @@ async function writeInteropEvidence(directory, report) {
           inflightSubmissionCount: 0,
           wholeTree: profile === "array"
             ? arrayMatrixTree(creator, { x: 43 })
+            : profile === "identifier"
+              ? identifierMatrixTree(creator, { stage: "post-summary" })
             : matrixTree(creator, {
             title: `${creator}-after-upstream-summary`,
             enabled: false,
@@ -610,7 +680,7 @@ test("capture command publishes one credential-free artifact", async (t) => {
   assert(!JSON.stringify(artifact).includes("must-not-be-written"));
 });
 
-test("creation interop report requires the strict twelve-cell profile matrix", () => {
+test("creation interop report requires the strict eighteen-cell profile matrix", () => {
   const report = completeInteropReport();
 
   assert.equal(validateCreationInteropReport(report), report);
@@ -620,7 +690,7 @@ test("creation interop report rejects duplicate cells", () => {
   const report = completeInteropReport();
   report.cells[1] = structuredClone(report.cells[0]);
 
-  assert.throws(() => validateCreationInteropReport(report), /duplicate|twelve-cell/i);
+  assert.throws(() => validateCreationInteropReport(report), /duplicate|eighteen-cell/i);
 });
 
 test("creation interop report rejects another run or profile", () => {
@@ -646,13 +716,13 @@ test("creation interop report rejects absent targets", () => {
   const report = completeInteropReport();
   report.cells = report.cells.filter(({ reader }) => reader !== "erlang");
 
-  assert.throws(() => validateCreationInteropReport(report), /twelve-cell|target/i);
+  assert.throws(() => validateCreationInteropReport(report), /eighteen-cell|target/i);
 });
 
 test("creation interop report cannot substitute one profile for another", () => {
   const report = completeInteropReport();
   report.cells.find(({ profile }) => profile === "array").profile = "object";
-  assert.throws(() => validateCreationInteropReport(report), /profile|twelve-cell/i);
+  assert.throws(() => validateCreationInteropReport(report), /profile|eighteen-cell/i);
 });
 
 test("creation interop report rejects a simulated service", () => {

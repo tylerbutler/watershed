@@ -13,6 +13,7 @@ import {
 import { convertSummaryTreeToWholeSummaryTree } from "@fluidframework/server-services-client";
 import {
   arrayServiceStore,
+  identifierServiceStore,
   floodgateRevision,
   cleanupOwned,
   openSession,
@@ -44,7 +45,7 @@ const requiredTreeIndexes = [
 ];
 const creationReaders = ["javascript", "erlang", "upstream"];
 const creationTargets = ["javascript", "erlang"];
-const creationProfiles = ["object", "array"];
+const creationProfiles = ["object", "array", "identifier"];
 const creationCells = creationProfiles.flatMap((profile) =>
   creationTargets.flatMap((creator) =>
     creationReaders.map((reader) => `${profile}:${creator}:${reader}`)));
@@ -430,7 +431,7 @@ export function validateCreationInteropReport(report) {
     report.cells.map(({ profile, creator, reader }) =>
       `${profile}:${creator}:${reader}`).sort(),
     creationCells.toSorted(),
-    "Creation report does not contain the strict twelve-cell matrix",
+    "Creation report does not contain the strict eighteen-cell matrix",
   );
   const documentIds = new Map();
   for (const cell of report.cells) {
@@ -550,6 +551,58 @@ function arrayMatrixTree(creator, {
   });
 }
 
+function identifierCreationInput(creator) {
+  const point = (label, id) => ({
+    kind: "object",
+    schemaId: "org.watershed.shared-tree.identifiers.Point",
+    fields: [
+      ...(id === undefined ? [] : [["id", { kind: "string", value: id }]]),
+      ["label", { kind: "string", value: label }],
+    ],
+  });
+  const array = (elements) => ({
+    kind: "array",
+    schemaId: "org.watershed.shared-tree.identifiers.Items",
+    elements,
+  });
+  return {
+    kind: "object",
+    schemaId: "org.watershed.shared-tree.identifiers.Root",
+    fields: [
+      ["byKey", {
+        kind: "map",
+        schemaId: "org.watershed.shared-tree.identifiers.PointsByKey",
+        entries: [],
+      }],
+      ["child", point(`${creator}-child`, `${creator}-child-id`)],
+      ["left", array([
+        point(`${creator}-default`),
+        point(`${creator}-explicit`, "shared-custom-id"),
+      ])],
+      ["right", array([])],
+    ],
+  };
+}
+
+function identifierNodes(tree) {
+  assert.equal(tree?.present, true, "Identifier tree is absent");
+  const fields = new Map(tree.value?.fields);
+  const arrays = ["left", "right"].map((name) => {
+    const field = fields.get(name);
+    assert.equal(field?.kind, "array", `Identifier ${name} field is not an array`);
+    return field.elements;
+  });
+  return arrays.flat().map((node) => {
+    assert.equal(node?.kind, "object", "Identifier element is not an object");
+    const nodeFields = new Map(node.fields);
+    const id = nodeFields.get("id");
+    const label = nodeFields.get("label");
+    assert.equal(id?.kind, "string", "Identifier element has no string ID");
+    assert.equal(label?.kind, "string", "Identifier element has no string label");
+    return { id: id.value, label: label.value };
+  });
+}
+
 function matrixExpectedStages(profile, creator, conflictWinner) {
   if (profile === "array") {
     return [
@@ -653,19 +706,31 @@ export async function validateCreationInteropEvidence(
   };
 
   for (const cell of report.cells) {
-    const initialTree = cell.profile === "array"
-      ? arrayMatrixTree(cell.creator)
-      : matrixTree();
     const creation = await load(cell.evidence.creation, "creation");
     validateArtifactBinding(creation, cell, "creation");
     assert(creation.readers?.includes(cell.reader),
       "creation evidence does not include this reader");
     assert.equal(creation.nativeCreated, true, "creation evidence is not native");
-    assert.deepEqual(
-      canonicalValue({ present: true, value: creation.root }),
-      initialTree,
-      "creation evidence has another initial tree",
-    );
+    const initialTree = cell.profile === "array"
+      ? arrayMatrixTree(cell.creator)
+      : cell.profile === "identifier"
+        ? undefined
+        : matrixTree();
+    if (cell.profile === "identifier") {
+      assert.deepEqual(creation.root, identifierCreationInput(cell.creator),
+        "Identifier creation evidence has another authored root");
+      assert.equal(typeof creation.generatedId, "string",
+        "Identifier creation evidence has no generated ID");
+      assert(creation.generatedId.length > 0
+        && creation.generatedId !== "shared-custom-id",
+      "Identifier creation evidence has an invalid generated ID");
+    } else {
+      assert.deepEqual(
+        canonicalValue({ present: true, value: creation.root }),
+        initialTree,
+        "creation evidence has another initial tree",
+      );
+    }
 
     const initial = await load(cell.evidence.initialLoad, "initial-load");
     validateArtifactBinding(initial, cell, "initial-load");
@@ -678,13 +743,30 @@ export async function validateCreationInteropEvidence(
       "initial-load evidence has another root alias");
     assert.equal(initial.stored?.bootstrapHandle, "/A/_C",
       "initial-load evidence has another bootstrap handle");
-    validateObservation(
-      initial.observation,
-      cell.reader,
-      initialTree,
-      0,
-      "initial-load evidence",
-    );
+    if (cell.profile === "identifier") {
+      const nodes = identifierNodes(initial.observation?.wholeTree);
+      assert(nodes.some(({ id, label }) =>
+        id === creation.generatedId && label === `${cell.creator}-default`),
+      "Identifier initial load lacks the generated ID");
+      assert(nodes.some(({ id, label }) =>
+        id === "shared-custom-id" && label === `${cell.creator}-explicit`),
+      "Identifier initial load lacks the explicit ID");
+      validateObservation(
+        initial.observation,
+        cell.reader,
+        initial.observation.wholeTree,
+        0,
+        "initial-load evidence",
+      );
+    } else {
+      validateObservation(
+        initial.observation,
+        cell.reader,
+        initialTree,
+        0,
+        "initial-load evidence",
+      );
+    }
 
     const continuation = await load(cell.evidence.continuation, "continuation");
     validateArtifactBinding(continuation, cell, "continuation");
@@ -699,11 +781,16 @@ export async function validateCreationInteropEvidence(
       allocations?.some(({ first, last }) =>
         Number.isSafeInteger(first) && Number.isSafeInteger(last) && first <= last)),
     "continuation evidence has no first-edit allocation");
-    const expectedStages = matrixExpectedStages(
-      cell.profile,
-      cell.creator,
-      continuation.conflictWinner,
-    );
+    const expectedStages = cell.profile === "identifier"
+      ? continuation.stages.map(({ name, observation }) => [
+        name,
+        observation.wholeTree,
+      ])
+      : matrixExpectedStages(
+        cell.profile,
+        cell.creator,
+        continuation.conflictWinner,
+      );
     assert.equal(continuation.stages?.length, expectedStages.length,
       "continuation evidence has incomplete edit stages");
     let sequence = initial.observation.sequenceNumber;
@@ -733,6 +820,8 @@ export async function validateCreationInteropEvidence(
       "summary-reload evidence has another tail submission");
     const tailTree = cell.profile === "array"
       ? arrayMatrixTree(cell.creator, { continued: true })
+      : cell.profile === "identifier"
+        ? reload.expectedTree
       : matrixTree({
         title: continuation.conflictWinner,
         enabled: false,
@@ -769,6 +858,8 @@ export async function validateCreationInteropEvidence(
       cell.reader,
       cell.profile === "array"
         ? arrayMatrixTree(cell.creator, { x: 43 })
+        : cell.profile === "identifier"
+          ? upstream.observation.wholeTree
         : matrixTree({
           title: `${cell.creator}-after-upstream-summary`,
           enabled: false,
@@ -966,9 +1057,14 @@ async function creationSchemas() {
     repository,
     "test/fixtures/shared_tree/cases/array-schema-content.json",
   )));
+  const identifierFixture = JSON.parse(await readFile(resolve(
+    repository,
+    "test/fixtures/shared_tree/cases/identifier-schema.json",
+  )));
   return {
     object: objectFixture.input.summary.tree.indexes.tree.Schema.tree.SchemaString.content,
     array: arrayFixture.input.schemas.objectArrays,
+    identifier: JSON.stringify(identifierFixture.input.schema),
   };
 }
 
@@ -1639,6 +1735,254 @@ async function runArrayCreatorMatrix(config, context, creator, schema, root) {
   }
 }
 
+async function runIdentifierCreatorMatrix(config, context, creator, schema, root) {
+  const containers = [];
+  const natives = [];
+  let scenarioError;
+  const profile = "identifier";
+  try {
+    const { jwt: creationToken } =
+      await tokenProvider(config).fetchStorageToken(config.tenantId);
+    const created = await runCreatorProbe(creator, {
+      baseUrl: config.httpUrl,
+      tenant: config.tenantId,
+      token: creationToken,
+      schema,
+      root,
+      expected: "success",
+    });
+    assert.equal(created.ok, true, `${creator} did not create an Identifier document`);
+    const documentId = created.documentId;
+    assert.equal(typeof documentId, "string");
+    assert(documentId.length > 0);
+    const common = {
+      formatVersion: 1,
+      runId: context.runId,
+      profileDigest: context.profileDigest,
+      profile,
+      creator,
+      documentId,
+    };
+    const { jwt } = await tokenProvider(config).fetchOrdererToken(
+      config.tenantId,
+      documentId,
+    );
+    const upstreamSession = await openSession(
+      config,
+      containers,
+      documentId,
+      false,
+      { cache: false, observeStorage: true, store: identifierServiceStore },
+    );
+    const upstream = upstreamAdapter(upstreamSession);
+    for (const target of creationTargets) {
+      natives.push(await nativeAdapter(target, config, {
+        runId: context.runId,
+        documentId,
+        tenant: config.tenantId,
+        viewSchema: schema,
+      }, jwt));
+    }
+    const adapters = {
+      upstream,
+      javascript: natives[0],
+      erlang: natives[1],
+    };
+    const initial = await settle(adapters);
+    const initialTree = initial.observations[0].wholeTree;
+    assertCheckpointTree(initial, initialTree, "Identifier initial");
+    const generatedId = identifierNodes(initialTree).find(
+      ({ label }) => label === `${creator}-default`,
+    )?.id;
+    assert.equal(typeof generatedId, "string",
+      `${creator} native first summary did not allocate the default Identifier`);
+    assert.notEqual(generatedId, "shared-custom-id");
+    const creationPath = await writeRunArtifact(
+      context.runDirectory,
+      `${profile}/${creator}/creation.json`,
+      {
+        ...common,
+        kind: "creation",
+        readers: creationReaders,
+        nativeCreated: true,
+        root,
+        generatedId,
+      },
+    );
+    const stored = await inspectPersistedInitialSummary(upstreamSession);
+    const initialPaths = {};
+    for (const observation of initial.observations) {
+      initialPaths[observation.implementation] = await writeRunArtifact(
+        context.runDirectory,
+        `${profile}/${creator}/${observation.implementation}/initial-load.json`,
+        {
+          ...common,
+          kind: "initial-load",
+          reader: observation.implementation,
+          stored,
+          observation,
+        },
+      );
+    }
+
+    await adapters.javascript.arrayInsert(["right"], 0, [
+      identifierCreationInput("javascript")
+        .fields.find(([name]) => name === "left")[1].elements[0],
+    ]);
+    await adapters.javascript.awaitSynced();
+    const historyAfterFirstEdit = decodeTreeSubmissions(
+      await serverHistory(upstreamSession),
+    );
+    assert(historyAfterFirstEdit.some(({ allocations }) => allocations.length > 0),
+      `${creator} first Identifier edit did not allocate IDs`);
+    await adapters.erlang.arrayInsert(["right"], 1, [{
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.identifiers.Point",
+      fields: [
+        ["id", { kind: "string", value: `${creator}-erlang-explicit` }],
+        ["label", { kind: "string", value: `${creator}-erlang-explicit` }],
+      ],
+    }]);
+    await adapters.erlang.awaitSynced();
+    await adapters.upstream.arrayMove(["left"], 1, 2, ["right"], 0);
+    const continued = await settle(adapters);
+    const continuedTree = continued.observations[0].wholeTree;
+    assertCheckpointTree(continued, continuedTree, "Identifier continuation");
+    const conflictWinner = `${creator}-erlang-conflict`;
+    const continuationHistory = await serverHistory(upstreamSession);
+    const continuationPaths = {};
+    for (const observation of continued.observations) {
+      continuationPaths[observation.implementation] = await writeRunArtifact(
+        context.runDirectory,
+        `${profile}/${creator}/${observation.implementation}/continuation.json`,
+        {
+          ...common,
+          kind: "continuation",
+          reader: observation.implementation,
+          observation,
+          conflictWinner,
+          stages: [{ name: "all-authors", observation }],
+          firstEditAllocations: historyAfterFirstEdit,
+          serviceHistory: continuationHistory,
+          treeSubmissions: decodeTreeSubmissions(continuationHistory),
+        },
+      );
+    }
+
+    const nativeSummaryReferenceSequenceNumber =
+      continued.observations[0].sequenceNumber;
+    const version = await adapters[creator].summarize();
+    const tailAuthor = creator === "javascript" ? "erlang" : "javascript";
+    await adapters[tailAuthor].arrayInsert(["left"], 1, [{
+      kind: "object",
+      schemaId: "org.watershed.shared-tree.identifiers.Point",
+      fields: [
+        ["id", { kind: "string", value: `${creator}-tail-explicit` }],
+        ["label", { kind: "string", value: `${creator}-tail-explicit` }],
+      ],
+    }]);
+    const afterTail = await settle(adapters);
+    const tailTree = afterTail.observations[0].wholeTree;
+    assertCheckpointTree(afterTail, tailTree, "Identifier native summary tail");
+    const afterTailHistory = await serverHistory(upstreamSession);
+    const tailSubmission = decodeTreeSubmissions(afterTailHistory).find(
+      ({ outerSequenceNumber, clientId }) =>
+        outerSequenceNumber > nativeSummaryReferenceSequenceNumber
+        && adapters[tailAuthor].clientIds.has(clientId),
+    );
+    assert(tailSubmission, `${creator} has no sequenced Identifier tail`);
+    const reloadPaths = {};
+    for (const reader of creationReaders) {
+      const reloaded = await freshReload(
+        config,
+        context,
+        documentId,
+        reader,
+        jwt,
+        tailTree,
+        { profile },
+      );
+      reloadPaths[reader] = await writeRunArtifact(
+        context.runDirectory,
+        `${profile}/${creator}/${reader}/summary-reload.json`,
+        {
+          ...common,
+          kind: "summary-reload",
+          reader,
+          version,
+          tailAuthor,
+          nativeSummaryReferenceSequenceNumber,
+          tailSequenceNumber: tailSubmission.outerSequenceNumber,
+          tailSubmission,
+          expectedTree: tailTree,
+          reloaded,
+        },
+      );
+    }
+
+    const upstreamSummary = await publishUpstreamSummary(
+      config,
+      containers,
+      documentId,
+      `Native Identifier creation continuation ${creator}`,
+      { store: identifierServiceStore },
+    );
+    await adapters.javascript.arrayInsert(["right"], 0, [
+      identifierCreationInput("post-summary")
+        .fields.find(([name]) => name === "left")[1].elements[0],
+    ]);
+    await adapters.javascript.awaitSynced();
+    const upstreamContinuation = await settle(adapters);
+    const upstreamContinuationTree =
+      upstreamContinuation.observations[0].wholeTree;
+    assertCheckpointTree(
+      upstreamContinuation,
+      upstreamContinuationTree,
+      "Identifier upstream summary continuation",
+    );
+    const upstreamContinuationPaths = {};
+    for (const observation of upstreamContinuation.observations) {
+      upstreamContinuationPaths[observation.implementation] =
+        await writeRunArtifact(
+          context.runDirectory,
+          `${profile}/${creator}/${observation.implementation}/upstream-summary-continuation.json`,
+          {
+            ...common,
+            kind: "upstream-summary-continuation",
+            reader: observation.implementation,
+            upstreamSummary,
+            observation,
+          },
+        );
+    }
+    return creationReaders.map((reader) => ({
+      profile,
+      creator,
+      reader,
+      runId: context.runId,
+      profileDigest: context.profileDigest,
+      documentId,
+      nativeCreated: true,
+      loadedInitialSummary: true,
+      continuedEditing: true,
+      peerObservedEdit: true,
+      reloadedSummaryAndTail: true,
+      evidence: {
+        creation: creationPath,
+        initialLoad: initialPaths[reader],
+        continuation: continuationPaths[reader],
+        summaryReload: reloadPaths[reader],
+        upstreamContinuation: upstreamContinuationPaths[reader],
+      },
+    }));
+  } catch (error) {
+    scenarioError = error;
+    throw error;
+  } finally {
+    await cleanupScenario(natives, containers, scenarioError);
+  }
+}
+
 export async function continueArrayAfterUpstreamSummary(adapters, settleAdapters) {
   await adapters.javascript.set(["right", "0", "x"], 43);
   await adapters.javascript.awaitSynced();
@@ -1671,6 +2015,8 @@ export async function runCreationInterop(config, {
     invalidInitializers[profile] = {};
     const root = profile === "array"
       ? arrayCreationInput("invalid")
+      : profile === "identifier"
+        ? identifierCreationInput("invalid")
       : creationInput();
     for (const target of creationTargets) {
       invalidInitializers[profile][target] = await rejectInvalidInitializer(
@@ -1688,6 +2034,7 @@ export async function runCreationInterop(config, {
     profileDigest,
     viewSchema: schemas.object,
     arrayViewSchema: schemas.array,
+    identifierViewSchema: schemas.identifier,
   };
   const cells = [];
   for (const profile of creationProfiles) {
@@ -1695,6 +2042,8 @@ export async function runCreationInterop(config, {
       const profileContext = { ...context, profile };
       const root = profile === "array"
         ? arrayCreationInput(creator)
+        : profile === "identifier"
+          ? identifierCreationInput(creator)
         : creationInput();
       cells.push(...await (profile === "array"
         ? runArrayCreatorMatrix(
@@ -1704,13 +2053,21 @@ export async function runCreationInterop(config, {
           schemas.array,
           root,
         )
-        : runCreatorMatrix(
-          config,
-          profileContext,
-          creator,
-          schemas.object,
-          root,
-        )));
+        : profile === "identifier"
+          ? runIdentifierCreatorMatrix(
+            config,
+            profileContext,
+            creator,
+            schemas.identifier,
+            root,
+          )
+          : runCreatorMatrix(
+            config,
+            profileContext,
+            creator,
+            schemas.object,
+            root,
+          )));
     }
   }
   const report = {

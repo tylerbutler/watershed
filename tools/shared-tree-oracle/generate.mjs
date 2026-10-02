@@ -7,6 +7,7 @@ import { deserializeIdCompressor } from "@fluidframework/id-compressor/internal"
 import { reference, runSource, validateCapture } from "./source.mjs";
 import { validateContainerFoundationsCase } from "./container-foundations.mjs";
 import { validateSummaryFoundationsCase } from "./summary-foundations.mjs";
+import { excludedFeatures, supportedFeatures } from "./service.mjs";
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const fixtures = resolve(directory, "../../test/fixtures/shared_tree");
@@ -4350,8 +4351,16 @@ export async function writeCorpus(output, cases, smoke) {
     await writeFile(join(output, file), `${JSON.stringify(cases.find((item) => item.id === id), null, 2)}\n`);
   }
   await writeFile(join(output, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-  // The independently generated real-service profile is preserved, not regenerated from a mock service.
-  await copyFile(join(fixtures, "profile.json"), join(output, "profile.json"));
+  // Preserve the independently captured service contract and generate the
+  // feature labels from the live profile owner.
+  const generatedProfile =
+    JSON.parse(await readFile(join(fixtures, "profile.json"), "utf8"));
+  generatedProfile.supportedFeatures = supportedFeatures;
+  generatedProfile.excludedFeatures = excludedFeatures;
+  await writeFile(
+    join(output, "profile.json"),
+    `${JSON.stringify(generatedProfile, null, 2)}\n`,
+  );
 }
 
 export async function generate({ check = false } = {}) {
@@ -4412,6 +4421,7 @@ export async function generate({ check = false } = {}) {
         await rename(join(artifacts, path), join(fixtures, path));
       }
       await rename(join(artifacts, "manifest.json"), join(fixtures, "manifest.json"));
+      await rename(join(artifacts, "profile.json"), join(fixtures, "profile.json"));
     }
     console.log(`${check ? "Verified" : "Generated"} ${requiredCases.length} upstream SharedTree cases`);
   } finally {
