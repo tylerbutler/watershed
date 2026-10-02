@@ -2681,11 +2681,84 @@ test("transaction history uses only stable semantic and wire projections", () =>
   }
 });
 
+function transactionDataChanges(value) {
+  const changes = [];
+  function visit(item) {
+    if (Array.isArray(item)) {
+      item.forEach(visit);
+      return;
+    }
+    if (item === null || typeof item !== "object") return;
+    if (item.type === "data" && item.change !== null && typeof item.change === "object") {
+      changes.push(item.change);
+    }
+    Object.values(item).forEach(visit);
+  }
+  visit(value.expected.observations);
+  return changes;
+}
+
+function atomKey(value) {
+  return `${value.revision ?? ""}:${value.localId}`;
+}
+
+test("transaction history canonicalizes alias and parent graph evidence", () => {
+  for (const id of ["transaction-callbacks", "transaction-constraints", "transaction-history"]) {
+    const value = transactionCorpus(id).find((item) => item.id === id);
+    for (const change of transactionDataChanges(value)) {
+      const aliases = new Set(change.aliases.map(({ id: alias }) => atomKey(alias)));
+      assert(change.aliases.every(({ target }) => !aliases.has(atomKey(target))),
+        `${id}: alias target is not final`);
+      assert(change.parents.every(({ parent }) => parent === null || !aliases.has(atomKey(parent))),
+        `${id}: parent target is not final`);
+      const graphIds = new Set();
+      function collectAtoms(item) {
+        if (Array.isArray(item)) {
+          item.forEach(collectAtoms);
+        } else if (item !== null && typeof item === "object") {
+          if (
+            Object.keys(item).length === 2
+            && Object.hasOwn(item, "revision")
+            && Object.hasOwn(item, "localId")
+          ) {
+            graphIds.add(item.localId);
+          } else {
+            Object.values(item).forEach(collectAtoms);
+          }
+        }
+      }
+      collectAtoms(change);
+      assert.deepEqual([...graphIds].sort((left, right) => left - right),
+        Array.from({ length: change.maxId + 1 }, (_, index) => index),
+        `${id}: anonymous graph IDs are not canonical`);
+      for (let index = 1; index < change.aliases.length; index += 1) {
+        assert.notEqual(
+          atomKey(change.aliases[index - 1].target),
+          atomKey(change.aliases[index].target),
+          `${id}: duplicate intermediate alias`,
+        );
+      }
+      for (const build of [...change.builds, ...change.refreshers]) {
+        assert(build.trees.every((tree) => typeof tree.kind === "string"),
+          `${id}: build tree is not semantic`);
+      }
+    }
+  }
+});
+
 test("transaction semantic history keeps every load-bearing field mandatory", () => {
   const mutations = {
     "transaction-callbacks": [
       (value) => { delete value.expected.observations[0].history.pending[0].revision; },
       (value) => { delete value.expected.observations[0].history.pending[0].changes[0].change.fields; },
+      (value) => {
+        value.expected.observations[0].history.pending[0]
+          .changes[0].change.aliases[0].target.localId += 1;
+      },
+      (value) => {
+        value.expected.observations[0].history.pending[0]
+          .changes[0].change.parents[1].parent.localId += 1;
+      },
       (value) => { delete value.expected.observations[0].submittedMessages[0].changeset; },
       (value) => { value.expected.observations[0].identity.nodes = []; },
       (value) => { delete value.expected.observations[0].allocation.after.ongoing; },

@@ -115,19 +115,22 @@ function visible(root: Root) {
 		count: root.count,
 		left: [...root.left].map(value),
 		right: [...root.right].map(value),
-		byKey: [...root.byKey].map(([key, item]) => [
-			key,
-			item instanceof Point
-				? { id: item.label, label: item.label, x: item.x }
-				: item instanceof Items
-					? [...item].map(value)
-					: item,
-		]),
+		byKey: [...root.byKey]
+			.sort(([left], [right]) => left.localeCompare(right))
+			.map(([key, item]) => [
+				key,
+				item instanceof Point
+					? { id: item.label, label: item.label, x: item.x }
+					: item instanceof Items
+						? [...item].map(value)
+						: item,
+			]),
 	};
 }
 
 function contentState(tree: TreeInstance, view: TransactionView) {
 	const snapshot = Reflect.get(tree, "contentSnapshot") as () => { removed: unknown[] };
+	const removed = copy(snapshot.call(tree).removed) as [unknown, unknown, SemanticTreeInput][];
 	return {
 		visible: visible(view.root),
 		identities: [
@@ -138,7 +141,11 @@ function contentState(tree: TreeInstance, view: TransactionView) {
 				.filter((item): item is Point => item instanceof Point)
 				.map((item) => item.id),
 		],
-		retainedDetached: copy(snapshot.call(tree).removed),
+		retainedDetached: removed.map(([revision, localId, value]) => [
+			revision,
+			localId,
+			semanticTree(value),
+		]),
 	};
 }
 
@@ -315,11 +322,131 @@ function nodeChange(value: NodeChangeset) {
 	};
 }
 
+type StableAtom = ReturnType<typeof atom>;
+
+function atomKey(value: StableAtom) {
+	return `${value.revision ?? ""}:${value.localId}`;
+}
+
+function canonicalGraph<T extends {
+	maxId: number;
+	parents: { id: StableAtom; parent: StableAtom | null; field: string }[];
+	aliases: { id: StableAtom; target: StableAtom }[];
+}>(value: T): T {
+	const aliases = new Map(value.aliases.map(({ id, target }) => [atomKey(id), target]));
+	const resolve = (start: StableAtom) => {
+		let current = start;
+		const seen = new Set<string>();
+		while (aliases.has(atomKey(current))) {
+			const key = atomKey(current);
+			assert(!seen.has(key), "Transaction alias graph must be acyclic.");
+			seen.add(key);
+			current = aliases.get(key) as StableAtom;
+		}
+		return current;
+	};
+	const flattenedAliases = value.aliases
+		.map(({ id, target }) => ({ id, target: resolve(target) }))
+		.filter(({ target }, index, entries) =>
+			index === 0 || atomKey(entries[index - 1].target) !== atomKey(target));
+	const graph = {
+		...value,
+		parents: value.parents.map(({ id, parent, field }) => ({
+			id,
+			parent: parent === null ? null : resolve(parent),
+			field,
+		})),
+		aliases: flattenedAliases,
+	};
+	const ids = new Map<string, StableAtom>();
+	let next = 0;
+	const canonicalize = (item: unknown): unknown => {
+		if (Array.isArray(item)) return item.map(canonicalize);
+		if (item === null || typeof item !== "object") return item;
+		const object = item as Record<string, unknown>;
+		if (
+			Object.keys(object).length === 2
+			&& Object.hasOwn(object, "revision")
+			&& Object.hasOwn(object, "localId")
+			&& (object.revision === null || typeof object.revision === "string")
+			&& Number.isSafeInteger(object.localId)
+		) {
+			const stable = object as StableAtom;
+			const key = atomKey(stable);
+			const existing = ids.get(key);
+			if (existing !== undefined) return existing;
+			const canonical = { revision: stable.revision, localId: next };
+			next += 1;
+			ids.set(key, canonical);
+			return canonical;
+		}
+		return Object.fromEntries(
+			Object.entries(object)
+				.sort(([left], [right]) => left.localeCompare(right))
+				.map(([key, child]) => [key, canonicalize(child)]),
+		);
+	};
+	const canonical = canonicalize(graph) as T;
+	canonical.maxId = next - 1;
+	return canonical;
+}
+
+interface SemanticTreeInput {
+	type: string;
+	value?: unknown;
+	fields?: Record<string, SemanticTreeInput[]>;
+}
+
+function semanticTree(value: SemanticTreeInput): unknown {
+	switch (value.type) {
+		case "com.fluidframework.leaf.string":
+			return { kind: "string", value: value.value };
+		case "com.fluidframework.leaf.number":
+			return { kind: "number", value: value.value };
+		case "com.fluidframework.leaf.boolean":
+			return { kind: "boolean", value: value.value };
+		case "com.fluidframework.leaf.null":
+			return { kind: "null" };
+		default:
+			break;
+	}
+	const fields = value.fields ?? {};
+	if (value.type === "org.watershed.shared-tree.transactions.Items") {
+		return {
+			kind: "array",
+			schemaId: value.type,
+			elements: (fields[""] ?? []).map(semanticTree),
+		};
+	}
+	if (value.type === "org.watershed.shared-tree.transactions.NamedMap") {
+		return {
+			kind: "map",
+			schemaId: value.type,
+			entries: Object.entries(fields)
+				.sort(([left], [right]) => left.localeCompare(right))
+				.map(([key, children]) => {
+					assert.equal(children.length, 1, `Map entry ${key} must contain one tree.`);
+					return [key, semanticTree(children[0])];
+				}),
+		};
+	}
+	return {
+		kind: "object",
+		type: value.type,
+		fields: Object.entries(fields)
+			.sort(([left], [right]) => left.localeCompare(right))
+			.map(([field, children]) => {
+				assert.equal(children.length, 1, `Object field ${field} must contain one tree.`);
+				return [field, semanticTree(children[0])];
+			}),
+	};
+}
+
 function modularChange(value: ModularChangeset, compressor: IIdCompressor) {
 	const chunks = (entries: ModularChangeset["builds"]) =>
 		[...(entries?.entries() ?? [])].map(([[major, minor], chunk]) => ({
 			id: atom({ revision: major, localId: minor }, compressor),
-			trees: jsonableTreeFromFieldCursor(chunk.cursor()),
+			trees: jsonableTreeFromFieldCursor(chunk.cursor()).map(semanticTree),
 		}));
 	const deltaAtom = (value: { major?: RevisionTag; minor: number }) =>
 		atom({ revision: value.major, localId: value.minor }, compressor);
@@ -334,7 +461,7 @@ function modularChange(value: ModularChangeset, compressor: IIdCompressor) {
 			})),
 		}));
 	const delta = intoDelta(tagChange(value, undefined));
-	return {
+	return canonicalGraph({
 		maxId: value.maxId ?? -1,
 		revisions: (value.revisions ?? []).map((info) => ({
 			revision: revision(info.revision, compressor),
@@ -365,11 +492,11 @@ function modularChange(value: ModularChangeset, compressor: IIdCompressor) {
 			fields: deltaFields(delta.fields),
 			builds: (delta.build ?? []).map((build) => ({
 				id: deltaAtom(build.id),
-				trees: jsonableTreeFromFieldCursor(build.trees.cursor()),
+				trees: jsonableTreeFromFieldCursor(build.trees.cursor()).map(semanticTree),
 			})),
 			refreshers: (delta.refreshers ?? []).map((build) => ({
 				id: deltaAtom(build.id),
-				trees: jsonableTreeFromFieldCursor(build.trees.cursor()),
+				trees: jsonableTreeFromFieldCursor(build.trees.cursor()).map(semanticTree),
 			})),
 			global: (delta.global ?? []).map((change) => ({
 				id: deltaAtom(change.id),
@@ -385,7 +512,7 @@ function modularChange(value: ModularChangeset, compressor: IIdCompressor) {
 				count: destroy.count,
 			})),
 		},
-	};
+	});
 }
 
 type NormalizedSharedChange =
