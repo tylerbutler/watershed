@@ -207,13 +207,11 @@ pub fn run_history(input: Json) -> Result(Json, String) {
     after_tail_state,
     after_tail_compressor,
   ))
-  use continuation_execution <- result.try(
-    apply_history_continuation(
-      after_tail_state,
-      after_tail_compressor,
-      continuation,
-    ),
-  )
+  use continuation_execution <- result.try(apply_history_continuation(
+    after_tail_state,
+    after_tail_compressor,
+    continuation,
+  ))
   use after_continuation <- result.try(history_continuation_checkpoint(
     "after-continuation",
     continuation_execution.state,
@@ -250,10 +248,7 @@ pub fn run_history(input: Json) -> Result(Json, String) {
             #("pendingSummary", json_ot.to_json(summary_value)),
             #("pendingCompressor", pending_compressor),
             #("missingTailAllocationError", json.string("Error: Unknown ID")),
-            #(
-              "reconnectMessages",
-              fixture_codec.array([execution.resubmitted]),
-            ),
+            #("reconnectMessages", fixture_codec.array([execution.resubmitted])),
             #("acknowledged", execution.acknowledged),
             #("loaded", loaded),
             #("afterTail", after_tail),
@@ -1323,8 +1318,7 @@ fn run_callback_scenario(value: JsonValue) -> Result(Json, String) {
     execute_callback(id, open, []),
   )
   use #(state, compressor, commit) <- result.try(case finish {
-    transaction.NoCommit(state, compressor) ->
-      Ok(#(state, compressor, None))
+    transaction.NoCommit(state, compressor) -> Ok(#(state, compressor, None))
     transaction.Commit(state, compressor, commit) ->
       Ok(#(state, compressor, Some(commit)))
   })
@@ -1646,12 +1640,14 @@ fn execute_callback(
       use #(state, compressor) <- result.try(
         transaction.abort(open) |> result.map_error(string.inspect),
       )
-      Ok(#(
-        transaction.NoCommit(state, compressor),
-        tree_kernel.ChangeEvents([], False),
-        [read, ..reads],
-        [],
-      ))
+      Ok(
+        #(
+          transaction.NoCommit(state, compressor),
+          tree_kernel.ChangeEvents([], False),
+          [read, ..reads],
+          [],
+        ),
+      )
     }
     "nested-success" -> {
       use open <- result.try(callback_edit(
@@ -1717,10 +1713,7 @@ fn execute_callback(
       ))
       use read <- result.try(callback_read("valid-edit-before-invalid", open))
       use _ <- result.try(
-        case transaction.apply_edit(
-          open,
-          types.ArrayRemove(["left"], -1, 1),
-        ) {
+        case transaction.apply_edit(open, types.ArrayRemove(["left"], -1, 1)) {
           Error(types.InvalidEdit(_, _)) -> Ok(Nil)
           Error(error) ->
             Error("invalid transaction edit returned " <> string.inspect(error))
@@ -1741,17 +1734,17 @@ fn execute_callback(
           tree_kernel.ChangeEvents([], False),
           [read, ..reads],
           [
-          #("error", json.string(error)),
-          #("nativeFailure", json.bool(True)),
-          #("transactionResult", json.string("rollback")),
-          #(
-            "state",
-            json.object([
-              #("before", callback_state_json(before)),
-              #("after", callback_state_json(after)),
-            ]),
-          ),
-          #("localCompressorAdvanced", json.bool(True)),
+            #("error", json.string(error)),
+            #("nativeFailure", json.bool(True)),
+            #("transactionResult", json.string("rollback")),
+            #(
+              "state",
+              json.object([
+                #("before", callback_state_json(before)),
+                #("after", callback_state_json(after)),
+              ]),
+            ),
+            #("localCompressorAdvanced", json.bool(True)),
           ],
         ),
       )
@@ -2533,7 +2526,8 @@ fn callback_register(value: optional_field.RegisterId) -> Json {
 
 fn callback_sequence_effect(value: sequence_field.Effect) -> Json {
   case value {
-    sequence_field.Noop -> callback_sequence_effect_parts("Noop", None, None, None)
+    sequence_field.Noop ->
+      callback_sequence_effect_parts("Noop", None, None, None)
     sequence_field.Attach(attach) -> callback_sequence_attach(attach)
     sequence_field.Detach(detach) -> callback_sequence_detach(detach)
     sequence_field.AttachAndDetach(attach, detach) ->
