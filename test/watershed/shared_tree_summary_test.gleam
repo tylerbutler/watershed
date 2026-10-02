@@ -304,6 +304,10 @@ fn commit_constrained_transaction(
         ["left", "0", "label"],
         types.StringValue("constrained-tail"),
       ),
+      types.SetField(
+        ["child", "label"],
+        types.StringValue("suppressed-survivor"),
+      ),
     ])
     |> expect.to_be_ok()
   edit_events |> expect.to_equal([])
@@ -447,6 +451,8 @@ pub fn explicitly_violated_transaction_tail_continues_test() {
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
   ])
   let assert Ok(#(violated, [tail])) = runtime_core.resubmit(violated)
+  runtime_core.tree_read(violated, "A/_C", ["child", "label"])
+  |> expect.to_equal(Ok(Some(types.StringValue("child"))))
   let summary = pending_summary(violated)
   let fresh =
     load_summary(
@@ -457,12 +463,16 @@ pub fn explicitly_violated_transaction_tail_continues_test() {
     )
   runtime_core.tree_read(fresh, "A/_C", ["left", "0"])
   |> expect.to_equal(Ok(None))
+  runtime_core.tree_read(fresh, "A/_C", ["child", "label"])
+  |> expect.to_equal(Ok(Some(types.StringValue("child"))))
   let assert Ok(#(after_tail, received)) =
     runtime_core.handle_sequenced(fresh, sequenced(tail, violated.client_id, 2))
   received.events |> expect.to_equal([])
   latest_violation_count(after_tail) |> expect.to_equal(1)
   runtime_core.tree_read(after_tail, "A/_C", ["left", "0"])
   |> expect.to_equal(Ok(None))
+  runtime_core.tree_read(after_tail, "A/_C", ["child", "label"])
+  |> expect.to_equal(Ok(Some(types.StringValue("child"))))
   continue_editing(after_tail, 3)
 }
 
@@ -482,6 +492,8 @@ pub fn pending_transaction_tail_becomes_explicitly_violated_test() {
       "70000000-0000-4000-8000-000000000007",
       "80000000-0000-4000-8000-000000000008",
     )
+  runtime_core.tree_read(fresh, "A/_C", ["child", "label"])
+  |> expect.to_equal(Ok(Some(types.StringValue("child"))))
   let assert Ok(#(after_removal, removed)) =
     runtime_core.handle_sequenced(
       fresh,
@@ -491,6 +503,8 @@ pub fn pending_transaction_tail_becomes_explicitly_violated_test() {
   |> expect.to_equal([
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
   ])
+  runtime_core.tree_read(after_removal, "A/_C", ["child", "label"])
+  |> expect.to_equal(Ok(Some(types.StringValue("child"))))
   let assert Ok(#(after_tail, received)) =
     runtime_core.handle_sequenced(
       after_removal,
@@ -500,6 +514,8 @@ pub fn pending_transaction_tail_becomes_explicitly_violated_test() {
   latest_violation_count(after_tail) |> expect.to_equal(1)
   runtime_core.tree_read(after_tail, "A/_C", ["left", "0"])
   |> expect.to_equal(Ok(None))
+  runtime_core.tree_read(after_tail, "A/_C", ["child", "label"])
+  |> expect.to_equal(Ok(Some(types.StringValue("child"))))
   continue_editing(after_tail, 3)
 }
 
