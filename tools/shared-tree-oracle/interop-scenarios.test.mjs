@@ -2170,8 +2170,8 @@ test("Identifier refusal mutations alter real allocation and FieldBatch operands
   const missing = operationTransform("missing-allocation", {
     input: { mutations: [] },
   })(message([allocation, tree]));
-  assert.deepEqual(missing[0].contents.contents, [tree]);
-  assert.equal(missing[0].metadata.groupedOpCount, 1);
+  assert.deepEqual(missing[0].contents, tree.contents);
+  assert.equal(Object.hasOwn(missing[0].metadata, "groupedOpCount"), false);
   assert.equal(Object.hasOwn(missing[0].metadata, "batchId"), false);
 
   const wrong = operationTransform("wrong-originator", {

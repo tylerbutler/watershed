@@ -6906,10 +6906,15 @@ export function operationTransform(caseId, invalidProfile) {
         contents.contents = contents.contents.filter(
           (item) => item.contents?.type !== "idAllocation",
         );
-        if (Number.isSafeInteger(message.metadata?.groupedOpCount)) {
-          message.metadata.groupedOpCount = contents.contents.length;
-        }
+        assert.equal(contents.contents.length, 1,
+          `${caseId} injection found another grouped operation`);
+        delete message.metadata?.groupedOpCount;
         delete message.metadata?.batchId;
+        message.contents = encodedLike(
+          message.contents,
+          contents.contents[0].contents,
+        );
+        return payload;
       } else {
         const inner = treeMessage(contents);
         assert(inner, `${caseId} injection found no SharedTree message`);
