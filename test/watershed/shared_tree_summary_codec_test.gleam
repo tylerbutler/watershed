@@ -480,8 +480,8 @@ fn corrupt_edit_manager_identifier(
   let corrupted =
     raw
     |> string.replace(
-      "\"id\",[4,3],\"label\",[0,\"com.fluidframework.leaf.string\",true,\"peer\"",
-      "\"id\",[4,9007199254740991],\"label\",[0,\"com.fluidframework.leaf.string\",true,\"peer\"",
+      "\"data\":[[0,3,\"peer\"]],\"identifiers\"",
+      "\"data\":[[0,9007199254740991,\"peer\"]],\"identifiers\"",
     )
   case corrupted == raw {
     True -> panic as "Identifier history corruption target was not found"
