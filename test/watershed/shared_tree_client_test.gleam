@@ -181,6 +181,76 @@ pub fn shared_tree_client_decodes_constrained_array_remove_test() -> Nil {
   )
 }
 
+pub fn shared_tree_client_decodes_transaction_test() -> Nil {
+  client_protocol.decode_request(
+    "{\"requestId\":11,\"command\":\"transaction\",\"constraints\":[{\"type\":\"nodeInDocument\",\"path\":[\"items\",\"0\"]}],\"edits\":[{\"op\":\"array-remove\",\"path\":[\"right\"],\"start\":0,\"end\":1},{\"op\":\"transaction\",\"constraints\":[],\"edits\":[{\"op\":\"array-insert\",\"path\":[\"left\"],\"index\":0,\"values\":[{\"kind\":\"string\",\"value\":\"a\"}]}],\"result\":\"abort\"}],\"result\":\"commit\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(
+      11,
+      client_protocol.Transaction(client_protocol.TransactionScope(
+        constraints: [["items", "0"]],
+        edits: [
+          client_protocol.TransactionArrayRemove(["right"], 0, 1),
+          client_protocol.TransactionNested(client_protocol.TransactionScope(
+            constraints: [],
+            edits: [
+              client_protocol.TransactionArrayInsert(["left"], 0, [
+                StringValue("a"),
+              ]),
+            ],
+            result: client_protocol.AbortScope,
+          )),
+        ],
+        result: client_protocol.CommitScope,
+      )),
+    )),
+  )
+}
+
+pub fn shared_tree_client_rejects_invalid_transactions_test() -> Nil {
+  list.each(
+    [
+      "{\"requestId\":1,\"command\":\"transaction\",\"edits\":[],\"result\":\"commit\"}",
+      "{\"requestId\":1,\"command\":\"transaction\",\"constraints\":[],\"result\":\"commit\"}",
+      "{\"requestId\":1,\"command\":\"transaction\",\"constraints\":[],\"edits\":[],\"result\":\"rollback\"}",
+      "{\"requestId\":1,\"command\":\"transaction\",\"constraints\":[{\"type\":\"nodeExists\",\"path\":[]}],\"edits\":[],\"result\":\"commit\"}",
+      "{\"requestId\":1,\"command\":\"transaction\",\"constraints\":[{\"type\":\"nodeInDocument\"}],\"edits\":[],\"result\":\"commit\"}",
+      "{\"requestId\":1,\"command\":\"transaction\",\"constraints\":[],\"edits\":[{\"op\":\"undo\"}],\"result\":\"commit\"}",
+      "{\"requestId\":1,\"command\":\"transaction\",\"constraints\":[],\"edits\":[{\"op\":\"array-remove\",\"path\":[],\"start\":0,\"end\":-1}],\"result\":\"commit\"}",
+    ],
+    fn(raw) { client_protocol.decode_request(raw) |> expect.to_be_error() },
+  )
+}
+
+pub fn shared_tree_client_encodes_transaction_result_test() -> Nil {
+  client_protocol.encode_transaction_result(
+    client_protocol.TransactionObservation(
+      outcome: "committed",
+      constraints: [["items", "0"]],
+      edits_applied: 1,
+      observed_tree: client_protocol.encode_read(Some(StringValue("inside"))),
+      nested: [
+        client_protocol.TransactionObservation(
+          outcome: "aborted",
+          constraints: [],
+          edits_applied: 1,
+          observed_tree: client_protocol.encode_read(None),
+          nested: [],
+        ),
+      ],
+    ),
+    [json.object([#("kind", json.string("data"))])],
+    Some("revision-1"),
+    1,
+    client_protocol.encode_read(Some(StringValue("after"))),
+  )
+  |> json.to_string
+  |> expect.to_equal(
+    "{\"outcome\":\"committed\",\"callback\":{\"outcome\":\"committed\",\"constraints\":[[\"items\",\"0\"]],\"editsApplied\":1,\"observedTree\":{\"present\":true,\"value\":{\"kind\":\"string\",\"value\":\"inside\"}},\"nested\":[{\"outcome\":\"aborted\",\"constraints\":[],\"editsApplied\":1,\"observedTree\":{\"present\":false},\"nested\":[]}]},\"events\":[{\"kind\":\"data\"}],\"commitRevision\":\"revision-1\",\"outboundCount\":1,\"tree\":{\"present\":true,\"value\":{\"kind\":\"string\",\"value\":\"after\"}}}",
+  )
+}
+
 pub fn shared_tree_client_rejects_invalid_array_commands_test() -> Nil {
   list.each(
     [

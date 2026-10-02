@@ -3759,6 +3759,406 @@ export async function runArrayReloadMatrix(config, context, {
   return validateArrayResults(results);
 }
 
+function transactionPointValue(label, x) {
+  return {
+    kind: "object",
+    schemaId: "org.watershed.shared-tree.m3.Point",
+    fields: [
+      ["label", { kind: "string", value: label }],
+      ["x", { kind: "number", value: x }],
+    ],
+  };
+}
+
+function arrayFieldLabels(checkpoint, field) {
+  const entry = checkpoint.wholeTree?.value?.fields
+    ?.find(([name]) => name === field)?.[1];
+  assert(entry?.kind === "array", `Array checkpoint lacks the ${field} field`);
+  return entry.elements.map((element) =>
+    element?.fields?.find(([name]) => name === "label")?.[1]?.value ?? null);
+}
+
+export function validateTransactionReloadResults(results) {
+  assert(results && typeof results === "object" && !Array.isArray(results),
+    "Transaction summary interop needs a nested reload matrix");
+  assert.deepEqual(Object.keys(results).sort(), [...implementations].sort(),
+    "Transaction summary interop needs all three writers");
+  const readerInstances = new Set();
+  for (const writer of implementations) {
+    assert.deepEqual(Object.keys(results[writer] ?? {}).sort(),
+      [...implementations].sort(),
+      `Transaction summary interop needs all three readers for ${writer}`);
+    for (const reader of implementations) {
+      const cell = results[writer][reader];
+      assert(cell && typeof cell === "object",
+        `Transaction reload lacks ${writer}->${reader}`);
+      assert.equal(cell.profile, "array", "Transaction reload has another profile");
+      assert.equal(cell.writer, writer, "Invalid transaction writer identity");
+      assert.equal(cell.reader, reader, "Invalid transaction reader identity");
+      assert(typeof cell.runId === "string" && cell.runId.length > 0,
+        "Missing transaction reload run ID");
+      assert.match(cell.profileDigest ?? "", /^[0-9a-f]{64}$/,
+        "Missing transaction reload profile digest");
+      assert(typeof cell.documentId === "string" && cell.documentId.length > 0,
+        "Missing transaction reload document ID");
+      assert(typeof cell.writerVersion === "string" && cell.writerVersion.length > 0,
+        "Missing transaction writer version");
+      assert.equal(cell.loadedVersion, cell.writerVersion,
+        "Transaction reload selected another version");
+      assert(typeof cell.readerInstanceId === "string"
+        && cell.readerInstanceId.length > 0,
+      "Missing transaction reload reader instance");
+      assert(!readerInstances.has(cell.readerInstanceId),
+        "Transaction reload reused a reader instance");
+      readerInstances.add(cell.readerInstanceId);
+      assert.equal(cell.scenarioId, "transaction-summary-postload",
+        "Transaction reload used another scenario");
+      assert.equal(cell.loaded, true, "Transaction reload did not load");
+      assert.equal(cell.historyVerified, true,
+        "Transaction reader did not verify history");
+      assert.equal(cell.nodeIdentityVerified, true,
+        "Transaction reader did not verify node identity");
+      assert.equal(cell.writerAuthored?.outcome, "committed",
+        "Transaction writer did not commit its constrained transaction");
+      assert.equal(cell.writerAuthored.outboundCount, 1,
+        "Transaction writer submitted another operation count");
+      assert.deepEqual(cell.writerAuthored.labels,
+        [`${writer}-reload-a`, `${writer}-reload-b`],
+        "Transaction writer authored another pair of nodes");
+      assert.equal(cell.postLoadAuthored?.author, reader,
+        "Transaction reader did not author the post-load transaction");
+      assert.equal(cell.postLoadAuthored.outcome, "committed",
+        "Transaction reader did not commit its post-load transaction");
+      assert.equal(cell.postLoadAuthored.label, `${writer}-${reader}-postload`,
+        "Transaction reader authored another node");
+      assert.equal(cell.postLoadAuthored.outboundCount, 1,
+        "Transaction reader submitted another operation count");
+      assert.equal(cell.postLoadAuthored.editsApplied, 2,
+        "Transaction reader applied another edit count");
+      assert.equal(cell.postLoadAuthored.nestedScopes, 1,
+        "Transaction reader lacks a nested scope");
+      assert.equal(cell.postLoadAuthored.sequencedCommitCount, 1,
+        "The post-load transaction was not one sequenced commit");
+      assert(typeof cell.postLoadAuthored.originatorId === "string"
+        && cell.postLoadAuthored.originatorId.length > 0,
+      "The post-load transaction lacks an originator");
+      assert.equal(cell.peerObservation?.observed, true,
+        "The post-load transaction lacks peer observation");
+      assert.equal(cell.peerObservation.label, cell.postLoadAuthored.label,
+        "The peer observed another node");
+      assert(implementations.includes(cell.peerObservation.implementation),
+        "The transaction peer has another implementation");
+      assert.equal(cell.pendingTreeCount, 0,
+        "Transaction reload left pending commits");
+      assert.equal(cell.inflightSubmissionCount, 0,
+        "Transaction reload left submissions in flight");
+      assert(Array.isArray(cell.artifacts) && cell.artifacts.length > 0,
+        "Missing transaction reload artifact");
+    }
+  }
+  return results;
+}
+
+async function writeTransactionReloadArtifact(context, item, raw) {
+  const relative = `transaction-reload/${item.writer}-${item.reader}.json`;
+  const path = join(context.artifactDirectory, relative);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({
+    formatVersion: 1,
+    runId: context.runId,
+    profileDigest: context.profileDigest,
+    kind: "transaction-reload",
+    subject: `${item.writer}->${item.reader}`,
+    documentId: item.documentId,
+    measured: {
+      writerAuthored: item.writerAuthored,
+      postLoadAuthored: item.postLoadAuthored,
+      peerObservation: item.peerObservation,
+      historyVerified: item.historyVerified,
+      nodeIdentityVerified: item.nodeIdentityVerified,
+    },
+    raw,
+  })}\n`, { mode: 0o600 });
+  return relative;
+}
+
+async function readTransactionCell(config, context, row, reader) {
+  const containers = [];
+  let adapter;
+  let failure;
+  try {
+    let load;
+    let rawLoad;
+    if (reader === "upstream") {
+      const session = await openSession(config, containers, row.documentId, false,
+        { cache: false, observeStorage: true, store: arrayServiceStore });
+      adapter = upstreamAdapter(session);
+      await adapter.awaitSynced(row.publicationSequenceNumber);
+      load = storageLoad(session.storageObservations, row.version);
+      rawLoad = session.storageObservations;
+    } else {
+      adapter = await nativeAdapter(reader, config, {
+        runId: context.runId,
+        documentId: row.documentId,
+        tenant: config.tenantId,
+        viewSchema: context.arrayViewSchema,
+      }, row.jwt);
+      await adapter.awaitSynced(row.publicationSequenceNumber);
+      rawLoad = adapter.evidence();
+      load = loadRequests(rawLoad, row.version, row.snapshotSequenceNumber);
+    }
+    const loaded = await adapter.checkpoint();
+    const rightLabels = arrayFieldLabels(loaded, "right");
+    const leftLabels = arrayFieldLabels(loaded, "left");
+    assert.deepEqual(rightLabels.slice(0, 2), row.writerAuthored.labels,
+      "Transaction reload lost the writer's composed commit");
+    assert.deepEqual(leftLabels, ["anchor"],
+      "Transaction reload lost the constrained node");
+    const historyVerified = Array.isArray(loaded.history?.trunk)
+      && Array.isArray(loaded.history?.pending)
+      && loaded.history.pending.length === 0;
+    const label = `${row.writer}-${reader}-postload`;
+    const baseline = loaded.sequenceNumber;
+    const authoredResult = await adapter.transaction({
+      constraints: [{ type: "nodeInDocument", path: ["left", "0"] }],
+      edits: [
+        {
+          op: "array-insert",
+          path: ["left"],
+          index: 1,
+          values: [transactionPointValue(label, 31)],
+        },
+        {
+          op: "transaction",
+          constraints: [],
+          result: "commit",
+          edits: [{
+            op: "array-insert",
+            path: ["right"],
+            index: 0,
+            values: [transactionPointValue(`${label}-nested`, 32)],
+          }],
+        },
+      ],
+      result: "commit",
+    });
+    await adapter.awaitSynced();
+    const continuation = await acknowledgedSubmission(
+      row.observer,
+      adapter,
+      baseline,
+      reader,
+    );
+    const authored = await adapter.checkpoint();
+    assert(arrayFieldLabels(authored, "left").includes(label),
+      "The post-load transaction did not reach the reader's own tree");
+    const peer = await openSession(config, containers, row.documentId, false,
+      { cache: false, store: arrayServiceStore });
+    const peerAdapter = upstreamAdapter(peer);
+    await peerAdapter.awaitSynced(continuation.outerSequenceNumber);
+    const peerCheckpoint = await peerAdapter.checkpoint();
+    assert(arrayFieldLabels(peerCheckpoint, "left").includes(label),
+      "The post-load transaction is missing on the peer");
+    assert(arrayFieldLabels(peerCheckpoint, "right").includes(`${label}-nested`),
+      "The nested scope is missing on the peer");
+    const commit = continuation.commits[0];
+    assert(commit, "The post-load transaction lacks operation identity");
+    const item = {
+      runId: context.runId,
+      profileDigest: context.profileDigest,
+      profile: "array",
+      writer: row.writer,
+      reader,
+      writerVersion: row.version,
+      loadedVersion: load.loadedVersion,
+      readerInstanceId: adapter.instanceId,
+      scenarioId: "transaction-summary-postload",
+      loaded: true,
+      historyVerified,
+      nodeIdentityVerified: true,
+      writerAuthored: row.writerAuthored,
+      postLoadAuthored: {
+        author: reader,
+        label,
+        outcome: authoredResult.outcome,
+        outboundCount: authoredResult.outboundCount,
+        editsApplied: authoredResult.callback.editsApplied,
+        nestedScopes: authoredResult.callback.nested.length,
+        commitRevision: authoredResult.commitRevision,
+        originatorId: commit.originatorId,
+        sequencedCommitCount: continuation.commits.length,
+      },
+      peerObservation: {
+        implementation: "upstream",
+        label,
+        observed: true,
+      },
+      pendingTreeCount: authored.pendingTreeCount,
+      inflightSubmissionCount: authored.inflightSubmissionCount,
+      documentId: row.documentId,
+      artifacts: [],
+    };
+    item.artifacts = [await writeTransactionReloadArtifact(context, item, {
+      load: rawLoad,
+      authoredResult,
+      continuation,
+      peer: peerCheckpoint,
+      history: await serverHistory(row.observer),
+    })];
+    return item;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    const cleanup = [];
+    if (adapter && reader !== "upstream") cleanup.push(() => adapter.close());
+    for (const container of containers.toReversed()) {
+      if (!container.closed) cleanup.push(() => container.dispose());
+    }
+    await cleanupAll(failure, `${reader} transaction reload cleanup failed`, cleanup);
+  }
+}
+
+async function runTransactionWriterRow(config, context, writer) {
+  const containers = [];
+  const natives = [];
+  let failure;
+  try {
+    const creator = await openSession(config, containers, undefined, false,
+      { store: arrayServiceStore });
+    const documentId = creator.container.resolvedUrl.id;
+    await publishUpstreamSummary(config, containers, documentId,
+      `Transaction ${writer} bootstrap`, { store: arrayServiceStore });
+    const upstreamSession = await openSession(config, containers, documentId,
+      false, { store: arrayServiceStore });
+    const upstream = upstreamAdapter(upstreamSession);
+    const { jwt } = await tokenProvider(config)
+      .fetchOrdererToken(config.tenantId, documentId);
+    for (const target of nativeTargets) {
+      natives.push(await nativeAdapter(target, config, {
+        runId: context.runId,
+        documentId,
+        tenant: config.tenantId,
+        viewSchema: context.arrayViewSchema,
+      }, jwt));
+    }
+    const adapters = { upstream, javascript: natives[0], erlang: natives[1] };
+    await settle(adapters);
+    await adapters[writer].arrayInsert(["left"], 0, [
+      transactionPointValue("anchor", 0),
+    ]);
+    await settle(adapters);
+    const labels = [`${writer}-reload-a`, `${writer}-reload-b`];
+    const writerResult = await adapters[writer].transaction({
+      constraints: [{ type: "nodeInDocument", path: ["left", "0"] }],
+      edits: [
+        {
+          op: "array-insert",
+          path: ["right"],
+          index: 0,
+          values: [transactionPointValue(labels[0], 41)],
+        },
+        {
+          op: "transaction",
+          constraints: [],
+          result: "commit",
+          edits: [{
+            op: "array-insert",
+            path: ["right"],
+            index: 1,
+            values: [transactionPointValue(labels[1], 42)],
+          }],
+        },
+      ],
+      result: "commit",
+    });
+    await settle(adapters);
+    const publication = await publishWriterSummary(
+      config,
+      containers,
+      creator,
+      documentId,
+      jwt,
+      writer,
+      adapters,
+      {
+        store: arrayServiceStore,
+        tailEdit: (adapter, value) =>
+          adapter.arrayInsert(["narrow"], 0, [transactionPointValue(value, 99)]),
+      },
+    );
+    const row = {
+      writer,
+      documentId,
+      jwt,
+      observer: creator,
+      writerAuthored: {
+        labels,
+        outcome: writerResult.outcome,
+        outboundCount: writerResult.outboundCount,
+        commitRevision: writerResult.commitRevision,
+        editsApplied: writerResult.callback.editsApplied,
+        nestedScopes: writerResult.callback.nested.length,
+      },
+      ...publication,
+    };
+    for (const native of natives.toReversed()) await native.close();
+    natives.length = 0;
+    if (!upstream.session.container.closed) upstream.session.container.dispose();
+    const results = {};
+    for (const reader of implementations) {
+      results[reader] = await readTransactionCell(config, context, row, reader);
+    }
+    return results;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    const cleanupErrors = [];
+    for (const native of natives.toReversed()) {
+      try {
+        await native.close();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const container of containers.toReversed()) {
+      try {
+        if (!container.closed) container.dispose();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      if (failure) failure.cleanupErrors = cleanupErrors;
+      else {
+        throw new AggregateError(cleanupErrors,
+          `Cleanup failed for ${writer} transaction reload row`);
+      }
+    }
+  }
+}
+
+export async function runTransactionReloadMatrix(config, context, {
+  runRow = runTransactionWriterRow,
+} = {}) {
+  assert(typeof context?.runId === "string" && context.runId.length > 0,
+    "runTransactionReloadMatrix context requires runId");
+  assert.match(context.profileDigest ?? "", /^[0-9a-f]{64}$/,
+    "runTransactionReloadMatrix context requires profileDigest");
+  assert(typeof context.arrayViewSchema === "string"
+    && context.arrayViewSchema.length > 0,
+  "runTransactionReloadMatrix context requires arrayViewSchema");
+  assert(typeof context.artifactDirectory === "string"
+    && context.artifactDirectory.length > 0,
+  "runTransactionReloadMatrix context requires artifactDirectory");
+  const results = {};
+  for (const writer of implementations) {
+    results[writer] = await runRow(config, context, writer);
+  }
+  return validateTransactionReloadResults(results);
+}
+
 export async function runIdentifierReloadMatrix(config, context, {
   runRow = runIdentifierWriterRow,
 } = {}) {

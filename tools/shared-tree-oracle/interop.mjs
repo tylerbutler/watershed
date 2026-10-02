@@ -19,7 +19,9 @@ import {
 } from "node:util";
 import {
   runService as runReconnectCases,
+  runTransactionReconnect,
   validateResults as validateReconnectResults,
+  validateTransactionReconnectResults,
 } from "./client-interop.mjs";
 import {
   generateSchedules,
@@ -37,7 +39,10 @@ import {
   runSchemaRaces,
   runSchemaReconnect,
   runSeededSchedules,
+  runTransactionScenarios,
   validateIdentifierFields,
+  validateTransactionCallbacks,
+  validateTransactionConstraints,
 } from "./interop-scenarios.mjs";
 import {
   preflight,
@@ -53,11 +58,13 @@ import {
   runMapReloadMatrix,
   runReloadMatrix,
   runSchemaReloadMatrices,
+  runTransactionReloadMatrix,
   validateArrayResults,
   validateIdentifierReloadResults,
   validateMapResults,
   validateSchemaReloadResults,
   validateSchemaTailReloadResults,
+  validateTransactionReloadResults,
 } from "./summary-interop.mjs";
 
 const implementations = ["upstream", "javascript", "erlang"];
@@ -68,6 +75,12 @@ const requiredSchemaSections = [
   "schemaReconnect",
   "schemaReloadMatrix",
   "schemaTailReloadMatrix",
+];
+const requiredTransactionSections = [
+  "transactionCallbacks",
+  "transactionConstraints",
+  "transactionReconnect",
+  "transactionReloadMatrix",
 ];
 const requiredSchemaRaceIds = requiredSchemaRaceCells().map(({ id }) => id);
 const oracleDirectory = resolve(import.meta.dirname);
@@ -630,6 +643,23 @@ async function attachSchemaArtifacts(runDirectory, context, section, items) {
   }
 }
 
+async function attachTransactionReconnectArtifacts(runDirectory, context, results) {
+  for (const item of results) {
+    const artifact = `transaction-reconnect/${item.target}-${item.caseId}.json`;
+    await writeJson(join(runDirectory, artifact), {
+      formatVersion: 1,
+      runId: context.runId,
+      profileDigest: context.profileDigest,
+      kind: "transaction-reconnect",
+      subject: `${item.target}:${item.caseId}`,
+      documentId: item.documentId,
+      result: item,
+    });
+    item.profileDigest = context.profileDigest;
+    item.evidence.artifacts = [artifact];
+  }
+}
+
 function artifactReferences(report) {
   return [
     report.service.preflightArtifact,
@@ -647,6 +677,11 @@ function artifactReferences(report) {
     ...report.identifierFields.pairs.flatMap(({ artifacts }) => artifacts),
     ...report.identifierFields.failures.flatMap(({ artifacts }) => artifacts),
     ...Object.values(report.identifierReloadMatrix).flatMap((row) =>
+      Object.values(row).flatMap(({ artifacts }) => artifacts)),
+    ...report.transactionCallbacks.pairs.flatMap(({ artifacts }) => artifacts),
+    ...report.transactionConstraints.flatMap(({ artifacts }) => artifacts),
+    ...report.transactionReconnect.flatMap(({ evidence }) => evidence.artifacts),
+    ...Object.values(report.transactionReloadMatrix).flatMap((row) =>
       Object.values(row).flatMap(({ artifacts }) => artifacts)),
     ...Object.values(report.schemaReloadMatrix).flatMap((row) =>
       Object.values(row).flatMap(({ artifacts }) => artifacts)),
@@ -708,6 +743,26 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
       artifacts: item.artifacts,
     })),
   });
+
+  await writeStatus(runDirectory, "transaction-scenarios");
+  log("shared-tree interop: mixed-client transactions");
+  const transactions = await runTransactionScenarios(config, context);
+
+  await writeStatus(runDirectory, "transaction-reconnect");
+  log("shared-tree interop: transaction reconnect");
+  const transactionReconnect = (await runTransactionReconnect(config, {
+    runId: context.runId,
+    build: false,
+  })).results;
+  await attachTransactionReconnectArtifacts(
+    runDirectory,
+    context,
+    transactionReconnect,
+  );
+
+  await writeStatus(runDirectory, "transaction-reload");
+  log("shared-tree interop: transaction selected-summary reload matrix");
+  const transactionReloadMatrix = await runTransactionReloadMatrix(config, context);
 
   await writeStatus(runDirectory, "reload");
   log("shared-tree interop: selected-summary reload matrix");
@@ -806,6 +861,10 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
     schemaTailReloadMatrix,
     arrayReload,
     identifierReloadMatrix,
+    transactionCallbacks: transactions.callbacks,
+    transactionConstraints: transactions.constraints,
+    transactionReconnect,
+    transactionReloadMatrix,
     corpus,
     skipped: [],
     divergences: [],
@@ -1060,6 +1119,40 @@ function measuredPayload(item) {
   };
 }
 
+function validateSeededTransactions(item, schedule) {
+  const scheduled = schedule.actions.filter(({ type }) => type === "transaction");
+  assert(Array.isArray(item.transactions),
+    `Seeded ${item.index} lacks transaction evidence`);
+  assert.equal(item.transactions.length, scheduled.length,
+    `Seeded ${item.index} recorded another transaction count`);
+  for (const [index, action] of scheduled.entries()) {
+    const record = item.transactions[index];
+    assert.equal(record.author, action.author,
+      `Seeded ${item.index} transaction changed author`);
+    assert.deepEqual(record.constraints, action.constraints,
+      `Seeded ${item.index} transaction changed constraints`);
+    assert.equal(record.requestedResult, action.result,
+      `Seeded ${item.index} transaction changed the requested result`);
+    assert.equal(record.outcome, action.result === "abort" ? "aborted" : "committed",
+      `Seeded ${item.index} transaction reported another outcome`);
+    assert.equal(record.outboundCount, action.result === "abort" ? 0 : 1,
+      `Seeded ${item.index} transaction queued another outbound count`);
+    assert.equal(record.nestedScopes,
+      action.edits.filter(({ op }) => op === "transaction").length,
+      `Seeded ${item.index} transaction changed the nested scope count`);
+    assert.equal(record.editsApplied, action.edits.length,
+      `Seeded ${item.index} transaction applied another edit count`);
+    if (action.result === "abort") {
+      assert.equal(record.commitRevision, null,
+        `Seeded ${item.index} aborted transaction kept a commit`);
+    } else {
+      assert(typeof record.commitRevision === "string"
+        && record.commitRevision.length > 0,
+      `Seeded ${item.index} committed transaction lacks a revision`);
+    }
+  }
+}
+
 function seededMeasuredPayload(item) {
   return {
     index: item.index,
@@ -1076,6 +1169,7 @@ function seededMeasuredPayload(item) {
     summaries: item.summaries,
     reloads: item.reloads,
     schemaTransitions: item.schemaTransitions,
+    transactions: item.transactions,
     evidence: item.evidence,
   };
 }
@@ -2297,6 +2391,61 @@ function validateIdentifierSections(report, expected, evidence) {
   }
 }
 
+function validateTransactionSections(report, expected, evidence) {
+  for (const section of requiredTransactionSections) {
+    assert(report[section] !== undefined, `Missing ${section}`);
+  }
+  validateTransactionCallbacks(report.transactionCallbacks);
+  for (const item of report.transactionCallbacks.pairs) {
+    assert.equal(item.runId, expected.runId,
+      "Transaction pair belongs to another run");
+    assert.equal(item.profileDigest, expected.profileDigest,
+      "Transaction pair uses another profile");
+    artifacts(item, evidence, expected, {
+      kind: "transaction-callbacks",
+      subject: item.id,
+      documentId: item.documentId,
+    }, `Transaction pair ${item.id}`);
+  }
+  validateTransactionConstraints(report.transactionConstraints);
+  for (const item of report.transactionConstraints) {
+    assert.equal(item.runId, expected.runId,
+      "Transaction constraint belongs to another run");
+    assert.equal(item.profileDigest, expected.profileDigest,
+      "Transaction constraint uses another profile");
+    artifacts(item, evidence, expected, {
+      kind: "transaction-constraint",
+      subject: item.id,
+      documentId: item.documentId,
+    }, `Transaction constraint ${item.id}`);
+  }
+  validateTransactionReconnectResults(report.transactionReconnect, expected.runId);
+  for (const item of report.transactionReconnect) {
+    assert.equal(item.profileDigest, expected.profileDigest,
+      "Transaction reconnect uses another profile");
+    artifacts(item.evidence, evidence, expected, {
+      kind: "transaction-reconnect",
+      subject: `${item.target}:${item.caseId}`,
+      documentId: item.documentId,
+    }, `Transaction reconnect ${item.target}:${item.caseId}`);
+  }
+  validateTransactionReloadResults(report.transactionReloadMatrix);
+  for (const writer of implementations) {
+    for (const reader of implementations) {
+      const item = report.transactionReloadMatrix[writer][reader];
+      assert.equal(item.runId, expected.runId,
+        "Transaction reload belongs to another run");
+      assert.equal(item.profileDigest, expected.profileDigest,
+        "Transaction reload uses another profile");
+      artifacts(item, evidence, expected, {
+        kind: "transaction-reload",
+        subject: `${writer}->${reader}`,
+        documentId: item.documentId,
+      }, `Transaction reload ${writer}->${reader}`);
+    }
+  }
+}
+
 export function validateInteropReport(report, expected) {
   object(report, "Missing interoperability report");
   object(expected, "Missing report expectations");
@@ -2352,6 +2501,7 @@ export function validateInteropReport(report, expected) {
   assert.deepEqual(report.divergences, [], "Report contains divergences");
   validateSchemaSections(report, expected, evidence);
   validateIdentifierSections(report, expected, evidence);
+  validateTransactionSections(report, expected, evidence);
 
   const requiredScenarios = requiredScenarioCells();
   const scenariosById = exactCells(
@@ -2416,6 +2566,7 @@ export function validateInteropReport(report, expected) {
     assert.equal(item.profile, schedule.profile, "Seeded profile changed");
     assert.deepEqual(item.roles, schedule.roles, "Seeded roles changed");
     assert.deepEqual(item.actions, schedule.actions, "Seeded actions changed");
+    validateSeededTransactions(item, schedule);
     measured(item, expected, implementations, evidence, `Seeded ${item.index}`);
   }
   assert.deepEqual([...seededIndexes].sort((a, b) => a - b),

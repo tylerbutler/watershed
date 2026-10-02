@@ -98,6 +98,169 @@ const invalidProfilePath = join(
 const excludedFactory = new SchemaFactory("org.watershed.shared-tree.m1");
 const ExcludedMap = excludedFactory.map("ExcludedMap", [excludedFactory.number]);
 
+const transactionPairs = [
+  ["upstream", "javascript"],
+  ["upstream", "erlang"],
+  ["javascript", "erlang"],
+];
+const transactionConstraintAuthors = {
+  "upstream<->javascript": "upstream",
+  "upstream<->erlang": "erlang",
+  "javascript<->erlang": "javascript",
+};
+const transactionRaceOrders = ["transaction-first", "remove-first"];
+
+export function transactionPairCells() {
+  return transactionPairs.map((authors) => ({
+    id: `transaction:${authors.join("<->")}`,
+    profile: "array",
+    authors,
+  }));
+}
+
+export function transactionConstraintCells() {
+  return transactionPairs.flatMap((authors) => {
+    const pair = authors.join("<->");
+    const author = transactionConstraintAuthors[pair];
+    const remover = authors.find((target) => target !== author);
+    return transactionRaceOrders.map((order) => ({
+      id: `transaction-constraint:${pair}:${order}`,
+      profile: "array",
+      authors,
+      author,
+      remover,
+      order,
+    }));
+  });
+}
+
+export function validateTransactionCallbacks(section) {
+  assert(section && typeof section === "object" && !Array.isArray(section),
+    "Transaction callback evidence must be an object");
+  assert(Array.isArray(section.pairs)
+    && section.pairs.length === transactionPairs.length,
+  "Transaction callback evidence requires three client pairs");
+  const pairs = new Map(section.pairs.map((item) => [item.id, item]));
+  for (const expected of transactionPairCells()) {
+    const item = pairs.get(expected.id);
+    assert(item, `Transaction callback evidence lacks ${expected.id}`);
+    assert.equal(item.profile, "array", "Transaction pair has another profile");
+    assert.equal(item.passed, true, "Transaction pair failed");
+    assert.equal(item.skipped, false, "Transaction pair was skipped");
+    assert(typeof item.runId === "string" && item.runId.length > 0,
+      "Transaction pair lacks a run ID");
+    assert.match(item.profileDigest ?? "", /^[0-9a-f]{64}$/,
+      "Transaction pair lacks a profile digest");
+    assert(typeof item.documentId === "string" && item.documentId.length > 0,
+      "Transaction pair lacks a document");
+    assert(Array.isArray(item.artifacts) && item.artifacts.length > 0,
+      "Transaction pair lacks artifacts");
+    assert.deepEqual(Object.keys(item.authors ?? {}).sort(),
+      [...expected.authors].sort(), "Transaction pair lacks a real author");
+    for (const author of expected.authors) {
+      const evidence = item.authors[author];
+      assert(evidence && typeof evidence === "object",
+        `${author} lacks transaction evidence`);
+      const commit = evidence.commit;
+      assert(commit && typeof commit === "object",
+        `${author} lacks a committed transaction observation`);
+      assert.equal(commit.outcome, "committed",
+        `${author} did not commit its transaction`);
+      assert.equal(commit.callbackObservedEdits, true,
+        `${author} callback did not observe its own edits`);
+      assert.equal(commit.nestedScopes, 1,
+        `${author} lacks a nested transaction scope`);
+      assert.equal(commit.nestedOutcome, "committed",
+        `${author} nested scope reported another outcome`);
+      assert.equal(commit.editsApplied, 2,
+        `${author} commit applied another edit count`);
+      assert(typeof commit.commitRevision === "string"
+        && commit.commitRevision.length > 0,
+      `${author} commit lacks a revision`);
+      assert.equal(commit.outboundCount, 1,
+        `${author} commit submitted another operation count`);
+      assert.equal(commit.acceptedCommitCount, 1,
+        `${author} commit was not one sequenced commit`);
+      assert.equal(commit.peerObservedAtomically, true,
+        `${author} commit was not observed by every peer`);
+      const abort = evidence.abort;
+      assert(abort && typeof abort === "object",
+        `${author} lacks an aborted transaction observation`);
+      assert.equal(abort.outcome, "aborted",
+        `${author} did not abort its transaction`);
+      assert.equal(abort.callbackObservedEdits, true,
+        `${author} abort callback did not observe its own edits`);
+      assert.equal(abort.editsApplied, 1,
+        `${author} abort applied another edit count`);
+      assert.equal(abort.commitRevision, null,
+        `${author} abort produced a commit revision`);
+      assert.equal(abort.outboundCount, 0,
+        `${author} abort submitted an operation`);
+      assert.equal(abort.acceptedCommitCount, 0,
+        `${author} abort reached the service`);
+      assert.equal(abort.treeUnchanged, true,
+        `${author} abort changed its own tree`);
+      assert.equal(abort.peerObserved, false,
+        `${author} abort reached a peer`);
+      if (author !== "upstream") {
+        assert.equal(commit.localEventCount, 1,
+          `${author} commit emitted another local event count`);
+        assert.equal(abort.localEventCount, 0,
+          `${author} abort emitted a local event`);
+      }
+      assert.equal(evidence.movedWithinArray, true,
+        `${author} lacks an in-array move inside a transaction`);
+      assert.equal(evidence.movedBetweenArrays, true,
+        `${author} lacks a cross-array move inside a transaction`);
+    }
+  }
+  return section;
+}
+
+export function validateTransactionConstraints(section) {
+  assert(Array.isArray(section),
+    "Transaction constraint evidence must be an array");
+  const expectedCells = transactionConstraintCells();
+  assert.equal(section.length, expectedCells.length,
+    "Transaction constraint evidence requires both race orderings for every pair");
+  const cells = new Map(section.map((item) => [item.id, item]));
+  for (const expected of expectedCells) {
+    const item = cells.get(expected.id);
+    assert(item, `Transaction constraint evidence lacks ${expected.id}`);
+    assert.equal(item.order, expected.order,
+      "Transaction constraint race ordering changed");
+    assert.equal(item.author, expected.author,
+      "Transaction constraint author changed");
+    assert.equal(item.remover, expected.remover,
+      "Transaction constraint remover changed");
+    assert.deepEqual(item.authors, expected.authors,
+      "Transaction constraint authors changed");
+    assert.equal(item.passed, true, "Transaction constraint cell failed");
+    assert.equal(item.skipped, false, "Transaction constraint cell was skipped");
+    assert(typeof item.runId === "string" && item.runId.length > 0,
+      "Transaction constraint cell lacks a run ID");
+    assert.match(item.profileDigest ?? "", /^[0-9a-f]{64}$/,
+      "Transaction constraint cell lacks a profile digest");
+    assert(typeof item.documentId === "string" && item.documentId.length > 0,
+      "Transaction constraint cell lacks a document");
+    assert(Array.isArray(item.artifacts) && item.artifacts.length > 0,
+      "Transaction constraint cell lacks artifacts");
+    const applied = expected.order === "transaction-first";
+    assert.equal(item.transactionApplied, applied,
+      `${expected.id} applied the constrained transaction against its race ordering`);
+    assert.equal(item.constraintViolated, !applied,
+      `${expected.id} reported another constraint outcome`);
+    assert.equal(item.converged, true, `${expected.id} did not converge`);
+    assert(Array.isArray(item.sequenced), `${expected.id} lacks sequencing evidence`);
+    assert.deepEqual(item.sequenced.map(({ author }) => author),
+      applied
+        ? [expected.author, expected.remover]
+        : [expected.remover, expected.author],
+      `${expected.id} sequenced its operations in another order`);
+  }
+  return section;
+}
+
 export function identifierPairCells() {
   return identifierPairs.map((authors) => ({
     id: `identifier:${authors.join("<->")}`,
@@ -1794,6 +1957,21 @@ function arrayEdit(type, author, fields, outboundHeld = false) {
   };
 }
 
+function transactionAction(author, scope, outboundHeld = true) {
+  return {
+    type: "transaction",
+    author,
+    constraints: scope.constraints,
+    edits: scope.edits,
+    result: scope.result,
+    preconditions: {
+      ...connected(author),
+      pathType: "array",
+      ...(outboundHeld ? { outboundHeld: true } : {}),
+    },
+  };
+}
+
 function release(author, direction, order, duplicate) {
   return {
     type: "release",
@@ -2269,6 +2447,41 @@ function generatedArrayActions(seed, index, template, roles, random) {
       { kind: "number", value: magnitude + 7 },
     ],
   }, true));
+  actions.push(transactionAction(roles.first, {
+    constraints: [{ type: "nodeInDocument", path: ["left", "0"] }],
+    edits: [
+      {
+        op: "array-insert",
+        path: ["right"],
+        index: 0,
+        values: [arrayPoint(`tx-${seed}-${index}`, magnitude + 9)],
+      },
+      {
+        op: "transaction",
+        constraints: [],
+        result: "commit",
+        edits: [{
+          op: "array-move",
+          sourcePath: ["right"],
+          sourceStart: 0,
+          sourceEnd: 1,
+          destinationPath: ["right"],
+          destinationGap: 2,
+        }],
+      },
+    ],
+    result: "commit",
+  }));
+  actions.push(transactionAction(roles.first, {
+    constraints: [],
+    edits: [{
+      op: "array-insert",
+      path: ["right"],
+      index: 0,
+      values: [arrayPoint(`tx-abort-${seed}-${index}`, magnitude + 10)],
+    }],
+    result: "abort",
+  }));
   switch (template) {
     case "array-same-gap":
       actions.push(arrayEdit("array-insert", roles.second, {
@@ -3086,6 +3299,99 @@ function canonicalMapEntries(entries) {
     .sort(([left], [right]) => Buffer.from(left).compare(Buffer.from(right)));
 }
 
+function upstreamNodeAt(root, path) {
+  const node = path.reduce((value, segment) =>
+    Array.isArray(value) || typeof value?.at === "function"
+      ? value.at(Number(segment))
+      : value[segment], root);
+  assert(node, `Missing upstream transaction node: ${path.join("/")}`);
+  return node;
+}
+
+function applyUpstreamTransactionEdit(view, root, edit) {
+  switch (edit.op) {
+    case "set":
+      setUpstream(root, edit.path, edit.value);
+      return { nested: [] };
+    case "clear":
+      assert.deepEqual(edit.path, ["note"],
+        "Only the optional note can be cleared");
+      delete root.note;
+      return { nested: [] };
+    case "map-set": {
+      const map = mapAt(root, edit.path);
+      map.set(edit.key, mapInput(map, edit.value));
+      return { nested: [] };
+    }
+    case "map-delete":
+      mapAt(root, edit.path).delete(edit.key);
+      return { nested: [] };
+    case "array-insert":
+      arrayAt(root, edit.path).insertAt(
+        edit.index,
+        ...edit.values.map(upstreamArrayValue),
+      );
+      return { nested: [] };
+    case "array-remove":
+      arrayAt(root, edit.path).removeRange(edit.start, edit.end);
+      return { nested: [] };
+    case "array-move": {
+      const source = arrayAt(root, edit.sourcePath);
+      arrayAt(root, edit.destinationPath).moveRangeToIndex(
+        edit.destinationGap,
+        edit.sourceStart,
+        edit.sourceEnd,
+        source,
+      );
+      return { nested: [] };
+    }
+    case "transaction":
+      return { nested: [runUpstreamScope(view, root, edit)] };
+    default:
+      return assert.fail(`Unsupported upstream transaction edit: ${edit.op}`);
+  }
+}
+
+function runUpstreamScope(view, root, scope) {
+  const preconditions = scope.constraints.map((constraint) => {
+    assert.equal(constraint.type, "nodeInDocument",
+      `Unsupported upstream transaction constraint: ${constraint.type}`);
+    return { type: "nodeInDocument", node: upstreamNodeAt(root, constraint.path) };
+  });
+  let observation;
+  const aborted = scope.result === "abort";
+  const result = view.runTransaction(() => {
+    let applied = 0;
+    const nested = [];
+    for (const edit of scope.edits) {
+      nested.push(...applyUpstreamTransactionEdit(view, root, edit).nested);
+      applied += 1;
+    }
+    observation = {
+      outcome: aborted ? "aborted" : "committed",
+      constraints: scope.constraints.map(({ path }) => path),
+      editsApplied: applied,
+      observedTree: canonicalValue(arrayRootValue(root)),
+      nested,
+    };
+    return aborted ? { rollback: true } : undefined;
+  }, { preconditions });
+  assert.equal(result.success, !aborted,
+    "Upstream transaction reported another outcome");
+  return observation;
+}
+
+export function canonicalTransactionResult(result) {
+  return {
+    outcome: result.outcome,
+    callback: canonicalValue(result.callback),
+    events: result.events,
+    commitRevision: result.commitRevision ?? null,
+    outboundCount: result.outboundCount,
+    tree: canonicalValue(result.tree),
+  };
+}
+
 export function upstreamAdapter(session, viewConfigurations = {}) {
   const instanceId = randomUUID();
   const events = [];
@@ -3203,6 +3509,25 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
         sourceEnd,
         source,
       );
+    },
+    async transaction(scope) {
+      const root = session.data.view.root;
+      const beforeEvents = events.length;
+      const beforePending = pendingTreeCommits(session);
+      const callback = runUpstreamScope(activeView, root, scope);
+      const emitted = events.splice(beforeEvents);
+      const outboundCount = Math.max(pendingTreeCommits(session) - beforePending, 0);
+      const pending = upstreamHistoryEvidence(session).pending;
+      return canonicalTransactionResult({
+        outcome: callback.outcome,
+        callback,
+        events: emitted,
+        commitRevision: outboundCount > 0
+          ? String(pending.at(-1).revision)
+          : null,
+        outboundCount,
+        tree: arrayRootValue(root),
+      });
     },
     async checkpoint() {
       if (session.container.clientId) clientIds.add(session.container.clientId);
@@ -3448,6 +3773,9 @@ export async function nativeAdapter(
         destinationPath,
         destinationGap,
       );
+    },
+    async transaction(scope) {
+      return canonicalTransactionResult(await client.transaction(scope));
     },
     async checkpoint() {
       const reply = success(await client.request({ command: "checkpoint" }),
@@ -5840,6 +6168,424 @@ async function runIdentifierPair(config, context, cell) {
   }
 }
 
+function transactionConstraint(path) {
+  return { type: "nodeInDocument", path };
+}
+
+function pointLabels(values) {
+  return values.map((value) =>
+    value?.fields?.find(([name]) => name === "label")?.[1]?.value ?? null);
+}
+
+async function openTransactionEnvironment(config, context, label) {
+  const containers = [];
+  const natives = [];
+  try {
+    const creator = await openSession(config, containers, undefined, false,
+      { store: arrayServiceStore });
+    const documentId = creator.container.resolvedUrl.id;
+    await publishUpstreamSummary(config, containers, documentId,
+      `Task 9 ${label} bootstrap`, { store: arrayServiceStore });
+    const upstreamSession = await openSession(config, containers, documentId,
+      false, { store: arrayServiceStore });
+    const upstream = upstreamAdapter(upstreamSession);
+    const { jwt } = await tokenProvider(config)
+      .fetchOrdererToken(config.tenantId, documentId);
+    for (const target of nativeTargets) {
+      natives.push(await nativeAdapter(target, config, {
+        runId: context.runId,
+        documentId,
+        tenant: config.tenantId,
+        viewSchema: context.arrayViewSchema,
+      }, jwt));
+    }
+    return {
+      containers,
+      natives,
+      creator,
+      upstreamSession,
+      documentId,
+      adapters: { upstream, javascript: natives[0], erlang: natives[1] },
+    };
+  } catch (error) {
+    await closeTransactionEnvironment({ containers, natives }, error);
+    throw error;
+  }
+}
+
+async function closeTransactionEnvironment({ containers, natives }, failure) {
+  const cleanupErrors = [];
+  for (const native of natives.toReversed()) {
+    try {
+      await native.close();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+  for (const container of containers.toReversed()) {
+    try {
+      if (!container.closed) container.dispose();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+  if (cleanupErrors.length === 0) return;
+  if (failure) failure.cleanupErrors = cleanupErrors;
+  else throw new AggregateError(cleanupErrors, "Transaction cleanup failed");
+}
+
+async function acceptedCommitCount(creator, adapters, author, afterSequence) {
+  const submissions = decodeTreeSubmissions(await serverHistory(creator));
+  return submissions
+    .filter((outer) => outer.outerSequenceNumber > afterSequence
+      && adapters[author].clientIds.has(outer.clientId))
+    .reduce((total, outer) => total + outer.commits.length, 0);
+}
+
+async function runAuthorTransaction(environment, author, scope) {
+  const { adapters, creator, upstreamSession } = environment;
+  const base = await settle(adapters);
+  const watermark = base.observations[0].sequenceNumber;
+  const baseTree = base.observations
+    .find(({ implementation }) => implementation === author).wholeTree;
+  const adapter = adapters[author];
+  await adapter.holdOutbound();
+  let result;
+  try {
+    result = await adapter.transaction(scope);
+  } finally {
+    await adapter.releaseOutbound();
+  }
+  if (result.outboundCount > 0) {
+    await waitForAuthorSubmission(upstreamSession, adapters, author, watermark);
+  }
+  const settled = await settle(adapters);
+  return {
+    result,
+    baseTree,
+    settled,
+    watermark,
+    acceptedCommitCount: await acceptedCommitCount(
+      creator,
+      adapters,
+      author,
+      watermark,
+    ),
+  };
+}
+
+async function writeTransactionArtifact(context, item, raw) {
+  const relative = `transaction/${safeName(item.id)}.json`;
+  const path = join(context.artifactDirectory, relative);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({
+    formatVersion: 1,
+    runId: context.runId,
+    profileDigest: context.profileDigest,
+    kind: "transaction-callbacks",
+    subject: item.id,
+    documentId: item.documentId,
+    measured: {
+      authors: item.authors,
+      passed: item.passed,
+      skipped: item.skipped,
+    },
+    raw,
+  })}\n`, { mode: 0o600 });
+  return relative;
+}
+
+async function writeTransactionConstraintArtifact(context, item, raw) {
+  const relative = `transaction-constraint/${safeName(item.id)}.json`;
+  const path = join(context.artifactDirectory, relative);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({
+    formatVersion: 1,
+    runId: context.runId,
+    profileDigest: context.profileDigest,
+    kind: "transaction-constraint",
+    subject: item.id,
+    documentId: item.documentId,
+    measured: {
+      order: item.order,
+      author: item.author,
+      remover: item.remover,
+      transactionApplied: item.transactionApplied,
+      constraintViolated: item.constraintViolated,
+      converged: item.converged,
+      sequenced: item.sequenced,
+    },
+    raw,
+  })}\n`, { mode: 0o600 });
+  return relative;
+}
+
+async function runTransactionPair(config, context, cell) {
+  const environment = await openTransactionEnvironment(config, context, cell.id);
+  let failure;
+  try {
+    const { adapters, documentId } = environment;
+    await adapters.upstream.arrayInsert(["left"], 0, [arrayPoint("anchor", 0)]);
+    await adapters.upstream.arrayInsert(["right"], 0, [
+      arrayPoint("seed-a", 1),
+      arrayPoint("seed-b", 2),
+    ]);
+    await settle(adapters);
+    const authorEvidence = {};
+    const raw = {};
+    for (const author of cell.authors) {
+      const commitRun = await runAuthorTransaction(environment, author, {
+        constraints: [transactionConstraint(["left", "0"])],
+        edits: [
+          {
+            op: "array-insert",
+            path: ["right"],
+            index: 0,
+            values: [arrayPoint(`${author}-tx-a`, 10)],
+          },
+          {
+            op: "transaction",
+            constraints: [],
+            result: "commit",
+            edits: [{
+              op: "array-insert",
+              path: ["right"],
+              index: 1,
+              values: [arrayPoint(`${author}-tx-b`, 11)],
+            }],
+          },
+        ],
+        result: "commit",
+      });
+      const committed = commitRun.settled.observations
+        .map(({ wholeTree }) => JSON.stringify(wholeTree));
+      const abortRun = await runAuthorTransaction(environment, author, {
+        constraints: [],
+        edits: [{
+          op: "array-insert",
+          path: ["right"],
+          index: 0,
+          values: [arrayPoint(`${author}-abort`, 12)],
+        }],
+        result: "abort",
+      });
+      const aborted = abortRun.settled.observations
+        .map(({ wholeTree }) => JSON.stringify(wholeTree));
+      const beforeWithin = pointLabels(
+        await adapters.upstream.arrayValues(["right"]));
+      const withinRun = await runAuthorTransaction(environment, author, {
+        constraints: [transactionConstraint(["left", "0"])],
+        edits: [{
+          op: "array-move",
+          sourcePath: ["right"],
+          sourceStart: 0,
+          sourceEnd: 1,
+          destinationPath: ["right"],
+          destinationGap: 2,
+        }],
+        result: "commit",
+      });
+      const afterWithin = pointLabels(
+        await adapters.upstream.arrayValues(["right"]));
+      const beforeLeft = pointLabels(
+        await adapters.upstream.arrayValues(["left"]));
+      const movedLabel = afterWithin[0];
+      const acrossRun = await runAuthorTransaction(environment, author, {
+        constraints: [transactionConstraint(["left", "0"])],
+        edits: [{
+          op: "array-move",
+          sourcePath: ["right"],
+          sourceStart: 0,
+          sourceEnd: 1,
+          destinationPath: ["left"],
+          destinationGap: 0,
+        }],
+        result: "commit",
+      });
+      const afterLeft = pointLabels(
+        await adapters.upstream.arrayValues(["left"]));
+      const afterRight = pointLabels(
+        await adapters.upstream.arrayValues(["right"]));
+      const callbackTree = JSON.stringify(commitRun.result.callback.observedTree);
+      authorEvidence[author] = {
+        commit: {
+          outcome: commitRun.result.outcome,
+          callbackObservedEdits: callbackTree.includes(`${author}-tx-a`)
+            && callbackTree.includes(`${author}-tx-b`),
+          nestedScopes: commitRun.result.callback.nested.length,
+          nestedOutcome: commitRun.result.callback.nested[0]?.outcome ?? null,
+          editsApplied: commitRun.result.callback.editsApplied,
+          commitRevision: commitRun.result.commitRevision,
+          outboundCount: commitRun.result.outboundCount,
+          localEventCount: commitRun.result.events.length,
+          acceptedCommitCount: commitRun.acceptedCommitCount,
+          peerObservedAtomically: committed.every((tree) =>
+            tree.includes(`${author}-tx-a`) && tree.includes(`${author}-tx-b`)),
+        },
+        abort: {
+          outcome: abortRun.result.outcome,
+          callbackObservedEdits: JSON
+            .stringify(abortRun.result.callback.observedTree)
+            .includes(`${author}-abort`),
+          editsApplied: abortRun.result.callback.editsApplied,
+          commitRevision: abortRun.result.commitRevision,
+          outboundCount: abortRun.result.outboundCount,
+          localEventCount: abortRun.result.events.length,
+          acceptedCommitCount: abortRun.acceptedCommitCount,
+          treeUnchanged: JSON.stringify(abortRun.result.tree)
+            === JSON.stringify(abortRun.baseTree),
+          peerObserved: aborted.some((tree) => tree.includes(`${author}-abort`)),
+        },
+        movedWithinArray: withinRun.result.outcome === "committed"
+          && afterWithin.length === beforeWithin.length
+          && afterWithin[0] !== beforeWithin[0]
+          && afterWithin.includes(beforeWithin[0]),
+        movedBetweenArrays: acrossRun.result.outcome === "committed"
+          && afterLeft.length === beforeLeft.length + 1
+          && afterLeft[0] === movedLabel
+          && afterRight.length === afterWithin.length - 1,
+      };
+      raw[author] = {
+        commit: commitRun.result,
+        abort: abortRun.result,
+        movedWithin: withinRun.result,
+        movedAcross: acrossRun.result,
+        settled: acrossRun.settled,
+      };
+    }
+    const item = {
+      ...cell,
+      runId: context.runId,
+      profileDigest: context.profileDigest,
+      documentId,
+      authors: authorEvidence,
+      passed: true,
+      skipped: false,
+      artifacts: [],
+    };
+    item.artifacts = [await writeTransactionArtifact(context, item, {
+      authors: raw,
+      instanceIds: Object.fromEntries(implementations.map((implementation) =>
+        [implementation, environment.adapters[implementation].instanceId])),
+    })];
+    return item;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    await closeTransactionEnvironment(environment, failure);
+  }
+}
+
+async function runTransactionConstraintCell(config, context, cell) {
+  const environment = await openTransactionEnvironment(config, context, cell.id);
+  let failure;
+  try {
+    const { adapters, upstreamSession, documentId } = environment;
+    await adapters.upstream.arrayInsert(["left"], 0, [arrayPoint("target", 0)]);
+    await adapters.upstream.arrayInsert(["right"], 0, [arrayPoint("payload", 1)]);
+    const base = await settle(adapters);
+    const watermark = base.observations[0].sequenceNumber;
+    const label = `${cell.author}-constrained`;
+    for (const target of cell.authors) {
+      await adapters[target].holdInbound();
+      await adapters[target].holdOutbound();
+    }
+    const authored = await adapters[cell.author].transaction({
+      constraints: [transactionConstraint(["left", "0"])],
+      edits: [{
+        op: "array-insert",
+        path: ["right"],
+        index: 0,
+        values: [arrayPoint(label, 20)],
+      }],
+      result: "commit",
+    });
+    assert.equal(authored.outcome, "committed",
+      `${cell.id} did not author its constrained transaction`);
+    await adapters[cell.remover].arrayRemove(["left"], 0, 1);
+    const order = cell.order === "transaction-first"
+      ? [cell.author, cell.remover]
+      : [cell.remover, cell.author];
+    const sequenced = [];
+    for (const target of order) {
+      await adapters[target].releaseOutbound();
+      const submission = await waitForAuthorSubmission(
+        upstreamSession,
+        adapters,
+        target,
+        watermark,
+      );
+      sequenced.push({
+        author: target,
+        outerSequenceNumber: submission.outerSequenceNumber,
+        referenceSequenceNumber: submission.referenceSequenceNumber,
+      });
+    }
+    for (const target of cell.authors) await adapters[target].releaseInbound();
+    const settled = await settle(adapters);
+    const trees = settled.observations.map(({ wholeTree }) =>
+      JSON.stringify(wholeTree));
+    const applied = trees.every((tree) => tree.includes(label));
+    const absent = trees.every((tree) => !tree.includes(label));
+    assert(applied || absent,
+      `${cell.id} left the constrained transaction partly applied`);
+    const item = {
+      ...cell,
+      runId: context.runId,
+      profileDigest: context.profileDigest,
+      documentId,
+      transactionApplied: applied,
+      constraintViolated: absent,
+      converged: true,
+      sequenced,
+      passed: true,
+      skipped: false,
+      artifacts: [],
+    };
+    item.artifacts = [await writeTransactionConstraintArtifact(context, item, {
+      authored,
+      settled,
+      instanceIds: Object.fromEntries(implementations.map((implementation) =>
+        [implementation, adapters[implementation].instanceId])),
+    })];
+    return item;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    await closeTransactionEnvironment(environment, failure);
+  }
+}
+
+export async function runTransactionScenarios(config, context, {
+  runPair = runTransactionPair,
+  runConstraint = runTransactionConstraintCell,
+} = {}) {
+  assert(typeof context?.runId === "string" && context.runId.length > 0,
+    "runTransactionScenarios context requires runId");
+  assert.match(context.profileDigest ?? "", /^[0-9a-f]{64}$/,
+    "runTransactionScenarios context requires profileDigest");
+  assert(typeof context.arrayViewSchema === "string"
+    && context.arrayViewSchema.length > 0,
+  "runTransactionScenarios context requires arrayViewSchema");
+  assert(typeof context.artifactDirectory === "string"
+    && context.artifactDirectory.length > 0,
+  "runTransactionScenarios context requires artifactDirectory");
+  const pairs = [];
+  for (const cell of transactionPairCells()) {
+    pairs.push(await runPair(config, context, cell));
+  }
+  const constraints = [];
+  for (const cell of transactionConstraintCells()) {
+    constraints.push(await runConstraint(config, context, cell));
+  }
+  return {
+    callbacks: validateTransactionCallbacks({ pairs }),
+    constraints: validateTransactionConstraints(constraints),
+  };
+}
+
 export async function runIdentifierFields(config, context, {
   runPair = runIdentifierPair,
   failures = [],
@@ -6046,6 +6792,7 @@ export async function writeSeededFailure(context, schedule, state, error) {
       : null,
     failedCheckpoint: error.checkpoint ?? null,
     schemaTransitions: state.schemaTransitions,
+    transactions: state.transactions ?? [],
     firstDifferencePath: error.checkpoint ? checkpointDifference([error.checkpoint]) : null,
     error: replayError(error),
   };
@@ -6247,6 +6994,32 @@ export async function executeScheduleAction(
       action.destinationGap,
     );
     state.quiescent = false;
+  } else if (action.type === "transaction") {
+    const scope = {
+      constraints: action.constraints,
+      edits: action.edits,
+      result: action.result,
+    };
+    const result = await adapters[action.author].transaction(scope);
+    const expected = action.result === "abort" ? "aborted" : "committed";
+    assert.equal(result.outcome, expected,
+      "Seeded transaction reported another outcome");
+    assert.equal(result.callback.outcome, expected,
+      "Seeded transaction callback reported another outcome");
+    assert.equal(result.outboundCount, action.result === "abort" ? 0 : 1,
+      "Seeded transaction queued another outbound operation count");
+    state.transactions.push({
+      author: action.author,
+      constraints: action.constraints,
+      requestedResult: action.result,
+      outcome: result.outcome,
+      editsApplied: result.callback.editsApplied,
+      nestedScopes: result.callback.nested.length,
+      commitRevision: result.commitRevision,
+      outboundCount: result.outboundCount,
+      events: result.events,
+    });
+    if (action.result !== "abort") state.quiescent = false;
   } else if (action.type === "hold-inbound") {
     await adapters[action.author].holdInbound();
     state.held[action.author].inbound = true;
@@ -6395,6 +7168,7 @@ export async function runSeededSchedule(config, context, schedule) {
     reloads: [],
     summaries: [],
     schemaTransitions: [],
+    transactions: [],
     token: undefined,
   };
   let scheduleError;
@@ -6497,6 +7271,7 @@ export async function runSeededSchedule(config, context, schedule) {
       summaries: state.summaries,
       reloads: state.reloads,
       schemaTransitions: state.schemaTransitions,
+      transactions: state.transactions,
       evidence: {
         submissions: decoded.submissions,
         rawSequencedOperationCount: finalHistory.length,

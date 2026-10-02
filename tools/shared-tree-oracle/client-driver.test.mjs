@@ -157,6 +157,49 @@ test("constraint helper sends a client-authored node constraint command", async 
   ), null);
 });
 
+test("the transaction helper sends constraints, edits, and the requested result", async (t) => {
+  const process = child(`
+    process.stdin.once("data", (chunk) => {
+      const request = JSON.parse(chunk.toString());
+      const { requestId, ...command } = request;
+      const expected = {
+        command: "transaction",
+        constraints: [{ type: "nodeInDocument", path: ["items", "0"] }],
+        edits: [
+          { op: "array-remove", path: ["right"], start: 0, end: 1 },
+          {
+            op: "transaction",
+            constraints: [],
+            edits: [{ op: "array-insert", path: ["left"], index: 0, values: [] }],
+            result: "abort",
+          },
+        ],
+        result: "commit",
+      };
+      process.stdout.write(JSON.stringify({
+        requestId,
+        ok: JSON.stringify(command) === JSON.stringify(expected),
+        result: { outcome: "committed", outboundCount: 1 },
+      }) + "\\n");
+    });
+  `);
+  t.after(() => process.kill());
+  const channel = new JsonLinesChannel(process, 2000);
+  assert.deepEqual(await channel.transaction({
+    constraints: [{ type: "nodeInDocument", path: ["items", "0"] }],
+    edits: [
+      { op: "array-remove", path: ["right"], start: 0, end: 1 },
+      {
+        op: "transaction",
+        constraints: [],
+        edits: [{ op: "array-insert", path: ["left"], index: 0, values: [] }],
+        result: "abort",
+      },
+    ],
+    result: "commit",
+  }), { outcome: "committed", outboundCount: 1 });
+});
+
 test("map helpers retain correlation when replies arrive in reverse", async (t) => {
   const process = child(`
     const requests = [];

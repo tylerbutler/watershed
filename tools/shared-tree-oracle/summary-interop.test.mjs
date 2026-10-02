@@ -17,6 +17,7 @@ import {
   validateResults,
   validateSchemaReloadResults,
   validateSummaryArtifact,
+  validateTransactionReloadResults,
 } from "./summary-interop.mjs";
 
 test("array reader continuation preserves pre-existing right-side tail values", async () => {
@@ -417,6 +418,91 @@ test("identifier reload validation requires all nine post-load authoring cells",
     const copy = structuredClone(identifierReloadCells);
     mutation(copy);
     assert.throws(() => validateIdentifierReloadResults(copy), undefined, label);
+  }
+});
+
+const transactionReloadCells = Object.fromEntries(
+  ["upstream", "javascript", "erlang"].map((writer) => [
+    writer,
+    Object.fromEntries(["upstream", "javascript", "erlang"].map((reader) => [
+      reader,
+      {
+        runId: "one-run",
+        profileDigest: "a".repeat(64),
+        profile: "array",
+        writer,
+        reader,
+        writerVersion: `${writer}-version`,
+        loadedVersion: `${writer}-version`,
+        readerInstanceId: `${writer}-${reader}-reader`,
+        scenarioId: "transaction-summary-postload",
+        loaded: true,
+        historyVerified: true,
+        nodeIdentityVerified: true,
+        writerAuthored: {
+          outcome: "committed",
+          outboundCount: 1,
+          labels: [`${writer}-reload-a`, `${writer}-reload-b`],
+        },
+        postLoadAuthored: {
+          author: reader,
+          outcome: "committed",
+          label: `${writer}-${reader}-postload`,
+          outboundCount: 1,
+          editsApplied: 2,
+          nestedScopes: 1,
+          sequencedCommitCount: 1,
+          originatorId: `${reader}-originator`,
+        },
+        peerObservation: {
+          implementation: "upstream",
+          label: `${writer}-${reader}-postload`,
+          observed: true,
+        },
+        pendingTreeCount: 0,
+        inflightSubmissionCount: 0,
+        documentId: `${writer}-transaction-document`,
+        artifacts: ["transaction-reload/cell.json"],
+      },
+    ])),
+  ]),
+);
+
+test("transaction reload validation requires nine atomic post-load cells", () => {
+  assert.equal(
+    Object.keys(validateTransactionReloadResults(transactionReloadCells)).length,
+    3,
+  );
+  for (const [label, mutation] of [
+    ["writer", (copy) => { delete copy.erlang; }],
+    ["reader", (copy) => { delete copy.javascript.erlang; }],
+    ["history", (copy) => { copy.upstream.javascript.historyVerified = false; }],
+    ["node identity", (copy) => {
+      copy.upstream.erlang.nodeIdentityVerified = false;
+    }],
+    ["writer labels", (copy) => {
+      copy.javascript.upstream.writerAuthored.labels = ["other"];
+    }],
+    ["post-load author", (copy) => {
+      copy.upstream.javascript.postLoadAuthored.author = "upstream";
+    }],
+    ["atomicity", (copy) => {
+      copy.erlang.erlang.postLoadAuthored.sequencedCommitCount = 2;
+    }],
+    ["nested scope", (copy) => {
+      copy.erlang.javascript.postLoadAuthored.nestedScopes = 0;
+    }],
+    ["peer observation", (copy) => {
+      copy.erlang.upstream.peerObservation.observed = false;
+    }],
+    ["reader instance reuse", (copy) => {
+      copy.javascript.javascript.readerInstanceId =
+        copy.upstream.upstream.readerInstanceId;
+    }],
+  ]) {
+    const copy = structuredClone(transactionReloadCells);
+    mutation(copy);
+    assert.throws(() => validateTransactionReloadResults(copy), undefined, label);
   }
 });
 

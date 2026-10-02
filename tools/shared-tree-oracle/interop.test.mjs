@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import * as interop from "./interop.mjs";
-import { caseIds } from "./client-interop.mjs";
+import { caseIds, transactionCaseIds } from "./client-interop.mjs";
 import {
   assertPreflightProfile,
   corpusCommand,
@@ -22,6 +22,8 @@ import {
   requiredFailureCells,
   requiredSchemaRaceCells,
   requiredScenarioCells,
+  transactionConstraintCells,
+  transactionPairCells,
 } from "./interop-scenarios.mjs";
 
 const oracleDirectory = resolve(import.meta.dirname);
@@ -457,6 +459,21 @@ async function validFixture() {
             },
           } : {}),
         })),
+      transactions: schedule.actions
+        .filter(({ type }) => type === "transaction")
+        .map((action) => ({
+          author: action.author,
+          constraints: action.constraints,
+          requestedResult: action.result,
+          outcome: action.result === "abort" ? "aborted" : "committed",
+          editsApplied: action.edits.length,
+          nestedScopes: action.edits.filter(({ op }) => op === "transaction").length,
+          commitRevision: action.result === "abort"
+            ? null
+            : `${prefix}-${action.author}-transaction`,
+          outboundCount: action.result === "abort" ? 0 : 1,
+          events: [],
+        })),
     };
     item.evidence.rawSequencedOperationCount = 30;
     const releaseActions = item.actions.filter(({ type }) => type === "release");
@@ -519,6 +536,7 @@ async function validFixture() {
         summaries: item.summaries,
         reloads: item.reloads,
         schemaTransitions: item.schemaTransitions,
+        transactions: item.transactions,
         evidence: item.evidence,
       }, ...rawGates() },
     )];
@@ -1533,6 +1551,194 @@ async function validFixture() {
       return [reader, item];
     })),
   ]));
+  const transactionCallbacks = {
+    pairs: transactionPairCells().map((cell) => {
+      const documentId = `transaction-${cell.id}`;
+      const item = {
+        ...cell,
+        runId: "current",
+        profileDigest: loaded.profileDigest,
+        documentId,
+        passed: true,
+        skipped: false,
+        authors: Object.fromEntries(cell.authors.map((author) => [author, {
+          commit: {
+            outcome: "committed",
+            callbackObservedEdits: true,
+            nestedScopes: 1,
+            nestedOutcome: "committed",
+            editsApplied: 2,
+            commitRevision: `${author}-revision`,
+            outboundCount: 1,
+            acceptedCommitCount: 1,
+            localEventCount: 1,
+            peerObservedAtomically: true,
+          },
+          abort: {
+            outcome: "aborted",
+            callbackObservedEdits: true,
+            editsApplied: 1,
+            commitRevision: null,
+            outboundCount: 0,
+            acceptedCommitCount: 0,
+            localEventCount: 0,
+            treeUnchanged: true,
+            peerObserved: false,
+          },
+          movedWithinArray: true,
+          movedBetweenArrays: true,
+        }])),
+        artifacts: [],
+      };
+      item.artifacts = [artifact("transaction-callbacks", item.id, documentId, {
+        measured: { authors: item.authors, passed: true, skipped: false },
+      })];
+      return item;
+    }),
+  };
+  const transactionConstraints = transactionConstraintCells().map((cell) => {
+    const documentId = `transaction-constraint-${cell.id}`;
+    const applied = cell.order === "transaction-first";
+    const item = {
+      ...cell,
+      runId: "current",
+      profileDigest: loaded.profileDigest,
+      documentId,
+      passed: true,
+      skipped: false,
+      transactionApplied: applied,
+      constraintViolated: !applied,
+      converged: true,
+      sequenced: (applied
+        ? [cell.author, cell.remover]
+        : [cell.remover, cell.author]).map((author, index) => ({
+        author,
+        sequenceNumber: 20 + index,
+      })),
+      artifacts: [],
+    };
+    item.artifacts = [artifact("transaction-constraint", item.id, documentId, {
+      measured: {
+        transactionApplied: item.transactionApplied,
+        constraintViolated: item.constraintViolated,
+        converged: item.converged,
+        sequenced: item.sequenced,
+      },
+    })];
+    return item;
+  });
+  const transactionReconnect = implementations.slice(1).flatMap((target) =>
+    transactionCaseIds.map((caseId, index) => {
+      const subject = `${target}:${caseId}`;
+      const documentId = `transaction-reconnect-${subject}`;
+      return {
+        target,
+        caseId,
+        runId: "current",
+        profileDigest: loaded.profileDigest,
+        profile: "fluid-3.1.0-fixed-object",
+        documentId,
+        passed: true,
+        skipped: false,
+        evidence: {
+          sequenceNumber: 24,
+          clientId: `${target}-${caseId}`,
+          pendingTreeCount: 0,
+          transaction: {
+            committed: {
+              outcome: "committed",
+              outboundCount: 1,
+              localEventCount: 1,
+              nestedScopes: 1,
+              editsApplied: 2,
+              commitRevision: `${target}-transaction-revision`,
+            },
+            aborted: {
+              outcome: "aborted",
+              outboundCount: 0,
+              localEventCount: 0,
+              commitRevision: null,
+            },
+            pendingTreeCountWhileHeld: 1,
+            resubmittedCommitCount: 1,
+            peerObserved: true,
+            abortPeerObserved: false,
+          },
+          checkpoints: ["held", "reconnected"].map((label) => ({
+            label,
+            sequenceNumber: 24,
+            clientId: `${target}-${caseId}`,
+            pendingTreeCount: 0,
+            values: {},
+            events: [],
+          })),
+          submissions: [{
+            sequenceNumber: 24,
+            batchId: `${target}-transaction-${index}`,
+            revision: index,
+            originatorId: target,
+          }],
+          artifacts: [artifact("transaction-reconnect", subject, documentId)],
+        },
+      };
+    }));
+  const transactionReloadMatrix = Object.fromEntries(implementations.map((writer) => [
+    writer,
+    Object.fromEntries(implementations.map((reader) => {
+      const documentId = `${writer}-transaction-document`;
+      const item = {
+        runId: "current",
+        profileDigest: loaded.profileDigest,
+        profile: "array",
+        writer,
+        reader,
+        writerVersion: `${writer}-transaction-version`,
+        loadedVersion: `${writer}-transaction-version`,
+        readerInstanceId: `${writer}-${reader}-transaction-reader`,
+        scenarioId: "transaction-summary-postload",
+        loaded: true,
+        historyVerified: true,
+        nodeIdentityVerified: true,
+        writerAuthored: {
+          outcome: "committed",
+          outboundCount: 1,
+          labels: [`${writer}-reload-a`, `${writer}-reload-b`],
+        },
+        postLoadAuthored: {
+          author: reader,
+          outcome: "committed",
+          label: `${writer}-${reader}-postload`,
+          outboundCount: 1,
+          editsApplied: 2,
+          nestedScopes: 1,
+          sequencedCommitCount: 1,
+          originatorId: `${reader}-originator`,
+        },
+        peerObservation: {
+          implementation: "upstream",
+          label: `${writer}-${reader}-postload`,
+          observed: true,
+        },
+        pendingTreeCount: 0,
+        inflightSubmissionCount: 0,
+        documentId,
+        artifacts: [],
+      };
+      item.artifacts = [artifact(
+        "transaction-reload",
+        `${writer}->${reader}`,
+        documentId,
+        {
+          measured: {
+            writerAuthored: item.writerAuthored,
+            postLoadAuthored: item.postLoadAuthored,
+            peerObservation: item.peerObservation,
+          },
+        },
+      )];
+      return [reader, item];
+    })),
+  ]));
   const report = {
     formatVersion: 1,
     runId: "current",
@@ -1575,6 +1781,10 @@ async function validFixture() {
     schemaTailReloadMatrix,
     arrayReload,
     identifierReloadMatrix,
+    transactionCallbacks,
+    transactionConstraints,
+    transactionReconnect,
+    transactionReloadMatrix,
     corpus: Object.fromEntries(implementations.slice(1).map((target) => {
       const output = "Running 1 tests\nTests: 1 passed (1)";
       return [target, {
@@ -1676,6 +1886,102 @@ test("Identifier coverage rejects missing authors, refusals, and reload cells", 
         delete report.identifierReloadMatrix.upstream.erlang;
       },
       pattern: /reload|reader|cell/i,
+    },
+  ];
+  for (const { mutate, pattern } of cases) {
+    const { expected, report } = await validFixture();
+    mutate(report);
+    assert.throws(() => validateInteropReport(report, expected), pattern);
+  }
+});
+
+test("transaction coverage rejects missing sections, pairs, orders, and cells", async () => {
+  const cases = [
+    { mutate(report) { delete report.transactionCallbacks; },
+      pattern: /missing transactioncallbacks/i },
+    { mutate(report) { delete report.transactionConstraints; },
+      pattern: /missing transactionconstraints/i },
+    { mutate(report) { delete report.transactionReconnect; },
+      pattern: /missing transactionreconnect/i },
+    { mutate(report) { delete report.transactionReloadMatrix; },
+      pattern: /missing transactionreloadmatrix/i },
+    {
+      mutate(report) {
+        report.transactionCallbacks.pairs = report.transactionCallbacks.pairs
+          .filter(({ id }) => !id.includes("erlang"));
+      },
+      pattern: /three client pairs|lacks/i,
+    },
+    {
+      mutate(report) {
+        delete report.transactionCallbacks.pairs[0]
+          .authors[report.transactionCallbacks.pairs[0].authors.upstream
+            ? "upstream"
+            : Object.keys(report.transactionCallbacks.pairs[0].authors)[0]];
+      },
+      pattern: /lacks a real author/i,
+    },
+    {
+      mutate(report) {
+        report.transactionCallbacks.pairs[0]
+          .authors[Object.keys(report.transactionCallbacks.pairs[0].authors)[0]]
+          .commit.nestedScopes = 0;
+      },
+      pattern: /nested transaction scope/i,
+    },
+    {
+      mutate(report) {
+        report.transactionCallbacks.pairs[0]
+          .authors[Object.keys(report.transactionCallbacks.pairs[0].authors)[0]]
+          .abort.peerObserved = true;
+      },
+      pattern: /abort reached a peer/i,
+    },
+    {
+      mutate(report) {
+        report.transactionConstraints = report.transactionConstraints
+          .filter(({ order }) => order !== "remove-first");
+      },
+      pattern: /both race orderings/i,
+    },
+    {
+      mutate(report) {
+        const cell = report.transactionConstraints
+          .find(({ order }) => order === "remove-first");
+        cell.transactionApplied = true;
+      },
+      pattern: /against its race ordering/i,
+    },
+    {
+      mutate(report) {
+        report.transactionReconnect[0].evidence.transaction
+          .resubmittedCommitCount = 2;
+      },
+      pattern: /duplicated or lost/i,
+    },
+    {
+      mutate(report) {
+        report.transactionReconnect[0].evidence.transaction.aborted
+          .outboundCount = 1;
+      },
+      pattern: /aborted transaction queued an operation/i,
+    },
+    {
+      mutate(report) { delete report.transactionReloadMatrix.upstream.erlang; },
+      pattern: /all three readers for upstream/i,
+    },
+    {
+      mutate(report) {
+        report.transactionReloadMatrix.javascript.erlang.postLoadAuthored
+          .sequencedCommitCount = 2;
+      },
+      pattern: /not one sequenced commit/i,
+    },
+    {
+      mutate(report) {
+        report.transactionReloadMatrix.erlang.upstream.historyVerified = false;
+      },
+      pattern: /did not verify history/i,
     },
   ];
   for (const { mutate, pattern } of cases) {

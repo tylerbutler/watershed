@@ -1,4 +1,6 @@
 @target(javascript)
+import gleam/int
+@target(javascript)
 import gleam/javascript/promise.{type Promise}
 @target(javascript)
 import gleam/json.{type Json}
@@ -334,6 +336,8 @@ fn execute(
             Error(watershed.Aborted(reason)) ->
               Error(facade("constrained-array-remove", reason))
           }
+        protocol.Transaction(scope) ->
+          run_transaction(document, tree, events, scope)
         protocol.Checkpoint -> checkpoint(tree, events)
         protocol.Disconnect -> {
           watershed.go_offline(document)
@@ -414,6 +418,157 @@ fn execute(
       }
     }
   }
+}
+
+@target(javascript)
+type ScopeFailure {
+  RequestedAbort(protocol.TransactionObservation)
+  EditFailed(protocol.ProtocolError)
+}
+
+@target(javascript)
+fn apply_transaction_edit(
+  tree: watershed.SharedTree,
+  edit: protocol.TransactionEdit,
+) -> Result(Nil, protocol.ProtocolError) {
+  let outcome = case edit {
+    protocol.TransactionSet(path, value) ->
+      watershed.tree_set(tree, path, value)
+    protocol.TransactionClear(path) -> watershed.tree_clear(tree, path)
+    protocol.TransactionMapSet(path, key, value) ->
+      watershed.tree_map_set(tree, path, key, value)
+    protocol.TransactionMapDelete(path, key) ->
+      watershed.tree_map_delete(tree, path, key)
+    protocol.TransactionArrayInsert(path, index, values) ->
+      watershed.tree_array_insert(tree, path, index, values)
+    protocol.TransactionArrayRemove(path, start, end) ->
+      watershed.tree_array_remove(tree, path, start, end)
+    protocol.TransactionArrayMove(
+      source_path,
+      source_start,
+      source_end,
+      destination_path,
+      destination_gap,
+    ) ->
+      watershed.tree_array_move(
+        tree,
+        source_path,
+        source_start,
+        source_end,
+        destination_path,
+        destination_gap,
+      )
+    protocol.TransactionNested(_) ->
+      Error("nested transaction is not a plain edit")
+  }
+  outcome |> result.map_error(fn(reason) { facade("transaction", reason) })
+}
+
+@target(javascript)
+fn apply_transaction_scope(
+  tree: watershed.SharedTree,
+  scope: protocol.TransactionScope,
+) -> Result(protocol.TransactionObservation, ScopeFailure) {
+  use counted <- result.try(
+    list.try_fold(scope.edits, #(0, []), fn(state, edit) {
+      let #(applied, nested) = state
+      case edit {
+        protocol.TransactionNested(inner) ->
+          case run_transaction_scope(tree, inner) {
+            Ok(observation) -> Ok(#(applied + 1, [observation, ..nested]))
+            Error(error) -> Error(EditFailed(error))
+          }
+        _ ->
+          case apply_transaction_edit(tree, edit) {
+            Ok(_) -> Ok(#(applied + 1, nested))
+            Error(error) -> Error(EditFailed(error))
+          }
+      }
+    }),
+  )
+  let #(applied, nested) = counted
+  let observed = case watershed.tree_get(tree, []) {
+    Ok(value) -> protocol.encode_read(value)
+    Error(_) -> protocol.encode_read(None)
+  }
+  let nested = list.reverse(nested)
+  case scope.result {
+    protocol.CommitScope ->
+      Ok(protocol.TransactionObservation(
+        "committed",
+        scope.constraints,
+        applied,
+        observed,
+        nested,
+      ))
+    protocol.AbortScope ->
+      Error(RequestedAbort(protocol.TransactionObservation(
+        "aborted",
+        scope.constraints,
+        applied,
+        observed,
+        nested,
+      )))
+  }
+}
+
+@target(javascript)
+fn run_transaction_scope(
+  tree: watershed.SharedTree,
+  scope: protocol.TransactionScope,
+) -> Result(protocol.TransactionObservation, protocol.ProtocolError) {
+  let constraints = list.map(scope.constraints, watershed.NodeInDocument)
+  case
+    watershed.tree_transaction(tree, constraints, fn(scope_tree) {
+      apply_transaction_scope(scope_tree, scope)
+    })
+  {
+    Ok(observation) -> Ok(observation)
+    Error(watershed.Aborted(RequestedAbort(observation))) -> Ok(observation)
+    Error(watershed.Aborted(EditFailed(error))) -> Error(error)
+    Error(watershed.TransactionFailed(reason)) ->
+      Error(facade("transaction", reason))
+  }
+}
+
+@target(javascript)
+fn run_transaction(
+  document: watershed.Document(a),
+  tree: watershed.SharedTree,
+  events: Cell(List(Json)),
+  scope: protocol.TransactionScope,
+) -> Result(Json, protocol.ProtocolError) {
+  let before_events = transport_js.get_cell(events)
+  let before_pending = observe(document).pending_tree_count
+  let outcome = run_transaction_scope(tree, scope)
+  let after_events = transport_js.get_cell(events)
+  let emitted =
+    after_events
+    |> list.take(list.length(after_events) - list.length(before_events))
+    |> list.reverse
+  transport_js.set_cell(events, before_events)
+  use observation <- result.try(outcome)
+  let outbound =
+    int.max(observe(document).pending_tree_count - before_pending, 0)
+  let revision = case outbound > 0 {
+    False -> None
+    True ->
+      case watershed.tree_history_evidence(tree) {
+        Ok(history) -> protocol.last_pending_revision(history)
+        Error(_) -> None
+      }
+  }
+  let final = case watershed.tree_get(tree, []) {
+    Ok(value) -> protocol.encode_read(value)
+    Error(_) -> protocol.encode_read(None)
+  }
+  Ok(protocol.encode_transaction_result(
+    observation,
+    emitted,
+    revision,
+    outbound,
+    final,
+  ))
 }
 
 @target(javascript)

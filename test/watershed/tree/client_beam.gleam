@@ -1,6 +1,8 @@
 @target(erlang)
 import gleam/erlang/process
 @target(erlang)
+import gleam/int
+@target(erlang)
 import gleam/json.{type Json}
 @target(erlang)
 import gleam/list
@@ -454,6 +456,13 @@ fn execute(
           }
           #(outcome, tree, events, active, False)
         }
+        protocol.Transaction(scope) -> #(
+          run_transaction(document, tree, events, active, scope),
+          tree,
+          events,
+          active,
+          False,
+        )
         protocol.Checkpoint -> #(
           checkpoint(tree, events, active),
           tree,
@@ -512,6 +521,203 @@ fn execute(
         closing,
       )
     }
+  }
+}
+
+@target(erlang)
+type ScopeFailure {
+  RequestedAbort(protocol.TransactionObservation)
+  EditFailed(protocol.ProtocolError)
+}
+
+@target(erlang)
+fn facade(operation: String, reason: String) -> protocol.ProtocolError {
+  protocol.ProtocolError("facade-error", operation, reason)
+}
+
+@target(erlang)
+fn apply_transaction_edit(
+  tree: watershed.SharedTree,
+  edit: protocol.TransactionEdit,
+) -> Result(Nil, protocol.ProtocolError) {
+  let outcome = case edit {
+    protocol.TransactionSet(path, value) ->
+      watershed.tree_set(tree, path, value)
+    protocol.TransactionClear(path) -> watershed.tree_clear(tree, path)
+    protocol.TransactionMapSet(path, key, value) ->
+      watershed.tree_map_set(tree, path, key, value)
+    protocol.TransactionMapDelete(path, key) ->
+      watershed.tree_map_delete(tree, path, key)
+    protocol.TransactionArrayInsert(path, index, values) ->
+      watershed.tree_array_insert(tree, path, index, values)
+    protocol.TransactionArrayRemove(path, start, end) ->
+      watershed.tree_array_remove(tree, path, start, end)
+    protocol.TransactionArrayMove(
+      source_path,
+      source_start,
+      source_end,
+      destination_path,
+      destination_gap,
+    ) ->
+      watershed.tree_array_move(
+        tree,
+        source_path,
+        source_start,
+        source_end,
+        destination_path,
+        destination_gap,
+      )
+    protocol.TransactionNested(_) ->
+      Error("nested transaction is not a plain edit")
+  }
+  outcome |> result.map_error(fn(reason) { facade("transaction", reason) })
+}
+
+@target(erlang)
+fn apply_transaction_scope(
+  tree: watershed.SharedTree,
+  scope: protocol.TransactionScope,
+) -> Result(protocol.TransactionObservation, ScopeFailure) {
+  use counted <- result.try(
+    list.try_fold(scope.edits, #(0, []), fn(state, edit) {
+      let #(applied, nested) = state
+      case edit {
+        protocol.TransactionNested(inner) ->
+          case run_transaction_scope(tree, inner) {
+            Ok(observation) -> Ok(#(applied + 1, [observation, ..nested]))
+            Error(error) -> Error(EditFailed(error))
+          }
+        _ ->
+          case apply_transaction_edit(tree, edit) {
+            Ok(_) -> Ok(#(applied + 1, nested))
+            Error(error) -> Error(EditFailed(error))
+          }
+      }
+    }),
+  )
+  let #(applied, nested) = counted
+  let observed = case watershed.tree_get(tree, []) {
+    Ok(value) -> protocol.encode_read(value)
+    Error(_) -> protocol.encode_read(None)
+  }
+  let nested = list.reverse(nested)
+  case scope.result {
+    protocol.CommitScope ->
+      Ok(protocol.TransactionObservation(
+        "committed",
+        scope.constraints,
+        applied,
+        observed,
+        nested,
+      ))
+    protocol.AbortScope ->
+      Error(RequestedAbort(protocol.TransactionObservation(
+        "aborted",
+        scope.constraints,
+        applied,
+        observed,
+        nested,
+      )))
+  }
+}
+
+@target(erlang)
+fn run_transaction_scope(
+  tree: watershed.SharedTree,
+  scope: protocol.TransactionScope,
+) -> Result(protocol.TransactionObservation, protocol.ProtocolError) {
+  let constraints = list.map(scope.constraints, watershed.NodeInDocument)
+  case
+    watershed.tree_transaction(tree, constraints, fn(scope_tree) {
+      apply_transaction_scope(scope_tree, scope)
+    })
+  {
+    Ok(observation) -> Ok(observation)
+    Error(watershed.Aborted(RequestedAbort(observation))) -> Ok(observation)
+    Error(watershed.Aborted(EditFailed(error))) -> Error(error)
+    Error(watershed.TransactionFailed(reason)) ->
+      Error(facade("transaction", reason))
+  }
+}
+
+@target(erlang)
+fn run_transaction(
+  document: watershed.Document(a),
+  tree: watershed.SharedTree,
+  events: Option(process.Subject(tree_kernel.TreeEvent)),
+  active: Bool,
+  scope: protocol.TransactionScope,
+) -> Result(Json, protocol.ProtocolError) {
+  // The mailbox holds the events of earlier commands. Take them out, run the
+  // transaction, then put them back so that the next checkpoint still sees
+  // them. The transaction reports only the events that it emitted.
+  let subject = case events, active {
+    Some(subject), True -> Some(subject)
+    _, _ -> None
+  }
+  let earlier = case subject {
+    None -> []
+    Some(subject) -> collect_events(subject, [])
+  }
+  let before_pending = observe(document).pending_tree_count
+  let outcome = run_transaction_scope(tree, scope)
+  let emitted = case subject {
+    None -> []
+    Some(subject) -> collect_events(subject, [])
+  }
+  case subject {
+    None -> Nil
+    Some(subject) ->
+      list.each(earlier, fn(event) { process.send(subject, event) })
+  }
+  use observation <- result.try(outcome)
+  let outbound =
+    int.max(observe(document).pending_tree_count - before_pending, 0)
+  let revision = case outbound > 0 {
+    False -> None
+    True ->
+      case watershed.tree_history_evidence(tree) {
+        Ok(history) -> protocol.last_pending_revision(history)
+        Error(_) -> None
+      }
+  }
+  let final = case watershed.tree_get(tree, []) {
+    Ok(value) -> protocol.encode_read(value)
+    Error(_) -> protocol.encode_read(None)
+  }
+  Ok(protocol.encode_transaction_result(
+    observation,
+    list.map(emitted, encode_event),
+    revision,
+    outbound,
+    final,
+  ))
+}
+
+@target(erlang)
+fn collect_events(
+  events: process.Subject(tree_kernel.TreeEvent),
+  collected: List(tree_kernel.TreeEvent),
+) -> List(tree_kernel.TreeEvent) {
+  case process.receive(from: events, within: 0) {
+    Error(_) -> list.reverse(collected)
+    Ok(event) -> collect_events(events, [event, ..collected])
+  }
+}
+
+@target(erlang)
+fn encode_event(event: tree_kernel.TreeEvent) -> Json {
+  case event {
+    SchemaChanged(local) ->
+      json.object([
+        #("kind", json.string("schema")),
+        #("local", json.bool(local)),
+      ])
+    TreeChanged(local) ->
+      json.object([
+        #("kind", json.string("data")),
+        #("local", json.bool(local)),
+      ])
   }
 }
 
@@ -612,25 +818,7 @@ fn drain(
   events: process.Subject(tree_kernel.TreeEvent),
   collected: List(Json),
 ) -> List(Json) {
-  case process.receive(from: events, within: 0) {
-    Error(_) -> list.reverse(collected)
-    Ok(SchemaChanged(local)) ->
-      drain(events, [
-        json.object([
-          #("kind", json.string("schema")),
-          #("local", json.bool(local)),
-        ]),
-        ..collected
-      ])
-    Ok(TreeChanged(local)) ->
-      drain(events, [
-        json.object([
-          #("kind", json.string("data")),
-          #("local", json.bool(local)),
-        ]),
-        ..collected
-      ])
-  }
+  list.append(collected, list.map(collect_events(events, []), encode_event))
 }
 
 @target(erlang)

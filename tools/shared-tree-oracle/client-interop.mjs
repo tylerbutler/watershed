@@ -24,6 +24,74 @@ export const caseIds = [
   "repeated-reconnect",
 ];
 const targets = ["javascript", "erlang"];
+export const transactionCaseIds = ["transaction-resubmit"];
+
+export function validateTransactionReconnectResults(results, runId) {
+  const expected = targets.flatMap((target) =>
+    transactionCaseIds.map((caseId) => `${target}:${caseId}`)).sort();
+  assert(Array.isArray(results) && results.length === expected.length,
+    "Transaction reconnect requires one result for every native target");
+  const expectedRunId = runId ?? results[0].runId;
+  assert(typeof expectedRunId === "string" && expectedRunId.length > 0,
+    "Missing current run identity");
+  const actual = [];
+  for (const item of results) {
+    assert(targets.includes(item.target)
+      && transactionCaseIds.includes(item.caseId),
+    "Unknown transaction reconnect target or case ID");
+    assert.equal(item.runId, expectedRunId,
+      "Transaction reconnect result belongs to another run");
+    assert.equal(item.profile, profile, "Unsupported tree profile");
+    assert(typeof item.documentId === "string" && item.documentId.length > 0,
+      "Transaction reconnect result lacks a document ID");
+    assert.equal(item.passed, true, "Failed transaction reconnect case");
+    assert.equal(item.skipped, false, "Skipped transaction reconnect case");
+    const transaction = item.evidence?.transaction;
+    assert(transaction && typeof transaction === "object",
+      "Transaction reconnect result lacks transaction evidence");
+    assert.equal(transaction.committed.outcome, "committed",
+      "Held transaction did not commit");
+    assert.equal(transaction.committed.outboundCount, 1,
+      "Held transaction queued another operation count");
+    assert.equal(transaction.committed.localEventCount, 1,
+      "Held transaction emitted another local event count");
+    assert.equal(transaction.committed.nestedScopes, 1,
+      "Held transaction lacks a nested scope");
+    assert.equal(transaction.committed.editsApplied, 2,
+      "Held transaction applied another edit count");
+    assert(typeof transaction.committed.commitRevision === "string"
+      && transaction.committed.commitRevision.length > 0,
+    "Held transaction lacks a commit revision");
+    assert.equal(transaction.aborted.outcome, "aborted",
+      "Aborted transaction reported another outcome");
+    assert.equal(transaction.aborted.outboundCount, 0,
+      "Aborted transaction queued an operation");
+    assert.equal(transaction.aborted.localEventCount, 0,
+      "Aborted transaction emitted a local event");
+    assert.equal(transaction.aborted.commitRevision, null,
+      "Aborted transaction produced a commit revision");
+    assert.equal(transaction.pendingTreeCountWhileHeld, 1,
+      "A held transaction must queue exactly one commit");
+    assert.equal(transaction.resubmittedCommitCount, 1,
+      "Reconnect duplicated or lost the transaction commit");
+    assert.equal(transaction.peerObserved, true,
+      "The upstream peer did not observe the resubmitted transaction");
+    assert.equal(transaction.abortPeerObserved, false,
+      "An aborted transaction reached the upstream peer");
+    assert(Number.isSafeInteger(item.evidence.sequenceNumber)
+      && item.evidence.pendingTreeCount === 0
+      && Array.isArray(item.evidence.checkpoints)
+      && item.evidence.checkpoints.length >= 2
+      && Array.isArray(item.evidence.submissions)
+      && item.evidence.submissions.length === 1,
+    "Transaction reconnect result lacks measured connection evidence");
+    actual.push(`${item.target}:${item.caseId}`);
+  }
+  assert.deepEqual(actual.sort(), expected,
+    "Missing or duplicated transaction reconnect case");
+  return results;
+}
+
 
 export function validateResults(results, runId) {
   const expected = targets.flatMap((target) =>
@@ -215,6 +283,7 @@ async function caseRun(config, viewSchema, runId, target, caseId) {
   let prefix;
   let originalDetached;
   let repairValues;
+  let transaction;
   try {
     const creator = await openSession(config, containers);
     const documentId = creator.container.resolvedUrl.id;
@@ -393,6 +462,64 @@ async function caseRun(config, viewSchema, runId, target, caseId) {
       fresh.data.view.root.point.x = 5;
       await until(() => peer.data.view.root.point.x === 5,
         "post-repair upstream continuation");
+    } else if (caseId === "transaction-resubmit") {
+      native.gate.pauseOutbound();
+      const committed = success(await native.request({
+        command: "transaction",
+        constraints: [{ type: "nodeInDocument", path: ["point"] }],
+        edits: [
+          { op: "set", path: ["title"], value: text(title) },
+          {
+            op: "transaction",
+            constraints: [],
+            result: "commit",
+            edits: [{
+              op: "set",
+              path: ["rating"],
+              value: { kind: "number", value: 23 },
+            }],
+          },
+        ],
+        result: "commit",
+      }), "constrained transaction while outbound is held").result;
+      assert.equal(committed.outcome, "committed",
+        "A held transaction did not commit locally");
+      pending = await capture("withheld-transaction");
+      assert.equal(peer.data.view.root.title, "",
+        "An unsent transaction reached the peer");
+      const aborted = success(await native.request({
+        command: "transaction",
+        constraints: [],
+        edits: [{ op: "set", path: ["note"], value: text("rolled-back") }],
+        result: "abort",
+      }), "aborted transaction while outbound is held").result;
+      assert.equal(aborted.outcome, "aborted",
+        "An aborted transaction reported another outcome");
+      const heldPending = pending.observation.pendingTreeCount;
+      await reconnect(native);
+      await until(() => peer.data.view.root.title === title
+        && peer.data.view.root.rating === 23,
+      "resubmitted transaction");
+      transaction = {
+        committed: {
+          outcome: committed.outcome,
+          outboundCount: committed.outboundCount,
+          localEventCount: committed.events.length,
+          nestedScopes: committed.callback.nested.length,
+          editsApplied: committed.callback.editsApplied,
+          commitRevision: committed.commitRevision,
+        },
+        aborted: {
+          outcome: aborted.outcome,
+          outboundCount: aborted.outboundCount,
+          localEventCount: aborted.events.length,
+          commitRevision: aborted.commitRevision,
+        },
+        pendingTreeCountWhileHeld: heldPending,
+        peerObserved: peer.data.view.root.title === title
+          && peer.data.view.root.rating === 23,
+        abortPeerObserved: peer.data.view.root.note !== undefined,
+      };
     } else if (caseId === "repeated-reconnect") {
       native.gate.pauseOutbound();
       await success(await native.request({
@@ -490,6 +617,16 @@ async function caseRun(config, viewSchema, runId, target, caseId) {
       assert.deepEqual(repairValues, await upstreamRepairValues(),
         "Each emitted refresher must match its pinned upstream predecessor state");
     }
+    if (caseId === "transaction-resubmit") {
+      assert.equal(submissions.length, 1,
+        "Reconnect duplicated or lost the transaction commit");
+      assert.equal(submissions[0].clientId, final.observation.clientId,
+        "The resubmitted transaction used the wrong transport identity");
+      assert.equal(allSubmissions.filter((entry) =>
+        entry.contents.includes("rolled-back")).length, 0,
+      "An aborted transaction was sequenced");
+      transaction.resubmittedCommitCount = submissions.length;
+    }
     if (caseId === "repeated-reconnect") {
       assert.equal(submissions.length, 1,
         "First reconnect duplicated or lost the title edit");
@@ -509,6 +646,7 @@ async function caseRun(config, viewSchema, runId, target, caseId) {
         pendingTreeCount: final.observation.pendingTreeCount,
         checkpoints,
         ...(repairValues ? { repairValues } : {}),
+        ...(transaction ? { transaction } : {}),
         submissions: submissions.map(({ contents: _, ...identity }) => identity),
       },
     };
@@ -536,6 +674,28 @@ export async function runService(config, { runId = randomUUID(), build = true } 
     }
   }
   validateResults(results, runId);
+  return { runId, results };
+}
+
+export async function runTransactionReconnect(config, {
+  runId = randomUUID(),
+  build = true,
+} = {}) {
+  const viewSchema = await schemaBytes();
+  if (build) {
+    for (const target of targets) {
+      await execute("gleam", ["build", "--target", target], {
+        cwd: repository, timeout: 120_000,
+      });
+    }
+  }
+  const results = [];
+  for (const target of targets) {
+    for (const caseId of transactionCaseIds) {
+      results.push(await caseRun(config, viewSchema, runId, target, caseId));
+    }
+  }
+  validateTransactionReconnectResults(results, runId);
   return { runId, results };
 }
 

@@ -123,6 +123,7 @@ pub type Command {
   ArrayRemove(FieldPath, Int, Int)
   ArrayMove(FieldPath, Int, Int, FieldPath, Int)
   ConstrainedArrayRemove(FieldPath, FieldPath, Int, Int)
+  Transaction(TransactionScope)
   AwaitSynced(Int)
   Checkpoint
   PendingSummaryEvidence
@@ -136,6 +137,44 @@ pub type Command {
 
 pub type Request {
   Request(request_id: Int, command: Command)
+}
+
+/// The requested end of one transaction scope.
+pub type ScopeResult {
+  CommitScope
+  AbortScope
+}
+
+/// One edit inside a transaction scope. A nested scope is also an edit.
+pub type TransactionEdit {
+  TransactionSet(FieldPath, TreeValue)
+  TransactionClear(FieldPath)
+  TransactionMapSet(FieldPath, String, TreeValue)
+  TransactionMapDelete(FieldPath, String)
+  TransactionArrayInsert(FieldPath, Int, List(TreeValue))
+  TransactionArrayRemove(FieldPath, Int, Int)
+  TransactionArrayMove(FieldPath, Int, Int, FieldPath, Int)
+  TransactionNested(TransactionScope)
+}
+
+/// One transaction scope. Each path is a node existence constraint.
+pub type TransactionScope {
+  TransactionScope(
+    constraints: List(FieldPath),
+    edits: List(TransactionEdit),
+    result: ScopeResult,
+  )
+}
+
+/// What one client saw inside one transaction scope.
+pub type TransactionObservation {
+  TransactionObservation(
+    outcome: String,
+    constraints: List(FieldPath),
+    edits_applied: Int,
+    observed_tree: Json,
+    nested: List(TransactionObservation),
+  )
 }
 
 pub type ProtocolError {
@@ -265,6 +304,7 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
       use end <- result.try(decode_safe_index(data, "end"))
       Ok(ConstrainedArrayRemove(target_path, path, start, end))
     }
+    "transaction" -> decode_transaction_scope(data) |> result.map(Transaction)
     "await-synced" -> {
       use watermark <- result.try(required(
         data,
@@ -291,6 +331,109 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
 
 fn decode_path(data: Dynamic) -> Result(FieldPath, ProtocolError) {
   decode_named_path(data, "path")
+}
+
+fn decode_transaction_scope(
+  data: Dynamic,
+) -> Result(TransactionScope, ProtocolError) {
+  use raw_constraints <- result.try(required(
+    data,
+    "constraints",
+    decode.list(decode.dynamic),
+  ))
+  use constraints <- result.try(
+    list.try_map(raw_constraints, decode_transaction_constraint),
+  )
+  use raw_edits <- result.try(required(
+    data,
+    "edits",
+    decode.list(decode.dynamic),
+  ))
+  use edits <- result.try(list.try_map(raw_edits, decode_transaction_edit))
+  use outcome <- result.try(required(data, "result", decode.string))
+  use result <- result.try(case outcome {
+    "commit" -> Ok(CommitScope)
+    "abort" -> Ok(AbortScope)
+    _ -> Error(invalid("result", "unknown transaction result"))
+  })
+  Ok(TransactionScope(constraints, edits, result))
+}
+
+fn decode_transaction_constraint(
+  data: Dynamic,
+) -> Result(FieldPath, ProtocolError) {
+  use kind <- result.try(required(data, "type", decode.string))
+  case kind {
+    "nodeInDocument" -> decode_path(data)
+    _ ->
+      Error(invalid("constraints", "unsupported transaction constraint type"))
+  }
+}
+
+fn decode_transaction_edit(
+  data: Dynamic,
+) -> Result(TransactionEdit, ProtocolError) {
+  use op <- result.try(required(data, "op", decode.string))
+  case op {
+    "set" -> {
+      use path <- result.try(decode_path(data))
+      use value <- result.try(required(data, "value", decode.dynamic))
+      decode_value(value) |> result.map(fn(value) { TransactionSet(path, value) })
+    }
+    "clear" -> decode_path(data) |> result.map(TransactionClear)
+    "map-set" -> {
+      use path <- result.try(decode_path(data))
+      use key <- result.try(decode_key(data))
+      use value <- result.try(required(data, "value", decode.dynamic))
+      decode_value(value)
+      |> result.map(fn(value) { TransactionMapSet(path, key, value) })
+    }
+    "map-delete" -> {
+      use path <- result.try(decode_path(data))
+      use key <- result.try(decode_key(data))
+      Ok(TransactionMapDelete(path, key))
+    }
+    "array-insert" -> {
+      use path <- result.try(decode_path(data))
+      use index <- result.try(decode_safe_index(data, "index"))
+      use values <- result.try(required(
+        data,
+        "values",
+        decode.list(decode.dynamic),
+      ))
+      use values <- result.try(list.try_map(values, decode_value))
+      Ok(TransactionArrayInsert(path, index, values))
+    }
+    "array-remove" -> {
+      use path <- result.try(decode_path(data))
+      use start <- result.try(decode_safe_index(data, "start"))
+      use end <- result.try(decode_safe_index(data, "end"))
+      Ok(TransactionArrayRemove(path, start, end))
+    }
+    "array-move" -> {
+      use source_path <- result.try(decode_named_path(data, "sourcePath"))
+      use source_start <- result.try(decode_safe_index(data, "sourceStart"))
+      use source_end <- result.try(decode_safe_index(data, "sourceEnd"))
+      use destination_path <- result.try(decode_named_path(
+        data,
+        "destinationPath",
+      ))
+      use destination_gap <- result.try(decode_safe_index(
+        data,
+        "destinationGap",
+      ))
+      Ok(TransactionArrayMove(
+        source_path,
+        source_start,
+        source_end,
+        destination_path,
+        destination_gap,
+      ))
+    }
+    "transaction" ->
+      decode_transaction_scope(data) |> result.map(TransactionNested)
+    _ -> Error(invalid("edits", "unknown transaction edit"))
+  }
 }
 
 fn decode_named_path(
@@ -588,6 +731,57 @@ pub fn encode_checkpoint(
     None -> fields
     Some(retained) -> list.append(fields, [#("retained", retained)])
   })
+}
+
+fn encode_path(path: List(String)) -> Json {
+  json.array(path, json.string)
+}
+
+/// Encode what one client saw inside one transaction scope.
+pub fn encode_transaction_observation(
+  observation: TransactionObservation,
+) -> Json {
+  json.object([
+    #("outcome", json.string(observation.outcome)),
+    #("constraints", json.array(observation.constraints, encode_path)),
+    #("editsApplied", json.int(observation.edits_applied)),
+    #("observedTree", observation.observed_tree),
+    #(
+      "nested",
+      json.array(observation.nested, encode_transaction_observation),
+    ),
+  ])
+}
+
+/// Encode the measured result of one client-authored transaction.
+pub fn encode_transaction_result(
+  callback: TransactionObservation,
+  events: List(Json),
+  commit_revision: Option(String),
+  outbound_count: Int,
+  tree: Json,
+) -> Json {
+  json.object([
+    #("outcome", json.string(callback.outcome)),
+    #("callback", encode_transaction_observation(callback)),
+    #("events", json.array(events, fn(event) { event })),
+    #("commitRevision", option_json(commit_revision, json.string)),
+    #("outboundCount", json.int(outbound_count)),
+    #("tree", tree),
+  ])
+}
+
+/// The revision of the newest pending commit in history evidence.
+pub fn last_pending_revision(history: Json) -> Option(String) {
+  let decoder =
+    decode.at(
+      ["pending"],
+      decode.list(decode.at(["revision"], decode.string)),
+    )
+  case json.parse(json.to_string(history), decoder) {
+    Error(_) -> None
+    Ok(revisions) -> list.last(revisions) |> option.from_result
+  }
 }
 
 pub fn encode_startup_error(

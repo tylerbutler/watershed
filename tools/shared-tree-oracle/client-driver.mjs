@@ -200,6 +200,10 @@ export class JsonLinesChannel {
     });
   }
 
+  transaction({ constraints, edits, result }) {
+    return this.#result({ command: "transaction", constraints, edits, result });
+  }
+
   end() {
     this.#child.stdin.end();
   }
@@ -509,6 +513,7 @@ export async function startClient(target, descriptor, environment, options = {})
         ),
       constrainedArrayRemove: (targetPath, path, start, end) =>
         channel.constrainedArrayRemove(targetPath, path, start, end),
+      transaction: (scope) => channel.transaction(scope),
       async close() {
         const cleanupErrors = [];
         try {
