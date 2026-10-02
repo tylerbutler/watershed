@@ -78,10 +78,19 @@ test("Identifier artifacts require their declared wire representation", async ()
         data: {
           builds: {
             trees: {
-              data: [[0, [
-                "id", [99, 3],
-                "label", [0, "com.fluidframework.leaf.string", true, "message", []],
-              ]]],
+              data: [[0, 3, "message"]],
+              identifiers: ["com.fluidframework.leaf.string"],
+              shapes: [
+                {
+                  c: {
+                    fields: [["id", 1], ["label", 2]],
+                    type: "org.watershed.shared-tree.identifiers.Point",
+                    value: false,
+                  },
+                },
+                { c: { type: 0, value: 0 } },
+                { c: { type: 0, value: true } },
+              ],
             },
           },
         },
@@ -115,7 +124,7 @@ test("Identifier artifacts require their declared wire representation", async ()
 
   const stringPayload = structuredClone(value);
   stringPayload.items[0].encoded.changeset[0].data.builds.trees
-    .data[0][1][1][1] = "10000000-0000-4000-8000-000000000004";
+    .data[0][1] = "10000000-0000-4000-8000-000000000004";
   assert.throws(
     () => validateNativeArtifact(stringPayload),
     /Identifier payload representation/,

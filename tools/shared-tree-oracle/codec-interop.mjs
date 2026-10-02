@@ -381,6 +381,21 @@ function identifierPayloads(value, field, label) {
       }
       item.forEach(visit);
     } else if (object(item)) {
+      if (Array.isArray(item.data) && Array.isArray(item.shapes)) {
+        for (const row of item.data) {
+          if (!Array.isArray(row) || !Number.isSafeInteger(row[0])) continue;
+          const fields = item.shapes[row[0]]?.c?.fields;
+          if (!Array.isArray(fields)) continue;
+          const fieldIndex = fields.findIndex((entry) =>
+            Array.isArray(entry) && entry[0] === field);
+          const labelIndex = fields.findIndex((entry) =>
+            Array.isArray(entry) && entry[0] === "label");
+          if (fieldIndex >= 0 && labelIndex >= 0
+            && containsValue(row[labelIndex + 1], label)) {
+            payloads.push([field, row[fieldIndex + 1]]);
+          }
+        }
+      }
       Object.values(item).forEach(visit);
     }
   }
