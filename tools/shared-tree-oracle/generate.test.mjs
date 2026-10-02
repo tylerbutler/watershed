@@ -294,7 +294,10 @@ function cases(exclude = []) {
       "modular",
     ),
     "transaction-wire": () => transactionCaseFixture("transaction-wire", "codec"),
-    "transaction-history": () => transactionCaseFixture("transaction-history", "history"),
+    "transaction-history": () => JSON.parse(readFileSync(
+      new URL("../../test/fixtures/shared_tree/cases/transaction-history.json", import.meta.url),
+      "utf8",
+    )),
     ...Object.fromEntries(identifierCases.map(([id, domain]) => [
       id,
       () => identifierCaseFixture(id, domain),
@@ -2518,6 +2521,18 @@ test("transaction history requires replayable summary continuation checkpoints",
     (value) => { delete value.expected.observations[0].checkpoints[0].history; },
     (value) => { delete value.expected.observations[0].checkpoints[0].visible; },
     (value) => { value.expected.observations[0].peer.visible = { corrupted: true }; },
+    (value) => { value.expected.observations[0].acknowledged.compressor = "arbitrary"; },
+    (value) => {
+      value.expected.observations[0].acknowledged.allocation.ongoing = "arbitrary";
+    },
+    (value) => {
+      value.expected.observations[0].checkpoints
+        .find(({ id }) => id === "acknowledged-violation").compressor = "arbitrary";
+    },
+    (value) => {
+      value.expected.observations[0].checkpoints
+        .find(({ id }) => id === "acknowledged-violation").allocation.ongoing = "arbitrary";
+    },
   ];
   for (const mutate of mutations) {
     const corpus = transactionCorpus("transaction-history");

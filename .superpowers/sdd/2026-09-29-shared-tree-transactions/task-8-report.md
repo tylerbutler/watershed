@@ -962,3 +962,83 @@ Corpus check:    Verified 50 upstream SharedTree cases
 `gleam format --check test/watershed/tree/transaction_fixture.gleam` and
 `git diff --check` also passed. The test output retains the existing warnings
 for JavaScript unsafe integer literals and unused private test helpers.
+
+## Generator recovery evidence review fix
+
+**Date:** 2026-10-02
+**Reviewed range:** `fd2592a8..d553019c`
+**Outcome:** complete
+
+Generation no longer reads the committed `transaction-history` fixture to
+restore native recovery compressor snapshots. It derives both snapshots from
+the fresh raw upstream observation.
+
+The derivation validates the pinned Fluid compressor v2 layout, requires the
+raw pending and acknowledged checkpoints to use one recovery session, and
+requires upstream recovery to advance that session by exactly two IDs. It then
+removes exactly the one upstream-only recovery allocation from the shared
+cluster count, local generation count, and finalized range boundary. The
+normalized summary and ongoing snapshots must deserialize successfully, and
+the raw top-level acknowledgement and `acknowledged-violation` checkpoint must
+normalize to the same result.
+
+Raw upstream evidence remains unchanged. The existing comparison still ignores
+the four native-owned snapshot fields when comparing the rest of the
+observation, but validation now independently derives those fields and requires
+the generated expected observation to match them exactly.
+
+The generator mutation test now changes each of these fields independently:
+
+- acknowledged compressor;
+- acknowledged ongoing allocation;
+- acknowledged-violation compressor;
+- acknowledged-violation ongoing allocation.
+
+Each mutation is rejected. The generator test factory also uses the real
+source-backed transaction-history fixture instead of synthetic compressor
+strings, so the normalization runs in every full-corpus validation.
+
+Oracle validation:
+
+```bash
+node --test tools/shared-tree-oracle/source.test.mjs
+node --test tools/shared-tree-oracle/generate.test.mjs
+npm --prefix tools/shared-tree-oracle run source:verify
+```
+
+```text
+Source tests:    35 passed
+Generator tests: 80 passed
+Source verify:   passed
+```
+
+Focused native recovery validation:
+
+```bash
+gleam test --target erlang -- \
+  shared_tree_fixture shared_tree_transaction shared_tree_history_resubmit
+gleam test --target javascript -- \
+  shared_tree_fixture shared_tree_transaction shared_tree_history_resubmit
+```
+
+```text
+Erlang:     75 passed
+JavaScript: 75 passed
+```
+
+Deterministic corpus generation:
+
+```bash
+npm --prefix tools/shared-tree-oracle run generate
+npm --prefix tools/shared-tree-oracle run check
+```
+
+```text
+Generated 50 upstream SharedTree cases
+Verified 50 upstream SharedTree cases
+```
+
+Regeneration changed no fixture files. `git diff --check` also passed. The
+native JavaScript test output retains the existing unsafe-integer and unused
+private helper warnings. Source capture retains the expected Fluid assertion
+messages from refusal-path evidence.

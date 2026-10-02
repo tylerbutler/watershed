@@ -3952,25 +3952,124 @@ function transactionHistoryWithoutRecoveryAllocation(observation) {
   return comparable;
 }
 
-function applyNativeTransactionHistoryExpected(cases, committed) {
-  const generated = cases.find(({ id }) => id === "transaction-history");
-  const source = committed.expected.observations[0];
-  const target = generated.expected.observations[0];
-  const copy = (targetCheckpoint, sourceCheckpoint) => {
-    assert(object(targetCheckpoint) && object(sourceCheckpoint),
-      "transaction-history: missing native recovery checkpoint");
-    assert(typeof sourceCheckpoint.compressor === "string"
-      && sourceCheckpoint.compressor.length > 0,
-    "transaction-history: missing native recovery compressor");
-    assertAllocationCheckpoint(sourceCheckpoint.allocation,
-      "transaction-history: native recovery allocation");
-    targetCheckpoint.compressor = sourceCheckpoint.compressor;
-    targetCheckpoint.allocation.ongoing = sourceCheckpoint.allocation.ongoing;
+function serializedCompressor(value, hasLocalState, label) {
+  assert(typeof value === "string" && value.length > 0,
+    `${label}: missing serialized compressor`);
+  const bytes = Buffer.from(value, "base64");
+  assert.equal(bytes.toString("base64"), value, `${label}: invalid base64 compressor`);
+  assert.equal(bytes.byteLength % 8, 0, `${label}: invalid compressor byte length`);
+  const values = Array.from(
+    { length: bytes.byteLength / 8 },
+    (_unused, index) => bytes.readDoubleLE(index * 8),
+  );
+  assert.equal(values[0], 2, `${label}: unsupported compressor version`);
+  assert.equal(values[1], hasLocalState ? 1 : 0, `${label}: local-state mismatch`);
+  const sessionCount = values[2];
+  const clusterCount = values[3];
+  assert(Number.isSafeInteger(sessionCount) && sessionCount > 0,
+    `${label}: invalid compressor session count`);
+  assert(Number.isSafeInteger(clusterCount) && clusterCount > 0,
+    `${label}: invalid compressor cluster count`);
+  const sharedLength = 4 + sessionCount * 2 + clusterCount * 3;
+  assert.equal(values.length, sharedLength + (hasLocalState ? 5 : 0),
+    `${label}: unexpected compressor layout`);
+  return { bytes, values, sessionCount, clusterCount, sharedLength };
+}
+
+function nativeTransactionHistoryRecovery(raw, readerSession) {
+  const pending = raw.pending;
+  const acknowledged = raw.acknowledged;
+  const checkpoint = raw.checkpoints?.find(({ id }) => id === "acknowledged-violation");
+  assert(object(pending) && object(acknowledged) && object(checkpoint),
+    "transaction-history: missing raw recovery checkpoints");
+  assert.equal(pending.allocation?.sessionId, acknowledged.allocation?.sessionId,
+    "transaction-history: recovery session changed");
+  assert.equal(acknowledged.allocation?.sessionId, checkpoint.allocation?.sessionId,
+    "transaction-history: recovery checkpoint session changed");
+
+  const normalize = (value, label) => {
+    const pendingOngoing = serializedCompressor(
+      pending.allocation.ongoing,
+      true,
+      "transaction-history: pending recovery allocation",
+    );
+    const summary = serializedCompressor(value.compressor, false, `${label} summary`);
+    const ongoing = serializedCompressor(value.allocation.ongoing, true, `${label} allocation`);
+    assert.equal(summary.sharedLength, ongoing.sharedLength,
+      `${label}: summary and allocation layouts differ`);
+    assert.deepEqual(
+      summary.values,
+      ongoing.values.slice(0, ongoing.sharedLength).map((item, index) =>
+        index === 1 ? 0 : item),
+      `${label}: summary and allocation states differ`,
+    );
+    const localGenIndex = ongoing.sharedLength;
+    const nextRangeIndex = localGenIndex + 1;
+    const pendingLocalGen = pendingOngoing.values[pendingOngoing.sharedLength];
+    const localGen = ongoing.values[localGenIndex];
+    assert.equal(localGen, pendingLocalGen + 2,
+      `${label}: upstream recovery allocation delta changed`);
+    assert.equal(ongoing.values[nextRangeIndex], localGen + 1,
+      `${label}: upstream recovery range is not finalized`);
+    const clusterOffset = 4 + ongoing.sessionCount * 2;
+    const localClusters = Array.from({ length: ongoing.clusterCount }, (_unused, index) =>
+      clusterOffset + index * 3 + 2).filter((index) => ongoing.values[index] === localGen);
+    assert.equal(localClusters.length, 1, `${label}: local recovery cluster is ambiguous`);
+    const clusterCountIndex = localClusters[0];
+    for (const compressor of [summary, ongoing]) {
+      compressor.values[clusterCountIndex] -= 1;
+    }
+    ongoing.values[localGenIndex] -= 1;
+    ongoing.values[nextRangeIndex] -= 1;
+    for (const compressor of [summary, ongoing]) {
+      compressor.values.forEach((item, index) =>
+        compressor.bytes.writeDoubleLE(item, index * 8));
+    }
+    const normalized = {
+      compressor: summary.bytes.toString("base64"),
+      allocation: {
+        sessionId: value.allocation.sessionId,
+        ongoing: ongoing.bytes.toString("base64"),
+      },
+    };
+    assert.doesNotThrow(
+      () => deserializeIdCompressor(normalized.compressor, readerSession),
+      `${label}: normalized summary compressor is not restorable`,
+    );
+    assert.doesNotThrow(
+      () => deserializeIdCompressor(normalized.allocation.ongoing),
+      `${label}: normalized ongoing compressor is not restorable`,
+    );
+    return normalized;
   };
-  copy(target.acknowledged, source.acknowledged);
+
+  const normalized = normalize(acknowledged, "transaction-history: acknowledged recovery");
+  assert.deepEqual(
+    normalize(checkpoint, "transaction-history: acknowledged recovery checkpoint"),
+    normalized,
+    "transaction-history: recovery checkpoints normalize differently",
+  );
+  return normalized;
+}
+
+function applyNativeTransactionHistoryExpected(cases) {
+  const generated = cases.find(({ id }) => id === "transaction-history");
+  const source = nativeTransactionHistoryRecovery(
+    generated.raw.observation,
+    generated.input.compressor.sessionId,
+  );
+  const target = generated.expected.observations[0];
+  const copy = (targetCheckpoint) => {
+    assert(object(targetCheckpoint),
+      "transaction-history: missing native recovery checkpoint");
+    assertAllocationCheckpoint(source.allocation,
+      "transaction-history: native recovery allocation");
+    targetCheckpoint.compressor = source.compressor;
+    targetCheckpoint.allocation.ongoing = source.allocation.ongoing;
+  };
+  copy(target.acknowledged);
   copy(
     target.checkpoints.find(({ id }) => id === "acknowledged-violation"),
-    source.checkpoints.find(({ id }) => id === "acknowledged-violation"),
   );
 }
 
@@ -4052,6 +4151,28 @@ function validateTransactionHistory(value) {
     `${label}: replay compressor is not the summary-point compressor`);
   assert.deepEqual(value.raw.tailAllocationRanges, value.input.tailAllocationRanges,
     `${label}: tail allocation ranges differ from raw execution`);
+  const nativeRecovery = nativeTransactionHistoryRecovery(
+    value.raw.observation,
+    value.input.compressor.sessionId,
+  );
+  assert.deepEqual(
+    {
+      compressor: observation.acknowledged.compressor,
+      allocation: observation.acknowledged.allocation,
+    },
+    nativeRecovery,
+    `${label}: acknowledged recovery compressor differs from raw normalization`,
+  );
+  const recoveryCheckpoint =
+    observation.checkpoints.find(({ id }) => id === "acknowledged-violation");
+  assert.deepEqual(
+    {
+      compressor: recoveryCheckpoint.compressor,
+      allocation: recoveryCheckpoint.allocation,
+    },
+    nativeRecovery,
+    `${label}: recovery checkpoint compressor differs from raw normalization`,
+  );
   assert.deepEqual(
     transactionHistoryWithoutRecoveryAllocation(value.raw.observation),
     transactionHistoryWithoutRecoveryAllocation(observation),
@@ -4634,10 +4755,7 @@ export async function generate({ check = false } = {}) {
     assert(object(malformed.expected.observation), "Missing malformed-allocation observation");
     invalid.expected.observations.push(malformed.expected.observation);
     invalid.raw.mutations.push(malformed.raw);
-    applyNativeTransactionHistoryExpected(
-      cases,
-      await read(join(fixtures, "cases/transaction-history.json")),
-    );
+    applyNativeTransactionHistoryExpected(cases);
     await writeCorpus(artifacts, cases, await read(join(source, "source-smoke.json")));
     if (check) {
       await compareDirectories(artifacts, fixtures);
