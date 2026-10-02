@@ -1400,7 +1400,7 @@ git commit -m "feat(tree): expose BEAM transactions"
 - Produces: dual-target corpus parity, reconnect evidence, and summary
   continuation before service work.
 
-- [ ] **Step 1: Add corpus runners for callbacks, constraints, and history.**
+- [x] **Step 1: Add corpus runners for callbacks, constraints, and history.**
 
 Add:
 
@@ -1412,26 +1412,26 @@ pub fn run_history(input: Json) -> Result(Json, String)
 
 They must use fixture input only and report complete observations.
 
-- [ ] **Step 2: Add pending resubmit tests.**
+- [x] **Step 2: Add pending resubmit tests.**
 
 Author one multi-edit transaction, disconnect before acknowledgement, reconnect,
 and assert one resubmitted commit, one acknowledgement, no duplicate local
 event, and stable node identity.
 
-- [ ] **Step 3: Add summary-plus-tail tests.**
+- [x] **Step 3: Add summary-plus-tail tests.**
 
 Take a summary while a transaction is pending. Assert the summary contains
 sequenced state only. Load it in a fresh runtime, apply the tail transaction,
 and continue editing. Repeat for a transaction that later becomes explicitly
 violated.
 
-- [ ] **Step 4: Add accepted-before-drop tests.**
+- [x] **Step 4: Add accepted-before-drop tests.**
 
 Deliver the transaction to the service, drop the sender before local
 acknowledgement, reconnect, and assert deduplication by revision and one visible
 effect.
 
-- [ ] **Step 5: Run native corpus and persistence gates.**
+- [x] **Step 5: Run native corpus and persistence gates.**
 
 ```bash
 gleam test --target erlang -- shared_tree_transaction shared_tree_history_resubmit shared_tree_summary shared_tree_document_summary shared_tree_client shared_tree_fixture
@@ -1440,7 +1440,7 @@ just shared-tree-codec-interop
 just shared-tree-test
 ```
 
-- [ ] **Step 6: Commit native persistence proof.**
+- [x] **Step 6: Commit native persistence proof.**
 
 ```bash
 git add test/watershed
