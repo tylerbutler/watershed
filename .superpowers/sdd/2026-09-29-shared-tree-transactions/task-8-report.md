@@ -636,3 +636,185 @@ lint checks above successfully.
 The test output contains pre-existing warnings for two JavaScript unsafe
 integer literals and several unused private test helpers. No new warning was
 introduced by these fixes.
+
+## Steps 2-4 closure
+
+**Date:** 2026-10-02
+**Baseline:** `faa84bb3`
+**Outcome:** complete
+
+### Step 2: pending transaction resubmit
+
+The native reconnect test authors one transaction with two edits: it inserts a
+Point with a generated Identifier, then changes that same node's label. The
+sender disconnects before acknowledgement and reconnects through the real
+runtime reconnect path.
+
+The test verifies:
+
+- reconnect produces exactly one grouped resubmission containing one channel
+  operation;
+- the reconnect stamps the resubmission with the next client sequence number;
+- one acknowledgement clears the pending commit;
+- acknowledgement and repeated sequenced delivery emit no duplicate local
+  event;
+- history contains one sequenced revision;
+- the original node reference and generated Identifier remain stable;
+- the final visible label contains the second edit.
+
+Commit:
+
+```text
+f4582bc6a0c2230573f7b782f0aa35863a9963ee test(tree): prove pending transaction resubmit
+```
+
+### Step 3: summary plus transaction tail
+
+The summary tests capture a real `DocumentSummary` from channel snapshots
+while the outer transaction commit is pending acknowledgement. The summary
+contains only sequenced state. A fresh runtime decodes and loads that summary,
+applies the actual transaction tail, then authors and acknowledges another
+transaction.
+
+The proof covers two violation paths:
+
+- a transaction that was already explicitly violated before summary and tail
+  replay;
+- a pending transaction that becomes explicitly violated when replayed after
+  a concurrent removal.
+
+Both paths retain one constraint violation in history, produce no visible
+effect or event for the suppressed edits, and permit a later transaction to
+commit normally.
+
+Commit:
+
+```text
+48f2899de5ba00ba35956550271fe2c997899e9a test(tree): prove summary tail continuation
+```
+
+### Step 4: accepted before sender drop
+
+A second native runtime acts as the service and peer. It receives the
+transaction once, records one visible effect and one trunk revision, and keeps
+the node identity and Identifier stable. The sender drops before receiving its
+local acknowledgement, reconnects, and receives the accepted message from the
+old session.
+
+The sender matches the accepted revision to its pending commit, clears pending
+state, and produces no resubmission. The service and sender converge with one
+visible transaction effect.
+
+Commit:
+
+```text
+b8842313f3a86bb153cc91512792da4e60b998d9 test(tree): prove accepted transaction recovery
+```
+
+### Coupled codec and fixture corrections
+
+The persistence gates exposed three stale assumptions after canonical
+compressed Identifier FieldBatch encoding:
+
+1. The summary corruption probe searched only for the former contextual
+   Identifier tuple. It now corrupts the Identifier value in the compressed
+   shape-table row.
+2. The JavaScript interoperability validator recognized only contextual
+   Identifier payloads. It now validates both compressed shape-table rows and
+   the contextual fallback. Its focused unit suite passes 13 tests.
+3. The native Identifier fixture observer also recognized only the contextual
+   tuple. It now resolves the `id` field index from the compressed shape and
+   reads the corresponding row value.
+
+Commits:
+
+```text
+c7c65de92f7e4e5bb624c99e46e2290be3669475 test(tree): update identifier corruption probe
+b6c623b832f50e5d79277fc3b4b0b5986e91b7c5 test(tree): validate compressed identifier artifacts
+bf49dc35895ea6ecf6432b57bffe08715601d391 test(tree): parse compressed identifier fixtures
+```
+
+### Squashed transaction revision defect
+
+The full Erlang gate exposed a transaction defect in the existing BEAM
+deferred-remote-order test. A multi-edit transaction used one persistent outer
+revision and shadow revisions for internal composition. Revision replacement
+rewrote the change data to the outer revision but retained the obsolete shadow
+revisions in the change's `IdentityOrder`. History therefore advertised three
+local revision dependencies even though the document compressor correctly
+retained only the outer revision. The first deferred remote commit failed while
+building the combined identity order.
+
+The focused RED regression received all four original order entries after
+replacing two obsolete revisions:
+
+```text
+Expected [revision-c, revision-d]
+Received [revision-a, revision-b, revision-c, revision-d]
+```
+
+Revision replacement now removes only explicitly obsolete order entries,
+retains the replacement revision, and preserves unrelated ordering context.
+The focused change regression passes on Erlang and JavaScript, and
+`shared_tree_map_facade_beam_transaction_callback_and_remote_order_test`
+passes.
+
+Commit:
+
+```text
+7423e975d15c31519b13e433ed19ea694b00496a fix(tree): prune squashed transaction revisions
+```
+
+### Final verification
+
+Exact Task 8 focused suites:
+
+```bash
+gleam test --target erlang -- \
+  shared_tree_transaction shared_tree_history_resubmit shared_tree_summary \
+  shared_tree_document_summary shared_tree_client shared_tree_fixture
+gleam test --target javascript -- \
+  shared_tree_transaction shared_tree_history_resubmit shared_tree_summary \
+  shared_tree_document_summary shared_tree_client shared_tree_fixture
+```
+
+```text
+Erlang:     141 passed
+JavaScript: 141 passed
+```
+
+Codec interoperability:
+
+```bash
+just shared-tree-codec-interop
+```
+
+```text
+SharedTree codec interoperability passed: 2 targets, 38 items each
+```
+
+Full SharedTree gate:
+
+```bash
+just shared-tree-test
+```
+
+```text
+Erlang:     939 passed
+JavaScript: 919 passed
+```
+
+Formatting and diff checks:
+
+```bash
+gleam format --check src test
+git diff --check
+```
+
+Both checks exited successfully. `just format` again stalled after Trellis
+started both package format commands, so the process was stopped and the
+repository-wide Gleam format check was run directly.
+
+The test output still contains the known warnings for two JavaScript unsafe
+integer literals and unused private test helpers. No warning was introduced by
+Steps 2-4 or their coupled fixes.
