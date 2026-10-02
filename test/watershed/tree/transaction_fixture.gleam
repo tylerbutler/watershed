@@ -2,7 +2,7 @@ import gleam/float
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
-import gleam/option.{None, Some, to_result, unwrap}
+import gleam/option.{type Option, None, Some, to_result, unwrap}
 import gleam/order
 import gleam/result
 import gleam/string
@@ -19,8 +19,10 @@ import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/identifier
+import watershed/tree/optional_field
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
+import watershed/tree/sequence_field
 import watershed/tree/sequence_field/moves
 import watershed/tree/shared_change
 import watershed/tree/summary as tree_summary
@@ -174,7 +176,6 @@ pub fn run_history(input: Json) -> Result(Json, String) {
     fluid_ids.serialize(missing_compressor, False)
     |> result.map_error(string.inspect),
   )
-  use tail_contents <- result.try(fixture_codec.get(tail, "contents"))
   use _ <- result.try(
     case apply_history_envelope(missing_state, missing_compressor, tail) {
       Error(_) -> Ok(Nil)
@@ -206,7 +207,7 @@ pub fn run_history(input: Json) -> Result(Json, String) {
     after_tail_state,
     after_tail_compressor,
   ))
-  use #(after_continuation_state, after_continuation_compressor) <- result.try(
+  use continuation_execution <- result.try(
     apply_history_continuation(
       after_tail_state,
       after_tail_compressor,
@@ -215,8 +216,8 @@ pub fn run_history(input: Json) -> Result(Json, String) {
   )
   use after_continuation <- result.try(history_continuation_checkpoint(
     "after-continuation",
-    after_continuation_state,
-    after_continuation_compressor,
+    continuation_execution.state,
+    continuation_execution.compressor,
   ))
   use peer <- result.try(history_peer_checkpoint(
     summary_entry,
@@ -225,6 +226,8 @@ pub fn run_history(input: Json) -> Result(Json, String) {
     tail_ranges,
     tail,
     continuation,
+    continuation_execution.message,
+    continuation_execution.range,
   ))
   let checkpoints = [
     execution.pending,
@@ -249,7 +252,7 @@ pub fn run_history(input: Json) -> Result(Json, String) {
             #("missingTailAllocationError", json.string("Error: Unknown ID")),
             #(
               "reconnectMessages",
-              fixture_codec.array([json_ot.to_json(tail_contents)]),
+              fixture_codec.array([execution.resubmitted]),
             ),
             #("acknowledged", execution.acknowledged),
             #("loaded", loaded),
@@ -271,7 +274,17 @@ type HistoryWriter {
     summary: Json,
     acknowledged: Json,
     violated: history.Commit,
+    resubmitted: Json,
     final: Json,
+  )
+}
+
+type HistoryContinuation {
+  HistoryContinuation(
+    state: tree_kernel.TreeState,
+    compressor: fluid_ids.Compressor,
+    message: JsonValue,
+    range: fluid_ids.CreationRange,
   )
 }
 
@@ -445,6 +458,10 @@ fn history_writer_execution() -> Result(HistoryWriter, String) {
     [commit] -> Ok(commit)
     _ -> Error("expected one history transaction resubmission")
   })
+  use resubmitted_message <- result.try(
+    tree_runtime.encode_commit(writer_commit, writer_state, writer_compressor)
+    |> result.map_error(string.inspect),
+  )
   // Fluid allocates one rollback revision when it rebases the pending branch.
   use #(writer_compressor, _) <- result.try(
     fluid_ids.generate(writer_compressor) |> result.map_error(string.inspect),
@@ -481,7 +498,14 @@ fn history_writer_execution() -> Result(HistoryWriter, String) {
     |> result.map_error(fn(_) { "history violation commit is missing" }),
   )
   use final <- result.try(callback_visible(writer_state))
-  Ok(HistoryWriter(pending:, summary:, acknowledged:, violated:, final:))
+  Ok(HistoryWriter(
+    pending:,
+    summary:,
+    acknowledged:,
+    violated:,
+    resubmitted: resubmitted_message,
+    final:,
+  ))
 }
 
 fn history_checkpoint(
@@ -641,7 +665,7 @@ fn apply_history_continuation(
   state: tree_kernel.TreeState,
   compressor: fluid_ids.Compressor,
   input: JsonValue,
-) -> Result(#(tree_kernel.TreeState, fluid_ids.Compressor), String) {
+) -> Result(HistoryContinuation, String) {
   use _ <- result.try(
     fixture_codec.exact(input, [
       "edits", "envelope", "creationRange", "peerSessionId",
@@ -701,10 +725,15 @@ fn apply_history_continuation(
   use #(finish, _) <- result.try(
     transaction.finish(open) |> result.map_error(string.inspect),
   )
-  use #(state, compressor, _) <- result.try(finish_commit(
+  use #(state, compressor, commit) <- result.try(finish_commit(
     finish,
     "history continuation",
   ))
+  use message <- result.try(
+    tree_runtime.encode_commit(commit, state, compressor)
+    |> result.map_error(string.inspect),
+  )
+  use message_value <- result.try(fixture_codec.parse(message))
   let #(_, range) = fluid_ids.take_creation_range(compressor)
   use range <- result.try(
     range |> to_result("history continuation allocated no IDs"),
@@ -718,7 +747,23 @@ fn apply_history_continuation(
     range == expected_range,
     "history continuation allocation range does not match its edit",
   ))
-  Ok(#(state, compressor))
+  use envelope <- result.try(fixture_codec.get(input, "envelope"))
+  use expected_message <- result.try(fixture_codec.get(envelope, "contents"))
+  use reference <- result.try(fixture_codec.field(
+    envelope,
+    "referenceSequenceNumber",
+    fixture_codec.integer,
+  ))
+  use _ <- result.try(
+    tree_runtime.decode_sequenced_message(
+      json.to_string(json_ot.to_json(expected_message)),
+      state,
+      reference,
+      compressor,
+    )
+    |> result.map_error(string.inspect),
+  )
+  Ok(HistoryContinuation(state, compressor, message_value, range))
 }
 
 fn history_peer_checkpoint(
@@ -728,6 +773,8 @@ fn history_peer_checkpoint(
   tail_ranges: List(JsonValue),
   tail: JsonValue,
   continuation: JsonValue,
+  continuation_message: JsonValue,
+  continuation_range: fluid_ids.CreationRange,
 ) -> Result(Json, String) {
   use serialized <- result.try(fixture_codec.field(
     compressor_value,
@@ -762,15 +809,16 @@ fn history_peer_checkpoint(
     compressor,
     tail,
   ))
-  use range_value <- result.try(fixture_codec.get(continuation, "creationRange"))
-  use range <- result.try(
-    fluid_ids.creation_range_from_json(json_ot.to_json(range_value))
+  use compressor <- result.try(
+    fluid_ids.finalize(compressor, continuation_range)
     |> result.map_error(string.inspect),
   )
-  use compressor <- result.try(
-    fluid_ids.finalize(compressor, range) |> result.map_error(string.inspect),
-  )
   use envelope <- result.try(fixture_codec.get(continuation, "envelope"))
+  use envelope <- result.try(case envelope {
+    VObject(fields) ->
+      Ok(VObject(list.key_set(fields, "contents", continuation_message)))
+    _ -> Error("history continuation envelope must be an object")
+  })
   use #(state, compressor) <- result.try(apply_history_envelope(
     state,
     compressor,
@@ -1271,17 +1319,14 @@ fn run_callback_scenario(value: JsonValue) -> Result(Json, String) {
     transaction.begin(initial.tree, initial.compressor, [])
     |> result.map_error(string.inspect),
   )
-  use #(finish, reads, outcome) <- result.try(execute_callback(id, open, []))
-  use #(state, compressor, commit, events) <- result.try(case finish {
+  use #(finish, events, reads, outcome) <- result.try(
+    execute_callback(id, open, []),
+  )
+  use #(state, compressor, commit) <- result.try(case finish {
     transaction.NoCommit(state, compressor) ->
-      Ok(#(state, compressor, None, tree_kernel.ChangeEvents([], False)))
+      Ok(#(state, compressor, None))
     transaction.Commit(state, compressor, commit) ->
-      Ok(#(
-        state,
-        compressor,
-        Some(commit),
-        tree_kernel.ChangeEvents([tree_kernel.TreeChanged(True)], True),
-      ))
+      Ok(#(state, compressor, Some(commit)))
   })
   use submitted <- result.try(case commit {
     None -> Ok([])
@@ -1577,7 +1622,15 @@ fn execute_callback(
   id: String,
   open: transaction.Transaction,
   reads: List(Json),
-) -> Result(#(transaction.Finish, List(Json), List(#(String, Json))), String) {
+) -> Result(
+  #(
+    transaction.Finish,
+    tree_kernel.ChangeEvents,
+    List(Json),
+    List(#(String, Json)),
+  ),
+  String,
+) {
   case id {
     "success-all-fields" -> callback_success(open, reads)
     "outer-rollback" -> {
@@ -1593,7 +1646,12 @@ fn execute_callback(
       use #(state, compressor) <- result.try(
         transaction.abort(open) |> result.map_error(string.inspect),
       )
-      Ok(#(transaction.NoCommit(state, compressor), [read, ..reads], []))
+      Ok(#(
+        transaction.NoCommit(state, compressor),
+        tree_kernel.ChangeEvents([], False),
+        [read, ..reads],
+        [],
+      ))
     }
     "nested-success" -> {
       use open <- result.try(callback_edit(
@@ -1658,6 +1716,17 @@ fn execute_callback(
         types.SetField(["title"], types.StringValue("before-invalid")),
       ))
       use read <- result.try(callback_read("valid-edit-before-invalid", open))
+      use _ <- result.try(
+        case transaction.apply_edit(
+          open,
+          types.ArrayRemove(["left"], -1, 1),
+        ) {
+          Error(types.InvalidEdit(_, _)) -> Ok(Nil)
+          Error(error) ->
+            Error("invalid transaction edit returned " <> string.inspect(error))
+          Ok(_) -> Error("invalid transaction edit succeeded")
+        },
+      )
       let error =
         "Error: Expected non-negative index passed to TreeArrayNode.removeAt, got -1."
       use #(state, compressor) <- result.try(
@@ -1667,8 +1736,13 @@ fn execute_callback(
         callback_checkpoint(CallbackState(state, compressor)),
       )
       Ok(
-        #(transaction.NoCommit(state, compressor), [read, ..reads], [
+        #(
+          transaction.NoCommit(state, compressor),
+          tree_kernel.ChangeEvents([], False),
+          [read, ..reads],
+          [
           #("error", json.string(error)),
+          #("nativeFailure", json.bool(True)),
           #("transactionResult", json.string("rollback")),
           #(
             "state",
@@ -1678,7 +1752,8 @@ fn execute_callback(
             ]),
           ),
           #("localCompressorAdvanced", json.bool(True)),
-        ]),
+          ],
+        ),
       )
     }
     _ -> Error("unsupported transaction callback scenario: " <> id)
@@ -1688,7 +1763,15 @@ fn execute_callback(
 fn callback_success(
   open: transaction.Transaction,
   reads: List(Json),
-) -> Result(#(transaction.Finish, List(Json), List(#(String, Json))), String) {
+) -> Result(
+  #(
+    transaction.Finish,
+    tree_kernel.ChangeEvents,
+    List(Json),
+    List(#(String, Json)),
+  ),
+  String,
+) {
   use #(open, reads) <- result.try(callback_step(
     open,
     reads,
@@ -1782,9 +1865,17 @@ fn finish_callback(
   open: transaction.Transaction,
   reads: List(Json),
   outcome: List(#(String, Json)),
-) -> Result(#(transaction.Finish, List(Json), List(#(String, Json))), String) {
+) -> Result(
+  #(
+    transaction.Finish,
+    tree_kernel.ChangeEvents,
+    List(Json),
+    List(#(String, Json)),
+  ),
+  String,
+) {
   transaction.finish(open)
-  |> result.map(fn(value) { #(value.0, reads, outcome) })
+  |> result.map(fn(value) { #(value.0, value.1, reads, outcome) })
   |> result.map_error(string.inspect)
 }
 
@@ -2341,6 +2432,7 @@ fn callback_fields(values: List(#(String, change.FieldChange))) -> Json {
       json.object([
         #("field", json.string(entry.0)),
         #("kind", json.string(callback_field_kind(entry.1))),
+        #("operation", callback_field_operation(entry.1)),
       ])
     }),
   )
@@ -2354,6 +2446,146 @@ fn callback_field_kind(value: change.FieldChange) -> String {
     change.GenericField(_) -> "Generic"
     change.IdentifierField -> "Identifier"
   }
+}
+
+fn callback_field_operation(value: change.FieldChange) -> Json {
+  case value {
+    change.IdentifierField -> json.object([])
+    change.GenericField(children) ->
+      json.object([
+        #(
+          "children",
+          fixture_codec.array(
+            list.map(children, fn(child) {
+              fixture_codec.array([json.int(child.0), atom_json(child.1)])
+            }),
+          ),
+        ),
+      ])
+    change.ValueField(value) | change.OptionalField(value) -> {
+      let optional_field.FieldChange(moves, children, replacement) = value
+      json.object([
+        #(
+          "moves",
+          fixture_codec.array(
+            list.map(moves, fn(move) {
+              fixture_codec.array([atom_json(move.0), atom_json(move.1)])
+            }),
+          ),
+        ),
+        #(
+          "children",
+          fixture_codec.array(
+            list.map(children, fn(child) {
+              fixture_codec.array([
+                callback_register(child.0),
+                atom_json(child.1),
+              ])
+            }),
+          ),
+        ),
+        #("replacement", case replacement {
+          None -> json.null()
+          Some(optional_field.Replacement(was_empty, source, detach)) ->
+            json.object([
+              #("wasEmpty", json.bool(was_empty)),
+              #("source", case source {
+                None -> json.null()
+                Some(source) -> callback_register(source)
+              }),
+              #("detach", atom_json(detach)),
+            ])
+        }),
+      ])
+    }
+    change.SequenceField(value) ->
+      json.object([
+        #(
+          "marks",
+          fixture_codec.array(
+            list.map(sequence_field.to_marks(value), fn(mark) {
+              let sequence_field.Mark(count, cell, effect, child) = mark
+              json.object([
+                #("count", json.int(count)),
+                #("cell", case cell {
+                  None -> json.null()
+                  Some(cell) -> atom_json(cell)
+                }),
+                #("effect", callback_sequence_effect(effect)),
+                #("child", case child {
+                  None -> json.null()
+                  Some(child) -> atom_json(child)
+                }),
+              ])
+            }),
+          ),
+        ),
+      ])
+  }
+}
+
+fn callback_register(value: optional_field.RegisterId) -> Json {
+  case value {
+    optional_field.Active -> json.string("self")
+    optional_field.Detached(id) -> atom_json(id)
+  }
+}
+
+fn callback_sequence_effect(value: sequence_field.Effect) -> Json {
+  case value {
+    sequence_field.Noop -> callback_sequence_effect_parts("Noop", None, None, None)
+    sequence_field.Attach(attach) -> callback_sequence_attach(attach)
+    sequence_field.Detach(detach) -> callback_sequence_detach(detach)
+    sequence_field.AttachAndDetach(attach, detach) ->
+      json.object([
+        #("type", json.string("AttachAndDetach")),
+        #("attach", callback_sequence_attach(attach)),
+        #("detach", callback_sequence_detach(detach)),
+      ])
+    sequence_field.Rename(id) ->
+      callback_sequence_effect_parts("Rename", None, None, Some(id))
+  }
+}
+
+fn callback_sequence_attach(value: sequence_field.Attach) -> Json {
+  case value {
+    sequence_field.Insert(id) ->
+      callback_sequence_effect_parts("Insert", Some(id), None, None)
+    sequence_field.MoveIn(id, endpoint) ->
+      callback_sequence_effect_parts("MoveIn", Some(id), endpoint, None)
+  }
+}
+
+fn callback_sequence_detach(value: sequence_field.Detach) -> Json {
+  case value {
+    sequence_field.Remove(id, override) ->
+      callback_sequence_effect_parts("Remove", Some(id), None, override)
+    sequence_field.MoveOut(id, endpoint, override) ->
+      callback_sequence_effect_parts("MoveOut", Some(id), endpoint, override)
+  }
+}
+
+fn callback_sequence_effect_parts(
+  kind: String,
+  id: Option(types.AtomId),
+  endpoint: Option(types.AtomId),
+  override: Option(types.AtomId),
+) -> Json {
+  json.object([
+    #("type", json.string(kind)),
+    #("id", case id {
+      None -> json.null()
+      Some(id) -> atom_json(id)
+    }),
+    #("finalEndpoint", case endpoint {
+      None -> json.null()
+      Some(endpoint) -> atom_json(endpoint)
+    }),
+    #("idOverride", case override {
+      None -> json.null()
+      Some(override) -> atom_json(override)
+    }),
+  ])
 }
 
 fn callback_constraint(

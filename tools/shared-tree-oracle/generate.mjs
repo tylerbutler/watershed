@@ -3460,7 +3460,7 @@ function assertStableFields(value, label) {
       && typeof field.field === "string"
       && typeof field.kind === "string"
       && field.kind.length > 0
-      && !Object.hasOwn(field, "change"),
+      && object(field.operation),
     `${label}: malformed field ${index}`);
   }
 }
@@ -3668,6 +3668,7 @@ export function validateTransactionCallbacks(value) {
     && invalid.reads?.length === 1
     && invalid.reads[0].step === "valid-edit-before-invalid"
     && invalid.reads[0].value?.title === "before-invalid"
+    && invalid.nativeFailure === true
     && invalid.localCompressorAdvanced === true
     && object(invalid.state?.before)
     && object(invalid.state?.after),
@@ -3998,6 +3999,10 @@ function validateTransactionHistory(value) {
   }
   assertStableCommit(observation.pendingViolation, `${label}: pending violation`);
   assertExactMessages(observation.reconnectMessages, `${label}: reconnect messages`);
+  assert.deepEqual(observation.reconnectMessages, [value.raw.resubmittedMessage],
+    `${label}: reconnect evidence is not the native resubmission`);
+  assert.deepEqual(value.raw.continuationEnvelope?.contents, value.raw.nativeContinuation,
+    `${label}: continuation evidence is not the native continuation`);
   assert(object(value.raw.summary)
     && object(value.raw.tailEnvelope)
     && object(value.raw.continuationEnvelope)

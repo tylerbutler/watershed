@@ -1154,33 +1154,104 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Generic"
+                        "kind": "Generic",
+                        "operation": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                "localId": 1
+                              }
+                            ]
+                          ]
+                        }
                       }
                     ],
-                    "maxId": 16,
+                    "maxId": 20,
                     "nodes": [
                       {
                         "change": {
                           "fields": [
                             {
                               "field": "title",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 10
+                                  },
+                                  "source": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 6
+                                  },
+                                  "wasEmpty": false
+                                }
+                              }
                             },
                             {
                               "field": "note",
-                              "kind": "Optional"
+                              "kind": "Optional",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 11
+                                  },
+                                  "source": null,
+                                  "wasEmpty": false
+                                }
+                              }
                             },
                             {
                               "field": "byKey",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 3
+                                    }
+                                  ]
+                                ]
+                              }
                             },
                             {
                               "field": "left",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 5
+                                    }
+                                  ]
+                                ]
+                              }
                             },
                             {
                               "field": "right",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 16
+                                    }
+                                  ]
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -1196,11 +1267,38 @@
                           "fields": [
                             {
                               "field": "added",
-                              "kind": "Optional"
+                              "kind": "Optional",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 17
+                                  },
+                                  "source": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 7
+                                  },
+                                  "wasEmpty": true
+                                }
+                              }
                             },
                             {
                               "field": "seed",
-                              "kind": "Optional"
+                              "kind": "Optional",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 12
+                                  },
+                                  "source": null,
+                                  "wasEmpty": false
+                                }
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -1216,7 +1314,93 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 18
+                                      },
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 13
+                                      },
+                                      "idOverride": null,
+                                      "type": "MoveOut"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 9
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 9
+                                      },
+                                      "idOverride": null,
+                                      "type": "Insert"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 19
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": null,
+                                      "idOverride": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 18
+                                      },
+                                      "type": "Rename"
+                                    }
+                                  },
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 14
+                                      },
+                                      "idOverride": null,
+                                      "type": "Remove"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 8
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 15
+                                      },
+                                      "idOverride": null,
+                                      "type": "Remove"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -1232,7 +1416,42 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": null,
+                                      "idOverride": null,
+                                      "type": "Noop"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 20
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 13
+                                      },
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 18
+                                      },
+                                      "idOverride": null,
+                                      "type": "MoveIn"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -1766,10 +1985,25 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "operation": {
+                          "children": [],
+                          "moves": [],
+                          "replacement": {
+                            "detach": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 1
+                            },
+                            "source": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 0
+                            },
+                            "wasEmpty": true
+                          }
+                        }
                       }
                     ],
-                    "maxId": 0,
+                    "maxId": 1,
                     "nodes": [],
                     "parents": [],
                     "refreshers": [],
@@ -2593,10 +2827,25 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "operation": {
+                          "children": [],
+                          "moves": [],
+                          "replacement": {
+                            "detach": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 1
+                            },
+                            "source": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 0
+                            },
+                            "wasEmpty": true
+                          }
+                        }
                       }
                     ],
-                    "maxId": 0,
+                    "maxId": 1,
                     "nodes": [],
                     "parents": [],
                     "refreshers": [],
@@ -3320,7 +3569,18 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Generic"
+                        "kind": "Generic",
+                        "operation": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                "localId": 1
+                              }
+                            ]
+                          ]
+                        }
                       }
                     ],
                     "maxId": 7,
@@ -3330,15 +3590,56 @@
                           "fields": [
                             {
                               "field": "title",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 5
+                                  },
+                                  "source": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 2
+                                  },
+                                  "wasEmpty": false
+                                }
+                              }
                             },
                             {
                               "field": "count",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 6
+                                  },
+                                  "source": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 3
+                                  },
+                                  "wasEmpty": false
+                                }
+                              }
                             },
                             {
                               "field": "left",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 7
+                                    }
+                                  ]
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -3354,7 +3655,39 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 2,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": null,
+                                      "idOverride": null,
+                                      "type": "Noop"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 4
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 4
+                                      },
+                                      "idOverride": null,
+                                      "type": "Insert"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -3866,10 +4199,25 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "operation": {
+                          "children": [],
+                          "moves": [],
+                          "replacement": {
+                            "detach": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 1
+                            },
+                            "source": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 0
+                            },
+                            "wasEmpty": true
+                          }
+                        }
                       }
                     ],
-                    "maxId": 0,
+                    "maxId": 1,
                     "nodes": [],
                     "parents": [],
                     "refreshers": [],
@@ -4553,7 +4901,18 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Generic"
+                        "kind": "Generic",
+                        "operation": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                "localId": 1
+                              }
+                            ]
+                          ]
+                        }
                       }
                     ],
                     "maxId": 5,
@@ -4563,11 +4922,37 @@
                           "fields": [
                             {
                               "field": "title",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 4
+                                  },
+                                  "source": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 2
+                                  },
+                                  "wasEmpty": false
+                                }
+                              }
                             },
                             {
                               "field": "right",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 5
+                                    }
+                                  ]
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -4583,7 +4968,39 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": null,
+                                      "idOverride": null,
+                                      "type": "Noop"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 3
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 3
+                                      },
+                                      "idOverride": null,
+                                      "type": "Insert"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -5095,10 +5512,25 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "operation": {
+                          "children": [],
+                          "moves": [],
+                          "replacement": {
+                            "detach": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 1
+                            },
+                            "source": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 0
+                            },
+                            "wasEmpty": true
+                          }
+                        }
                       }
                     ],
-                    "maxId": 0,
+                    "maxId": 1,
                     "nodes": [],
                     "parents": [],
                     "refreshers": [],
@@ -5917,10 +6349,25 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "operation": {
+                          "children": [],
+                          "moves": [],
+                          "replacement": {
+                            "detach": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 1
+                            },
+                            "source": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 0
+                            },
+                            "wasEmpty": true
+                          }
+                        }
                       }
                     ],
-                    "maxId": 0,
+                    "maxId": 1,
                     "nodes": [],
                     "parents": [],
                     "refreshers": [],
@@ -6739,10 +7186,25 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "operation": {
+                          "children": [],
+                          "moves": [],
+                          "replacement": {
+                            "detach": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 1
+                            },
+                            "source": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 0
+                            },
+                            "wasEmpty": true
+                          }
+                        }
                       }
                     ],
-                    "maxId": 0,
+                    "maxId": 1,
                     "nodes": [],
                     "parents": [],
                     "refreshers": [],
@@ -6992,6 +7454,7 @@
         },
         "depth": 0,
         "error": "Error: Expected non-negative index passed to TreeArrayNode.removeAt, got -1.",
+        "nativeFailure": true,
         "transactionResult": "rollback",
         "state": {
           "before": {
@@ -7505,10 +7968,25 @@
                         "fields": [
                           {
                             "field": "rootFieldKey",
-                            "kind": "Optional"
+                            "kind": "Optional",
+                            "operation": {
+                              "children": [],
+                              "moves": [],
+                              "replacement": {
+                                "detach": {
+                                  "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                                  "localId": 1
+                                },
+                                "source": {
+                                  "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                                  "localId": 0
+                                },
+                                "wasEmpty": true
+                              }
+                            }
                           }
                         ],
-                        "maxId": 0,
+                        "maxId": 1,
                         "nodes": [],
                         "parents": [],
                         "refreshers": [],
@@ -8268,10 +8746,25 @@
                         "fields": [
                           {
                             "field": "rootFieldKey",
-                            "kind": "Optional"
+                            "kind": "Optional",
+                            "operation": {
+                              "children": [],
+                              "moves": [],
+                              "replacement": {
+                                "detach": {
+                                  "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                                  "localId": 1
+                                },
+                                "source": {
+                                  "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                                  "localId": 0
+                                },
+                                "wasEmpty": true
+                              }
+                            }
                           }
                         ],
-                        "maxId": 0,
+                        "maxId": 1,
                         "nodes": [],
                         "parents": [],
                         "refreshers": [],
@@ -9632,33 +10125,104 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Generic"
+                        "kind": "Generic",
+                        "operation": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                "localId": 1
+                              }
+                            ]
+                          ]
+                        }
                       }
                     ],
-                    "maxId": 16,
+                    "maxId": 20,
                     "nodes": [
                       {
                         "change": {
                           "fields": [
                             {
                               "field": "title",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 10
+                                  },
+                                  "source": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 6
+                                  },
+                                  "wasEmpty": false
+                                }
+                              }
                             },
                             {
                               "field": "note",
-                              "kind": "Optional"
+                              "kind": "Optional",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 11
+                                  },
+                                  "source": null,
+                                  "wasEmpty": false
+                                }
+                              }
                             },
                             {
                               "field": "byKey",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 3
+                                    }
+                                  ]
+                                ]
+                              }
                             },
                             {
                               "field": "left",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 5
+                                    }
+                                  ]
+                                ]
+                              }
                             },
                             {
                               "field": "right",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 16
+                                    }
+                                  ]
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -9674,11 +10238,38 @@
                           "fields": [
                             {
                               "field": "added",
-                              "kind": "Optional"
+                              "kind": "Optional",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 17
+                                  },
+                                  "source": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 7
+                                  },
+                                  "wasEmpty": true
+                                }
+                              }
                             },
                             {
                               "field": "seed",
-                              "kind": "Optional"
+                              "kind": "Optional",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 12
+                                  },
+                                  "source": null,
+                                  "wasEmpty": false
+                                }
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -9694,7 +10285,93 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 18
+                                      },
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 13
+                                      },
+                                      "idOverride": null,
+                                      "type": "MoveOut"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 9
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 9
+                                      },
+                                      "idOverride": null,
+                                      "type": "Insert"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 19
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": null,
+                                      "idOverride": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 18
+                                      },
+                                      "type": "Rename"
+                                    }
+                                  },
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 14
+                                      },
+                                      "idOverride": null,
+                                      "type": "Remove"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 8
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 15
+                                      },
+                                      "idOverride": null,
+                                      "type": "Remove"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -9710,7 +10387,42 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": null,
+                                      "idOverride": null,
+                                      "type": "Noop"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 20
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 13
+                                      },
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 18
+                                      },
+                                      "idOverride": null,
+                                      "type": "MoveIn"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -10244,10 +10956,25 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "operation": {
+                          "children": [],
+                          "moves": [],
+                          "replacement": {
+                            "detach": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 1
+                            },
+                            "source": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 0
+                            },
+                            "wasEmpty": true
+                          }
+                        }
                       }
                     ],
-                    "maxId": 0,
+                    "maxId": 1,
                     "nodes": [],
                     "parents": [],
                     "refreshers": [],
@@ -11071,10 +11798,25 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "operation": {
+                          "children": [],
+                          "moves": [],
+                          "replacement": {
+                            "detach": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 1
+                            },
+                            "source": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 0
+                            },
+                            "wasEmpty": true
+                          }
+                        }
                       }
                     ],
-                    "maxId": 0,
+                    "maxId": 1,
                     "nodes": [],
                     "parents": [],
                     "refreshers": [],
@@ -11798,7 +12540,18 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Generic"
+                        "kind": "Generic",
+                        "operation": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                "localId": 1
+                              }
+                            ]
+                          ]
+                        }
                       }
                     ],
                     "maxId": 7,
@@ -11808,15 +12561,56 @@
                           "fields": [
                             {
                               "field": "title",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 5
+                                  },
+                                  "source": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 2
+                                  },
+                                  "wasEmpty": false
+                                }
+                              }
                             },
                             {
                               "field": "count",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 6
+                                  },
+                                  "source": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 3
+                                  },
+                                  "wasEmpty": false
+                                }
+                              }
                             },
                             {
                               "field": "left",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 7
+                                    }
+                                  ]
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -11832,7 +12626,39 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 2,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": null,
+                                      "idOverride": null,
+                                      "type": "Noop"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 4
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 4
+                                      },
+                                      "idOverride": null,
+                                      "type": "Insert"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -12344,10 +13170,25 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "operation": {
+                          "children": [],
+                          "moves": [],
+                          "replacement": {
+                            "detach": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 1
+                            },
+                            "source": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 0
+                            },
+                            "wasEmpty": true
+                          }
+                        }
                       }
                     ],
-                    "maxId": 0,
+                    "maxId": 1,
                     "nodes": [],
                     "parents": [],
                     "refreshers": [],
@@ -13031,7 +13872,18 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Generic"
+                        "kind": "Generic",
+                        "operation": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                "localId": 1
+                              }
+                            ]
+                          ]
+                        }
                       }
                     ],
                     "maxId": 5,
@@ -13041,11 +13893,37 @@
                           "fields": [
                             {
                               "field": "title",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 4
+                                  },
+                                  "source": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 2
+                                  },
+                                  "wasEmpty": false
+                                }
+                              }
                             },
                             {
                               "field": "right",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 5
+                                    }
+                                  ]
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -13061,7 +13939,39 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": null,
+                                      "idOverride": null,
+                                      "type": "Noop"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 3
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 3
+                                      },
+                                      "idOverride": null,
+                                      "type": "Insert"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -13573,10 +14483,25 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "operation": {
+                          "children": [],
+                          "moves": [],
+                          "replacement": {
+                            "detach": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 1
+                            },
+                            "source": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 0
+                            },
+                            "wasEmpty": true
+                          }
+                        }
                       }
                     ],
-                    "maxId": 0,
+                    "maxId": 1,
                     "nodes": [],
                     "parents": [],
                     "refreshers": [],
@@ -14395,10 +15320,25 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "operation": {
+                          "children": [],
+                          "moves": [],
+                          "replacement": {
+                            "detach": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 1
+                            },
+                            "source": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 0
+                            },
+                            "wasEmpty": true
+                          }
+                        }
                       }
                     ],
-                    "maxId": 0,
+                    "maxId": 1,
                     "nodes": [],
                     "parents": [],
                     "refreshers": [],
@@ -15217,10 +16157,25 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "operation": {
+                          "children": [],
+                          "moves": [],
+                          "replacement": {
+                            "detach": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 1
+                            },
+                            "source": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 0
+                            },
+                            "wasEmpty": true
+                          }
+                        }
                       }
                     ],
-                    "maxId": 0,
+                    "maxId": 1,
                     "nodes": [],
                     "parents": [],
                     "refreshers": [],
@@ -15470,6 +16425,7 @@
         },
         "depth": 0,
         "error": "Error: Expected non-negative index passed to TreeArrayNode.removeAt, got -1.",
+        "nativeFailure": true,
         "transactionResult": "rollback",
         "state": {
           "before": {
@@ -15983,10 +16939,25 @@
                         "fields": [
                           {
                             "field": "rootFieldKey",
-                            "kind": "Optional"
+                            "kind": "Optional",
+                            "operation": {
+                              "children": [],
+                              "moves": [],
+                              "replacement": {
+                                "detach": {
+                                  "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                                  "localId": 1
+                                },
+                                "source": {
+                                  "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                                  "localId": 0
+                                },
+                                "wasEmpty": true
+                              }
+                            }
                           }
                         ],
-                        "maxId": 0,
+                        "maxId": 1,
                         "nodes": [],
                         "parents": [],
                         "refreshers": [],
@@ -16746,10 +17717,25 @@
                         "fields": [
                           {
                             "field": "rootFieldKey",
-                            "kind": "Optional"
+                            "kind": "Optional",
+                            "operation": {
+                              "children": [],
+                              "moves": [],
+                              "replacement": {
+                                "detach": {
+                                  "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                                  "localId": 1
+                                },
+                                "source": {
+                                  "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                                  "localId": 0
+                                },
+                                "wasEmpty": true
+                              }
+                            }
                           }
                         ],
-                        "maxId": 0,
+                        "maxId": 1,
                         "nodes": [],
                         "parents": [],
                         "refreshers": [],

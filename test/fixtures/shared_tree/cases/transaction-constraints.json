@@ -344,7 +344,18 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Generic"
+                        "kind": "Generic",
+                        "operation": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                "localId": 5
+                              }
+                            ]
+                          ]
+                        }
                       }
                     ],
                     "maxId": 9,
@@ -354,7 +365,22 @@
                           "fields": [
                             {
                               "field": "label",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 8
+                                  },
+                                  "source": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 6
+                                  },
+                                  "wasEmpty": false
+                                }
+                              }
                             }
                           ],
                           "nodeExistsConstraint": {
@@ -372,7 +398,18 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 1
+                                    }
+                                  ]
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -388,11 +425,33 @@
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 3
+                                    }
+                                  ]
+                                ]
+                              }
                             },
                             {
                               "field": "right",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 9
+                                    }
+                                  ]
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -408,7 +467,39 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": null,
+                                      "idOverride": null,
+                                      "type": "Noop"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 7
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 7
+                                      },
+                                      "idOverride": null,
+                                      "type": "Insert"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -942,10 +1033,25 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "operation": {
+                          "children": [],
+                          "moves": [],
+                          "replacement": {
+                            "detach": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 1
+                            },
+                            "source": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 0
+                            },
+                            "wasEmpty": true
+                          }
+                        }
                       }
                     ],
-                    "maxId": 0,
+                    "maxId": 1,
                     "nodes": [],
                     "parents": [],
                     "refreshers": [],
@@ -1256,7 +1362,18 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Generic"
+                        "kind": "Generic",
+                        "operation": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                                "localId": 1
+                              }
+                            ]
+                          ]
+                        }
                       }
                     ],
                     "maxId": 2,
@@ -1266,7 +1383,18 @@
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                                      "localId": 2
+                                    }
+                                  ]
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -1282,7 +1410,25 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                                        "localId": 0
+                                      },
+                                      "idOverride": null,
+                                      "type": "Remove"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -1474,17 +1620,43 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Generic"
+                        "kind": "Generic",
+                        "operation": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                "localId": 5
+                              }
+                            ]
+                          ]
+                        }
                       }
                     ],
-                    "maxId": 8,
+                    "maxId": 10,
                     "nodes": [
                       {
                         "change": {
                           "fields": [
                             {
                               "field": "label",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 10
+                                  },
+                                  "source": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 6
+                                  },
+                                  "wasEmpty": false
+                                }
+                              }
                             }
                           ],
                           "nodeExistsConstraint": {
@@ -1502,7 +1674,28 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": {
+                                      "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                                      "localId": 9
+                                    },
+                                    "child": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 1
+                                    },
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": null,
+                                      "idOverride": null,
+                                      "type": "Noop"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -1518,11 +1711,33 @@
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 3
+                                    }
+                                  ]
+                                ]
+                              }
                             },
                             {
                               "field": "right",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 8
+                                    }
+                                  ]
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -1538,7 +1753,39 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": null,
+                                      "idOverride": null,
+                                      "type": "Noop"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 7
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 7
+                                      },
+                                      "idOverride": null,
+                                      "type": "Insert"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -2405,7 +2652,18 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Generic"
+                        "kind": "Generic",
+                        "operation": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                "localId": 5
+                              }
+                            ]
+                          ]
+                        }
                       }
                     ],
                     "maxId": 9,
@@ -2415,7 +2673,22 @@
                           "fields": [
                             {
                               "field": "label",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 8
+                                  },
+                                  "source": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 6
+                                  },
+                                  "wasEmpty": false
+                                }
+                              }
                             }
                           ],
                           "nodeExistsConstraint": {
@@ -2433,7 +2706,18 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 1
+                                    }
+                                  ]
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -2449,11 +2733,33 @@
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 3
+                                    }
+                                  ]
+                                ]
+                              }
                             },
                             {
                               "field": "right",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 9
+                                    }
+                                  ]
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -2469,7 +2775,39 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": null,
+                                      "idOverride": null,
+                                      "type": "Noop"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 7
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 7
+                                      },
+                                      "idOverride": null,
+                                      "type": "Insert"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -3003,10 +3341,25 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Optional"
+                        "kind": "Optional",
+                        "operation": {
+                          "children": [],
+                          "moves": [],
+                          "replacement": {
+                            "detach": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 1
+                            },
+                            "source": {
+                              "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+                              "localId": 0
+                            },
+                            "wasEmpty": true
+                          }
+                        }
                       }
                     ],
-                    "maxId": 0,
+                    "maxId": 1,
                     "nodes": [],
                     "parents": [],
                     "refreshers": [],
@@ -3317,7 +3670,18 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Generic"
+                        "kind": "Generic",
+                        "operation": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                                "localId": 1
+                              }
+                            ]
+                          ]
+                        }
                       }
                     ],
                     "maxId": 2,
@@ -3327,7 +3691,18 @@
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                                      "localId": 2
+                                    }
+                                  ]
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -3343,7 +3718,25 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                                        "localId": 0
+                                      },
+                                      "idOverride": null,
+                                      "type": "Remove"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -3535,17 +3928,43 @@
                     "fields": [
                       {
                         "field": "rootFieldKey",
-                        "kind": "Generic"
+                        "kind": "Generic",
+                        "operation": {
+                          "children": [
+                            [
+                              0,
+                              {
+                                "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                "localId": 5
+                              }
+                            ]
+                          ]
+                        }
                       }
                     ],
-                    "maxId": 8,
+                    "maxId": 10,
                     "nodes": [
                       {
                         "change": {
                           "fields": [
                             {
                               "field": "label",
-                              "kind": "Value"
+                              "kind": "Value",
+                              "operation": {
+                                "children": [],
+                                "moves": [],
+                                "replacement": {
+                                  "detach": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 10
+                                  },
+                                  "source": {
+                                    "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                    "localId": 6
+                                  },
+                                  "wasEmpty": false
+                                }
+                              }
                             }
                           ],
                           "nodeExistsConstraint": {
@@ -3563,7 +3982,28 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": {
+                                      "revision": "a0693eac-892a-4396-86f7-ad20dc1cade2",
+                                      "localId": 9
+                                    },
+                                    "child": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 1
+                                    },
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": null,
+                                      "idOverride": null,
+                                      "type": "Noop"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -3579,11 +4019,33 @@
                           "fields": [
                             {
                               "field": "left",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 3
+                                    }
+                                  ]
+                                ]
+                              }
                             },
                             {
                               "field": "right",
-                              "kind": "Generic"
+                              "kind": "Generic",
+                              "operation": {
+                                "children": [
+                                  [
+                                    0,
+                                    {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 8
+                                    }
+                                  ]
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,
@@ -3599,7 +4061,39 @@
                           "fields": [
                             {
                               "field": "",
-                              "kind": "Sequence"
+                              "kind": "Sequence",
+                              "operation": {
+                                "marks": [
+                                  {
+                                    "cell": null,
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": null,
+                                      "idOverride": null,
+                                      "type": "Noop"
+                                    }
+                                  },
+                                  {
+                                    "cell": {
+                                      "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                      "localId": 7
+                                    },
+                                    "child": null,
+                                    "count": 1,
+                                    "effect": {
+                                      "finalEndpoint": null,
+                                      "id": {
+                                        "revision": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+                                        "localId": 7
+                                      },
+                                      "idOverride": null,
+                                      "type": "Insert"
+                                    }
+                                  }
+                                ]
+                              }
                             }
                           ],
                           "nodeExistsConstraint": null,

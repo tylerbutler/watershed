@@ -422,6 +422,7 @@ function transactionCaseFixture(id, domain) {
         : [transactionMessage()],
       ...(scenario === "invalid-edit-rollback" ? {
         error: "Error: Expected non-negative index passed to TreeArrayNode.removeAt, got -1.",
+        nativeFailure: true,
         transactionResult: "rollback",
         localCompressorAdvanced: true,
         state: {
@@ -614,7 +615,11 @@ function transactionCaseFixture(id, domain) {
     value.raw.tailAllocationRanges = structuredClone(value.input.tailAllocationRanges);
     value.raw.summary = structuredClone(value.input.summary);
     value.raw.tailEnvelope = structuredClone(value.input.tailEnvelope);
-    value.raw.continuationEnvelope = transactionMessage();
+    value.raw.resubmittedMessage = transactionMessage();
+    value.raw.nativeContinuation = transactionMessage();
+    value.raw.continuationEnvelope = {
+      contents: structuredClone(value.raw.nativeContinuation),
+    };
     value.raw.messages = [transactionMessage()];
     value.raw.observation = structuredClone(value.expected.observations[0]);
   }
@@ -2679,6 +2684,44 @@ test("transaction history uses only stable semantic and wire projections", () =>
     const value = transactionCorpus(id).find((item) => item.id === id);
     assert.deepEqual(privateImplementationPaths(value), [], `${id}: private implementation state`);
   }
+});
+
+test("transaction history retains field operation payloads", () => {
+  for (const id of ["transaction-callbacks", "transaction-constraints", "transaction-history"]) {
+    const value = transactionCorpus(id).find((item) => item.id === id);
+    for (const change of transactionDataChanges(value)) {
+      const fields = [
+        ...change.fields,
+        ...change.nodes.flatMap((node) => node.change.fields),
+      ];
+      assert(fields.every((field) =>
+        field.operation !== null
+        && typeof field.operation === "object"
+        && !Array.isArray(field.operation)),
+      `${id}: field operation payload was erased`);
+    }
+  }
+});
+
+test("transaction callbacks record native invalid-edit failure", () => {
+  const value = transactionCorpus("transaction-callbacks")
+    .find(({ id }) => id === "transaction-callbacks");
+  const invalid = value.expected.observations
+    .find(({ id }) => id === "invalid-edit-rollback");
+  assert.equal(invalid.nativeFailure, true);
+});
+
+test("transaction history records native resubmission and continuation wire", () => {
+  const value = transactionCorpus("transaction-history")
+    .find(({ id }) => id === "transaction-history");
+  assert.deepEqual(
+    value.expected.observations[0].reconnectMessages,
+    [value.raw.resubmittedMessage],
+  );
+  assert.deepEqual(
+    value.raw.continuationEnvelope.contents,
+    value.raw.nativeContinuation,
+  );
 });
 
 function transactionDataChanges(value) {

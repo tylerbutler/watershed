@@ -307,16 +307,107 @@ function fieldKind(value: string) {
 	return value === "ModularEditBuilder.Generic" ? "Generic" : value;
 }
 
-function fieldChanges(value: ModularChangeset["fieldChanges"]) {
+function register(value: unknown, compressor: IIdCompressor) {
+	if (value === "self") return "self";
+	return atom(value as { revision?: RevisionTag; localId: number }, compressor);
+}
+
+function sequenceEffect(value: Record<string, unknown>, compressor: IIdCompressor): object {
+	const type = typeof value.type === "string" ? value.type : "Noop";
+	const revision = value.revision as RevisionTag | undefined;
+	const endpoint = (item: unknown) =>
+		item === undefined
+			? null
+			: atom(item as { revision?: RevisionTag; localId: number }, compressor);
+	const id = (item: unknown) =>
+		item === undefined
+			? null
+			: atom({ revision, localId: Number(item) }, compressor);
+	if (type === "AttachAndDetach") {
+		return {
+			type,
+			attach: sequenceEffect(value.attach as Record<string, unknown>, compressor),
+			detach: sequenceEffect(value.detach as Record<string, unknown>, compressor),
+		};
+	}
+	return {
+		type,
+		id: id(value.id),
+		finalEndpoint: endpoint(value.finalEndpoint),
+		idOverride: endpoint(value.idOverride),
+	};
+}
+
+function fieldOperation(value: { fieldKind: string; change: unknown }, compressor: IIdCompressor) {
+	if (value.fieldKind === "ModularEditBuilder.Generic") {
+		const changes = value.change as Map<number, { revision?: RevisionTag; localId: number }>;
+		return {
+			children: [...changes].map(([index, child]) => [index, atom(child, compressor)]),
+		};
+	}
+	if (value.fieldKind === "Value" || value.fieldKind === "Optional") {
+		const change = value.change as {
+			moves: [{ revision?: RevisionTag; localId: number }, { revision?: RevisionTag; localId: number }][];
+			childChanges: [unknown, { revision?: RevisionTag; localId: number }][];
+			valueReplace?: {
+				isEmpty: boolean;
+				src?: unknown;
+				dst: { revision?: RevisionTag; localId: number };
+			};
+		};
+		return {
+			moves: change.moves.map(([source, target]) => [
+				atom(source, compressor),
+				atom(target, compressor),
+			]),
+			children: change.childChanges.map(([source, child]) => [
+				register(source, compressor),
+				atom(child, compressor),
+			]),
+			replacement: change.valueReplace === undefined
+				? null
+				: {
+					wasEmpty: change.valueReplace.isEmpty,
+					source: change.valueReplace.src === undefined
+						? null
+						: register(change.valueReplace.src, compressor),
+					detach: atom(change.valueReplace.dst, compressor),
+				},
+		};
+	}
+	if (value.fieldKind === "Sequence") {
+		const marks = value.change as Record<string, unknown>[];
+		return {
+			marks: marks.map((mark) => ({
+				count: Number(mark.count),
+				cell: mark.cellId === undefined
+					? null
+					: atom(mark.cellId as { revision?: RevisionTag; localId: number }, compressor),
+				effect: sequenceEffect(mark, compressor),
+				child: mark.changes === undefined
+					? null
+					: atom(mark.changes as { revision?: RevisionTag; localId: number }, compressor),
+			})),
+		};
+	}
+	assert.equal(value.fieldKind, "Identifier");
+	return {};
+}
+
+function fieldChanges(
+	value: ModularChangeset["fieldChanges"],
+	compressor: IIdCompressor,
+) {
 	return [...value].map(([field, change]) => ({
 		field,
 		kind: fieldKind(change.fieldKind),
+		operation: fieldOperation(change, compressor),
 	}));
 }
 
-function nodeChange(value: NodeChangeset) {
+function nodeChange(value: NodeChangeset, compressor: IIdCompressor) {
 	return {
-		fields: fieldChanges(value.fieldChanges ?? new Map()),
+		fields: fieldChanges(value.fieldChanges ?? new Map(), compressor),
 		nodeExistsConstraint: value.nodeExistsConstraint ?? null,
 		nodeExistsConstraintOnRevert: value.nodeExistsConstraintOnRevert ?? null,
 	};
@@ -516,10 +607,10 @@ function modularChange(value: ModularChangeset, compressor: IIdCompressor) {
 			revision: revision(info.revision, compressor),
 			rollbackOf: revision(info.rollbackOf, compressor),
 		})),
-		fields: fieldChanges(value.fieldChanges),
+		fields: fieldChanges(value.fieldChanges, compressor),
 		nodes: [...value.nodeChanges.entries()].map(([[major, minor], change]) => ({
 			id: atom({ revision: major, localId: minor }, compressor),
-			change: nodeChange(change),
+			change: nodeChange(change, compressor),
 		})),
 		parents: [...value.nodeToParent.entries()].map(([[major, minor], parent]) => ({
 			id: atom({ revision: major, localId: minor }, compressor),
@@ -827,7 +918,7 @@ async function captureInvalidEditCallback() {
 		});
 		assert.match(error, /Expected non-negative index passed to TreeArrayNode\.removeAt/);
 		assert.equal(result, Tree.runTransaction.rollback);
-		return { error, transactionResult: "rollback" };
+		return { error, nativeFailure: true, transactionResult: "rollback" };
 	});
 	assert.equal(scenario.pendingCommitCount, 0);
 	assert.equal(scenario.submittedMessages.length, 0);
@@ -1522,6 +1613,8 @@ async function captureHistory() {
 		[observation],
 		{
 			messages: [...reconnectMessages, ...continuationMessages],
+			resubmittedMessage: reconnectMessages[0],
+			nativeContinuation: continuationMessages[0],
 			summary: pendingSummary,
 			tailEnvelope,
 			tailAllocationRanges,
