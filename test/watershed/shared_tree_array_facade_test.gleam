@@ -300,6 +300,103 @@ pub fn shared_tree_array_facade_js_transaction_test() {
 }
 
 @target(javascript)
+pub fn shared_tree_array_facade_js_transaction_revertible_test() {
+  let input = input()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let callbacks = transport_js.new_cell(None)
+  let submissions = transport_js.new_cell(0)
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(event, _) {
+            case event {
+              "submitOp" ->
+                transport_js.set_cell(
+                  submissions,
+                  transport_js.get_cell(submissions) + 1,
+                )
+              _ -> Nil
+            }
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    connected("reader") |> json.to_string,
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let tree =
+    watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
+  let handles = transport_js.new_cell([])
+  let events = transport_js.new_cell(0)
+  let token =
+    watershed.subscribe_tree_commits(tree, fn(event) {
+      let assert runtime.TreeCommitEvent(_, True, Some(get_revertible), _) =
+        event
+      let handle = get_revertible() |> expect.to_be_ok()
+      transport_js.set_cell(handles, [handle, ..transport_js.get_cell(handles)])
+      transport_js.set_cell(events, transport_js.get_cell(events) + 1)
+    })
+
+  watershed.tree_array_insert(tree, [], 3, [types.StringValue("D")])
+  |> expect.to_equal(Ok(Nil))
+  let assert [first] = transport_js.get_cell(handles)
+  watershed.tree_transaction(tree, [], fn(tree) {
+    watershed.tree_revert(first, False) |> expect.to_be_error()
+    watershed.tree_array_values(tree, [])
+    |> expect.to_equal(
+      Ok([
+        types.StringValue("A"),
+        types.StringValue("B"),
+        types.StringValue("C"),
+        types.StringValue("D"),
+      ]),
+    )
+    use _ <- result.try(
+      watershed.tree_array_insert(tree, [], 1, [types.StringValue("X")]),
+    )
+    use _ <- result.try(watershed.tree_array_remove(tree, [], 2, 3))
+    Ok(Nil)
+  })
+  |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(events) |> expect.to_equal(2)
+  let assert [outer, retained] = transport_js.get_cell(handles)
+  watershed.tree_revertible_status(outer)
+  |> expect.to_equal(watershed.RevertibleValid)
+  watershed.tree_revertible_status(retained)
+  |> expect.to_equal(watershed.RevertibleValid)
+  transport_js.get_cell(submissions) |> expect.to_equal(2)
+  watershed.tree_array_values(tree, [])
+  |> expect.to_equal(
+    Ok([
+      types.StringValue("A"),
+      types.StringValue("X"),
+      types.StringValue("C"),
+      types.StringValue("D"),
+    ]),
+  )
+  watershed.tree_dispose_revertible(outer) |> expect.to_equal(Ok(Nil))
+  watershed.tree_dispose_revertible(retained) |> expect.to_equal(Ok(Nil))
+  watershed.unsubscribe(token)
+  watershed.close(document)
+}
+
+@target(javascript)
 pub fn shared_tree_array_facade_js_transaction_rejects_other_view_test() {
   let input = input()
   let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()

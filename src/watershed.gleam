@@ -192,6 +192,20 @@ pub opaque type SharedTree {
 }
 
 @target(javascript)
+pub type TreeRevertibleStatus {
+  RevertibleValid
+  RevertibleDisposed
+}
+
+@target(javascript)
+pub type TreeRevertible =
+  runtime.TreeRevertible
+
+@target(javascript)
+pub type TreeCommitEvent =
+  runtime.TreeCommitEvent
+
+@target(javascript)
 pub type TreeTransactionConstraint {
   NodeInDocument(path: tree_types.FieldPath)
 }
@@ -545,6 +559,31 @@ pub fn pending_summary_evidence(document: Document(a)) -> Result(Json, String) {
 @target(javascript)
 pub fn tree_upgrade_schema(tree: SharedTree) -> Result(Nil, String) {
   runtime.tree_upgrade_schema(tree.runtime, tree.address, tree.view)
+}
+
+@target(javascript)
+pub fn tree_revertible_status(
+  revertible: TreeRevertible,
+) -> TreeRevertibleStatus {
+  case runtime.tree_revertible_status(revertible) {
+    runtime.RevertibleValid -> RevertibleValid
+    runtime.RevertibleDisposed -> RevertibleDisposed
+  }
+}
+
+@target(javascript)
+pub fn tree_revert(
+  revertible: TreeRevertible,
+  dispose: Bool,
+) -> Result(Nil, String) {
+  runtime.tree_revert(revertible, dispose)
+}
+
+@target(javascript)
+pub fn tree_dispose_revertible(
+  revertible: TreeRevertible,
+) -> Result(Nil, String) {
+  runtime.tree_dispose_revertible(revertible)
 }
 
 @target(javascript)
@@ -2120,6 +2159,18 @@ pub fn subscribe_tree(
     channel.TreeEvent(inner) -> Some(inner)
     _ -> None
   }
+}
+
+@target(javascript)
+pub fn subscribe_tree_commits(
+  tree: SharedTree,
+  handler: fn(TreeCommitEvent) -> Nil,
+) -> SubscriptionToken {
+  SubscriptionToken(runtime_token: runtime.subscribe_tree_commits(
+    tree.runtime,
+    tree.address,
+    handler,
+  ))
 }
 
 @target(javascript)

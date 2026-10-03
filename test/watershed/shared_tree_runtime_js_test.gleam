@@ -1663,6 +1663,77 @@ pub fn tree_transaction_commit_reentrancy_preserves_state_and_order_test() {
 }
 
 @target(javascript)
+pub fn tree_commit_runtime_factory_is_shared_across_subscribers_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let callbacks = transport_js.new_cell(None)
+  let owner =
+    runtime.start_with_transport_and_seed(
+      http_base_url: "https://seed.invalid",
+      connect_message: connect_message(),
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(_, _) { Nil },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  let attempts = transport_js.new_cell([])
+  let _ =
+    runtime.subscribe_tree_commits(owner, "A/_C", fn(event) {
+      let assert runtime.TreeCommitEvent(_, True, Some(get_revertible), _) =
+        event
+      transport_js.set_cell(attempts, [
+        get_revertible(),
+        ..transport_js.get_cell(attempts)
+      ])
+    })
+  let _ =
+    runtime.subscribe_tree_commits(owner, "A/_C", fn(event) {
+      let assert runtime.TreeCommitEvent(_, True, Some(get_revertible), _) =
+        event
+      transport_js.set_cell(attempts, [
+        get_revertible(),
+        ..transport_js.get_cell(attempts)
+      ])
+    })
+  runtime.tree_edit(
+    owner,
+    "A/_C",
+    tree_types.SetField(["title"], tree_types.StringValue("final")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let assert [Error(_), Ok(handle)] = transport_js.get_cell(attempts)
+  runtime.tree_revertible_status(handle)
+  |> expect.to_equal(runtime.RevertibleValid)
+  runtime.close(owner)
+  runtime.tree_revertible_status(handle)
+  |> expect.to_equal(runtime.RevertibleDisposed)
+}
+
+@target(javascript)
 pub fn invalid_inline_own_echo_rejects_edit_without_fanout_test() {
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)

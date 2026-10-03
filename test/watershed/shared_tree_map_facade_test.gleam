@@ -515,6 +515,211 @@ pub fn shared_tree_map_facade_js_generates_identifier_defaults_test() {
 }
 
 @target(javascript)
+pub fn shared_tree_map_facade_js_commit_subscription_test() {
+  let input = input(True)
+  let #(document, callbacks, submissions) = js_document(input)
+  callbacks.on_event(
+    "connect_document_success",
+    json.to_string(connected("reader", 0)),
+  )
+  let tree = js_tree(document, input)
+  let order = transport_js.new_cell([])
+  let observed = transport_js.new_cell(None)
+  let attempts = transport_js.new_cell([])
+  let late_factory = transport_js.new_cell(None)
+  let late_settlement = transport_js.new_cell(None)
+  let outcomes = transport_js.new_cell([])
+  let stopped = transport_js.new_cell(0)
+  let stopped_token =
+    watershed.subscribe_tree_commits(tree, fn(_) {
+      transport_js.set_cell(stopped, transport_js.get_cell(stopped) + 1)
+    })
+  watershed.unsubscribe(stopped_token)
+  let ordinary =
+    watershed.subscribe_tree(tree, fn(_) {
+      transport_js.set_cell(order, ["change", ..transport_js.get_cell(order)])
+    })
+  let loser =
+    watershed.subscribe_tree_commits(tree, fn(event) {
+      let assert runtime.TreeCommitEvent(
+        _,
+        _,
+        Some(get_revertible),
+        Some(on_settled),
+      ) = event
+      transport_js.set_cell(attempts, [
+        get_revertible(),
+        ..transport_js.get_cell(attempts)
+      ])
+      on_settled(fn(outcome) {
+        transport_js.set_cell(outcomes, [
+          outcome,
+          ..transport_js.get_cell(outcomes)
+        ])
+      })
+      |> expect.to_equal(Ok(Nil))
+    })
+  let winner =
+    watershed.subscribe_tree_commits(tree, fn(event) {
+      let assert runtime.TreeCommitEvent(
+        types.DefaultCommit,
+        True,
+        Some(get_revertible),
+        Some(on_settled),
+      ) = event
+      transport_js.set_cell(order, ["commit", ..transport_js.get_cell(order)])
+      transport_js.set_cell(
+        observed,
+        Some(watershed.tree_map_get(tree, [], "key")),
+      )
+      transport_js.set_cell(late_factory, Some(get_revertible))
+      transport_js.set_cell(late_settlement, Some(on_settled))
+      transport_js.set_cell(attempts, [
+        get_revertible(),
+        ..transport_js.get_cell(attempts)
+      ])
+      on_settled(fn(outcome) {
+        transport_js.set_cell(outcomes, [
+          outcome,
+          ..transport_js.get_cell(outcomes)
+        ])
+      })
+      |> expect.to_equal(Ok(Nil))
+    })
+
+  watershed.tree_map_set(tree, [], "key", types.StringValue("value"))
+  |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(order)
+  |> list.reverse
+  |> expect.to_equal(["commit", "change"])
+  transport_js.get_cell(observed)
+  |> expect.to_equal(Some(Ok(Some(types.StringValue("value")))))
+  transport_js.get_cell(stopped) |> expect.to_equal(0)
+  let assert [Error(_), Ok(revertible)] = transport_js.get_cell(attempts)
+  watershed.tree_revertible_status(revertible)
+  |> expect.to_equal(watershed.RevertibleValid)
+  let assert Some(get_revertible) = transport_js.get_cell(late_factory)
+  get_revertible() |> expect.to_be_error()
+  let assert Some(on_settled) = transport_js.get_cell(late_settlement)
+  on_settled(fn(_) { Nil }) |> expect.to_be_error()
+
+  let assert [submitted] = transport_js.get_cell(submissions)
+  callbacks.on_event("op", json.to_string(acknowledgement(submitted)))
+  transport_js.get_cell(outcomes)
+  |> expect.to_equal([types.FullyApplied, types.FullyApplied])
+  callbacks.on_event("op", json.to_string(acknowledgement(submitted)))
+  transport_js.get_cell(outcomes) |> list.length |> expect.to_equal(2)
+
+  watershed.unsubscribe(winner)
+  watershed.unsubscribe(loser)
+  let revert_kinds = transport_js.new_cell([])
+  let revert_token =
+    watershed.subscribe_tree_commits(tree, fn(event) {
+      let assert runtime.TreeCommitEvent(kind, True, _, _) = event
+      transport_js.set_cell(revert_kinds, [
+        kind,
+        ..transport_js.get_cell(revert_kinds)
+      ])
+    })
+  watershed.tree_revert(revertible, True) |> expect.to_equal(Ok(Nil))
+  watershed.tree_map_get(tree, [], "key") |> expect.to_equal(Ok(None))
+  transport_js.get_cell(revert_kinds) |> expect.to_equal([types.UndoCommit])
+  transport_js.get_cell(submissions) |> list.length |> expect.to_equal(2)
+  watershed.tree_revertible_status(revertible)
+  |> expect.to_equal(watershed.RevertibleDisposed)
+  watershed.tree_dispose_revertible(revertible) |> expect.to_be_error()
+
+  let cleanup_handle = transport_js.new_cell(None)
+  let cleanup_settled = transport_js.new_cell(0)
+  let cleanup_token =
+    watershed.subscribe_tree_commits(tree, fn(event) {
+      let assert runtime.TreeCommitEvent(
+        _,
+        True,
+        Some(get_revertible),
+        Some(on_settled),
+      ) = event
+      let handle = get_revertible() |> expect.to_be_ok()
+      transport_js.set_cell(cleanup_handle, Some(handle))
+      on_settled(fn(_) {
+        transport_js.set_cell(
+          cleanup_settled,
+          transport_js.get_cell(cleanup_settled) + 1,
+        )
+      })
+      |> expect.to_equal(Ok(Nil))
+    })
+  watershed.tree_map_set(tree, [], "cleanup", types.StringValue("value"))
+  |> expect.to_equal(Ok(Nil))
+  let assert Some(cleanup_handle) = transport_js.get_cell(cleanup_handle)
+  watershed.close(document)
+  watershed.tree_revertible_status(cleanup_handle)
+  |> expect.to_equal(watershed.RevertibleDisposed)
+  watershed.tree_dispose_revertible(cleanup_handle) |> expect.to_be_error()
+  transport_js.get_cell(cleanup_settled) |> expect.to_equal(0)
+  watershed.unsubscribe(cleanup_token)
+  watershed.unsubscribe(revert_token)
+  watershed.unsubscribe(ordinary)
+}
+
+@target(javascript)
+pub fn shared_tree_map_facade_js_inline_settlement_test() {
+  let input = input(False)
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let callbacks = transport_js.new_cell(None)
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(event, payload) {
+            case event, transport_js.get_cell(callbacks) {
+              "submitOp", Some(callbacks) ->
+                callbacks.on_event(
+                  "op",
+                  acknowledgement(payload) |> json.to_string,
+                )
+              _, _ -> Nil
+            }
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    json.to_string(connected("reader", 0)),
+  )
+  let tree = js_tree(document, input)
+  let settled = transport_js.new_cell([])
+  let token =
+    watershed.subscribe_tree_commits(tree, fn(event) {
+      let assert runtime.TreeCommitEvent(_, True, _, Some(on_settled)) = event
+      on_settled(fn(outcome) {
+        transport_js.set_cell(settled, [
+          outcome,
+          ..transport_js.get_cell(settled)
+        ])
+      })
+      |> expect.to_equal(Ok(Nil))
+    })
+  watershed.tree_map_set(tree, ["items"], "key", types.StringValue("value"))
+  |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(settled) |> expect.to_equal([types.FullyApplied])
+  watershed.unsubscribe(token)
+  watershed.close(document)
+}
+
+@target(javascript)
 pub fn shared_tree_map_facade_js_transaction_callback_test() {
   let input = input(True)
   let #(document, callbacks, submissions) = js_document(input)
@@ -958,6 +1163,14 @@ pub fn shared_tree_map_facade_js_root_events_and_atomicity_test() {
   )
   let peer_tree = js_tree(peer, input)
   let remote_events = transport_js.new_cell([])
+  let remote_commits = transport_js.new_cell([])
+  let remote_commit_subscription =
+    watershed.subscribe_tree_commits(peer_tree, fn(event) {
+      transport_js.set_cell(remote_commits, [
+        event,
+        ..transport_js.get_cell(remote_commits)
+      ])
+    })
   let remote_subscription =
     watershed.subscribe_tree(peer_tree, fn(event) {
       transport_js.set_cell(remote_events, [
@@ -984,6 +1197,8 @@ pub fn shared_tree_map_facade_js_root_events_and_atomicity_test() {
   |> expect.to_equal(Ok(Some(types.StringValue("value"))))
   transport_js.get_cell(remote_events)
   |> expect.to_equal([tree_kernel.TreeChanged(False)])
+  let assert [runtime.TreeCommitEvent(types.DefaultCommit, False, None, None)] =
+    transport_js.get_cell(remote_commits)
   callbacks.on_event("op", json.to_string(acknowledgement(submitted)))
   callbacks.on_event("op", json.to_string(acknowledgement(submitted)))
   runtime.connection_observation(watershed.runtime_of(document)).pending_tree_count
@@ -1001,6 +1216,7 @@ pub fn shared_tree_map_facade_js_root_events_and_atomicity_test() {
   |> expect.to_equal(Ok([#("", types.StringValue("value"))]))
   watershed.unsubscribe(subscription)
   watershed.unsubscribe(remote_subscription)
+  watershed.unsubscribe(remote_commit_subscription)
   watershed.close(peer)
   watershed.close(document)
 }

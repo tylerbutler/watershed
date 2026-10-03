@@ -1,24 +1,112 @@
+@target(javascript)
+import gleam/json
 import gleam/list
-@target(erlang)
 import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
+@target(javascript)
+import watershed
 import watershed/container
+@target(javascript)
+import watershed/fluid_ids
 import watershed/git_storage
+@target(javascript)
+import watershed/runtime
+@target(javascript)
+import watershed/runtime_core
+@target(javascript)
+import watershed/sluice/frame
+@target(javascript)
+import watershed/transport_js
 @target(erlang)
 import watershed/tree/identifier_fixture
-@target(erlang)
 import watershed/tree/schema
-@target(erlang)
 import watershed/tree/types
+@target(javascript)
+import watershed/wire/fluid_document
 
-@target(erlang)
 fn stored() -> schema.StoredSchema {
   let assert Ok(stored) =
     schema.stored_from_string(
       "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}}},\"root\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}",
     )
   stored
+}
+
+@target(javascript)
+pub fn native_created_tree_supports_revertible_facade_test() {
+  let stored = stored()
+  let session =
+    fluid_ids.session_id("30000000-0000-4000-8000-000000000003")
+    |> expect.to_be_ok()
+  let view_id =
+    fluid_ids.stable_id("40000000-0000-4000-8000-000000000004")
+    |> expect.to_be_ok()
+  let summary =
+    fluid_document.initial_tree(
+      stored,
+      Some(types.StringValue("initial")),
+      session,
+      view_id,
+    )
+    |> expect.to_be_ok()
+  let seed = runtime_core.document_seed(summary) |> expect.to_be_ok()
+  let callbacks = transport_js.new_cell(None)
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(_, _) { Nil },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let view =
+    schema.view_from_json(schema.stored_to_json(stored))
+    |> expect.to_be_ok()
+  let tree = watershed.resolve_tree(document, marker, view) |> expect.to_be_ok()
+  let handle = transport_js.new_cell(None)
+  let token =
+    watershed.subscribe_tree_commits(tree, fn(event) {
+      let assert runtime.TreeCommitEvent(_, True, Some(get_revertible), _) =
+        event
+      transport_js.set_cell(handle, Some(get_revertible() |> expect.to_be_ok()))
+    })
+  watershed.tree_set(tree, [], types.StringValue("changed"))
+  |> expect.to_equal(Ok(Nil))
+  let assert Some(handle) = transport_js.get_cell(handle)
+  watershed.tree_revert(handle, True) |> expect.to_equal(Ok(Nil))
+  watershed.tree_get(tree, [])
+  |> expect.to_equal(Ok(Some(types.StringValue("initial"))))
+  watershed.unsubscribe(token)
+  watershed.close(document)
 }
 
 @target(erlang)
