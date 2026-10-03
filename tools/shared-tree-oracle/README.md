@@ -447,14 +447,15 @@ It replaces only the declared watershed injections, then byte-verifies them.
 Only `packages/dds/tree/src/test/watershedOracle.spec.ts`,
 `watershedAlgebra.spec.ts`, `watershedForest.spec.ts`, and
 `watershedModular.spec.ts`, `watershedHistory.spec.ts`, and
-`watershedCodecs.spec.ts`, `watershedIdentifier.spec.ts` in that same directory
-are injected. They must match `upstream-oracle.spec.ts`,
+`watershedCodecs.spec.ts`, `watershedIdentifier.spec.ts`, and
+`watershedUndoRedo.spec.ts` in that same directory are injected. They must
+match `upstream-oracle.spec.ts`,
 `upstream-algebra.spec.ts`, `upstream-forest.spec.ts`, and
 `upstream-modular.spec.ts`, `upstream-history.spec.ts`, and
-`upstream-codecs.spec.ts`, `upstream-identifier.spec.ts`, respectively. Do not
-discard other reference changes to make verification pass. Avoid code-map
-queries inside the reference checkout: their generated cache is an unrelated
-untracked file.
+`upstream-codecs.spec.ts`, `upstream-identifier.spec.ts`, and
+`upstream-undo-redo.spec.ts`, respectively. Do not discard other reference
+changes to make verification pass. Avoid code-map queries inside the reference
+checkout: their generated cache is an unrelated untracked file.
 
 ### Identifier capture inputs
 
@@ -851,6 +852,24 @@ The transaction suite runs in its own deterministic Mocha process. Importing
 the upstream test constructs identities before tests execute, so sharing the
 older corpus process would shift existing fixture UUIDs even if the transaction
 test ran last.
+
+### Undo and redo source contract
+
+The five undo and redo cases capture the application-owned revertible contract
+from the pinned source:
+
+| Case | Captured contract |
+| --- | --- |
+| `revertible-lifetime` | Local data events expose one factory. Schema and remote events do not. The first listener can acquire the handle; duplicate and late calls fail. Default reversion disposes the handle, `revert(false)` keeps it valid across repeated calls, and disposed handles reject another disposal or revert. |
+| `undo-redo-kinds` | One edit followed by undo and redo emits `Default`, `Undo`, and `Redo` in order. Each local event includes the canonical encoded change. Its settlement callback fires once, after sequencing, with `FullyApplied`. |
+| `undo-redo-fields` | Object set and replacement, map set and delete, array insert and remove, same-array and cross-array moves, and one outer transaction are reverted from real simple-tree edits. Later unrelated local and remote work stays visible. Overlapping remote edits run in both authoring orders. |
+| `undo-redo-constraints` | A retained handle rebases over an unrelated remote edit and over removal of the edited node. The fixtures keep optimistic and settled snapshots, encoded changes, and retained-handle status. Separate pinned probes capture `FullyApplied`, `FullyDropped`, and `NewContentOnly`. |
+| `undo-redo-reconnect` | A live handle remains valid across disconnect and reconnect in the same view. Fresh loads of summaries after committed undo and redo contain the committed state and emit no event or factory for the old commit. |
+
+The manifest records these IDs, commit kinds, settlement outcomes, and the
+runtime-local handle lifetime under `inventory.undoRedoContract`. The injected
+suite runs in its own deterministic Mocha process so its identities cannot
+shift the older corpus.
 
 ### Native runtime interoperability
 

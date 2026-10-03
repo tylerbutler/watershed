@@ -1,0 +1,1971 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "revertible-lifetime",
+  "domain": "history",
+  "input": {
+    "scenarios": [
+      "schema-no-factory",
+      "remote-no-factory",
+      "single-acquisition",
+      "late-acquisition",
+      "default-disposal",
+      "retained-repeated-revert",
+      "disposed-errors"
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "lifetime",
+        "events": [
+          {
+            "kind": "Default",
+            "local": true,
+            "factory": false,
+            "change": {
+              "version": 1,
+              "revision": -5,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "change": [
+                {
+                  "schema": {
+                    "new": {
+                      "version": 2,
+                      "nodes": {
+                        "com.fluidframework.leaf.number": {
+                          "kind": {
+                            "leaf": 0
+                          }
+                        },
+                        "com.fluidframework.leaf.string": {
+                          "kind": {
+                            "leaf": 1
+                          }
+                        },
+                        "org.watershed.shared-tree.undo-redo.Items": {
+                          "kind": {
+                            "object": {
+                              "": {
+                                "kind": "Sequence",
+                                "types": [
+                                  "com.fluidframework.leaf.string",
+                                  "org.watershed.shared-tree.undo-redo.Point"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "org.watershed.shared-tree.undo-redo.NamedMap": {
+                          "kind": {
+                            "map": {
+                              "kind": "Optional",
+                              "types": [
+                                "com.fluidframework.leaf.string",
+                                "org.watershed.shared-tree.undo-redo.Items",
+                                "org.watershed.shared-tree.undo-redo.Point"
+                              ]
+                            }
+                          }
+                        },
+                        "org.watershed.shared-tree.undo-redo.Point": {
+                          "kind": {
+                            "object": {
+                              "id": {
+                                "kind": "Identifier",
+                                "types": [
+                                  "com.fluidframework.leaf.string"
+                                ]
+                              },
+                              "label": {
+                                "kind": "Value",
+                                "types": [
+                                  "com.fluidframework.leaf.string"
+                                ]
+                              },
+                              "x": {
+                                "kind": "Value",
+                                "types": [
+                                  "com.fluidframework.leaf.number"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "org.watershed.shared-tree.undo-redo.Root": {
+                          "kind": {
+                            "object": {
+                              "byKey": {
+                                "kind": "Value",
+                                "types": [
+                                  "org.watershed.shared-tree.undo-redo.NamedMap"
+                                ]
+                              },
+                              "count": {
+                                "kind": "Value",
+                                "types": [
+                                  "com.fluidframework.leaf.number"
+                                ]
+                              },
+                              "featured": {
+                                "kind": "Value",
+                                "types": [
+                                  "org.watershed.shared-tree.undo-redo.Point"
+                                ]
+                              },
+                              "left": {
+                                "kind": "Value",
+                                "types": [
+                                  "org.watershed.shared-tree.undo-redo.Items"
+                                ]
+                              },
+                              "note": {
+                                "kind": "Optional",
+                                "types": [
+                                  "com.fluidframework.leaf.string"
+                                ]
+                              },
+                              "right": {
+                                "kind": "Value",
+                                "types": [
+                                  "org.watershed.shared-tree.undo-redo.Items"
+                                ]
+                              },
+                              "title": {
+                                "kind": "Value",
+                                "types": [
+                                  "com.fluidframework.leaf.string"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "root": {
+                        "kind": "Optional",
+                        "types": [
+                          "org.watershed.shared-tree.undo-redo.Root"
+                        ]
+                      }
+                    },
+                    "old": {
+                      "version": 2,
+                      "nodes": {},
+                      "root": {
+                        "kind": "Forbidden",
+                        "types": []
+                      }
+                    }
+                  }
+                },
+                {
+                  "data": {
+                    "maxId": 1,
+                    "revisions": [
+                      {
+                        "revision": -5
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "Optional",
+                        "change": {
+                          "r": {
+                            "e": true,
+                            "d": [
+                              0,
+                              -5
+                            ],
+                            "s": [
+                              1,
+                              -5
+                            ]
+                          }
+                        }
+                      }
+                    ],
+                    "builds": {
+                      "builds": [
+                        [
+                          [
+                            [
+                              1,
+                              0
+                            ]
+                          ],
+                          -5
+                        ]
+                      ],
+                      "trees": {
+                        "version": 2,
+                        "identifiers": [
+                          "com.fluidframework.leaf.string"
+                        ],
+                        "shapes": [
+                          {
+                            "c": {
+                              "type": "org.watershed.shared-tree.undo-redo.Point",
+                              "value": false,
+                              "fields": [
+                                [
+                                  "id",
+                                  6
+                                ],
+                                [
+                                  "label",
+                                  1
+                                ],
+                                [
+                                  "x",
+                                  2
+                                ]
+                              ]
+                            }
+                          },
+                          {
+                            "c": {
+                              "type": 0,
+                              "value": true
+                            }
+                          },
+                          {
+                            "c": {
+                              "type": "com.fluidframework.leaf.number",
+                              "value": true
+                            }
+                          },
+                          {
+                            "c": {
+                              "type": "org.watershed.shared-tree.undo-redo.Items",
+                              "value": false,
+                              "fields": [
+                                [
+                                  "",
+                                  4
+                                ]
+                              ]
+                            }
+                          },
+                          {
+                            "a": 9
+                          },
+                          {
+                            "c": {
+                              "type": "org.watershed.shared-tree.undo-redo.Root",
+                              "value": false,
+                              "fields": [
+                                [
+                                  "title",
+                                  1
+                                ],
+                                [
+                                  "note",
+                                  7
+                                ],
+                                [
+                                  "count",
+                                  2
+                                ],
+                                [
+                                  "featured",
+                                  0
+                                ],
+                                [
+                                  "left",
+                                  3
+                                ],
+                                [
+                                  "right",
+                                  3
+                                ],
+                                [
+                                  "byKey",
+                                  8
+                                ]
+                              ]
+                            }
+                          },
+                          {
+                            "c": {
+                              "type": 0,
+                              "value": 0
+                            }
+                          },
+                          {
+                            "a": 1
+                          },
+                          {
+                            "c": {
+                              "type": "org.watershed.shared-tree.undo-redo.NamedMap",
+                              "value": false,
+                              "extraFields": 4
+                            }
+                          },
+                          {
+                            "d": 0
+                          }
+                        ],
+                        "data": [
+                          [
+                            5,
+                            "base",
+                            [
+                              "seed"
+                            ],
+                            0,
+                            -4,
+                            "featured",
+                            0,
+                            [
+                              0,
+                              -3,
+                              "left-a",
+                              1,
+                              0,
+                              -2,
+                              "left-b",
+                              2
+                            ],
+                            [
+                              0,
+                              -1,
+                              "right-a",
+                              3
+                            ],
+                            [
+                              "seed",
+                              [
+                                1,
+                                "value"
+                              ]
+                            ]
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                },
+                {
+                  "schema": {
+                    "new": {
+                      "version": 2,
+                      "nodes": {
+                        "com.fluidframework.leaf.number": {
+                          "kind": {
+                            "leaf": 0
+                          }
+                        },
+                        "com.fluidframework.leaf.string": {
+                          "kind": {
+                            "leaf": 1
+                          }
+                        },
+                        "org.watershed.shared-tree.undo-redo.Items": {
+                          "kind": {
+                            "object": {
+                              "": {
+                                "kind": "Sequence",
+                                "types": [
+                                  "com.fluidframework.leaf.string",
+                                  "org.watershed.shared-tree.undo-redo.Point"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "org.watershed.shared-tree.undo-redo.NamedMap": {
+                          "kind": {
+                            "map": {
+                              "kind": "Optional",
+                              "types": [
+                                "com.fluidframework.leaf.string",
+                                "org.watershed.shared-tree.undo-redo.Items",
+                                "org.watershed.shared-tree.undo-redo.Point"
+                              ]
+                            }
+                          }
+                        },
+                        "org.watershed.shared-tree.undo-redo.Point": {
+                          "kind": {
+                            "object": {
+                              "id": {
+                                "kind": "Identifier",
+                                "types": [
+                                  "com.fluidframework.leaf.string"
+                                ]
+                              },
+                              "label": {
+                                "kind": "Value",
+                                "types": [
+                                  "com.fluidframework.leaf.string"
+                                ]
+                              },
+                              "x": {
+                                "kind": "Value",
+                                "types": [
+                                  "com.fluidframework.leaf.number"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "org.watershed.shared-tree.undo-redo.Root": {
+                          "kind": {
+                            "object": {
+                              "byKey": {
+                                "kind": "Value",
+                                "types": [
+                                  "org.watershed.shared-tree.undo-redo.NamedMap"
+                                ]
+                              },
+                              "count": {
+                                "kind": "Value",
+                                "types": [
+                                  "com.fluidframework.leaf.number"
+                                ]
+                              },
+                              "featured": {
+                                "kind": "Value",
+                                "types": [
+                                  "org.watershed.shared-tree.undo-redo.Point"
+                                ]
+                              },
+                              "left": {
+                                "kind": "Value",
+                                "types": [
+                                  "org.watershed.shared-tree.undo-redo.Items"
+                                ]
+                              },
+                              "note": {
+                                "kind": "Optional",
+                                "types": [
+                                  "com.fluidframework.leaf.string"
+                                ]
+                              },
+                              "right": {
+                                "kind": "Value",
+                                "types": [
+                                  "org.watershed.shared-tree.undo-redo.Items"
+                                ]
+                              },
+                              "title": {
+                                "kind": "Value",
+                                "types": [
+                                  "com.fluidframework.leaf.string"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "root": {
+                        "kind": "Value",
+                        "types": [
+                          "org.watershed.shared-tree.undo-redo.Root"
+                        ]
+                      }
+                    },
+                    "old": {
+                      "version": 2,
+                      "nodes": {
+                        "com.fluidframework.leaf.number": {
+                          "kind": {
+                            "leaf": 0
+                          }
+                        },
+                        "com.fluidframework.leaf.string": {
+                          "kind": {
+                            "leaf": 1
+                          }
+                        },
+                        "org.watershed.shared-tree.undo-redo.Items": {
+                          "kind": {
+                            "object": {
+                              "": {
+                                "kind": "Sequence",
+                                "types": [
+                                  "com.fluidframework.leaf.string",
+                                  "org.watershed.shared-tree.undo-redo.Point"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "org.watershed.shared-tree.undo-redo.NamedMap": {
+                          "kind": {
+                            "map": {
+                              "kind": "Optional",
+                              "types": [
+                                "com.fluidframework.leaf.string",
+                                "org.watershed.shared-tree.undo-redo.Items",
+                                "org.watershed.shared-tree.undo-redo.Point"
+                              ]
+                            }
+                          }
+                        },
+                        "org.watershed.shared-tree.undo-redo.Point": {
+                          "kind": {
+                            "object": {
+                              "id": {
+                                "kind": "Identifier",
+                                "types": [
+                                  "com.fluidframework.leaf.string"
+                                ]
+                              },
+                              "label": {
+                                "kind": "Value",
+                                "types": [
+                                  "com.fluidframework.leaf.string"
+                                ]
+                              },
+                              "x": {
+                                "kind": "Value",
+                                "types": [
+                                  "com.fluidframework.leaf.number"
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "org.watershed.shared-tree.undo-redo.Root": {
+                          "kind": {
+                            "object": {
+                              "byKey": {
+                                "kind": "Value",
+                                "types": [
+                                  "org.watershed.shared-tree.undo-redo.NamedMap"
+                                ]
+                              },
+                              "count": {
+                                "kind": "Value",
+                                "types": [
+                                  "com.fluidframework.leaf.number"
+                                ]
+                              },
+                              "featured": {
+                                "kind": "Value",
+                                "types": [
+                                  "org.watershed.shared-tree.undo-redo.Point"
+                                ]
+                              },
+                              "left": {
+                                "kind": "Value",
+                                "types": [
+                                  "org.watershed.shared-tree.undo-redo.Items"
+                                ]
+                              },
+                              "note": {
+                                "kind": "Optional",
+                                "types": [
+                                  "com.fluidframework.leaf.string"
+                                ]
+                              },
+                              "right": {
+                                "kind": "Value",
+                                "types": [
+                                  "org.watershed.shared-tree.undo-redo.Items"
+                                ]
+                              },
+                              "title": {
+                                "kind": "Value",
+                                "types": [
+                                  "com.fluidframework.leaf.string"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "root": {
+                        "kind": "Optional",
+                        "types": [
+                          "org.watershed.shared-tree.undo-redo.Root"
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "Default",
+            "local": true,
+            "factory": true,
+            "change": {
+              "version": 1,
+              "revision": 5,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "change": [
+                {
+                  "data": {
+                    "maxId": 2,
+                    "revisions": [
+                      {
+                        "revision": 5
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "title",
+                                  "fieldKind": "Value",
+                                  "change": {
+                                    "r": {
+                                      "e": false,
+                                      "d": [
+                                        1,
+                                        5
+                                      ],
+                                      "s": [
+                                        0,
+                                        5
+                                      ]
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    "builds": {
+                      "builds": [
+                        [
+                          [
+                            [
+                              0,
+                              0
+                            ]
+                          ],
+                          5
+                        ]
+                      ],
+                      "trees": {
+                        "version": 2,
+                        "identifiers": [],
+                        "shapes": [
+                          {
+                            "c": {
+                              "extraFields": 1
+                            }
+                          },
+                          {
+                            "a": 0
+                          }
+                        ],
+                        "data": [
+                          [
+                            1,
+                            [
+                              "com.fluidframework.leaf.string",
+                              true,
+                              "local",
+                              []
+                            ]
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "Undo",
+            "local": true,
+            "factory": true,
+            "change": {
+              "version": 1,
+              "revision": 6,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "change": [
+                {
+                  "data": {
+                    "maxId": 3,
+                    "revisions": [
+                      {
+                        "revision": 6
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "title",
+                                  "fieldKind": "Value",
+                                  "change": {
+                                    "r": {
+                                      "e": false,
+                                      "d": [
+                                        3,
+                                        6
+                                      ],
+                                      "s": [
+                                        1,
+                                        5
+                                      ]
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "Default",
+            "local": true,
+            "factory": true,
+            "change": {
+              "version": 1,
+              "revision": 7,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "change": [
+                {
+                  "data": {
+                    "maxId": 5,
+                    "revisions": [
+                      {
+                        "revision": 7
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "note",
+                                  "fieldKind": "Optional",
+                                  "change": {
+                                    "r": {
+                                      "e": false,
+                                      "d": [
+                                        3,
+                                        7
+                                      ],
+                                      "s": [
+                                        4,
+                                        7
+                                      ]
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    "builds": {
+                      "builds": [
+                        [
+                          [
+                            [
+                              4,
+                              0
+                            ]
+                          ],
+                          7
+                        ]
+                      ],
+                      "trees": {
+                        "version": 2,
+                        "identifiers": [],
+                        "shapes": [
+                          {
+                            "c": {
+                              "extraFields": 1
+                            }
+                          },
+                          {
+                            "a": 0
+                          }
+                        ],
+                        "data": [
+                          [
+                            1,
+                            [
+                              "com.fluidframework.leaf.string",
+                              true,
+                              "repeat",
+                              []
+                            ]
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "Undo",
+            "local": true,
+            "factory": true,
+            "change": {
+              "version": 1,
+              "revision": 8,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "change": [
+                {
+                  "data": {
+                    "maxId": 6,
+                    "revisions": [
+                      {
+                        "revision": 8
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "note",
+                                  "fieldKind": "Optional",
+                                  "change": {
+                                    "r": {
+                                      "e": false,
+                                      "d": [
+                                        6,
+                                        8
+                                      ],
+                                      "s": [
+                                        3,
+                                        7
+                                      ]
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "Undo",
+            "local": true,
+            "factory": true,
+            "change": {
+              "version": 1,
+              "revision": 9,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "change": [
+                {
+                  "data": {
+                    "maxId": 6,
+                    "revisions": [
+                      {
+                        "revision": 9
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "note",
+                                  "fieldKind": "Optional",
+                                  "change": {
+                                    "r": {
+                                      "e": false,
+                                      "d": [
+                                        6,
+                                        9
+                                      ],
+                                      "s": null
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "remoteEvents": [
+          {
+            "kind": "Default",
+            "local": false,
+            "factory": false,
+            "change": null
+          },
+          {
+            "kind": "Default",
+            "local": false,
+            "factory": false,
+            "change": null
+          },
+          {
+            "kind": "Default",
+            "local": false,
+            "factory": false,
+            "change": null
+          },
+          {
+            "kind": "Default",
+            "local": false,
+            "factory": false,
+            "change": null
+          },
+          {
+            "kind": "Default",
+            "local": false,
+            "factory": false,
+            "change": null
+          }
+        ],
+        "duplicateError": "Error: Cannot generate the same revertible more than once. Note that this can happen when multiple changed event listeners are registered.",
+        "lateError": "Error: Cannot get a revertible outside of the context of a changed event.",
+        "status": {
+          "beforeDefaultRevert": "Valid",
+          "afterDefaultRevert": "Disposed",
+          "beforeRepeatedRevert": "Valid",
+          "afterFirstRepeatedRevert": "Valid",
+          "afterSecondRepeatedRevert": "Valid",
+          "afterDispose": "Disposed"
+        },
+        "secondDisposeError": "Error: Unable to dispose a revertible that has already been disposed.",
+        "disposedRevertError": "Error: Unable to revert a revertible that has been disposed.",
+        "snapshot": {
+          "title": "base",
+          "note": "seed",
+          "count": 0,
+          "featured": {
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+            "label": "featured",
+            "x": 0
+          },
+          "left": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+              "label": "left-a",
+              "x": 1
+            },
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "left-b",
+              "x": 2
+            }
+          ],
+          "right": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "label": "right-a",
+              "x": 3
+            }
+          ],
+          "byKey": [
+            [
+              "seed",
+              "value"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  "raw": {
+    "events": [
+      {
+        "kind": "Default",
+        "local": true,
+        "factory": false,
+        "change": {
+          "version": 1,
+          "revision": -5,
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "change": [
+            {
+              "schema": {
+                "new": {
+                  "version": 2,
+                  "nodes": {
+                    "com.fluidframework.leaf.number": {
+                      "kind": {
+                        "leaf": 0
+                      }
+                    },
+                    "com.fluidframework.leaf.string": {
+                      "kind": {
+                        "leaf": 1
+                      }
+                    },
+                    "org.watershed.shared-tree.undo-redo.Items": {
+                      "kind": {
+                        "object": {
+                          "": {
+                            "kind": "Sequence",
+                            "types": [
+                              "com.fluidframework.leaf.string",
+                              "org.watershed.shared-tree.undo-redo.Point"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "org.watershed.shared-tree.undo-redo.NamedMap": {
+                      "kind": {
+                        "map": {
+                          "kind": "Optional",
+                          "types": [
+                            "com.fluidframework.leaf.string",
+                            "org.watershed.shared-tree.undo-redo.Items",
+                            "org.watershed.shared-tree.undo-redo.Point"
+                          ]
+                        }
+                      }
+                    },
+                    "org.watershed.shared-tree.undo-redo.Point": {
+                      "kind": {
+                        "object": {
+                          "id": {
+                            "kind": "Identifier",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          },
+                          "label": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          },
+                          "x": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.number"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "org.watershed.shared-tree.undo-redo.Root": {
+                      "kind": {
+                        "object": {
+                          "byKey": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.undo-redo.NamedMap"
+                            ]
+                          },
+                          "count": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.number"
+                            ]
+                          },
+                          "featured": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.undo-redo.Point"
+                            ]
+                          },
+                          "left": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.undo-redo.Items"
+                            ]
+                          },
+                          "note": {
+                            "kind": "Optional",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          },
+                          "right": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.undo-redo.Items"
+                            ]
+                          },
+                          "title": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "root": {
+                    "kind": "Optional",
+                    "types": [
+                      "org.watershed.shared-tree.undo-redo.Root"
+                    ]
+                  }
+                },
+                "old": {
+                  "version": 2,
+                  "nodes": {},
+                  "root": {
+                    "kind": "Forbidden",
+                    "types": []
+                  }
+                }
+              }
+            },
+            {
+              "data": {
+                "maxId": 1,
+                "revisions": [
+                  {
+                    "revision": -5
+                  }
+                ],
+                "changes": [
+                  {
+                    "fieldKey": "rootFieldKey",
+                    "fieldKind": "Optional",
+                    "change": {
+                      "r": {
+                        "e": true,
+                        "d": [
+                          0,
+                          -5
+                        ],
+                        "s": [
+                          1,
+                          -5
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "builds": {
+                  "builds": [
+                    [
+                      [
+                        [
+                          1,
+                          0
+                        ]
+                      ],
+                      -5
+                    ]
+                  ],
+                  "trees": {
+                    "version": 2,
+                    "identifiers": [
+                      "com.fluidframework.leaf.string"
+                    ],
+                    "shapes": [
+                      {
+                        "c": {
+                          "type": "org.watershed.shared-tree.undo-redo.Point",
+                          "value": false,
+                          "fields": [
+                            [
+                              "id",
+                              6
+                            ],
+                            [
+                              "label",
+                              1
+                            ],
+                            [
+                              "x",
+                              2
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "c": {
+                          "type": 0,
+                          "value": true
+                        }
+                      },
+                      {
+                        "c": {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": true
+                        }
+                      },
+                      {
+                        "c": {
+                          "type": "org.watershed.shared-tree.undo-redo.Items",
+                          "value": false,
+                          "fields": [
+                            [
+                              "",
+                              4
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "a": 9
+                      },
+                      {
+                        "c": {
+                          "type": "org.watershed.shared-tree.undo-redo.Root",
+                          "value": false,
+                          "fields": [
+                            [
+                              "title",
+                              1
+                            ],
+                            [
+                              "note",
+                              7
+                            ],
+                            [
+                              "count",
+                              2
+                            ],
+                            [
+                              "featured",
+                              0
+                            ],
+                            [
+                              "left",
+                              3
+                            ],
+                            [
+                              "right",
+                              3
+                            ],
+                            [
+                              "byKey",
+                              8
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "c": {
+                          "type": 0,
+                          "value": 0
+                        }
+                      },
+                      {
+                        "a": 1
+                      },
+                      {
+                        "c": {
+                          "type": "org.watershed.shared-tree.undo-redo.NamedMap",
+                          "value": false,
+                          "extraFields": 4
+                        }
+                      },
+                      {
+                        "d": 0
+                      }
+                    ],
+                    "data": [
+                      [
+                        5,
+                        "base",
+                        [
+                          "seed"
+                        ],
+                        0,
+                        -4,
+                        "featured",
+                        0,
+                        [
+                          0,
+                          -3,
+                          "left-a",
+                          1,
+                          0,
+                          -2,
+                          "left-b",
+                          2
+                        ],
+                        [
+                          0,
+                          -1,
+                          "right-a",
+                          3
+                        ],
+                        [
+                          "seed",
+                          [
+                            1,
+                            "value"
+                          ]
+                        ]
+                      ]
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "schema": {
+                "new": {
+                  "version": 2,
+                  "nodes": {
+                    "com.fluidframework.leaf.number": {
+                      "kind": {
+                        "leaf": 0
+                      }
+                    },
+                    "com.fluidframework.leaf.string": {
+                      "kind": {
+                        "leaf": 1
+                      }
+                    },
+                    "org.watershed.shared-tree.undo-redo.Items": {
+                      "kind": {
+                        "object": {
+                          "": {
+                            "kind": "Sequence",
+                            "types": [
+                              "com.fluidframework.leaf.string",
+                              "org.watershed.shared-tree.undo-redo.Point"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "org.watershed.shared-tree.undo-redo.NamedMap": {
+                      "kind": {
+                        "map": {
+                          "kind": "Optional",
+                          "types": [
+                            "com.fluidframework.leaf.string",
+                            "org.watershed.shared-tree.undo-redo.Items",
+                            "org.watershed.shared-tree.undo-redo.Point"
+                          ]
+                        }
+                      }
+                    },
+                    "org.watershed.shared-tree.undo-redo.Point": {
+                      "kind": {
+                        "object": {
+                          "id": {
+                            "kind": "Identifier",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          },
+                          "label": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          },
+                          "x": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.number"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "org.watershed.shared-tree.undo-redo.Root": {
+                      "kind": {
+                        "object": {
+                          "byKey": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.undo-redo.NamedMap"
+                            ]
+                          },
+                          "count": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.number"
+                            ]
+                          },
+                          "featured": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.undo-redo.Point"
+                            ]
+                          },
+                          "left": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.undo-redo.Items"
+                            ]
+                          },
+                          "note": {
+                            "kind": "Optional",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          },
+                          "right": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.undo-redo.Items"
+                            ]
+                          },
+                          "title": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "root": {
+                    "kind": "Value",
+                    "types": [
+                      "org.watershed.shared-tree.undo-redo.Root"
+                    ]
+                  }
+                },
+                "old": {
+                  "version": 2,
+                  "nodes": {
+                    "com.fluidframework.leaf.number": {
+                      "kind": {
+                        "leaf": 0
+                      }
+                    },
+                    "com.fluidframework.leaf.string": {
+                      "kind": {
+                        "leaf": 1
+                      }
+                    },
+                    "org.watershed.shared-tree.undo-redo.Items": {
+                      "kind": {
+                        "object": {
+                          "": {
+                            "kind": "Sequence",
+                            "types": [
+                              "com.fluidframework.leaf.string",
+                              "org.watershed.shared-tree.undo-redo.Point"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "org.watershed.shared-tree.undo-redo.NamedMap": {
+                      "kind": {
+                        "map": {
+                          "kind": "Optional",
+                          "types": [
+                            "com.fluidframework.leaf.string",
+                            "org.watershed.shared-tree.undo-redo.Items",
+                            "org.watershed.shared-tree.undo-redo.Point"
+                          ]
+                        }
+                      }
+                    },
+                    "org.watershed.shared-tree.undo-redo.Point": {
+                      "kind": {
+                        "object": {
+                          "id": {
+                            "kind": "Identifier",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          },
+                          "label": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          },
+                          "x": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.number"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "org.watershed.shared-tree.undo-redo.Root": {
+                      "kind": {
+                        "object": {
+                          "byKey": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.undo-redo.NamedMap"
+                            ]
+                          },
+                          "count": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.number"
+                            ]
+                          },
+                          "featured": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.undo-redo.Point"
+                            ]
+                          },
+                          "left": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.undo-redo.Items"
+                            ]
+                          },
+                          "note": {
+                            "kind": "Optional",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          },
+                          "right": {
+                            "kind": "Value",
+                            "types": [
+                              "org.watershed.shared-tree.undo-redo.Items"
+                            ]
+                          },
+                          "title": {
+                            "kind": "Value",
+                            "types": [
+                              "com.fluidframework.leaf.string"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "root": {
+                    "kind": "Optional",
+                    "types": [
+                      "org.watershed.shared-tree.undo-redo.Root"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Default",
+        "local": true,
+        "factory": true,
+        "change": {
+          "version": 1,
+          "revision": 5,
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "change": [
+            {
+              "data": {
+                "maxId": 2,
+                "revisions": [
+                  {
+                    "revision": 5
+                  }
+                ],
+                "changes": [
+                  {
+                    "fieldKey": "rootFieldKey",
+                    "fieldKind": "ModularEditBuilder.Generic",
+                    "change": [
+                      [
+                        0,
+                        {
+                          "fieldChanges": [
+                            {
+                              "fieldKey": "title",
+                              "fieldKind": "Value",
+                              "change": {
+                                "r": {
+                                  "e": false,
+                                  "d": [
+                                    1,
+                                    5
+                                  ],
+                                  "s": [
+                                    0,
+                                    5
+                                  ]
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ],
+                "builds": {
+                  "builds": [
+                    [
+                      [
+                        [
+                          0,
+                          0
+                        ]
+                      ],
+                      5
+                    ]
+                  ],
+                  "trees": {
+                    "version": 2,
+                    "identifiers": [],
+                    "shapes": [
+                      {
+                        "c": {
+                          "extraFields": 1
+                        }
+                      },
+                      {
+                        "a": 0
+                      }
+                    ],
+                    "data": [
+                      [
+                        1,
+                        [
+                          "com.fluidframework.leaf.string",
+                          true,
+                          "local",
+                          []
+                        ]
+                      ]
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Undo",
+        "local": true,
+        "factory": true,
+        "change": {
+          "version": 1,
+          "revision": 6,
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "change": [
+            {
+              "data": {
+                "maxId": 3,
+                "revisions": [
+                  {
+                    "revision": 6
+                  }
+                ],
+                "changes": [
+                  {
+                    "fieldKey": "rootFieldKey",
+                    "fieldKind": "ModularEditBuilder.Generic",
+                    "change": [
+                      [
+                        0,
+                        {
+                          "fieldChanges": [
+                            {
+                              "fieldKey": "title",
+                              "fieldKind": "Value",
+                              "change": {
+                                "r": {
+                                  "e": false,
+                                  "d": [
+                                    3,
+                                    6
+                                  ],
+                                  "s": [
+                                    1,
+                                    5
+                                  ]
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Default",
+        "local": true,
+        "factory": true,
+        "change": {
+          "version": 1,
+          "revision": 7,
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "change": [
+            {
+              "data": {
+                "maxId": 5,
+                "revisions": [
+                  {
+                    "revision": 7
+                  }
+                ],
+                "changes": [
+                  {
+                    "fieldKey": "rootFieldKey",
+                    "fieldKind": "ModularEditBuilder.Generic",
+                    "change": [
+                      [
+                        0,
+                        {
+                          "fieldChanges": [
+                            {
+                              "fieldKey": "note",
+                              "fieldKind": "Optional",
+                              "change": {
+                                "r": {
+                                  "e": false,
+                                  "d": [
+                                    3,
+                                    7
+                                  ],
+                                  "s": [
+                                    4,
+                                    7
+                                  ]
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ],
+                "builds": {
+                  "builds": [
+                    [
+                      [
+                        [
+                          4,
+                          0
+                        ]
+                      ],
+                      7
+                    ]
+                  ],
+                  "trees": {
+                    "version": 2,
+                    "identifiers": [],
+                    "shapes": [
+                      {
+                        "c": {
+                          "extraFields": 1
+                        }
+                      },
+                      {
+                        "a": 0
+                      }
+                    ],
+                    "data": [
+                      [
+                        1,
+                        [
+                          "com.fluidframework.leaf.string",
+                          true,
+                          "repeat",
+                          []
+                        ]
+                      ]
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Undo",
+        "local": true,
+        "factory": true,
+        "change": {
+          "version": 1,
+          "revision": 8,
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "change": [
+            {
+              "data": {
+                "maxId": 6,
+                "revisions": [
+                  {
+                    "revision": 8
+                  }
+                ],
+                "changes": [
+                  {
+                    "fieldKey": "rootFieldKey",
+                    "fieldKind": "ModularEditBuilder.Generic",
+                    "change": [
+                      [
+                        0,
+                        {
+                          "fieldChanges": [
+                            {
+                              "fieldKey": "note",
+                              "fieldKind": "Optional",
+                              "change": {
+                                "r": {
+                                  "e": false,
+                                  "d": [
+                                    6,
+                                    8
+                                  ],
+                                  "s": [
+                                    3,
+                                    7
+                                  ]
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Undo",
+        "local": true,
+        "factory": true,
+        "change": {
+          "version": 1,
+          "revision": 9,
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "change": [
+            {
+              "data": {
+                "maxId": 6,
+                "revisions": [
+                  {
+                    "revision": 9
+                  }
+                ],
+                "changes": [
+                  {
+                    "fieldKey": "rootFieldKey",
+                    "fieldKind": "ModularEditBuilder.Generic",
+                    "change": [
+                      [
+                        0,
+                        {
+                          "fieldChanges": [
+                            {
+                              "fieldKey": "note",
+                              "fieldKind": "Optional",
+                              "change": {
+                                "r": {
+                                  "e": false,
+                                  "d": [
+                                    6,
+                                    9
+                                  ],
+                                  "s": null
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "remoteEvents": [
+      {
+        "kind": "Default",
+        "local": false,
+        "factory": false,
+        "change": null
+      },
+      {
+        "kind": "Default",
+        "local": false,
+        "factory": false,
+        "change": null
+      },
+      {
+        "kind": "Default",
+        "local": false,
+        "factory": false,
+        "change": null
+      },
+      {
+        "kind": "Default",
+        "local": false,
+        "factory": false,
+        "change": null
+      },
+      {
+        "kind": "Default",
+        "local": false,
+        "factory": false,
+        "change": null
+      }
+    ]
+  }
+}

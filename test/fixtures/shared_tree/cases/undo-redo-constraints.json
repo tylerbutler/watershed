@@ -1,0 +1,1064 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "undo-redo-constraints",
+  "domain": "modular",
+  "input": {
+    "scenarios": [
+      {
+        "id": "constraint-satisfied",
+        "requiredNode": "present"
+      },
+      {
+        "id": "constraint-violated",
+        "requiredNode": "removed"
+      },
+      {
+        "id": "settlement-new-content-only",
+        "precondition": "noChange"
+      },
+      {
+        "id": "settlement-fully-dropped",
+        "conflict": "schema"
+      }
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "constraint-satisfied",
+        "removeTarget": false,
+        "beforeUndo": {
+          "title": "base",
+          "note": "seed",
+          "count": 0,
+          "featured": {
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+            "label": "featured",
+            "x": 0
+          },
+          "left": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+              "label": "left-a",
+              "x": 10
+            },
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "left-b",
+              "x": 2
+            }
+          ],
+          "right": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "label": "right-a",
+              "x": 3
+            },
+            "unrelated"
+          ],
+          "byKey": [
+            [
+              "seed",
+              "value"
+            ]
+          ]
+        },
+        "optimisticUndo": {
+          "title": "base",
+          "note": "seed",
+          "count": 0,
+          "featured": {
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+            "label": "featured",
+            "x": 0
+          },
+          "left": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+              "label": "left-a",
+              "x": 1
+            },
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "left-b",
+              "x": 2
+            }
+          ],
+          "right": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "label": "right-a",
+              "x": 3
+            },
+            "unrelated"
+          ],
+          "byKey": [
+            [
+              "seed",
+              "value"
+            ]
+          ]
+        },
+        "settledUndo": {
+          "title": "base",
+          "note": "seed",
+          "count": 0,
+          "featured": {
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+            "label": "featured",
+            "x": 0
+          },
+          "left": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+              "label": "left-a",
+              "x": 1
+            },
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "left-b",
+              "x": 2
+            }
+          ],
+          "right": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "label": "right-a",
+              "x": 3
+            },
+            "unrelated"
+          ],
+          "byKey": [
+            [
+              "seed",
+              "value"
+            ]
+          ]
+        },
+        "status": "Valid",
+        "events": [
+          {
+            "kind": "Default",
+            "local": true,
+            "factory": true,
+            "change": {
+              "version": 1,
+              "revision": 5,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "change": [
+                {
+                  "data": {
+                    "maxId": 4,
+                    "revisions": [
+                      {
+                        "revision": 5
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "left",
+                                  "fieldKind": "ModularEditBuilder.Generic",
+                                  "change": [
+                                    [
+                                      0,
+                                      {
+                                        "fieldChanges": [
+                                          {
+                                            "fieldKey": "",
+                                            "fieldKind": "ModularEditBuilder.Generic",
+                                            "change": [
+                                              [
+                                                0,
+                                                {
+                                                  "fieldChanges": [
+                                                    {
+                                                      "fieldKey": "x",
+                                                      "fieldKind": "Value",
+                                                      "change": {
+                                                        "r": {
+                                                          "e": false,
+                                                          "d": [
+                                                            1,
+                                                            5
+                                                          ],
+                                                          "s": [
+                                                            0,
+                                                            5
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    "builds": {
+                      "builds": [
+                        [
+                          [
+                            [
+                              0,
+                              0
+                            ]
+                          ],
+                          5
+                        ]
+                      ],
+                      "trees": {
+                        "version": 2,
+                        "identifiers": [],
+                        "shapes": [
+                          {
+                            "c": {
+                              "extraFields": 1
+                            }
+                          },
+                          {
+                            "a": 0
+                          }
+                        ],
+                        "data": [
+                          [
+                            1,
+                            [
+                              "com.fluidframework.leaf.number",
+                              true,
+                              10,
+                              []
+                            ]
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "Default",
+            "local": false,
+            "factory": false,
+            "change": null
+          },
+          {
+            "kind": "Undo",
+            "local": true,
+            "factory": true,
+            "change": {
+              "version": 1,
+              "revision": 6,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "change": [
+                {
+                  "data": {
+                    "maxId": 5,
+                    "revisions": [
+                      {
+                        "revision": 6
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "left",
+                                  "fieldKind": "ModularEditBuilder.Generic",
+                                  "change": [
+                                    [
+                                      0,
+                                      {
+                                        "fieldChanges": [
+                                          {
+                                            "fieldKey": "",
+                                            "fieldKind": "ModularEditBuilder.Generic",
+                                            "change": [
+                                              [
+                                                0,
+                                                {
+                                                  "fieldChanges": [
+                                                    {
+                                                      "fieldKey": "x",
+                                                      "fieldKind": "Value",
+                                                      "change": {
+                                                        "r": {
+                                                          "e": false,
+                                                          "d": [
+                                                            5,
+                                                            6
+                                                          ],
+                                                          "s": [
+                                                            1,
+                                                            5
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "outcomes": [
+          "FullyApplied",
+          "FullyApplied"
+        ]
+      },
+      {
+        "id": "constraint-violated",
+        "removeTarget": true,
+        "beforeUndo": {
+          "title": "base",
+          "note": "seed",
+          "count": 0,
+          "featured": {
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+            "label": "featured",
+            "x": 0
+          },
+          "left": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "left-b",
+              "x": 2
+            }
+          ],
+          "right": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "label": "right-a",
+              "x": 3
+            }
+          ],
+          "byKey": [
+            [
+              "seed",
+              "value"
+            ]
+          ]
+        },
+        "optimisticUndo": {
+          "title": "base",
+          "note": "seed",
+          "count": 0,
+          "featured": {
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+            "label": "featured",
+            "x": 0
+          },
+          "left": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "left-b",
+              "x": 2
+            }
+          ],
+          "right": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "label": "right-a",
+              "x": 3
+            }
+          ],
+          "byKey": [
+            [
+              "seed",
+              "value"
+            ]
+          ]
+        },
+        "settledUndo": {
+          "title": "base",
+          "note": "seed",
+          "count": 0,
+          "featured": {
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+            "label": "featured",
+            "x": 0
+          },
+          "left": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "left-b",
+              "x": 2
+            }
+          ],
+          "right": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "label": "right-a",
+              "x": 3
+            }
+          ],
+          "byKey": [
+            [
+              "seed",
+              "value"
+            ]
+          ]
+        },
+        "status": "Valid",
+        "events": [
+          {
+            "kind": "Default",
+            "local": true,
+            "factory": true,
+            "change": {
+              "version": 1,
+              "revision": 5,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "change": [
+                {
+                  "data": {
+                    "maxId": 4,
+                    "revisions": [
+                      {
+                        "revision": 5
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "left",
+                                  "fieldKind": "ModularEditBuilder.Generic",
+                                  "change": [
+                                    [
+                                      0,
+                                      {
+                                        "fieldChanges": [
+                                          {
+                                            "fieldKey": "",
+                                            "fieldKind": "ModularEditBuilder.Generic",
+                                            "change": [
+                                              [
+                                                0,
+                                                {
+                                                  "fieldChanges": [
+                                                    {
+                                                      "fieldKey": "x",
+                                                      "fieldKind": "Value",
+                                                      "change": {
+                                                        "r": {
+                                                          "e": false,
+                                                          "d": [
+                                                            1,
+                                                            5
+                                                          ],
+                                                          "s": [
+                                                            0,
+                                                            5
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    "builds": {
+                      "builds": [
+                        [
+                          [
+                            [
+                              0,
+                              0
+                            ]
+                          ],
+                          5
+                        ]
+                      ],
+                      "trees": {
+                        "version": 2,
+                        "identifiers": [],
+                        "shapes": [
+                          {
+                            "c": {
+                              "extraFields": 1
+                            }
+                          },
+                          {
+                            "a": 0
+                          }
+                        ],
+                        "data": [
+                          [
+                            1,
+                            [
+                              "com.fluidframework.leaf.number",
+                              true,
+                              10,
+                              []
+                            ]
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "Default",
+            "local": false,
+            "factory": false,
+            "change": null
+          },
+          {
+            "kind": "Undo",
+            "local": true,
+            "factory": true,
+            "change": {
+              "version": 1,
+              "revision": 6,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "change": [
+                {
+                  "data": {
+                    "maxId": 5,
+                    "revisions": [
+                      {
+                        "revision": 6
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "left",
+                                  "fieldKind": "ModularEditBuilder.Generic",
+                                  "change": [
+                                    [
+                                      0,
+                                      {
+                                        "fieldChanges": [
+                                          {
+                                            "fieldKey": "",
+                                            "fieldKind": "Sequence",
+                                            "change": [
+                                              {
+                                                "count": 1,
+                                                "cellId": [
+                                                  0,
+                                                  517
+                                                ],
+                                                "changes": {
+                                                  "fieldChanges": [
+                                                    {
+                                                      "fieldKey": "x",
+                                                      "fieldKind": "Value",
+                                                      "change": {
+                                                        "r": {
+                                                          "e": false,
+                                                          "d": [
+                                                            5,
+                                                            6
+                                                          ],
+                                                          "s": [
+                                                            1,
+                                                            5
+                                                          ]
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "outcomes": [
+          "FullyApplied",
+          "FullyApplied"
+        ]
+      },
+      {
+        "id": "settlement-new-content-only",
+        "outcomes": [
+          "NewContentOnly"
+        ]
+      },
+      {
+        "id": "settlement-fully-dropped",
+        "outcomes": [
+          "FullyDropped"
+        ]
+      }
+    ]
+  },
+  "raw": {
+    "satisfiedChanges": [
+      {
+        "version": 1,
+        "revision": 5,
+        "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        "change": [
+          {
+            "data": {
+              "maxId": 4,
+              "revisions": [
+                {
+                  "revision": 5
+                }
+              ],
+              "changes": [
+                {
+                  "fieldKey": "rootFieldKey",
+                  "fieldKind": "ModularEditBuilder.Generic",
+                  "change": [
+                    [
+                      0,
+                      {
+                        "fieldChanges": [
+                          {
+                            "fieldKey": "left",
+                            "fieldKind": "ModularEditBuilder.Generic",
+                            "change": [
+                              [
+                                0,
+                                {
+                                  "fieldChanges": [
+                                    {
+                                      "fieldKey": "",
+                                      "fieldKind": "ModularEditBuilder.Generic",
+                                      "change": [
+                                        [
+                                          0,
+                                          {
+                                            "fieldChanges": [
+                                              {
+                                                "fieldKey": "x",
+                                                "fieldKind": "Value",
+                                                "change": {
+                                                  "r": {
+                                                    "e": false,
+                                                    "d": [
+                                                      1,
+                                                      5
+                                                    ],
+                                                    "s": [
+                                                      0,
+                                                      5
+                                                    ]
+                                                  }
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "builds": {
+                "builds": [
+                  [
+                    [
+                      [
+                        0,
+                        0
+                      ]
+                    ],
+                    5
+                  ]
+                ],
+                "trees": {
+                  "version": 2,
+                  "identifiers": [],
+                  "shapes": [
+                    {
+                      "c": {
+                        "extraFields": 1
+                      }
+                    },
+                    {
+                      "a": 0
+                    }
+                  ],
+                  "data": [
+                    [
+                      1,
+                      [
+                        "com.fluidframework.leaf.number",
+                        true,
+                        10,
+                        []
+                      ]
+                    ]
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "version": 1,
+        "revision": 6,
+        "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        "change": [
+          {
+            "data": {
+              "maxId": 5,
+              "revisions": [
+                {
+                  "revision": 6
+                }
+              ],
+              "changes": [
+                {
+                  "fieldKey": "rootFieldKey",
+                  "fieldKind": "ModularEditBuilder.Generic",
+                  "change": [
+                    [
+                      0,
+                      {
+                        "fieldChanges": [
+                          {
+                            "fieldKey": "left",
+                            "fieldKind": "ModularEditBuilder.Generic",
+                            "change": [
+                              [
+                                0,
+                                {
+                                  "fieldChanges": [
+                                    {
+                                      "fieldKey": "",
+                                      "fieldKind": "ModularEditBuilder.Generic",
+                                      "change": [
+                                        [
+                                          0,
+                                          {
+                                            "fieldChanges": [
+                                              {
+                                                "fieldKey": "x",
+                                                "fieldKind": "Value",
+                                                "change": {
+                                                  "r": {
+                                                    "e": false,
+                                                    "d": [
+                                                      5,
+                                                      6
+                                                    ],
+                                                    "s": [
+                                                      1,
+                                                      5
+                                                    ]
+                                                  }
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "violatedChanges": [
+      {
+        "version": 1,
+        "revision": 5,
+        "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        "change": [
+          {
+            "data": {
+              "maxId": 4,
+              "revisions": [
+                {
+                  "revision": 5
+                }
+              ],
+              "changes": [
+                {
+                  "fieldKey": "rootFieldKey",
+                  "fieldKind": "ModularEditBuilder.Generic",
+                  "change": [
+                    [
+                      0,
+                      {
+                        "fieldChanges": [
+                          {
+                            "fieldKey": "left",
+                            "fieldKind": "ModularEditBuilder.Generic",
+                            "change": [
+                              [
+                                0,
+                                {
+                                  "fieldChanges": [
+                                    {
+                                      "fieldKey": "",
+                                      "fieldKind": "ModularEditBuilder.Generic",
+                                      "change": [
+                                        [
+                                          0,
+                                          {
+                                            "fieldChanges": [
+                                              {
+                                                "fieldKey": "x",
+                                                "fieldKind": "Value",
+                                                "change": {
+                                                  "r": {
+                                                    "e": false,
+                                                    "d": [
+                                                      1,
+                                                      5
+                                                    ],
+                                                    "s": [
+                                                      0,
+                                                      5
+                                                    ]
+                                                  }
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "builds": {
+                "builds": [
+                  [
+                    [
+                      [
+                        0,
+                        0
+                      ]
+                    ],
+                    5
+                  ]
+                ],
+                "trees": {
+                  "version": 2,
+                  "identifiers": [],
+                  "shapes": [
+                    {
+                      "c": {
+                        "extraFields": 1
+                      }
+                    },
+                    {
+                      "a": 0
+                    }
+                  ],
+                  "data": [
+                    [
+                      1,
+                      [
+                        "com.fluidframework.leaf.number",
+                        true,
+                        10,
+                        []
+                      ]
+                    ]
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "version": 1,
+        "revision": 6,
+        "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        "change": [
+          {
+            "data": {
+              "maxId": 5,
+              "revisions": [
+                {
+                  "revision": 6
+                }
+              ],
+              "changes": [
+                {
+                  "fieldKey": "rootFieldKey",
+                  "fieldKind": "ModularEditBuilder.Generic",
+                  "change": [
+                    [
+                      0,
+                      {
+                        "fieldChanges": [
+                          {
+                            "fieldKey": "left",
+                            "fieldKind": "ModularEditBuilder.Generic",
+                            "change": [
+                              [
+                                0,
+                                {
+                                  "fieldChanges": [
+                                    {
+                                      "fieldKey": "",
+                                      "fieldKind": "Sequence",
+                                      "change": [
+                                        {
+                                          "count": 1,
+                                          "cellId": [
+                                            0,
+                                            517
+                                          ],
+                                          "changes": {
+                                            "fieldChanges": [
+                                              {
+                                                "fieldKey": "x",
+                                                "fieldKind": "Value",
+                                                "change": {
+                                                  "r": {
+                                                    "e": false,
+                                                    "d": [
+                                                      5,
+                                                      6
+                                                    ],
+                                                    "s": [
+                                                      1,
+                                                      5
+                                                    ]
+                                                  }
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -57,6 +57,14 @@ const identifierCases = [
   ["identifier-persistence", "history"],
 ];
 
+const requiredUndoRedoCases = [
+  "revertible-lifetime",
+  "undo-redo-kinds",
+  "undo-redo-fields",
+  "undo-redo-constraints",
+  "undo-redo-reconnect",
+];
+
 const identifierScenarioIds = {
   "identifier-schema": [
     "valid-string-field",
@@ -302,11 +310,173 @@ function cases(exclude = []) {
       id,
       () => identifierCaseFixture(id, domain),
     ])),
+    ...Object.fromEntries(requiredUndoRedoCases.map((id) => [
+      id,
+      () => undoRedoCaseFixture(id),
+    ])),
   };
   return requiredCases.filter(([id]) => !exclude.includes(id)).map(([id]) =>
     synthetic[id]?.() ?? JSON.parse(readFileSync(
       new URL(`../../test/fixtures/shared_tree/cases/${id}.json`, import.meta.url), "utf8",
     )));
+}
+
+function undoRedoCaseFixture(id) {
+  const domains = {
+    "revertible-lifetime": "history",
+    "undo-redo-kinds": "tree",
+    "undo-redo-fields": "field",
+    "undo-redo-constraints": "modular",
+    "undo-redo-reconnect": "summary",
+  };
+  const event = (kind = "Default", local = true, factory = true) => ({
+    kind,
+    local,
+    factory,
+    change: local ? { version: 1 } : null,
+  });
+  const snapshot = { title: "base" };
+  const fixtures = {
+    "revertible-lifetime": {
+      input: { scenarios: [
+        "schema-no-factory", "remote-no-factory", "single-acquisition",
+        "late-acquisition", "default-disposal", "retained-repeated-revert",
+        "disposed-errors",
+      ] },
+      observations: [{
+        id: "lifetime",
+        events: [event("Default", true, false), event()],
+        remoteEvents: [event("Default", false, false)],
+        duplicateError: "duplicate",
+        lateError: "late",
+        status: {
+          beforeDefaultRevert: "Valid",
+          afterDefaultRevert: "Disposed",
+          beforeRepeatedRevert: "Valid",
+          afterFirstRepeatedRevert: "Valid",
+          afterSecondRepeatedRevert: "Valid",
+          afterDispose: "Disposed",
+        },
+        secondDisposeError: "disposed",
+        disposedRevertError: "disposed",
+        snapshot,
+      }],
+      raw: { events: [event()], remoteEvents: [event("Default", false, false)] },
+    },
+    "undo-redo-kinds": {
+      input: { sequence: ["Default", "Undo", "Redo"], operation: "object-set" },
+      observations: [{
+        id: "kind-sequence",
+        events: ["Default", "Undo", "Redo"].map((kind) => event(kind)),
+        settled: ["Default", "Undo", "Redo"].map((kind, index) => ({
+          index, kind, outcome: "FullyApplied",
+        })),
+        beforeSequence: [0, 1, 2],
+        snapshot,
+      }],
+      raw: { encodedChanges: [{ version: 1 }, { version: 1 }, { version: 1 }] },
+    },
+    "undo-redo-fields": {
+      input: {
+        scenarios: [
+          "object-set", "object-replacement", "map-set", "map-delete", "array-insert",
+          "array-remove", "same-array-move", "cross-array-move", "outer-transaction",
+          "later-unrelated-local-remote", "overlap-remote-first", "overlap-local-first",
+        ].map((scenario) => ({ id: scenario, operation: scenario })),
+        fieldKinds: ["Value", "Optional", "Sequence", "Identifier"],
+      },
+    },
+    "undo-redo-constraints": {
+      input: { scenarios: [
+        { id: "constraint-satisfied" },
+        { id: "constraint-violated" },
+        { id: "settlement-new-content-only" },
+        { id: "settlement-fully-dropped" },
+      ] },
+    },
+    "undo-redo-reconnect": {
+      input: { scenarios: [
+        { id: "same-view-reconnect" },
+        { id: "load-after-undo" },
+        { id: "load-after-redo" },
+      ] },
+    },
+  };
+  const fixture = fixtures[id];
+  if (id === "undo-redo-fields") {
+    fixture.observations = fixture.input.scenarios.map(({ id: scenario }) => ({
+      id: scenario,
+      before: snapshot,
+      edited: { title: scenario },
+      beforeUndo: { title: scenario },
+      optimisticUndo: snapshot,
+      settledUndo: snapshot,
+      status: "Valid",
+      events: [event(), event("Undo")],
+    }));
+    Object.assign(
+      fixture.observations.find(({ id: scenario }) => scenario === "overlap-remote-first"),
+      { sequenceOrder: "remote-first", authoredBeforeSequence: true },
+    );
+    Object.assign(
+      fixture.observations.find(({ id: scenario }) => scenario === "overlap-local-first"),
+      { sequenceOrder: "local-first", authoredBeforeSequence: true },
+    );
+    fixture.raw = {
+      scenarios: fixture.input.scenarios.map(({ id: scenario }) => ({
+        id: scenario,
+        encodedChanges: [{ version: 1 }, { version: 1 }],
+      })),
+    };
+  } else if (id === "undo-redo-constraints") {
+    fixture.observations = [
+      {
+        id: "constraint-satisfied", beforeUndo: snapshot, optimisticUndo: snapshot,
+        settledUndo: snapshot, status: "Valid", events: [event(), event("Undo")],
+        outcomes: ["FullyApplied", "FullyApplied"],
+      },
+      {
+        id: "constraint-violated", beforeUndo: snapshot, optimisticUndo: snapshot,
+        settledUndo: snapshot, status: "Valid", events: [event(), event("Undo")],
+        outcomes: ["FullyApplied", "NewContentOnly"],
+      },
+      { id: "settlement-new-content-only", outcomes: ["NewContentOnly"] },
+      { id: "settlement-fully-dropped", outcomes: ["FullyDropped"] },
+    ];
+    fixture.raw = {
+      satisfiedChanges: [{ version: 1 }],
+      violatedChanges: [{ version: 1 }],
+    };
+  } else if (id === "undo-redo-reconnect") {
+    fixture.observations = [{
+      id: "reconnect-and-reload",
+      disconnectedStatus: "Valid",
+      reconnectedStatus: "Valid",
+      undoSnapshot: snapshot,
+      redoSnapshot: { title: "changed" },
+      undoLoaded: { snapshot, events: [] },
+      redoLoaded: { snapshot: { title: "changed" }, events: [] },
+      events: [event(), event("Undo"), event("Redo")],
+    }];
+    fixture.raw = {
+      undoSummary: { type: 1, tree: {} },
+      redoSummary: { type: 1, tree: {} },
+      encodedChanges: [{ version: 1 }, { version: 1 }, { version: 1 }],
+    };
+  }
+  return {
+    formatVersion: 1,
+    reference: {
+      package: "@fluidframework/tree",
+      version: "3.1.0",
+      commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+    },
+    id,
+    domain: domains[id],
+    input: fixture.input,
+    expected: { observations: fixture.observations },
+    raw: fixture.raw,
+  };
 }
 
 function transactionMessage() {
@@ -1566,7 +1736,7 @@ test("tree codec case validator rejects missing context and observations", () =>
 });
 
 test("corpus requires the tree codecs case", () => {
-  assert.equal(requiredCases.length, 50);
+  assert.equal(requiredCases.length, 55);
   assert(requiredCases.some(([id, domain]) => id === "tree-codecs" && domain === "codec"));
 });
 
@@ -1574,6 +1744,56 @@ test("corpus registers the complete Identifier contract", () => {
   assert.deepEqual(
     requiredCases.filter(([id]) => id.startsWith("identifier-")),
     identifierCases,
+  );
+});
+
+test("corpus registers the complete undo and redo contract", () => {
+  assert.deepEqual(
+    requiredCases.filter(([id]) => requiredUndoRedoCases.includes(id)).map(([id]) => id),
+    requiredUndoRedoCases,
+  );
+});
+
+test("undo and redo corpus rejects missing and incomplete cases", () => {
+  const complete = cases();
+  for (const id of requiredUndoRedoCases) {
+    assert(requiredCases.some(([candidate]) => candidate === id), `Missing registration: ${id}`);
+
+    assert.throws(
+      () => validateCases(complete.filter(({ id: candidate }) => candidate !== id)),
+      new RegExp(id),
+    );
+
+    const withoutObservations = structuredClone(complete);
+    withoutObservations.find(({ id: candidate }) => candidate === id).expected.observations = [];
+    assert.throws(() => validateCases(withoutObservations), new RegExp(id));
+
+    const withoutInput = structuredClone(complete);
+    delete withoutInput.find(({ id: candidate }) => candidate === id).input;
+    assert.throws(() => validateCases(withoutInput), new RegExp(id));
+
+    const wrongCommit = structuredClone(complete);
+    wrongCommit.find(({ id: candidate }) => candidate === id).reference.commit = "other";
+    assert.throws(() => validateCases(wrongCommit), new RegExp(id));
+  }
+});
+
+test("undo and redo fixtures preserve sequencing and transaction evidence", () => {
+  const fields = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/cases/undo-redo-fields.json", import.meta.url),
+    "utf8",
+  ));
+  const observation = (id) =>
+    fields.expected.observations.find(({ id: candidate }) => candidate === id);
+  assert.equal(observation("overlap-remote-first").sequenceOrder, "remote-first");
+  assert.equal(observation("overlap-local-first").sequenceOrder, "local-first");
+  assert.equal(observation("overlap-remote-first").authoredBeforeSequence, true);
+  assert.equal(observation("overlap-local-first").authoredBeforeSequence, true);
+  assert.deepEqual(
+    observation("outer-transaction").events
+      .filter(({ local }) => local)
+      .map(({ kind }) => kind),
+    ["Default", "Undo"],
   );
 });
 
@@ -3307,6 +3527,12 @@ test("manifest records complete native runners and actual wire field kinds", asy
       { ordinal: 3, kind: "revision", path: [], op: 4 },
     ],
   });
+  assert.deepEqual(manifest.inventory.undoRedoContract, {
+    cases: requiredUndoRedoCases,
+    commitKinds: ["Default", "Undo", "Redo"],
+    settlementOutcomes: ["FullyApplied", "FullyDropped", "NewContentOnly"],
+    handleLifetime: "runtime-local",
+  });
   for (const target of ["javascript", "erlang"]) {
     assert.deepEqual(manifest.nativeSemanticRunners[target], [
       "id-ranges", "schema-validation", "forest-delta",
@@ -3326,7 +3552,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
 });
 
 test("corpus validation requires every named case and nonempty observations", () => {
-  assert.equal(requiredCases.length, 50);
+  assert.equal(requiredCases.length, 55);
   assert.doesNotThrow(() => validateCases(cases()));
   assert.throws(() => validateCases([]), /empty|missing/i);
   assert.throws(() => validateCases(cases().slice(1)), /schema-profile/);

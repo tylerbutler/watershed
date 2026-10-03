@@ -77,6 +77,16 @@ export const requiredIdentifierCases = [
 
 requiredCases.push(...requiredIdentifierCases);
 
+export const requiredUndoRedoCases = [
+  ["revertible-lifetime", "history"],
+  ["undo-redo-kinds", "tree"],
+  ["undo-redo-fields", "field"],
+  ["undo-redo-constraints", "modular"],
+  ["undo-redo-reconnect", "summary"],
+];
+
+requiredCases.push(...requiredUndoRedoCases);
+
 const identifierScenarioIds = {
   "identifier-schema": [
     "valid-string-field",
@@ -4319,6 +4329,161 @@ function validateIdentifierCase(value) {
   }
 }
 
+const undoRedoScenarioIds = {
+  "revertible-lifetime": [
+    "schema-no-factory",
+    "remote-no-factory",
+    "single-acquisition",
+    "late-acquisition",
+    "default-disposal",
+    "retained-repeated-revert",
+    "disposed-errors",
+  ],
+  "undo-redo-kinds": ["Default", "Undo", "Redo"],
+  "undo-redo-fields": [
+    "object-set",
+    "object-replacement",
+    "map-set",
+    "map-delete",
+    "array-insert",
+    "array-remove",
+    "same-array-move",
+    "cross-array-move",
+    "outer-transaction",
+    "later-unrelated-local-remote",
+    "overlap-remote-first",
+    "overlap-local-first",
+  ],
+  "undo-redo-constraints": [
+    "constraint-satisfied",
+    "constraint-violated",
+    "settlement-new-content-only",
+    "settlement-fully-dropped",
+  ],
+  "undo-redo-reconnect": [
+    "same-view-reconnect",
+    "load-after-undo",
+    "load-after-redo",
+  ],
+};
+
+function validateUndoRedoCase(value) {
+  const label = value.id;
+  const check = (condition, detail) => assert(condition, `${label}: ${detail}`);
+  const scenarios = label === "undo-redo-kinds"
+    ? value.input.sequence
+    : value.input.scenarios;
+  check(nonemptyArray(scenarios), "missing scenarios");
+  const scenarioIds = scenarios.map((scenario) =>
+    typeof scenario === "string" ? scenario : scenario.id);
+  assert.deepEqual(scenarioIds, undoRedoScenarioIds[label], `${label}: scenario order`);
+  check(nonemptyArray(value.expected.observations), "missing observations");
+
+  if (label === "revertible-lifetime") {
+    const observation = value.expected.observations[0];
+    check(nonemptyArray(observation.events)
+      && observation.events.some(({ local, factory }) => local === true && factory === true),
+    "local factory event");
+    check(nonemptyArray(observation.remoteEvents)
+      && observation.remoteEvents.every(({ local, factory }) => !local && !factory),
+    "remote events without factories");
+    check(typeof observation.duplicateError === "string" && observation.duplicateError.length > 0,
+      "duplicate factory error");
+    check(typeof observation.lateError === "string" && observation.lateError.length > 0,
+      "late factory error");
+    assert.deepEqual(observation.status, {
+      beforeDefaultRevert: "Valid",
+      afterDefaultRevert: "Disposed",
+      beforeRepeatedRevert: "Valid",
+      afterFirstRepeatedRevert: "Valid",
+      afterSecondRepeatedRevert: "Valid",
+      afterDispose: "Disposed",
+    }, `${label}: handle statuses`);
+    check(typeof observation.secondDisposeError === "string"
+      && observation.secondDisposeError.length > 0
+      && typeof observation.disposedRevertError === "string"
+      && observation.disposedRevertError.length > 0,
+    "disposed handle errors");
+  } else if (label === "undo-redo-kinds") {
+    const observation = value.expected.observations[0];
+    assert.deepEqual(value.input.sequence, ["Default", "Undo", "Redo"],
+      `${label}: input sequence`);
+    assert.deepEqual(observation.events.map(({ kind }) => kind), value.input.sequence,
+      `${label}: event sequence`);
+    assert.deepEqual(observation.settled.map(({ outcome }) => outcome),
+      ["FullyApplied", "FullyApplied", "FullyApplied"], `${label}: settlement outcomes`);
+    assert.deepEqual(observation.beforeSequence, [0, 1, 2],
+      `${label}: settlement timing`);
+    check(value.raw.encodedChanges.length === 3
+      && value.raw.encodedChanges.every(object), "encoded changes");
+  } else if (label === "undo-redo-fields") {
+    assert.deepEqual(value.input.fieldKinds, ["Value", "Optional", "Sequence", "Identifier"],
+      `${label}: field kinds`);
+    assert.deepEqual(value.expected.observations.map(({ id }) => id),
+      undoRedoScenarioIds[label], `${label}: observations`);
+    assert.deepEqual(value.raw.scenarios.map(({ id }) => id),
+      undoRedoScenarioIds[label], `${label}: raw scenarios`);
+    for (const [index, observation] of value.expected.observations.entries()) {
+      check(object(observation.before) && object(observation.edited)
+        && object(observation.beforeUndo) && object(observation.optimisticUndo)
+        && object(observation.settledUndo) && observation.status === "Valid",
+      `${observation.id} snapshots and retained status`);
+      check(nonemptyArray(observation.events)
+        && observation.events.some(({ kind }) => kind === "Undo"),
+      `${observation.id} undo event`);
+      check(nonemptyArray(value.raw.scenarios[index].encodedChanges)
+        && value.raw.scenarios[index].encodedChanges.every(object),
+      `${observation.id} encoded changes`);
+    }
+    check(value.expected.observations.find(({ id }) => id === "overlap-remote-first")
+      ?.sequenceOrder === "remote-first"
+      && value.expected.observations.find(({ id }) => id === "overlap-remote-first")
+        ?.authoredBeforeSequence === true,
+    "remote-first overlapping edit");
+    check(value.expected.observations.find(({ id }) => id === "overlap-local-first")
+      ?.sequenceOrder === "local-first"
+      && value.expected.observations.find(({ id }) => id === "overlap-local-first")
+        ?.authoredBeforeSequence === true,
+    "local-first overlapping edit");
+    assert.deepEqual(
+      value.expected.observations.find(({ id }) => id === "outer-transaction")
+        ?.events.filter(({ local }) => local).map(({ kind }) => kind),
+      ["Default", "Undo"],
+      `${label}: one transaction commit and one undo`,
+    );
+  } else if (label === "undo-redo-constraints") {
+    assert.deepEqual(value.expected.observations.map(({ id }) => id),
+      undoRedoScenarioIds[label], `${label}: observations`);
+    const outcomes = value.expected.observations.flatMap((observation) =>
+      observation.outcomes ?? []);
+    for (const outcome of ["FullyApplied", "NewContentOnly", "FullyDropped"]) {
+      check(outcomes.includes(outcome), `missing ${outcome}`);
+    }
+    for (const id of ["constraint-satisfied", "constraint-violated"]) {
+      const observation = value.expected.observations.find((item) => item.id === id);
+      check(object(observation.beforeUndo) && object(observation.optimisticUndo)
+        && object(observation.settledUndo) && observation.status === "Valid",
+      `${id} snapshots and retained status`);
+    }
+    check(nonemptyArray(value.raw.satisfiedChanges)
+      && nonemptyArray(value.raw.violatedChanges), "encoded constraint changes");
+  } else if (label === "undo-redo-reconnect") {
+    const observation = value.expected.observations[0];
+    check(observation.disconnectedStatus === "Valid"
+      && observation.reconnectedStatus === "Valid", "live reconnect status");
+    assert.deepEqual(observation.undoLoaded.snapshot, observation.undoSnapshot,
+      `${label}: loaded undo`);
+    assert.deepEqual(observation.redoLoaded.snapshot, observation.redoSnapshot,
+      `${label}: loaded redo`);
+    assert.deepEqual(observation.undoLoaded.events, [], `${label}: old undo handle absent`);
+    assert.deepEqual(observation.redoLoaded.events, [], `${label}: old redo handle absent`);
+    check(summary(value.raw.undoSummary) && summary(value.raw.redoSummary),
+      "undo and redo summaries");
+    check(nonemptyArray(value.raw.encodedChanges)
+      && value.raw.encodedChanges.every(object), "encoded changes");
+  }
+}
+
 export function validateCases(cases) {
   assert(Array.isArray(cases) && cases.length > 0, "The corpus is empty");
   const ids = new Set();
@@ -4396,7 +4561,8 @@ export function validateCases(cases) {
     if ((value.domain === "field" || value.domain === "modular")
       && value.id !== "map-field-algebra"
       && arrayScenarioIds[value.id] === undefined
-      && !requiredTransactionCases.includes(value.id)) {
+      && !requiredTransactionCases.includes(value.id)
+      && !requiredUndoRedoCases.some(([id]) => value.id === id)) {
       assert(object(value.input.changes) && Object.keys(value.input.changes).length > 0
         && object(value.raw.encoded) && Object.keys(value.raw.encoded).length > 0,
       `${value.id}: missing algebra inputs or encoded outputs`);
@@ -4419,6 +4585,9 @@ export function validateCases(cases) {
     if (value.id === "transaction-wire") validateTransactionWire(value);
     if (value.id === "transaction-history") validateTransactionHistory(value);
     if (identifierScenarioIds[value.id] !== undefined) validateIdentifierCase(value);
+    if (requiredUndoRedoCases.some(([id]) => value.id === id)) {
+      validateUndoRedoCase(value);
+    }
     if (value.id === "summary-writer-matrix") validateSummaryPersistence(value);
     if (value.id === "id-ranges") {
       assert(object(value.input.sessions) && typeof value.input.sessions.summaryRestoration === "string"
@@ -4449,6 +4618,7 @@ export function validateCases(cases) {
             assert(typeof step.serialized === "string" && typeof step.session === "string",
               `${value.id}: incomplete ${name} restoration input`);
           }
+
         }
       }
     }
@@ -4476,7 +4646,8 @@ export function validateCases(cases) {
     assert(value !== undefined, `Missing case: ${id}`);
     assert.equal(value.domain, domain, `${id}: domain`);
     if ((["container", "runtime", "summary"].includes(domain) || id === "reconnect-before-ack")
-      && id !== "container-foundations" && id !== "summary-foundations") {
+      && id !== "container-foundations" && id !== "summary-foundations"
+      && id !== "undo-redo-reconnect") {
       assert.equal(value.input.service, "LocalDeltaConnectionServer", `${id}: missing full-container producer`);
     }
   }
@@ -4667,6 +4838,12 @@ export async function writeCorpus(output, cases, smoke) {
         valueShapeDiscriminator: identifierDiscriminator,
         allocationOrder: identifierAllocationOrder,
       },
+      undoRedoContract: {
+        cases: requiredUndoRedoCases.map(([id]) => id),
+        commitKinds: ["Default", "Undo", "Redo"],
+        settlementOutcomes: ["FullyApplied", "FullyDropped", "NewContentOnly"],
+        handleLifetime: "runtime-local",
+      },
     },
     nativeSemanticRunners: {
       javascript: [
@@ -4746,6 +4923,7 @@ export async function generate({ check = false } = {}) {
       ...await read(join(source, "schema-evolution-cases.json")),
       ...await read(join(source, "transaction-cases.json")),
       ...await read(join(source, "identifier-cases.json")),
+      ...await read(join(source, "undo-redo-cases.json")),
       ...await read(join(container, "container-cases.json")),
     ];
     const malformed = cases.find((item) => item.id === "id-ranges")?.raw.malformedAllocation;

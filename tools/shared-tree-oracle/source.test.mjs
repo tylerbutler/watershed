@@ -209,6 +209,13 @@ test("source runner declares the owned transaction injection", () => {
   );
 });
 
+test("source runner declares the owned undo and redo injection", () => {
+  assert.equal(
+    source.undoRedoInjectedTestPath,
+    "packages/dds/tree/src/test/watershedUndoRedo.spec.ts",
+  );
+});
+
 test("source runner declares the owned Identifier injection", () => {
   assert.equal(
     identifierInjectedTestPath,
@@ -220,6 +227,7 @@ test("source capture executes the Identifier contract", () => {
   assert.deepEqual(source.sourceTestBatches(false), [
     ["lib/test/watershedOracle.spec.js"],
     ["lib/test/watershedIdentifier.spec.js"],
+    ["lib/test/watershedUndoRedo.spec.js"],
   ]);
 });
 
@@ -262,6 +270,7 @@ test("source runner isolates transaction entropy from the existing corpus", () =
       "lib/test/watershedArray.spec.js",
     ],
     ["lib/test/watershedIdentifier.spec.js"],
+    ["lib/test/watershedUndoRedo.spec.js"],
   ]);
 });
 
@@ -269,6 +278,17 @@ test("source verification byte-checks the owned transaction injection", async (t
   const { directory, commit } = await checkoutFixture(t);
   const target = join(directory, source.transactionInjectedTestPath);
   const contents = await readFile(new URL("./upstream-transaction.spec.ts", import.meta.url));
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, contents);
+  await verifyCheckout(directory, commit);
+  await writeFile(target, "// unexpected replacement\n");
+  await assert.rejects(verifyCheckout(directory, commit), /injected/);
+});
+
+test("source verification byte-checks the owned undo and redo injection", async (t) => {
+  const { directory, commit } = await checkoutFixture(t);
+  const target = join(directory, source.undoRedoInjectedTestPath);
+  const contents = await readFile(new URL("./upstream-undo-redo.spec.ts", import.meta.url));
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, contents);
   await verifyCheckout(directory, commit);

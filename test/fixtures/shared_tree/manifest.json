@@ -242,6 +242,26 @@
           "op": 4
         }
       ]
+    },
+    "undoRedoContract": {
+      "cases": [
+        "revertible-lifetime",
+        "undo-redo-kinds",
+        "undo-redo-fields",
+        "undo-redo-constraints",
+        "undo-redo-reconnect"
+      ],
+      "commitKinds": [
+        "Default",
+        "Undo",
+        "Redo"
+      ],
+      "settlementOutcomes": [
+        "FullyApplied",
+        "FullyDropped",
+        "NewContentOnly"
+      ],
+      "handleLifetime": "runtime-local"
     }
   },
   "nativeSemanticRunners": {
@@ -558,6 +578,31 @@
       "id": "identifier-persistence",
       "domain": "history",
       "file": "cases/identifier-persistence.json"
+    },
+    {
+      "id": "revertible-lifetime",
+      "domain": "history",
+      "file": "cases/revertible-lifetime.json"
+    },
+    {
+      "id": "undo-redo-kinds",
+      "domain": "tree",
+      "file": "cases/undo-redo-kinds.json"
+    },
+    {
+      "id": "undo-redo-fields",
+      "domain": "field",
+      "file": "cases/undo-redo-fields.json"
+    },
+    {
+      "id": "undo-redo-constraints",
+      "domain": "modular",
+      "file": "cases/undo-redo-constraints.json"
+    },
+    {
+      "id": "undo-redo-reconnect",
+      "domain": "summary",
+      "file": "cases/undo-redo-reconnect.json"
     }
   ]
 }
