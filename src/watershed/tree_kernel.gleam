@@ -11,7 +11,8 @@ import watershed/tree/history
 import watershed/tree/schema
 import watershed/tree/shared_change
 import watershed/tree/types.{
-  type Edit, type FieldPath, type SequencePoint, type TreeError, type TreeValue,
+  type Edit, type FieldPath, type RevertibleId, type SequencePoint,
+  type TreeCommitKind, type TreeError, type TreeValue,
 }
 
 pub opaque type TreeSnapshot {
@@ -243,6 +244,56 @@ pub fn visible_data(state: TreeState) -> Result(forest.ForestData, TreeError) {
 
 pub fn history_view(state: TreeState) -> history.HistoryView {
   history.inspect(state.history)
+}
+
+pub fn retain_revertible(
+  state: TreeState,
+  revision: fluid_ids.StableId,
+  kind: TreeCommitKind,
+) -> Result(#(TreeState, RevertibleId), TreeError) {
+  use #(next, id) <- result.try(history.retain_revertible(
+    state.history,
+    revision,
+    kind,
+  ))
+  Ok(#(TreeState(..state, history: next), id))
+}
+
+pub fn revertible_is_valid(state: TreeState, id: RevertibleId) -> Bool {
+  history.revertible_is_valid(state.history, id)
+}
+
+pub fn dispose_revertible(
+  state: TreeState,
+  id: RevertibleId,
+) -> Result(TreeState, TreeError) {
+  use next <- result.try(history.dispose_revertible(state.history, id))
+  Ok(TreeState(..state, history: next))
+}
+
+pub fn revert(
+  state: TreeState,
+  id: RevertibleId,
+  revision: fluid_ids.StableId,
+  order: change.IdentityOrder,
+) -> Result(
+  #(TreeState, history.Commit, TreeCommitKind, ChangeEvents),
+  TreeError,
+) {
+  use authored <- result.try(history.author_revert(
+    state.history,
+    id,
+    revision,
+    order,
+  ))
+  let history.RevertAuthoring(_, inverse, kind) = authored
+  use #(state, commit, events) <- result.try(apply_local_change(
+    state,
+    revision,
+    order,
+    inverse.change,
+  ))
+  Ok(#(state, commit, kind, events))
 }
 
 /// Rebuild repair content from the forest before each pending commit.

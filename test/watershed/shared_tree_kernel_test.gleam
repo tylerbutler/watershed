@@ -10,8 +10,8 @@ import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
 import watershed/tree/shared_change
 import watershed/tree/types.{
-  type TreeError, AtomId, ClearField, InvalidEdit, NumberValue, ObjectValue,
-  SetField, StringValue,
+  type TreeError, ArrayValue, AtomId, ClearField, DefaultCommit, InvalidEdit,
+  MapSet, MapValue, NumberValue, ObjectValue, SetField, StringValue, UndoCommit,
 }
 import watershed/tree_kernel
 
@@ -22,6 +22,8 @@ const optional_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.num
 const score_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
 const optional_score_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"score\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+
+const forest_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\"]}}}},\"NamedMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}},\"Root\":{\"kind\":{\"object\":{\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"items\":{\"kind\":\"Value\",\"types\":[\"NamedMap\"]},\"list\":{\"kind\":\"Value\",\"types\":[\"Items\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
 fn session() -> fluid_ids.SessionId {
   let assert Ok(id) =
@@ -81,6 +83,28 @@ fn initial_state_for(local: fluid_ids.SessionId) -> tree_kernel.TreeState {
       initial,
     )
   let assert Ok(state) = tree_kernel.restore(snapshot, view_id(), local, view)
+  state
+}
+
+fn forest_state() -> tree_kernel.TreeState {
+  let assert Ok(stored) = schema.stored_from_string(forest_schema)
+  let assert Ok(view) = schema.view_from_string(forest_schema)
+  let initial = history.inspect(history.new(session())).sequenced
+  let root =
+    ObjectValue("Root", [
+      #("title", StringValue("base")),
+      #("items", MapValue("NamedMap", [#("seed", StringValue("value"))])),
+      #("list", ArrayValue("Items", [StringValue("a"), StringValue("b")])),
+    ])
+  let assert Ok(snapshot) =
+    tree_kernel.snapshot_from_parts(
+      view_id(),
+      stored,
+      forest.ForestData(Some(root), [], 0),
+      initial,
+    )
+  let assert Ok(state) =
+    tree_kernel.restore(snapshot, view_id(), session(), view)
   state
 }
 
@@ -288,6 +312,51 @@ pub fn shared_tree_kernel_suppresses_same_value_event_test() {
   events.events |> expect.to_equal([])
   tree_kernel.read(edited, ["point", "x"])
   |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+}
+
+pub fn shared_tree_kernel_revert_preserves_unrelated_forest_content_and_handle_test() {
+  let assert Ok(order) =
+    change.identity_order([
+      #(revision(), -3),
+      #(other_revision(), -2),
+      #(third_revision(), -1),
+    ])
+  let assert Ok(#(edited, target, _)) =
+    tree_kernel.apply_local(
+      forest_state(),
+      revision(),
+      order,
+      SetField(["title"], StringValue("changed")),
+    )
+  let assert Ok(#(retained, id)) =
+    tree_kernel.retain_revertible(edited, target.revision, DefaultCommit)
+  let assert Ok(#(advanced, _, _)) =
+    tree_kernel.apply_local(
+      retained,
+      other_revision(),
+      order,
+      MapSet(["items"], "later", StringValue("kept")),
+    )
+  let assert Ok(#(reverted, inverse, UndoCommit, events)) =
+    tree_kernel.revert(advanced, id, third_revision(), order)
+
+  inverse.revision |> expect.to_equal(third_revision())
+  events.events |> expect.to_equal([tree_kernel.TreeChanged(True)])
+  tree_kernel.read(reverted, ["title"])
+  |> expect.to_equal(Ok(Some(StringValue("base"))))
+  tree_kernel.map_entries(reverted, ["items"])
+  |> expect.to_equal(
+    Ok([
+      #("later", StringValue("kept")),
+      #("seed", StringValue("value")),
+    ]),
+  )
+  tree_kernel.array_values(reverted, ["list"])
+  |> expect.to_equal(Ok([StringValue("a"), StringValue("b")]))
+  tree_kernel.revertible_is_valid(reverted, id) |> expect.to_equal(True)
+  tree_kernel.history_view(reverted).pending
+  |> list.length
+  |> expect.to_equal(3)
 }
 
 pub fn shared_tree_kernel_receive_remote_and_duplicate_test() {

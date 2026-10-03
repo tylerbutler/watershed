@@ -5,6 +5,7 @@ import startest/expect
 import watershed/json_ot.{NInt, VArray, VNumber, VObject, VString}
 import watershed/tree/fixtures
 import watershed/tree/transaction_fixture
+import watershed/tree/undo_fixture
 
 const reference = "\"reference\":{\"package\":\"@fluidframework/tree\",\"version\":\"3.1.0\",\"commit\":\"c3c5bf0ecd313362e83fe8a02b7d39e7e0736960\"}"
 
@@ -332,6 +333,38 @@ pub fn shared_tree_fixture_loads_all_required_corpus_ids_test() -> Nil {
     fixture_case.id |> expect.to_equal(id)
     fixture_case.domain |> expect.to_equal(domain)
   })
+}
+
+pub fn shared_tree_undo_redo_fields_match_native_observations_test() -> Nil {
+  assert_undo_fixture("undo-redo-fields")
+}
+
+pub fn shared_tree_undo_redo_kinds_match_native_observations_test() -> Nil {
+  assert_undo_fixture("undo-redo-kinds")
+}
+
+pub fn shared_tree_revertible_lifetime_matches_native_observations_test() -> Nil {
+  assert_undo_fixture("revertible-lifetime")
+}
+
+pub fn shared_tree_undo_redo_constraints_match_native_observations_test() -> Nil {
+  assert_undo_fixture("undo-redo-constraints")
+}
+
+fn assert_undo_fixture(name: String) -> Nil {
+  let assert Ok(fixture) = fixtures.load(name)
+  let actual = case undo_fixture.run(name, fixture.input) {
+    Ok(value) -> value
+    Error(detail) -> panic as { name <> " native runner: " <> detail }
+  }
+  let expected = case undo_fixture.projection(name, fixture.expected) {
+    Ok(value) -> value
+    Error(detail) -> panic as { name <> " native projection: " <> detail }
+  }
+  case fixtures.first_difference(actual, expected) {
+    Ok(Nil) -> Nil
+    Error(path) -> panic as { name <> " native observations differ at " <> path }
+  }
 }
 
 pub fn shared_tree_transaction_callbacks_match_upstream_test() -> Nil {

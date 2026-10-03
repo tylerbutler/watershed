@@ -70,6 +70,10 @@ pub type HistoryUpdate {
   )
 }
 
+pub type RevertAuthoring {
+  RevertAuthoring(target: Commit, inverse: Commit, kind: TreeCommitKind)
+}
+
 pub type MintRevision(state) =
   fn(state) ->
     Result(#(fluid_ids.StableId, change.IdentityOrder, state), TreeError)
@@ -1409,6 +1413,120 @@ pub fn dispose_revertible(
       revertibles: list.filter(state.revertibles, fn(record) { record.id != id }),
     ),
   )
+}
+
+pub fn author_revert(
+  state: History,
+  id: RevertibleId,
+  inverse_revision: fluid_ids.StableId,
+  identity_order: change.IdentityOrder,
+) -> Result(RevertAuthoring, TreeError) {
+  use _ <- result.try(check(
+    !has_revision(state, inverse_revision),
+    "revert revision is already present",
+  ))
+  use record <- result.try(
+    case list.find(state.revertibles, fn(record) { record.id == id }) {
+      Ok(record) -> Ok(record)
+      Error(Nil) -> Error(InvalidHistory("revertible is already disposed"))
+    },
+  )
+  use _ <- result.try(case list.last(record.commits) {
+    Ok(_) -> Ok(Nil)
+    Error(Nil) -> Error(InvalidHistory("revertible has no target commit"))
+  })
+  use #(current_target, later) <- result.try(
+    current_branch(state, record.revision)
+    |> commit_and_after(record.revision),
+  )
+  use target_change <- result.try(shared_change.rebind_identity_order(
+    current_target.change,
+    identity_order,
+    [
+      inverse_revision,
+      ..outer_revisions(current_target.revision, current_target.change)
+    ]
+      |> list.unique,
+  ))
+  let target = Commit(..current_target, change: target_change)
+  use later <- result.try(
+    list.try_map(later, fn(commit) { rebind_commit(commit, identity_order) }),
+  )
+  use inverse <- result.try(shared_change.invert(
+    shared_change.TaggedChange(Some(target.revision), None, target.change),
+    False,
+    inverse_revision,
+  ))
+  let inverse_tag =
+    shared_change.TaggedChange(Some(inverse_revision), None, inverse)
+  use context <- result.try(
+    rebase_context([
+      tagged_commit(target),
+      inverse_tag,
+      ..list.map(later, tagged_commit)
+    ]),
+  )
+  use inverse <- result.try(
+    list.try_fold(later, inverse, fn(inverse, commit) {
+      shared_change.rebase(
+        shared_change.TaggedChange(Some(inverse_revision), None, inverse),
+        tagged_commit(commit),
+        context,
+      )
+      |> history_error("cannot rebase revert: ")
+    }),
+  )
+  let kind = case record.kind {
+    types.UndoCommit -> types.RedoCommit
+    types.DefaultCommit | types.RedoCommit -> types.UndoCommit
+  }
+  Ok(RevertAuthoring(
+    target,
+    Commit(inverse_revision, state.local_session, inverse),
+    kind,
+  ))
+}
+
+fn current_branch(
+  state: History,
+  revision: fluid_ids.StableId,
+) -> List(Commit) {
+  let pending = list.map(state.pending, fn(entry) { entry.current.commit })
+  case contains_revision(pending, revision) {
+    True -> pending
+    False ->
+      case
+        list.find(state.peers, fn(peer) {
+          branch_contains_revision(peer.commits, revision)
+        })
+      {
+        Ok(peer) -> list.map(peer.commits, fn(entry) { entry.commit })
+        Error(Nil) ->
+          list.append(
+            list.map(state.trunk, fn(entry) { entry.commit }),
+            pending,
+          )
+      }
+  }
+}
+
+fn commit_and_after(
+  commits: List(Commit),
+  revision: fluid_ids.StableId,
+) -> Result(#(Commit, List(Commit)), TreeError) {
+  case commits {
+    [] ->
+      Error(InvalidHistory("revertible target is not on the visible branch"))
+    [first, ..rest] ->
+      case first.revision == revision {
+        True ->
+          case commit_and_after(rest, revision) {
+            Ok(found) -> Ok(found)
+            Error(_) -> Ok(#(first, rest))
+          }
+        False -> commit_and_after(rest, revision)
+      }
+  }
 }
 
 fn revertible_position(
