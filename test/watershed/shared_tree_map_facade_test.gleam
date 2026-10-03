@@ -1759,7 +1759,7 @@ pub fn shared_tree_map_facade_beam_shutdown_drops_pending_settlement_test() {
   |> process.selector_receive(1000)
   |> expect.to_equal(Ok(Nil))
   process.demonitor_process(monitor)
-  process.receive(settled, 0) |> expect.to_equal(Error(Nil))
+  process.receive(settled, 50) |> expect.to_equal(Error(Nil))
   watershed_beam.unsubscribe(token)
 }
 

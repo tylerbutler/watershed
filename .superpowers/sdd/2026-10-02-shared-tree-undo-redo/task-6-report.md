@@ -337,3 +337,107 @@ Compiled in 0.34s
 - The verified commands retain the pre-existing unused private test-helper
   warnings and JavaScript unsafe-integer warnings documented above. This fix
   adds no warning category.
+
+## Fix round 2
+
+### Finding
+
+The shutdown regression waited for the runtime actor to exit, then used
+`process.receive(settled, 0)`. That assertion proved only that the settlement
+callback had not sent a message before the immediate mailbox check. It did not
+detect a cleanup callback invoked asynchronously after actor exit.
+
+### Correction
+
+Changed the final assertion in
+`shared_tree_map_facade_beam_shutdown_drops_pending_settlement_test` to wait
+for 50 milliseconds:
+
+```gleam
+process.receive(settled, 50) |> expect.to_equal(Error(Nil))
+```
+
+This is the repository's existing bounded asynchronous-silence window. No
+production code changed.
+
+### Focused shutdown verification
+
+Gleeunit filters positional arguments by test file, so the focused command ran
+the BEAM map facade file and explicitly included the shutdown regression:
+
+```text
+gleam test --target erlang -- shared_tree_map_facade
+```
+
+Exit code: `0`
+
+Exact relevant result:
+
+```text
+Running 18 tests
+✓ shared_tree_map_facade_beam_shutdown_drops_pending_settlement_test
+Test Files: 1
+     Tests: 18 passed (18)
+```
+
+### Exact Task 6 Erlang suite
+
+Command:
+
+```text
+gleam test --target erlang -- shared_tree_runtime_beam shared_tree_array_facade shared_tree_map_facade shared_tree_creation_api shared_tree_transaction
+```
+
+Exit code: `0`
+
+Exact result:
+
+```text
+Running 94 tests
+Test Files: 5
+     Tests: 94 passed (94)
+```
+
+### JavaScript parity
+
+Command:
+
+```text
+gleam test --target javascript -- shared_tree_array_facade shared_tree_map_facade shared_tree_creation_api shared_tree_transaction
+```
+
+Exit code: `0`
+
+Exact result:
+
+```text
+Running 63 tests
+Test Files: 4
+     Tests: 63 passed (63)
+```
+
+### Formatting, build, and diff checks
+
+Commands:
+
+```text
+gleam format --check test/watershed/shared_tree_map_facade_test.gleam
+gleam build --target erlang
+git --no-pager diff --check
+```
+
+Exit code: `0` for each command.
+
+`gleam build --target erlang` exact result:
+
+```text
+Compiled in 0.53s
+```
+
+The final diff contains one test timeout change plus this report entry.
+
+### Concerns
+
+- The verified commands retain the pre-existing unused private test-helper
+  warnings and JavaScript unsafe-integer warnings documented above. This fix
+  adds no warning category.
