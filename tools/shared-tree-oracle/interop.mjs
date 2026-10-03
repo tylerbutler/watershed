@@ -668,8 +668,8 @@ async function attachTransactionReconnectArtifacts(runDirectory, context, result
   }
 }
 
-function artifactReferences(report) {
-  return [
+export function artifactReferences(report) {
+  const references = [
     report.service.preflightArtifact,
     ...report.deterministic.flatMap(({ artifacts }) => artifacts),
     ...report.reconnect.flatMap(({ evidence }) => evidence.artifacts),
@@ -705,6 +705,16 @@ function artifactReferences(report) {
       Object.values(row).flatMap(({ artifacts }) => artifacts)),
     ...Object.values(report.corpus).flatMap(({ artifacts }) => artifacts),
   ];
+  const seen = new Set(references);
+  for (const { sourceArtifacts = [] } of report.undoRedoKinds.implementations) {
+    for (const reference of sourceArtifacts) {
+      if (!seen.has(reference)) {
+        references.push(reference);
+        seen.add(reference);
+      }
+    }
+  }
+  return references;
 }
 
 async function liveAcceptance(config, runDirectory, context, options, corpus, log) {
@@ -1625,6 +1635,55 @@ function seededEvidence(item, label) {
     outcome,
   })), expectedKinds.map((kind) => ({ kind, outcome: "FullyApplied" })),
   `${label} lifecycle settlements are missing, duplicated, or reordered`);
+
+}
+
+function validateSeededRawLifecycle(item, raw, label) {
+  assert.deepEqual(raw.checkpoints, item.checkpoints,
+    `${label} raw checkpoints differ from the report`);
+  assert.deepEqual(raw.lifecycle, item.undoRedo,
+    `${label} raw lifecycle differs from the report`);
+  assert(Array.isArray(raw.sequencedHistory),
+    `${label} lacks raw sequenced history`);
+  const events = raw.checkpoints.flatMap(({ observations }) =>
+    observations.flatMap(({ commits }) => commits ?? []));
+  const commits = events.filter(
+    ({ type, local }) => type === "commit" && local === true,
+  );
+  assert(commits.some(({ kind }) => kind === "Default"),
+    `${label} lacks the retained Default factory event`);
+  for (const [index, record] of item.undoRedo.entries()) {
+    const result = successfulResult(record.result,
+      `${label} lifecycle ${index}`);
+    if (record.type === "retain") {
+      const kind = record.lifecycle === "undo" ? "Undo" : "Default";
+      assert(commits.some(({ eventId, kind: eventKind, factoryAvailable }) =>
+        eventKind === kind
+          && eventId === result.eventId
+          && factoryAvailable === true),
+      `${label} lifecycle ${index} does not identify its factory event`);
+      continue;
+    }
+    if (record.type === "undo" || record.type === "redo") {
+      const kind = record.type === "redo" ? "Redo" : "Undo";
+      exactActionEvidence(result, `${label} lifecycle ${index}`);
+      const eventId = result.authoredEventIds[0];
+      const revision = result.submittedRevisions[0];
+      assert(commits.some((event) =>
+        event.kind === kind
+          && event.eventId === eventId
+          && (event.revision == null || event.revision === revision)),
+      `${label} lifecycle ${index} does not identify its authored event`);
+      assert(raw.sequencedHistory.some((entry) =>
+        entry.revision === revision),
+      `${label} lifecycle ${index} does not identify its accepted submission`);
+      assert(events.some((event) =>
+        event.type === "settlement"
+          && event.kind === kind
+          && event.outcome === "FullyApplied"),
+      `${label} lifecycle ${index} lacks a successful settlement`);
+    }
+  }
 }
 
 function measured(item, expected, authors, evidence, label) {
@@ -1750,6 +1809,11 @@ function measured(item, expected, authors, evidence, label) {
       assert.deepEqual(evidence.get(reference).claim.measured,
         seededMeasuredPayload(item),
       `${label} artifact measured payload differs`);
+      validateSeededRawLifecycle(
+        item,
+        evidence.get(reference).claim.raw,
+        label,
+      );
     }
   }
   for (const reference of item.artifacts) {
@@ -2570,6 +2634,81 @@ function validUndoRedoRow(item, evidence, expected, contract, label) {
   }
 }
 
+function undoRedoArtifact(item, evidence, label) {
+  assert.equal(item.artifacts.length, 1,
+    `${label} must resolve to one source artifact`);
+  return evidence.get(item.artifacts[0]).claim;
+}
+
+function successfulResult(result, label) {
+  object(result, `${label} lacks a result`);
+  assert.equal(result.error, undefined, `${label} contains an error`);
+  assert.notEqual(result.settlement, "FullyDropped",
+    `${label} contains a failed settlement`);
+  return result;
+}
+
+function exactActionEvidence(result, label) {
+  successfulResult(result, label);
+  assert(Array.isArray(result.authoredEventIds)
+    && result.authoredEventIds.length === 1
+    && Number.isSafeInteger(result.authoredEventIds[0]),
+  `${label} lacks one authored event ID`);
+  assert(Array.isArray(result.submittedRevisions)
+    && result.submittedRevisions.length === 1
+    && typeof result.submittedRevisions[0] === "string"
+    && result.submittedRevisions[0].length > 0,
+  `${label} lacks one submitted revision`);
+  assert.equal(result.authoredCount, result.authoredEventIds.length,
+    `${label} authored count differs from event evidence`);
+  assert.equal(result.outboundCount, result.submittedRevisions.length,
+    `${label} outbound count differs from submission evidence`);
+}
+
+function localCommitEvents(raw, author, label) {
+  const trace = object(raw.eventTrace, `${label} lacks raw event traces`);
+  const events = author === undefined ? trace : trace[author];
+  assert(Array.isArray(events), `${label} lacks local commit events`);
+  const commits = events.filter(
+    ({ type, local }) => type === "commit" && local === true,
+  );
+  assert(commits.every(({ eventId }) => Number.isSafeInteger(eventId)),
+    `${label} local commits lack event IDs`);
+  assert.equal(new Set(commits.map(({ eventId }) => eventId)).size,
+    commits.length, `${label} repeats a local commit event ID`);
+  assert(commits.every((commit, index) =>
+    index === 0 || commit.eventId > commits[index - 1].eventId),
+  `${label} local commit event IDs are not monotonic`);
+  return { events, commits };
+}
+
+function validateSequencedAction(raw, result, kind, label) {
+  exactActionEvidence(result, label);
+  const eventId = result.authoredEventIds[0];
+  const revision = result.submittedRevisions[0];
+  const events = Array.isArray(raw.eventTrace)
+    ? raw.eventTrace
+    : raw.eventTrace
+      ? Object.values(raw.eventTrace).flat()
+      : raw.final?.commits ?? [];
+  assert(events.some((event) =>
+    event.type === "commit"
+      && event.local === true
+      && event.kind === kind
+      && event.eventId === eventId
+      && (event.revision == null || event.revision === revision)),
+  `${label} does not identify its authored commit event`);
+  assert(Array.isArray(raw.sequencedHistory)
+    && raw.sequencedHistory.some((entry) =>
+      entry.revision === revision),
+  `${label} does not identify an accepted sequenced submission`);
+  assert(events.some((event) =>
+    event.type === "settlement"
+      && event.kind === kind
+      && event.outcome === "FullyApplied"),
+  `${label} lacks a successful settlement`);
+}
+
 function validateCommitLifecycle(item, label, handleStatuses) {
   assert.deepEqual(item.localKinds, ["Default", "Undo", "Redo"],
     `${label} local commit kinds changed`);
@@ -2618,6 +2757,26 @@ function validateUndoRedoSections(report, evidence, expected) {
         `${item.implementation} undo/redo kind artifact names another source`);
       assert(Array.isArray(raw.sourceArtifacts) && raw.sourceArtifacts.length > 0,
         `${item.implementation} undo/redo kind artifact lacks source evidence`);
+      assert.equal(raw.sourceArtifacts.length, 1,
+        `${item.implementation} undo/redo kind has multiple sources`);
+      const sourceReference = raw.sourceArtifacts[0];
+      assert(evidence.has(sourceReference),
+        `${item.implementation} undo/redo kind source is not verified`);
+      const source = evidence.get(sourceReference).claim;
+      assert.equal(source.kind, "undo-redo",
+        `${item.implementation} undo/redo kind source has another kind`);
+      assert.equal(source.subject, item.sourceId,
+        `${item.implementation} undo/redo kind source has another subject`);
+      const { commits, events } = localCommitEvents(
+        source.raw,
+        item.implementation,
+        `${item.implementation} undo/redo kind source`,
+      );
+      assert.deepEqual(commits.slice(-3).map(({ kind }) => kind), item.localKinds,
+        `${item.implementation} undo/redo kinds differ from source events`);
+      assert.deepEqual(events.filter(({ type }) => type === "settlement")
+        .slice(-3).map(({ outcome }) => outcome), item.settlements,
+      `${item.implementation} settlements differ from source events`);
     }
   }
 
@@ -2661,6 +2820,12 @@ function validateUndoRedoSections(report, evidence, expected) {
         }, id);
         for (const reference of item.artifacts) {
           const raw = evidence.get(reference).claim.raw;
+          for (const phase of ["authored", "concurrent", "undone", "redone"]) {
+            assert.deepEqual(raw.checkpoints?.[phase]?.wholeTree,
+              item.snapshots[phase], `${id} ${phase} differs from raw checkpoint`);
+          }
+          assert.deepEqual(raw.checkpoints?.redone?.wholeTree, item.finalTree,
+            `${id} final tree differs from raw checkpoint`);
           const trace = object(raw.eventTrace, `${id} lacks raw event traces`);
           const authorEvents = trace[item.authors[0]];
           const peerEvents = trace[item.authors[1]];
@@ -2685,6 +2850,11 @@ function validateUndoRedoSections(report, evidence, expected) {
           assert(remote.length > 0
             && remote.every(({ factoryAvailable }) => factoryAvailable === false),
           `${id} lacks remote events without factories`);
+          const lifecycle = raw.lifecycle;
+          assert(Array.isArray(lifecycle) && lifecycle.length === 4,
+            `${id} lacks raw handle lifecycle`);
+          validateSequencedAction(raw, lifecycle[1].result, "Undo", `${id} undo`);
+          validateSequencedAction(raw, lifecycle[3].result, "Redo", `${id} redo`);
         }
       }
     }
@@ -2721,6 +2891,19 @@ function validateUndoRedoSections(report, evidence, expected) {
       const raw = evidence.get(reference).claim.raw;
       assert(Array.isArray(raw.eventTrace) && raw.eventTrace.length > 0,
         `${implementation} reconnect lacks raw events`);
+      const observation = raw.checkpoint?.observations?.find(
+        (candidate) => candidate.implementation === implementation,
+      );
+      assert(observation,
+        `${implementation} reconnect lacks its raw checkpoint observation`);
+      assert.deepEqual(observation.wholeTree, item.finalTree,
+        `${implementation} reconnect differs from raw checkpoint`);
+      validateSequencedAction(
+        raw,
+        raw.lifecycle,
+        "Undo",
+        `${implementation} reconnect undo`,
+      );
       assert.deepEqual(raw.handleNames, ["edit"],
         `${implementation} reconnect names another handle`);
     }
@@ -2757,6 +2940,10 @@ function validateUndoRedoSections(report, evidence, expected) {
           "Undo/redo reload selected another writer version");
         assert(Number.isSafeInteger(item.snapshotSequenceNumber)
           && item.snapshotSequenceNumber >= 0
+          && item.publicationReferenceSequenceNumber
+            === item.snapshotSequenceNumber
+          && item.consumedSnapshotSequenceNumber
+            === item.snapshotSequenceNumber
           && Number.isSafeInteger(item.replayStartSequenceNumber)
           && item.replayStartSequenceNumber >= item.snapshotSequenceNumber,
         "Undo/redo reload lacks exact snapshot replay evidence");
@@ -2795,10 +2982,26 @@ function validateUndoRedoSections(report, evidence, expected) {
         }, `Undo/redo reload ${writer}:${stage}->${reader}`);
         for (const reference of item.artifacts) {
           const raw = evidence.get(reference).claim.raw;
+          assert.equal(raw.publication?.version, item.writerVersion,
+            "Undo/redo reload raw publication names another version");
+          assert.equal(raw.publication?.referenceSequenceNumber,
+            item.snapshotSequenceNumber,
+          "Undo/redo reload publication sequence changed");
+          assert.equal(raw.loaded?.snapshotSequenceNumber,
+            item.snapshotSequenceNumber,
+          "Undo/redo reload consumed another snapshot sequence");
           assert.deepEqual(raw.load, item.loadEvidence,
             "Undo/redo reload raw load evidence changed");
           assert.deepEqual(raw.loaded?.commits, item.historicalLoadCommits,
             "Undo/redo reload raw historical commits changed");
+          assert.deepEqual(raw.final?.wholeTree, item.finalTree,
+            "Undo/redo reload final tree differs from raw checkpoint");
+          validateSequencedAction(
+            raw,
+            raw.lifecycle,
+            "Undo",
+            `Undo/redo reload ${writer}:${stage}->${reader}`,
+          );
           assert.deepEqual(raw.handleNames, ["post-load"],
             "Undo/redo reload names another handle");
         }

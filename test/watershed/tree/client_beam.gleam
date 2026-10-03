@@ -111,7 +111,7 @@ pub fn main() -> Nil {
                       process.spawn_unlinked(fn() {
                         let handle_store = process.new_subject()
                         process.send(handle_store_ready, handle_store)
-                        handle_store_loop(handle_store, dict.new(), None, [])
+                        handle_store_loop(handle_store, dict.new(), None, [], 0)
                       })
                       let handle_store =
                         process.receive_forever(from: handle_store_ready)
@@ -511,7 +511,15 @@ fn execute(
         )
         protocol.RetainLastLocalCommit(name) -> #(
           process.call(handle_store, waiting: 1000, sending: fn(reply) {
-            RetainHandle(name, reply)
+            RetainHandle(
+              name,
+              fn() {
+                watershed.tree_history_evidence(tree)
+                |> result.map(protocol.history_revisions)
+                |> result.unwrap([])
+              },
+              reply,
+            )
           }),
           tree,
           events,
@@ -542,8 +550,9 @@ fn execute(
               name,
               dispose,
               fn() {
-                let observation = observe(document)
-                #(observation.pending_tree_count, observation.sequence_number)
+                watershed.tree_history_evidence(tree)
+                |> result.map(protocol.history_commit_ids)
+                |> result.unwrap([])
               },
               reply,
             )
@@ -623,6 +632,63 @@ type ScopeFailure {
 @target(erlang)
 fn facade(operation: String, reason: String) -> protocol.ProtocolError {
   protocol.ProtocolError("facade-error", operation, reason)
+}
+
+@target(erlang)
+fn optional_string(value: Option(String)) -> Json {
+  case value {
+    Some(value) -> json.string(value)
+    None -> json.null()
+  }
+}
+
+@target(erlang)
+fn require_revert_evidence(
+  condition: Bool,
+  message: String,
+) -> Result(Nil, protocol.ProtocolError) {
+  case condition {
+    True -> Ok(Nil)
+    False -> Error(facade("revert", message))
+  }
+}
+
+@target(erlang)
+fn await_submitted_revisions(
+  revisions: fn() -> List(#(String, String)),
+  before: List(#(String, String)),
+  retained_revision: Option(String),
+  attempts: Int,
+) -> Result(List(String), protocol.ProtocolError) {
+  use originator <- result.try(
+    list.find(before, fn(entry) { Some(entry.0) == retained_revision })
+    |> result.map(fn(entry) { entry.1 })
+    |> result.map_error(fn(_) {
+      facade("revert", "Revert target lacks an originator")
+    }),
+  )
+  let before_revisions = list.map(before, fn(entry) { entry.0 })
+  let submitted =
+    list.filter(revisions(), fn(candidate) {
+      candidate.1 == originator && !list.contains(before_revisions, candidate.0)
+    })
+    |> list.map(fn(entry) { entry.0 })
+  case list.length(submitted), attempts {
+    1, _ -> Ok(submitted)
+    count, _ if count > 1 ->
+      Error(facade("revert", "Revert submitted another operation count"))
+    _, 0 ->
+      Error(facade("revert", "Revert submitted no attributable operation"))
+    _, _ -> {
+      process.sleep(25)
+      await_submitted_revisions(
+        revisions,
+        before,
+        retained_revision,
+        attempts - 1,
+      )
+    }
+  }
 }
 
 @target(erlang)
@@ -914,15 +980,25 @@ fn checkpoint(
 
 @target(erlang)
 type HandleMessage {
-  CaptureCommit(TreeCommitKind, Bool, Bool, Option(watershed.TreeRevertible))
+  CaptureCommit(
+    TreeCommitKind,
+    Bool,
+    Bool,
+    Option(watershed.TreeRevertible),
+    Option(String),
+  )
   SettleCommit(TreeCommitKind, TreeCommitOutcome)
-  RetainHandle(String, process.Subject(Result(Json, protocol.ProtocolError)))
+  RetainHandle(
+    String,
+    fn() -> List(String),
+    process.Subject(Result(Json, protocol.ProtocolError)),
+  )
   HandleStatus(String, process.Subject(Result(Json, protocol.ProtocolError)))
   DisposeHandle(String, process.Subject(Result(Json, protocol.ProtocolError)))
   RevertHandle(
     String,
     Bool,
-    fn() -> #(Int, Option(Int)),
+    fn() -> List(#(String, String)),
     process.Subject(Result(Json, protocol.ProtocolError)),
   )
   DrainCommits(process.Subject(List(Json)))
@@ -970,7 +1046,7 @@ fn observe_commit(
   }
   process.send(
     handle_store,
-    CaptureCommit(kind, local, option.is_some(factory), acquired),
+    CaptureCommit(kind, local, option.is_some(factory), acquired, None),
   )
   case settlement {
     None -> Nil
@@ -988,22 +1064,35 @@ fn observe_commit(
 fn await_revert_commit(
   subject: process.Subject(HandleMessage),
   commits: List(Json),
+  next_event_id: Int,
 ) -> Result(
-  #(TreeCommitKind, Option(watershed.TreeRevertible), Json, List(Json)),
+  #(
+    TreeCommitKind,
+    Option(watershed.TreeRevertible),
+    Json,
+    List(Json),
+    Int,
+    Option(String),
+  ),
   protocol.ProtocolError,
 ) {
   case process.receive(subject, 1000) {
     Error(_) -> Error(facade("revert", "Revert authored no local commit event"))
     Ok(SettleCommit(kind, outcome)) ->
-      await_revert_commit(subject, [
-        json.object([
-          #("type", json.string("settlement")),
-          #("kind", json.string(commit_kind(kind))),
-          #("outcome", json.string(commit_outcome(outcome))),
-        ]),
-        ..commits
-      ])
-    Ok(CaptureCommit(kind, local, factory_available, acquired)) -> {
+      await_revert_commit(
+        subject,
+        [
+          json.object([
+            #("type", json.string("settlement")),
+            #("kind", json.string(commit_kind(kind))),
+            #("outcome", json.string(commit_outcome(outcome))),
+          ]),
+          ..commits
+        ],
+        next_event_id,
+      )
+    Ok(CaptureCommit(kind, local, factory_available, acquired, revision)) -> {
+      let event_id = next_event_id + 1
       let commit =
         json.object([
           #("type", json.string("commit")),
@@ -1011,10 +1100,12 @@ fn await_revert_commit(
           #("local", json.bool(local)),
           #("factoryAvailable", json.bool(factory_available)),
           #("handleAcquired", json.bool(option.is_some(acquired))),
+          #("eventId", json.int(event_id)),
+          #("revision", optional_string(revision)),
         ])
       case local {
-        True -> Ok(#(kind, acquired, commit, commits))
-        False -> await_revert_commit(subject, [commit, ..commits])
+        True -> Ok(#(kind, acquired, commit, commits, event_id, revision))
+        False -> await_revert_commit(subject, [commit, ..commits], event_id)
       }
     }
     Ok(_) ->
@@ -1025,13 +1116,20 @@ fn await_revert_commit(
 @target(erlang)
 fn handle_store_loop(
   subject: process.Subject(HandleMessage),
-  handles: Dict(String, #(watershed.TreeRevertible, TreeCommitKind)),
-  last_local: Option(#(watershed.TreeRevertible, TreeCommitKind)),
+  handles: Dict(
+    String,
+    #(watershed.TreeRevertible, TreeCommitKind, Option(String)),
+  ),
+  last_local: Option(
+    #(watershed.TreeRevertible, TreeCommitKind, Int, Option(String)),
+  ),
   commits: List(Json),
+  next_event_id: Int,
 ) -> Nil {
   let message = process.receive_forever(from: subject)
   case message {
-    CaptureCommit(kind, local, factory_available, acquired) -> {
+    CaptureCommit(kind, local, factory_available, acquired, revision) -> {
+      let event_id = next_event_id + 1
       let commit =
         json.object([
           #("type", json.string("commit")),
@@ -1039,23 +1137,31 @@ fn handle_store_loop(
           #("local", json.bool(local)),
           #("factoryAvailable", json.bool(factory_available)),
           #("handleAcquired", json.bool(option.is_some(acquired))),
+          #("eventId", json.int(event_id)),
+          #("revision", optional_string(revision)),
         ])
       let next = case acquired {
-        Some(handle) -> Some(#(handle, kind))
+        Some(handle) -> Some(#(handle, kind, event_id, revision))
         None -> last_local
       }
-      handle_store_loop(subject, handles, next, [commit, ..commits])
+      handle_store_loop(subject, handles, next, [commit, ..commits], event_id)
     }
     SettleCommit(kind, outcome) ->
-      handle_store_loop(subject, handles, last_local, [
-        json.object([
-          #("type", json.string("settlement")),
-          #("kind", json.string(commit_kind(kind))),
-          #("outcome", json.string(commit_outcome(outcome))),
-        ]),
-        ..commits
-      ])
-    RetainHandle(name, reply) ->
+      handle_store_loop(
+        subject,
+        handles,
+        last_local,
+        [
+          json.object([
+            #("type", json.string("settlement")),
+            #("kind", json.string(commit_kind(kind))),
+            #("outcome", json.string(commit_outcome(outcome))),
+          ]),
+          ..commits
+        ],
+        next_event_id,
+      )
+    RetainHandle(name, revisions, reply) ->
       case last_local {
         None -> {
           process.send(
@@ -1065,9 +1171,19 @@ fn handle_store_loop(
               "No unretained local commit is available",
             )),
           )
-          handle_store_loop(subject, handles, last_local, commits)
+          handle_store_loop(
+            subject,
+            handles,
+            last_local,
+            commits,
+            next_event_id,
+          )
         }
         Some(entry) -> {
+          let revision = case entry.3 {
+            Some(_) -> entry.3
+            None -> revisions() |> list.last |> option.from_result
+          }
           process.send(
             reply,
             Ok(
@@ -1076,14 +1192,17 @@ fn handle_store_loop(
                 #("kind", json.string(commit_kind(entry.1))),
                 #("factoryAvailable", json.bool(True)),
                 #("status", json.string(revertible_status(entry.0))),
+                #("eventId", json.int(entry.2)),
+                #("revision", optional_string(revision)),
               ]),
             ),
           )
           handle_store_loop(
             subject,
-            dict.insert(handles, name, entry),
+            dict.insert(handles, name, #(entry.0, entry.1, revision)),
             None,
             commits,
+            next_event_id,
           )
         }
       }
@@ -1103,7 +1222,7 @@ fn handle_store_loop(
           )
       }
       process.send(reply, outcome)
-      handle_store_loop(subject, handles, last_local, commits)
+      handle_store_loop(subject, handles, last_local, commits, next_event_id)
     }
     DisposeHandle(name, reply) -> {
       let outcome = case dict.get(handles, name) {
@@ -1123,49 +1242,86 @@ fn handle_store_loop(
           |> result.map_error(fn(reason) { facade("disposeRevertible", reason) })
       }
       process.send(reply, outcome)
-      handle_store_loop(subject, handles, last_local, commits)
+      handle_store_loop(subject, handles, last_local, commits, next_event_id)
     }
-    RevertHandle(name, dispose, pending_count, reply) ->
+    RevertHandle(name, dispose, revisions, reply) ->
       case dict.get(handles, name) {
         Error(_) -> {
           process.send(
             reply,
             Error(facade("revert", "Unknown revertible handle: " <> name)),
           )
-          handle_store_loop(subject, handles, last_local, commits)
+          handle_store_loop(
+            subject,
+            handles,
+            last_local,
+            commits,
+            next_event_id,
+          )
         }
         Ok(entry) -> {
-          let #(before_pending, before_sequence) = pending_count()
+          let before_revisions = revisions()
           let outcome = case watershed.tree_revert(entry.0, dispose) {
             Error(reason) -> Error(facade("revert", reason))
             Ok(_) ->
-              case await_revert_commit(subject, commits) {
+              case await_revert_commit(subject, commits, next_event_id) {
                 Error(error) -> Error(error)
-                Ok(#(authored_kind, acquired, commit, observed_commits)) -> {
-                  let #(after_pending, after_sequence) = pending_count()
-                  let sequence_count = case before_sequence, after_sequence {
-                    Some(before), Some(after) -> int.max(after - before, 0)
-                    _, _ -> 0
-                  }
-                  let authored_count = list.length([commit])
-                  let outbound_count =
-                    int.max(
-                      after_pending - before_pending,
-                      int.min(sequence_count, authored_count),
-                    )
+                Ok(#(
+                  authored_kind,
+                  acquired,
+                  commit,
+                  observed_commits,
+                  event_id,
+                  _revision,
+                )) -> {
+                  use submitted_revisions <- result.try(
+                    await_submitted_revisions(
+                      revisions,
+                      before_revisions,
+                      entry.2,
+                      40,
+                    ),
+                  )
+                  let authored_event_ids = [event_id]
+                  use _ <- result.try(require_revert_evidence(
+                    list.length(authored_event_ids) == 1,
+                    "Revert authored another local commit count",
+                  ))
+                  use _ <- result.try(require_revert_evidence(
+                    list.length(submitted_revisions) == 1,
+                    "Revert submitted another operation count",
+                  ))
+                  let submitted_revision =
+                    list.first(submitted_revisions) |> option.from_result
                   Ok(#(
                     json.object([
                       #("name", json.string(name)),
                       #("authoredKind", json.string(commit_kind(authored_kind))),
                       #("status", json.string(revertible_status(entry.0))),
                       #("settlement", json.string("Pending")),
-                      #("authoredCount", json.int(authored_count)),
-                      #("outboundCount", json.int(outbound_count)),
+                      #(
+                        "authoredCount",
+                        json.int(list.length(authored_event_ids)),
+                      ),
+                      #(
+                        "outboundCount",
+                        json.int(list.length(submitted_revisions)),
+                      ),
+                      #(
+                        "authoredEventIds",
+                        json.array(authored_event_ids, json.int),
+                      ),
+                      #(
+                        "submittedRevisions",
+                        json.array(submitted_revisions, json.string),
+                      ),
                     ]),
                     authored_kind,
                     acquired,
                     commit,
                     observed_commits,
+                    event_id,
+                    submitted_revision,
                   ))
                 }
               }
@@ -1173,25 +1329,43 @@ fn handle_store_loop(
           case outcome {
             Error(error) -> {
               process.send(reply, Error(error))
-              handle_store_loop(subject, handles, last_local, commits)
+              handle_store_loop(
+                subject,
+                handles,
+                last_local,
+                commits,
+                next_event_id,
+              )
             }
-            Ok(#(value, authored_kind, acquired, commit, observed_commits)) -> {
+            Ok(#(
+              value,
+              authored_kind,
+              acquired,
+              commit,
+              observed_commits,
+              event_id,
+              revision,
+            )) -> {
               process.send(reply, Ok(value))
               let next = case acquired {
-                Some(handle) -> Some(#(handle, authored_kind))
+                Some(handle) ->
+                  Some(#(handle, authored_kind, event_id, revision))
                 None -> last_local
               }
-              handle_store_loop(subject, handles, next, [
-                commit,
-                ..observed_commits
-              ])
+              handle_store_loop(
+                subject,
+                handles,
+                next,
+                [commit, ..observed_commits],
+                event_id,
+              )
             }
           }
         }
       }
     DrainCommits(reply) -> {
       process.send(reply, list.reverse(commits))
-      handle_store_loop(subject, handles, last_local, [])
+      handle_store_loop(subject, handles, last_local, [], next_event_id)
     }
   }
 }

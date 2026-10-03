@@ -15,6 +15,7 @@ import { DeliveryGate } from "./delivery-gate.mjs";
 import { Point, schemaEvolutionConfigurations } from "./schema.mjs";
 import {
   canonicalValue,
+  captureFailureCheckpoint,
   decodeReconnectPayload,
   decodeTreeSubmissions,
   nativeAdapter,
@@ -4342,6 +4343,13 @@ async function writeUndoRedoReloadArtifact(context, item, raw) {
   return relative;
 }
 
+function checkpointRevisionEvidence(checkpoint) {
+  return [...new Set((checkpoint.history?.trunk ?? []).flatMap((entry) => {
+    const revision = entry.commit?.revision ?? entry.revision;
+    return revision === undefined ? [] : [String(revision)];
+  }))].map((revision) => ({ revision }));
+}
+
 async function runUndoRedoReloadReader(
   config,
   context,
@@ -4369,6 +4377,12 @@ async function runUndoRedoReloadReader(
     const loaded = await fresh.adapter.checkpoint();
     trace.push({ label: "loaded", observation: loaded });
     const load = fresh.loadEvidence(version, snapshotSequenceNumber);
+    const consumedSnapshotSequenceNumber = await publishedSequence(
+      config,
+      environment.documentId,
+      environment.jwt,
+      load.loadedVersion,
+    );
     assert.deepEqual(loaded.wholeTree, expectedTree,
       `${writer} ${stage}->${reader} loaded another tree`);
     let historicalRetainError;
@@ -4411,6 +4425,8 @@ async function runUndoRedoReloadReader(
       writerVersion: version,
       loadedVersion: version,
       snapshotSequenceNumber,
+      publicationReferenceSequenceNumber: snapshotSequenceNumber,
+      consumedSnapshotSequenceNumber,
       replayStartSequenceNumber: load.replayStartSequenceNumber,
       selectedSummaryRequests: load.selectedSummaryRequests,
       loadEvidence: load,
@@ -4435,9 +4451,21 @@ async function runUndoRedoReloadReader(
     assert.deepEqual(final.wholeTree, expectedTree,
       `${writer} ${stage}->${reader} did not undo its post-load edit`);
     item.artifacts = [await writeUndoRedoReloadArtifact(context, item, {
-      loaded,
+      publication: {
+        version,
+        referenceSequenceNumber: snapshotSequenceNumber,
+      },
+      loaded: {
+        ...loaded,
+        snapshotSequenceNumber: consumedSnapshotSequenceNumber,
+      },
       final,
+      lifecycle: {
+        ...undo,
+        settlement,
+      },
       load,
+      sequencedHistory: checkpointRevisionEvidence(final),
       handleNames: ["post-load"],
       commitKinds: commits.filter(({ type }) => type === "commit")
         .map(({ kind }) => kind),
@@ -4447,17 +4475,19 @@ async function runUndoRedoReloadReader(
     return item;
   } catch (error) {
     failure = error;
-    try {
-      trace.push({
-        label: "failure-drain",
-        observation: await fresh.adapter.checkpoint(),
-      });
-    } catch (drainError) {
-      error.drainErrors = [{
-        name: drainError?.name ?? "Error",
-        message: drainError?.message ?? String(drainError),
-      }];
+    if (error.checkpoint) {
+      trace.push({ label: "primary-checkpoint", observation: error.checkpoint });
     }
+    const drained = await captureFailureCheckpoint(
+      "failure-drain",
+      "intermediate",
+      { [reader]: fresh.adapter },
+    );
+    trace.push(...drained.checkpoint.observations.map((observation) => ({
+      label: "failure-drain",
+      observation,
+    })));
+    error.drainErrors = drained.errors;
     const relative =
       `undo-redo-reload-failure/${writer}-${stage}-${reader}.json`;
     const path = join(context.artifactDirectory, relative);
@@ -4510,9 +4540,11 @@ async function runUndoRedoReloadWriter(config, context, writer) {
   const containers = [];
   const natives = [];
   let failure;
+  let adapters;
+  let documentId;
   try {
     const creator = await openSession(config, containers);
-    const documentId = creator.container.resolvedUrl.id;
+    documentId = creator.container.resolvedUrl.id;
     await publishUpstreamSummary(
       config,
       containers,
@@ -4534,7 +4566,7 @@ async function runUndoRedoReloadWriter(config, context, writer) {
         viewSchema: context.viewSchema,
       }, jwt));
     }
-    const adapters = { upstream, javascript: natives[0], erlang: natives[1] };
+    adapters = { upstream, javascript: natives[0], erlang: natives[1] };
     const environment = { containers, documentId, jwt };
     await settle(adapters);
     await adapters[writer].set(["title"], `${writer}-undo-redo`);
@@ -4595,6 +4627,38 @@ async function runUndoRedoReloadWriter(config, context, writer) {
     return row;
   } catch (error) {
     failure = error;
+    if (error.checkpoint) error.writerCheckpoint = error.checkpoint;
+    if (adapters) {
+      const drained = await captureFailureCheckpoint(
+        "undo-redo-reload-writer-failure-drain",
+        "intermediate",
+        adapters,
+      );
+      error.checkpoint = drained.checkpoint;
+      error.drainErrors = drained.errors;
+      const relative = `undo-redo-reload-writer-failure/${writer}.json`;
+      const path = join(context.artifactDirectory, relative);
+      try {
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, `${JSON.stringify({
+          formatVersion: 1,
+          kind: "undo-redo-reload-writer-failure",
+          runId: context.runId,
+          profileDigest: context.profileDigest,
+          subject: writer,
+          documentId,
+          writer,
+          checkpoint: drained.checkpoint,
+          error: {
+            name: error?.name ?? "Error",
+            message: error?.message ?? String(error),
+          },
+        })}\n`, { mode: 0o600 });
+        error.failurePath = path;
+      } catch (captureError) {
+        error.artifactCaptureError = captureError;
+      }
+    }
     throw error;
   } finally {
     const cleanupErrors = [];

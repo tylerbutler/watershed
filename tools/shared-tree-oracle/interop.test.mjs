@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import * as interop from "./interop.mjs";
+import * as scenarios from "./interop-scenarios.mjs";
 import { caseIds, transactionCaseIds } from "./client-interop.mjs";
 import {
   assertPreflightProfile,
+  artifactReferences,
   corpusCommand,
   createArtifactEvidence,
   failureDiagnostic,
@@ -65,6 +67,7 @@ test("coordinator failure diagnostics retain artifact and cleanup errors", () =>
       new Error("container dispose failed"),
     ],
   });
+
   assert.deepEqual(failureDiagnostic(error), {
     name: "Error",
     message: "primary failure",
@@ -91,6 +94,23 @@ test("coordinator failure diagnostics retain artifact and cleanup errors", () =>
       },
     ],
   });
+});
+
+test("kind source artifacts reuse existing evidence references", async () => {
+  const { expected, report } = await validFixture();
+  for (const item of report.undoRedoKinds.implementations) {
+    item.sourceArtifacts =
+      expected.artifacts.get(item.artifacts[0]).claim.raw.sourceArtifacts;
+  }
+
+  const references = artifactReferences(report);
+
+  assert.equal(new Set(references).size, references.length);
+  for (const item of report.undoRedoKinds.implementations) {
+    for (const reference of item.sourceArtifacts) {
+      assert(references.includes(reference));
+    }
+  }
 });
 
 test("failed status publication preserves the primary coordinator failure", async () => {
@@ -489,6 +509,7 @@ async function validFixture() {
                 kind: action.lifecycle === "undo" ? "Undo" : "Default",
                 factoryAvailable: true,
                 status: "Valid",
+                eventId: action.lifecycle === "undo" ? 2 : 1,
               }
             : action.type === "revert"
               ? {
@@ -498,6 +519,10 @@ async function validFixture() {
                   settlement: "Pending",
                   authoredCount: 1,
                   outboundCount: 1,
+                  authoredEventIds: [action.lifecycle === "redo" ? 3 : 2],
+                  submittedRevisions: [
+                    `${prefix}-${action.lifecycle}`,
+                  ],
                 }
               : {
                   name: action.name,
@@ -514,10 +539,21 @@ async function validFixture() {
     lifecycleObservation.commits = [
       {
         type: "commit",
+        kind: "Default",
+        local: true,
+        factoryAvailable: true,
+        handleAcquired: true,
+        eventId: 1,
+        revision: `${prefix}-default`,
+      },
+      {
+        type: "commit",
         kind: "Undo",
         local: true,
         factoryAvailable: true,
         handleAcquired: true,
+        eventId: 2,
+        revision: `${prefix}-undo`,
       },
       { type: "settlement", kind: "Undo", outcome: "FullyApplied" },
       {
@@ -526,6 +562,8 @@ async function validFixture() {
         local: true,
         factoryAvailable: true,
         handleAcquired: true,
+        eventId: 3,
+        revision: `${prefix}-redo`,
       },
       { type: "settlement", kind: "Redo", outcome: "FullyApplied" },
     ];
@@ -593,7 +631,16 @@ async function validFixture() {
         transactions: item.transactions,
         undoRedo: item.undoRedo,
         evidence: item.evidence,
-      }, ...rawGates() },
+      }, raw: {
+        gates: rawGates().raw.gates,
+        checkpoints: structuredClone(item.checkpoints),
+        lifecycle: structuredClone(item.undoRedo),
+        sequencedHistory: [
+          { revision: `${prefix}-default`, kind: "Default" },
+          { revision: `${prefix}-undo`, kind: "Undo" },
+          { revision: `${prefix}-redo`, kind: "Redo" },
+        ],
+      } },
     )];
     return item;
   });
@@ -1808,12 +1855,14 @@ async function validFixture() {
     })),
   ]));
   const undoCommitEvents = (local) => [
-    ...["Default", "Undo", "Redo"].map((kind) => ({
+    ...["Default", "Undo", "Redo"].map((kind, index) => ({
       type: "commit",
       kind,
       local,
       factoryAvailable: local,
       handleAcquired: local,
+      eventId: index + 1,
+      revision: `${kind.toLowerCase()}-revision`,
     })),
     ...["Default", "Undo", "Redo"].map((kind) => ({
       type: "settlement",
@@ -1861,7 +1910,8 @@ async function validFixture() {
       item.artifacts = [artifact("undo-redo", id, item.documentId, {
         measured: reloadMeasuredPayload(item),
         raw: {
-          checkpoints: structuredClone(item.snapshots),
+          checkpoints: Object.fromEntries(Object.entries(item.snapshots)
+            .map(([phase, wholeTree]) => [phase, { wholeTree }])),
           eventTrace: {
             [authors[0]]: undoCommitEvents(true),
             [authors[1]]: [
@@ -1876,6 +1926,63 @@ async function validFixture() {
             ],
             [implementations.find((value) => !authors.includes(value))]: [],
           },
+          lifecycle: [
+            {
+              type: "retain",
+              name: "edit",
+              result: {
+                name: "edit",
+                kind: "Default",
+                factoryAvailable: true,
+                status: "Valid",
+                eventId: 1,
+              },
+            },
+            {
+              type: "undo",
+              name: "edit",
+              result: {
+                name: "edit",
+                authoredKind: "Undo",
+                status: "Disposed",
+                settlement: "Pending",
+                authoredCount: 1,
+                outboundCount: 1,
+                authoredEventIds: [2],
+                submittedRevisions: ["undo-revision"],
+              },
+            },
+            {
+              type: "retain",
+              name: "undo",
+              result: {
+                name: "undo",
+                kind: "Undo",
+                factoryAvailable: true,
+                status: "Valid",
+                eventId: 2,
+              },
+            },
+            {
+              type: "redo",
+              name: "undo",
+              result: {
+                name: "undo",
+                authoredKind: "Redo",
+                status: "Disposed",
+                settlement: "Pending",
+                authoredCount: 1,
+                outboundCount: 1,
+                authoredEventIds: [3],
+                submittedRevisions: ["redo-revision"],
+              },
+            },
+          ],
+          sequencedHistory: [
+            { revision: "default-revision", kind: "Default" },
+            { revision: "undo-revision", kind: "Undo" },
+            { revision: "redo-revision", kind: "Redo" },
+          ],
           handleNames: ["edit", "undo"],
         },
       })];
@@ -1883,9 +1990,31 @@ async function validFixture() {
     })));
   const undoRedoKinds = {
     implementations: implementations.map((implementation) => {
-      const source = undoRedoConcurrent.find(
+      let source = undoRedoConcurrent.find(
         ({ authors }) => authors[0] === implementation,
-      ) ?? undoRedoConcurrent[0];
+      );
+      if (source === undefined) {
+        const id = `undo-redo-kind-source:${implementation}`;
+        const documentId = `document-${id}`;
+        source = {
+          id,
+          artifacts: [artifact("undo-redo", id, documentId, {
+            measured: {},
+            raw: {
+              checkpoints: {},
+              eventTrace: {
+                [implementation]: undoCommitEvents(true),
+              },
+              lifecycle: [],
+              sequencedHistory: [
+                { revision: "default-revision" },
+                { revision: "undo-revision" },
+                { revision: "redo-revision" },
+              ],
+            },
+          })],
+        };
+      }
       const item = {
         id: implementation,
         implementation,
@@ -1946,7 +2075,23 @@ async function validFixture() {
       {
         measured: reloadMeasuredPayload(item),
         raw: {
+          checkpoint: {
+            label: "settled",
+            observations: [{
+              implementation,
+              wholeTree: structuredClone(item.finalTree),
+            }],
+          },
           eventTrace: undoCommitEvents(true),
+          lifecycle: {
+            authoredKind: "Undo",
+            authoredCount: 1,
+            outboundCount: 1,
+            authoredEventIds: [2],
+            submittedRevisions: ["undo-revision"],
+            settlement: "FullyApplied",
+          },
+          sequencedHistory: [{ revision: "undo-revision", kind: "Undo" }],
           handleNames: ["edit"],
         },
       },
@@ -1968,6 +2113,8 @@ async function validFixture() {
           writerVersion: `${writer}-${stage}-version`,
           loadedVersion: `${writer}-${stage}-version`,
           snapshotSequenceNumber: 70 + stageIndex,
+          publicationReferenceSequenceNumber: 70 + stageIndex,
+          consumedSnapshotSequenceNumber: 70 + stageIndex,
           replayStartSequenceNumber: 70 + stageIndex + readerIndex,
           selectedSummaryRequests: [`${writer}-${stage}-version`],
           loadEvidence: {
@@ -2000,9 +2147,29 @@ async function validFixture() {
           {
             measured: reloadMeasuredPayload(item),
             raw: {
+              publication: {
+                version: `${writer}-${stage}-version`,
+                referenceSequenceNumber: 70 + stageIndex,
+              },
               load: item.loadEvidence,
-              loaded: { commits: [] },
-              final: { commits: undoCommitEvents(true) },
+              loaded: {
+                wholeTree: structuredClone(item.finalTree),
+                commits: [],
+                snapshotSequenceNumber: 70 + stageIndex,
+              },
+              final: {
+                wholeTree: structuredClone(item.finalTree),
+                commits: undoCommitEvents(true),
+              },
+              lifecycle: {
+                authoredKind: "Undo",
+                authoredCount: 1,
+                outboundCount: 1,
+                authoredEventIds: [2],
+                submittedRevisions: ["undo-revision"],
+                settlement: "FullyApplied",
+              },
+              sequencedHistory: [{ revision: "undo-revision", kind: "Undo" }],
               handleNames: ["post-load"],
             },
           },
@@ -2398,6 +2565,128 @@ test("undo and redo evidence rejects concrete proof mutations", async () => {
       label,
     );
   }
+});
+
+test("undo and redo rows are derived from raw artifacts", async () => {
+  for (const [label, select, mutate] of [
+    ["concurrent phase tree", (report) => report.undoRedoConcurrent[0],
+      (item, measured) => {
+        item.snapshots.undone.peer = false;
+        measured.snapshots.undone.peer = false;
+      }],
+    ["reconnect tree", (report) => report.undoRedoReconnect[0],
+      (item, measured) => {
+        item.finalTree.peer = false;
+        measured.finalTree.peer = false;
+      }],
+    ["reload final tree",
+      (report) => report.undoRedoReloadMatrix.javascript.undo.erlang,
+      (item, measured) => {
+        item.finalTree.changed = true;
+        measured.finalTree.changed = true;
+      }],
+  ]) {
+    const { expected, report } = await validFixture();
+    const item = select(report);
+    const claim = expected.artifacts.get(item.artifacts[0]).claim;
+    mutate(item, claim.measured);
+    assert.throws(
+      () => validateInteropReport(report, expected),
+      undefined,
+      label,
+    );
+  }
+
+  const { expected, report } = await validFixture();
+  const item = report.undoRedoConcurrent[0];
+  expected.artifacts.get(item.artifacts[0]).claim.raw
+    .checkpoints.undone.wholeTree.peer = false;
+  assert.throws(() => validateInteropReport(report, expected));
+});
+
+test("undo and redo kind rows recursively validate their source artifacts", async () => {
+  const { expected, report } = await validFixture();
+  const item = report.undoRedoKinds.implementations[0];
+  expected.artifacts.get(item.artifacts[0]).claim.raw.sourceArtifacts =
+    ["evidence/missing-source.json"];
+  assert.throws(() => validateInteropReport(report, expected));
+});
+
+test("reload cells bind the exact published and consumed snapshot sequence", async () => {
+  const { expected, report } = await validFixture();
+  const item = report.undoRedoReloadMatrix.javascript.undo.erlang;
+  item.snapshotSequenceNumber -= 1;
+  item.publicationReferenceSequenceNumber -= 1;
+  item.consumedSnapshotSequenceNumber -= 1;
+  const claim = expected.artifacts.get(item.artifacts[0]).claim;
+  claim.measured.snapshotSequenceNumber = item.snapshotSequenceNumber;
+  claim.measured.publicationReferenceSequenceNumber =
+    item.publicationReferenceSequenceNumber;
+  claim.measured.consumedSnapshotSequenceNumber =
+    item.consumedSnapshotSequenceNumber;
+  assert.throws(() => validateInteropReport(report, expected));
+});
+
+test("seeded undo lifecycle is bound to raw events and accepted submissions", async () => {
+  for (const [label, mutate] of [
+    ["missing default event", (raw) => {
+      const observation = raw.checkpoints.at(-1).observations.find(
+        ({ commits }) => commits?.some(({ kind }) => kind === "Default"),
+      );
+      observation.commits = observation.commits.filter(
+        ({ type, kind }) => type !== "commit" || kind !== "Default",
+      );
+    }],
+    ["missing sequenced undo", (raw) => {
+      raw.sequencedHistory = raw.sequencedHistory.filter(
+        ({ kind }) => kind !== "Undo",
+      );
+    }],
+    ["failed settlement", (raw) => {
+      const observation = raw.checkpoints.at(-1).observations.find(
+        ({ commits }) => commits?.some(({ type }) => type === "settlement"),
+      );
+      observation.commits.find(({ type }) => type === "settlement").outcome =
+        "FullyDropped";
+    }],
+    ["success with error", (raw) => {
+      raw.lifecycle.find(({ type }) => type === "undo").result.error =
+        "revert failed";
+    }],
+  ]) {
+    const { expected, report } = await validFixture();
+    const item = report.seeded.find(({ undoRedo }) => undoRedo.length > 0);
+    mutate(expected.artifacts.get(item.artifacts[0]).claim.raw);
+    assert.throws(
+      () => validateInteropReport(report, expected),
+      undefined,
+      label,
+    );
+  }
+});
+
+test("failure drains preserve surviving client observations and checkpoints", async () => {
+  assert.equal(typeof scenarios.captureFailureCheckpoint, "function");
+  const checkpoint = { implementation: "javascript", commits: [{ kind: "Undo" }] };
+  const primary = Object.assign(new Error("erlang failed"), {
+    checkpoint: { implementation: "erlang", commits: [{ kind: "Undo" }] },
+  });
+  const drained = await scenarios.captureFailureCheckpoint(
+    "failure",
+    "intermediate",
+    {
+      upstream: { checkpoint: async () => ({ implementation: "upstream" }) },
+      javascript: { checkpoint: async () => checkpoint },
+      erlang: { checkpoint: async () => { throw primary; } },
+    },
+  );
+  assert.deepEqual(drained.checkpoint.observations, [
+    { implementation: "upstream" },
+    checkpoint,
+    primary.checkpoint,
+  ]);
+  assert.equal(drained.errors.length, 1);
+  assert.equal(drained.errors[0], primary);
 });
 
 test("seed 42 integrates legal undo lifetimes across generated schedules", () => {

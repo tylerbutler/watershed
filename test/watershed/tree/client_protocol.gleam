@@ -806,6 +806,27 @@ pub fn last_pending_revision(history: Json) -> Option(String) {
   }
 }
 
+/// Return accepted and pending revision IDs from history evidence.
+pub fn history_revisions(history: Json) -> List(String) {
+  history_commit_ids(history) |> list.map(fn(entry) { entry.0 })
+}
+
+/// Return revision and originator IDs from accepted and pending history.
+pub fn history_commit_ids(history: Json) -> List(#(String, String)) {
+  let raw = json.to_string(history)
+  let commit = {
+    use revision <- decode.field("revision", decode.string)
+    use originator <- decode.field("originatorId", decode.string)
+    decode.success(#(revision, originator))
+  }
+  let pending = decode.at(["pending"], decode.list(commit))
+  let trunk = decode.at(["trunk"], decode.list(decode.at(["commit"], commit)))
+  list.append(
+    json.parse(raw, trunk) |> result.unwrap([]),
+    json.parse(raw, pending) |> result.unwrap([]),
+  )
+}
+
 pub fn encode_startup_error(
   code: String,
   operation: String,

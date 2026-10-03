@@ -283,3 +283,125 @@ Report:
 One unrelated Floodgate synchronization timeout occurred in a schema schedule
 with no undo/redo actions during an earlier retry. The successful pinned run
 completed all required cells and schedules.
+
+## Fix round 2
+
+Base: `83880c9a`
+
+### RED evidence
+
+Five focused review tests failed before the implementation changed:
+
+- synchronized report and measured mutations could hide changed concurrent
+  trees and commit traces;
+- kind rows did not resolve their source artifacts;
+- reload rows accepted a lower snapshot sequence copied into both the report
+  and measured claim;
+- seeded lifecycle rows accepted missing factory events, missing accepted
+  revisions, failed settlements, and success-shaped errors;
+- a failed client drain discarded observations and checkpoints from surviving
+  clients.
+
+Result: 5 tests, 0 passed, 5 failed.
+
+### Finding resolution
+
+1. JavaScript and BEAM clients assign monotonic local commit-event IDs. Revert
+   responses return the authored event IDs and the submitted revisions that
+   belong to the retained commit's originator. Counts come from those arrays,
+   and validation requires exactly one authored event and one submitted
+   revision.
+2. Validators derive concurrent trees, commit traces, reconnect state, reload
+   state, and kind coverage from raw checkpoints, lifecycle responses, event
+   traces, and sequenced history. Kind rows resolve and validate their source
+   artifacts. Coordinated report and measured mutations no longer pass when
+   raw evidence disagrees.
+3. Reload evidence records the publication version, publication reference
+   sequence, consumed snapshot sequence, and replay start. Validation requires
+   exact equality for the published and consumed snapshot identity, then checks
+   the replay boundary separately.
+4. Seeded retain, undo, redo, settlement, and dispose records now correlate to
+   factory events, authored event IDs, submitted revisions, accepted sequenced
+   operations, settlements, and handle transitions. Error-shaped successes and
+   failed settlements fail validation.
+5. Deterministic, reconnect, reload writer and reader, and seeded failure paths
+   use all-settled drains. They retain successful client observations, rejected
+   clients' attached checkpoints, the original primary error, and separate
+   drain errors.
+
+The final live gate also exposed two report-collection defects. Kind rows reuse
+verified concurrent artifacts, so the collector now adds each source artifact
+once while preserving duplicate rejection for primary artifacts. Reconnect
+validation now selects the target implementation from the raw checkpoint's
+observation list.
+
+### GREEN evidence
+
+Focused review tests: 5 passed, 0 failed.
+
+```text
+gleam test --target javascript -- shared_tree_client
+gleam test --target erlang -- shared_tree_client
+```
+
+20 passed per target.
+
+```text
+node --test tools/shared-tree-oracle/client-driver.test.mjs tools/shared-tree-oracle/client-interop.test.mjs tools/shared-tree-oracle/summary-interop.test.mjs tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/service.test.mjs
+```
+
+108 passed, 0 failed, 0 skipped.
+
+```text
+just shared-tree-interop
+```
+
+Exit status: 0.
+
+```text
+runId: 4cb348d3-df49-4d06-ac6b-d2d66b333273
+undoRedoKinds.implementations: 3
+undoRedoConcurrent: 30
+undoRedoReconnect: 2
+undoRedoReloadMatrix cells: 18
+seeded schedules: 300, seed 42
+javascript corpus: 956
+erlang corpus: 974
+skipped: 0
+divergences: 0
+```
+
+Report:
+`tools/shared-tree-oracle/.output/interop/4cb348d3-df49-4d06-ac6b-d2d66b333273/report.json`
+
+```text
+just shared-tree-create-interop
+```
+
+Exit status: 0.
+
+```text
+runId: 248840f9-35c2-41b2-8cf4-bc84d436f4cc
+cells: 18
+skipped: 0
+divergences: 0
+```
+
+Report:
+`tools/shared-tree-oracle/.output/creation/248840f9-35c2-41b2-8cf4-bc84d436f4cc/report.json`
+
+### Failed runs and replay
+
+- `1af16e22-beff-4902-bdf8-3bf868a6a7ff` exposed a BEAM deadlock caused by
+  querying history inside the synchronous commit callback.
+- `74cdc6a7-64d1-4f3b-8db5-a6a22aad8277` exposed global revision-delta
+  counting when a peer submitted concurrently.
+- Replay `23368fa2-2b07-4af6-83fd-c9057448b699` passed after revision evidence
+  was scoped to the retained commit's originator.
+- `b417e705-1e98-4af9-9ea2-a93e1bc80aed` exposed duplicate evidence requests
+  for kind rows that reuse concurrent artifacts.
+- `e634768b-b1dc-4e78-8003-a32221c5fb95` exposed reconnect validation against
+  a nonexistent top-level `wholeTree` instead of the target raw observation.
+
+No infrastructure-only transient retry was required for the final successful
+interop or create-interop runs.

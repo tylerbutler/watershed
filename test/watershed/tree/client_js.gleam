@@ -129,10 +129,17 @@ pub fn main() -> Promise(Nil) {
                       let commits = transport_js.new_cell([])
                       let handles = transport_js.new_cell(dict.new())
                       let last_local = transport_js.new_cell(None)
+                      let commit_event_count = transport_js.new_cell(0)
                       let subscription = transport_js.new_cell(None)
                       let _ =
                         watershed.subscribe_tree_commits(tree, fn(event) {
-                          observe_commit(event, commits, last_local)
+                          observe_commit(
+                            event,
+                            tree,
+                            commits,
+                            last_local,
+                            commit_event_count,
+                          )
                         })
                       lines(
                         fn(raw) {
@@ -146,6 +153,7 @@ pub fn main() -> Promise(Nil) {
                             commits,
                             handles,
                             last_local,
+                            commit_event_count,
                             subscription,
                           )
                         },
@@ -187,6 +195,25 @@ fn facade(operation: String, error: String) -> protocol.ProtocolError {
 }
 
 @target(javascript)
+fn optional_string(value: Option(String)) -> Json {
+  case value {
+    Some(value) -> json.string(value)
+    None -> json.null()
+  }
+}
+
+@target(javascript)
+fn require_revert_evidence(
+  condition: Bool,
+  message: String,
+) -> Result(Nil, protocol.ProtocolError) {
+  case condition {
+    True -> Ok(Nil)
+    False -> Error(facade("revert", message))
+  }
+}
+
+@target(javascript)
 fn execute(
   raw: String,
   document: watershed.Document(a),
@@ -195,8 +222,13 @@ fn execute(
   active_tree: Cell(watershed.SharedTree),
   events: Cell(List(Json)),
   commits: Cell(List(Json)),
-  handles: Cell(Dict(String, #(watershed.TreeRevertible, TreeCommitKind))),
-  last_local: Cell(Option(#(watershed.TreeRevertible, TreeCommitKind))),
+  handles: Cell(
+    Dict(String, #(watershed.TreeRevertible, TreeCommitKind, Option(String))),
+  ),
+  last_local: Cell(
+    Option(#(watershed.TreeRevertible, TreeCommitKind, Int, Option(String))),
+  ),
+  commit_event_count: Cell(Int),
   subscription: Cell(Option(watershed.SubscriptionToken)),
 ) -> Promise(String) {
   case protocol.decode_request(raw) {
@@ -362,7 +394,14 @@ fn execute(
           revertible_status_for_name(name, handles)
         protocol.DisposeRevertible(name) -> dispose_revertible(name, handles)
         protocol.Revert(name, dispose) ->
-          revert_handle(document, name, dispose, handles, last_local)
+          revert_handle(
+            tree,
+            name,
+            dispose,
+            handles,
+            last_local,
+            commit_event_count,
+          )
         protocol.Checkpoint -> checkpoint(tree, events, commits)
         protocol.Disconnect -> {
           watershed.go_offline(document)
@@ -720,16 +759,31 @@ fn push_json(cell: Cell(List(Json)), value: Json) -> Nil {
 @target(javascript)
 fn observe_commit(
   event: watershed.TreeCommitEvent,
+  tree: watershed.SharedTree,
   commits: Cell(List(Json)),
-  last_local: Cell(Option(#(watershed.TreeRevertible, TreeCommitKind))),
+  last_local: Cell(
+    Option(#(watershed.TreeRevertible, TreeCommitKind, Int, Option(String))),
+  ),
+  commit_event_count: Cell(Int),
 ) -> Nil {
   let watershed.TreeCommitEvent(kind, local, factory, settlement) = event
+  let event_id = transport_js.get_cell(commit_event_count) + 1
+  transport_js.set_cell(commit_event_count, event_id)
+  let revision =
+    watershed.tree_history_evidence(tree)
+    |> result.map(protocol.history_revisions)
+    |> result.unwrap([])
+    |> list.last
+    |> option.from_result
   let factory_available = option.is_some(factory)
   let acquired = case local, factory {
     True, Some(get_revertible) ->
       case get_revertible() {
         Ok(handle) -> {
-          transport_js.set_cell(last_local, Some(#(handle, kind)))
+          transport_js.set_cell(
+            last_local,
+            Some(#(handle, kind, event_id, revision)),
+          )
           True
         }
         Error(_) -> False
@@ -744,6 +798,8 @@ fn observe_commit(
       #("local", json.bool(local)),
       #("factoryAvailable", json.bool(factory_available)),
       #("handleAcquired", json.bool(acquired)),
+      #("eventId", json.int(event_id)),
+      #("revision", optional_string(revision)),
     ]),
   )
   case settlement {
@@ -768,8 +824,12 @@ fn observe_commit(
 @target(javascript)
 fn retain_last_local_commit(
   name: String,
-  handles: Cell(Dict(String, #(watershed.TreeRevertible, TreeCommitKind))),
-  last_local: Cell(Option(#(watershed.TreeRevertible, TreeCommitKind))),
+  handles: Cell(
+    Dict(String, #(watershed.TreeRevertible, TreeCommitKind, Option(String))),
+  ),
+  last_local: Cell(
+    Option(#(watershed.TreeRevertible, TreeCommitKind, Int, Option(String))),
+  ),
 ) -> Result(Json, protocol.ProtocolError) {
   case transport_js.get_cell(last_local) {
     None ->
@@ -780,7 +840,8 @@ fn retain_last_local_commit(
     Some(entry) -> {
       transport_js.set_cell(
         handles,
-        transport_js.get_cell(handles) |> dict.insert(name, entry),
+        transport_js.get_cell(handles)
+          |> dict.insert(name, #(entry.0, entry.1, entry.3)),
       )
       transport_js.set_cell(last_local, None)
       Ok(
@@ -789,6 +850,8 @@ fn retain_last_local_commit(
           #("kind", json.string(commit_kind(entry.1))),
           #("factoryAvailable", json.bool(True)),
           #("status", json.string(revertible_status(entry.0))),
+          #("eventId", json.int(entry.2)),
+          #("revision", optional_string(entry.3)),
         ]),
       )
     }
@@ -798,7 +861,9 @@ fn retain_last_local_commit(
 @target(javascript)
 fn revertible_status_for_name(
   name: String,
-  handles: Cell(Dict(String, #(watershed.TreeRevertible, TreeCommitKind))),
+  handles: Cell(
+    Dict(String, #(watershed.TreeRevertible, TreeCommitKind, Option(String))),
+  ),
 ) -> Result(Json, protocol.ProtocolError) {
   use entry <- result.try(
     transport_js.get_cell(handles)
@@ -818,7 +883,9 @@ fn revertible_status_for_name(
 @target(javascript)
 fn dispose_revertible(
   name: String,
-  handles: Cell(Dict(String, #(watershed.TreeRevertible, TreeCommitKind))),
+  handles: Cell(
+    Dict(String, #(watershed.TreeRevertible, TreeCommitKind, Option(String))),
+  ),
 ) -> Result(Json, protocol.ProtocolError) {
   use entry <- result.try(
     transport_js.get_cell(handles)
@@ -841,11 +908,16 @@ fn dispose_revertible(
 
 @target(javascript)
 fn revert_handle(
-  document: watershed.Document(a),
+  tree: watershed.SharedTree,
   name: String,
   dispose: Bool,
-  handles: Cell(Dict(String, #(watershed.TreeRevertible, TreeCommitKind))),
-  last_local: Cell(Option(#(watershed.TreeRevertible, TreeCommitKind))),
+  handles: Cell(
+    Dict(String, #(watershed.TreeRevertible, TreeCommitKind, Option(String))),
+  ),
+  last_local: Cell(
+    Option(#(watershed.TreeRevertible, TreeCommitKind, Int, Option(String))),
+  ),
+  commit_event_count: Cell(Int),
 ) -> Result(Json, protocol.ProtocolError) {
   use entry <- result.try(
     transport_js.get_cell(handles)
@@ -854,26 +926,56 @@ fn revert_handle(
       facade("revert", "Unknown revertible handle: " <> name)
     }),
   )
-  let before_pending = observe(document).pending_tree_count
+  let before_event_count = transport_js.get_cell(commit_event_count)
+  let before_commits =
+    watershed.tree_history_evidence(tree)
+    |> result.map(protocol.history_commit_ids)
+    |> result.unwrap([])
+  use originator <- result.try(
+    list.find(before_commits, fn(commit) { Some(commit.0) == entry.2 })
+    |> result.map(fn(commit) { commit.1 })
+    |> result.map_error(fn(_) {
+      facade("revert", "Revert target lacks an originator")
+    }),
+  )
   use _ <- result.try(
     watershed.tree_revert(entry.0, dispose)
     |> result.map_error(fn(reason) { facade("revert", reason) }),
   )
   use authored <- result.try(case transport_js.get_cell(last_local) {
-    Some(authored) -> Ok(authored)
+    Some(authored) if authored.2 > before_event_count -> Ok(authored)
     None -> Error(facade("revert", "Revert authored no local commit event"))
+    _ -> Error(facade("revert", "Revert authored no new local commit event"))
   })
+  let before_revisions = list.map(before_commits, fn(commit) { commit.0 })
+  let submitted_revisions =
+    watershed.tree_history_evidence(tree)
+    |> result.map(protocol.history_commit_ids)
+    |> result.unwrap([])
+    |> list.filter(fn(commit) {
+      commit.1 == originator && !list.contains(before_revisions, commit.0)
+    })
+    |> list.map(fn(commit) { commit.0 })
+  let authored_event_ids = [authored.2]
+  use _ <- result.try(require_revert_evidence(
+    list.length(authored_event_ids) == 1,
+    "Revert authored another local commit count",
+  ))
+  use _ <- result.try(require_revert_evidence(
+    list.length(submitted_revisions) == 1,
+    "Revert submitted another operation count",
+  ))
   let status = revertible_status(entry.0)
-  let outbound_count =
-    int.max(observe(document).pending_tree_count - before_pending, 0)
   Ok(
     json.object([
       #("name", json.string(name)),
       #("authoredKind", json.string(commit_kind(authored.1))),
       #("status", json.string(status)),
       #("settlement", json.string("Pending")),
-      #("authoredCount", json.int(1)),
-      #("outboundCount", json.int(outbound_count)),
+      #("authoredCount", json.int(list.length(authored_event_ids))),
+      #("outboundCount", json.int(list.length(submitted_revisions))),
+      #("authoredEventIds", json.array(authored_event_ids, json.int)),
+      #("submittedRevisions", json.array(submitted_revisions, json.string)),
     ]),
   )
 }

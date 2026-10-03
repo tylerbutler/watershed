@@ -415,6 +415,54 @@ pub fn shared_tree_client_correlates_success_and_error_test() -> Nil {
   Nil
 }
 
+pub fn shared_tree_client_extracts_action_revision_evidence_test() -> Nil {
+  let history =
+    json.object([
+      #(
+        "pending",
+        json.array(
+          [
+            json.object([
+              #("revision", json.string("pending-1")),
+              #("originatorId", json.string("local")),
+            ]),
+            json.object([
+              #("revision", json.string("pending-2")),
+              #("originatorId", json.string("local")),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
+      #(
+        "trunk",
+        json.array(
+          [
+            json.object([
+              #(
+                "commit",
+                json.object([
+                  #("revision", json.string("accepted-1")),
+                  #("originatorId", json.string("peer")),
+                ]),
+              ),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
+    ])
+  client_protocol.history_revisions(history)
+  |> expect.to_equal(["accepted-1", "pending-1", "pending-2"])
+  client_protocol.history_commit_ids(history)
+  |> expect.to_equal([
+    #("accepted-1", "peer"),
+    #("pending-1", "local"),
+    #("pending-2", "local"),
+  ])
+  Nil
+}
+
 pub fn shared_tree_client_rejects_invalid_descriptor_test() -> Nil {
   client_protocol.decode_descriptor("{}") |> expect.to_be_error()
   client_protocol.decode_descriptor(

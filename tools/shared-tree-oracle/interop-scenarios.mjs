@@ -3290,6 +3290,11 @@ function upstreamHistoryEvidence(session) {
   };
 }
 
+function upstreamHistoryRevisions(session) {
+  const history = upstreamHistoryEvidence(session);
+  return [...history.trunk, ...history.pending].map(({ revision }) => revision);
+}
+
 function setUpstream(root, path, value) {
   assert(path.length > 0, "Upstream path must not be empty");
   let parent = root;
@@ -3588,6 +3593,7 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
   const commits = [];
   const handles = new Map();
   let lastLocal;
+  let commitEventCount = 0;
   const connectionEvents = [];
   session.container.deltaManager.on("disconnect", (reason, error) => {
     connectionEvents.push({ reason, ...(error ? { error: replayError(error) } : {}) });
@@ -3615,10 +3621,17 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
     unsubscribeCommits = activeView.events.on(
       "changed",
       (metadata, getRevertible) => {
+        commitEventCount += 1;
+        const revision = upstreamHistoryRevisions(session).at(-1);
         let handle;
         if (metadata.isLocal && getRevertible !== undefined) {
           handle = getRevertible();
-          lastLocal = { handle, kind: metadata.kind };
+          lastLocal = {
+            handle,
+            kind: metadata.kind,
+            eventId: commitEventCount,
+            revision,
+          };
         }
         commits.push({
           type: "commit",
@@ -3626,6 +3639,8 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
           local: metadata.isLocal,
           factoryAvailable: getRevertible !== undefined,
           handleAcquired: handle !== undefined,
+          eventId: commitEventCount,
+          revision,
         });
         if (metadata.isLocal) {
           metadata.events.on("settled", (outcome) => {
@@ -3765,26 +3780,38 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
         kind: enumName(CommitKind, retained.kind),
         factoryAvailable: true,
         status: enumName(RevertibleStatus, retained.handle.status),
+        eventId: retained.eventId,
+        revision: retained.revision,
       };
     },
     async revert(name, dispose) {
       const retained = handles.get(name);
       assert(retained, `Unknown upstream revertible handle: ${name}`);
-      const before = pendingTreeCommits(session);
-      const beforeCommits = commits.length;
+      const beforeRevisions = upstreamHistoryRevisions(session);
+      const beforeEventCount = commitEventCount;
       retained.handle.revert(dispose);
-      const authored = commits.slice(beforeCommits).filter(
-        ({ type, local }) => type === "commit" && local === true,
+      const authored = commits.filter(
+        ({ type, local, eventId }) =>
+          type === "commit" && local === true && eventId > beforeEventCount,
+      );
+      const submittedRevisions = upstreamHistoryRevisions(session).filter(
+        (revision) => !beforeRevisions.includes(revision),
       );
       assert.equal(authored.length, 1,
         `Upstream revert ${name} authored another local commit count`);
+      assert.equal(submittedRevisions.length, 1,
+        `Upstream revert ${name} submitted another operation count`);
+      assert.equal(authored[0].revision, submittedRevisions[0],
+        `Upstream revert ${name} event differs from its submission`);
       return {
         name,
         authoredKind: authored[0].kind,
         status: enumName(RevertibleStatus, retained.handle.status),
         settlement: "Pending",
         authoredCount: authored.length,
-        outboundCount: Math.max(pendingTreeCommits(session) - before, 0),
+        outboundCount: submittedRevisions.length,
+        authoredEventIds: authored.map(({ eventId }) => eventId),
+        submittedRevisions,
       };
     },
     async revertibleStatus(name) {
@@ -4785,6 +4812,26 @@ async function captureCheckpoint(label, stage, adapters) {
   const observations = await Promise.all(implementations.map((implementation) =>
     adapters[implementation].checkpoint()));
   return { label, stage, observations };
+}
+
+export async function captureFailureCheckpoint(label, stage, adapters) {
+  const entries = Object.entries(adapters);
+  const settled = await Promise.allSettled(
+    entries.map(([, adapter]) => adapter.checkpoint()),
+  );
+  const observations = [];
+  const errors = [];
+  for (const result of settled) {
+    if (result.status === "fulfilled") {
+      observations.push(result.value);
+    } else {
+      errors.push(result.reason);
+      if (result.reason?.checkpoint) {
+        observations.push(result.reason.checkpoint);
+      }
+    }
+  }
+  return { checkpoint: { label, stage, observations }, errors };
 }
 
 export async function settle(adapters) {
@@ -7164,6 +7211,16 @@ async function writeUndoRedoFailure(context, identity, state, error, kind) {
   return path;
 }
 
+function checkpointSequencedRevisions(checkpoints) {
+  return [...new Set(checkpoints.flatMap(({ observations }) =>
+    observations.flatMap(({ history }) =>
+      (history?.trunk ?? []).flatMap((entry) => {
+        const revision = entry.commit?.revision ?? entry.revision;
+        return revision === undefined ? [] : [String(revision)];
+      }))))]
+    .map((revision) => ({ revision }));
+}
+
 async function runUndoRedoCell(config, context, cell) {
   const environment = await openUndoRedoEnvironment(
     config,
@@ -7250,6 +7307,21 @@ async function runUndoRedoCell(config, context, cell) {
     const remoteCommits = commitTrace(checkpoints, peer).filter(
       ({ type, local }) => type === "commit" && local === false,
     );
+    const actionEvidence = [
+      {
+        authoredEventIds: [retainedEdit.eventId],
+        submittedRevisions: [retainedEdit.revision],
+      },
+      undo,
+      redo,
+    ];
+    assert(actionEvidence.every(({ authoredEventIds, submittedRevisions }) =>
+      authoredEventIds.length === 1
+        && Number.isSafeInteger(authoredEventIds[0])
+        && submittedRevisions.length === 1
+        && typeof submittedRevisions[0] === "string"
+        && submittedRevisions[0].length > 0),
+    `${cell.id} lacks action-scoped commit evidence`);
     const item = {
       ...cell,
       runId: context.runId,
@@ -7270,12 +7342,12 @@ async function runUndoRedoCell(config, context, cell) {
       ],
       handleStatuses: [retainedEdit.status, undo.status, redo.status],
       settlements: settlements.slice(-3).map(({ outcome }) => outcome),
-      authoredCounts: localCommits.slice(-3).map(() => 1),
-      outboundCounts: [
-        checkpointFor(authored, author).pendingTreeCount,
-        undo.outboundCount,
-        redo.outboundCount,
-      ],
+      authoredCounts: actionEvidence.map(
+        ({ authoredEventIds }) => authoredEventIds.length,
+      ),
+      outboundCounts: actionEvidence.map(
+        ({ submittedRevisions }) => submittedRevisions.length,
+      ),
       remoteFactoryAvailable: remoteCommits.some(
         ({ factoryAvailable }) => factoryAvailable,
       ),
@@ -7305,27 +7377,36 @@ async function runUndoRedoCell(config, context, cell) {
         isDeepStrictEqual(wholeTree, first)),
       `${cell.id} did not converge`);
     }
+    const history = await serverHistory(creator);
     item.artifacts = [await writeUndoRedoArtifact(context, item, {
-      checkpoints,
-      history: await serverHistory(creator),
+      checkpoints: Object.fromEntries([
+        ["authored", authored],
+        ["concurrent", concurrent],
+        ["undone", undone],
+        ["redone", redone],
+      ].map(([phase, checkpoint]) => [
+        phase,
+        checkpointFor(checkpoint, author),
+      ])),
+      history,
       eventTrace: Object.fromEntries(implementations.map((implementation) => [
         implementation,
         commitTrace(checkpoints, implementation),
       ])),
+      lifecycle: failureState.undoRedo,
+      sequencedHistory: checkpointSequencedRevisions(checkpoints),
       handleNames: ["edit", "undo"],
     })];
     return item;
   } catch (error) {
     failure = error;
-    try {
-      failureState.checkpoints.push(await captureCheckpoint(
-        "undo-redo-failure-drain",
-        "intermediate",
-        environment.adapters,
-      ));
-    } catch (drainError) {
-      error.drainErrors = [replayError(drainError)];
-    }
+    const drained = await captureFailureCheckpoint(
+      "undo-redo-failure-drain",
+      "intermediate",
+      environment.adapters,
+    );
+    failureState.checkpoints.push(drained.checkpoint);
+    error.drainErrors = drained.errors.map(replayError);
     try {
       error.failurePath = await writeUndoRedoFailure(
         context,
@@ -7352,6 +7433,7 @@ async function runUndoRedoReconnectTarget(config, context, implementation) {
     id,
   );
   let failure;
+  const failureState = { checkpoints: [] };
   try {
     const adapter = environment.adapters[implementation];
     const baseline = await settle(environment.adapters);
@@ -7390,14 +7472,39 @@ async function runUndoRedoReconnectTarget(config, context, implementation) {
     };
     assert.deepEqual(item.finalTree, item.expectedTree,
       `${implementation} reconnect undo restored another tree`);
+    const history = await serverHistory(environment.creator);
     item.artifacts = [await writeUndoRedoArtifact(context, item, {
       checkpoint: undone,
       eventTrace: commits,
+      lifecycle: { ...undo, settlement },
+      sequencedHistory: checkpointSequencedRevisions([undone]),
       handleNames: ["edit"],
     }, "undo-redo-reconnect")];
     return item;
   } catch (error) {
     failure = error;
+    const drained = await captureFailureCheckpoint(
+      "undo-redo-reconnect-failure-drain",
+      "intermediate",
+      environment.adapters,
+    );
+    failureState.checkpoints.push(drained.checkpoint);
+    error.drainErrors = drained.errors.map(replayError);
+    try {
+      error.failurePath = await writeUndoRedoFailure(
+        context,
+        { id, implementation },
+        {
+          documentId: environment.documentId,
+          checkpoints: failureState.checkpoints,
+          undoRedo: [],
+        },
+        error,
+        "undo-redo-reconnect",
+      );
+    } catch (captureError) {
+      error.artifactCaptureError = captureError;
+    }
     throw error;
   } finally {
     await closeTransactionEnvironment(environment, failure);
@@ -7431,6 +7538,7 @@ export async function runUndoRedoScenarios(config, context, {
         outboundCounts: item.outboundCounts,
         finalTree: item.finalTree,
         sourceId: item.id,
+        sourceArtifacts: item.artifacts,
         runId: item.runId,
         profileDigest: item.profileDigest,
         documentId: item.documentId,
@@ -7464,6 +7572,7 @@ export async function runUndoRedoScenarios(config, context, {
     outboundCounts: upstreamCell.outboundCounts,
     finalTree: upstreamCell.finalTree,
     sourceId: upstreamCell.id,
+    sourceArtifacts: upstreamCell.artifacts,
     runId: upstreamCell.runId,
     profileDigest: upstreamCell.profileDigest,
     documentId: upstreamCell.documentId,
@@ -8240,6 +8349,9 @@ export async function runSeededSchedule(config, context, schedule) {
     item.artifacts = [await writeSeededArtifact(context, item, {
       sequencedOperations: finalHistory,
       decoded: decoded.decoded,
+      checkpoints: item.checkpoints,
+      lifecycle: item.undoRedo,
+      sequencedHistory: checkpointSequencedRevisions(item.checkpoints),
       gates: Object.fromEntries(nativeTargets.map((target) =>
         [target, state.adapters[target].evidence()])),
     })];
@@ -8251,19 +8363,16 @@ export async function runSeededSchedule(config, context, schedule) {
       state.checkpoints.push(error.checkpoint);
     }
     if (state.adapters) {
-      try {
-        const drained = await captureCheckpoint(
-          "seeded-failure-drain",
-          "intermediate",
-          state.adapters,
-        );
-        state.checkpoints.push(drained);
-      } catch (drainError) {
-        state.drainErrors = [
-          ...(state.drainErrors ?? []),
-          replayError(drainError),
-        ];
-      }
+      const drained = await captureFailureCheckpoint(
+        "seeded-failure-drain",
+        "intermediate",
+        state.adapters,
+      );
+      state.checkpoints.push(drained.checkpoint);
+      state.drainErrors = [
+        ...(state.drainErrors ?? []),
+        ...drained.errors.map(replayError),
+      ];
     }
     try {
       error.failurePath = await writeSeededFailure(context, schedule, state, error);
