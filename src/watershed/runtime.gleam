@@ -2828,8 +2828,20 @@ pub fn tree_revert(
       cell_set(cell, State(..state, phase: Ready(core, None)))
       prime_tree_commit_deliveries(cell, events)
       send_outbound(state.channel, core.client_id, [outbound])
-      fan_out(cell, state.subscribers, state.tree_commit_subscribers, events)
-      Ok(Nil)
+      case cell_get(cell).phase {
+        Ready(_, _) | Reconnecting(_) -> {
+          fan_out(
+            cell,
+            state.subscribers,
+            state.tree_commit_subscribers,
+            events,
+          )
+          Ok(Nil)
+        }
+        Failed(reason) -> Error(reason)
+        SuspendedPendingTree(_, reason) -> Error(reason)
+        Connecting -> Error("tree revert requires a ready document connection")
+      }
     }
     SuspendedPendingTree(_, reason), _ -> Error(reason)
     Ready(_, _), _ | Connecting, _ | Reconnecting(_), _ | Failed(_), _ ->
@@ -4687,12 +4699,14 @@ fn fan_out(
   tree_commit_subscribers: List(TreeCommitSubscriber),
   events: List(#(String, ChannelEvent)),
 ) -> Nil {
+  let deferred_settlements = transport_js.new_cell([])
   list.each(events, fn(event) {
     let #(address, event) = event
     case event {
       channel.TreeCommitApplied(revision, kind, local, revertible) ->
         fan_out_tree_commit(
           cell,
+          deferred_settlements,
           tree_commit_subscribers,
           address,
           revision,
@@ -4701,7 +4715,7 @@ fn fan_out(
           revertible,
         )
       channel.TreeCommitSettled(revision, outcome) ->
-        settle_tree_commit(cell, revision, outcome)
+        settle_tree_commit(cell, deferred_settlements, revision, outcome)
       _ ->
         list.each(subscribers, fn(subscriber) {
           case subscriber.address == address {
@@ -4714,11 +4728,15 @@ fn fan_out(
         })
     }
   })
+  transport_js.get_cell(deferred_settlements)
+  |> list.reverse
+  |> list.each(fn(callback) { callback() })
 }
 
 @target(javascript)
 fn fan_out_tree_commit(
   cell: Cell(State),
+  deferred_settlements: Cell(List(fn() -> Nil)),
   subscribers: List(TreeCommitSubscriber),
   address: String,
   revision: fluid_ids.StableId,
@@ -4764,6 +4782,12 @@ fn fan_out_tree_commit(
           False -> Error("tree settlement registration is no longer active")
         })
         let state = cell_get(cell)
+        use _ <- result.try(
+          case state.phase, dict.get(state.tree_commit_deliveries, revision) {
+            Ready(_, _), Ok(_) | Reconnecting(_), Ok(_) -> Ok(Nil)
+            _, _ -> Error("tree settlement registration is no longer active")
+          },
+        )
         let callbacks = case dict.get(state.tree_commit_settlements, revision) {
           Ok(callbacks) -> callbacks
           Error(_) -> []
@@ -4820,7 +4844,7 @@ fn fan_out_tree_commit(
           ),
         ),
       )
-      settle_tree_commit(cell, revision, outcome)
+      settle_tree_commit(cell, deferred_settlements, revision, outcome)
     }
   }
 }
@@ -4828,6 +4852,7 @@ fn fan_out_tree_commit(
 @target(javascript)
 fn settle_tree_commit(
   cell: Cell(State),
+  deferred_settlements: Cell(List(fn() -> Nil)),
   revision: fluid_ids.StableId,
   outcome: tree_types.TreeCommitOutcome,
 ) -> Nil {
@@ -4865,7 +4890,10 @@ fn settle_tree_commit(
         ),
       )
       list.each(callbacks, fn(callback) {
-        observe("tree commit settlement", fn() { callback(outcome) })
+        transport_js.set_cell(deferred_settlements, [
+          fn() { observe("tree commit settlement", fn() { callback(outcome) }) },
+          ..transport_js.get_cell(deferred_settlements)
+        ])
       })
     }
   }

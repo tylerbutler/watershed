@@ -346,7 +346,7 @@ pub fn shared_tree_array_facade_js_transaction_revertible_test() {
   let events = transport_js.new_cell(0)
   let token =
     watershed.subscribe_tree_commits(tree, fn(event) {
-      let assert runtime.TreeCommitEvent(_, True, Some(get_revertible), _) =
+      let assert watershed.TreeCommitEvent(_, True, Some(get_revertible), _) =
         event
       let handle = get_revertible() |> expect.to_be_ok()
       transport_js.set_cell(handles, [handle, ..transport_js.get_cell(handles)])

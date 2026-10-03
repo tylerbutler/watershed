@@ -202,8 +202,16 @@ pub type TreeRevertible =
   runtime.TreeRevertible
 
 @target(javascript)
-pub type TreeCommitEvent =
-  runtime.TreeCommitEvent
+pub type TreeCommitEvent {
+  TreeCommitEvent(
+    kind: tree_types.TreeCommitKind,
+    local: Bool,
+    get_revertible: Option(fn() -> Result(TreeRevertible, String)),
+    on_settled: Option(
+      fn(fn(tree_types.TreeCommitOutcome) -> Nil) -> Result(Nil, String),
+    ),
+  )
+}
 
 @target(javascript)
 pub type TreeTransactionConstraint {
@@ -2166,11 +2174,17 @@ pub fn subscribe_tree_commits(
   tree: SharedTree,
   handler: fn(TreeCommitEvent) -> Nil,
 ) -> SubscriptionToken {
-  SubscriptionToken(runtime_token: runtime.subscribe_tree_commits(
-    tree.runtime,
-    tree.address,
-    handler,
-  ))
+  SubscriptionToken(
+    runtime_token: runtime.subscribe_tree_commits(
+      tree.runtime,
+      tree.address,
+      fn(event) {
+        let runtime.TreeCommitEvent(kind, local, get_revertible, on_settled) =
+          event
+        handler(TreeCommitEvent(kind, local, get_revertible, on_settled))
+      },
+    ),
+  )
 }
 
 @target(javascript)

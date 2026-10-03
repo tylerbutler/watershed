@@ -95,7 +95,7 @@ pub fn native_created_tree_supports_revertible_facade_test() {
   let handle = transport_js.new_cell(None)
   let token =
     watershed.subscribe_tree_commits(tree, fn(event) {
-      let assert runtime.TreeCommitEvent(_, True, Some(get_revertible), _) =
+      let assert watershed.TreeCommitEvent(_, True, Some(get_revertible), _) =
         event
       transport_js.set_cell(handle, Some(get_revertible() |> expect.to_be_ok()))
     })
