@@ -1436,17 +1436,30 @@ fn pending_revertible_position(
   base: Option(BranchBase),
   revision: fluid_ids.StableId,
 ) -> Option(#(BranchBase, List(BranchCommit))) {
+  pending_revertible_prefix(
+    pending,
+    option.unwrap(base, Sentinel),
+    revision,
+    [],
+  )
+}
+
+fn pending_revertible_prefix(
+  pending: List(LocalCommit),
+  base: BranchBase,
+  revision: fluid_ids.StableId,
+  before: List(BranchCommit),
+) -> Option(#(BranchBase, List(BranchCommit))) {
   case pending {
     [] -> None
     [first, ..rest] ->
       case first.original.commit.revision == revision {
-        True -> Some(#(option.unwrap(base, Sentinel), [first.current]))
+        True -> Some(#(base, list.reverse([first.current, ..before])))
         False ->
-          pending_revertible_position(
-            rest,
-            Some(Revision(first.current.commit.revision)),
-            revision,
-          )
+          pending_revertible_prefix(rest, base, revision, [
+            first.current,
+            ..before
+          ])
       }
   }
 }
@@ -1470,17 +1483,22 @@ fn branch_revertible_position(
   base: BranchBase,
   revision: fluid_ids.StableId,
 ) -> Option(#(BranchBase, List(BranchCommit))) {
+  branch_revertible_prefix(commits, base, revision, [])
+}
+
+fn branch_revertible_prefix(
+  commits: List(BranchCommit),
+  base: BranchBase,
+  revision: fluid_ids.StableId,
+  before: List(BranchCommit),
+) -> Option(#(BranchBase, List(BranchCommit))) {
   case commits {
     [] -> None
     [first, ..rest] ->
       case first.commit.revision == revision {
-        True -> Some(#(base, [first]))
+        True -> Some(#(base, list.reverse([first, ..before])))
         False ->
-          branch_revertible_position(
-            rest,
-            Revision(first.commit.revision),
-            revision,
-          )
+          branch_revertible_prefix(rest, base, revision, [first, ..before])
       }
   }
 }

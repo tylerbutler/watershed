@@ -92,6 +92,14 @@ fn empty_commit(
   originator: fluid_ids.SessionId,
 ) -> history.Commit {
   let assert Ok(order) = change.identity_order([#(revision, -1)])
+  empty_commit_with_order(revision, originator, order)
+}
+
+fn empty_commit_with_order(
+  revision: fluid_ids.StableId,
+  originator: fluid_ids.SessionId,
+  order: change.IdentityOrder,
+) -> history.Commit {
   let assert Ok(checked) =
     change.from_data(change.to_data(change.empty()), order)
   history.Commit(revision, originator, shared_change.from_data(checked))
@@ -1460,6 +1468,123 @@ pub fn shared_tree_history_revertible_pins_target_until_disposal_test() -> Nil {
   released.trimmed_revisions
   |> expect.to_equal([revision_b(), revision_r()])
   history.inspect(released.history).sequenced.trunk |> expect.to_equal([])
+}
+
+pub fn shared_tree_history_pending_revertible_pins_prefix_rollbacks_test() -> Nil {
+  let rollback_a = revision("00000000-0000-4000-8000-00000000000d")
+  let rollback_b = revision("00000000-0000-4000-8000-00000000000e")
+  let remote_two_revision = revision("00000000-0000-4000-8000-00000000000f")
+  let assert Ok(order) =
+    change.identity_order([
+      #(revision_a(), -5),
+      #(revision_b(), -4),
+      #(revision_r(), -3),
+      #(remote_two_revision, -2),
+      #(rollback_a, -1),
+      #(rollback_b, 0),
+    ])
+  let commit_a = empty_commit_with_order(revision_a(), local_session(), order)
+  let commit_b = empty_commit_with_order(revision_b(), local_session(), order)
+  let remote = empty_commit_with_order(revision_r(), peer_session(), order)
+  let allocation = Allocation([rollback_a, rollback_b], order, 0)
+  let assert Ok(appended_a) =
+    history.append_local(history.new(local_session()), commit_a)
+  let assert Ok(appended_b) = history.append_local(appended_a.history, commit_b)
+  let assert Ok(#(retained, id)) =
+    history.retain_revertible(
+      appended_b.history,
+      revision_b(),
+      types.DefaultCommit,
+    )
+  let received =
+    history.receive(
+      retained,
+      remote,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      allocation,
+      mint,
+    )
+  received |> expect.to_be_ok
+  let assert Ok(#(rebased, allocation)) = received
+  allocation.consumed |> expect.to_equal(2)
+  let advanced = history.advance_minimum(rebased.history, 1, 1, Nil, no_mint)
+  advanced |> expect.to_be_ok
+  let assert Ok(#(pinned, Nil)) = advanced
+  let pinned_revisions = history.identity_revisions(pinned.history)
+  list.contains(pinned_revisions, rollback_a) |> expect.to_equal(True)
+  list.contains(pinned_revisions, rollback_b) |> expect.to_equal(True)
+
+  let assert Ok(disposed) = history.dispose_revertible(pinned.history, id)
+  let advanced = history.advance_minimum(disposed, 1, 1, Nil, no_mint)
+  advanced |> expect.to_be_ok
+  let assert Ok(#(released, Nil)) = advanced
+  released.trimmed_revisions |> expect.to_equal([revision_r()])
+
+  let remote_two =
+    empty_commit_with_order(remote_two_revision, other_peer_session(), order)
+  let allocation = Allocation([rollback_a, rollback_b], order, 0)
+  let received =
+    history.receive(
+      released.history,
+      remote_two,
+      types.SequencePoint(2, 0),
+      1,
+      1,
+      allocation,
+      mint,
+    )
+  received |> expect.to_be_ok
+  let assert Ok(#(_, allocation)) = received
+  allocation.consumed |> expect.to_equal(2)
+}
+
+pub fn shared_tree_history_peer_revertible_pins_prefix_test() -> Nil {
+  let rollback_a = revision("00000000-0000-4000-8000-00000000000d")
+  let rollback_b = revision("00000000-0000-4000-8000-00000000000e")
+  let assert Ok(order) =
+    change.identity_order([
+      #(revision_a(), -4),
+      #(revision_b(), -3),
+      #(revision_r(), -2),
+      #(rollback_a, -1),
+      #(rollback_b, 0),
+    ])
+  let commit_a = empty_commit_with_order(revision_a(), peer_session(), order)
+  let commit_b = empty_commit_with_order(revision_b(), peer_session(), order)
+  let remote =
+    empty_commit_with_order(revision_r(), other_peer_session(), order)
+  let snapshot =
+    history.HistorySnapshot(
+      history.InitialBase,
+      [history.SequencedCommit(remote, types.SequencePoint(1, 0))],
+      [
+        history.PeerBranch(peer_session(), None, [commit_a, commit_b]),
+      ],
+      1,
+      -9_007_199_254_740_991,
+    )
+  let restored_result = history.restore(snapshot, local_session())
+  restored_result |> expect.to_be_ok
+  let assert Ok(restored) = restored_result
+  let assert Ok(#(retained, id)) =
+    history.retain_revertible(restored, revision_b(), types.DefaultCommit)
+  let advanced = history.advance_minimum(retained, 1, 1, Nil, no_mint)
+  advanced |> expect.to_be_ok
+  let assert Ok(#(pinned, Nil)) = advanced
+  pinned.trimmed_revisions |> expect.to_equal([])
+  history.inspect(pinned.history).sequenced.trunk
+  |> list.length
+  |> expect.to_equal(1)
+
+  let assert Ok(disposed) = history.dispose_revertible(pinned.history, id)
+  let allocation = Allocation([rollback_a, rollback_b], order, 0)
+  let advanced = history.advance_minimum(disposed, 1, 1, allocation, mint)
+  advanced |> expect.to_be_ok
+  let assert Ok(#(released, allocation)) = advanced
+  allocation.consumed |> expect.to_equal(2)
+  released.trimmed_revisions |> expect.to_equal([revision_r()])
 }
 
 pub fn shared_tree_history_restore_drops_runtime_revertibles_test() -> Nil {
