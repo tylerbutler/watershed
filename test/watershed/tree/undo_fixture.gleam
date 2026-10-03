@@ -13,7 +13,7 @@ import watershed/tree/transaction
 import watershed/tree/types
 import watershed/tree_kernel
 
-const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\",\"Point\"]}}}},\"NamedMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"Point\"]}}},\"Point\":{\"kind\":{\"object\":{\"id\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"count\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"featured\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"Items\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"Items\"]},\"byKey\":{\"kind\":\"Value\",\"types\":[\"NamedMap\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\",\"Point\"]}}}},\"NamedMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"Point\"]}}},\"Point\":{\"kind\":{\"object\":{\"id\":{\"kind\":\"Identifier\",\"types\":[\"com.fluidframework.leaf.string\"]},\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"count\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"featured\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"Items\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"Items\"]},\"byKey\":{\"kind\":\"Value\",\"types\":[\"NamedMap\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
 const selected_fields = [
   "object-set",
@@ -40,6 +40,136 @@ pub fn projection(name: String, expected: Json) -> Result(Json, String) {
     "revertible-lifetime" -> project_lifetime(expected)
     "undo-redo-constraints" -> project_constraints(expected)
     _ -> Error("unsupported undo fixture " <> name)
+  }
+}
+
+pub fn run_identifiers(input: Json) -> Result(Json, String) {
+  use scenarios <- result.try(input_scenarios(input))
+  use selected <- result.try(
+    list.try_map(
+      list.filter(scenarios, fn(entry) {
+        entry.0 == "map-set" || entry.0 == "array-insert"
+      }),
+      fn(entry) { run_identifier_field(entry.0, entry.1) },
+    ),
+  )
+  Ok(observation_json(selected))
+}
+
+pub fn project_identifiers(expected: Json) -> Result(Json, String) {
+  use observations <- result.try(expected_observations(expected))
+  use selected <- result.try(
+    list.try_map(["map-set", "array-insert"], fn(id) {
+      use observation <- result.try(find_observation(observations, id))
+      use edited <- result.try(identifier_snapshot(
+        id,
+        field(observation, "edited"),
+      ))
+      use undo <- result.try(identifier_snapshot(
+        id,
+        field(observation, "optimisticUndo"),
+      ))
+      Ok(
+        json.object([
+          #("id", json.string(id)),
+          #("edited", json_ot.to_json(edited)),
+          #("undo", json_ot.to_json(undo)),
+          #("redo", json_ot.to_json(edited)),
+        ]),
+      )
+    }),
+  )
+  Ok(observation_json(selected))
+}
+
+fn run_identifier_field(id: String, operation: String) -> Result(Json, String) {
+  use state <- result.try(initial_state())
+  let target_revision = revision("00000000-0000-4000-8000-000000000501")
+  let undo_revision = revision("00000000-0000-4000-8000-000000000502")
+  let redo_revision = revision("00000000-0000-4000-8000-000000000503")
+  use #(edited, target) <- result.try(case operation {
+    "map-set" ->
+      apply_edit(
+        state,
+        target_revision,
+        types.MapSet(
+          ["byKey"],
+          "new",
+          point("map", 4.0, "8f95be09-8376-4ff7-8755-ccd7e8124b0b"),
+        ),
+      )
+    "array-insert" ->
+      apply_edit(
+        state,
+        target_revision,
+        types.ArrayInsert(["left"], 2, [
+          point("inserted", 5.0, "8f95be09-8376-4ff7-8755-ccd7e8124b0b"),
+        ]),
+      )
+    _ -> Error("unsupported Identifier operation " <> operation)
+  })
+  use #(retained, target_handle) <- result.try(
+    native(tree_kernel.retain_revertible(
+      edited,
+      target.revision,
+      types.DefaultCommit,
+    )),
+  )
+  use order <- result.try(
+    native(order_for(retained, [undo_revision, redo_revision])),
+  )
+  use #(undone, undo, _, _) <- result.try(
+    native(tree_kernel.revert(retained, target_handle, undo_revision, order)),
+  )
+  use #(retained, undo_handle) <- result.try(
+    native(tree_kernel.retain_revertible(
+      undone,
+      undo.revision,
+      types.UndoCommit,
+    )),
+  )
+  use #(redone, _, _, _) <- result.try(
+    native(tree_kernel.revert(retained, undo_handle, redo_revision, order)),
+  )
+  use edited <- result.try(identifier_observation(id, edited))
+  use undo <- result.try(identifier_observation(id, undone))
+  use redo <- result.try(identifier_observation(id, redone))
+  Ok(
+    json.object([
+      #("id", json.string(id)),
+      #("edited", edited),
+      #("undo", undo),
+      #("redo", redo),
+    ]),
+  )
+}
+
+fn identifier_observation(
+  id: String,
+  state: tree_kernel.TreeState,
+) -> Result(Json, String) {
+  case id {
+    "map-set" -> {
+      use value <- result.try(
+        native(tree_kernel.map_get(state, ["byKey"], "new")),
+      )
+      case value {
+        None -> Ok(json.null())
+        Some(value) -> point_identifier(value) |> result.map(json.string)
+      }
+    }
+    "array-insert" -> {
+      use values <- result.try(
+        native(tree_kernel.array_values(state, ["left"])),
+      )
+      case
+        list.find(values, fn(value) { point_label(value) == Ok("inserted") })
+      {
+        Error(Nil) -> Ok(json.null())
+        Ok(value) -> point_identifier(value) |> result.map(json.string)
+      }
+    }
+    _ -> Error("unsupported Identifier observation " <> id)
   }
 }
 
@@ -74,13 +204,19 @@ fn run_field(id: String, operation: String) -> Result(#(String, Json), String) {
       apply_edit(
         state,
         revision("00000000-0000-4000-8000-000000000102"),
-        types.MapSet(["byKey"], "new", point("map", 4.0, "map-id")),
+        types.MapSet(
+          ["byKey"],
+          "new",
+          point("map", 4.0, "8f95be09-8376-4ff7-8755-ccd7e8124b0b"),
+        ),
       )
     "array-insert" ->
       apply_edit(
         state,
         revision("00000000-0000-4000-8000-000000000103"),
-        types.ArrayInsert(["left"], 2, [point("inserted", 5.0, "inserted-id")]),
+        types.ArrayInsert(["left"], 2, [
+          point("inserted", 5.0, "8f95be09-8376-4ff7-8755-ccd7e8124b0b"),
+        ]),
       )
     "same-array-move" ->
       apply_edit(
@@ -228,6 +364,7 @@ fn run_lifetime(input: Json) -> Result(Json, String) {
   let target_revision = revision("00000000-0000-4000-8000-000000000301")
   let first_inverse = revision("00000000-0000-4000-8000-000000000302")
   let second_inverse = revision("00000000-0000-4000-8000-000000000303")
+  let disposed_inverse = revision("00000000-0000-4000-8000-000000000304")
   use #(edited, target) <- result.try(apply_edit(
     state,
     target_revision,
@@ -242,7 +379,13 @@ fn run_lifetime(input: Json) -> Result(Json, String) {
   )
   let before = tree_kernel.revertible_is_valid(retained, handle)
   use order <- result.try(
-    native(order_for(retained, [first_inverse, second_inverse])),
+    native(
+      order_for(retained, [
+        first_inverse,
+        second_inverse,
+        disposed_inverse,
+      ]),
+    ),
   )
   use #(first, _, _, _) <- result.try(
     native(tree_kernel.revert(retained, handle, first_inverse, order)),
@@ -263,10 +406,11 @@ fn run_lifetime(input: Json) -> Result(Json, String) {
     Ok(_) -> False
   }
   let disposed_revert_error = case
-    tree_kernel.revert(disposed, handle, first_inverse, order)
+    tree_kernel.revert(disposed, handle, disposed_inverse, order)
   {
-    Error(_) -> True
+    Error(types.InvalidHistory("revertible is already disposed")) -> True
     Ok(_) -> False
+    Error(_) -> False
   }
   use title <- result.try(text_at(disposed, ["title"]))
   Ok(
@@ -497,12 +641,12 @@ fn field_projection(id: String, snapshot: Result(JsonValue, String)) {
   use root <- result.try(object(Ok(snapshot)))
   case id {
     "object-set" -> field(root, "title")
-    "map-set" -> map_label(root, "new")
-    "array-insert" | "same-array-move" -> array_labels(field(root, "left"))
+    "map-set" -> map_point(root, "new")
+    "array-insert" | "same-array-move" -> array_points(field(root, "left"))
     "outer-transaction" -> {
       use title <- result.try(field(root, "title"))
       use count <- result.try(field(root, "count"))
-      use left <- result.try(array_labels(field(root, "left")))
+      use left <- result.try(array_points(field(root, "left")))
       Ok(
         VObject([
           #("title", title),
@@ -527,26 +671,21 @@ fn field_observation(
       )
       case value {
         None -> Ok(json.null())
-        Some(value) -> point_label(value) |> result.map(json.string)
+        Some(value) -> point_observation(value)
       }
     }
     "array-insert" | "same-array-move" ->
-      labels_at(state, ["left"])
-      |> result.map(fn(labels) {
-        json.array(list.map(labels, json.string), fn(value) { value })
-      })
+      values_at(state, ["left"])
+      |> result.map(fn(values) { json.array(values, fn(value) { value }) })
     "outer-transaction" -> {
       use title <- result.try(text_at(state, ["title"]))
       use count <- result.try(number_at(state, ["count"]))
-      use left <- result.try(labels_at(state, ["left"]))
+      use left <- result.try(values_at(state, ["left"]))
       Ok(
         json.object([
           #("title", json.string(title)),
           #("count", json.float(count)),
-          #(
-            "left",
-            json.array(list.map(left, json.string), fn(value) { value }),
-          ),
+          #("left", json.array(left, fn(value) { value })),
         ]),
       )
     }
@@ -604,6 +743,33 @@ fn constraint_snapshot(
   }
 }
 
+fn identifier_snapshot(
+  id: String,
+  snapshot: Result(JsonValue, String),
+) -> Result(JsonValue, String) {
+  use snapshot <- result.try(snapshot)
+  use root <- result.try(object(Ok(snapshot)))
+  case id {
+    "map-set" -> map_identifier(root, "new")
+    "array-insert" -> {
+      use values <- result.try(array(field(root, "left")))
+      case
+        list.find(values, fn(value) {
+          case value {
+            VObject(fields) -> field(fields, "label") == Ok(VString("inserted"))
+            _ -> False
+          }
+        })
+      {
+        Error(Nil) -> Ok(VNull)
+        Ok(VObject(fields)) -> field(fields, "id")
+        Ok(_) -> Error("inserted point has invalid shape")
+      }
+    }
+    _ -> Error("unsupported Identifier snapshot " <> id)
+  }
+}
+
 fn initial_state() -> Result(tree_kernel.TreeState, String) {
   use stored <- result.try(native(schema.stored_from_string(tree_schema)))
   use view <- result.try(native(schema.view_from_string(tree_schema)))
@@ -629,15 +795,23 @@ fn initial_root() -> types.TreeValue {
     #("title", types.StringValue("base")),
     #("note", types.StringValue("seed")),
     #("count", types.NumberValue(0.0)),
-    #("featured", point("featured", 0.0, "featured-id")),
+    #(
+      "featured",
+      point("featured", 0.0, "8f95be09-8376-4ff7-8755-ccd7e8124b09"),
+    ),
     #(
       "left",
       types.ArrayValue("Items", [
-        point("left-a", 1.0, "left-a-id"),
-        point("left-b", 2.0, "left-b-id"),
+        point("left-a", 1.0, "8f95be09-8376-4ff7-8755-ccd7e8124b08"),
+        point("left-b", 2.0, "8f95be09-8376-4ff7-8755-ccd7e8124b07"),
       ]),
     ),
-    #("right", types.ArrayValue("Items", [point("right-a", 3.0, "right-a-id")])),
+    #(
+      "right",
+      types.ArrayValue("Items", [
+        point("right-a", 3.0, "8f95be09-8376-4ff7-8755-ccd7e8124b06"),
+      ]),
+    ),
     #(
       "byKey",
       types.MapValue("NamedMap", [#("seed", types.StringValue("value"))]),
@@ -692,12 +866,47 @@ fn labels_at(
   })
 }
 
+fn values_at(
+  state: tree_kernel.TreeState,
+  path: types.FieldPath,
+) -> Result(List(Json), String) {
+  use values <- result.try(native(tree_kernel.array_values(state, path)))
+  list.try_map(values, fn(value) {
+    case value {
+      types.StringValue(value) -> Ok(json.string(value))
+      value -> point_observation(value)
+    }
+  })
+}
+
 fn point_label(value: types.TreeValue) -> Result(String, String) {
   case value {
     types.ObjectValue(_, fields) ->
       case list.key_find(fields, "label") {
         Ok(types.StringValue(label)) -> Ok(label)
         _ -> Error("point label is missing")
+      }
+    _ -> Error("value is not a point")
+  }
+}
+
+fn point_observation(value: types.TreeValue) -> Result(Json, String) {
+  use identifier <- result.try(point_identifier(value))
+  use label <- result.try(point_label(value))
+  Ok(
+    json.object([
+      #("id", json.string(identifier)),
+      #("label", json.string(label)),
+    ]),
+  )
+}
+
+fn point_identifier(value: types.TreeValue) -> Result(String, String) {
+  case value {
+    types.ObjectValue(_, fields) ->
+      case list.key_find(fields, "id") {
+        Ok(types.StringValue(identifier)) -> Ok(identifier)
+        _ -> Error("point identifier is missing")
       }
     _ -> Error("value is not a point")
   }
@@ -776,7 +985,7 @@ fn event_kinds(
   })
 }
 
-fn map_label(
+fn map_point(
   root: List(#(String, JsonValue)),
   key: String,
 ) -> Result(JsonValue, String) {
@@ -790,7 +999,30 @@ fn map_label(
     })
   {
     Error(Nil) -> Ok(VNull)
-    Ok(VArray([_, VObject(point)])) -> field(point, "label")
+    Ok(VArray([_, VObject(point)])) -> {
+      use identifier <- result.try(field(point, "id"))
+      use label <- result.try(field(point, "label"))
+      Ok(VObject([#("id", identifier), #("label", label)]))
+    }
+    Ok(_) -> Error("map entry has invalid shape")
+  }
+}
+
+fn map_identifier(
+  root: List(#(String, JsonValue)),
+  key: String,
+) -> Result(JsonValue, String) {
+  use entries <- result.try(array(field(root, "byKey")))
+  case
+    list.find(entries, fn(entry) {
+      case entry {
+        VArray([VString(found), _]) -> found == key
+        _ -> False
+      }
+    })
+  {
+    Error(Nil) -> Ok(VNull)
+    Ok(VArray([_, VObject(point)])) -> field(point, "id")
     Ok(_) -> Error("map entry has invalid shape")
   }
 }
@@ -807,6 +1039,24 @@ fn array_labels(value: Result(JsonValue, String)) -> Result(JsonValue, String) {
     }),
   )
   Ok(VArray(labels))
+}
+
+fn array_points(value: Result(JsonValue, String)) -> Result(JsonValue, String) {
+  use values <- result.try(array(value))
+  use projected <- result.try(
+    list.try_map(values, fn(value) {
+      case value {
+        VString(value) -> Ok(VString(value))
+        VObject(fields) -> {
+          use identifier <- result.try(field(fields, "id"))
+          use label <- result.try(field(fields, "label"))
+          Ok(VObject([#("id", identifier), #("label", label)]))
+        }
+        _ -> Error("array item has invalid shape")
+      }
+    }),
+  )
+  Ok(VArray(projected))
 }
 
 fn status_valid(value: Result(JsonValue, String)) -> Result(Bool, String) {

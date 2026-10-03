@@ -339,6 +339,13 @@ pub fn shared_tree_undo_redo_fields_match_native_observations_test() -> Nil {
   assert_undo_fixture("undo-redo-fields")
 }
 
+pub fn shared_tree_undo_redo_identifiers_survive_edit_undo_redo_test() -> Nil {
+  let assert Ok(fixture) = fixtures.load("undo-redo-fields")
+  let assert Ok(actual) = undo_fixture.run_identifiers(fixture.input)
+  let assert Ok(expected) = undo_fixture.project_identifiers(fixture.expected)
+  fixtures.first_difference(actual, expected) |> expect.to_equal(Ok(Nil))
+}
+
 pub fn shared_tree_undo_redo_kinds_match_native_observations_test() -> Nil {
   assert_undo_fixture("undo-redo-kinds")
 }

@@ -1421,6 +1421,7 @@ pub fn author_revert(
   inverse_revision: fluid_ids.StableId,
   identity_order: change.IdentityOrder,
 ) -> Result(RevertAuthoring, TreeError) {
+  use state <- result.try(rebind_identity_order(state, identity_order))
   use _ <- result.try(check(
     !has_revision(state, inverse_revision),
     "revert revision is already present",
@@ -1492,8 +1493,10 @@ fn current_branch(
   revision: fluid_ids.StableId,
 ) -> List(Commit) {
   let pending = list.map(state.pending, fn(entry) { entry.current.commit })
-  case contains_revision(pending, revision) {
-    True -> pending
+  let visible =
+    list.append(list.map(state.trunk, fn(entry) { entry.commit }), pending)
+  case contains_revision(visible, revision) {
+    True -> visible
     False ->
       case
         list.find(state.peers, fn(peer) {
@@ -1501,11 +1504,7 @@ fn current_branch(
         })
       {
         Ok(peer) -> list.map(peer.commits, fn(entry) { entry.commit })
-        Error(Nil) ->
-          list.append(
-            list.map(state.trunk, fn(entry) { entry.commit }),
-            pending,
-          )
+        Error(Nil) -> visible
       }
   }
 }

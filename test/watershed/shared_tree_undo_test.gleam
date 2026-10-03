@@ -9,15 +9,27 @@ import watershed/tree/history
 import watershed/tree/schema
 import watershed/tree/shared_change
 import watershed/tree/types.{
-  type TreeError, DefaultCommit, NumberValue, ObjectValue, RedoCommit, SetField,
-  UndoCommit,
+  type TreeError, ArrayInsert, ArrayValue, DefaultCommit, InvalidHistory,
+  NumberValue, ObjectValue, RedoCommit, SetField, UndoCommit,
 }
 
-const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"Items\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
 fn session() -> fluid_ids.SessionId {
   let assert Ok(id) =
     fluid_ids.session_id("00000000-0000-4000-8000-000000000001")
+  id
+}
+
+fn peer_session() -> fluid_ids.SessionId {
+  let assert Ok(id) =
+    fluid_ids.session_id("00000000-0000-4000-8000-000000000002")
+  id
+}
+
+fn other_peer_session() -> fluid_ids.SessionId {
+  let assert Ok(id) =
+    fluid_ids.session_id("00000000-0000-4000-8000-000000000003")
   id
 }
 
@@ -46,8 +58,35 @@ fn revision_redo() -> fluid_ids.StableId {
   revision("00000000-0000-4000-8000-00000000000e")
 }
 
+fn revision_later_trunk() -> fluid_ids.StableId {
+  revision("00000000-0000-4000-8000-00000000000f")
+}
+
+fn revision_later_local() -> fluid_ids.StableId {
+  revision("00000000-0000-4000-8000-000000000010")
+}
+
+fn revision_rollback() -> fluid_ids.StableId {
+  revision("00000000-0000-4000-8000-000000000011")
+}
+
+type Allocation {
+  Allocation(revisions: List(fluid_ids.StableId), order: change.IdentityOrder)
+}
+
+fn mint(
+  allocation: Allocation,
+) -> Result(#(fluid_ids.StableId, change.IdentityOrder, Allocation), TreeError) {
+  case allocation.revisions {
+    [] -> Error(InvalidHistory("rollback allocation is exhausted"))
+    [revision, ..rest] ->
+      Ok(#(revision, allocation.order, Allocation(rest, allocation.order)))
+  }
+}
+
 fn root() {
   ObjectValue("Root", [
+    #("items", ArrayValue("Items", [NumberValue(1.0), NumberValue(2.0)])),
     #(
       "point",
       ObjectValue("Point", [
@@ -118,6 +157,16 @@ fn author(
   edit: types.Edit,
   order: change.IdentityOrder,
 ) -> Result(history.Commit, TreeError) {
+  author_as(state, revision, session(), edit, order)
+}
+
+fn author_as(
+  state: forest.Forest,
+  revision: fluid_ids.StableId,
+  originator: fluid_ids.SessionId,
+  edit: types.Edit,
+  order: change.IdentityOrder,
+) -> Result(history.Commit, TreeError) {
   use authored <- result.try(change.edit(
     schema_from_forest(state),
     state,
@@ -125,7 +174,7 @@ fn author(
     edit,
     order,
   ))
-  Ok(history.Commit(revision, session(), shared_change.from_data(authored)))
+  Ok(history.Commit(revision, originator, shared_change.from_data(authored)))
 }
 
 fn schema_from_forest(state: forest.Forest) -> schema.StoredSchema {
@@ -158,7 +207,7 @@ pub fn shared_tree_history_author_revert_defaults_to_undo_and_preserves_later_co
 
   target.revision |> expect.to_equal(revision_b())
   inverse.revision |> expect.to_equal(revision_undo())
-  let assert Ok(reverted) = apply(current, inverse)
+  let reverted = apply(current, inverse) |> expect.to_be_ok
   forest.read(reverted, ["point", "x"])
   |> expect.to_equal(Ok(Some(NumberValue(3.0))))
   forest.read(reverted, ["point", "y"])
@@ -176,6 +225,119 @@ pub fn shared_tree_history_author_revert_of_undo_returns_redo_test() {
   inverse.revision |> expect.to_equal(revision_redo())
 }
 
+pub fn shared_tree_history_author_revert_peer_target_preserves_later_trunk_and_pending_test() {
+  let assert Ok(stored) = schema.stored_from_string(tree_schema)
+  let assert Ok(initial) =
+    forest.new(
+      revision("00000000-0000-4000-8000-000000000099"),
+      stored,
+      Some(root()),
+    )
+  let assert Ok(order) =
+    change.identity_order([
+      #(revision_a(), -6),
+      #(revision_b(), -5),
+      #(revision_later_trunk(), -4),
+      #(revision_later_local(), -3),
+      #(revision_rollback(), -2),
+      #(revision_undo(), -1),
+    ])
+  let assert Ok(commit_a) =
+    author(
+      initial,
+      revision_a(),
+      SetField(["point", "y"], NumberValue(3.0)),
+      order,
+    )
+  let assert Ok(after_a) = apply(initial, commit_a)
+  let assert Ok(peer_target) =
+    author_as(
+      initial,
+      revision_b(),
+      peer_session(),
+      ArrayInsert(["items"], 1, [NumberValue(7.0)]),
+      order,
+    )
+  let assert Ok(after_target) = apply(after_a, peer_target)
+  let assert Ok(later_trunk) =
+    author_as(
+      after_target,
+      revision_later_trunk(),
+      other_peer_session(),
+      ArrayInsert(["items"], 0, [NumberValue(9.0)]),
+      order,
+    )
+  let assert Ok(after_trunk) = apply(after_target, later_trunk)
+  let assert Ok(later_local) =
+    author(
+      after_trunk,
+      revision_later_local(),
+      ArrayInsert(["items"], 4, [NumberValue(10.0)]),
+      order,
+    )
+  let assert Ok(current) = apply(after_trunk, later_local)
+
+  let assert Ok(appended) =
+    history.append_local(history.new(session()), commit_a)
+  let assert Ok(#(acked, allocation)) =
+    history.receive(
+      appended.history,
+      commit_a,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Allocation([revision_rollback()], order),
+      mint,
+    )
+  let assert Ok(#(received_target, allocation)) =
+    history.receive(
+      acked.history,
+      peer_target,
+      types.SequencePoint(2, 0),
+      0,
+      0,
+      allocation,
+      mint,
+    )
+  let assert Ok(#(retained, id)) =
+    history.retain_revertible(
+      received_target.history,
+      revision_b(),
+      DefaultCommit,
+    )
+  let assert Ok(#(received_trunk, _)) =
+    history.receive(
+      retained,
+      later_trunk,
+      types.SequencePoint(3, 0),
+      2,
+      0,
+      allocation,
+      mint,
+    )
+  let assert Ok(appended_local) =
+    history.append_local(received_trunk.history, later_local)
+  let authored =
+    history.author_revert(appended_local.history, id, revision_undo(), order)
+    |> expect.to_be_ok
+  authored.kind |> expect.to_equal(UndoCommit)
+  let reverted = apply(current, authored.inverse) |> expect.to_be_ok
+
+  forest.read(reverted, ["items"])
+  |> expect.to_equal(
+    Ok(
+      Some(
+        ArrayValue("Items", [
+          NumberValue(9.0),
+          NumberValue(1.0),
+          NumberValue(2.0),
+          NumberValue(10.0),
+        ]),
+      ),
+    ),
+  )
+}
+
 pub fn shared_tree_history_revertible_allows_repeated_reverts_until_disposed_test() {
   let #(state, id, _, order) = setup()
   history.author_revert(state, id, revision_undo(), order)
@@ -184,8 +346,6 @@ pub fn shared_tree_history_revertible_allows_repeated_reverts_until_disposed_tes
   |> expect.to_be_ok
 
   let assert Ok(disposed) = history.dispose_revertible(state, id)
-  let _ =
-    history.author_revert(disposed, id, revision_undo(), order)
-    |> expect.to_be_error
-  Nil
+  history.author_revert(disposed, id, revision_undo(), order)
+  |> expect.to_equal(Error(InvalidHistory("revertible is already disposed")))
 }
