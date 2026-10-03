@@ -365,7 +365,9 @@ shared tree storage smoke: ok
 
 ### Self-review
 
-- The array checks compare `forest.NodeRef` values, not equal visible values.
+- The array checks compared `forest.NodeRef` values, but Fix round 2 found
+  that the helper reconstructed them from exported values. Fix round 2
+  replaced that helper with live `TreeState` inspection.
 - The Identifier check proves post-redo allocation by generating and
   round-tripping another Identifier through a peer.
 - The transaction and Identifier cases no longer discard later authoring,
@@ -378,3 +380,123 @@ shared tree storage smoke: ok
   original local undo settlement separately.
 - No undo, redo, summary, or facade runtime behavior changed in production.
   Production code adds only the internal read-only rollback inspection.
+
+## Fix round 2
+
+### Findings addressed
+
+1. The array identity helper now retrieves the existing
+   `channel.TreeState` from `runtime_core.Core.channels` and calls
+   `tree_kernel.reference_at` on that live state. Array remove, same-array
+   move, and cross-array move therefore compare runtime node identity rather
+   than identities recreated from exported values.
+2. A focused remove-plus-equal-value-reinsert counterexample proves why the
+   old snapshot reconstruction was insufficient: reconstruction returned the
+   same `NodeRef`, while the live state assigns the replacement a different
+   reference.
+3. The JavaScript and BEAM reload callbacks now record every invocation and
+   all event metadata before any test assertion. Factory presence and the
+   factory result are recorded separately while the callback is active.
+4. Reload assertions now fail for any historical callback, including an
+   unexpected kind, malformed metadata, or a missing factory. The next local
+   `DefaultCommit` is then asserted to be local, to expose both event-scoped
+   callbacks, and to produce exactly one valid revertible handle.
+
+This corrects the Fix round 1 claim that comparing `forest.NodeRef` values was
+enough. Those values were previously obtained from reconstructed forests and
+did not prove identity in the running tree.
+
+### RED
+
+Command:
+
+```text
+gleam test --target javascript -- shared_tree_undo
+```
+
+Exit code: `1`
+
+Exact relevant result:
+
+```text
+FAIL  equal_value_reinsert_changes_live_reference_test
+Expected NodeRef(... node_id: 9) to not equal NodeRef(... node_id: 9)
+Test Files: 1
+     Tests: 6 passed | 1 failed (7)
+```
+
+The failure occurred with the old export-and-import `node_reference` helper.
+It reconstructed both equal values with the same node ID and demonstrated the
+reviewed proof gap.
+
+### GREEN
+
+Focused live-reference checks on both targets:
+
+```text
+gleam test --target javascript -- shared_tree_undo
+Test Files: 1
+     Tests: 7 passed (7)
+
+gleam test --target erlang -- shared_tree_undo
+Test Files: 1
+     Tests: 7 passed (7)
+```
+
+Exact Task 7 target commands:
+
+```text
+gleam test --target erlang -- shared_tree_undo shared_tree_history shared_tree_history_resubmit shared_tree_document_summary shared_tree_summary shared_tree_array_kernel shared_tree_map_kernel shared_tree_transaction shared_tree_identifier
+Test Files: 11
+     Tests: 239 passed (239)
+
+gleam test --target javascript -- shared_tree_undo shared_tree_history shared_tree_history_resubmit shared_tree_document_summary shared_tree_summary shared_tree_array_kernel shared_tree_map_kernel shared_tree_transaction shared_tree_identifier
+Test Files: 11
+     Tests: 239 passed (239)
+```
+
+Facade suites:
+
+```text
+gleam test --target javascript -- shared_tree_runtime_js
+Test Files: 1
+     Tests: 12 passed (12)
+
+gleam test --target erlang -- shared_tree_runtime_beam
+Test Files: 1
+     Tests: 28 passed (28)
+```
+
+Codec interoperability:
+
+```text
+SharedTree codec interoperability passed: 2 targets, 38 items each
+```
+
+Full SharedTree gate:
+
+```text
+Test Files: 48
+     Tests: 989 passed (989)
+
+Test Files: 48
+     Tests: 971 passed (971)
+
+shared tree storage smoke: ok
+{"targets":["javascript","erlang"],"createRequests":34,"redirectRequests":0,"webSocketConnections":0}
+```
+
+### Files
+
+- `test/watershed/tree/undo_acceptance.gleam`
+- `test/watershed/shared_tree_undo_test.gleam`
+- `test/watershed/shared_tree_runtime_js_test.gleam`
+- `test/watershed/shared_tree_runtime_beam_test.gleam`
+- `.superpowers/sdd/2026-10-02-shared-tree-undo-redo/task-7-report.md`
+
+### Concerns
+
+- The required commands retain the pre-existing unused-helper and
+  JavaScript unsafe-integer warnings already listed above.
+- Fix round 2 changes tests and this report only. It does not redesign or
+  change production behavior.

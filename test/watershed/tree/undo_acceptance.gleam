@@ -162,6 +162,18 @@ pub fn assert_cross_array_move() {
   )
 }
 
+pub fn assert_equal_value_reinsert_changes_live_reference() {
+  let core = core("writer", "30000000-0000-4000-8000-000000000003")
+  let before = node_reference(core, ["left", "0"])
+  let #(changed, _, _) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      types.ArrayRemove(["left"], 0, 1),
+      types.ArrayInsert(["left"], 0, [left_a()]),
+    ])
+    |> expect.to_be_ok()
+  node_reference(changed, ["left", "0"]) |> expect.to_not_equal(before)
+}
+
 pub fn assert_transaction() {
   let writer = core("writer", "30000000-0000-4000-8000-000000000003")
   let peer = core("peer", "50000000-0000-4000-8000-000000000005")
@@ -1059,15 +1071,9 @@ fn node_reference(
   core: runtime_core.Core,
   path: types.FieldPath,
 ) -> forest.NodeRef {
-  let runtime_core.TreeRetainedSnapshot(snapshot, _) =
-    runtime_core.tree_retained_snapshot(core, "A/_C")
-    |> expect.to_be_ok()
-  let #(stored, data, _) = tree_kernel.snapshot_parts(snapshot)
-  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
-  let assert [tree_view] = input.tree_views
-  let imported =
-    forest.import_data(tree_view.view_id, stored, data) |> expect.to_be_ok()
-  forest.locate(imported, path) |> expect.to_be_ok()
+  let state = dict.get(core.channels, "A/_C") |> expect.to_be_ok()
+  let assert channel.TreeState(tree) = state
+  tree_kernel.reference_at(tree, path) |> expect.to_be_ok()
 }
 
 fn seed_from_core(core: runtime_core.Core) -> runtime_core.BootstrapSeed {

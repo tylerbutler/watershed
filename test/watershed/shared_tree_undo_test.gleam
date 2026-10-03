@@ -358,3 +358,7 @@ pub fn shared_tree_undo_object_set_preserves_later_field_test() {
 pub fn shared_tree_undo_object_replacement_pins_child_edit_conflict_test() {
   undo_acceptance.assert_object_replacement()
 }
+
+pub fn equal_value_reinsert_changes_live_reference_test() {
+  undo_acceptance.assert_equal_value_reinsert_changes_live_reference()
+}

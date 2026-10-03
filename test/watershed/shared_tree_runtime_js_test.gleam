@@ -1738,8 +1738,8 @@ pub fn tree_commit_runtime_factory_is_shared_across_subscribers_test() {
 @target(javascript)
 pub fn summary_reload_emits_no_historical_commit_factory_and_new_edit_does_test() {
   let callbacks = transport_js.new_cell(None)
-  let event_count = transport_js.new_cell(0)
-  let acquired = transport_js.new_cell(None)
+  let events = transport_js.new_cell([])
+  let factory_results = transport_js.new_cell([])
   let owner =
     runtime.start_with_transport_and_seed(
       http_base_url: "https://seed.invalid",
@@ -1759,14 +1759,30 @@ pub fn summary_reload_emits_no_historical_commit_factory_and_new_edit_does_test(
     )
   let _ =
     runtime.subscribe_tree_commits(owner, "A/_C", fn(event) {
-      let assert runtime.TreeCommitEvent(
-        tree_types.DefaultCommit,
-        True,
-        Some(get_revertible),
-        Some(_),
-      ) = event
-      transport_js.set_cell(event_count, transport_js.get_cell(event_count) + 1)
-      transport_js.set_cell(acquired, Some(get_revertible()))
+      let runtime.TreeCommitEvent(kind, local, factory, settlement) = event
+      transport_js.set_cell(events, [
+        #(
+          kind,
+          local,
+          case factory {
+            Some(_) -> True
+            None -> False
+          },
+          case settlement {
+            Some(_) -> True
+            None -> False
+          },
+        ),
+        ..transport_js.get_cell(events)
+      ])
+      let factory_result = case factory {
+        Some(get_revertible) -> Some(get_revertible())
+        None -> None
+      }
+      transport_js.set_cell(factory_results, [
+        factory_result,
+        ..transport_js.get_cell(factory_results)
+      ])
     })
   let assert Some(callbacks) = transport_js.get_cell(callbacks)
   callbacks.on_event(
@@ -1784,16 +1800,17 @@ pub fn summary_reload_emits_no_historical_commit_factory_and_new_edit_does_test(
     )
       |> json.to_string,
   )
-  transport_js.get_cell(event_count) |> expect.to_equal(0)
-  transport_js.get_cell(acquired) |> expect.to_equal(None)
+  transport_js.get_cell(events) |> expect.to_equal([])
+  transport_js.get_cell(factory_results) |> expect.to_equal([])
   runtime.tree_edit(
     owner,
     "A/_C",
     tree_types.SetField(["note"], tree_types.StringValue("after reload")),
   )
   |> expect.to_equal(Ok(Nil))
-  transport_js.get_cell(event_count) |> expect.to_equal(1)
-  let assert Some(Ok(handle)) = transport_js.get_cell(acquired)
+  transport_js.get_cell(events)
+  |> expect.to_equal([#(tree_types.DefaultCommit, True, True, True)])
+  let assert [Some(Ok(handle))] = transport_js.get_cell(factory_results)
   runtime.tree_revertible_status(handle)
   |> expect.to_equal(runtime.RevertibleValid)
   runtime.close(owner)

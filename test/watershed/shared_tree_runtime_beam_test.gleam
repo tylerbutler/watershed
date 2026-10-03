@@ -1940,6 +1940,7 @@ pub fn commit_delivery_exit_invalidates_factory_and_replays_messages_test() {
 pub fn summary_reload_emits_no_historical_commit_factory_and_new_edit_does_test() {
   let callbacks_subject = process.new_subject()
   let events = process.new_subject()
+  let factory_results = process.new_subject()
   let assert Ok(actor) =
     runtime_beam.start_with_transport_and_seed(
       host: "seed.invalid",
@@ -1960,13 +1961,26 @@ pub fn summary_reload_emits_no_historical_commit_factory_and_new_edit_does_test(
   )
   let _ =
     runtime_beam.subscribe_tree_commits(actor, "A/_C", fn(event) {
-      let assert runtime_beam.TreeCommitEvent(
-        tree_types.DefaultCommit,
-        True,
-        Some(factory),
-        Some(_),
-      ) = event
-      process.send(events, factory())
+      let runtime_beam.TreeCommitEvent(kind, local, factory, settlement) = event
+      process.send(
+        events,
+        #(
+          kind,
+          local,
+          case factory {
+            Some(_) -> True
+            None -> False
+          },
+          case settlement {
+            Some(_) -> True
+            None -> False
+          },
+        ),
+      )
+      process.send(factory_results, case factory {
+        Some(factory) -> Some(factory())
+        None -> None
+      })
     })
   callbacks.on_event(
     "connect_document_success",
@@ -1984,16 +1998,20 @@ pub fn summary_reload_emits_no_historical_commit_factory_and_new_edit_does_test(
   )
   runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
   process.receive(events, 0) |> expect.to_equal(Error(Nil))
+  process.receive(factory_results, 0) |> expect.to_equal(Error(Nil))
   runtime_beam.tree_edit(
     actor,
     "A/_C",
     tree_types.SetField(["note"], tree_types.StringValue("after reload")),
   )
   |> expect.to_equal(Ok(Nil))
-  let assert Ok(Ok(handle)) = process.receive(events, 1000)
+  process.receive(events, 1000)
+  |> expect.to_equal(Ok(#(tree_types.DefaultCommit, True, True, True)))
+  let assert Ok(Some(Ok(handle))) = process.receive(factory_results, 1000)
   runtime_beam.tree_revertible_status(handle)
   |> expect.to_equal(runtime_beam.RevertibleValid)
   process.receive(events, 0) |> expect.to_equal(Error(Nil))
+  process.receive(factory_results, 0) |> expect.to_equal(Error(Nil))
   process.send(actor, runtime_beam.Shutdown)
 }
 
