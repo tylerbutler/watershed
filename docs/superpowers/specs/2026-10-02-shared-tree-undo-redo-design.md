@@ -178,8 +178,10 @@ pub fn subscribe_tree_commits(
 ) -> SubscriptionToken
 ```
 
-The BEAM facade exposes the same event value through its existing subject
-subscription pattern.
+The BEAM facade exposes the same callback signature and subscription token.
+Its actor runs commit handlers in a monitored delivery process so the actor can
+service factory and settlement-registration requests while delivery remains
+active.
 
 Add handle operations:
 
@@ -395,10 +397,13 @@ runtime returns a wrong-runtime error before it changes state.
 
 ### BEAM runtime
 
-The BEAM actor owns the same registry, retention state, and settlement
-callbacks. Commit-event delivery can include closures that perform synchronous
-acquisition and settlement-registration requests while the event remains
-active.
+The BEAM actor owns the same registry, retention state, commit subscribers, and
+settlement callbacks. For each commit event, it starts one monitored delivery
+process that calls the registered handlers in subscription order. While that
+process runs, the actor services acquisition and settlement-registration
+requests for the active event ID and defers unrelated messages. Completion or
+process exit closes the event, invalidates both functions, and resumes deferred
+messages.
 
 The actor must reject late factory calls, duplicate acquisition, and reversion
 during a transaction. Remote delivery keeps mailbox order. Reversion authors
