@@ -22,6 +22,7 @@ import watershed/tree/types.{
   type TreeCommitKind, DefaultCommit, NumberValue, ObjectValue, RedoCommit,
   SetField, StringValue, UndoCommit,
 }
+import watershed/tree/undo_acceptance
 import watershed/tree_kernel
 import watershed/wire
 
@@ -308,6 +309,14 @@ pub fn pending_undo_resubmit_keeps_revision_kind_and_settles_once_test() {
     runtime_core.revert_tree(settled, address, undo) |> expect.to_be_ok
   applied_commit(redo_events).1
   |> expect.to_equal(RedoCommit)
+}
+
+pub fn retained_revertible_reconnects_and_reverts_after_later_change_test() {
+  undo_acceptance.assert_live_handle_reconnect()
+}
+
+pub fn pending_undo_accepted_before_drop_applies_and_settles_once_test() {
+  undo_acceptance.assert_pending_undo_accepted_before_drop()
 }
 
 pub fn shared_tree_history_resubmit_rejects_duplicate_repairs_test() -> Nil {

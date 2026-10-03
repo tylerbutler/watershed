@@ -17,6 +17,7 @@ import watershed/tree/types.{
   type TreeError, InvalidHistory, NumberValue, ObjectValue, SetField,
   StringValue,
 }
+import watershed/tree/undo_acceptance
 
 const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
@@ -1607,6 +1608,10 @@ pub fn shared_tree_history_restore_drops_runtime_revertibles_test() -> Nil {
   history.snapshot(retained) |> expect.to_equal(Ok(snapshot))
   let assert Ok(restored) = history.restore(snapshot, local_session())
   history.revertible_is_valid(restored, id) |> expect.to_equal(False)
+}
+
+pub fn shared_tree_history_multiple_revertibles_release_only_disposed_pin_test() {
+  undo_acceptance.assert_independent_history_pins()
 }
 
 pub fn shared_tree_history_resubmit_is_pure_and_stable_test() -> Nil {

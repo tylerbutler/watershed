@@ -10,6 +10,7 @@ import watershed/tree/history
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
 import watershed/tree/types
+import watershed/tree/undo_acceptance
 import watershed/tree_kernel
 
 const map_type = "org.watershed.shared-tree.m2.DynamicMap"
@@ -177,4 +178,12 @@ pub fn shared_tree_map_kernel_reads_nested_local_edits_test() {
   )
   tree_kernel.map_entries(edited, ["items", "nested"])
   |> expect.to_equal(Ok([#("", types.StringValue("inside"))]))
+}
+
+pub fn shared_tree_undo_map_set_preserves_later_key_test() {
+  undo_acceptance.assert_map_set()
+}
+
+pub fn shared_tree_undo_map_delete_pins_later_overwrite_test() {
+  undo_acceptance.assert_map_delete()
 }

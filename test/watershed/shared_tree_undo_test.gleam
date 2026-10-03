@@ -12,6 +12,7 @@ import watershed/tree/types.{
   type TreeError, ArrayInsert, ArrayValue, DefaultCommit, InvalidHistory,
   NumberValue, ObjectValue, RedoCommit, SetField, UndoCommit,
 }
+import watershed/tree/undo_acceptance
 
 const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"items\":{\"kind\":\"Value\",\"types\":[\"Items\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
@@ -348,4 +349,12 @@ pub fn shared_tree_history_revertible_allows_repeated_reverts_until_disposed_tes
   let assert Ok(disposed) = history.dispose_revertible(state, id)
   history.author_revert(disposed, id, revision_undo(), order)
   |> expect.to_equal(Error(InvalidHistory("revertible is already disposed")))
+}
+
+pub fn shared_tree_undo_object_set_preserves_later_field_test() {
+  undo_acceptance.assert_object_set()
+}
+
+pub fn shared_tree_undo_object_replacement_pins_child_edit_conflict_test() {
+  undo_acceptance.assert_object_replacement()
 }

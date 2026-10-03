@@ -21,6 +21,7 @@ import watershed/tree/shared_change
 import watershed/tree/transaction
 import watershed/tree/transaction_fixture
 import watershed/tree/types
+import watershed/tree/undo_acceptance
 import watershed/tree_kernel
 
 const items_type = "org.watershed.shared-tree.m3.Items"
@@ -1374,6 +1375,10 @@ pub fn shared_tree_transaction_same_value_edit_is_not_no_commit_test() -> Nil {
   let assert Ok(#(transaction.Commit(_, _, _), events)) =
     transaction.finish(value)
   events.events |> expect.to_equal([])
+}
+
+pub fn shared_tree_undo_transaction_reverts_as_one_commit_after_remote_edit_test() {
+  undo_acceptance.assert_transaction()
 }
 
 pub fn shared_tree_transaction_rejects_detached_constraint_at_begin_test() -> Nil {

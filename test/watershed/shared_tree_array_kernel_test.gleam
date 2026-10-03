@@ -18,6 +18,7 @@ import watershed/tree/runtime_fixture
 import watershed/tree/shared_change
 import watershed/tree/transaction
 import watershed/tree/types
+import watershed/tree/undo_acceptance
 import watershed/tree_kernel
 import watershed/wire
 import watershed/wire/fluid_container
@@ -227,7 +228,8 @@ pub fn shared_tree_array_equal_value_moves_emit_once_locally_and_remotely_test()
       events.events |> expect.to_equal([tree_kernel.TreeChanged(True)])
       let assert Ok(#(pending, local, [outbound])) =
         runtime_core.submit_tree_edits(writer, "A/_C", [entry.0])
-      local
+      applied_events(local) |> list.length |> expect.to_equal(1)
+      tree_events(local)
       |> expect.to_equal([
         #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(True))),
       ])
@@ -239,14 +241,16 @@ pub fn shared_tree_array_equal_value_moves_emit_once_locally_and_remotely_test()
       let wire = message(writer, outbound, 1)
       let assert Ok(#(received, incoming)) =
         runtime_core.handle_sequenced(reader, wire)
-      incoming.events
+      applied_events(incoming.events) |> list.length |> expect.to_equal(1)
+      tree_events(incoming.events)
       |> expect.to_equal([
         #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
       ])
       tree_kernel.read(state(received), []) |> expect.to_equal(Ok(Some(root)))
       let assert Ok(#(settled, acknowledged)) =
         runtime_core.handle_sequenced(pending, wire)
-      acknowledged.events |> expect.to_equal([])
+      settled_events(acknowledged.events) |> list.length |> expect.to_equal(1)
+      tree_events(acknowledged.events) |> expect.to_equal([])
       tree_kernel.history_view(state(settled)).pending |> expect.to_equal([])
       let assert Ok(#(_, duplicate)) =
         runtime_core.handle_sequenced(received, wire)
@@ -269,14 +273,16 @@ pub fn shared_tree_array_net_zero_batch_still_emits_one_event_test() {
       types.ArrayRemove([], 1, 2),
     ])
   tree_kernel.read(state(pending), []) |> expect.to_equal(Ok(Some(root)))
-  events
+  applied_events(events) |> list.length |> expect.to_equal(2)
+  tree_events(events)
   |> expect.to_equal([
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(True))),
   ])
   let assert Ok(#(received, incoming)) =
     runtime_core.handle_sequenced(reader, message(writer, outbound, 1))
   tree_kernel.read(state(received), []) |> expect.to_equal(Ok(Some(root)))
-  incoming.events
+  applied_events(incoming.events) |> list.length |> expect.to_equal(2)
+  tree_events(incoming.events)
   |> expect.to_equal([
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
   ])
@@ -326,7 +332,8 @@ pub fn shared_tree_array_runtime_transaction_net_zero_mutation_emits_once_test()
   let #(committed, events, outbounds) =
     runtime_core.commit_tree_transaction(active, "A/_C") |> expect.to_be_ok
   let assert [outbound] = outbounds
-  events
+  applied_events(events) |> list.length |> expect.to_equal(1)
+  tree_events(events)
   |> expect.to_equal([
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(True))),
   ])
@@ -405,7 +412,8 @@ pub fn shared_tree_array_nested_moves_preserve_empty_policy_and_events_test() {
     runtime_core.submit_tree_edits(writer, "A/_C", [
       types.ArrayMove(["0"], 0, 1, ["0"], 2),
     ])
-  events
+  applied_events(events) |> list.length |> expect.to_equal(1)
+  tree_events(events)
   |> expect.to_equal([
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(True))),
   ])
@@ -413,7 +421,8 @@ pub fn shared_tree_array_nested_moves_preserve_empty_policy_and_events_test() {
   let reader = core_for("reader", "50000000-0000-4000-8000-000000000005", root)
   let assert Ok(#(_, incoming)) =
     runtime_core.handle_sequenced(reader, message(writer, outbound, 1))
-  incoming.events
+  applied_events(incoming.events) |> list.length |> expect.to_equal(1)
+  tree_events(incoming.events)
   |> expect.to_equal([
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
   ])
@@ -442,9 +451,9 @@ fn deliver(
     runtime_core.handle_sequenced(reader, message)
   case message.message_type, message.client_id {
     "op", Some(id) if id == writer.client_id ->
-      writer_update.events |> expect.to_equal([])
+      tree_events(writer_update.events) |> expect.to_equal([])
     "op", Some(id) if id == reader.client_id ->
-      reader_update.events |> expect.to_equal([])
+      tree_events(reader_update.events) |> expect.to_equal([])
     "noop", _ -> {
       writer_update.events |> expect.to_equal([])
       reader_update.events |> expect.to_equal([])
@@ -625,7 +634,8 @@ pub fn shared_tree_array_reconnect_keeps_moves_across_interrupted_catchup_test()
     )
   let assert Ok(#(caught_up_once, ack)) =
     runtime_core.handle_sequenced(first_rejoin, old_ack)
-  ack.events |> expect.to_equal([])
+  settled_events(ack.events) |> list.length |> expect.to_equal(1)
+  tree_events(ack.events) |> expect.to_equal([])
   list.length(caught_up_once.in_flight) |> expect.to_equal(1)
   runtime_core.reconnect_ready(caught_up_once, 2) |> expect.to_equal(False)
   let assert Ok(second_rejoin) =
@@ -663,7 +673,8 @@ pub fn shared_tree_array_reconnect_keeps_moves_across_interrupted_catchup_test()
   buffered.last_seen_sequence_number |> expect.to_equal(1)
   let assert Ok(#(rebased, incoming)) =
     runtime_core.handle_sequenced(buffered, remote_message)
-  incoming.events
+  applied_events(incoming.events) |> list.length |> expect.to_equal(2)
+  tree_events(incoming.events)
   |> expect.to_equal([
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
   ])
@@ -856,8 +867,58 @@ pub fn shared_tree_array_bad_last_batch_child_preserves_runtime_state_test() {
   tree_kernel.history_view(state(received)).sequenced.trunk
   |> list.length
   |> expect.to_equal(2)
-  result.events
+  applied_events(result.events) |> list.length |> expect.to_equal(2)
+  tree_events(result.events)
   |> expect.to_equal([
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
   ])
+}
+
+fn applied_events(
+  events: List(#(String, channel.ChannelEvent)),
+) -> List(#(String, channel.ChannelEvent)) {
+  list.filter(events, fn(event) {
+    case event.1 {
+      channel.TreeCommitApplied(..) -> True
+      _ -> False
+    }
+  })
+}
+
+fn settled_events(
+  events: List(#(String, channel.ChannelEvent)),
+) -> List(#(String, channel.ChannelEvent)) {
+  list.filter(events, fn(event) {
+    case event.1 {
+      channel.TreeCommitSettled(..) -> True
+      _ -> False
+    }
+  })
+}
+
+fn tree_events(
+  events: List(#(String, channel.ChannelEvent)),
+) -> List(#(String, channel.ChannelEvent)) {
+  list.filter(events, fn(event) {
+    case event.1 {
+      channel.TreeEvent(_) -> True
+      _ -> False
+    }
+  })
+}
+
+pub fn shared_tree_undo_array_insert_preserves_later_insert_test() {
+  undo_acceptance.assert_array_insert()
+}
+
+pub fn shared_tree_undo_array_remove_restores_identity_at_pinned_position_test() {
+  undo_acceptance.assert_array_remove()
+}
+
+pub fn shared_tree_undo_same_array_move_preserves_pinned_order_test() {
+  undo_acceptance.assert_same_array_move()
+}
+
+pub fn shared_tree_undo_cross_array_move_pins_remove_conflict_test() {
+  undo_acceptance.assert_cross_array_move()
 }

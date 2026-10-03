@@ -17,6 +17,7 @@ import watershed/tree/shared_change
 import watershed/tree/summary_fixture
 import watershed/tree/transaction
 import watershed/tree/types
+import watershed/tree/undo_acceptance
 import watershed/tree_kernel
 import watershed/wire
 import watershed/wire/fluid_document
@@ -285,7 +286,7 @@ fn commit_insert_transaction(
   let #(pending, commit_events, commit_outbound) =
     runtime_core.commit_tree_transaction(active, "A/_C")
     |> expect.to_be_ok()
-  list.length(commit_events) |> expect.to_equal(1)
+  list.length(commit_events) |> expect.to_equal(2)
   list.length(commit_outbound) |> expect.to_equal(1)
   let outbound = commit_outbound |> list.first |> expect.to_be_ok()
   #(pending, outbound)
@@ -315,7 +316,7 @@ fn commit_constrained_transaction(
   let #(pending, commit_events, commit_outbound) =
     runtime_core.commit_tree_transaction(active, "A/_C")
     |> expect.to_be_ok()
-  list.length(commit_events) |> expect.to_equal(1)
+  list.length(commit_events) |> expect.to_equal(2)
   list.length(commit_outbound) |> expect.to_equal(1)
   let outbound = commit_outbound |> list.first |> expect.to_be_ok()
   #(pending, outbound)
@@ -337,7 +338,7 @@ fn continue_editing(core: runtime_core.Core, sequence_number: Int) {
   let #(pending, commit_events, commit_outbound) =
     runtime_core.commit_tree_transaction(active, "A/_C")
     |> expect.to_be_ok()
-  list.length(commit_events) |> expect.to_equal(1)
+  list.length(commit_events) |> expect.to_equal(2)
   list.length(commit_outbound) |> expect.to_equal(1)
   let outbound = commit_outbound |> list.first |> expect.to_be_ok()
   let #(settled, received) =
@@ -346,7 +347,8 @@ fn continue_editing(core: runtime_core.Core, sequence_number: Int) {
       sequenced(outbound, pending.client_id, sequence_number),
     )
     |> expect.to_be_ok()
-  received.events |> expect.to_equal([])
+  settled_events(received.events) |> list.length |> expect.to_equal(1)
+  tree_events(received.events) |> expect.to_equal([])
   runtime_core.tree_read(settled, "A/_C", ["child", "label"])
   |> expect.to_equal(Ok(Some(types.StringValue("continued"))))
   tree_kernel.reference_at(tree(settled), ["child"])
@@ -420,7 +422,7 @@ pub fn pending_transaction_summary_replays_tail_and_continues_test() {
       sequenced(outbound, pending.client_id, 1),
     )
     |> expect.to_be_ok()
-  received.events
+  tree_events(received.events)
   |> expect.to_equal([
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
   ])
@@ -430,6 +432,10 @@ pub fn pending_transaction_summary_replays_tail_and_continues_test() {
   |> list.length
   |> expect.to_equal(1)
   continue_editing(after_tail, 2)
+}
+
+pub fn pending_undo_summary_keeps_sequenced_state_then_applies_tail_test() {
+  undo_acceptance.assert_pending_undo_summary_tail()
 }
 
 pub fn explicitly_violated_transaction_tail_continues_test() {
@@ -446,7 +452,7 @@ pub fn explicitly_violated_transaction_tail_continues_test() {
       pending,
       sequenced(removal, remover.client_id, 1),
     )
-  remote.events
+  tree_events(remote.events)
   |> expect.to_equal([
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
   ])
@@ -467,7 +473,8 @@ pub fn explicitly_violated_transaction_tail_continues_test() {
   |> expect.to_equal(Ok(Some(types.StringValue("child"))))
   let assert Ok(#(after_tail, received)) =
     runtime_core.handle_sequenced(fresh, sequenced(tail, violated.client_id, 2))
-  received.events |> expect.to_equal([])
+  applied_events(received.events) |> list.length |> expect.to_equal(1)
+  tree_events(received.events) |> expect.to_equal([])
   latest_violation_count(after_tail) |> expect.to_equal(1)
   runtime_core.tree_read(after_tail, "A/_C", ["left", "0"])
   |> expect.to_equal(Ok(None))
@@ -499,7 +506,7 @@ pub fn pending_transaction_tail_becomes_explicitly_violated_test() {
       fresh,
       sequenced(removal, remover.client_id, 1),
     )
-  removed.events
+  tree_events(removed.events)
   |> expect.to_equal([
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
   ])
@@ -510,7 +517,8 @@ pub fn pending_transaction_tail_becomes_explicitly_violated_test() {
       after_removal,
       sequenced(tail, pending.client_id, 2),
     )
-  received.events |> expect.to_equal([])
+  applied_events(received.events) |> list.length |> expect.to_equal(1)
+  tree_events(received.events) |> expect.to_equal([])
   latest_violation_count(after_tail) |> expect.to_equal(1)
   runtime_core.tree_read(after_tail, "A/_C", ["left", "0"])
   |> expect.to_equal(Ok(None))
@@ -541,6 +549,39 @@ pub fn shared_tree_summary_resolves_binary_blob_from_previous_test() -> Nil {
       ]),
     ),
   )
+}
+
+fn tree_events(
+  events: List(#(String, channel.ChannelEvent)),
+) -> List(#(String, channel.ChannelEvent)) {
+  list.filter(events, fn(event) {
+    case event.1 {
+      channel.TreeEvent(_) -> True
+      _ -> False
+    }
+  })
+}
+
+fn applied_events(
+  events: List(#(String, channel.ChannelEvent)),
+) -> List(#(String, channel.ChannelEvent)) {
+  list.filter(events, fn(event) {
+    case event.1 {
+      channel.TreeCommitApplied(..) -> True
+      _ -> False
+    }
+  })
+}
+
+fn settled_events(
+  events: List(#(String, channel.ChannelEvent)),
+) -> List(#(String, channel.ChannelEvent)) {
+  list.filter(events, fn(event) {
+    case event.1 {
+      channel.TreeCommitSettled(..) -> True
+      _ -> False
+    }
+  })
 }
 
 pub fn shared_tree_summary_reports_missing_and_wrong_references_test() -> Nil {

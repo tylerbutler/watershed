@@ -17,6 +17,7 @@ import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
 import watershed/tree/transaction
 import watershed/tree/types
+import watershed/tree/undo_acceptance
 import watershed/tree_kernel
 
 pub fn identifier_schema_upstream_fixture_test() {
@@ -720,6 +721,10 @@ pub fn identifier_same_value_set_is_atomic_error_test() {
     ["id"],
     types.StringValue("literal-custom-id"),
   ))
+}
+
+pub fn identifier_undo_preserves_value_and_allocation_after_remote_edit_test() {
+  undo_acceptance.assert_identifier()
 }
 
 pub fn identifier_clear_is_atomic_error_test() {

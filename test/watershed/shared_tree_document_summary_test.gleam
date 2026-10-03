@@ -16,6 +16,7 @@ import watershed/tree/identifier_fixture
 import watershed/tree/runtime_fixture
 import watershed/tree/schema as tree_schema
 import watershed/tree/summary_export
+import watershed/tree/undo_acceptance
 import watershed/tree_kernel
 import watershed/wire
 import watershed/wire/fluid_document
@@ -727,6 +728,10 @@ pub fn shared_tree_summary_export_rejects_mismatched_continuation_test() {
     ])
   let assert Error(detail) = summary_export.export(corrupt, "javascript")
   detail |> string.contains("continuation edit differs") |> expect.to_be_true()
+}
+
+pub fn shared_tree_undo_redo_summary_reload_continues_without_old_handles_test() {
+  undo_acceptance.assert_summary_reload_lifetime()
 }
 
 fn replace_entry(
