@@ -423,12 +423,25 @@ function undoRedoCaseFixture(id) {
       beforeSequence: [0, 1],
     }));
     Object.assign(
+      fixture.observations.find(({ id: scenario }) =>
+        scenario === "later-unrelated-local-remote"),
+      {
+        beforeUndo: { title: "later-unrelated-local-remote", count: 7 },
+        optimisticUndo: { title: "base", count: 7 },
+        settledUndo: { title: "base", count: 7 },
+      },
+    );
+    Object.assign(
       fixture.observations.find(({ id: scenario }) => scenario === "overlap-remote-first"),
       { sequenceOrder: "remote-first", authoredBeforeSequence: true },
     );
     Object.assign(
       fixture.observations.find(({ id: scenario }) => scenario === "overlap-local-first"),
-      { sequenceOrder: "local-first", authoredBeforeSequence: true },
+      {
+        beforeUndo: { title: "remote" },
+        sequenceOrder: "local-first",
+        authoredBeforeSequence: true,
+      },
     );
     fixture.raw = {
       scenarios: fixture.input.scenarios.map(({ id: scenario }) => ({
@@ -1843,6 +1856,15 @@ test("undo and redo corpus rejects missing reviewed contract evidence", () => {
     .find(({ id }) => id === "undo-redo-fields")
     .expected.observations[0].settled[0].outcome = "Unknown";
   assert.throws(() => validateCases(withInvalidFieldOutcome), /settlement outcome/i);
+
+  const withEquivalentFieldSnapshots = structuredClone(complete);
+  const fieldObservation = withEquivalentFieldSnapshots
+    .find(({ id }) => id === "undo-redo-fields")
+    .expected.observations[0];
+  fieldObservation.optimisticUndo = structuredClone(fieldObservation.beforeUndo);
+  fieldObservation.settledUndo = structuredClone(fieldObservation.beforeUndo);
+  assert.throws(() => validateCases(withEquivalentFieldSnapshots),
+    /object-set snapshot relationship/i);
 
   const withoutConstraint = structuredClone(complete);
   delete withoutConstraint
