@@ -4252,6 +4252,283 @@ export async function runTransactionReloadMatrix(config, context, {
   return validateTransactionReloadResults(results);
 }
 
+async function openUndoRedoReader(
+  config,
+  context,
+  containers,
+  documentId,
+  jwt,
+  reader,
+) {
+  if (reader === "upstream") {
+    const session = await openSession(config, containers, documentId, false, {
+      cache: false,
+      observeStorage: true,
+    });
+    return {
+      adapter: upstreamAdapter(session),
+      close() {
+        if (!session.container.closed) session.container.dispose();
+      },
+    };
+  }
+  const adapter = await nativeAdapter(reader, config, {
+    runId: context.runId,
+    documentId,
+    tenant: config.tenantId,
+    viewSchema: context.viewSchema,
+  }, jwt);
+  return { adapter, close: () => adapter.close() };
+}
+
+async function publishUndoRedoSummary(
+  config,
+  containers,
+  documentId,
+  writer,
+  adapter,
+  stage,
+) {
+  return writer === "upstream"
+    ? (await publishUpstreamSummary(
+        config,
+        containers,
+        documentId,
+        `Task 8 ${writer} ${stage}`,
+      )).summaryAckOp.contents.handle
+    : adapter.summarize();
+}
+
+async function writeUndoRedoReloadArtifact(context, item, raw) {
+  const relative =
+    `undo-redo-reload/${item.writer}-${item.stage}-${item.reader}.json`;
+  const path = join(context.artifactDirectory, relative);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({
+    formatVersion: 1,
+    runId: context.runId,
+    profileDigest: context.profileDigest,
+    kind: "undo-redo-reload",
+    subject: `${item.writer}:${item.stage}->${item.reader}`,
+    documentId: item.documentId,
+    measured: item,
+    raw,
+  })}\n`, { mode: 0o600 });
+  return relative;
+}
+
+async function runUndoRedoReloadReader(
+  config,
+  context,
+  environment,
+  writer,
+  reader,
+  stage,
+  version,
+  expectedTree,
+) {
+  const fresh = await openUndoRedoReader(
+    config,
+    context,
+    environment.containers,
+    environment.documentId,
+    environment.jwt,
+    reader,
+  );
+  let failure;
+  try {
+    await fresh.adapter.awaitSynced();
+    const loaded = await fresh.adapter.checkpoint();
+    assert.deepEqual(loaded.wholeTree, expectedTree,
+      `${writer} ${stage}->${reader} loaded another tree`);
+    let historicalHandleAvailable = true;
+    try {
+      await fresh.adapter.revert("edit", true);
+    } catch {
+      historicalHandleAvailable = false;
+    }
+    assert.equal(historicalHandleAvailable, false,
+      `${writer} ${stage}->${reader} recreated a historical handle`);
+    await fresh.adapter.set(["note"], `${writer}-${stage}-${reader}`);
+    const retained = await fresh.adapter.retainLastLocalCommit("post-load");
+    const undo = await fresh.adapter.revert("post-load", true);
+    await fresh.adapter.awaitSynced();
+    const final = await fresh.adapter.checkpoint();
+    const commits = [...(loaded.commits ?? []), ...(final.commits ?? [])];
+    const settlement = commits.findLast(
+      ({ type, kind }) => type === "settlement" && kind === "Undo",
+    )?.outcome;
+    const item = {
+      writer,
+      reader,
+      stage,
+      runId: context.runId,
+      profileDigest: context.profileDigest,
+      documentId: environment.documentId,
+      writerVersion: version,
+      loaded: true,
+      historicalHandleAvailable,
+      newLocalKind: retained.kind,
+      newFactoryAvailable: retained.factoryAvailable,
+      newHandleStatus: retained.status,
+      undoKind: undo.authoredKind,
+      settlement,
+      outboundCount: undo.outboundCount,
+      finalTree: final.wholeTree,
+      passed: true,
+      skipped: false,
+      artifacts: [],
+    };
+    assert.deepEqual(final.wholeTree, expectedTree,
+      `${writer} ${stage}->${reader} did not undo its post-load edit`);
+    item.artifacts = [await writeUndoRedoReloadArtifact(context, item, {
+      loaded,
+      final,
+      handleNames: ["post-load"],
+      commitKinds: commits.filter(({ type }) => type === "commit")
+        .map(({ kind }) => kind),
+      settlementOutcomes: commits.filter(({ type }) => type === "settlement")
+        .map(({ outcome }) => outcome),
+    })];
+    return item;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    try {
+      await fresh.close();
+    } catch (error) {
+      if (failure) failure.cleanupErrors = [...(failure.cleanupErrors ?? []), error];
+      else throw error;
+    }
+  }
+}
+
+async function runUndoRedoReloadWriter(config, context, writer) {
+  const containers = [];
+  const natives = [];
+  let failure;
+  try {
+    const creator = await openSession(config, containers);
+    const documentId = creator.container.resolvedUrl.id;
+    await publishUpstreamSummary(
+      config,
+      containers,
+      documentId,
+      `Task 8 ${writer} reload bootstrap`,
+    );
+    const upstream = upstreamAdapter(await openSession(
+      config,
+      containers,
+      documentId,
+    ));
+    const { jwt } = await tokenProvider(config)
+      .fetchOrdererToken(config.tenantId, documentId);
+    for (const target of nativeTargets) {
+      natives.push(await nativeAdapter(target, config, {
+        runId: context.runId,
+        documentId,
+        tenant: config.tenantId,
+        viewSchema: context.viewSchema,
+      }, jwt));
+    }
+    const adapters = { upstream, javascript: natives[0], erlang: natives[1] };
+    const environment = { containers, documentId, jwt };
+    await settle(adapters);
+    await adapters[writer].set(["title"], `${writer}-undo-redo`);
+    await adapters[writer].retainLastLocalCommit("edit");
+    await settle(adapters);
+    await adapters[writer].revert("edit", true);
+    await adapters[writer].retainLastLocalCommit("undo");
+    const undone = await settle(adapters);
+    const undoTree = undone.observations[0].wholeTree;
+    const undoVersion = await publishUndoRedoSummary(
+      config,
+      containers,
+      documentId,
+      writer,
+      adapters[writer],
+      "undo",
+    );
+    const row = { undo: {}, redo: {} };
+    for (const reader of implementations) {
+      row.undo[reader] = await runUndoRedoReloadReader(
+        config,
+        context,
+        environment,
+        writer,
+        reader,
+        "undo",
+        undoVersion,
+        undoTree,
+      );
+    }
+    await adapters[writer].revert("undo", true);
+    const redone = await settle(adapters);
+    const redoTree = redone.observations[0].wholeTree;
+    const redoVersion = await publishUndoRedoSummary(
+      config,
+      containers,
+      documentId,
+      writer,
+      adapters[writer],
+      "redo",
+    );
+    for (const reader of implementations) {
+      row.redo[reader] = await runUndoRedoReloadReader(
+        config,
+        context,
+        environment,
+        writer,
+        reader,
+        "redo",
+        redoVersion,
+        redoTree,
+      );
+    }
+    return row;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    const cleanupErrors = [];
+    for (const native of natives.toReversed()) {
+      try {
+        await native.close();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const container of containers.toReversed()) {
+      try {
+        if (!container.closed) container.dispose();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      if (failure) failure.cleanupErrors = cleanupErrors;
+      else throw new AggregateError(cleanupErrors, "Undo/redo reload cleanup failed");
+    }
+  }
+}
+
+export async function runUndoRedoReloadMatrix(config, context, {
+  runRow = runUndoRedoReloadWriter,
+} = {}) {
+  assert(typeof context?.runId === "string" && context.runId.length > 0,
+    "runUndoRedoReloadMatrix context requires runId");
+  assert.match(context.profileDigest ?? "", /^[0-9a-f]{64}$/,
+    "runUndoRedoReloadMatrix context requires profileDigest");
+  assert(typeof context.viewSchema === "string" && context.viewSchema.length > 0,
+    "runUndoRedoReloadMatrix context requires viewSchema");
+  const matrix = {};
+  for (const writer of implementations) {
+    matrix[writer] = await runRow(config, context, writer);
+  }
+  return matrix;
+}
+
 export async function runIdentifierReloadMatrix(config, context, {
   runRow = runIdentifierWriterRow,
 } = {}) {

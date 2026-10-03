@@ -40,6 +40,7 @@ import {
   runSchemaReconnect,
   runSeededSchedules,
   runTransactionScenarios,
+  runUndoRedoScenarios,
   validateIdentifierFields,
   validateTransactionCallbacks,
   validateTransactionConstraints,
@@ -59,6 +60,7 @@ import {
   runReloadMatrix,
   runSchemaReloadMatrices,
   runTransactionReloadMatrix,
+  runUndoRedoReloadMatrix,
   validateArrayResults,
   validateIdentifierReloadResults,
   validateMapResults,
@@ -81,6 +83,12 @@ const requiredTransactionSections = [
   "transactionConstraints",
   "transactionReconnect",
   "transactionReloadMatrix",
+];
+export const requiredUndoRedoSections = [
+  "undoRedoKinds",
+  "undoRedoConcurrent",
+  "undoRedoReconnect",
+  "undoRedoReloadMatrix",
 ];
 const requiredSchemaRaceIds = requiredSchemaRaceCells().map(({ id }) => id);
 const oracleDirectory = resolve(import.meta.dirname);
@@ -683,6 +691,11 @@ function artifactReferences(report) {
     ...report.transactionReconnect.flatMap(({ evidence }) => evidence.artifacts),
     ...Object.values(report.transactionReloadMatrix).flatMap((row) =>
       Object.values(row).flatMap(({ artifacts }) => artifacts)),
+    ...report.undoRedoConcurrent.flatMap(({ artifacts }) => artifacts),
+    ...report.undoRedoReconnect.flatMap(({ artifacts }) => artifacts),
+    ...Object.values(report.undoRedoReloadMatrix).flatMap((row) =>
+      Object.values(row).flatMap((stage) =>
+        Object.values(stage).flatMap(({ artifacts }) => artifacts))),
     ...Object.values(report.schemaReloadMatrix).flatMap((row) =>
       Object.values(row).flatMap(({ artifacts }) => artifacts)),
     ...Object.values(report.schemaTailReloadMatrix).flatMap((row) =>
@@ -763,6 +776,12 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
   await writeStatus(runDirectory, "transaction-reload");
   log("shared-tree interop: transaction selected-summary reload matrix");
   const transactionReloadMatrix = await runTransactionReloadMatrix(config, context);
+
+  await writeStatus(runDirectory, "undo-redo");
+  log("shared-tree interop: mixed-client undo and redo");
+  const undoRedo = await runUndoRedoScenarios(config, context);
+  const undoRedoReloadMatrix =
+    await runUndoRedoReloadMatrix(config, context);
 
   await writeStatus(runDirectory, "reload");
   log("shared-tree interop: selected-summary reload matrix");
@@ -865,6 +884,10 @@ async function liveAcceptance(config, runDirectory, context, options, corpus, lo
     transactionConstraints: transactions.constraints,
     transactionReconnect,
     transactionReloadMatrix,
+    undoRedoKinds: undoRedo.kinds,
+    undoRedoConcurrent: undoRedo.concurrent,
+    undoRedoReconnect: undoRedo.reconnect,
+    undoRedoReloadMatrix,
     corpus,
     skipped: [],
     divergences: [],
@@ -2446,6 +2469,134 @@ function validateTransactionSections(report, expected, evidence) {
   }
 }
 
+function validateUndoRedoSections(report) {
+  for (const section of requiredUndoRedoSections) {
+    assert(report[section] !== undefined, `Missing ${section}`);
+  }
+  const kinds = object(report.undoRedoKinds,
+    "Undo/redo kinds evidence must be an object");
+  assert(Array.isArray(kinds.implementations)
+    && kinds.implementations.length === implementations.length,
+  "Undo/redo kinds require every implementation");
+  assert.deepEqual(
+    kinds.implementations.map(({ implementation }) => implementation).sort(),
+    [...implementations].sort(),
+    "Undo/redo kinds lack an implementation",
+  );
+  for (const item of kinds.implementations) {
+    assert.deepEqual(item.localKinds, ["Default", "Undo", "Redo"],
+      `${item.implementation} undo/redo kinds changed`);
+    assert.deepEqual(item.factoryAvailability, [true, true, true],
+      `${item.implementation} lacks local factories`);
+    assert.deepEqual(item.settlements,
+      ["FullyApplied", "FullyApplied", "FullyApplied"],
+      `${item.implementation} lacks settlement observations`);
+    assert.deepEqual(item.outboundCounts, [1, 1, 1],
+      `${item.implementation} submitted another operation count`);
+    object(item.finalTree, `${item.implementation} lacks a final tree`);
+  }
+
+  const pairs = [
+    ["javascript", "upstream"],
+    ["erlang", "upstream"],
+    ["javascript", "erlang"],
+  ];
+  const fieldKinds = ["object", "map", "array", "move", "transaction"];
+  const orders = ["a-first", "b-first"];
+  const concurrent = report.undoRedoConcurrent;
+  assert(Array.isArray(concurrent), "Undo/redo concurrent evidence must be an array");
+  assert.equal(concurrent.length, pairs.length * fieldKinds.length * orders.length,
+    "Undo/redo concurrent evidence lacks a field-kind row or race ordering");
+  const cells = new Map(concurrent.map((item) => [item.id, item]));
+  for (const authors of pairs) {
+    for (const fieldKind of fieldKinds) {
+      for (const order of orders) {
+        const id = `undo-redo:${authors.join("<->")}:${fieldKind}:${order}`;
+        const item = cells.get(id);
+        assert(item, `Undo/redo concurrent evidence lacks ${id}`);
+        assert.deepEqual(item.authors, authors, `${id} authors changed`);
+        assert.equal(item.fieldKind, fieldKind, `${id} field kind changed`);
+        assert.equal(item.order, order, `${id} race ordering changed`);
+        assert.deepEqual(item.localKinds, ["Default", "Undo", "Redo"],
+          `${id} local commit kinds changed`);
+        assert.deepEqual(item.factoryAvailability, [true, true, true],
+          `${id} factory availability changed`);
+        assert.deepEqual(item.settlements,
+          ["FullyApplied", "FullyApplied", "FullyApplied"],
+          `${id} lacks settlement observations`);
+        assert.deepEqual(item.outboundCounts, [1, 1, 1],
+          `${id} outbound counts changed`);
+        assert.equal(item.remoteFactoryAvailable, false,
+          `${id} gave the peer a revertible factory`);
+        assert.equal(item.passed, true, `${id} failed`);
+        assert.equal(item.skipped, false, `${id} was skipped`);
+        for (const phase of ["authored", "concurrent", "undone", "redone"]) {
+          object(item.snapshots?.[phase], `${id} lacks the ${phase} snapshot`);
+        }
+        object(item.finalTree, `${id} lacks a final tree`);
+      }
+    }
+  }
+
+  assert(Array.isArray(report.undoRedoReconnect)
+    && report.undoRedoReconnect.length === nativeTargets.length,
+  "Undo/redo reconnect requires every native implementation");
+  for (const implementation of nativeTargets) {
+    const item = report.undoRedoReconnect.find(
+      (candidate) => candidate.implementation === implementation,
+    );
+    assert(item, `Undo/redo reconnect lacks ${implementation}`);
+    assert.equal(item.liveHandleBeforeDisconnect, "Valid",
+      `${implementation} handle was not live before disconnect`);
+    assert.equal(item.liveHandleAfterReconnect, "Valid",
+      `${implementation} handle did not survive reconnect`);
+    assert.equal(item.undoKind, "Undo",
+      `${implementation} reconnect authored another commit kind`);
+    assert.equal(item.settlement, "FullyApplied",
+      `${implementation} reconnect lacks settlement observation`);
+    assert.equal(item.outboundCount, 1,
+      `${implementation} reconnect submitted another operation count`);
+    assert.equal(item.passed, true, `${implementation} reconnect failed`);
+    assert.equal(item.skipped, false, `${implementation} reconnect was skipped`);
+    object(item.finalTree, `${implementation} reconnect lacks a final tree`);
+  }
+
+  const reload = object(report.undoRedoReloadMatrix,
+    "Undo/redo reload matrix must be an object");
+  for (const writer of implementations) {
+    const row = object(reload[writer],
+      `Undo/redo reload matrix lacks writer ${writer}`);
+    for (const stage of ["undo", "redo"]) {
+      const summaries = object(row[stage],
+        `Undo/redo reload matrix lacks ${writer} ${stage}`);
+      assert.deepEqual(Object.keys(summaries).sort(), [...implementations].sort(),
+        `Undo/redo reload matrix lacks a reader cell for ${writer} ${stage}`);
+      for (const reader of implementations) {
+        const item = summaries[reader];
+        assert.equal(item.writer, writer, "Undo/redo reload writer changed");
+        assert.equal(item.reader, reader, "Undo/redo reload reader changed");
+        assert.equal(item.stage, stage, "Undo/redo reload stage changed");
+        assert.equal(item.loaded, true, "Undo/redo reload did not load");
+        assert.equal(item.historicalHandleAvailable, false,
+          "Undo/redo reload recreated a historical handle");
+        assert.equal(item.newLocalKind, "Default",
+          "Undo/redo reload authored another local kind");
+        assert.equal(item.newFactoryAvailable, true,
+          "Undo/redo reload lacked a new local factory");
+        assert.equal(item.undoKind, "Undo",
+          "Undo/redo reload did not undo the new local commit");
+        assert.equal(item.settlement, "FullyApplied",
+          "Undo/redo reload lacks settlement observation");
+        assert.equal(item.outboundCount, 1,
+          "Undo/redo reload submitted another operation count");
+        assert.equal(item.passed, true, "Undo/redo reload cell failed");
+        assert.equal(item.skipped, false, "Undo/redo reload cell was skipped");
+        object(item.finalTree, "Undo/redo reload lacks a final tree");
+      }
+    }
+  }
+}
+
 export function validateInteropReport(report, expected) {
   object(report, "Missing interoperability report");
   object(expected, "Missing report expectations");
@@ -2502,6 +2653,7 @@ export function validateInteropReport(report, expected) {
   validateSchemaSections(report, expected, evidence);
   validateIdentifierSections(report, expected, evidence);
   validateTransactionSections(report, expected, evidence);
+  validateUndoRedoSections(report);
 
   const requiredScenarios = requiredScenarioCells();
   const scenariosById = exactCells(

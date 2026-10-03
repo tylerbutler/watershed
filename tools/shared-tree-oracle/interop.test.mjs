@@ -1798,6 +1798,76 @@ async function validFixture() {
     transactionConstraints,
     transactionReconnect,
     transactionReloadMatrix,
+    undoRedoKinds: {
+      implementations: implementations.map((implementation) => ({
+        implementation,
+        localKinds: ["Default", "Undo", "Redo"],
+        factoryAvailability: [true, true, true],
+        handleStatuses: ["Valid", "Disposed"],
+        settlements: ["FullyApplied", "FullyApplied", "FullyApplied"],
+        outboundCounts: [1, 1, 1],
+        finalTree: { title: `${implementation}-redo` },
+      })),
+    },
+    undoRedoConcurrent: [
+      ["javascript", "upstream"],
+      ["erlang", "upstream"],
+      ["javascript", "erlang"],
+    ].flatMap((authors) => ["object", "map", "array", "move", "transaction"]
+      .flatMap((fieldKind) => ["a-first", "b-first"].map((order) => ({
+        id: `undo-redo:${authors.join("<->")}:${fieldKind}:${order}`,
+        authors,
+        fieldKind,
+        order,
+        snapshots: {
+          authored: { phase: "authored" },
+          concurrent: { phase: "concurrent" },
+          undone: { phase: "undone" },
+          redone: { phase: "redone" },
+        },
+        localKinds: ["Default", "Undo", "Redo"],
+        factoryAvailability: [true, true, true],
+        handleStatuses: ["Valid", "Disposed", "Disposed"],
+        settlements: ["FullyApplied", "FullyApplied", "FullyApplied"],
+        outboundCounts: [1, 1, 1],
+        remoteFactoryAvailable: false,
+        finalTree: { phase: "redone" },
+        passed: true,
+        skipped: false,
+      })))),
+    undoRedoReconnect: ["javascript", "erlang"].map((implementation) => ({
+      implementation,
+      liveHandleBeforeDisconnect: "Valid",
+      liveHandleAfterReconnect: "Valid",
+      undoKind: "Undo",
+      settlement: "FullyApplied",
+      outboundCount: 1,
+      finalTree: { phase: "undone" },
+      passed: true,
+      skipped: false,
+    })),
+    undoRedoReloadMatrix: Object.fromEntries(implementations.map((writer) => [
+      writer,
+      Object.fromEntries(["undo", "redo"].map((stage) => [
+        stage,
+        Object.fromEntries(implementations.map((reader) => [reader, {
+          writer,
+          reader,
+          stage,
+          loaded: true,
+          historicalHandleAvailable: false,
+          newLocalKind: "Default",
+          newFactoryAvailable: true,
+          newHandleStatus: "Valid",
+          undoKind: "Undo",
+          settlement: "FullyApplied",
+          outboundCount: 1,
+          finalTree: { writer, reader, stage },
+          passed: true,
+          skipped: false,
+        }])),
+      ])),
+    ])),
     corpus: Object.fromEntries(implementations.slice(1).map((target) => {
       const output = "Running 1 tests\nTests: 1 passed (1)";
       return [target, {
@@ -2015,6 +2085,40 @@ test("transaction coverage rejects missing sections, pairs, orders, and cells", 
     const { expected, report } = await validFixture();
     mutate(report);
     assert.throws(() => validateInteropReport(report, expected), pattern);
+  }
+});
+
+test("undo and redo coverage rejects missing sections and observations", async () => {
+  const cases = [
+    ["section", (report) => { delete report.undoRedoKinds; }],
+    ["implementation", (report) => {
+      report.undoRedoKinds.implementations.pop();
+    }],
+    ["race ordering", (report) => {
+      report.undoRedoConcurrent = report.undoRedoConcurrent.filter(
+        ({ order }) => order !== "b-first",
+      );
+    }],
+    ["field-kind row", (report) => {
+      report.undoRedoConcurrent = report.undoRedoConcurrent.filter(
+        ({ fieldKind }) => fieldKind !== "move",
+      );
+    }],
+    ["reload cell", (report) => {
+      delete report.undoRedoReloadMatrix.javascript.redo.erlang;
+    }],
+    ["settlement observation", (report) => {
+      report.undoRedoConcurrent[0].settlements.pop();
+    }],
+  ];
+  for (const [label, mutate] of cases) {
+    const { expected, report } = await validFixture();
+    mutate(report);
+    assert.throws(
+      () => validateInteropReport(report, expected),
+      /undo|redo|settlement|implementation|race|field|reload/i,
+      label,
+    );
   }
 });
 

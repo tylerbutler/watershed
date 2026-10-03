@@ -42,13 +42,14 @@ pub fn shared_tree_client_encodes_full_root_checkpoint_test() -> Nil {
     ),
     [#("title", client_protocol.encode_read(Some(StringValue("hello"))))],
     [json.object([#("local", json.bool(True))])],
+    [],
     json.object([]),
     None,
     None,
   )
   |> json.to_string
   |> expect.to_equal(
-    "{\"root\":{\"present\":true,\"value\":{\"kind\":\"object\",\"schemaId\":\"org.watershed.Root\",\"fields\":[[\"title\",{\"kind\":\"string\",\"value\":\"hello\"}],[\"note\",{\"kind\":\"null\"}]]}},\"values\":{\"title\":{\"present\":true,\"value\":{\"kind\":\"string\",\"value\":\"hello\"}}},\"events\":[{\"local\":true}],\"history\":{}}",
+    "{\"root\":{\"present\":true,\"value\":{\"kind\":\"object\",\"schemaId\":\"org.watershed.Root\",\"fields\":[[\"title\",{\"kind\":\"string\",\"value\":\"hello\"}],[\"note\",{\"kind\":\"null\"}]]}},\"values\":{\"title\":{\"present\":true,\"value\":{\"kind\":\"string\",\"value\":\"hello\"}}},\"events\":[{\"local\":true}],\"commits\":[],\"history\":{}}",
   )
 }
 

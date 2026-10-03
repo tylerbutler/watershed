@@ -1,4 +1,6 @@
 @target(javascript)
+import gleam/dict.{type Dict}
+@target(javascript)
 import gleam/int
 @target(javascript)
 import gleam/javascript/promise.{type Promise}
@@ -23,7 +25,10 @@ import watershed/tree/client_protocol as protocol
 @target(javascript)
 import watershed/tree/client_retained_evidence
 @target(javascript)
-import watershed/tree/types.{ObjectValue}
+import watershed/tree/types.{
+  type TreeCommitKind, type TreeCommitOutcome, DefaultCommit, FullyApplied,
+  FullyDropped, NewContentOnly, ObjectValue, RedoCommit, UndoCommit,
+}
 @target(javascript)
 import watershed/tree_kernel.{SchemaChanged, TreeChanged}
 
@@ -121,7 +126,14 @@ pub fn main() -> Promise(Nil) {
                     Ok(tree) -> {
                       let active_tree = transport_js.new_cell(tree)
                       let events = transport_js.new_cell([])
+                      let commits = transport_js.new_cell([])
+                      let handles = transport_js.new_cell(dict.new())
+                      let last_local = transport_js.new_cell(None)
                       let subscription = transport_js.new_cell(None)
+                      let _ =
+                        watershed.subscribe_tree_commits(tree, fn(event) {
+                          observe_commit(event, commits, last_local)
+                        })
                       lines(
                         fn(raw) {
                           execute(
@@ -131,6 +143,9 @@ pub fn main() -> Promise(Nil) {
                             config,
                             active_tree,
                             events,
+                            commits,
+                            handles,
+                            last_local,
                             subscription,
                           )
                         },
@@ -179,6 +194,9 @@ fn execute(
   config: protocol.Descriptor,
   active_tree: Cell(watershed.SharedTree),
   events: Cell(List(Json)),
+  commits: Cell(List(Json)),
+  handles: Cell(Dict(String, #(watershed.TreeRevertible, TreeCommitKind))),
+  last_local: Cell(Option(#(watershed.TreeRevertible, TreeCommitKind))),
   subscription: Cell(Option(watershed.SubscriptionToken)),
 ) -> Promise(String) {
   case protocol.decode_request(raw) {
@@ -338,7 +356,11 @@ fn execute(
           }
         protocol.Transaction(scope) ->
           run_transaction(document, tree, events, scope)
-        protocol.Checkpoint -> checkpoint(tree, events)
+        protocol.RetainLastLocalCommit(name) ->
+          retain_last_local_commit(name, handles, last_local)
+        protocol.Revert(name, dispose) ->
+          revert_handle(document, name, dispose, handles)
+        protocol.Checkpoint -> checkpoint(tree, events, commits)
         protocol.Disconnect -> {
           watershed.go_offline(document)
           Ok(json.null())
@@ -502,13 +524,15 @@ fn apply_transaction_scope(
         nested,
       ))
     protocol.AbortScope ->
-      Error(RequestedAbort(protocol.TransactionObservation(
-        "aborted",
-        scope.constraints,
-        applied,
-        observed,
-        nested,
-      )))
+      Error(
+        RequestedAbort(protocol.TransactionObservation(
+          "aborted",
+          scope.constraints,
+          applied,
+          observed,
+          nested,
+        )),
+      )
   }
 }
 
@@ -575,6 +599,7 @@ fn run_transaction(
 fn checkpoint(
   tree: watershed.SharedTree,
   events: Cell(List(Json)),
+  commits: Cell(List(Json)),
 ) -> Result(Json, protocol.ProtocolError) {
   use history <- result.try(
     watershed.tree_history_evidence(tree)
@@ -582,12 +607,15 @@ fn checkpoint(
   )
   let changes = list.reverse(transport_js.get_cell(events))
   transport_js.set_cell(events, [])
+  let commit_events = list.reverse(transport_js.get_cell(commits))
+  transport_js.set_cell(commits, [])
   case watershed.tree_get(tree, []) {
     Error(reason) ->
       Ok(protocol.encode_checkpoint(
         protocol.encode_read(None),
         [],
         changes,
+        commit_events,
         history,
         Some(reason),
         None,
@@ -646,12 +674,156 @@ fn checkpoint(
         root,
         values,
         changes,
+        commit_events,
         history,
         None,
         retained,
       ))
     }
   }
+}
+
+@target(javascript)
+fn commit_kind(kind: TreeCommitKind) -> String {
+  case kind {
+    DefaultCommit -> "Default"
+    UndoCommit -> "Undo"
+    RedoCommit -> "Redo"
+  }
+}
+
+@target(javascript)
+fn commit_outcome(outcome: TreeCommitOutcome) -> String {
+  case outcome {
+    FullyApplied -> "FullyApplied"
+    FullyDropped -> "FullyDropped"
+    NewContentOnly -> "NewContentOnly"
+  }
+}
+
+@target(javascript)
+fn revertible_status(handle: watershed.TreeRevertible) -> String {
+  case watershed.tree_revertible_status(handle) {
+    watershed.RevertibleValid -> "Valid"
+    watershed.RevertibleDisposed -> "Disposed"
+  }
+}
+
+@target(javascript)
+fn push_json(cell: Cell(List(Json)), value: Json) -> Nil {
+  transport_js.set_cell(cell, [value, ..transport_js.get_cell(cell)])
+}
+
+@target(javascript)
+fn observe_commit(
+  event: watershed.TreeCommitEvent,
+  commits: Cell(List(Json)),
+  last_local: Cell(Option(#(watershed.TreeRevertible, TreeCommitKind))),
+) -> Nil {
+  let watershed.TreeCommitEvent(kind, local, factory, settlement) = event
+  let factory_available = option.is_some(factory)
+  let acquired = case local, factory {
+    True, Some(get_revertible) ->
+      case get_revertible() {
+        Ok(handle) -> {
+          transport_js.set_cell(last_local, Some(#(handle, kind)))
+          True
+        }
+        Error(_) -> False
+      }
+    _, _ -> False
+  }
+  push_json(
+    commits,
+    json.object([
+      #("type", json.string("commit")),
+      #("kind", json.string(commit_kind(kind))),
+      #("local", json.bool(local)),
+      #("factoryAvailable", json.bool(factory_available)),
+      #("handleAcquired", json.bool(acquired)),
+    ]),
+  )
+  case settlement {
+    None -> Nil
+    Some(on_settled) -> {
+      let _ =
+        on_settled(fn(outcome) {
+          push_json(
+            commits,
+            json.object([
+              #("type", json.string("settlement")),
+              #("kind", json.string(commit_kind(kind))),
+              #("outcome", json.string(commit_outcome(outcome))),
+            ]),
+          )
+        })
+      Nil
+    }
+  }
+}
+
+@target(javascript)
+fn retain_last_local_commit(
+  name: String,
+  handles: Cell(Dict(String, #(watershed.TreeRevertible, TreeCommitKind))),
+  last_local: Cell(Option(#(watershed.TreeRevertible, TreeCommitKind))),
+) -> Result(Json, protocol.ProtocolError) {
+  case transport_js.get_cell(last_local) {
+    None ->
+      Error(facade(
+        "retainLastLocalCommit",
+        "No unretained local commit is available",
+      ))
+    Some(entry) -> {
+      transport_js.set_cell(
+        handles,
+        transport_js.get_cell(handles) |> dict.insert(name, entry),
+      )
+      transport_js.set_cell(last_local, None)
+      Ok(
+        json.object([
+          #("name", json.string(name)),
+          #("kind", json.string(commit_kind(entry.1))),
+          #("factoryAvailable", json.bool(True)),
+          #("status", json.string(revertible_status(entry.0))),
+        ]),
+      )
+    }
+  }
+}
+
+@target(javascript)
+fn revert_handle(
+  _document: watershed.Document(a),
+  name: String,
+  dispose: Bool,
+  handles: Cell(Dict(String, #(watershed.TreeRevertible, TreeCommitKind))),
+) -> Result(Json, protocol.ProtocolError) {
+  use entry <- result.try(
+    transport_js.get_cell(handles)
+    |> dict.get(name)
+    |> result.map_error(fn(_) {
+      facade("revert", "Unknown revertible handle: " <> name)
+    }),
+  )
+  use _ <- result.try(
+    watershed.tree_revert(entry.0, dispose)
+    |> result.map_error(fn(reason) { facade("revert", reason) }),
+  )
+  let status = revertible_status(entry.0)
+  let authored_kind = case entry.1 {
+    UndoCommit -> RedoCommit
+    DefaultCommit | RedoCommit -> UndoCommit
+  }
+  Ok(
+    json.object([
+      #("name", json.string(name)),
+      #("authoredKind", json.string(commit_kind(authored_kind))),
+      #("status", json.string(status)),
+      #("settlement", json.string("Pending")),
+      #("outboundCount", json.int(1)),
+    ]),
+  )
 }
 
 @target(javascript)

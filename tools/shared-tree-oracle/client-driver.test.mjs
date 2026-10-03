@@ -200,6 +200,82 @@ test("the transaction helper sends constraints, edits, and the requested result"
   }), { outcome: "committed", outboundCount: 1 });
 });
 
+test("undo helpers send explicit named-handle commands", async (t) => {
+  const process = child(`
+    const expected = [
+      { op: "retainLastLocalCommit", name: "edit" },
+      { op: "revert", name: "edit", dispose: true },
+      { op: "retainLastLocalCommit", name: "undo" },
+      { op: "revert", name: "undo", dispose: true },
+    ];
+    let input = "";
+    let index = 0;
+    process.stdin.on("data", (chunk) => {
+      input += chunk;
+      const lines = input.split("\\n");
+      input = lines.pop();
+      for (const line of lines) {
+        const request = JSON.parse(line);
+        const { requestId, ...command } = request;
+        const matches = JSON.stringify(command) === JSON.stringify(expected[index]);
+        process.stdout.write(JSON.stringify(matches
+          ? {
+              requestId,
+              ok: true,
+              result: index % 2 === 0
+                ? {
+                    name: command.name,
+                    kind: index === 0 ? "Default" : "Undo",
+                    factoryAvailable: true,
+                    status: "Valid",
+                  }
+                : {
+                    name: command.name,
+                    authoredKind: index === 1 ? "Undo" : "Redo",
+                    status: "Disposed",
+                    settlement: "FullyApplied",
+                    outboundCount: 1,
+                  },
+            }
+          : {
+              requestId,
+              ok: false,
+              error: { code: "wrong-command", operation: command.op, message: line },
+            }) + "\\n");
+        index += 1;
+      }
+    });
+  `);
+  t.after(() => process.kill());
+  const channel = new JsonLinesChannel(process, 2000);
+  assert.deepEqual(await channel.retainLastLocalCommit("edit"), {
+    name: "edit",
+    kind: "Default",
+    factoryAvailable: true,
+    status: "Valid",
+  });
+  assert.deepEqual(await channel.revert("edit", true), {
+    name: "edit",
+    authoredKind: "Undo",
+    status: "Disposed",
+    settlement: "FullyApplied",
+    outboundCount: 1,
+  });
+  assert.deepEqual(await channel.retainLastLocalCommit("undo"), {
+    name: "undo",
+    kind: "Undo",
+    factoryAvailable: true,
+    status: "Valid",
+  });
+  assert.deepEqual(await channel.revert("undo", true), {
+    name: "undo",
+    authoredKind: "Redo",
+    status: "Disposed",
+    settlement: "FullyApplied",
+    outboundCount: 1,
+  });
+});
+
 test("map helpers retain correlation when replies arrive in reverse", async (t) => {
   const process = child(`
     const requests = [];

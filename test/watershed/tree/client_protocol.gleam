@@ -124,6 +124,8 @@ pub type Command {
   ArrayMove(FieldPath, Int, Int, FieldPath, Int)
   ConstrainedArrayRemove(FieldPath, FieldPath, Int, Int)
   Transaction(TransactionScope)
+  RetainLastLocalCommit(String)
+  Revert(String, Bool)
   AwaitSynced(Int)
   Checkpoint
   PendingSummaryEvidence
@@ -223,7 +225,17 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
     True -> Ok(Nil)
     False -> Error(invalid("requestId", "request ID is not a safe integer"))
   })
-  use command <- result.try(required(data, "command", decode.string))
+  use command <- result.try(
+    decode.run(
+      data,
+      decode.one_of(decode.at(["command"], decode.string), or: [
+        decode.at(["op"], decode.string),
+      ]),
+    )
+    |> result.map_error(fn(_) {
+      invalid("command", "invalid or missing command or op")
+    }),
+  )
   use decoded <- result.try(case command {
     "read" -> decode_path(data) |> result.map(Read)
     "set" -> {
@@ -305,6 +317,13 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
       Ok(ConstrainedArrayRemove(target_path, path, start, end))
     }
     "transaction" -> decode_transaction_scope(data) |> result.map(Transaction)
+    "retainLastLocalCommit" ->
+      nonempty(data, "name") |> result.map(RetainLastLocalCommit)
+    "revert" -> {
+      use name <- result.try(nonempty(data, "name"))
+      use dispose <- result.try(required(data, "dispose", decode.bool))
+      Ok(Revert(name, dispose))
+    }
     "await-synced" -> {
       use watermark <- result.try(required(
         data,
@@ -341,9 +360,10 @@ fn decode_transaction_scope(
     "constraints",
     decode.list(decode.dynamic),
   ))
-  use constraints <- result.try(
-    list.try_map(raw_constraints, decode_transaction_constraint),
-  )
+  use constraints <- result.try(list.try_map(
+    raw_constraints,
+    decode_transaction_constraint,
+  ))
   use raw_edits <- result.try(required(
     data,
     "edits",
@@ -378,7 +398,8 @@ fn decode_transaction_edit(
     "set" -> {
       use path <- result.try(decode_path(data))
       use value <- result.try(required(data, "value", decode.dynamic))
-      decode_value(value) |> result.map(fn(value) { TransactionSet(path, value) })
+      decode_value(value)
+      |> result.map(fn(value) { TransactionSet(path, value) })
     }
     "clear" -> decode_path(data) |> result.map(TransactionClear)
     "map-set" -> {
@@ -713,6 +734,7 @@ pub fn encode_checkpoint(
   root: Json,
   values: List(#(String, Json)),
   events: List(Json),
+  commits: List(Json),
   history: Json,
   read_error: Option(String),
   retained: Option(Json),
@@ -721,6 +743,7 @@ pub fn encode_checkpoint(
     #("root", root),
     #("values", json.object(values)),
     #("events", json.array(events, fn(event) { event })),
+    #("commits", json.array(commits, fn(commit) { commit })),
     #("history", history),
   ]
   let fields = case read_error {
@@ -746,10 +769,7 @@ pub fn encode_transaction_observation(
     #("constraints", json.array(observation.constraints, encode_path)),
     #("editsApplied", json.int(observation.edits_applied)),
     #("observedTree", observation.observed_tree),
-    #(
-      "nested",
-      json.array(observation.nested, encode_transaction_observation),
-    ),
+    #("nested", json.array(observation.nested, encode_transaction_observation)),
   ])
 }
 
@@ -774,10 +794,7 @@ pub fn encode_transaction_result(
 /// The revision of the newest pending commit in history evidence.
 pub fn last_pending_revision(history: Json) -> Option(String) {
   let decoder =
-    decode.at(
-      ["pending"],
-      decode.list(decode.at(["revision"], decode.string)),
-    )
+    decode.at(["pending"], decode.list(decode.at(["revision"], decode.string)))
   case json.parse(json.to_string(history), decoder) {
     Error(_) -> None
     Ok(revisions) -> list.last(revisions) |> option.from_result

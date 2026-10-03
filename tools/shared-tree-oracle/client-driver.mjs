@@ -37,7 +37,12 @@ export class JsonLinesChannel {
     child.on("error", (error) => this.#abort(error));
     child.on("close", (code, signal) => {
       const cause = this.#startupCause();
-      this.#abort(new Error(`Native client exited (${code ?? signal})`, cause ? { cause } : {}));
+      const diagnostics = this.#stderr.trim();
+      this.#abort(new Error(
+        `Native client exited (${code ?? signal})`
+          + (diagnostics ? `\n${diagnostics}` : ""),
+        cause ? { cause } : {},
+      ));
     });
   }
 
@@ -110,7 +115,9 @@ export class JsonLinesChannel {
   async #result(command) {
     const reply = await this.request(command);
     if (!reply.ok) {
-      throw new Error(`Native ${command.command} failed`, { cause: reply.error });
+      throw new Error(`Native ${command.command ?? command.op} failed`, {
+        cause: reply.error,
+      });
     }
     return reply.result;
   }
@@ -202,6 +209,14 @@ export class JsonLinesChannel {
 
   transaction({ constraints, edits, result }) {
     return this.#result({ command: "transaction", constraints, edits, result });
+  }
+
+  retainLastLocalCommit(name) {
+    return this.#result({ op: "retainLastLocalCommit", name });
+  }
+
+  revert(name, dispose) {
+    return this.#result({ op: "revert", name, dispose });
   }
 
   end() {
@@ -514,6 +529,8 @@ export async function startClient(target, descriptor, environment, options = {})
       constrainedArrayRemove: (targetPath, path, start, end) =>
         channel.constrainedArrayRemove(targetPath, path, start, end),
       transaction: (scope) => channel.transaction(scope),
+      retainLastLocalCommit: (name) => channel.retainLastLocalCommit(name),
+      revert: (name, dispose) => channel.revert(name, dispose),
       async close() {
         const cleanupErrors = [];
         try {

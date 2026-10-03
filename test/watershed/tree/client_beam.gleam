@@ -1,4 +1,6 @@
 @target(erlang)
+import gleam/dict.{type Dict}
+@target(erlang)
 import gleam/erlang/process
 @target(erlang)
 import gleam/int
@@ -19,7 +21,10 @@ import watershed/tree/client_protocol as protocol
 @target(erlang)
 import watershed/tree/client_retained_evidence
 @target(erlang)
-import watershed/tree/types.{ObjectValue}
+import watershed/tree/types.{
+  type TreeCommitKind, type TreeCommitOutcome, DefaultCommit, FullyApplied,
+  FullyDropped, NewContentOnly, ObjectValue, RedoCommit, UndoCommit,
+}
 @target(erlang)
 import watershed/tree_kernel.{SchemaChanged, TreeChanged}
 @target(erlang)
@@ -102,7 +107,27 @@ pub fn main() -> Nil {
                       ))
                     }
                     Ok(tree) -> {
-                      loop(document, handle, config, tree, None, False)
+                      let handle_store_ready = process.new_subject()
+                      process.spawn_unlinked(fn() {
+                        let handle_store = process.new_subject()
+                        process.send(handle_store_ready, handle_store)
+                        handle_store_loop(handle_store, dict.new(), None, [])
+                      })
+                      let handle_store =
+                        process.receive_forever(from: handle_store_ready)
+                      let _ =
+                        watershed.subscribe_tree_commits(tree, fn(event) {
+                          observe_commit(event, handle_store)
+                        })
+                      loop(
+                        document,
+                        handle,
+                        config,
+                        tree,
+                        None,
+                        False,
+                        handle_store,
+                      )
                       watershed.close(document)
                     }
                   }
@@ -150,6 +175,7 @@ fn loop(
   tree: watershed.SharedTree,
   events: Option(process.Subject(tree_kernel.TreeEvent)),
   active: Bool,
+  handle_store: process.Subject(HandleMessage),
 ) -> Nil {
   case read_line() {
     Error(_) -> Nil
@@ -158,14 +184,32 @@ fn loop(
         Ok(protocol.Request(_, protocol.Summarize)) -> {
           process.spawn_unlinked(fn() {
             let #(output, _, _, _, _) =
-              execute(line, document, handle, config, tree, events, active)
+              execute(
+                line,
+                document,
+                handle,
+                config,
+                tree,
+                events,
+                active,
+                handle_store,
+              )
             write_line(output)
           })
-          loop(document, handle, config, tree, events, active)
+          loop(document, handle, config, tree, events, active, handle_store)
         }
         _ -> {
           let #(output, next_tree, next_events, next_active, closing) =
-            execute(line, document, handle, config, tree, events, active)
+            execute(
+              line,
+              document,
+              handle,
+              config,
+              tree,
+              events,
+              active,
+              handle_store,
+            )
           write_line(output)
           case closing {
             True -> Nil
@@ -177,6 +221,7 @@ fn loop(
                 next_tree,
                 next_events,
                 next_active,
+                handle_store,
               )
           }
         }
@@ -194,6 +239,7 @@ fn execute(
   tree: watershed.SharedTree,
   events: Option(process.Subject(tree_kernel.TreeEvent)),
   active: Bool,
+  handle_store: process.Subject(HandleMessage),
 ) -> #(
   String,
   watershed.SharedTree,
@@ -463,8 +509,31 @@ fn execute(
           active,
           False,
         )
+        protocol.RetainLastLocalCommit(name) -> #(
+          process.call(handle_store, waiting: 1000, sending: fn(reply) {
+            RetainHandle(name, reply)
+          }),
+          tree,
+          events,
+          active,
+          False,
+        )
+        protocol.Revert(name, dispose) -> #(
+          process.call(handle_store, waiting: 1000, sending: fn(reply) {
+            RevertHandle(
+              name,
+              dispose,
+              fn() { observe(document).pending_tree_count },
+              reply,
+            )
+          }),
+          tree,
+          events,
+          active,
+          False,
+        )
         protocol.Checkpoint -> #(
-          checkpoint(tree, events, active),
+          checkpoint(tree, events, active, handle_store),
           tree,
           events,
           active,
@@ -611,13 +680,15 @@ fn apply_transaction_scope(
         nested,
       ))
     protocol.AbortScope ->
-      Error(RequestedAbort(protocol.TransactionObservation(
-        "aborted",
-        scope.constraints,
-        applied,
-        observed,
-        nested,
-      )))
+      Error(
+        RequestedAbort(protocol.TransactionObservation(
+          "aborted",
+          scope.constraints,
+          applied,
+          observed,
+          nested,
+        )),
+      )
   }
 }
 
@@ -726,6 +797,7 @@ fn checkpoint(
   tree: watershed.SharedTree,
   events: Option(process.Subject(tree_kernel.TreeEvent)),
   active: Bool,
+  handle_store: process.Subject(HandleMessage),
 ) -> Result(Json, protocol.ProtocolError) {
   use history <- result.try(
     watershed.tree_history_evidence(tree)
@@ -737,12 +809,17 @@ fn checkpoint(
     Some(subject), True -> drain(subject, [])
     _, _ -> []
   }
+  let commits =
+    process.call(handle_store, waiting: 1000, sending: fn(reply) {
+      DrainCommits(reply)
+    })
   case watershed.tree_get(tree, []) {
     Error(reason) ->
       Ok(protocol.encode_checkpoint(
         protocol.encode_read(None),
         [],
         changes,
+        commits,
         history,
         Some(reason),
         None,
@@ -805,10 +882,183 @@ fn checkpoint(
         root,
         values,
         changes,
+        commits,
         history,
         None,
         retained,
       ))
+    }
+  }
+}
+
+@target(erlang)
+type HandleMessage {
+  CaptureCommit(TreeCommitKind, Bool, Bool, Option(watershed.TreeRevertible))
+  SettleCommit(TreeCommitKind, TreeCommitOutcome)
+  RetainHandle(String, process.Subject(Result(Json, protocol.ProtocolError)))
+  RevertHandle(
+    String,
+    Bool,
+    fn() -> Int,
+    process.Subject(Result(Json, protocol.ProtocolError)),
+  )
+  DrainCommits(process.Subject(List(Json)))
+}
+
+@target(erlang)
+fn commit_kind(kind: TreeCommitKind) -> String {
+  case kind {
+    DefaultCommit -> "Default"
+    UndoCommit -> "Undo"
+    RedoCommit -> "Redo"
+  }
+}
+
+@target(erlang)
+fn commit_outcome(outcome: TreeCommitOutcome) -> String {
+  case outcome {
+    FullyApplied -> "FullyApplied"
+    FullyDropped -> "FullyDropped"
+    NewContentOnly -> "NewContentOnly"
+  }
+}
+
+@target(erlang)
+fn revertible_status(handle: watershed.TreeRevertible) -> String {
+  case watershed.tree_revertible_status(handle) {
+    watershed.RevertibleValid -> "Valid"
+    watershed.RevertibleDisposed -> "Disposed"
+  }
+}
+
+@target(erlang)
+fn observe_commit(
+  event: watershed.TreeCommitEvent,
+  handle_store: process.Subject(HandleMessage),
+) -> Nil {
+  let watershed.TreeCommitEvent(kind, local, factory, settlement) = event
+  let acquired = case local, factory {
+    True, Some(get_revertible) ->
+      case get_revertible() {
+        Ok(handle) -> Some(handle)
+        Error(_) -> None
+      }
+    _, _ -> None
+  }
+  process.send(
+    handle_store,
+    CaptureCommit(kind, local, option.is_some(factory), acquired),
+  )
+  case settlement {
+    None -> Nil
+    Some(on_settled) -> {
+      let _ =
+        on_settled(fn(outcome) {
+          process.send(handle_store, SettleCommit(kind, outcome))
+        })
+      Nil
+    }
+  }
+}
+
+@target(erlang)
+fn handle_store_loop(
+  subject: process.Subject(HandleMessage),
+  handles: Dict(String, #(watershed.TreeRevertible, TreeCommitKind)),
+  last_local: Option(#(watershed.TreeRevertible, TreeCommitKind)),
+  commits: List(Json),
+) -> Nil {
+  let message = process.receive_forever(from: subject)
+  case message {
+    CaptureCommit(kind, local, factory_available, acquired) -> {
+      let commit =
+        json.object([
+          #("type", json.string("commit")),
+          #("kind", json.string(commit_kind(kind))),
+          #("local", json.bool(local)),
+          #("factoryAvailable", json.bool(factory_available)),
+          #("handleAcquired", json.bool(option.is_some(acquired))),
+        ])
+      let next = case acquired {
+        Some(handle) -> Some(#(handle, kind))
+        None -> last_local
+      }
+      handle_store_loop(subject, handles, next, [commit, ..commits])
+    }
+    SettleCommit(kind, outcome) ->
+      handle_store_loop(subject, handles, last_local, [
+        json.object([
+          #("type", json.string("settlement")),
+          #("kind", json.string(commit_kind(kind))),
+          #("outcome", json.string(commit_outcome(outcome))),
+        ]),
+        ..commits
+      ])
+    RetainHandle(name, reply) ->
+      case last_local {
+        None -> {
+          process.send(
+            reply,
+            Error(facade(
+              "retainLastLocalCommit",
+              "No unretained local commit is available",
+            )),
+          )
+          handle_store_loop(subject, handles, last_local, commits)
+        }
+        Some(entry) -> {
+          process.send(
+            reply,
+            Ok(
+              json.object([
+                #("name", json.string(name)),
+                #("kind", json.string(commit_kind(entry.1))),
+                #("factoryAvailable", json.bool(True)),
+                #("status", json.string(revertible_status(entry.0))),
+              ]),
+            ),
+          )
+          handle_store_loop(
+            subject,
+            dict.insert(handles, name, entry),
+            None,
+            commits,
+          )
+        }
+      }
+    RevertHandle(name, dispose, _pending_count, reply) ->
+      case dict.get(handles, name) {
+        Error(_) -> {
+          process.send(
+            reply,
+            Error(facade("revert", "Unknown revertible handle: " <> name)),
+          )
+          handle_store_loop(subject, handles, last_local, commits)
+        }
+        Ok(entry) -> {
+          let outcome =
+            watershed.tree_revert(entry.0, dispose)
+            |> result.map(fn(_) {
+              let authored_kind = case entry.1 {
+                UndoCommit -> RedoCommit
+                DefaultCommit | RedoCommit -> UndoCommit
+              }
+              json.object([
+                #("name", json.string(name)),
+                #("authoredKind", json.string(commit_kind(authored_kind))),
+                #("status", json.string(revertible_status(entry.0))),
+                #("settlement", json.string("Pending")),
+                #("outboundCount", json.int(1)),
+              ])
+            })
+            |> result.map_error(fn(reason) { facade("revert", reason) })
+          process.send(reply, outcome)
+          handle_store_loop(subject, handles, last_local, commits)
+        }
+      }
+    DrainCommits(reply) -> {
+      process.send(reply, list.reverse(commits))
+      handle_store_loop(subject, handles, last_local, [])
     }
   }
 }
