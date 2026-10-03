@@ -1703,6 +1703,67 @@ pub fn shared_tree_map_facade_beam_commit_subscription_test() {
 }
 
 @target(erlang)
+pub fn shared_tree_map_facade_beam_settlement_callback_failure_isolated_test() {
+  let input = input(True)
+  let #(document, connections, submissions) = beam_document(input)
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  beam_transport(callbacks, submissions)
+  callbacks.on_event("connect_document_success", connected("reader", 0))
+  let tree = beam_tree(document, input)
+  let later = process.new_subject()
+  let token =
+    watershed_beam.subscribe_tree_commits(tree, fn(event) {
+      let assert watershed_beam.TreeCommitEvent(_, True, _, Some(on_settled)) =
+        event
+      on_settled(fn(_) { process.kill(process.self()) })
+      |> expect.to_equal(Ok(Nil))
+      on_settled(fn(outcome) { process.send(later, outcome) })
+      |> expect.to_equal(Ok(Nil))
+    })
+
+  watershed_beam.tree_map_set(tree, [], "key", types.StringValue("value"))
+  |> expect.to_equal(Ok(Nil))
+  let submitted = process.receive(submissions, 1000) |> expect.to_be_ok()
+  callbacks.on_event("op", acknowledgement(submitted))
+  process.receive(later, 1000) |> expect.to_equal(Ok(types.FullyApplied))
+  watershed_beam.unsubscribe(token)
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn shared_tree_map_facade_beam_shutdown_drops_pending_settlement_test() {
+  let input = input(True)
+  let #(document, connections, submissions) = beam_document(input)
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  beam_transport(callbacks, submissions)
+  callbacks.on_event("connect_document_success", connected("reader", 0))
+  let tree = beam_tree(document, input)
+  let settled = process.new_subject()
+  let token =
+    watershed_beam.subscribe_tree_commits(tree, fn(event) {
+      let assert watershed_beam.TreeCommitEvent(_, True, _, Some(on_settled)) =
+        event
+      on_settled(fn(outcome) { process.send(settled, outcome) })
+      |> expect.to_equal(Ok(Nil))
+    })
+
+  watershed_beam.tree_map_set(tree, [], "key", types.StringValue("value"))
+  |> expect.to_equal(Ok(Nil))
+  process.receive(submissions, 1000) |> expect.to_be_ok()
+  let runtime = watershed_beam.runtime_subject(document)
+  let owner = process.subject_owner(runtime) |> expect.to_be_ok()
+  let monitor = process.monitor(owner)
+  process.send(runtime, runtime_beam.Shutdown)
+  process.new_selector()
+  |> process.select_specific_monitor(monitor, fn(_) { Nil })
+  |> process.selector_receive(1000)
+  |> expect.to_equal(Ok(Nil))
+  process.demonitor_process(monitor)
+  process.receive(settled, 0) |> expect.to_equal(Error(Nil))
+  watershed_beam.unsubscribe(token)
+}
+
+@target(erlang)
 pub fn shared_tree_map_facade_beam_remote_commit_has_no_local_callbacks_test() {
   let input = input(True)
   let #(document, connections, submissions) = beam_document(input)

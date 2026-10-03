@@ -5979,7 +5979,14 @@ fn settle_tree_commit(
     Ok(callbacks) -> {
       let _ =
         process.spawn_unlinked(fn() {
-          list.each(callbacks, fn(callback) { callback(outcome) })
+          list.each(callbacks, fn(callback) {
+            let worker = process.spawn_unlinked(fn() { callback(outcome) })
+            let monitor = process.monitor(worker)
+            process.new_selector()
+            |> process.select_specific_monitor(monitor, fn(_) { Nil })
+            |> process.selector_receive_forever
+            process.demonitor_process(monitor)
+          })
         })
       State(
         ..state,

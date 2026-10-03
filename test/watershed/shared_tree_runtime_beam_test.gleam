@@ -1887,11 +1887,17 @@ pub fn actor_tree_echo_installs_state_before_next_command_test() {
 pub fn commit_delivery_exit_invalidates_factory_and_replays_messages_test() {
   let #(actor, _, _) = ready_tree_actor(fn(_, _) { Ok(Nil) })
   let factories = process.new_subject()
+  let started = process.new_subject()
+  let releases = process.new_subject()
   let token =
     runtime_beam.subscribe_tree_commits(actor, "A/_C", fn(event) {
       let assert runtime_beam.TreeCommitEvent(_, True, Some(factory), Some(_)) =
         event
+      let release = process.new_subject()
       process.send(factories, factory)
+      process.send(releases, release)
+      process.send(started, Nil)
+      process.receive(release, 1000) |> expect.to_equal(Ok(Nil))
       process.kill(process.self())
     })
 
@@ -1902,10 +1908,29 @@ pub fn commit_delivery_exit_invalidates_factory_and_replays_messages_test() {
   )
   |> expect.to_equal(Ok(Nil))
   let factory = process.receive(factories, 1000) |> expect.to_be_ok()
-  runtime_beam.tree_read(actor, "A/_C", ["title"])
-  |> expect.to_equal(Ok(Some(tree_types.StringValue("native"))))
+  let release = process.receive(releases, 1000) |> expect.to_be_ok()
+  process.receive(started, 1000) |> expect.to_equal(Ok(Nil))
+  let before = process.new_subject()
+  let edit = process.new_subject()
+  let after = process.new_subject()
+  process.send(actor, runtime_beam.UnsubscribeTreeCommits(token))
+  process.send(actor, runtime_beam.TreeRead("A/_C", ["title"], before))
+  process.send(
+    actor,
+    runtime_beam.TreeEdit(
+      "A/_C",
+      tree_types.SetField(["title"], tree_types.StringValue("queued")),
+      edit,
+    ),
+  )
+  process.send(actor, runtime_beam.TreeRead("A/_C", ["title"], after))
+  process.send(release, Nil)
+  process.receive(before, 1000)
+  |> expect.to_equal(Ok(Ok(Some(tree_types.StringValue("native")))))
+  process.receive(edit, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  process.receive(after, 1000)
+  |> expect.to_equal(Ok(Ok(Some(tree_types.StringValue("queued")))))
   factory() |> expect.to_be_error()
-  runtime_beam.unsubscribe(token)
   process.send(actor, runtime_beam.Shutdown)
 }
 
