@@ -4381,8 +4381,12 @@ function validateUndoRedoCase(value) {
 
   if (label === "revertible-lifetime") {
     const observation = value.expected.observations[0];
+    const schemaEvent = observation.events.find(({ category }) => category === "schema");
+    check(schemaEvent?.local === true && schemaEvent.factory === false,
+      "schema event without factory");
     check(nonemptyArray(observation.events)
-      && observation.events.some(({ local, factory }) => local === true && factory === true),
+      && observation.events.some(({ category, local, factory }) =>
+        category === "data" && local === true && factory === true),
     "local factory event");
     check(nonemptyArray(observation.remoteEvents)
       && observation.remoteEvents.every(({ local, factory }) => !local && !factory),
@@ -4431,6 +4435,21 @@ function validateUndoRedoCase(value) {
       check(nonemptyArray(observation.events)
         && observation.events.some(({ kind }) => kind === "Undo"),
       `${observation.id} undo event`);
+      const localEvents = observation.events
+        .map((event, eventIndex) => ({ ...event, eventIndex }))
+        .filter(({ local }) => local);
+      check(observation.settled?.length === localEvents.length,
+        `${observation.id} settlement cardinality`);
+      check(observation.settled.every(({ outcome }) =>
+        ["FullyApplied", "FullyDropped", "NewContentOnly"].includes(outcome)),
+      `${observation.id} settlement outcome`);
+      assert.deepEqual(observation.settled.map(({ index: eventIndex, kind }) =>
+        ({ eventIndex, kind })),
+      localEvents.map(({ eventIndex, kind }) => ({ eventIndex, kind })),
+      `${observation.id} settlement events`);
+      assert.deepEqual(observation.beforeSequence,
+        localEvents.map((_, eventIndex) => eventIndex),
+        `${observation.id} settlement timing`);
       check(nonemptyArray(value.raw.scenarios[index].encodedChanges)
         && value.raw.scenarios[index].encodedChanges.every(object),
       `${observation.id} encoded changes`);
@@ -4464,6 +4483,46 @@ function validateUndoRedoCase(value) {
       check(object(observation.beforeUndo) && object(observation.optimisticUndo)
         && object(observation.settledUndo) && observation.status === "Valid",
       `${id} snapshots and retained status`);
+      const input = value.input.scenarios.find((scenario) => scenario.id === id);
+      const target = (snapshot) => snapshot.left
+        .find((item) => object(item) && item.id === observation.constraint?.targetId);
+      check(observation.constraint?.type === "nodeInDocument"
+        && observation.constraint.onRevert === true,
+      `${id} required-node constraint`);
+      check(observation.removeTarget === (id === "constraint-violated"),
+        `${id} removeTarget`);
+      check(input?.requiredNode === (id === "constraint-satisfied" ? "present" : "removed"),
+        `${id} required-node input`);
+      const localEvents = observation.events
+        .map((event, eventIndex) => ({ ...event, eventIndex }))
+        .filter(({ local }) => local);
+      check(observation.settled?.length === localEvents.length,
+        `${id} settlement cardinality`);
+      check(observation.settled.every(({ outcome }) =>
+        ["FullyApplied", "FullyDropped", "NewContentOnly"].includes(outcome)),
+      `${id} settlement outcome`);
+      assert.deepEqual(observation.beforeSequence,
+        localEvents.map((_, eventIndex) => eventIndex),
+        `${id} settlement timing`);
+      if (id === "constraint-satisfied") {
+        check(observation.constraint.presentBeforeRevert === true
+          && target(observation.beforeUndo)?.x === 10
+          && target(observation.optimisticUndo)?.x === 1
+          && target(observation.settledUndo)?.x === 1
+          && observation.outcomes.at(-1) === "FullyApplied",
+        `${id} applied revert`);
+      } else {
+        check(observation.constraint.presentBeforeRevert === false
+          && target(observation.beforeUndo) === undefined
+          && target(observation.optimisticUndo) === undefined
+          && target(observation.settledUndo) === undefined
+          && observation.outcomes.at(-1) === "NewContentOnly",
+        `${id} dropped revert`);
+        assert.deepEqual(observation.optimisticUndo, observation.beforeUndo,
+          `${id}: optimistic revert must preserve the removed-target state`);
+        assert.deepEqual(observation.settledUndo, observation.beforeUndo,
+          `${id}: settled revert must preserve the removed-target state`);
+      }
     }
     check(nonemptyArray(value.raw.satisfiedChanges)
       && nonemptyArray(value.raw.violatedChanges), "encoded constraint changes");
@@ -4475,8 +4534,14 @@ function validateUndoRedoCase(value) {
       `${label}: loaded undo`);
     assert.deepEqual(observation.redoLoaded.snapshot, observation.redoSnapshot,
       `${label}: loaded redo`);
+    check(observation.undoLoaded.listenerBoundary === "post-load-pre-view"
+      && observation.redoLoaded.listenerBoundary === "post-load-pre-view",
+    "load listener boundary");
     assert.deepEqual(observation.undoLoaded.events, [], `${label}: old undo handle absent`);
     assert.deepEqual(observation.redoLoaded.events, [], `${label}: old redo handle absent`);
+    check(observation.undoLoaded.factoryCount === 0
+      && observation.redoLoaded.factoryCount === 0,
+    "loaded factory absence");
     check(summary(value.raw.undoSummary) && summary(value.raw.redoSummary),
       "undo and redo summaries");
     check(nonemptyArray(value.raw.encodedChanges)

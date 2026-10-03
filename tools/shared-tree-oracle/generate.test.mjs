@@ -345,7 +345,10 @@ function undoRedoCaseFixture(id) {
       ] },
       observations: [{
         id: "lifetime",
-        events: [event("Default", true, false), event()],
+        events: [
+          { ...event("Default", true, false), category: "schema" },
+          { ...event(), category: "data" },
+        ],
         remoteEvents: [event("Default", false, false)],
         duplicateError: "duplicate",
         lateError: "late",
@@ -388,8 +391,8 @@ function undoRedoCaseFixture(id) {
     },
     "undo-redo-constraints": {
       input: { scenarios: [
-        { id: "constraint-satisfied" },
-        { id: "constraint-violated" },
+        { id: "constraint-satisfied", requiredNode: "present" },
+        { id: "constraint-violated", requiredNode: "removed" },
         { id: "settlement-new-content-only" },
         { id: "settlement-fully-dropped" },
       ] },
@@ -413,6 +416,11 @@ function undoRedoCaseFixture(id) {
       settledUndo: snapshot,
       status: "Valid",
       events: [event(), event("Undo")],
+      settled: [
+        { index: 0, kind: "Default", outcome: "FullyApplied" },
+        { index: 1, kind: "Undo", outcome: "FullyApplied" },
+      ],
+      beforeSequence: [0, 1],
     }));
     Object.assign(
       fixture.observations.find(({ id: scenario }) => scenario === "overlap-remote-first"),
@@ -431,14 +439,38 @@ function undoRedoCaseFixture(id) {
   } else if (id === "undo-redo-constraints") {
     fixture.observations = [
       {
-        id: "constraint-satisfied", beforeUndo: snapshot, optimisticUndo: snapshot,
-        settledUndo: snapshot, status: "Valid", events: [event(), event("Undo")],
+        id: "constraint-satisfied", removeTarget: false,
+        constraint: {
+          type: "nodeInDocument", onRevert: true, targetId: "target",
+          presentBeforeRevert: true,
+        },
+        beforeUndo: { left: [{ id: "target", x: 10 }] },
+        optimisticUndo: { left: [{ id: "target", x: 1 }] },
+        settledUndo: { left: [{ id: "target", x: 1 }] },
+        status: "Valid", events: [event(), event("Undo")],
         outcomes: ["FullyApplied", "FullyApplied"],
+        settled: [
+          { index: 0, kind: "Default", outcome: "FullyApplied" },
+          { index: 1, kind: "Undo", outcome: "FullyApplied" },
+        ],
+        beforeSequence: [0, 1],
       },
       {
-        id: "constraint-violated", beforeUndo: snapshot, optimisticUndo: snapshot,
-        settledUndo: snapshot, status: "Valid", events: [event(), event("Undo")],
+        id: "constraint-violated", removeTarget: true,
+        constraint: {
+          type: "nodeInDocument", onRevert: true, targetId: "target",
+          presentBeforeRevert: false,
+        },
+        beforeUndo: { left: [] },
+        optimisticUndo: { left: [] },
+        settledUndo: { left: [] },
+        status: "Valid", events: [event(), event("Undo")],
         outcomes: ["FullyApplied", "NewContentOnly"],
+        settled: [
+          { index: 0, kind: "Default", outcome: "FullyApplied" },
+          { index: 1, kind: "Undo", outcome: "NewContentOnly" },
+        ],
+        beforeSequence: [0, 1],
       },
       { id: "settlement-new-content-only", outcomes: ["NewContentOnly"] },
       { id: "settlement-fully-dropped", outcomes: ["FullyDropped"] },
@@ -454,8 +486,15 @@ function undoRedoCaseFixture(id) {
       reconnectedStatus: "Valid",
       undoSnapshot: snapshot,
       redoSnapshot: { title: "changed" },
-      undoLoaded: { snapshot, events: [] },
-      redoLoaded: { snapshot: { title: "changed" }, events: [] },
+      undoLoaded: {
+        snapshot, listenerBoundary: "post-load-pre-view", events: [], factoryCount: 0,
+      },
+      redoLoaded: {
+        snapshot: { title: "changed" },
+        listenerBoundary: "post-load-pre-view",
+        events: [],
+        factoryCount: 0,
+      },
       events: [event(), event("Undo"), event("Redo")],
     }];
     fixture.raw = {
@@ -1776,6 +1815,55 @@ test("undo and redo corpus rejects missing and incomplete cases", () => {
     wrongCommit.find(({ id: candidate }) => candidate === id).reference.commit = "other";
     assert.throws(() => validateCases(wrongCommit), new RegExp(id));
   }
+});
+
+test("undo and redo corpus rejects missing reviewed contract evidence", () => {
+  const complete = cases();
+
+  const withoutSchemaCategory = structuredClone(complete);
+  delete withoutSchemaCategory
+    .find(({ id }) => id === "revertible-lifetime")
+    .expected.observations[0].events[0].category;
+  assert.throws(() => validateCases(withoutSchemaCategory), /schema/i);
+
+  const withoutFieldSettlement = structuredClone(complete);
+  delete withoutFieldSettlement
+    .find(({ id }) => id === "undo-redo-fields")
+    .expected.observations[0].settled;
+  assert.throws(() => validateCases(withoutFieldSettlement), /settlement/i);
+
+  const withEarlyFieldSettlement = structuredClone(complete);
+  withEarlyFieldSettlement
+    .find(({ id }) => id === "undo-redo-fields")
+    .expected.observations[0].beforeSequence = [0, 0];
+  assert.throws(() => validateCases(withEarlyFieldSettlement), /settlement timing/i);
+
+  const withInvalidFieldOutcome = structuredClone(complete);
+  withInvalidFieldOutcome
+    .find(({ id }) => id === "undo-redo-fields")
+    .expected.observations[0].settled[0].outcome = "Unknown";
+  assert.throws(() => validateCases(withInvalidFieldOutcome), /settlement outcome/i);
+
+  const withoutConstraint = structuredClone(complete);
+  delete withoutConstraint
+    .find(({ id }) => id === "undo-redo-constraints")
+    .expected.observations[0].constraint;
+  assert.throws(() => validateCases(withoutConstraint), /constraint/i);
+
+  const equivalentConstraintCases = structuredClone(complete);
+  const constraintObservations = equivalentConstraintCases
+    .find(({ id }) => id === "undo-redo-constraints")
+    .expected.observations;
+  const satisfied = constraintObservations.find(({ id }) => id === "constraint-satisfied");
+  const violated = constraintObservations.find(({ id }) => id === "constraint-violated");
+  Object.assign(violated, structuredClone(satisfied), { id: "constraint-violated" });
+  assert.throws(() => validateCases(equivalentConstraintCases), /constraint-violated/i);
+
+  const withoutLoadBoundary = structuredClone(complete);
+  delete withoutLoadBoundary
+    .find(({ id }) => id === "undo-redo-reconnect")
+    .expected.observations[0].undoLoaded.listenerBoundary;
+  assert.throws(() => validateCases(withoutLoadBoundary), /load.*boundary/i);
 });
 
 test("undo and redo fixtures preserve sequencing and transaction evidence", () => {

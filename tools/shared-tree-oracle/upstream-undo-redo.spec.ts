@@ -31,7 +31,7 @@ import {
 	TreeViewConfiguration,
 	type TreeView,
 } from "../simple-tree/index.js";
-import { Tree } from "../shared-tree/index.js";
+import { Tree, type ITreePrivate } from "../shared-tree/index.js";
 import { configuredSharedTreeInternal } from "../treeFactory.js";
 import { TestTreeProviderLite } from "./utils.js";
 
@@ -145,11 +145,23 @@ function createViews(count = 1) {
 
 function eventRecord(metadata: ChangeMetadata, factory: unknown) {
 	const local = metadata.isLocal;
+	const change = local ? copy(metadata.getChange()) : null;
+	const encodedChanges = typeof change === "object" && change !== null
+		? Reflect.get(change, "change")
+		: undefined;
+	const category = local && Array.isArray(encodedChanges)
+		&& encodedChanges.some((entry: object) =>
+			Object.hasOwn(entry, "schema"))
+		? "schema"
+		: local
+			? "data"
+			: "remote";
 	return {
 		kind: enumName(CommitKind, metadata.kind),
 		local,
 		factory: factory !== undefined,
-		change: local ? copy(metadata.getChange()) : null,
+		category,
+		change,
 	};
 }
 
@@ -331,9 +343,22 @@ async function captureFieldScenario(
 ) {
 	const { provider, views: [view, peer] } = createViews(2);
 	const events: object[] = [];
+	const settled: object[] = [];
+	const beforeSequence: number[] = [];
 	let target: RevertibleAlpha | undefined;
 	const off = view.events.on("changed", (metadata, getRevertible) => {
+		const index = events.length;
 		events.push(eventRecord(metadata, getRevertible));
+		if (metadata.isLocal) {
+			beforeSequence.push(settled.length);
+			metadata.events.on("settled", (outcome) => {
+				settled.push({
+					index,
+					kind: enumName(CommitKind, metadata.kind),
+					outcome: enumName(CommitOutcome, outcome),
+				});
+			});
+		}
 		if (metadata.isLocal && metadata.kind === CommitKind.Default
 			&& getRevertible !== undefined && target === undefined) {
 			target = getRevertible();
@@ -351,6 +376,7 @@ async function captureFieldScenario(
 	const optimisticUndo = visible(view.root);
 	provider.synchronizeMessages();
 	const settledUndo = visible(view.root);
+	assert.equal(settled.length, events.filter((event) => Reflect.get(event, "local")).length);
 	const status = enumName(RevertibleStatus, target.status);
 	target.dispose();
 	off();
@@ -363,6 +389,8 @@ async function captureFieldScenario(
 		settledUndo,
 		status,
 		events,
+		settled,
+		beforeSequence,
 	};
 }
 
@@ -372,9 +400,22 @@ async function captureOverlapScenario(
 ) {
 	const { provider, views: [view, peer] } = createViews(2);
 	const events: object[] = [];
+	const settled: object[] = [];
+	const beforeSequence: number[] = [];
 	let target: RevertibleAlpha | undefined;
 	const off = view.events.on("changed", (metadata, getRevertible) => {
+		const index = events.length;
 		events.push(eventRecord(metadata, getRevertible));
+		if (metadata.isLocal) {
+			beforeSequence.push(settled.length);
+			metadata.events.on("settled", (outcome) => {
+				settled.push({
+					index,
+					kind: enumName(CommitKind, metadata.kind),
+					outcome: enumName(CommitOutcome, outcome),
+				});
+			});
+		}
 		if (metadata.isLocal && metadata.kind === CommitKind.Default
 			&& getRevertible !== undefined && target === undefined) {
 			target = getRevertible();
@@ -398,6 +439,7 @@ async function captureOverlapScenario(
 	const optimisticUndo = visible(view.root);
 	provider.synchronizeMessages();
 	const settledUndo = visible(view.root);
+	assert.equal(settled.length, events.filter((event) => Reflect.get(event, "local")).length);
 	const status = enumName(RevertibleStatus, target.status);
 	target.dispose();
 	off();
@@ -412,6 +454,8 @@ async function captureOverlapScenario(
 		settledUndo,
 		status,
 		events,
+		settled,
+		beforeSequence,
 	};
 }
 
@@ -489,11 +533,21 @@ async function captureConstraintScenario(id: string, removeTarget: boolean) {
 	let target: RevertibleAlpha | undefined;
 	const events: object[] = [];
 	const outcomes: string[] = [];
+	const settled: object[] = [];
+	const beforeSequence: number[] = [];
 	const off = view.events.on("changed", (metadata, getRevertible) => {
+		const index = events.length;
 		events.push(eventRecord(metadata, getRevertible));
 		if (metadata.isLocal) {
+			beforeSequence.push(settled.length);
 			metadata.events.on("settled", (outcome) => {
-				outcomes.push(enumName(CommitOutcome, outcome));
+				const outcomeName = enumName(CommitOutcome, outcome);
+				outcomes.push(outcomeName);
+				settled.push({
+					index,
+					kind: enumName(CommitKind, metadata.kind),
+					outcome: outcomeName,
+				});
 			});
 			if (metadata.kind === CommitKind.Default && getRevertible !== undefined
 				&& target === undefined) {
@@ -503,7 +557,15 @@ async function captureConstraintScenario(id: string, removeTarget: boolean) {
 	});
 	const edited = view.root.left[0];
 	assert(edited instanceof Point);
-	edited.x = 10;
+	const targetId = edited.id;
+	view.runTransaction(
+		() => {
+			edited.x = 10;
+			return {
+				preconditionsOnRevert: [{ type: "nodeInDocument" as const, node: edited }],
+			};
+		},
+	);
 	provider.synchronizeMessages();
 	if (removeTarget) {
 		peer.root.left.removeAt(0);
@@ -512,29 +574,49 @@ async function captureConstraintScenario(id: string, removeTarget: boolean) {
 	}
 	provider.synchronizeMessages();
 	const beforeUndo = visible(view.root);
+	const presentBeforeRevert = view.root.left.some((item) =>
+		item instanceof Point && item.id === targetId);
 	assert(target !== undefined);
 	target.revert(false);
 	const optimisticUndo = visible(view.root);
 	provider.synchronizeMessages();
 	const settledUndo = visible(view.root);
+	assert.equal(settled.length, events.filter((event) => Reflect.get(event, "local")).length);
 	const status = enumName(RevertibleStatus, target.status);
 	target.dispose();
 	off();
 	return {
 		id,
 		removeTarget,
+		constraint: {
+			type: "nodeInDocument",
+			onRevert: true,
+			targetId,
+			presentBeforeRevert,
+		},
 		beforeUndo,
 		optimisticUndo,
 		settledUndo,
 		status,
 		events,
 		outcomes,
+		settled,
+		beforeSequence,
 	};
 }
 
 async function captureSettlementOutcomes() {
 	const fullyApplied = await captureConstraintScenario("constraint-satisfied", false);
 	const violated = await captureConstraintScenario("constraint-violated", true);
+	assert.equal(fullyApplied.constraint.presentBeforeRevert, true);
+	assert.equal(Reflect.get(fullyApplied.beforeUndo.left[0] ?? {}, "x"), 10);
+	assert.equal(Reflect.get(fullyApplied.optimisticUndo.left[0] ?? {}, "x"), 1);
+	assert.deepEqual(fullyApplied.settledUndo, fullyApplied.optimisticUndo);
+	assert.equal(fullyApplied.outcomes.at(-1), "FullyApplied");
+	assert.equal(violated.constraint.presentBeforeRevert, false);
+	assert.deepEqual(violated.optimisticUndo, violated.beforeUndo);
+	assert.deepEqual(violated.settledUndo, violated.beforeUndo);
+	assert.equal(violated.outcomes.at(-1), "NewContentOnly");
 
 	const provider = new TestTreeProviderLite(2);
 	const sfOutcome = new SchemaFactory("org.watershed.shared-tree.undo-redo.outcomes");
@@ -640,14 +722,20 @@ async function loadSnapshot(
 		MockSharedObjectServices.createFromSummary(summary),
 		factory.attributes,
 	);
+	const events: object[] = [];
+	let factoryCount = 0;
+	const checkout = (tree as unknown as ITreePrivate).kernel.checkout;
+	const off = checkout.events.on("changed", (metadata, getRevertible) => {
+		events.push(eventRecord(metadata, getRevertible));
+		if (getRevertible !== undefined) factoryCount++;
+	});
+	const listenerBoundary = "post-load-pre-view";
 	const view = asAlpha(tree.viewWith(
 		new TreeViewConfiguration({ schema: Root, enableSchemaValidation: true }),
 	));
-	const events: object[] = [];
-	view.events.on("changed", (metadata, getRevertible) => {
-		events.push(eventRecord(metadata, getRevertible));
-	});
-	return { snapshot: visible(view.root), events };
+	const snapshot = visible(view.root);
+	off();
+	return { snapshot, listenerBoundary, events, factoryCount };
 }
 
 async function captureReconnect() {

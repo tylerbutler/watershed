@@ -32,6 +32,12 @@
       {
         "id": "constraint-satisfied",
         "removeTarget": false,
+        "constraint": {
+          "type": "nodeInDocument",
+          "onRevert": true,
+          "targetId": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+          "presentBeforeRevert": true
+        },
         "beforeUndo": {
           "title": "base",
           "note": "seed",
@@ -146,6 +152,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 5,
@@ -153,7 +160,7 @@
               "change": [
                 {
                   "data": {
-                    "maxId": 4,
+                    "maxId": 7,
                     "revisions": [
                       {
                         "revision": 5
@@ -264,12 +271,14 @@
             "kind": "Default",
             "local": false,
             "factory": false,
+            "category": "remote",
             "change": null
           },
           {
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 6,
@@ -277,7 +286,7 @@
               "change": [
                 {
                   "data": {
-                    "maxId": 5,
+                    "maxId": 8,
                     "revisions": [
                       {
                         "revision": 6
@@ -315,7 +324,7 @@
                                                         "r": {
                                                           "e": false,
                                                           "d": [
-                                                            5,
+                                                            8,
                                                             6
                                                           ],
                                                           "s": [
@@ -325,7 +334,10 @@
                                                         }
                                                       }
                                                     }
-                                                  ]
+                                                  ],
+                                                  "nodeExistsConstraint": {
+                                                    "violated": false
+                                                  }
                                                 }
                                               ]
                                             ]
@@ -350,11 +362,33 @@
         "outcomes": [
           "FullyApplied",
           "FullyApplied"
+        ],
+        "settled": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "outcome": "FullyApplied"
+          },
+          {
+            "index": 2,
+            "kind": "Undo",
+            "outcome": "FullyApplied"
+          }
+        ],
+        "beforeSequence": [
+          0,
+          1
         ]
       },
       {
         "id": "constraint-violated",
         "removeTarget": true,
+        "constraint": {
+          "type": "nodeInDocument",
+          "onRevert": true,
+          "targetId": "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+          "presentBeforeRevert": false
+        },
         "beforeUndo": {
           "title": "base",
           "note": "seed",
@@ -451,6 +485,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 5,
@@ -458,7 +493,7 @@
               "change": [
                 {
                   "data": {
-                    "maxId": 4,
+                    "maxId": 7,
                     "revisions": [
                       {
                         "revision": 5
@@ -569,12 +604,14 @@
             "kind": "Default",
             "local": false,
             "factory": false,
+            "category": "remote",
             "change": null
           },
           {
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 6,
@@ -582,7 +619,7 @@
               "change": [
                 {
                   "data": {
-                    "maxId": 5,
+                    "maxId": 8,
                     "revisions": [
                       {
                         "revision": 6
@@ -624,7 +661,7 @@
                                                         "r": {
                                                           "e": false,
                                                           "d": [
-                                                            5,
+                                                            8,
                                                             6
                                                           ],
                                                           "s": [
@@ -634,7 +671,10 @@
                                                         }
                                                       }
                                                     }
-                                                  ]
+                                                  ],
+                                                  "nodeExistsConstraint": {
+                                                    "violated": true
+                                                  }
                                                 }
                                               }
                                             ]
@@ -649,7 +689,8 @@
                           ]
                         ]
                       }
-                    ]
+                    ],
+                    "violations": 1
                   }
                 }
               ]
@@ -658,7 +699,23 @@
         ],
         "outcomes": [
           "FullyApplied",
-          "FullyApplied"
+          "NewContentOnly"
+        ],
+        "settled": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "outcome": "FullyApplied"
+          },
+          {
+            "index": 2,
+            "kind": "Undo",
+            "outcome": "NewContentOnly"
+          }
+        ],
+        "beforeSequence": [
+          0,
+          1
         ]
       },
       {
@@ -684,7 +741,7 @@
         "change": [
           {
             "data": {
-              "maxId": 4,
+              "maxId": 7,
               "revisions": [
                 {
                   "revision": 5
@@ -797,7 +854,7 @@
         "change": [
           {
             "data": {
-              "maxId": 5,
+              "maxId": 8,
               "revisions": [
                 {
                   "revision": 6
@@ -835,7 +892,7 @@
                                                   "r": {
                                                     "e": false,
                                                     "d": [
-                                                      5,
+                                                      8,
                                                       6
                                                     ],
                                                     "s": [
@@ -845,7 +902,10 @@
                                                   }
                                                 }
                                               }
-                                            ]
+                                            ],
+                                            "nodeExistsConstraint": {
+                                              "violated": false
+                                            }
                                           }
                                         ]
                                       ]
@@ -874,7 +934,7 @@
         "change": [
           {
             "data": {
-              "maxId": 4,
+              "maxId": 7,
               "revisions": [
                 {
                   "revision": 5
@@ -987,7 +1047,7 @@
         "change": [
           {
             "data": {
-              "maxId": 5,
+              "maxId": 8,
               "revisions": [
                 {
                   "revision": 6
@@ -1029,7 +1089,7 @@
                                                   "r": {
                                                     "e": false,
                                                     "d": [
-                                                      5,
+                                                      8,
                                                       6
                                                     ],
                                                     "s": [
@@ -1039,7 +1099,10 @@
                                                   }
                                                 }
                                               }
-                                            ]
+                                            ],
+                                            "nodeExistsConstraint": {
+                                              "violated": true
+                                            }
                                           }
                                         }
                                       ]
@@ -1054,7 +1117,8 @@
                     ]
                   ]
                 }
-              ]
+              ],
+              "violations": 1
             }
           }
         ]

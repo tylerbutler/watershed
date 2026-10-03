@@ -27,6 +27,7 @@
             "kind": "Default",
             "local": true,
             "factory": false,
+            "category": "schema",
             "change": {
               "version": 1,
               "revision": -5,
@@ -597,6 +598,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 5,
@@ -689,6 +691,7 @@
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 6,
@@ -743,6 +746,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 7,
@@ -835,6 +839,7 @@
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 8,
@@ -889,6 +894,7 @@
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 9,
@@ -942,30 +948,35 @@
             "kind": "Default",
             "local": false,
             "factory": false,
+            "category": "remote",
             "change": null
           },
           {
             "kind": "Default",
             "local": false,
             "factory": false,
+            "category": "remote",
             "change": null
           },
           {
             "kind": "Default",
             "local": false,
             "factory": false,
+            "category": "remote",
             "change": null
           },
           {
             "kind": "Default",
             "local": false,
             "factory": false,
+            "category": "remote",
             "change": null
           },
           {
             "kind": "Default",
             "local": false,
             "factory": false,
+            "category": "remote",
             "change": null
           }
         ],
@@ -1025,6 +1036,7 @@
         "kind": "Default",
         "local": true,
         "factory": false,
+        "category": "schema",
         "change": {
           "version": 1,
           "revision": -5,
@@ -1595,6 +1607,7 @@
         "kind": "Default",
         "local": true,
         "factory": true,
+        "category": "data",
         "change": {
           "version": 1,
           "revision": 5,
@@ -1687,6 +1700,7 @@
         "kind": "Undo",
         "local": true,
         "factory": true,
+        "category": "data",
         "change": {
           "version": 1,
           "revision": 6,
@@ -1741,6 +1755,7 @@
         "kind": "Default",
         "local": true,
         "factory": true,
+        "category": "data",
         "change": {
           "version": 1,
           "revision": 7,
@@ -1833,6 +1848,7 @@
         "kind": "Undo",
         "local": true,
         "factory": true,
+        "category": "data",
         "change": {
           "version": 1,
           "revision": 8,
@@ -1887,6 +1903,7 @@
         "kind": "Undo",
         "local": true,
         "factory": true,
+        "category": "data",
         "change": {
           "version": 1,
           "revision": 9,
@@ -1940,30 +1957,35 @@
         "kind": "Default",
         "local": false,
         "factory": false,
+        "category": "remote",
         "change": null
       },
       {
         "kind": "Default",
         "local": false,
         "factory": false,
+        "category": "remote",
         "change": null
       },
       {
         "kind": "Default",
         "local": false,
         "factory": false,
+        "category": "remote",
         "change": null
       },
       {
         "kind": "Default",
         "local": false,
         "factory": false,
+        "category": "remote",
         "change": null
       },
       {
         "kind": "Default",
         "local": false,
         "factory": false,
+        "category": "remote",
         "change": null
       }
     ]

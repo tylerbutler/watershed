@@ -250,6 +250,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 5,
@@ -342,6 +343,7 @@
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 6,
@@ -392,6 +394,22 @@
               ]
             }
           }
+        ],
+        "settled": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "outcome": "FullyApplied"
+          },
+          {
+            "index": 1,
+            "kind": "Undo",
+            "outcome": "FullyApplied"
+          }
+        ],
+        "beforeSequence": [
+          0,
+          1
         ]
       },
       {
@@ -577,6 +595,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 6,
@@ -690,6 +709,7 @@
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 7,
@@ -740,6 +760,22 @@
               ]
             }
           }
+        ],
+        "settled": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "outcome": "FullyApplied"
+          },
+          {
+            "index": 1,
+            "kind": "Undo",
+            "outcome": "FullyApplied"
+          }
+        ],
+        "beforeSequence": [
+          0,
+          1
         ]
       },
       {
@@ -941,6 +977,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 6,
@@ -1067,6 +1104,7 @@
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 7,
@@ -1126,6 +1164,22 @@
               ]
             }
           }
+        ],
+        "settled": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "outcome": "FullyApplied"
+          },
+          {
+            "index": 1,
+            "kind": "Undo",
+            "outcome": "FullyApplied"
+          }
+        ],
+        "beforeSequence": [
+          0,
+          1
         ]
       },
       {
@@ -1301,6 +1355,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 5,
@@ -1364,6 +1419,7 @@
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 6,
@@ -1427,6 +1483,22 @@
               ]
             }
           }
+        ],
+        "settled": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "outcome": "FullyApplied"
+          },
+          {
+            "index": 1,
+            "kind": "Undo",
+            "outcome": "FullyApplied"
+          }
+        ],
+        "beforeSequence": [
+          0,
+          1
         ]
       },
       {
@@ -1622,6 +1694,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 6,
@@ -1753,6 +1826,7 @@
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 7,
@@ -1817,6 +1891,22 @@
               ]
             }
           }
+        ],
+        "settled": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "outcome": "FullyApplied"
+          },
+          {
+            "index": 1,
+            "kind": "Undo",
+            "outcome": "FullyApplied"
+          }
+        ],
+        "beforeSequence": [
+          0,
+          1
         ]
       },
       {
@@ -1992,6 +2082,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 5,
@@ -2057,6 +2148,7 @@
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 6,
@@ -2122,6 +2214,22 @@
               ]
             }
           }
+        ],
+        "settled": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "outcome": "FullyApplied"
+          },
+          {
+            "index": 1,
+            "kind": "Undo",
+            "outcome": "FullyApplied"
+          }
+        ],
+        "beforeSequence": [
+          0,
+          1
         ]
       },
       {
@@ -2307,6 +2415,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 5,
@@ -2388,6 +2497,7 @@
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 6,
@@ -2465,6 +2575,22 @@
               ]
             }
           }
+        ],
+        "settled": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "outcome": "FullyApplied"
+          },
+          {
+            "index": 1,
+            "kind": "Undo",
+            "outcome": "FullyApplied"
+          }
+        ],
+        "beforeSequence": [
+          0,
+          1
         ]
       },
       {
@@ -2650,6 +2776,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 5,
@@ -2750,6 +2877,7 @@
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 6,
@@ -2846,6 +2974,22 @@
               ]
             }
           }
+        ],
+        "settled": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "outcome": "FullyApplied"
+          },
+          {
+            "index": 1,
+            "kind": "Undo",
+            "outcome": "FullyApplied"
+          }
+        ],
+        "beforeSequence": [
+          0,
+          1
         ]
       },
       {
@@ -3033,6 +3177,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 5,
@@ -3203,6 +3348,7 @@
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 6,
@@ -3301,6 +3447,22 @@
               ]
             }
           }
+        ],
+        "settled": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "outcome": "FullyApplied"
+          },
+          {
+            "index": 1,
+            "kind": "Undo",
+            "outcome": "FullyApplied"
+          }
+        ],
+        "beforeSequence": [
+          0,
+          1
         ]
       },
       {
@@ -3498,6 +3660,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 5,
@@ -3590,6 +3753,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 6,
@@ -3682,12 +3846,14 @@
             "kind": "Default",
             "local": false,
             "factory": false,
+            "category": "remote",
             "change": null
           },
           {
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 8,
@@ -3738,6 +3904,28 @@
               ]
             }
           }
+        ],
+        "settled": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "outcome": "FullyApplied"
+          },
+          {
+            "index": 1,
+            "kind": "Default",
+            "outcome": "FullyApplied"
+          },
+          {
+            "index": 3,
+            "kind": "Undo",
+            "outcome": "FullyApplied"
+          }
+        ],
+        "beforeSequence": [
+          0,
+          1,
+          2
         ]
       },
       {
@@ -3925,6 +4113,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 5,
@@ -4017,12 +4206,14 @@
             "kind": "Default",
             "local": false,
             "factory": false,
+            "category": "remote",
             "change": null
           },
           {
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 7,
@@ -4073,6 +4264,22 @@
               ]
             }
           }
+        ],
+        "settled": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "outcome": "FullyApplied"
+          },
+          {
+            "index": 2,
+            "kind": "Undo",
+            "outcome": "FullyApplied"
+          }
+        ],
+        "beforeSequence": [
+          0,
+          1
         ]
       },
       {
@@ -4260,6 +4467,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 5,
@@ -4352,12 +4560,14 @@
             "kind": "Default",
             "local": false,
             "factory": false,
+            "category": "remote",
             "change": null
           },
           {
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 7,
@@ -4408,6 +4618,22 @@
               ]
             }
           }
+        ],
+        "settled": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "outcome": "FullyApplied"
+          },
+          {
+            "index": 2,
+            "kind": "Undo",
+            "outcome": "FullyApplied"
+          }
+        ],
+        "beforeSequence": [
+          0,
+          1
         ]
       }
     ]

@@ -24,6 +24,7 @@
             "kind": "Default",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 5,
@@ -116,6 +117,7 @@
             "kind": "Undo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 6,
@@ -170,6 +172,7 @@
             "kind": "Redo",
             "local": true,
             "factory": true,
+            "category": "data",
             "change": {
               "version": 1,
               "revision": 7,
