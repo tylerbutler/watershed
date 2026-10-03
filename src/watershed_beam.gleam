@@ -169,6 +169,32 @@ pub opaque type SharedTree {
 }
 
 @target(erlang)
+pub type TreeRevertibleStatus {
+  RevertibleValid
+  RevertibleDisposed
+}
+
+@target(erlang)
+pub type TreeRevertible =
+  runtime_beam.TreeRevertible
+
+@target(erlang)
+pub type SubscriptionToken =
+  runtime_beam.SubscriptionToken
+
+@target(erlang)
+pub type TreeCommitEvent {
+  TreeCommitEvent(
+    kind: tree_types.TreeCommitKind,
+    local: Bool,
+    get_revertible: Option(fn() -> Result(TreeRevertible, String)),
+    on_settled: Option(
+      fn(fn(tree_types.TreeCommitOutcome) -> Nil) -> Result(Nil, String),
+    ),
+  )
+}
+
+@target(erlang)
 pub type TreeTransactionConstraint {
   NodeInDocument(path: tree_types.FieldPath)
 }
@@ -693,6 +719,31 @@ pub fn tree_transaction(
         Error(runtime_error) -> Error(TransactionFailed(runtime_error))
       }
   }
+}
+
+@target(erlang)
+pub fn tree_revertible_status(
+  revertible: TreeRevertible,
+) -> TreeRevertibleStatus {
+  case runtime_beam.tree_revertible_status(revertible) {
+    runtime_beam.RevertibleValid -> RevertibleValid
+    runtime_beam.RevertibleDisposed -> RevertibleDisposed
+  }
+}
+
+@target(erlang)
+pub fn tree_dispose_revertible(
+  revertible: TreeRevertible,
+) -> Result(Nil, String) {
+  runtime_beam.tree_dispose_revertible(revertible)
+}
+
+@target(erlang)
+pub fn tree_revert(
+  revertible: TreeRevertible,
+  dispose: Bool,
+) -> Result(Nil, String) {
+  runtime_beam.tree_revert(revertible, dispose)
 }
 
 @target(erlang)
@@ -2166,6 +2217,23 @@ pub fn subscribe_tree(tree: SharedTree) -> Subject(tree_kernel.TreeEvent) {
     channel.TreeEvent(inner) -> Some(inner)
     _ -> None
   }
+}
+
+@target(erlang)
+pub fn subscribe_tree_commits(
+  tree: SharedTree,
+  handler: fn(TreeCommitEvent) -> Nil,
+) -> SubscriptionToken {
+  runtime_beam.subscribe_tree_commits(tree.runtime, tree.address, fn(event) {
+    let runtime_beam.TreeCommitEvent(kind, local, get_revertible, on_settled) =
+      event
+    handler(TreeCommitEvent(kind, local, get_revertible, on_settled))
+  })
+}
+
+@target(erlang)
+pub fn unsubscribe(token: SubscriptionToken) -> Nil {
+  runtime_beam.unsubscribe(token)
 }
 
 @target(erlang)

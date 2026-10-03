@@ -1884,6 +1884,32 @@ pub fn actor_tree_echo_installs_state_before_next_command_test() {
 }
 
 @target(erlang)
+pub fn commit_delivery_exit_invalidates_factory_and_replays_messages_test() {
+  let #(actor, _, _) = ready_tree_actor(fn(_, _) { Ok(Nil) })
+  let factories = process.new_subject()
+  let token =
+    runtime_beam.subscribe_tree_commits(actor, "A/_C", fn(event) {
+      let assert runtime_beam.TreeCommitEvent(_, True, Some(factory), Some(_)) =
+        event
+      process.send(factories, factory)
+      process.kill(process.self())
+    })
+
+  runtime_beam.tree_edit(
+    actor,
+    "A/_C",
+    tree_types.SetField(["title"], tree_types.StringValue("native")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let factory = process.receive(factories, 1000) |> expect.to_be_ok()
+  runtime_beam.tree_read(actor, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("native"))))
+  factory() |> expect.to_be_error()
+  runtime_beam.unsubscribe(token)
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
 pub fn pending_tree_actor_retains_content_after_transport_loss_test() {
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)

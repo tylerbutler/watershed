@@ -1581,6 +1581,170 @@ pub fn shared_tree_map_facade_beam_generates_identifier_defaults_test() {
 }
 
 @target(erlang)
+pub fn shared_tree_map_facade_beam_commit_subscription_test() {
+  let input = input(True)
+  let #(document, connections, submissions) = beam_document(input)
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  beam_transport(callbacks, submissions)
+  callbacks.on_event("connect_document_success", connected("reader", 0))
+  let tree = beam_tree(document, input)
+  let order = process.new_subject()
+  let attempts = process.new_subject()
+  let factories = process.new_subject()
+  let settlements = process.new_subject()
+  let outcomes = process.new_subject()
+  let stopped = process.new_subject()
+  let stopped_token =
+    watershed_beam.subscribe_tree_commits(tree, fn(_) {
+      process.send(stopped, Nil)
+    })
+  watershed_beam.unsubscribe(stopped_token)
+  let loser =
+    watershed_beam.subscribe_tree_commits(tree, fn(event) {
+      let assert watershed_beam.TreeCommitEvent(
+        _,
+        True,
+        Some(get_revertible),
+        Some(on_settled),
+      ) = event
+      process.send(order, "loser")
+      process.send(attempts, get_revertible())
+      on_settled(fn(outcome) { process.send(outcomes, outcome) })
+      |> expect.to_equal(Ok(Nil))
+    })
+  let winner =
+    watershed_beam.subscribe_tree_commits(tree, fn(event) {
+      let assert watershed_beam.TreeCommitEvent(
+        types.DefaultCommit,
+        True,
+        Some(get_revertible),
+        Some(on_settled),
+      ) = event
+      process.send(order, "winner")
+      process.send(factories, get_revertible)
+      process.send(settlements, on_settled)
+      process.send(attempts, get_revertible())
+      on_settled(fn(outcome) { process.send(outcomes, outcome) })
+      |> expect.to_equal(Ok(Nil))
+    })
+
+  watershed_beam.tree_map_set(tree, [], "key", types.StringValue("value"))
+  |> expect.to_equal(Ok(Nil))
+  process.receive(order, 1000) |> expect.to_equal(Ok("winner"))
+  process.receive(order, 1000) |> expect.to_equal(Ok("loser"))
+  let first = process.receive(attempts, 1000) |> expect.to_be_ok()
+  let second = process.receive(attempts, 1000) |> expect.to_be_ok()
+  let revertible = case first, second {
+    Ok(handle), Error(_) | Error(_), Ok(handle) -> handle
+    _, _ -> panic as "exactly one handler must acquire the revertible"
+  }
+  watershed_beam.tree_revertible_status(revertible)
+  |> expect.to_equal(watershed_beam.RevertibleValid)
+  let late_factory = process.receive(factories, 1000) |> expect.to_be_ok()
+  let late_settlement = process.receive(settlements, 1000) |> expect.to_be_ok()
+  late_factory() |> expect.to_be_error()
+  late_settlement(fn(_) { Nil }) |> expect.to_be_error()
+  process.receive(stopped, 0) |> expect.to_equal(Error(Nil))
+
+  let submitted = process.receive(submissions, 1000) |> expect.to_be_ok()
+  callbacks.on_event("op", acknowledgement(submitted))
+  process.receive(outcomes, 1000)
+  |> expect.to_equal(Ok(types.FullyApplied))
+  process.receive(outcomes, 1000)
+  |> expect.to_equal(Ok(types.FullyApplied))
+  callbacks.on_event("op", acknowledgement(submitted))
+  process.receive(outcomes, 0) |> expect.to_equal(Error(Nil))
+
+  callbacks.on_close("transport lost")
+  watershed_beam.tree_revertible_status(revertible)
+  |> expect.to_equal(watershed_beam.RevertibleValid)
+  let reconnect = process.receive(connections, 1000) |> expect.to_be_ok()
+  beam_transport(reconnect, submissions)
+  reconnect.on_event(
+    "connect_document_success",
+    connected("reader-reconnected", 1),
+  )
+  watershed_beam.tree_revertible_status(revertible)
+  |> expect.to_equal(watershed_beam.RevertibleValid)
+
+  watershed_beam.unsubscribe(winner)
+  watershed_beam.unsubscribe(loser)
+  watershed_beam.tree_revert(revertible, True) |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_map_get(tree, [], "key") |> expect.to_equal(Ok(None))
+  process.receive(submissions, 1000) |> expect.to_be_ok()
+  watershed_beam.tree_revertible_status(revertible)
+  |> expect.to_equal(watershed_beam.RevertibleDisposed)
+  watershed_beam.tree_dispose_revertible(revertible) |> expect.to_be_error()
+
+  let cleanup = process.new_subject()
+  let cleanup_token =
+    watershed_beam.subscribe_tree_commits(tree, fn(event) {
+      let assert watershed_beam.TreeCommitEvent(_, True, Some(factory), _) =
+        event
+      process.send(cleanup, factory())
+    })
+  watershed_beam.tree_map_set(tree, [], "cleanup", types.StringValue("value"))
+  |> expect.to_equal(Ok(Nil))
+  let cleanup_handle =
+    process.receive(cleanup, 1000) |> expect.to_be_ok() |> expect.to_be_ok()
+  let runtime = watershed_beam.runtime_subject(document)
+  let owner = process.subject_owner(runtime) |> expect.to_be_ok()
+  let monitor = process.monitor(owner)
+  process.send(runtime, runtime_beam.Shutdown)
+  process.new_selector()
+  |> process.select_specific_monitor(monitor, fn(_) { Nil })
+  |> process.selector_receive(1000)
+  |> expect.to_equal(Ok(Nil))
+  process.demonitor_process(monitor)
+  watershed_beam.tree_revertible_status(cleanup_handle)
+  |> expect.to_equal(watershed_beam.RevertibleDisposed)
+  watershed_beam.tree_dispose_revertible(cleanup_handle) |> expect.to_be_error()
+  watershed_beam.unsubscribe(cleanup_token)
+}
+
+@target(erlang)
+pub fn shared_tree_map_facade_beam_remote_commit_has_no_local_callbacks_test() {
+  let input = input(True)
+  let #(document, connections, submissions) = beam_document(input)
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  beam_transport(callbacks, submissions)
+  callbacks.on_event("connect_document_success", connected("reader", 0))
+  let tree = beam_tree(document, input)
+  let commits = process.new_subject()
+  let token =
+    watershed_beam.subscribe_tree_commits(tree, fn(event) {
+      process.send(commits, event)
+    })
+
+  let #(peer, peer_connections, peer_submissions) =
+    beam_document(peer_input(input))
+  let peer_callbacks =
+    process.receive(peer_connections, 1000) |> expect.to_be_ok()
+  beam_transport(peer_callbacks, peer_submissions)
+  peer_callbacks.on_event("connect_document_success", connected("other", 0))
+  let peer_tree = beam_tree(peer, input)
+  watershed_beam.tree_map_set(
+    peer_tree,
+    [],
+    "remote",
+    types.StringValue("value"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let submitted = process.receive(peer_submissions, 1000) |> expect.to_be_ok()
+  callbacks.on_event("op", acknowledgement(submitted))
+  let event = process.receive(commits, 1000) |> expect.to_be_ok()
+  let assert watershed_beam.TreeCommitEvent(
+    types.DefaultCommit,
+    False,
+    None,
+    None,
+  ) = event
+  watershed_beam.unsubscribe(token)
+  process.send(watershed_beam.runtime_subject(peer), runtime_beam.Shutdown)
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
 pub fn shared_tree_map_facade_beam_transaction_callback_and_remote_order_test() {
   let input = input(True)
   let #(document, connections, submissions) = beam_document(input)

@@ -624,6 +624,85 @@ pub fn shared_tree_array_facade_beam_transaction_test() {
 }
 
 @target(erlang)
+pub fn shared_tree_array_facade_beam_transaction_revertible_test() {
+  let input = input()
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let connections = process.new_subject()
+  let submissions = process.new_subject()
+  let handles = process.new_subject()
+  let document =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+    |> expect.to_be_ok()
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, _) {
+        case event {
+          "submitOp" -> process.send(submissions, Nil)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event("connect_document_success", connected("reader"))
+  let root = watershed_beam.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let tree =
+    watershed_beam.resolve_tree(document, marker, view.view)
+    |> expect.to_be_ok()
+  let token =
+    watershed_beam.subscribe_tree_commits(tree, fn(event) {
+      let assert watershed_beam.TreeCommitEvent(
+        _,
+        True,
+        Some(get_revertible),
+        _,
+      ) = event
+      process.send(handles, get_revertible())
+    })
+
+  watershed_beam.tree_array_insert(tree, [], 3, [types.StringValue("D")])
+  |> expect.to_equal(Ok(Nil))
+  let first =
+    process.receive(handles, 1000) |> expect.to_be_ok() |> expect.to_be_ok()
+  watershed_beam.tree_transaction(tree, [], fn(tree) {
+    watershed_beam.tree_revert(first, False) |> expect.to_be_error()
+    use _ <- result.try(
+      watershed_beam.tree_array_insert(tree, [], 1, [types.StringValue("X")]),
+    )
+    watershed_beam.tree_array_remove(tree, [], 2, 3)
+  })
+  |> expect.to_equal(Ok(Nil))
+  let transaction =
+    process.receive(handles, 1000) |> expect.to_be_ok() |> expect.to_be_ok()
+  process.receive(handles, 0) |> expect.to_equal(Error(Nil))
+  process.receive(submissions, 1000) |> expect.to_equal(Ok(Nil))
+  process.receive(submissions, 1000) |> expect.to_equal(Ok(Nil))
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  watershed_beam.tree_revertible_status(first)
+  |> expect.to_equal(watershed_beam.RevertibleValid)
+  watershed_beam.tree_revertible_status(transaction)
+  |> expect.to_equal(watershed_beam.RevertibleValid)
+  watershed_beam.tree_dispose_revertible(first) |> expect.to_equal(Ok(Nil))
+  watershed_beam.tree_dispose_revertible(transaction)
+  |> expect.to_equal(Ok(Nil))
+  watershed_beam.unsubscribe(token)
+  process.send(watershed_beam.runtime_subject(document), runtime_beam.Shutdown)
+}
+
+@target(erlang)
 pub fn shared_tree_array_facade_beam_transaction_rejects_other_view_test() {
   let input = input()
   let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
