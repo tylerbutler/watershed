@@ -2771,16 +2771,13 @@ fn handle_operation(
                       ),
                       compressor: Some(compressor),
                     ),
-                    list.append(
-                      case changes.array_changed {
-                        True ->
-                          list.map(changes.events, fn(event) {
-                            #(address, channel.TreeEvent(event))
-                          })
-                        False -> []
-                      },
-                      commit_events,
-                    ),
+                    list.append(commit_events, case changes.array_changed {
+                      True ->
+                        list.map(changes.events, fn(event) {
+                          #(address, channel.TreeEvent(event))
+                        })
+                      False -> []
+                    }),
                     [],
                   ),
                 )
@@ -4449,13 +4446,13 @@ fn submit_tree_commits(
         ]),
       ),
       list.append(
-        events,
         list.map(commits, fn(commit) {
           #(
             address,
             channel.TreeCommitApplied(commit.revision, kind, True, revertible),
           )
         }),
+        events,
       ),
       [outbound],
     ),

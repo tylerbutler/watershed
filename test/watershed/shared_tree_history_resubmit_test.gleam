@@ -142,6 +142,53 @@ pub fn accepted_transaction_before_drop_deduplicates_by_revision_test() {
   native_runtime.assert_accepted_transaction_before_drop()
 }
 
+pub fn accepted_before_drop_settles_pending_revision_once_in_runtime_core_test() {
+  let core = runtime_fixture.routed_core() |> expect.to_be_ok
+  let address = "A/_C"
+  let #(pending, events, outbound) =
+    runtime_core.submit_tree_edits(core, address, [
+      SetField(["title"], StringValue("accepted")),
+    ])
+    |> expect.to_be_ok
+  let revision = applied_commit(events).0
+  let outbound = list.first(outbound) |> expect.to_be_ok
+  let accepted_message = sequenced(pending, outbound, 3)
+  let reconnected =
+    runtime_core.adopt_reconnect(
+      pending,
+      runtime_fixture.connected("rejoined", [], 3),
+    )
+    |> expect.to_be_ok
+  let #(accepted, first) =
+    runtime_core.handle_sequenced(reconnected, accepted_message)
+    |> expect.to_be_ok
+
+  first.events
+  |> list.filter(fn(event) {
+    case event.1 {
+      channel.TreeCommitSettled(settled, _) -> settled == revision
+      _ -> False
+    }
+  })
+  |> list.length
+  |> expect.to_equal(1)
+  let #(ready, resubmitted) =
+    runtime_core.resubmit(runtime_core.go_live(accepted))
+    |> expect.to_be_ok
+  resubmitted |> expect.to_equal([])
+  let #(_, duplicate) =
+    runtime_core.handle_sequenced(ready, accepted_message)
+    |> expect.to_be_ok
+  duplicate.events
+  |> list.filter(fn(event) {
+    case event.1 {
+      channel.TreeCommitSettled(settled, _) -> settled == revision
+      _ -> False
+    }
+  })
+  |> expect.to_equal([])
+}
+
 pub fn identifier_retry_acknowledges_once_without_changing_id_test() {
   let retry = identifier_observation("retry-resubmit")
   let assert Ok(identifier) = list.key_find(retry, "identifier")
