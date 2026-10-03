@@ -1395,6 +1395,95 @@ pub fn shared_tree_history_trim_rejects_unavailable_reference_test() -> Nil {
   history.inspect(trimmed.history) |> expect.to_equal(before)
 }
 
+pub fn shared_tree_history_revertible_pins_target_until_disposal_test() -> Nil {
+  let commit_a = empty_commit(revision_a(), local_session())
+  let commit_b = empty_commit(revision_b(), local_session())
+  let commit_c = empty_commit(revision_r(), local_session())
+  let assert Ok(appended_a) =
+    history.append_local(history.new(local_session()), commit_a)
+  let assert Ok(appended_b) = history.append_local(appended_a.history, commit_b)
+  let assert Ok(appended_c) = history.append_local(appended_b.history, commit_c)
+  let assert Ok(#(acked_a, Nil)) =
+    history.receive(
+      appended_c.history,
+      commit_a,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(#(acked_b, Nil)) =
+    history.receive(
+      acked_a.history,
+      commit_b,
+      types.SequencePoint(2, 0),
+      1,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(#(acked_c, Nil)) =
+    history.receive(
+      acked_b.history,
+      commit_c,
+      types.SequencePoint(3, 0),
+      2,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(#(retained, id)) =
+    history.retain_revertible(
+      acked_c.history,
+      revision_b(),
+      types.DefaultCommit,
+    )
+  let assert types.RevertibleId(0) = id
+  history.revertible_is_valid(retained, id) |> expect.to_equal(True)
+  history.retain_revertible(retained, revision_b(), types.DefaultCommit)
+  |> expect.to_be_error
+  let assert Ok(#(pinned, Nil)) =
+    history.advance_minimum(retained, 3, 3, Nil, no_mint)
+  pinned.trimmed_revisions |> expect.to_equal([revision_a()])
+  history.revertible_is_valid(pinned.history, id) |> expect.to_equal(True)
+  let assert [retained_b, retained_c] =
+    history.inspect(pinned.history).sequenced.trunk
+  retained_b.commit.revision |> expect.to_equal(revision_b())
+  retained_c.commit.revision |> expect.to_equal(revision_r())
+
+  let assert Ok(disposed) = history.dispose_revertible(pinned.history, id)
+  history.revertible_is_valid(disposed, id) |> expect.to_equal(False)
+  history.dispose_revertible(disposed, id) |> expect.to_be_error
+  let assert Ok(#(released, Nil)) =
+    history.advance_minimum(disposed, 3, 3, Nil, no_mint)
+  released.trimmed_revisions
+  |> expect.to_equal([revision_b(), revision_r()])
+  history.inspect(released.history).sequenced.trunk |> expect.to_equal([])
+}
+
+pub fn shared_tree_history_restore_drops_runtime_revertibles_test() -> Nil {
+  let commit = empty_commit(revision_a(), local_session())
+  let assert Ok(appended) =
+    history.append_local(history.new(local_session()), commit)
+  let assert Ok(#(acked, Nil)) =
+    history.receive(
+      appended.history,
+      commit,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(snapshot) = history.snapshot(acked.history)
+  let assert Ok(#(retained, id)) =
+    history.retain_revertible(acked.history, revision_a(), types.DefaultCommit)
+  history.snapshot(retained) |> expect.to_equal(Ok(snapshot))
+  let assert Ok(restored) = history.restore(snapshot, local_session())
+  history.revertible_is_valid(restored, id) |> expect.to_equal(False)
+}
+
 pub fn shared_tree_history_resubmit_is_pure_and_stable_test() -> Nil {
   let commit = empty_commit(revision_a(), local_session())
   let assert Ok(local) =

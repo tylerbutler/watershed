@@ -17,8 +17,8 @@ import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
 import watershed/tree/shared_change
 import watershed/tree/types.{
-  type TreeError, CorruptData, InvalidHistory, NumberValue, ObjectValue,
-  SequencePoint, SetField, StringValue,
+  type TreeError, CorruptData, FullyApplied, InvalidHistory, NewContentOnly,
+  NumberValue, ObjectValue, SequencePoint, SetField, StringValue, UndoCommit,
 }
 import watershed/tree_kernel
 import watershed/wire/fluid_container
@@ -73,6 +73,28 @@ pub fn shared_tree_channel_dispatches_checked_restored_tree_test() {
   json.to_string(channel.fluid_attributes(channel.TreeChannel))
   |> string.contains("0.0.0")
   |> expect.to_equal(True)
+}
+
+pub fn shared_tree_channel_exposes_commit_applied_event_test() {
+  let assert Ok(revision) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000003")
+  let kind = UndoCommit
+  let outcome = NewContentOnly
+  let event = channel.TreeCommitApplied(revision, kind, True, True)
+  let assert channel.TreeCommitApplied(actual_revision, actual_kind, True, True) =
+    event
+  actual_revision |> expect.to_equal(revision)
+  actual_kind |> expect.to_equal(kind)
+  outcome |> expect.to_equal(NewContentOnly)
+}
+
+pub fn shared_tree_channel_exposes_commit_settled_event_test() {
+  let assert Ok(revision) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000003")
+  let event = channel.TreeCommitSettled(revision, FullyApplied)
+  let channel.TreeCommitSettled(actual_revision, outcome) = event
+  actual_revision |> expect.to_equal(revision)
+  outcome |> expect.to_equal(FullyApplied)
 }
 
 pub fn shared_tree_bridge_retains_schema_changes_test() {

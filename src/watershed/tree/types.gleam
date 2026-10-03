@@ -51,3 +51,19 @@ pub type TreeError {
 pub type SequencePoint {
   SequencePoint(sequence_number: Int, index_in_batch: Int)
 }
+
+pub type TreeCommitKind {
+  DefaultCommit
+  UndoCommit
+  RedoCommit
+}
+
+pub type TreeCommitOutcome {
+  FullyApplied
+  FullyDropped
+  NewContentOnly
+}
+
+pub type RevertibleId {
+  RevertibleId(Int)
+}

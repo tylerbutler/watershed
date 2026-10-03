@@ -397,6 +397,16 @@ pub type ChannelEvent {
   RichTextEvent(rich_text_kernel.RichTextEvent)
   TextEvent(text_kernel.TextEvent)
   TreeEvent(event: tree_kernel.TreeEvent)
+  TreeCommitApplied(
+    revision: fluid_ids.StableId,
+    kind: tree_types.TreeCommitKind,
+    local: Bool,
+    revertible: Bool,
+  )
+  TreeCommitSettled(
+    revision: fluid_ids.StableId,
+    outcome: tree_types.TreeCommitOutcome,
+  )
 }
 
 /// The state of a channel, in the form that the stored formats carry. Those

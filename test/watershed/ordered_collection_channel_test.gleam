@@ -475,6 +475,8 @@ fn added_value(
       | Ok(_), channel.RichTextEvent(_)
       | Ok(_), channel.TextEvent(_)
       | Ok(_), channel.TreeEvent(_)
+      | Ok(_), channel.TreeCommitApplied(_, _, _, _)
+      | Ok(_), channel.TreeCommitSettled(_, _)
       -> found
       Error(_),
         channel.OrderedCollectionEvent(ordered_collection_kernel.Added(
@@ -505,6 +507,8 @@ fn added_value(
       | Error(_), channel.RichTextEvent(_)
       | Error(_), channel.TextEvent(_)
       | Error(_), channel.TreeEvent(_)
+      | Error(_), channel.TreeCommitApplied(_, _, _, _)
+      | Error(_), channel.TreeCommitSettled(_, _)
       -> Error(Nil)
     }
   })
@@ -587,6 +591,8 @@ fn acquired_value(
       | Ok(_), channel.RichTextEvent(_)
       | Ok(_), channel.TextEvent(_)
       | Ok(_), channel.TreeEvent(_)
+      | Ok(_), channel.TreeCommitApplied(_, _, _, _)
+      | Ok(_), channel.TreeCommitSettled(_, _)
       -> found
       Error(_),
         channel.OrderedCollectionEvent(ordered_collection_kernel.Acquired(
@@ -617,6 +623,8 @@ fn acquired_value(
       | Error(_), channel.RichTextEvent(_)
       | Error(_), channel.TextEvent(_)
       | Error(_), channel.TreeEvent(_)
+      | Error(_), channel.TreeCommitApplied(_, _, _, _)
+      | Error(_), channel.TreeCommitSettled(_, _)
       -> Error(Nil)
     }
   })

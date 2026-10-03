@@ -9,7 +9,10 @@ import watershed/fluid_ids
 import watershed/tree/change
 import watershed/tree/forest
 import watershed/tree/shared_change
-import watershed/tree/types.{type SequencePoint, type TreeError, InvalidHistory}
+import watershed/tree/types.{
+  type RevertibleId, type SequencePoint, type TreeCommitKind, type TreeError,
+  InvalidHistory, RevertibleId,
+}
 
 const max_safe_integer = 9_007_199_254_740_991
 
@@ -104,6 +107,16 @@ type RollbackEntry {
   )
 }
 
+type RevertibleRecord {
+  RevertibleRecord(
+    id: RevertibleId,
+    revision: fluid_ids.StableId,
+    kind: TreeCommitKind,
+    base: BranchBase,
+    commits: List(BranchCommit),
+  )
+}
+
 type RetainedReceipt {
   RetainedReceipt(
     revision: fluid_ids.StableId,
@@ -138,7 +151,9 @@ pub opaque type History {
     local_authored_context: List(Commit),
     rollbacks: List(RollbackEntry),
     receipts: List(RetainedReceipt),
+    revertibles: List(RevertibleRecord),
     next_node_id: Int,
+    next_revertible_id: Int,
     sequence_number: Int,
     minimum_sequence_number: Int,
   )
@@ -155,7 +170,9 @@ pub fn new(local_session: fluid_ids.SessionId) -> History {
     local_authored_context: [],
     rollbacks: [],
     receipts: [],
+    revertibles: [],
     next_node_id: 0,
+    next_revertible_id: 0,
     sequence_number: 0,
     minimum_sequence_number: minimum_sequence_number,
   )
@@ -229,6 +246,17 @@ pub fn rebind_identity_order(
       Ok(RetainedReceipt(..entry, commit:))
     }),
   )
+  use revertibles <- result.try(
+    list.try_map(state.revertibles, fn(record) {
+      use commits <- result.try(
+        list.try_map(record.commits, fn(entry) {
+          use commit <- result.try(rebind_commit(entry.commit, identity_order))
+          Ok(BranchCommit(..entry, commit:))
+        }),
+      )
+      Ok(RevertibleRecord(..record, commits:))
+    }),
+  )
   Ok(
     History(
       ..state,
@@ -238,6 +266,7 @@ pub fn rebind_identity_order(
       local_authored_context:,
       rollbacks:,
       receipts:,
+      revertibles:,
     ),
   )
 }
@@ -270,6 +299,13 @@ pub fn identity_revisions(state: History) -> List(fluid_ids.StableId) {
           None -> []
           Some(commit) -> [commit]
         }
+      }),
+    )
+  let commits =
+    list.append(
+      commits,
+      list.flat_map(state.revertibles, fn(record) {
+        list.map(record.commits, fn(entry) { entry.commit })
       }),
     )
   let revisions =
@@ -1329,13 +1365,165 @@ fn tagged_branch_commit(commit: BranchCommit) -> shared_change.TaggedChange {
   tagged_commit(commit.commit)
 }
 
+pub fn retain_revertible(
+  state: History,
+  revision: fluid_ids.StableId,
+  kind: TreeCommitKind,
+) -> Result(#(History, RevertibleId), TreeError) {
+  use _ <- result.try(check(
+    !list.any(state.revertibles, fn(record) { record.revision == revision }),
+    "revertible revision is already retained",
+  ))
+  use #(base, commits, next_node_id) <- result.try(revertible_position(
+    state,
+    revision,
+  ))
+  let id = RevertibleId(state.next_revertible_id)
+  let record = RevertibleRecord(id, revision, kind, base, commits)
+  Ok(#(
+    History(
+      ..state,
+      revertibles: [record, ..state.revertibles],
+      next_node_id:,
+      next_revertible_id: state.next_revertible_id + 1,
+    ),
+    id,
+  ))
+}
+
+pub fn revertible_is_valid(state: History, id: RevertibleId) -> Bool {
+  list.any(state.revertibles, fn(record) { record.id == id })
+}
+
+pub fn dispose_revertible(
+  state: History,
+  id: RevertibleId,
+) -> Result(History, TreeError) {
+  use _ <- result.try(check(
+    revertible_is_valid(state, id),
+    "revertible is already disposed",
+  ))
+  Ok(
+    History(
+      ..state,
+      revertibles: list.filter(state.revertibles, fn(record) { record.id != id }),
+    ),
+  )
+}
+
+fn revertible_position(
+  state: History,
+  revision: fluid_ids.StableId,
+) -> Result(#(BranchBase, List(BranchCommit), Int), TreeError) {
+  case pending_revertible_position(state.pending, state.local_base, revision) {
+    Some(position) -> Ok(#(position.0, position.1, state.next_node_id))
+    None ->
+      case peer_revertible_position(state.peers, revision) {
+        Some(position) -> Ok(#(position.0, position.1, state.next_node_id))
+        None ->
+          trunk_revertible_position(
+            state.trunk,
+            Sentinel,
+            revision,
+            state.next_node_id,
+          )
+      }
+  }
+}
+
+fn pending_revertible_position(
+  pending: List(LocalCommit),
+  base: Option(BranchBase),
+  revision: fluid_ids.StableId,
+) -> Option(#(BranchBase, List(BranchCommit))) {
+  case pending {
+    [] -> None
+    [first, ..rest] ->
+      case first.original.commit.revision == revision {
+        True -> Some(#(option.unwrap(base, Sentinel), [first.current]))
+        False ->
+          pending_revertible_position(
+            rest,
+            Some(Revision(first.current.commit.revision)),
+            revision,
+          )
+      }
+  }
+}
+
+fn peer_revertible_position(
+  peers: List(PeerState),
+  revision: fluid_ids.StableId,
+) -> Option(#(BranchBase, List(BranchCommit))) {
+  case peers {
+    [] -> None
+    [peer, ..rest] ->
+      case branch_revertible_position(peer.commits, peer.base, revision) {
+        Some(position) -> Some(position)
+        None -> peer_revertible_position(rest, revision)
+      }
+  }
+}
+
+fn branch_revertible_position(
+  commits: List(BranchCommit),
+  base: BranchBase,
+  revision: fluid_ids.StableId,
+) -> Option(#(BranchBase, List(BranchCommit))) {
+  case commits {
+    [] -> None
+    [first, ..rest] ->
+      case first.commit.revision == revision {
+        True -> Some(#(base, [first]))
+        False ->
+          branch_revertible_position(
+            rest,
+            Revision(first.commit.revision),
+            revision,
+          )
+      }
+  }
+}
+
+fn trunk_revertible_position(
+  trunk: List(SequencedCommit),
+  base: BranchBase,
+  revision: fluid_ids.StableId,
+  node_id: Int,
+) -> Result(#(BranchBase, List(BranchCommit), Int), TreeError) {
+  case trunk {
+    [] -> Error(InvalidHistory("revertible revision is not retained"))
+    [first, ..rest] ->
+      case first.commit.revision == revision {
+        True -> Ok(#(base, [BranchCommit(node_id, first.commit)], node_id + 1))
+        False ->
+          trunk_revertible_position(
+            rest,
+            Revision(first.commit.revision),
+            revision,
+            node_id,
+          )
+      }
+  }
+}
+
+fn retained_nodes(state: History) -> List(Int) {
+  state.revertibles
+  |> list.flat_map(fn(record) {
+    list.map(record.commits, fn(commit) { commit.node_id })
+  })
+}
+
 fn prune_rollbacks(state: History) -> History {
   let live_nodes =
     list.append(
-      list.map(state.pending, fn(entry) { entry.current.node_id }),
-      list.flat_map(state.peers, fn(peer) {
-        list.map(peer.commits, fn(commit) { commit.node_id })
-      }),
+      retained_nodes(state),
+      list.append(
+        list.map(state.pending, fn(entry) { entry.current.node_id }),
+        list.flat_map(state.peers, fn(peer) {
+          list.map(peer.commits, fn(commit) { commit.node_id })
+        }),
+      ),
     )
   History(
     ..state,
@@ -1354,6 +1542,15 @@ fn trim_history(
     last_index_where(state.trunk, fn(entry) {
       entry.point.sequence_number <= state.minimum_sequence_number
     })
+  use desired <- result.try(
+    list.try_fold(state.revertibles, desired, fn(desired, record) {
+      use retained <- result.try(case record.base {
+        Sentinel -> Ok(-1)
+        Revision(revision) -> sequenced_revision_index(state.trunk, revision, 0)
+      })
+      Ok(int_min(desired, retained))
+    }),
+  )
   case item_at(state.trunk, desired) {
     None -> Ok(#(state, [], allocation))
     Some(new_base) -> {
@@ -1406,6 +1603,12 @@ fn trim_history(
           rollbacks: rollbacks,
           receipts: list.filter(state.receipts, fn(receipt) {
             trunk_commit(retained, receipt.revision) != None
+          }),
+          revertibles: list.map(state.revertibles, fn(record) {
+            RevertibleRecord(..record, base: case record.base == base {
+              True -> Sentinel
+              False -> record.base
+            })
           }),
           next_node_id: next_node_id,
           local_base: case state.local_base {
@@ -1550,7 +1753,9 @@ pub fn restore(
         None,
       )
     }),
+    revertibles: [],
     next_node_id: next_node_id,
+    next_revertible_id: 0,
     sequence_number: snapshot.sequence_number,
     minimum_sequence_number: snapshot.minimum_sequence_number,
   ))
@@ -2007,6 +2212,7 @@ fn has_revision(state: History, revision: fluid_ids.StableId) -> Bool {
   || list.any(state.peers, fn(peer) {
     list.any(peer.commits, fn(commit) { commit.commit.revision == revision })
   })
+  || list.any(state.revertibles, fn(record) { record.revision == revision })
 }
 
 fn history_revisions(state: History) -> List(fluid_ids.StableId) {
@@ -2024,6 +2230,7 @@ fn history_revisions(state: History) -> List(fluid_ids.StableId) {
   |> list.append(
     list.map(state.local_authored_context, fn(commit) { commit.revision }),
   )
+  |> list.append(list.map(state.revertibles, fn(record) { record.revision }))
 }
 
 // ponytail: Use result for fallible functions. This lookup returns Option when
@@ -2139,6 +2346,13 @@ fn longest_branch(state: History) -> Int {
 
 fn int_max(left: Int, right: Int) -> Int {
   case left > right {
+    True -> left
+    False -> right
+  }
+}
+
+fn int_min(left: Int, right: Int) -> Int {
+  case left < right {
     True -> left
     False -> right
   }

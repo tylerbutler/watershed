@@ -2158,7 +2158,9 @@ pub fn subscribe_counter(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -2302,7 +2304,9 @@ pub fn subscribe_or_map(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -2382,7 +2386,9 @@ pub fn subscribe_or_set(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -2503,7 +2509,9 @@ pub fn subscribe_sequence(
     | channel.OrderedCollectionEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -2685,7 +2693,9 @@ pub fn subscribe_text(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -2791,7 +2801,9 @@ pub fn subscribe_register_collection(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -2880,7 +2892,9 @@ pub fn subscribe_claims(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -2979,7 +2993,9 @@ pub fn subscribe_task_manager(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -3063,7 +3079,9 @@ pub fn subscribe_pn_counter(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -3146,7 +3164,9 @@ pub fn subscribe_g_counter(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -3279,7 +3299,9 @@ pub fn subscribe_lww_map(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -3367,7 +3389,9 @@ pub fn subscribe_lww_register(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -3465,7 +3489,9 @@ pub fn subscribe_pact_map(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -3656,7 +3682,9 @@ pub fn subscribe_ordered_collection(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -3740,7 +3768,9 @@ pub fn subscribe_json_ot(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -3831,7 +3861,9 @@ pub fn subscribe_rich_text(
     | channel.OrderedCollectionEvent(_)
     | channel.SequenceEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -3916,7 +3948,9 @@ pub fn subscribe_g_set(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -4013,7 +4047,9 @@ pub fn subscribe_two_p_set(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -4191,7 +4227,9 @@ pub fn subscribe_directory(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -4495,7 +4533,9 @@ pub fn subscribe(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -4551,7 +4591,9 @@ fn field_change(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
@@ -4712,7 +4754,9 @@ pub fn subscribe_mv_register(
     | channel.SequenceEvent(_)
     | channel.RichTextEvent(_)
     | channel.TextEvent(_)
-    | channel.TreeEvent(_) -> None
+    | channel.TreeEvent(_)
+    | channel.TreeCommitApplied(_, _, _, _)
+    | channel.TreeCommitSettled(_, _) -> None
   }
 }
 
