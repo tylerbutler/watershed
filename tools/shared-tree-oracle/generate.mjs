@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { deserializeIdCompressor } from "@fluidframework/id-compressor/internal";
 import { reference, runSource, validateCapture } from "./source.mjs";
 import { validateContainerFoundationsCase } from "./container-foundations.mjs";
@@ -4367,6 +4368,122 @@ const undoRedoScenarioIds = {
   ],
 };
 
+const undoRedoBaseSnapshot = {
+  title: "base",
+  note: "seed",
+  count: 0,
+  featured: { label: "featured", x: 0 },
+  left: [{ label: "left-a", x: 1 }, { label: "left-b", x: 2 }],
+  right: [{ label: "right-a", x: 3 }],
+  byKey: new Map([["seed", "value"]]),
+};
+
+const undoRedoFieldSnapshots = {
+  "object-set": {
+    edited: { ...undoRedoBaseSnapshot, title: "object-set" },
+  },
+  "object-replacement": {
+    edited: {
+      ...undoRedoBaseSnapshot,
+      featured: { label: "replacement", x: 9 },
+    },
+  },
+  "map-set": {
+    edited: {
+      ...undoRedoBaseSnapshot,
+      byKey: new Map([
+        ["seed", "value"],
+        ["new", { label: "map", x: 4 }],
+      ]),
+    },
+  },
+  "map-delete": {
+    edited: { ...undoRedoBaseSnapshot, byKey: new Map() },
+  },
+  "array-insert": {
+    edited: {
+      ...undoRedoBaseSnapshot,
+      left: [...undoRedoBaseSnapshot.left, { label: "inserted", x: 5 }],
+    },
+  },
+  "array-remove": {
+    edited: { ...undoRedoBaseSnapshot, left: [{ label: "left-b", x: 2 }] },
+  },
+  "same-array-move": {
+    edited: {
+      ...undoRedoBaseSnapshot,
+      left: [{ label: "left-b", x: 2 }, { label: "left-a", x: 1 }],
+    },
+  },
+  "cross-array-move": {
+    edited: {
+      ...undoRedoBaseSnapshot,
+      left: [{ label: "left-b", x: 2 }],
+      right: [{ label: "right-a", x: 3 }, { label: "left-a", x: 1 }],
+    },
+  },
+  "outer-transaction": {
+    edited: {
+      ...undoRedoBaseSnapshot,
+      title: "transaction",
+      count: 2,
+      left: [...undoRedoBaseSnapshot.left, "transaction-item"],
+    },
+  },
+  "later-unrelated-local-remote": {
+    edited: { ...undoRedoBaseSnapshot, title: "target" },
+    beforeUndo: {
+      ...undoRedoBaseSnapshot,
+      title: "target",
+      count: 7,
+      byKey: new Map([["seed", "value"], ["remote", "preserved"]]),
+    },
+    undo: {
+      ...undoRedoBaseSnapshot,
+      count: 7,
+      byKey: new Map([["seed", "value"], ["remote", "preserved"]]),
+    },
+  },
+  "overlap-remote-first": {
+    edited: { ...undoRedoBaseSnapshot, title: "local" },
+  },
+  "overlap-local-first": {
+    edited: { ...undoRedoBaseSnapshot, title: "local" },
+    beforeUndo: { ...undoRedoBaseSnapshot, title: "remote" },
+  },
+};
+
+function undoRedoSnapshot(value) {
+  const point = (item) => object(item)
+    ? { label: item.label, x: item.x }
+    : item;
+  return {
+    title: value.title,
+    note: value.note,
+    count: value.count,
+    featured: point(value.featured),
+    left: value.left.map(point),
+    right: value.right.map(point),
+    byKey: new Map(value.byKey.map(([key, item]) => [key, point(item)])),
+  };
+}
+
+function validateUndoRedoFieldSnapshots(label, observation) {
+  const expected = undoRedoFieldSnapshots[observation.id];
+  const stages = {
+    before: undoRedoBaseSnapshot,
+    edited: expected.edited,
+    beforeUndo: expected.beforeUndo ?? expected.edited,
+    optimisticUndo: expected.undo ?? undoRedoBaseSnapshot,
+    settledUndo: expected.undo ?? undoRedoBaseSnapshot,
+  };
+  for (const [stage, snapshot] of Object.entries(stages)) {
+    const actual = undoRedoSnapshot(observation[stage]);
+    assert(isDeepStrictEqual(actual, snapshot),
+      `${label}: ${observation.id} semantic snapshot ${stage}`);
+  }
+}
+
 function validateUndoRedoCase(value) {
   const label = value.id;
   const check = (condition, detail) => assert(condition, `${label}: ${detail}`);
@@ -4427,49 +4544,12 @@ function validateUndoRedoCase(value) {
       undoRedoScenarioIds[label], `${label}: observations`);
     assert.deepEqual(value.raw.scenarios.map(({ id }) => id),
       undoRedoScenarioIds[label], `${label}: raw scenarios`);
-    const withoutTitle = ({ title: _title, ...snapshot }) => snapshot;
     for (const [index, observation] of value.expected.observations.entries()) {
       check(object(observation.before) && object(observation.edited)
         && object(observation.beforeUndo) && object(observation.optimisticUndo)
         && object(observation.settledUndo) && observation.status === "Valid",
       `${observation.id} snapshots and retained status`);
-      assert.notDeepEqual(observation.edited, observation.before,
-        `${label}: ${observation.id} snapshot relationship before to edited`);
-      assert.notDeepEqual(observation.optimisticUndo, observation.beforeUndo,
-        `${label}: ${observation.id} snapshot relationship before undo to optimistic undo`);
-      assert.deepEqual(observation.settledUndo, observation.optimisticUndo,
-        `${label}: ${observation.id} snapshot relationship optimistic to settled undo`);
-      if (observation.id === "later-unrelated-local-remote") {
-        assert.notEqual(observation.edited.title, observation.before.title,
-          `${label}: ${observation.id} snapshot relationship target edit`);
-        assert.equal(observation.beforeUndo.title, observation.edited.title,
-          `${label}: ${observation.id} snapshot relationship before undo target`);
-        assert.equal(observation.optimisticUndo.title, observation.before.title,
-          `${label}: ${observation.id} snapshot relationship reverted target`);
-        assert.deepEqual(withoutTitle(observation.edited), withoutTitle(observation.before),
-          `${label}: ${observation.id} snapshot relationship isolated target edit`);
-        assert.notDeepEqual(withoutTitle(observation.beforeUndo), withoutTitle(observation.edited),
-          `${label}: ${observation.id} snapshot relationship later edits`);
-        assert.deepEqual(
-          withoutTitle(observation.optimisticUndo),
-          withoutTitle(observation.beforeUndo),
-          `${label}: ${observation.id} snapshot relationship preserved later edits`,
-        );
-      } else {
-        assert.deepEqual(observation.optimisticUndo, observation.before,
-          `${label}: ${observation.id} snapshot relationship reverted state`);
-        if (observation.id === "overlap-local-first") {
-          assert.notDeepEqual(observation.beforeUndo, observation.edited,
-            `${label}: ${observation.id} snapshot relationship overlapping remote edit`);
-          assert.deepEqual(withoutTitle(observation.edited), withoutTitle(observation.before),
-            `${label}: ${observation.id} snapshot relationship local overlap`);
-          assert.deepEqual(withoutTitle(observation.beforeUndo), withoutTitle(observation.before),
-            `${label}: ${observation.id} snapshot relationship remote overlap`);
-        } else {
-          assert.deepEqual(observation.beforeUndo, observation.edited,
-            `${label}: ${observation.id} snapshot relationship edited to before undo`);
-        }
-      }
+      validateUndoRedoFieldSnapshots(label, observation);
       check(nonemptyArray(observation.events)
         && observation.events.some(({ kind }) => kind === "Undo"),
       `${observation.id} undo event`);

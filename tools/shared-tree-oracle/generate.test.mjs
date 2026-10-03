@@ -322,6 +322,12 @@ function cases(exclude = []) {
 }
 
 function undoRedoCaseFixture(id) {
+  if (id === "undo-redo-fields") {
+    return JSON.parse(readFileSync(
+      new URL("../../test/fixtures/shared_tree/cases/undo-redo-fields.json", import.meta.url),
+      "utf8",
+    ));
+  }
   const domains = {
     "revertible-lifetime": "history",
     "undo-redo-kinds": "tree",
@@ -1830,6 +1836,12 @@ test("undo and redo corpus rejects missing and incomplete cases", () => {
   }
 });
 
+function undoRedoFieldObservation(capture, id) {
+  return capture
+    .find(({ id: candidate }) => candidate === "undo-redo-fields")
+    .expected.observations.find(({ id: candidate }) => candidate === id);
+}
+
 test("undo and redo corpus rejects missing reviewed contract evidence", () => {
   const complete = cases();
 
@@ -1864,7 +1876,7 @@ test("undo and redo corpus rejects missing reviewed contract evidence", () => {
   fieldObservation.optimisticUndo = structuredClone(fieldObservation.beforeUndo);
   fieldObservation.settledUndo = structuredClone(fieldObservation.beforeUndo);
   assert.throws(() => validateCases(withEquivalentFieldSnapshots),
-    /object-set snapshot relationship/i);
+    /object-set semantic snapshot/i);
 
   const withoutConstraint = structuredClone(complete);
   delete withoutConstraint
@@ -1886,6 +1898,49 @@ test("undo and redo corpus rejects missing reviewed contract evidence", () => {
     .find(({ id }) => id === "undo-redo-reconnect")
     .expected.observations[0].undoLoaded.listenerBoundary;
   assert.throws(() => validateCases(withoutLoadBoundary), /load.*boundary/i);
+});
+
+test("undo and redo corpus rejects swapped field scenario snapshots", () => {
+  const capture = cases();
+  const objectSet = undoRedoFieldObservation(capture, "object-set");
+  const mapSet = undoRedoFieldObservation(capture, "map-set");
+  for (const snapshot of ["before", "edited", "beforeUndo", "optimisticUndo", "settledUndo"]) {
+    [objectSet[snapshot], mapSet[snapshot]] = [
+      structuredClone(mapSet[snapshot]),
+      structuredClone(objectSet[snapshot]),
+    ];
+  }
+  assert.throws(() => validateCases(capture), /object-set semantic snapshot/i);
+});
+
+test("undo and redo corpus requires all three outer transaction field edits", () => {
+  const baseline = cases();
+  const baselineTransaction = undoRedoFieldObservation(baseline, "outer-transaction");
+  for (const [field, value] of [
+    ["title", "object-set"],
+    ["count", 0],
+    ["left", baselineTransaction.before.left],
+  ]) {
+    const capture = cases();
+    const transaction = undoRedoFieldObservation(capture, "outer-transaction");
+    transaction.edited[field] = structuredClone(value);
+    transaction.beforeUndo[field] = structuredClone(value);
+    assert.throws(() => validateCases(capture), /outer-transaction semantic snapshot/i);
+  }
+});
+
+test("undo and redo corpus requires concrete overlap labels", () => {
+  for (const [id, stages] of [
+    ["overlap-remote-first", { edited: "not-local", beforeUndo: "not-local" }],
+    ["overlap-local-first", { edited: "not-local", beforeUndo: "not-remote" }],
+  ]) {
+    const capture = cases();
+    const overlap = undoRedoFieldObservation(capture, id);
+    for (const [stage, title] of Object.entries(stages)) {
+      overlap[stage].title = title;
+    }
+    assert.throws(() => validateCases(capture), new RegExp(`${id} semantic snapshot`));
+  }
 });
 
 test("undo and redo fixtures preserve sequencing and transaction evidence", () => {
