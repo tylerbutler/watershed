@@ -1516,12 +1516,16 @@ pub fn shared_tree_history_pending_revertible_pins_prefix_rollbacks_test() -> Ni
   let pinned_revisions = history.identity_revisions(pinned.history)
   list.contains(pinned_revisions, rollback_a) |> expect.to_equal(True)
   list.contains(pinned_revisions, rollback_b) |> expect.to_equal(True)
+  history.inspect_rollback_revisions(pinned.history)
+  |> expect.to_equal([rollback_b, rollback_a])
 
   let assert Ok(disposed) = history.dispose_revertible(pinned.history, id)
   let advanced = history.advance_minimum(disposed, 1, 1, Nil, no_mint)
   advanced |> expect.to_be_ok
   let assert Ok(#(released, Nil)) = advanced
   released.trimmed_revisions |> expect.to_equal([revision_r()])
+  history.inspect_rollback_revisions(released.history)
+  |> expect.to_equal([])
 
   let remote_two =
     empty_commit_with_order(remote_two_revision, other_peer_session(), order)

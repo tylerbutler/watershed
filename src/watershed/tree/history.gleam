@@ -1856,6 +1856,11 @@ pub fn inspect(state: History) -> HistoryView {
   )
 }
 
+@internal
+pub fn inspect_rollback_revisions(state: History) -> List(fluid_ids.StableId) {
+  list.map(state.rollbacks, fn(entry) { entry.revision })
+}
+
 pub fn snapshot(state: History) -> Result(HistorySnapshot, TreeError) {
   use _ <- result.try(check(
     list.is_empty(state.pending),

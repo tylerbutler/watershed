@@ -53,6 +53,8 @@ import watershed/tree/runtime_fixture
 @target(javascript)
 import watershed/tree/types as tree_types
 @target(javascript)
+import watershed/tree/undo_acceptance
+@target(javascript)
 import watershed/tree_kernel
 @target(javascript)
 import watershed/wire/fluid_container
@@ -1731,6 +1733,70 @@ pub fn tree_commit_runtime_factory_is_shared_across_subscribers_test() {
   runtime.close(owner)
   runtime.tree_revertible_status(handle)
   |> expect.to_equal(runtime.RevertibleDisposed)
+}
+
+@target(javascript)
+pub fn summary_reload_emits_no_historical_commit_factory_and_new_edit_does_test() {
+  let callbacks = transport_js.new_cell(None)
+  let event_count = transport_js.new_cell(0)
+  let acquired = transport_js.new_cell(None)
+  let owner =
+    runtime.start_with_transport_and_seed(
+      http_base_url: "https://seed.invalid",
+      connect_message: connect_message(),
+      seed: undo_acceptance.summary_reload_seed_after_undo(),
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(_, _) { Nil },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let _ =
+    runtime.subscribe_tree_commits(owner, "A/_C", fn(event) {
+      let assert runtime.TreeCommitEvent(
+        tree_types.DefaultCommit,
+        True,
+        Some(get_revertible),
+        Some(_),
+      ) = event
+      transport_js.set_cell(event_count, transport_js.get_cell(event_count) + 1)
+      transport_js.set_cell(acquired, Some(get_revertible()))
+    })
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 2,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  transport_js.get_cell(event_count) |> expect.to_equal(0)
+  transport_js.get_cell(acquired) |> expect.to_equal(None)
+  runtime.tree_edit(
+    owner,
+    "A/_C",
+    tree_types.SetField(["note"], tree_types.StringValue("after reload")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(event_count) |> expect.to_equal(1)
+  let assert Some(Ok(handle)) = transport_js.get_cell(acquired)
+  runtime.tree_revertible_status(handle)
+  |> expect.to_equal(runtime.RevertibleValid)
+  runtime.close(owner)
 }
 
 @target(javascript)

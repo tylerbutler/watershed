@@ -47,6 +47,8 @@ import watershed/tree/runtime_fixture
 @target(erlang)
 import watershed/tree/types as tree_types
 @target(erlang)
+import watershed/tree/undo_acceptance
+@target(erlang)
 import watershed/tree_kernel
 @target(erlang)
 import watershed/wire/fluid_container
@@ -1931,6 +1933,67 @@ pub fn commit_delivery_exit_invalidates_factory_and_replays_messages_test() {
   process.receive(after, 1000)
   |> expect.to_equal(Ok(Ok(Some(tree_types.StringValue("queued")))))
   factory() |> expect.to_be_error()
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn summary_reload_emits_no_historical_commit_factory_and_new_edit_does_test() {
+  let callbacks_subject = process.new_subject()
+  let events = process.new_subject()
+  let assert Ok(actor) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(callbacks_subject, callbacks)
+      }),
+      seed: undo_acceptance.summary_reload_seed_after_undo(),
+    )
+  let assert Ok(callbacks) = process.receive(callbacks_subject, 1000)
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  let _ =
+    runtime_beam.subscribe_tree_commits(actor, "A/_C", fn(event) {
+      let assert runtime_beam.TreeCommitEvent(
+        tree_types.DefaultCommit,
+        True,
+        Some(factory),
+        Some(_),
+      ) = event
+      process.send(events, factory())
+    })
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 2,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  process.receive(events, 0) |> expect.to_equal(Error(Nil))
+  runtime_beam.tree_edit(
+    actor,
+    "A/_C",
+    tree_types.SetField(["note"], tree_types.StringValue("after reload")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let assert Ok(Ok(handle)) = process.receive(events, 1000)
+  runtime_beam.tree_revertible_status(handle)
+  |> expect.to_equal(runtime_beam.RevertibleValid)
+  process.receive(events, 0) |> expect.to_equal(Error(Nil))
   process.send(actor, runtime_beam.Shutdown)
 }
 

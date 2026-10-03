@@ -34,15 +34,18 @@ result restores `left` to `[left-a, left-b]` and leaves `right` empty.
 | --- | --- |
 | Reconnect with a live retained handle, receive a later edit, and revert | `retained_revertible_reconnects_and_reverts_after_later_change_test` |
 | Pending undo accepted before drop deduplicates by revision, applies once, settles once, and does not resubmit | `pending_undo_accepted_before_drop_applies_and_settles_once_test` |
-| MSN cannot trim either live pin; disposing one handle releases only its commit and repair data; the other stays usable until disposal | `shared_tree_history_multiple_revertibles_release_only_disposed_pin_test` |
+| MSN cannot trim either live pin; disposing one handle releases only its commit; the other stays usable until disposal | `shared_tree_history_multiple_revertibles_release_only_disposed_pin_test` |
+| Disposing a retained pending-prefix handle releases its rollback records at the next minimum advance | `shared_tree_history_pending_revertible_pins_prefix_rollbacks_test` |
 | Undo and redo summaries reload, invalidate old runtime-local handles, and continue editing | `shared_tree_undo_redo_summary_reload_continues_without_old_handles_test` |
+| Reload emits no historical facade commit event or factory; a new local commit supplies a new factory | `summary_reload_emits_no_historical_commit_factory_and_new_edit_does_test` in the JavaScript and BEAM runtime suites |
 | A summary taken while undo is pending contains sequenced state only; the tail then applies and editing continues | `pending_undo_summary_keeps_sequenced_state_then_applies_tail_test` |
 
-The retention test uses the pure history API because commit and repair-data
+The retention tests use the pure history API because commit and rollback-record
 trimming are history internals. Reconnect and summary lifetime tests use the
-public runtime-core and document APIs. Reload creates a fresh runtime without
-recreating historical handles; no historical commit event is replayed, so no
-old event-scoped factory is recreated.
+public runtime-core and document APIs. The JavaScript and BEAM facade tests
+subscribe before the reloaded seed connects, observe no historical commit
+event, then acquire a valid handle from the next local commit's event-scoped
+factory.
 
 ## TDD evidence
 
@@ -220,8 +223,11 @@ shared tree storage smoke: ok
   preserves the later remote field.
 - Verified accepted-before-drop sequencing settles once, resubmits nothing,
   and duplicate delivery produces no event or second effect.
-- Verified the pure history test proves both live pins survive MSN advancement,
-  then proves each disposal independently releases its commit and repair data.
+- Verified the multiple-handle history test proves both live pins survive MSN
+  advancement, then proves each disposal independently releases its commit.
+- Verified the pending-prefix history test reads the rollback revision list
+  before and after disposal and minimum advancement, proving that rollback
+  records are released rather than only invalidating the handle.
 - Verified undo and redo summaries load through a new runtime, old handles are
   invalid there, and each loaded runtime authors and settles a new edit.
 - Verified a pending-undo summary exposes the sequenced target state, then
@@ -234,7 +240,141 @@ shared tree storage smoke: ok
 - The final commands retain pre-existing warnings for two unused private codec
   helpers, two JavaScript-only unused map-facade helpers, and two unsafe
   JavaScript integer fixtures. Task 7 adds no warning category.
-- Reload lifetime is proved at the public runtime-core/document boundary named
-  by the brief's file list. It does not add separate JS or BEAM facade test
-  files; those public facade event and handle contracts remain covered by
-  Tasks 5 and 6.
+- The repository retains the pre-existing warnings listed above. The new
+  history inspection function is internal API used only by tests.
+
+## Fix round 1
+
+### Findings addressed
+
+1. Array remove, same-array move, and cross-array move now capture node
+   references before the target edit and compare them with the references at
+   the expected settled positions after undo. Literal optimistic and settled
+   snapshots remain in the same cases.
+2. The Identifier case now authors a second generated point after redo. It
+   asserts a different generated Identifier, settles the commit, delivers it
+   to the peer, and checks that both runtimes interpret the two identifiers
+   without collision.
+3. The transaction and Identifier cases now assert the later local
+   `DefaultCommit`, two authoring events, its `FullyApplied` settlement, and the
+   exact two-event remote application contract.
+4. JavaScript and BEAM facade tests subscribe before reload connects. They
+   assert that reload emits no historical commit event or factory, then assert
+   that the next local `DefaultCommit` supplies a usable new factory.
+5. `history.inspect_rollback_revisions` exposes only rollback revision IDs for
+   internal tests. The pending-prefix retention test checks the exact retained
+   rollback IDs before disposal and an empty list after disposal and minimum
+   advancement.
+6. The summary reload case now asserts `DefaultCommit`, `UndoCommit`, and
+   `RedoCommit` authoring events, exact event counts, and `FullyApplied`
+   settlements before each summary capture.
+7. The pending-tail case now compares the complete remote event list:
+   `TreeCommitApplied(DefaultCommit, local: False, revertible: False)` followed
+   by `TreeChanged(False)`. It also applies the same tail to the original
+   pending runtime and asserts the authored `UndoCommit` receives one
+   `FullyApplied` settlement.
+8. This report now separates commit trimming, rollback-record release,
+   runtime-core handle invalidity, and public facade factory lifetime.
+
+### Files
+
+- `src/watershed/tree/history.gleam`
+- `test/watershed/tree/undo_acceptance.gleam`
+- `test/watershed/shared_tree_history_test.gleam`
+- `test/watershed/shared_tree_runtime_js_test.gleam`
+- `test/watershed/shared_tree_runtime_beam_test.gleam`
+- `.superpowers/sdd/2026-10-02-shared-tree-undo-redo/task-7-report.md`
+
+### Test mapping
+
+| Finding | Tests |
+| --- | --- |
+| Array identity | `shared_tree_undo_array_remove_restores_identity_at_pinned_position_test`, `shared_tree_undo_same_array_move_preserves_pinned_order_test`, `shared_tree_undo_cross_array_move_pins_remove_conflict_test` |
+| Identifier allocation after redo | `identifier_undo_preserves_value_and_allocation_after_remote_edit_test` |
+| Later remote commit events | `shared_tree_undo_transaction_reverts_as_one_commit_after_remote_edit_test`, `identifier_undo_preserves_value_and_allocation_after_remote_edit_test` |
+| Reload event/factory lifetime | `summary_reload_emits_no_historical_commit_factory_and_new_edit_does_test` in `shared_tree_runtime_js_test.gleam` and `shared_tree_runtime_beam_test.gleam` |
+| Rollback-record release | `shared_tree_history_pending_revertible_pins_prefix_rollbacks_test` |
+| Summary event contract | `shared_tree_undo_redo_summary_reload_continues_without_old_handles_test` |
+| Pending-tail event contract | `pending_undo_summary_keeps_sequenced_state_then_applies_tail_test` |
+
+### RED
+
+Command:
+
+```text
+gleam test --target javascript -- shared_tree_undo shared_tree_history shared_tree_history_resubmit shared_tree_document_summary shared_tree_summary shared_tree_array_kernel shared_tree_map_kernel shared_tree_transaction shared_tree_identifier
+```
+
+Exit code: `1`
+
+Representative output:
+
+```text
+error: Unknown module value
+1519 │   history.inspect_rollback_revisions(pinned.history)
+
+The module `watershed/tree/history` does not have a
+`inspect_rollback_revisions` value.
+```
+
+This failure came from the focused rollback-release assertions before the
+inspection function existed.
+
+### GREEN
+
+Exact Task 7 Erlang command:
+
+```text
+Test Files: 11
+     Tests: 238 passed (238)
+```
+
+Exact Task 7 JavaScript command:
+
+```text
+Test Files: 11
+     Tests: 238 passed (238)
+```
+
+Facade reload checks:
+
+```text
+gleam test --target javascript -- shared_tree_runtime_js
+Test Files: 1
+     Tests: 12 passed (12)
+
+gleam test --target erlang -- shared_tree_runtime_beam
+Test Files: 1
+     Tests: 28 passed (28)
+```
+
+Codec interoperability:
+
+```text
+SharedTree codec interoperability passed: 2 targets, 38 items each
+```
+
+Full SharedTree gate:
+
+```text
+Test Files: 48
+     Tests: 970 passed (970)
+shared tree storage smoke: ok
+{"targets":["javascript","erlang"],"createRequests":34,"redirectRequests":0,"webSocketConnections":0}
+```
+
+### Self-review
+
+- The array checks compare `forest.NodeRef` values, not equal visible values.
+- The Identifier check proves post-redo allocation by generating and
+  round-tripping another Identifier through a peer.
+- The transaction and Identifier cases no longer discard later authoring,
+  settlement, or remote application events.
+- The facade tests register observers before connection and acquire the new
+  handle during the event-scoped factory lifetime.
+- The rollback inspection returns revision IDs only. It does not expose
+  changesets, node IDs, or mutable history internals.
+- The pending-tail assertion compares the whole event list and checks the
+  original local undo settlement separately.
+- No undo, redo, summary, or facade runtime behavior changed in production.
+  Production code adds only the internal read-only rollback inspection.

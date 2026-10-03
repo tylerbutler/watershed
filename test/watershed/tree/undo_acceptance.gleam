@@ -18,6 +18,7 @@ import watershed/tree/shared_change
 import watershed/tree/types
 import watershed/tree_kernel
 import watershed/wire
+import watershed/wire/fluid_container
 import watershed/wire/fluid_document
 
 const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Items\":{\"kind\":{\"object\":{\"\":{\"kind\":\"Sequence\",\"types\":[\"com.fluidframework.leaf.string\",\"Point\"]}}}},\"NamedMap\":{\"kind\":{\"map\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\",\"Point\"]}}},\"Point\":{\"kind\":{\"object\":{\"id\":{\"kind\":\"Identifier\",\"types\":[\"com.fluidframework.leaf.string\"]},\"label\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"count\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"featured\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"left\":{\"kind\":\"Value\",\"types\":[\"Items\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"Items\"]},\"byKey\":{\"kind\":\"Value\",\"types\":[\"NamedMap\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
@@ -105,7 +106,7 @@ pub fn assert_array_insert() {
 }
 
 pub fn assert_array_remove() {
-  assert_local_case(
+  assert_array_identity_case(
     types.ArrayRemove(["left"], 0, 1),
     types.ArrayMove(["left"], 0, 1, ["right"], 1),
     root(
@@ -117,11 +118,12 @@ pub fn assert_array_remove() {
       [right_a(), left_b()],
       [#("seed", types.StringValue("value"))],
     ),
+    [#(["left", "0"], ["left", "0"])],
   )
 }
 
 pub fn assert_same_array_move() {
-  assert_local_case(
+  assert_array_identity_case(
     types.ArrayMove(["left"], 0, 1, ["left"], 2),
     types.ArrayInsert(["left"], 1, [types.StringValue("later")]),
     root(
@@ -133,11 +135,15 @@ pub fn assert_same_array_move() {
       [right_a()],
       [#("seed", types.StringValue("value"))],
     ),
+    [
+      #(["left", "0"], ["left", "0"]),
+      #(["left", "1"], ["left", "1"]),
+    ],
   )
 }
 
 pub fn assert_cross_array_move() {
-  assert_local_case(
+  assert_array_identity_case(
     types.ArrayMove(["left"], 0, 1, ["right"], 1),
     types.ArrayRemove(["right"], 0, 1),
     root(
@@ -149,6 +155,10 @@ pub fn assert_cross_array_move() {
       [],
       [#("seed", types.StringValue("value"))],
     ),
+    [
+      #(["left", "0"], ["left", "0"]),
+      #(["left", "1"], ["left", "1"]),
+    ],
   )
 }
 
@@ -187,17 +197,21 @@ pub fn assert_transaction() {
       types.DefaultCommit,
     )
     |> expect.to_be_ok()
-  let assert #(peer, _, [later_outbound]) =
+  let assert #(peer, later_events, [later_outbound]) =
     runtime_core.submit_tree_edits(peer, "A/_C", [
       types.MapSet(["byKey"], "remote", types.StringValue("preserved")),
     ])
     |> expect.to_be_ok()
+  assert_applied(later_events, types.DefaultCommit)
+  let later_revision = applied_revision(later_events)
   let later_message = message(peer, later_outbound, 2, 1)
-  let #(peer, _) =
+  let #(peer, later_settlement) =
     runtime_core.handle_sequenced(peer, later_message) |> expect.to_be_ok()
-  let #(retained, _) =
+  assert_settlement(later_settlement.events, later_revision)
+  let #(retained, remote_events) =
     runtime_core.handle_sequenced(retained, later_message)
     |> expect.to_be_ok()
+  assert_remote_applied(remote_events.events, later_revision)
   let expected =
     root(
       "base",
@@ -259,17 +273,21 @@ pub fn assert_identifier() {
       types.DefaultCommit,
     )
     |> expect.to_be_ok()
-  let assert #(peer, _, [later_outbound]) =
+  let assert #(peer, later_events, [later_outbound]) =
     runtime_core.submit_tree_edits(peer, "A/_C", [
       types.SetField(["note"], types.StringValue("remote")),
     ])
     |> expect.to_be_ok()
+  assert_applied(later_events, types.DefaultCommit)
+  let later_revision = applied_revision(later_events)
   let later_message = message(peer, later_outbound, 2, 1)
-  let #(peer, _) =
+  let #(peer, later_settlement) =
     runtime_core.handle_sequenced(peer, later_message) |> expect.to_be_ok()
-  let #(retained, _) =
+  assert_settlement(later_settlement.events, later_revision)
+  let #(retained, remote_events) =
     runtime_core.handle_sequenced(retained, later_message)
     |> expect.to_be_ok()
+  assert_remote_applied(remote_events.events, later_revision)
   let #(undone, undo_events, undo_outbound) =
     runtime_core.revert_tree(retained, "A/_C", target_handle)
     |> expect.to_be_ok()
@@ -294,6 +312,10 @@ pub fn assert_identifier() {
     runtime_core.handle_sequenced(undone, message(undone, undo_outbound, 3, 2))
     |> expect.to_be_ok()
   assert_settlement(undo_settlement.events, undo_revision)
+  let #(peer, peer_undo) =
+    runtime_core.handle_sequenced(peer, message(undone, undo_outbound, 3, 2))
+    |> expect.to_be_ok()
+  assert_remote_applied(peer_undo.events, undo_revision)
   assert_root(undone, expected_undo)
   let #(retained, undo_handle) =
     runtime_core.retain_tree_revertible(
@@ -335,10 +357,47 @@ pub fn assert_identifier() {
     runtime_core.handle_sequenced(redone, message(redone, redo_outbound, 4, 3))
     |> expect.to_be_ok()
   assert_settlement(redo_settlement.events, redo_revision)
+  let #(peer, peer_redo) =
+    runtime_core.handle_sequenced(peer, message(redone, redo_outbound, 4, 3))
+    |> expect.to_be_ok()
+  assert_remote_applied(peer_redo.events, redo_revision)
   assert_root(redone, expected_redo)
   runtime_core.tree_read(redone, "A/_C", ["note"])
   |> expect.to_equal(Ok(Some(types.StringValue("remote"))))
   runtime_core.tree_read(peer, "A/_C", ["byKey", "generated", "id"])
+  |> expect.to_equal(Ok(Some(types.StringValue(identifier))))
+  let assert #(pending_next, next_events, [next_outbound]) =
+    runtime_core.submit_tree_edits(redone, "A/_C", [
+      types.MapSet(
+        ["byKey"],
+        "generated-next",
+        types.ObjectValue(point_type, [
+          #("label", types.StringValue("generated-next")),
+          #("x", types.NumberValue(8.0)),
+        ]),
+      ),
+    ])
+    |> expect.to_be_ok()
+  assert_applied(next_events, types.DefaultCommit)
+  let next_revision = applied_revision(next_events)
+  let assert Ok(Some(types.StringValue(next_identifier))) =
+    runtime_core.tree_read(pending_next, "A/_C", [
+      "byKey",
+      "generated-next",
+      "id",
+    ])
+  next_identifier |> expect.to_not_equal(identifier)
+  let next_message = message(pending_next, next_outbound, 5, 4)
+  let #(settled_next, next_settlement) =
+    runtime_core.handle_sequenced(pending_next, next_message)
+    |> expect.to_be_ok()
+  assert_settlement(next_settlement.events, next_revision)
+  let #(peer, peer_next) =
+    runtime_core.handle_sequenced(peer, next_message) |> expect.to_be_ok()
+  assert_remote_applied(peer_next.events, next_revision)
+  runtime_core.tree_read(peer, "A/_C", ["byKey", "generated-next", "id"])
+  |> expect.to_equal(Ok(Some(types.StringValue(next_identifier))))
+  runtime_core.tree_read(settled_next, "A/_C", ["byKey", "generated", "id"])
   |> expect.to_equal(Ok(Some(types.StringValue(identifier))))
 }
 
@@ -540,13 +599,15 @@ pub fn assert_summary_reload_lifetime() {
       types.SetField(["title"], types.StringValue("target")),
     ])
     |> expect.to_be_ok()
+  assert_applied(target_events, types.DefaultCommit)
   let target_revision = applied_revision(target_events)
-  let #(settled, _) =
+  let #(settled, target_settlement) =
     runtime_core.handle_sequenced(
       pending,
       message(pending, target_outbound, 1, 0),
     )
     |> expect.to_be_ok()
+  assert_settlement(target_settlement.events, target_revision)
   let #(retained, target_handle) =
     runtime_core.retain_tree_revertible(
       settled,
@@ -558,10 +619,12 @@ pub fn assert_summary_reload_lifetime() {
   let #(undone, undo_events, undo_outbound) =
     runtime_core.revert_tree(retained, "A/_C", target_handle)
     |> expect.to_be_ok()
+  assert_applied(undo_events, types.UndoCommit)
   let undo_revision = applied_revision(undo_events)
-  let #(undone, _) =
+  let #(undone, undo_settlement) =
     runtime_core.handle_sequenced(undone, message(undone, undo_outbound, 2, 1))
     |> expect.to_be_ok()
+  assert_settlement(undo_settlement.events, undo_revision)
   let #(retained, undo_handle) =
     runtime_core.retain_tree_revertible(
       undone,
@@ -589,10 +652,12 @@ pub fn assert_summary_reload_lifetime() {
   let #(redone, redo_events, redo_outbound) =
     runtime_core.revert_tree(retained, "A/_C", undo_handle)
     |> expect.to_be_ok()
+  assert_applied(redo_events, types.RedoCommit)
   let redo_revision = applied_revision(redo_events)
-  let #(redone, _) =
+  let #(redone, redo_settlement) =
     runtime_core.handle_sequenced(redone, message(redone, redo_outbound, 3, 2))
     |> expect.to_be_ok()
+  assert_settlement(redo_settlement.events, redo_revision)
   let after_redo =
     runtime_core.capture_summary(redone)
     |> expect.to_be_ok()
@@ -659,15 +724,80 @@ pub fn assert_pending_undo_summary_tail() {
       message(pending_undo, undo_outbound, 2, 1),
     )
     |> expect.to_be_ok()
-  applied_revision(received.events)
-  |> expect.to_equal(applied_revision(undo_events))
-  tree_change_events(received.events)
+  received.events
   |> expect.to_equal([
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(
+        applied_revision(undo_events),
+        types.DefaultCommit,
+        False,
+        False,
+      ),
+    ),
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
   ])
+  let #(settled_undo, undo_settlement) =
+    runtime_core.handle_sequenced(
+      pending_undo,
+      message(pending_undo, undo_outbound, 2, 1),
+    )
+    |> expect.to_be_ok()
+  assert_settlement(undo_settlement.events, applied_revision(undo_events))
+  runtime_core.tree_read(settled_undo, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(types.StringValue("base"))))
   runtime_core.tree_read(after_tail, "A/_C", ["title"])
   |> expect.to_equal(Ok(Some(types.StringValue("base"))))
   continue_editing(after_tail, 3, "after-tail")
+}
+
+pub fn summary_reload_seed_after_undo() -> runtime_core.BootstrapSeed {
+  let writer =
+    summary_core(
+      "writer",
+      "30000000-0000-4000-8000-000000000003",
+      "40000000-0000-4000-8000-000000000004",
+    )
+  let assert #(pending, target_events, [target_outbound]) =
+    runtime_core.submit_tree_edits(writer, "A/_C", [
+      types.SetField(["title"], types.StringValue("target")),
+    ])
+    |> expect.to_be_ok()
+  assert_applied(target_events, types.DefaultCommit)
+  let target_revision = applied_revision(target_events)
+  let #(settled, target_settlement) =
+    runtime_core.handle_sequenced(
+      pending,
+      message(pending, target_outbound, 1, 0),
+    )
+    |> expect.to_be_ok()
+  assert_settlement(target_settlement.events, target_revision)
+  let #(retained, target_handle) =
+    runtime_core.retain_tree_revertible(
+      settled,
+      "A/_C",
+      target_revision,
+      types.DefaultCommit,
+    )
+    |> expect.to_be_ok()
+  let #(undone, undo_events, undo_outbound) =
+    runtime_core.revert_tree(retained, "A/_C", target_handle)
+    |> expect.to_be_ok()
+  assert_applied(undo_events, types.UndoCommit)
+  let undo_revision = applied_revision(undo_events)
+  let #(undone, undo_settlement) =
+    runtime_core.handle_sequenced(undone, message(undone, undo_outbound, 2, 1))
+    |> expect.to_be_ok()
+  assert_settlement(undo_settlement.events, undo_revision)
+  let loaded =
+    runtime_core.capture_summary(undone)
+    |> expect.to_be_ok()
+    |> load_summary(
+      "reader",
+      "60000000-0000-4000-8000-000000000006",
+      "70000000-0000-4000-8000-000000000007",
+    )
+  seed_from_core(loaded)
 }
 
 fn assert_local_case(
@@ -722,6 +852,66 @@ fn assert_local_case(
   assert_root(settled, expected)
 }
 
+fn assert_array_identity_case(
+  target: types.Edit,
+  later: types.Edit,
+  expected: types.TreeValue,
+  paths: List(#(types.FieldPath, types.FieldPath)),
+) {
+  let core = core("writer", "30000000-0000-4000-8000-000000000003")
+  let references = list.map(paths, fn(paths) { node_reference(core, paths.0) })
+  let #(pending, target_events, target_outbound) =
+    runtime_core.submit_tree_edits(core, "A/_C", [target])
+    |> expect.to_be_ok()
+  let target_outbound = only_outbound(target_outbound)
+  assert_applied(target_events, types.DefaultCommit)
+  let target_revision = applied_revision(target_events)
+  let #(settled, target_settlement) =
+    runtime_core.handle_sequenced(
+      pending,
+      message(pending, target_outbound, 1, 0),
+    )
+    |> expect.to_be_ok()
+  assert_settlement(target_settlement.events, target_revision)
+  let #(retained, handle) =
+    runtime_core.retain_tree_revertible(
+      settled,
+      "A/_C",
+      target_revision,
+      types.DefaultCommit,
+    )
+    |> expect.to_be_ok()
+  let #(pending, later_events, later_outbound) =
+    runtime_core.submit_tree_edits(retained, "A/_C", [later])
+    |> expect.to_be_ok()
+  let later_outbound = only_outbound(later_outbound)
+  assert_applied(later_events, types.DefaultCommit)
+  let later_revision = applied_revision(later_events)
+  let #(settled, later_settlement) =
+    runtime_core.handle_sequenced(
+      pending,
+      message(pending, later_outbound, 2, 1),
+    )
+    |> expect.to_be_ok()
+  assert_settlement(later_settlement.events, later_revision)
+  let #(undone, undo_events, undo_outbound) =
+    runtime_core.revert_tree(settled, "A/_C", handle) |> expect.to_be_ok()
+  assert_applied(undo_events, types.UndoCommit)
+  assert_root(undone, expected)
+  let undo_revision = applied_revision(undo_events)
+  let #(settled, undo_settlement) =
+    runtime_core.handle_sequenced(undone, message(undone, undo_outbound, 3, 2))
+    |> expect.to_be_ok()
+  assert_settlement(undo_settlement.events, undo_revision)
+  assert_root(settled, expected)
+  list.map2(references, paths, fn(reference, paths) {
+    node_reference(settled, paths.1) |> expect.to_equal(reference)
+  })
+  |> list.length
+  |> expect.to_equal(list.length(paths))
+  Nil
+}
+
 fn assert_applied(
   events: List(#(String, channel.ChannelEvent)),
   kind: types.TreeCommitKind,
@@ -735,6 +925,20 @@ fn assert_applied(
     }
   })
   |> expect.to_equal([kind])
+}
+
+fn assert_remote_applied(
+  events: List(#(String, channel.ChannelEvent)),
+  revision: fluid_ids.StableId,
+) {
+  events
+  |> expect.to_equal([
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(revision, types.DefaultCommit, False, False),
+    ),
+    #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
+  ])
 }
 
 fn only_outbound(
@@ -851,15 +1055,44 @@ fn continue_editing(
   |> expect.to_equal(Ok(Some(types.StringValue(value))))
 }
 
-fn tree_change_events(
-  events: List(#(String, channel.ChannelEvent)),
-) -> List(#(String, channel.ChannelEvent)) {
-  list.filter(events, fn(event) {
-    case event.1 {
-      channel.TreeEvent(_) -> True
-      _ -> False
-    }
-  })
+fn node_reference(
+  core: runtime_core.Core,
+  path: types.FieldPath,
+) -> forest.NodeRef {
+  let runtime_core.TreeRetainedSnapshot(snapshot, _) =
+    runtime_core.tree_retained_snapshot(core, "A/_C")
+    |> expect.to_be_ok()
+  let #(stored, data, _) = tree_kernel.snapshot_parts(snapshot)
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert [tree_view] = input.tree_views
+  let imported =
+    forest.import_data(tree_view.view_id, stored, data) |> expect.to_be_ok()
+  forest.locate(imported, path) |> expect.to_be_ok()
+}
+
+fn seed_from_core(core: runtime_core.Core) -> runtime_core.BootstrapSeed {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let snapshots = runtime_core.summary_channels(core) |> expect.to_be_ok()
+  let channels =
+    list.map(input.channels, fn(seed) {
+      let runtime_core.ChannelSeed(route, attributes, _) = seed
+      let address = fluid_container.route_key(route) |> expect.to_be_ok()
+      let snapshot = list.key_find(snapshots, address) |> expect.to_be_ok()
+      runtime_core.ChannelSeed(route, attributes, snapshot)
+    })
+  runtime_core.bootstrap_seed(
+    runtime_core.BootstrapSeedInput(
+      ..input,
+      sequence_number: core.last_seen_sequence_number,
+      minimum_sequence_number: core.minimum_sequence_number,
+      compressor: core.compressor,
+      channels: channels,
+      tree_views: list.map(input.tree_views, fn(tree_view) {
+        runtime_core.TreeViewSeed(..tree_view, view: view())
+      }),
+    ),
+  )
+  |> expect.to_be_ok()
 }
 
 fn initial_forest() -> forest.Forest {
