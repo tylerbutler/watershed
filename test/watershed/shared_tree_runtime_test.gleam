@@ -78,6 +78,19 @@ fn map_message(
   )
 }
 
+fn applied_revision(
+  events: List(#(String, channel.ChannelEvent)),
+) -> fluid_ids.StableId {
+  events
+  |> list.find_map(fn(event) {
+    case event.1 {
+      channel.TreeCommitApplied(revision, _, _, _) -> Ok(revision)
+      _ -> Error(Nil)
+    }
+  })
+  |> expect.to_be_ok
+}
+
 fn upgraded_view(
   core: runtime_core.Core,
   address: String,
@@ -183,22 +196,31 @@ pub fn shared_tree_runtime_map_delivery_ack_and_duplicate_test() {
     runtime_core.submit_tree_edits(writer, "A/_C", [
       tree_types.MapSet(["items"], "key", tree_types.StringValue("value")),
     ])
-  local_events
-  |> expect.to_equal([
+  let assert [
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(True))),
-  ])
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(revision, tree_types.DefaultCommit, True, True),
+    ),
+  ] = local_events
   let message = map_message(writer, outbound, 1)
   let assert Ok(#(reader, received)) =
     runtime_core.handle_sequenced(reader, message)
-  received.events
-  |> expect.to_equal([
+  let assert [
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(_, tree_types.DefaultCommit, False, False),
+    ),
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
-  ])
+  ] = received.events
   runtime_core.tree_map_get(reader, "A/_C", ["items"], "key")
   |> expect.to_equal(Ok(Some(tree_types.StringValue("value"))))
   let assert Ok(#(settled, acknowledged)) =
     runtime_core.handle_sequenced(pending, message)
-  acknowledged.events |> expect.to_equal([])
+  acknowledged.events
+  |> expect.to_equal([
+    #("A/_C", channel.TreeCommitSettled(revision, tree_types.FullyApplied)),
+  ])
   settled.in_flight |> expect.to_equal([])
   let assert Ok(channel.TreeState(tree)) = dict.get(settled.channels, "A/_C")
   tree_kernel.history_view(tree).pending |> expect.to_equal([])
@@ -215,12 +237,171 @@ pub fn shared_tree_runtime_map_delivery_ack_and_duplicate_test() {
     ])
   let assert Ok(#(reader, received)) =
     runtime_core.handle_sequenced(reader, map_message(pending, outbound, 2))
-  received.events
-  |> expect.to_equal([
+  let assert [
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(_, tree_types.DefaultCommit, False, False),
+    ),
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
-  ])
+  ] = received.events
   runtime_core.tree_map_entries(reader, "A/_C", ["items"])
   |> expect.to_equal(Ok([]))
+}
+
+pub fn shared_tree_runtime_retain_and_revert_commit_test() {
+  let core = map_core()
+  let address = "A/_C"
+  let assert Ok(#(edited, events, [_])) =
+    runtime_core.submit_tree_edits(core, address, [
+      tree_types.MapSet(["items"], "key", tree_types.StringValue("value")),
+    ])
+  let assert [
+    #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(True))),
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(revision, tree_types.DefaultCommit, True, True),
+    ),
+  ] = events
+  let assert Ok(#(retained, id)) =
+    runtime_core.retain_tree_revertible(
+      edited,
+      address,
+      revision,
+      tree_types.DefaultCommit,
+    )
+  runtime_core.tree_revertible_is_valid(retained, address, id)
+  |> expect.to_be_true
+  let assert Ok(channel.TreeState(state)) = dict.get(retained.channels, address)
+  let view =
+    tree_kernel.stored_schema(state)
+    |> tree_schema.stored_to_json
+    |> tree_schema.view_from_json
+    |> expect.to_be_ok
+  let active =
+    runtime_core.begin_tree_transaction(retained, address, view, [])
+    |> expect.to_be_ok
+  runtime_core.revert_tree(active, address, id) |> expect.to_be_error
+  let #(retained, _) =
+    runtime_core.abort_tree_transaction(active, address) |> expect.to_be_ok
+
+  let assert Ok(#(reverted, events, _)) =
+    runtime_core.revert_tree(retained, address, id)
+  let assert [
+    #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(True))),
+    #("A/_C", channel.TreeCommitApplied(_, tree_types.UndoCommit, True, True)),
+  ] = events
+  runtime_core.tree_map_get(reverted, address, ["items"], "key")
+  |> expect.to_equal(Ok(None))
+  let disposed =
+    runtime_core.dispose_tree_revertible(reverted, address, id)
+    |> expect.to_be_ok
+  runtime_core.tree_revertible_is_valid(disposed, address, id)
+  |> expect.to_be_false
+}
+
+pub fn shared_tree_runtime_settles_satisfied_local_commit_test() {
+  let core = map_core()
+  let address = "A/_C"
+  let assert Ok(#(pending, events, [outbound])) =
+    runtime_core.submit_tree_edits(core, address, [
+      tree_types.MapSet(["items"], "key", tree_types.StringValue("value")),
+    ])
+  let assert [_, #(address, channel.TreeCommitApplied(revision, _, True, True))] =
+    events
+  let assert Ok(#(_, ingested)) =
+    runtime_core.handle_sequenced(pending, map_message(pending, outbound, 1))
+  ingested.events
+  |> expect.to_equal([
+    #(address, channel.TreeCommitSettled(revision, tree_types.FullyApplied)),
+  ])
+}
+
+pub fn shared_tree_runtime_settles_implicit_conflict_as_fully_dropped_test() {
+  let writer = runtime_fixture.routed_core() |> expect.to_be_ok
+  let peer = remote_writer_core()
+  let address = "A/_C"
+  let #(pending, events, local_outbound) =
+    runtime_core.submit_tree_edits(writer, address, [
+      tree_types.SetField(["title"], tree_types.StringValue("value")),
+    ])
+    |> expect.to_be_ok
+  let local_outbound = list.first(local_outbound) |> expect.to_be_ok
+  let revision = applied_revision(events)
+  let #(_, _, schema_outbound) =
+    runtime_core.submit_tree_upgrade(
+      peer,
+      address,
+      upgraded_view(peer, address, "Optional"),
+    )
+    |> expect.to_be_ok
+  let schema_outbound = list.first(schema_outbound) |> expect.to_be_ok
+  let #(rebased, _) =
+    runtime_core.handle_sequenced(
+      pending,
+      map_message(peer, schema_outbound, 3),
+    )
+    |> expect.to_be_ok
+  let #(_, ingested) =
+    runtime_core.handle_sequenced(
+      rebased,
+      map_message(writer, local_outbound, 4),
+    )
+    |> expect.to_be_ok
+  ingested.events
+  |> expect.to_equal([
+    #(address, channel.TreeCommitSettled(revision, tree_types.FullyDropped)),
+  ])
+}
+
+pub fn shared_tree_runtime_settles_explicit_violation_as_new_content_only_test() {
+  let writer = map_core()
+  let peer = map_core_for("other", "50000000-0000-4000-8000-000000000005")
+  let address = "A/_C"
+  let assert Ok(#(initial, _, [initial_outbound])) =
+    runtime_core.submit_tree_edits(writer, address, [
+      tree_types.MapSet(["items"], "key", tree_types.StringValue("before")),
+    ])
+  let initial_message = map_message(writer, initial_outbound, 1)
+  let assert Ok(#(writer, _)) =
+    runtime_core.handle_sequenced(initial, initial_message)
+  let assert Ok(#(peer, _)) =
+    runtime_core.handle_sequenced(peer, initial_message)
+  let assert Ok(channel.TreeState(state)) = dict.get(writer.channels, address)
+  let view =
+    tree_kernel.stored_schema(state)
+    |> tree_schema.stored_to_json
+    |> tree_schema.view_from_json
+    |> expect.to_be_ok
+  let assert Ok(active) =
+    runtime_core.begin_tree_transaction(writer, address, view, [
+      ["items", "key"],
+    ])
+  let assert Ok(#(active, _, [])) =
+    runtime_core.submit_tree_edits(active, address, [
+      tree_types.MapSet(["items"], "key", tree_types.StringValue("after")),
+    ])
+  let assert Ok(#(pending, events, [local_outbound])) =
+    runtime_core.commit_tree_transaction(active, address)
+  let assert [_, #(address, channel.TreeCommitApplied(revision, _, True, True))] =
+    events
+  let assert Ok(#(_, _, [remote_outbound])) =
+    runtime_core.submit_tree_edits(peer, address, [
+      tree_types.MapDelete(["items"], "key"),
+    ])
+  let assert Ok(#(rebased, _)) =
+    runtime_core.handle_sequenced(
+      pending,
+      map_message(peer, remote_outbound, 2),
+    )
+  let assert Ok(#(_, ingested)) =
+    runtime_core.handle_sequenced(
+      rebased,
+      map_message(writer, local_outbound, 3),
+    )
+  ingested.events
+  |> expect.to_equal([
+    #(address, channel.TreeCommitSettled(revision, tree_types.NewContentOnly)),
+  ])
 }
 
 pub fn shared_tree_runtime_map_absent_delete_keeps_submission_test() {
@@ -229,7 +410,12 @@ pub fn shared_tree_runtime_map_absent_delete_keeps_submission_test() {
     runtime_core.submit_tree_edits(core, "A/_C", [
       tree_types.MapDelete(["items"], "absent"),
     ])
-  events |> expect.to_equal([])
+  let assert [
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(revision, tree_types.DefaultCommit, True, True),
+    ),
+  ] = events
   runtime_core.tree_map_entries(pending, "A/_C", ["items"])
   |> expect.to_equal(Ok([]))
   list.length(pending.in_flight) |> expect.to_equal(1)
@@ -237,7 +423,10 @@ pub fn shared_tree_runtime_map_absent_delete_keeps_submission_test() {
   tree_kernel.history_view(tree).pending |> list.length |> expect.to_equal(1)
   let assert Ok(#(settled, received)) =
     runtime_core.handle_sequenced(pending, map_message(core, outbound, 1))
-  received.events |> expect.to_equal([])
+  received.events
+  |> expect.to_equal([
+    #("A/_C", channel.TreeCommitSettled(revision, tree_types.FullyApplied)),
+  ])
   settled.in_flight |> expect.to_equal([])
 }
 
@@ -288,10 +477,13 @@ pub fn shared_tree_runtime_map_pending_edits_cross_remote_test() {
     ])
   let assert Ok(#(rebased, received)) =
     runtime_core.handle_sequenced(pending, map_message(remote, outbound, 1))
-  received.events
-  |> expect.to_equal([
+  let assert [
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(_, tree_types.DefaultCommit, False, False),
+    ),
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
-  ])
+  ] = received.events
   runtime_core.tree_map_entries(rebased, "A/_C", ["items"])
   |> expect.to_equal(
     Ok([
@@ -492,10 +684,10 @@ pub fn shared_tree_runtime_transaction_isolates_nested_edits_until_outer_commit_
     runtime_core.commit_tree_transaction(active, address) |> expect.to_be_ok
   let assert [outbound] = outbounds
   runtime_core.tree_transaction_depth(committed) |> expect.to_equal(0)
-  events
-  |> expect.to_equal([
+  let assert [
     #(address, channel.TreeEvent(tree_kernel.TreeChanged(True))),
-  ])
+    #(_, channel.TreeCommitApplied(_, tree_types.DefaultCommit, True, True)),
+  ] = events
   let assert Ok(batch) =
     fluid_container.decode(outbound.contents, outbound.metadata)
   let assert [
@@ -672,10 +864,13 @@ pub fn shared_tree_upgrade_submits_schema_commit_atomically_test() -> Nil {
   let assert Ok(#(pending, events, [outbound])) =
     runtime_core.submit_tree_upgrade(core, address, view)
 
-  events
-  |> expect.to_equal([
+  let assert [
     #("A/_C", channel.TreeEvent(tree_kernel.SchemaChanged(True))),
-  ])
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(_, tree_types.DefaultCommit, True, False),
+    ),
+  ] = events
   let assert Ok(batch) =
     fluid_container.decode(outbound.contents, outbound.metadata)
   let assert [
@@ -804,7 +999,9 @@ pub fn shared_tree_upgrade_replay_summary_round_trips_and_continues_test() -> Ni
     Ok(value) -> value
     Error(error) -> panic as { "replay: " <> string.inspect(error) }
   }
-  replay.events |> expect.to_equal([])
+  let assert [
+    #(_, channel.TreeCommitApplied(_, tree_types.DefaultCommit, False, False)),
+  ] = replay.events
   let assert Ok(channel.TreeState(tree)) = dict.get(replayed.channels, address)
   let assert Some(compressor) = replayed.compressor
   let snapshot = tree_kernel.snapshot(tree) |> expect.to_be_ok()
@@ -2270,10 +2467,10 @@ pub fn shared_tree_runtime_remote_upgrade_emits_only_schema_event_test() -> Nil 
   let #(updated, ingested) =
     runtime_core.handle_sequenced(reader, from_outbound(outbound))
     |> expect.to_be_ok()
-  ingested.events
-  |> expect.to_equal([
-    #(address, channel.TreeEvent(tree_kernel.SchemaChanged(False))),
-  ])
+  let assert [
+    #(_, channel.TreeCommitApplied(_, tree_types.DefaultCommit, False, False)),
+    #(_, channel.TreeEvent(tree_kernel.SchemaChanged(False))),
+  ] = ingested.events
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
   let assert [initial] = input.tree_views
   runtime_core.tree_compatibility(updated, address, initial.view)
@@ -2428,7 +2625,7 @@ pub fn shared_tree_runtime_allocates_before_content_test() {
   next.next_client_sequence_number
   |> expect.to_equal(core.next_client_sequence_number + 1)
   list.length(next.in_flight) |> expect.to_equal(1)
-  list.length(events) |> expect.to_equal(1)
+  list.length(events) |> expect.to_equal(2)
   let assert Some(compressor) = next.compressor
   let #(_, unfinalized) = fluid_ids.take_unfinalized_range(compressor)
   let assert Some(fluid_ids.CreationRange(_, Some(_))) = unfinalized
@@ -2455,7 +2652,7 @@ pub fn shared_tree_runtime_receives_captured_group_with_tree_ordinals_test() {
   ])
   next.last_seen_sequence_number |> expect.to_equal(3)
   next.minimum_sequence_number |> expect.to_equal(group.minimum_sequence_number)
-  list.length(ingested.events) |> expect.to_equal(1)
+  list.length(ingested.events) |> expect.to_equal(4)
 }
 
 pub fn shared_tree_runtime_tree_ordinals_ignore_other_routes_test() {
@@ -2625,7 +2822,10 @@ pub fn shared_tree_runtime_acknowledges_local_group_once_test() {
   let #(settled, ingested) =
     runtime_core.handle_sequenced(pending, message) |> expect.to_be_ok
   settled.in_flight |> expect.to_equal([])
-  ingested.events |> expect.to_equal([])
+  let assert [
+    #("A/_C", channel.TreeCommitSettled(_, tree_types.FullyApplied)),
+    #("A/_C", channel.TreeCommitSettled(_, tree_types.FullyApplied)),
+  ] = ingested.events
   let assert Ok(channel.TreeState(tree)) = dict.get(settled.channels, "A/_C")
   list.length(tree_kernel.history_view(tree).sequenced.trunk)
   |> expect.to_equal(2)
@@ -2638,7 +2838,13 @@ pub fn shared_tree_runtime_foreign_author_cannot_ack_local_tree_test() {
       tree_types.SetField(["title"], tree_types.StringValue("local")),
     ])
   let foreign = from_outbound(outbound)
-  runtime_core.handle_sequenced(pending, foreign) |> expect.to_be_error()
+  case runtime_core.handle_sequenced(pending, foreign) {
+    Error(runtime_core.AckMismatch(
+      "local tree commit requires its own transport submission",
+    )) -> Nil
+    Error(error) -> panic as { string.inspect(error) }
+    Ok(#(_, ingested)) -> panic as { string.inspect(ingested.events) }
+  }
   let genuine =
     types.SequencedDocumentMessage(
       ..foreign,
@@ -2647,7 +2853,14 @@ pub fn shared_tree_runtime_foreign_author_cannot_ack_local_tree_test() {
   let #(settled, ingested) =
     runtime_core.handle_sequenced(pending, genuine) |> expect.to_be_ok()
   settled.in_flight |> expect.to_equal([])
-  ingested.events |> expect.to_equal([])
+  ingested.events |> list.length |> expect.to_equal(1)
+  let event = list.first(ingested.events) |> expect.to_be_ok
+  event.0 |> expect.to_equal("A/_C")
+  case event.1 {
+    channel.TreeCommitSettled(_, outcome) ->
+      outcome |> expect.to_equal(tree_types.FullyApplied)
+    _ -> panic as "expected tree commit settlement"
+  }
 }
 
 pub fn shared_tree_runtime_group_without_explicit_id_test() {
@@ -2880,14 +3093,25 @@ pub fn shared_tree_runtime_remote_group_emits_one_tree_event_test() {
       tree_types.SetField(["title"], tree_types.StringValue("second")),
       tree_types.SetField(["title"], tree_types.StringValue("third")),
     ])
-  list.length(local_events) |> expect.to_equal(1)
+  list.length(local_events) |> expect.to_equal(4)
   let #(reader, ingested) =
     runtime_core.handle_sequenced(reader, from_outbound(outbound))
     |> expect.to_be_ok
-  ingested.events
-  |> expect.to_equal([
+  let assert [
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(_, tree_types.DefaultCommit, False, False),
+    ),
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(_, tree_types.DefaultCommit, False, False),
+    ),
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(_, tree_types.DefaultCommit, False, False),
+    ),
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
-  ])
+  ] = ingested.events
   runtime_core.tree_read(reader, "A/_C", ["title"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("third"))))
   let assert Ok(channel.TreeState(tree)) = dict.get(reader.channels, "A/_C")
@@ -2903,11 +3127,29 @@ pub fn shared_tree_runtime_net_zero_group_retains_history_without_events_test() 
       tree_types.SetField(["title"], tree_types.StringValue("temporary")),
       tree_types.SetField(["title"], tree_types.StringValue("")),
     ])
-  local_events |> expect.to_equal([])
+  let assert [
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(_, tree_types.DefaultCommit, True, True),
+    ),
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(_, tree_types.DefaultCommit, True, True),
+    ),
+  ] = local_events
   let #(reader, ingested) =
     runtime_core.handle_sequenced(reader, from_outbound(outbound))
     |> expect.to_be_ok
-  ingested.events |> expect.to_equal([])
+  let assert [
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(_, tree_types.DefaultCommit, False, False),
+    ),
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(_, tree_types.DefaultCommit, False, False),
+    ),
+  ] = ingested.events
   let assert Ok(channel.TreeState(tree)) = dict.get(reader.channels, "A/_C")
   list.length(tree_kernel.history_view(tree).sequenced.trunk)
   |> expect.to_equal(2)
@@ -2968,10 +3210,13 @@ pub fn shared_tree_runtime_gap_drains_tree_batch_once_test() {
   let #(drained, ingested) =
     runtime_core.handle_sequenced(buffered, earlier) |> expect.to_be_ok
   drained.last_seen_sequence_number |> expect.to_equal(4)
-  ingested.events
-  |> expect.to_equal([
+  let assert [
+    #(
+      "A/_C",
+      channel.TreeCommitApplied(_, tree_types.DefaultCommit, False, False),
+    ),
     #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
-  ])
+  ] = ingested.events
   let #(duplicate, ignored) =
     runtime_core.handle_sequenced(drained, future) |> expect.to_be_ok
   duplicate.last_seen_sequence_number |> expect.to_equal(4)

@@ -1,19 +1,29 @@
+import gleam/dict
+import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
+import spillway/types as spillway_types
 import startest/expect
+import watershed/channel
 import watershed/fluid_ids
 import watershed/json_ot.{type JsonValue, VArray, VObject, VString}
+import watershed/runtime_core
 import watershed/tree/change
 import watershed/tree/fixtures
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/identifier_fixture
+import watershed/tree/runtime_fixture
 import watershed/tree/schema
 import watershed/tree/shared_change
-import watershed/tree/types.{NumberValue, ObjectValue, SetField, StringValue}
+import watershed/tree/types.{
+  type TreeCommitKind, DefaultCommit, NumberValue, ObjectValue, RedoCommit,
+  SetField, StringValue, UndoCommit,
+}
 import watershed/tree_kernel
+import watershed/wire
 
 @target(erlang)
 import watershed/shared_tree_runtime_beam_test as native_runtime
@@ -141,6 +151,116 @@ pub fn identifier_retry_acknowledges_once_without_changing_id_test() {
   |> expect.to_equal(Ok(json_ot.VBool(True)))
   list.key_find(retry, "pendingAfterAck")
   |> expect.to_equal(Ok(json_ot.VNumber(json_ot.NInt(0))))
+}
+
+pub fn retained_revertible_survives_runtime_reconnect_test() {
+  let core = runtime_fixture.routed_core() |> expect.to_be_ok
+  let address = "A/_C"
+  let #(pending, events, outbound) =
+    runtime_core.submit_tree_edits(core, address, [
+      SetField(["title"], StringValue("after")),
+    ])
+    |> expect.to_be_ok
+  let revision = applied_commit(events).0
+  let outbound = list.first(outbound) |> expect.to_be_ok
+  let #(settled, _) =
+    runtime_core.handle_sequenced(pending, sequenced(pending, outbound, 3))
+    |> expect.to_be_ok
+  let #(retained, id) =
+    runtime_core.retain_tree_revertible(
+      settled,
+      address,
+      revision,
+      DefaultCommit,
+    )
+    |> expect.to_be_ok
+  let reconnected =
+    runtime_core.adopt_reconnect(
+      retained,
+      runtime_fixture.connected("rejoined", [], 3),
+    )
+    |> expect.to_be_ok
+
+  runtime_core.tree_revertible_is_valid(reconnected, address, id)
+  |> expect.to_be_true
+}
+
+pub fn pending_undo_resubmit_keeps_revision_kind_and_settles_once_test() {
+  let core = runtime_fixture.routed_core() |> expect.to_be_ok
+  let address = "A/_C"
+  let #(edited, edit_events, _) =
+    runtime_core.submit_tree_edits(core, address, [
+      SetField(["title"], StringValue("after")),
+    ])
+    |> expect.to_be_ok
+  let original_revision = applied_commit(edit_events).0
+  let #(retained, original) =
+    runtime_core.retain_tree_revertible(
+      edited,
+      address,
+      original_revision,
+      DefaultCommit,
+    )
+    |> expect.to_be_ok
+  let #(undone, undo_events, _) =
+    runtime_core.revert_tree(retained, address, original) |> expect.to_be_ok
+  let #(undo_revision, undo_kind) = applied_commit(undo_events)
+  undo_kind |> expect.to_equal(UndoCommit)
+  let #(undone, undo) =
+    runtime_core.retain_tree_revertible(
+      undone,
+      address,
+      undo_revision,
+      undo_kind,
+    )
+    |> expect.to_be_ok
+  let reconnected =
+    runtime_core.adopt_reconnect(
+      undone,
+      runtime_fixture.connected("rejoined", [], 2),
+    )
+    |> expect.to_be_ok
+  let #(resubmitted, outbound) =
+    runtime_core.resubmit(runtime_core.go_live(reconnected))
+    |> expect.to_be_ok
+  runtime_core.tree_revertible_is_valid(resubmitted, address, original)
+  |> expect.to_be_true
+  runtime_core.tree_revertible_is_valid(resubmitted, address, undo)
+  |> expect.to_be_true
+  let assert Ok(channel.TreeState(tree)) =
+    dict.get(resubmitted.channels, address)
+  tree_kernel.history_view(tree).pending
+  |> list.map(fn(commit) { commit.revision })
+  |> expect.to_equal([original_revision, undo_revision])
+  let assert [original_outbound, undo_outbound] = outbound
+  let #(accepted, first) =
+    runtime_core.handle_sequenced(
+      resubmitted,
+      sequenced(resubmitted, original_outbound, 3),
+    )
+    |> expect.to_be_ok
+  first.events |> list.length |> expect.to_equal(1)
+  let undo_message = sequenced(accepted, undo_outbound, 4)
+  let #(settled, second) =
+    runtime_core.handle_sequenced(accepted, undo_message)
+    |> expect.to_be_ok
+  second.events
+  |> list.filter(fn(event) {
+    case event.1 {
+      channel.TreeCommitSettled(revision, _) -> revision == undo_revision
+      _ -> False
+    }
+  })
+  |> list.length
+  |> expect.to_equal(1)
+  let #(_, duplicate) =
+    runtime_core.handle_sequenced(settled, undo_message)
+    |> expect.to_be_ok
+  duplicate.events |> expect.to_equal([])
+  let #(_, redo_events, _) =
+    runtime_core.revert_tree(settled, address, undo) |> expect.to_be_ok
+  applied_commit(redo_events).1
+  |> expect.to_equal(RedoCommit)
 }
 
 pub fn shared_tree_history_resubmit_rejects_duplicate_repairs_test() -> Nil {
@@ -278,4 +398,49 @@ fn identifier_observation(id: String) -> List(#(String, JsonValue)) {
       }
     })
   observation
+}
+
+fn applied_commit(
+  events: List(#(String, channel.ChannelEvent)),
+) -> #(fluid_ids.StableId, TreeCommitKind) {
+  events
+  |> list.find_map(fn(event) {
+    case event.1 {
+      channel.TreeCommitApplied(revision, kind, _, _) -> Ok(#(revision, kind))
+      _ -> Error(Nil)
+    }
+  })
+  |> expect.to_be_ok
+}
+
+fn sequenced(
+  core: runtime_core.Core,
+  outbound: wire.OutboundOperation,
+  sequence_number: Int,
+) -> spillway_types.SequencedDocumentMessage {
+  let assert Ok(contents) =
+    json.parse(json.to_string(outbound.contents), decode.dynamic)
+  let metadata = case outbound.metadata {
+    None -> None
+    Some(metadata) -> {
+      let assert Ok(metadata) =
+        json.parse(json.to_string(metadata), decode.dynamic)
+      Some(metadata)
+    }
+  }
+  spillway_types.SequencedDocumentMessage(
+    client_id: Some(core.client_id),
+    sequence_number: sequence_number,
+    minimum_sequence_number: core.minimum_sequence_number,
+    client_sequence_number: outbound.client_sequence_number,
+    reference_sequence_number: outbound.reference_sequence_number,
+    message_type: outbound.operation_type,
+    contents: contents,
+    metadata: metadata,
+    server_metadata: None,
+    origin: None,
+    traces: None,
+    timestamp: 0,
+    data: None,
+  )
 }

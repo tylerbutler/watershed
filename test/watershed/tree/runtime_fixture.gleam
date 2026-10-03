@@ -687,10 +687,29 @@ pub fn run_batched(input: Json) -> Result(Json, String) {
     runtime_core.submit_tree_edits(core, "A/_C", edits)
     |> result.map_error(string.inspect),
   )
-  use _ <- result.try(case events {
-    [#("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(True)))] -> Ok(Nil)
-    _ -> Error("runtime fixture local tree invalidation did not match")
-  })
+  let #(tree_events, commit_events) =
+    list.partition(events, fn(event) {
+      case event.1 {
+        channel.TreeEvent(_) -> True
+        _ -> False
+      }
+    })
+  use _ <- result.try(
+    case
+      tree_events
+      == [#("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(True)))]
+      && list.length(commit_events) == list.length(edits)
+      && list.all(commit_events, fn(event) {
+        case event {
+          #("A/_C", channel.TreeCommitApplied(_, _, True, True)) -> True
+          _ -> False
+        }
+      })
+    {
+      True -> Ok(Nil)
+      False -> Error("runtime fixture local tree invalidation did not match")
+    },
+  )
   use sent <- result.try(case outbound {
     [sent] -> Ok(sent)
     _ -> Error("runtime fixture did not emit one outer batch")
@@ -719,10 +738,28 @@ pub fn run_batched(input: Json) -> Result(Json, String) {
       Ok(#(peer, list.append(acc.1, ingested.events)))
     }),
   )
-  use _ <- result.try(case peer_events {
-    [#("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False)))] -> Ok(Nil)
-    _ -> Error("runtime fixture peer tree invalidation did not match")
-  })
+  let #(tree_events, commit_events) =
+    list.partition(peer_events, fn(event) {
+      case event.1 {
+        channel.TreeEvent(_) -> True
+        _ -> False
+      }
+    })
+  use _ <- result.try(
+    case
+      tree_events
+      == [#("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False)))]
+      && list.all(commit_events, fn(event) {
+        case event {
+          #("A/_C", channel.TreeCommitApplied(_, _, False, False)) -> True
+          _ -> False
+        }
+      })
+    {
+      True -> Ok(Nil)
+      False -> Error("runtime fixture peer tree invalidation did not match")
+    },
+  )
   use #(pending, positions) <- result.try(tree_history(peer))
   use operation <- result.try(
     list.last(fixture.operations)

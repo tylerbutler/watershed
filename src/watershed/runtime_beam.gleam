@@ -83,7 +83,8 @@ import watershed/channel.{
   InitJsonOt, InitLwwMap, InitLwwRegister, InitMap, InitMvRegister, InitOrMap,
   InitOrSet, InitOrderedCollection, InitPactMap, InitPnCounter,
   InitRegisterCollection, InitRichText, InitSequence, InitTaskManager, InitText,
-  InitTwoPSet, SequenceChannel, TextChannel,
+  InitTwoPSet, SequenceChannel, TextChannel, TreeCommitApplied,
+  TreeCommitSettled,
 } as _watershed_channel
 @target(erlang)
 import watershed/claims_kernel
@@ -5414,12 +5415,16 @@ fn fan_out(
 ) -> Nil {
   list.each(events, fn(event) {
     let #(address, event) = event
-    list.each(subscribers, fn(subscriber) {
-      case subscriber.0 == address {
-        True -> subscriber.1(event)
-        False -> Nil
-      }
-    })
+    case event {
+      TreeCommitApplied(_, _, _, _) | TreeCommitSettled(_, _) -> Nil
+      _ ->
+        list.each(subscribers, fn(subscriber) {
+          case subscriber.0 == address {
+            True -> subscriber.1(event)
+            False -> Nil
+          }
+        })
+    }
   })
 }
 

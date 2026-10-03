@@ -435,6 +435,55 @@ pub fn author_upgrade(
   }
 }
 
+pub fn author_revert(
+  state: tree_kernel.TreeState,
+  id: types.RevertibleId,
+  compressor: fluid_ids.Compressor,
+) -> Result(
+  #(
+    tree_kernel.TreeState,
+    history.Commit,
+    types.TreeCommitKind,
+    tree_kernel.ChangeEvents,
+    fluid_ids.Compressor,
+  ),
+  TreeError,
+) {
+  use #(revision, order, compressor) <- result.try(allocate_revision(
+    state,
+    compressor,
+  ))
+  use #(state, commit, kind, events) <- result.try(tree_kernel.revert(
+    state,
+    id,
+    revision,
+    order,
+  ))
+  Ok(#(state, commit, kind, events, compressor))
+}
+
+pub fn commit_outcome(
+  changeset: shared_change.Changeset,
+) -> types.TreeCommitOutcome {
+  let changes = shared_change.to_changes(changeset)
+  case changes {
+    [] -> types.FullyDropped
+    _ ->
+      case
+        list.any(changes, fn(item) {
+          case item {
+            shared_change.DataChange(data) ->
+              change.to_data(data).constraint_violation_count > 0
+            shared_change.SchemaChange(_, _, _) -> False
+          }
+        })
+      {
+        True -> types.NewContentOnly
+        False -> types.FullyApplied
+      }
+  }
+}
+
 fn allocate_revision(
   state: tree_kernel.TreeState,
   compressor: fluid_ids.Compressor,

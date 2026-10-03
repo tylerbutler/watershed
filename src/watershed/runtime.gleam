@@ -4438,15 +4438,20 @@ fn fan_out(
 ) -> Nil {
   list.each(events, fn(event) {
     let #(address, event) = event
-    list.each(subscribers, fn(subscriber) {
-      case subscriber.address == address {
-        True ->
-          observe("subscriber " <> subscriber.id <> " at " <> address, fn() {
-            subscriber.handler(event)
-          })
-        False -> Nil
-      }
-    })
+    case event {
+      channel.TreeCommitApplied(_, _, _, _) | channel.TreeCommitSettled(_, _) ->
+        Nil
+      _ ->
+        list.each(subscribers, fn(subscriber) {
+          case subscriber.address == address {
+            True ->
+              observe("subscriber " <> subscriber.id <> " at " <> address, fn() {
+                subscriber.handler(event)
+              })
+            False -> Nil
+          }
+        })
+    }
   })
 }
 

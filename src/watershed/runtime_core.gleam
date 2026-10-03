@@ -2734,6 +2734,12 @@ fn handle_operation(
                   },
                 )
                 let ordinal = dict.get(ordinals, address) |> result.unwrap(0)
+                let pending_local =
+                  own
+                  && list.any(
+                    tree_kernel.history_view(state).pending,
+                    fn(pending) { pending.revision == commit.revision },
+                  )
                 use #(state, changes, compressor) <- result.try(
                   tree_runtime.receive_commit(
                     state,
@@ -2747,6 +2753,13 @@ fn handle_operation(
                     TreeOperationFailed(address, error)
                   }),
                 )
+                use commit_events <- result.try(tree_commit_events(
+                  address,
+                  state,
+                  commit,
+                  own,
+                  pending_local,
+                ))
                 Ok(
                   #(
                     Core(
@@ -2758,13 +2771,16 @@ fn handle_operation(
                       ),
                       compressor: Some(compressor),
                     ),
-                    case changes.array_changed {
-                      True ->
-                        list.map(changes.events, fn(event) {
-                          #(address, channel.TreeEvent(event))
-                        })
-                      False -> []
-                    },
+                    list.append(
+                      case changes.array_changed {
+                        True ->
+                          list.map(changes.events, fn(event) {
+                            #(address, channel.TreeEvent(event))
+                          })
+                        False -> []
+                      },
+                      commit_events,
+                    ),
                     [],
                   ),
                 )
@@ -3112,6 +3128,53 @@ fn handle_channel_operation(
           }
         }
       }
+  }
+}
+
+fn tree_commit_events(
+  address: String,
+  state: tree_kernel.TreeState,
+  commit: history.Commit,
+  own: Bool,
+  pending_local: Bool,
+) -> Result(List(#(String, ChannelEvent)), CoreError) {
+  case own, pending_local {
+    False, _ ->
+      Ok([
+        #(
+          address,
+          channel.TreeCommitApplied(
+            commit.revision,
+            tree_types.DefaultCommit,
+            False,
+            False,
+          ),
+        ),
+      ])
+    True, False -> Ok([])
+    True, True -> {
+      use sequenced <- result.try(
+        tree_kernel.history_view(state).sequenced.trunk
+        |> list.find(fn(entry) { entry.commit.revision == commit.revision })
+        |> result.map_error(fn(_) {
+          TreeOperationFailed(
+            address,
+            tree_types.InvalidHistory(
+              "local acknowledgement has no sequenced commit",
+            ),
+          )
+        }),
+      )
+      Ok([
+        #(
+          address,
+          channel.TreeCommitSettled(
+            commit.revision,
+            tree_runtime.commit_outcome(sequenced.commit.change),
+          ),
+        ),
+      ])
+    }
   }
 }
 
@@ -3921,7 +3984,17 @@ fn submit_tree_edits_now(
     True -> []
     False -> [#(address, channel.TreeEvent(tree_kernel.TreeChanged(True)))]
   }
-  submit_tree_commits(core, address, route, state, compressor, commits, events)
+  submit_tree_commits(
+    core,
+    address,
+    route,
+    state,
+    compressor,
+    commits,
+    events,
+    tree_types.DefaultCommit,
+    True,
+  )
 }
 
 pub fn submit_tree_edits_view(
@@ -4040,6 +4113,8 @@ pub fn commit_tree_transaction(
             list.map(events.events, fn(event) {
               #(address, channel.TreeEvent(event))
             }),
+            tree_types.DefaultCommit,
+            True,
           )
         }
       }
@@ -4127,6 +4202,8 @@ pub fn submit_tree_upgrade(
         list.map(events.events, fn(event) {
           #(address, channel.TreeEvent(event))
         }),
+        tree_types.DefaultCommit,
+        False,
       )
     }
   }
@@ -4183,6 +4260,98 @@ fn transaction_error(address: String, detail: String) -> Result(a, CoreError) {
   Error(TreeOperationFailed(address, tree_types.InvalidHistory(detail)))
 }
 
+pub fn retain_tree_revertible(
+  core: Core,
+  address: String,
+  revision: fluid_ids.StableId,
+  kind: tree_types.TreeCommitKind,
+) -> Result(#(Core, tree_types.RevertibleId), CoreError) {
+  use state <- result.try(tree_channel(core, address))
+  use #(state, id) <- result.try(
+    tree_kernel.retain_revertible(state, revision, kind)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  Ok(#(put_attached_channel(core, address, channel.TreeState(state)), id))
+}
+
+pub fn tree_revertible_is_valid(
+  core: Core,
+  address: String,
+  id: tree_types.RevertibleId,
+) -> Bool {
+  case tree_channel(core, address) {
+    Ok(state) -> tree_kernel.revertible_is_valid(state, id)
+    Error(_) -> False
+  }
+}
+
+pub fn dispose_tree_revertible(
+  core: Core,
+  address: String,
+  id: tree_types.RevertibleId,
+) -> Result(Core, CoreError) {
+  use state <- result.try(tree_channel(core, address))
+  use state <- result.try(
+    tree_kernel.dispose_revertible(state, id)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  Ok(put_attached_channel(core, address, channel.TreeState(state)))
+}
+
+pub fn revert_tree(
+  core: Core,
+  address: String,
+  id: tree_types.RevertibleId,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), wire.OutboundOperation),
+  CoreError,
+) {
+  use _ <- result.try(require_no_tree_transaction(core, "revert"))
+  use state <- result.try(tree_channel(core, address))
+  use compressor <- result.try(case core.compressor {
+    Some(compressor) -> Ok(compressor)
+    None -> Error(BadBootstrapSeed("tree channel has no document compressor"))
+  })
+  use before <- result.try(
+    tree_kernel.read(state, [])
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  use #(state, commit, kind, changes, compressor) <- result.try(
+    tree_runtime.author_revert(state, id, compressor)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  use after <- result.try(
+    tree_kernel.read(state, [])
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  use route <- result.try(
+    fluid_container.route_from_path("/" <> address)
+    |> result.map_error(ContainerOperationFailed),
+  )
+  let events = case before == after && !changes.array_changed {
+    True -> []
+    False -> [#(address, channel.TreeEvent(tree_kernel.TreeChanged(True)))]
+  }
+  use #(core, events, outbound) <- result.try(submit_tree_commits(
+    core,
+    address,
+    route,
+    state,
+    compressor,
+    [commit],
+    events,
+    kind,
+    True,
+  ))
+  use outbound <- result.try(
+    list.first(outbound)
+    |> result.map_error(fn(_) {
+      AckMismatch("tree revert produced no outbound operation")
+    }),
+  )
+  Ok(#(core, events, outbound))
+}
+
 fn submit_tree_commits(
   core: Core,
   address: String,
@@ -4191,6 +4360,8 @@ fn submit_tree_commits(
   compressor: fluid_ids.Compressor,
   commits: List(history.Commit),
   events: List(#(String, ChannelEvent)),
+  kind: tree_types.TreeCommitKind,
+  revertible: Bool,
 ) -> Result(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
@@ -4277,7 +4448,15 @@ fn submit_tree_commits(
           ),
         ]),
       ),
-      events,
+      list.append(
+        events,
+        list.map(commits, fn(commit) {
+          #(
+            address,
+            channel.TreeCommitApplied(commit.revision, kind, True, revertible),
+          )
+        }),
+      ),
       [outbound],
     ),
   )
