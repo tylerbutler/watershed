@@ -2723,65 +2723,180 @@ function generateSchedule({ seed, index, profile }) {
       : profile === "schema"
         ? generatedSchemaActions(seed, index, template, roles, random)
         : generatedActions(seed, index, template, roles, random);
-  if (["object", "map", "array"].includes(profile)) {
-    const author = roles.first;
-    actions.push(profile === "object"
+  const author = roles.first;
+  const peer = roles.second;
+  const editName = `edit-${index}`;
+  const undoName = `undo-${index}`;
+  const authorEdit = profile === "map"
+    ? {
+        type: "map-set",
+        author,
+        path: ["items"],
+        key: `undo-edit-${index}`,
+        value: treeValue(`edit-${index}`),
+        preconditions: { connected: [...implementations] },
+      }
+    : profile === "array"
       ? {
-          type: "set",
+          type: "array-insert",
           author,
-          path: ["title"],
-          value: `undo-${index}`,
+          path: ["left"],
+          index: 0,
+          values: [treeValue(`edit-${index}`)],
           preconditions: { connected: [...implementations] },
         }
-      : profile === "map"
+      : profile === "identifier"
         ? {
-            type: "map-set",
-            author,
-            path: ["items"],
-            key: `undo-${index}`,
-            value: treeValue(`value-${index}`),
-            preconditions: { connected: [...implementations] },
-          }
-        : {
             type: "array-insert",
             author,
             path: ["left"],
             index: 0,
-            values: [treeValue(`undo-${index}`)],
+            values: [identifierPoint(`undo-edit-${index}`)],
             preconditions: { connected: [...implementations] },
-          });
-    actions.push({
+          }
+        : {
+            type: "set",
+            author,
+            path: ["title"],
+            value: `undo-edit-${index}`,
+            preconditions: { connected: [...implementations] },
+          };
+  const start = [authorEdit, {
       type: "retain",
       author,
-      name: "edit",
+      name: editName,
+      lifecycle: "edit",
       preconditions: { connected: [...implementations] },
-    });
-    actions.push({
-      type: "revert",
-      author,
-      name: "edit",
-      dispose: true,
-      preconditions: { connected: [...implementations] },
-    });
-    actions.push({
-      type: "retain",
-      author,
-      name: "undo",
-      preconditions: { connected: [...implementations] },
-    });
-    actions.push({
-      type: "revert",
-      author,
-      name: "undo",
-      dispose: true,
-      preconditions: { connected: [...implementations] },
-    });
-    actions.push({
+    }];
+  const peerEdit = profile === "map"
+    ? {
+        type: "map-set",
+        author: peer,
+        path: ["items"],
+        key: `undo-peer-${index}`,
+        value: treeValue(`peer-${index}`),
+        preconditions: { connected: [...implementations] },
+      }
+    : profile === "array"
+      ? {
+          type: "array-insert",
+          author: peer,
+          path: ["right"],
+          index: 0,
+          values: [treeValue(`peer-${index}`)],
+          preconditions: { connected: [...implementations] },
+        }
+      : profile === "identifier"
+        ? {
+            type: "array-insert",
+            author: peer,
+            path: ["right"],
+            index: 0,
+            values: [identifierPoint(`undo-peer-${index}`)],
+            preconditions: { connected: [...implementations] },
+          }
+        : {
+            type: "set",
+            author: peer,
+            path: ["title"],
+            value: `undo-peer-${index}`,
+            preconditions: { connected: [...implementations] },
+          };
+  const finish = [
+    peerEdit,
+    ...(profile === "array" ? [{
       type: "checkpoint",
-      label: "undo-redo-settled",
+      label: `undo-peer-settled-${index}`,
+      stage: "quiescent",
+      preconditions: { connected: [...implementations] },
+    }, transactionAction(peer, {
+        constraints: [],
+        edits: [{
+          op: "array-insert",
+          path: ["right"],
+          index: 0,
+          values: [treeValue(`undo-transaction-${index}`)],
+        }],
+        result: "commit",
+      }, false)] : []),
+    {
+      type: "revert",
+      author,
+      name: editName,
+      dispose: false,
+      lifecycle: "undo",
+      preconditions: { connected: [...implementations] },
+    },
+    {
+      type: "checkpoint",
+      label: `undo-settled-${index}`,
+      stage: "quiescent",
+      preconditions: { connected: [...implementations] },
+    },
+    {
+      type: "retain",
+      author,
+      name: undoName,
+      lifecycle: "undo",
+      preconditions: { connected: [...implementations] },
+    },
+    {
+      type: "revert",
+      author,
+      name: undoName,
+      dispose: true,
+      lifecycle: "redo",
+      preconditions: { connected: [...implementations] },
+    },
+    {
+      type: "checkpoint",
+      label: `redo-settled-${index}`,
+      stage: "quiescent",
+      preconditions: { connected: [...implementations] },
+    },
+    {
+      type: "dispose",
+      author,
+      name: editName,
+      lifecycle: "edit",
+      preconditions: { connected: [...implementations] },
+    },
+  ];
+  const reconnect = actions.findIndex(({ type }) => type === "disconnect");
+  const summary = actions.findIndex(({ type }) => type === "summarize");
+  if (index % 3 === 0 && reconnect >= 0) {
+    actions.splice(reconnect, 0, ...start);
+    const afterReconnect = actions.findIndex(
+      ({ type }, actionIndex) => actionIndex > reconnect && type === "reconnect",
+    );
+    actions.splice(afterReconnect + 1, 0, ...finish);
+  } else if (index % 3 === 1 && summary >= 0) {
+    actions.splice(summary, 0, ...start, {
+      type: "checkpoint",
+      label: `undo-before-summary-${index}`,
       stage: "quiescent",
       preconditions: { connected: [...implementations] },
     });
+    const afterReload = actions.findIndex(
+      ({ type }, actionIndex) => actionIndex > summary && type === "reload",
+    );
+    actions.splice(afterReload + 1, 0, ...finish);
+  } else {
+    const release = actions.findIndex(
+      ({ type, direction, author: actionAuthor }) =>
+        type === "release" && direction === "outbound" && actionAuthor === author,
+    );
+    assert(release >= 0, "Generated undo/redo lifecycle lacks an outbound release");
+    actions.splice(release, 0, authorEdit, {
+      type: "checkpoint",
+      label: `undo-held-${index}`,
+      stage: "intermediate",
+      preconditions: { connected: [...implementations] },
+    }, start[1]);
+    const settled = actions.findLastIndex(
+      ({ type, stage }) => type === "checkpoint" && stage === "quiescent",
+    );
+    actions.splice(settled, 0, ...finish);
   }
   return {
     formatVersion: 1,
@@ -3641,7 +3756,7 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
       });
     },
     async retainLastLocalCommit(name) {
-      assert(lastLocal, "No unretained upstream local commit is available");
+      assert(lastLocal, "No unretained local commit is available");
       handles.set(name, lastLocal);
       const retained = lastLocal;
       lastLocal = undefined;
@@ -3656,13 +3771,37 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
       const retained = handles.get(name);
       assert(retained, `Unknown upstream revertible handle: ${name}`);
       const before = pendingTreeCommits(session);
+      const beforeCommits = commits.length;
       retained.handle.revert(dispose);
+      const authored = commits.slice(beforeCommits).filter(
+        ({ type, local }) => type === "commit" && local === true,
+      );
+      assert.equal(authored.length, 1,
+        `Upstream revert ${name} authored another local commit count`);
       return {
         name,
-        authoredKind: retained.kind === CommitKind.Undo ? "Redo" : "Undo",
+        authoredKind: authored[0].kind,
         status: enumName(RevertibleStatus, retained.handle.status),
         settlement: "Pending",
+        authoredCount: authored.length,
         outboundCount: Math.max(pendingTreeCommits(session) - before, 0),
+      };
+    },
+    async revertibleStatus(name) {
+      const retained = handles.get(name);
+      assert(retained, `Unknown upstream revertible handle: ${name}`);
+      return {
+        name,
+        status: enumName(RevertibleStatus, retained.handle.status),
+      };
+    },
+    async disposeRevertible(name) {
+      const retained = handles.get(name);
+      assert(retained, `Unknown upstream revertible handle: ${name}`);
+      retained.handle.dispose();
+      return {
+        name,
+        status: enumName(RevertibleStatus, retained.handle.status),
       };
     },
     async checkpoint() {
@@ -3916,6 +4055,12 @@ export async function nativeAdapter(
     },
     async retainLastLocalCommit(name) {
       return client.retainLastLocalCommit(name);
+    },
+    async revertibleStatus(name) {
+      return client.revertibleStatus(name);
+    },
+    async disposeRevertible(name) {
+      return client.disposeRevertible(name);
     },
     async revert(name, dispose) {
       return client.revert(name, dispose);
@@ -4600,6 +4745,7 @@ export async function publishUpstreamSummary(
   return {
     ...acknowledged.data,
     summarizeOp: broadcast.data.summarizeOp,
+    summaryReferenceSequenceNumber: submitted.data.referenceSequenceNumber,
   };
 }
 
@@ -6886,6 +7032,91 @@ function commitTrace(checkpoints, implementation) {
     checkpointFor(checkpoint, implementation)?.commits ?? []);
 }
 
+function treeField(tree, name) {
+  return tree.value.fields.find(([field]) => field === name)?.[1];
+}
+
+function setTreeField(tree, name, value) {
+  const fields = tree.value.fields;
+  const index = fields.findIndex(([field]) => field === name);
+  if (index >= 0) fields[index] = [name, value];
+  else fields.push([name, value]);
+  fields.sort(([left], [right]) => left.localeCompare(right));
+}
+
+function expectedUndoRedoTrees(baseline, cell) {
+  const editLabel = `${cell.id}-edit`;
+  const peerLabel = `${cell.id}-peer`;
+  const authored = structuredClone(baseline);
+  const concurrent = structuredClone(baseline);
+  const undone = structuredClone(baseline);
+  if (cell.fieldKind === "object") {
+    const title = { kind: "string", value: editLabel };
+    const rating = { kind: "number", value: cell.id.length };
+    setTreeField(authored, "title", title);
+    setTreeField(concurrent, "title", title);
+    setTreeField(concurrent, "rating", rating);
+    setTreeField(undone, "rating", rating);
+  } else if (cell.fieldKind === "map") {
+    treeField(authored, "items").entries.push([
+      "target",
+      { kind: "string", value: editLabel },
+    ]);
+    treeField(concurrent, "items").entries.push(
+      ["target", { kind: "string", value: editLabel }],
+      ["peer", { kind: "string", value: cell.id }],
+    );
+    treeField(undone, "items").entries.push([
+      "peer",
+      { kind: "string", value: cell.id },
+    ]);
+    for (const tree of [authored, concurrent, undone]) {
+      treeField(tree, "items").entries.sort(([left], [right]) =>
+        left.localeCompare(right));
+    }
+  } else {
+    const authoredLeft = treeField(authored, "left").elements;
+    const concurrentLeft = treeField(concurrent, "left").elements;
+    const concurrentRight = treeField(concurrent, "right").elements;
+    const undoneRight = treeField(undone, "right").elements;
+    const peer = { kind: "string", value: peerLabel };
+    if (cell.fieldKind === "array") {
+      const edit = { kind: "string", value: editLabel };
+      authoredLeft.unshift(edit);
+      concurrentLeft.unshift(edit);
+      concurrentRight.unshift(peer);
+      undoneRight.unshift(peer);
+    } else if (cell.fieldKind === "move") {
+      const movedAuthored = authoredLeft.shift();
+      treeField(authored, "right").elements.unshift(movedAuthored);
+      const movedConcurrent = concurrentLeft.shift();
+      if (cell.order === "a-first") {
+        concurrentRight.unshift(movedConcurrent);
+        concurrentRight.unshift(peer);
+      } else {
+        concurrentRight.unshift(peer);
+        concurrentRight.unshift(movedConcurrent);
+      }
+      undoneRight.unshift(peer);
+    } else {
+      const edit = { kind: "string", value: editLabel };
+      const nested = { kind: "string", value: `${editLabel}-nested` };
+      authoredLeft.unshift(edit);
+      treeField(authored, "right").elements.unshift(nested);
+      concurrentLeft.unshift(edit);
+      if (cell.order === "a-first") {
+        concurrentRight.unshift(nested);
+        concurrentRight.unshift(peer);
+      } else {
+        concurrentRight.unshift(peer);
+        concurrentRight.unshift(nested);
+      }
+      undoneRight.unshift(peer);
+    }
+  }
+  return { authored, concurrent, undone, redone: structuredClone(concurrent) };
+}
+
 async function writeUndoRedoArtifact(context, item, raw, kind = "undo-redo") {
   const relative = `${kind}/${safeName(item.id)}.json`;
   const path = join(context.artifactDirectory, relative);
@@ -6897,10 +7128,40 @@ async function writeUndoRedoArtifact(context, item, raw, kind = "undo-redo") {
     kind,
     subject: item.id,
     documentId: item.documentId,
-    measured: item,
+    measured: Object.fromEntries(Object.entries(item)
+      .filter(([name]) => name !== "artifacts")),
     raw,
   })}\n`, { mode: 0o600 });
   return relative;
+}
+
+async function writeUndoRedoFailure(context, identity, state, error, kind) {
+  const relative = `${kind}-failure/${safeName(identity.id)}.json`;
+  const path = join(context.artifactDirectory, relative);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({
+    formatVersion: 1,
+    kind: `${kind}-failure`,
+    runId: context.runId,
+    profileDigest: context.profileDigest,
+    subject: identity.id,
+    documentId: state.documentId ?? null,
+    identity,
+    handleNames: [...new Set((state.undoRedo ?? [])
+      .map(({ name }) => name).filter(Boolean))],
+    commitKinds: (state.checkpoints ?? []).flatMap(({ observations }) =>
+      observations.flatMap(({ commits }) =>
+        (commits ?? []).filter(({ type }) => type === "commit")
+          .map(({ kind: commitKind }) => commitKind))),
+    settlements: (state.checkpoints ?? []).flatMap(({ observations }) =>
+      observations.flatMap(({ commits }) =>
+        (commits ?? []).filter(({ type }) => type === "settlement")
+          .map(({ outcome }) => outcome))),
+    eventTrace: state.checkpoints ?? [],
+    undoRedo: state.undoRedo ?? [],
+    error: replayError(error),
+  })}\n`, { mode: 0o600 });
+  return path;
 }
 
 async function runUndoRedoCell(config, context, cell) {
@@ -6911,18 +7172,25 @@ async function runUndoRedoCell(config, context, cell) {
     cell.id,
   );
   let failure;
+  const failureState = {
+    documentId: environment.documentId,
+    checkpoints: [],
+    undoRedo: [],
+  };
   try {
     const { adapters, creator } = environment;
     const [author, peer] = cell.authors;
-    await settle(adapters);
+    let baseline = await settle(adapters);
     if (cell.fieldKind === "move") {
       await adapters.upstream.arrayInsert(
         ["left"],
         0,
         [treeValue(`${cell.id}-moved`)],
       );
-      await settle(adapters);
+      baseline = await settle(adapters);
     }
+    const baselineTree = checkpointFor(baseline, author).wholeTree;
+    const expectedSnapshots = expectedUndoRedoTrees(baselineTree, cell);
     await Promise.all(cell.authors.map((implementation) =>
       adapters[implementation].holdOutbound()));
     await authorUndoRedoEdit(adapters[author], cell.fieldKind, `${cell.id}-edit`);
@@ -6933,6 +7201,12 @@ async function runUndoRedoCell(config, context, cell) {
       "intermediate",
       adapters,
     );
+    failureState.checkpoints.push(authored);
+    failureState.undoRedo.push({
+      type: "retain",
+      name: "edit",
+      result: retainedEdit,
+    });
     const releaseOrder = cell.order === "a-first"
       ? [author, peer]
       : [peer, author];
@@ -6950,11 +7224,21 @@ async function runUndoRedoCell(config, context, cell) {
       );
     }
     const concurrent = await settle(adapters);
+    failureState.checkpoints.push(concurrent);
     const undo = await adapters[author].revert("edit", true);
+    failureState.undoRedo.push({ type: "undo", name: "edit", result: undo });
     const retainedUndo = await adapters[author].retainLastLocalCommit("undo");
+    failureState.undoRedo.push({
+      type: "retain",
+      name: "undo",
+      result: retainedUndo,
+    });
     const undone = await settle(adapters);
+    failureState.checkpoints.push(undone);
     const redo = await adapters[author].revert("undo", true);
+    failureState.undoRedo.push({ type: "redo", name: "undo", result: redo });
     const redone = await settle(adapters);
+    failureState.checkpoints.push(redone);
     const checkpoints = [authored, concurrent, undone, redone];
     const authorCommits = commitTrace(checkpoints, author);
     const localCommits = authorCommits.filter(
@@ -6977,6 +7261,7 @@ async function runUndoRedoCell(config, context, cell) {
         undone: checkpointFor(undone, author).wholeTree,
         redone: checkpointFor(redone, author).wholeTree,
       },
+      expectedSnapshots,
       localKinds: localCommits.slice(-3).map(({ kind }) => kind),
       factoryAvailability: [
         retainedEdit.factoryAvailable,
@@ -6985,13 +7270,20 @@ async function runUndoRedoCell(config, context, cell) {
       ],
       handleStatuses: [retainedEdit.status, undo.status, redo.status],
       settlements: settlements.slice(-3).map(({ outcome }) => outcome),
-      outboundCounts: [1, undo.outboundCount, redo.outboundCount],
+      authoredCounts: localCommits.slice(-3).map(() => 1),
+      outboundCounts: [
+        checkpointFor(authored, author).pendingTreeCount,
+        undo.outboundCount,
+        redo.outboundCount,
+      ],
       remoteFactoryAvailable: remoteCommits.some(
         ({ factoryAvailable }) => factoryAvailable,
       ),
       finalTree: checkpointFor(redone, author).wholeTree,
       passed: true,
+      failed: false,
       skipped: false,
+      error: null,
       artifacts: [],
     };
     assert.deepEqual(item.localKinds, ["Default", "Undo", "Redo"],
@@ -7001,6 +7293,12 @@ async function runUndoRedoCell(config, context, cell) {
       `${cell.id} settlement outcomes changed`);
     assert.equal(item.remoteFactoryAvailable, false,
       `${cell.id} gave the peer a factory`);
+    for (const phase of ["authored", "concurrent", "undone", "redone"]) {
+      assert.deepEqual(item.snapshots[phase], expectedSnapshots[phase],
+        `${cell.id} ${phase} tree changed`);
+    }
+    assert.deepEqual(item.finalTree, expectedSnapshots.redone,
+      `${cell.id} final tree changed`);
     for (const checkpoint of checkpoints.slice(1)) {
       const first = checkpoint.observations[0].wholeTree;
       assert(checkpoint.observations.every(({ wholeTree }) =>
@@ -7019,6 +7317,26 @@ async function runUndoRedoCell(config, context, cell) {
     return item;
   } catch (error) {
     failure = error;
+    try {
+      failureState.checkpoints.push(await captureCheckpoint(
+        "undo-redo-failure-drain",
+        "intermediate",
+        environment.adapters,
+      ));
+    } catch (drainError) {
+      error.drainErrors = [replayError(drainError)];
+    }
+    try {
+      error.failurePath = await writeUndoRedoFailure(
+        context,
+        cell,
+        failureState,
+        error,
+        "undo-redo",
+      );
+    } catch (captureError) {
+      error.artifactCaptureError = captureError;
+    }
     throw error;
   } finally {
     await closeTransactionEnvironment(environment, failure);
@@ -7036,12 +7354,14 @@ async function runUndoRedoReconnectTarget(config, context, implementation) {
   let failure;
   try {
     const adapter = environment.adapters[implementation];
-    await settle(environment.adapters);
+    const baseline = await settle(environment.adapters);
+    const expectedTree = checkpointFor(baseline, implementation).wholeTree;
     await adapter.set(["title"], `${implementation}-reconnect`);
     const retained = await adapter.retainLastLocalCommit("edit");
     await settle(environment.adapters);
     await adapter.disconnect();
     await adapter.reconnect();
+    const reconnectedStatus = await adapter.revertibleStatus("edit");
     const undo = await adapter.revert("edit", true);
     const undone = await settle(environment.adapters);
     const commits = commitTrace([undone], implementation);
@@ -7055,15 +7375,21 @@ async function runUndoRedoReconnectTarget(config, context, implementation) {
       profileDigest: context.profileDigest,
       documentId: environment.documentId,
       liveHandleBeforeDisconnect: retained.status,
-      liveHandleAfterReconnect: undo.authoredKind === "Undo" ? "Valid" : "Invalid",
+      liveHandleAfterReconnect: reconnectedStatus.status,
       undoKind: undo.authoredKind,
       settlement,
+      authoredCount: undo.authoredCount,
       outboundCount: undo.outboundCount,
       finalTree: checkpointFor(undone, implementation).wholeTree,
+      expectedTree,
       passed: true,
+      failed: false,
       skipped: false,
+      error: null,
       artifacts: [],
     };
+    assert.deepEqual(item.finalTree, item.expectedTree,
+      `${implementation} reconnect undo restored another tree`);
     item.artifacts = [await writeUndoRedoArtifact(context, item, {
       checkpoint: undone,
       eventTrace: commits,
@@ -7094,15 +7420,31 @@ export async function runUndoRedoScenarios(config, context, {
   for (const item of concurrent) {
     const implementation = item.authors[0];
     if (!kindsByImplementation.has(implementation)) {
-      kindsByImplementation.set(implementation, {
+      const kindItem = {
+        id: implementation,
         implementation,
         localKinds: item.localKinds,
         factoryAvailability: item.factoryAvailability,
         handleStatuses: item.handleStatuses.slice(0, 2),
         settlements: item.settlements,
+        authoredCounts: item.authoredCounts,
         outboundCounts: item.outboundCounts,
         finalTree: item.finalTree,
-      });
+        sourceId: item.id,
+        runId: item.runId,
+        profileDigest: item.profileDigest,
+        documentId: item.documentId,
+        passed: item.passed,
+        failed: item.failed,
+        skipped: item.skipped,
+        error: item.error,
+        artifacts: [],
+      };
+      kindItem.artifacts = [await writeUndoRedoArtifact(context, kindItem, {
+        sourceId: item.id,
+        sourceArtifacts: item.artifacts,
+      }, "undo-redo-kind")];
+      kindsByImplementation.set(implementation, kindItem);
     }
   }
   const upstreamCell = await runCell(config, context, {
@@ -7111,15 +7453,36 @@ export async function runUndoRedoScenarios(config, context, {
     fieldKind: "object",
     order: "a-first",
   });
-  kindsByImplementation.set("upstream", {
+  const upstreamKind = {
+    id: "upstream",
     implementation: "upstream",
     localKinds: upstreamCell.localKinds,
     factoryAvailability: upstreamCell.factoryAvailability,
     handleStatuses: upstreamCell.handleStatuses.slice(0, 2),
     settlements: upstreamCell.settlements,
+    authoredCounts: upstreamCell.authoredCounts,
     outboundCounts: upstreamCell.outboundCounts,
     finalTree: upstreamCell.finalTree,
-  });
+    sourceId: upstreamCell.id,
+    runId: upstreamCell.runId,
+    profileDigest: upstreamCell.profileDigest,
+    documentId: upstreamCell.documentId,
+    passed: upstreamCell.passed,
+    failed: upstreamCell.failed,
+    skipped: upstreamCell.skipped,
+    error: upstreamCell.error,
+    artifacts: [],
+  };
+  upstreamKind.artifacts = [await writeUndoRedoArtifact(
+    context,
+    upstreamKind,
+    {
+      sourceId: upstreamCell.id,
+      sourceArtifacts: upstreamCell.artifacts,
+    },
+    "undo-redo-kind",
+  )];
+  kindsByImplementation.set("upstream", upstreamKind);
   return {
     kinds: {
       implementations: implementations.map((implementation) =>
@@ -7175,6 +7538,7 @@ function seededMeasuredPayload(item) {
     reloads: item.reloads,
     schemaTransitions: item.schemaTransitions,
     transactions: item.transactions,
+    undoRedo: item.undoRedo,
     evidence: item.evidence,
   };
 }
@@ -7339,6 +7703,18 @@ export async function writeSeededFailure(context, schedule, state, error) {
     schemaTransitions: state.schemaTransitions,
     transactions: state.transactions ?? [],
     undoRedo: state.undoRedo ?? [],
+    handleNames: [...new Set((state.undoRedo ?? [])
+      .map(({ name }) => name).filter(Boolean))],
+    commitKinds: state.checkpoints.flatMap(({ observations }) =>
+      observations.flatMap(({ commits }) =>
+        (commits ?? []).filter(({ type }) => type === "commit")
+          .map(({ kind }) => kind))),
+    settlements: state.checkpoints.flatMap(({ observations }) =>
+      observations.flatMap(({ commits }) =>
+        (commits ?? []).filter(({ type }) => type === "settlement")
+          .map(({ outcome }) => outcome))),
+    eventTrace: state.checkpoints,
+    drainErrors: state.drainErrors ?? [],
     firstDifferencePath: error.checkpoint ? checkpointDifference([error.checkpoint]) : null,
     error: replayError(error),
   };
@@ -7573,19 +7949,31 @@ export async function executeScheduleAction(
       type: "retain",
       author: action.author,
       name: action.name,
+      lifecycle: action.lifecycle,
       result,
     });
   } else if (action.type === "revert") {
     const result = await adapters[action.author]
       .revert(action.name, action.dispose);
     state.undoRedo.push({
-      type: action.name === "undo" ? "redo" : "undo",
+      type: action.lifecycle,
+      lifecycle: action.lifecycle,
       author: action.author,
       name: action.name,
       dispose: action.dispose,
       result,
     });
     state.quiescent = false;
+  } else if (action.type === "dispose") {
+    const result = await adapters[action.author]
+      .disposeRevertible(action.name);
+    state.undoRedo.push({
+      type: "dispose",
+      lifecycle: action.lifecycle,
+      author: action.author,
+      name: action.name,
+      result,
+    });
   } else if (action.type === "hold-inbound") {
     await adapters[action.author].holdInbound();
     state.held[action.author].inbound = true;
@@ -7861,6 +8249,21 @@ export async function runSeededSchedule(config, context, schedule) {
     if (error.checkpoint) {
       error.checkpoint.label = state.currentAction?.label ?? error.checkpoint.label;
       state.checkpoints.push(error.checkpoint);
+    }
+    if (state.adapters) {
+      try {
+        const drained = await captureCheckpoint(
+          "seeded-failure-drain",
+          "intermediate",
+          state.adapters,
+        );
+        state.checkpoints.push(drained);
+      } catch (drainError) {
+        state.drainErrors = [
+          ...(state.drainErrors ?? []),
+          replayError(drainError),
+        ];
+      }
     }
     try {
       error.failurePath = await writeSeededFailure(context, schedule, state, error);

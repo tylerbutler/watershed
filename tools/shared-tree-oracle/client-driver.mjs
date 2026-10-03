@@ -215,6 +215,14 @@ export class JsonLinesChannel {
     return this.#result({ op: "retainLastLocalCommit", name });
   }
 
+  revertibleStatus(name) {
+    return this.#result({ op: "revertibleStatus", name });
+  }
+
+  disposeRevertible(name) {
+    return this.#result({ op: "disposeRevertible", name });
+  }
+
   revert(name, dispose) {
     return this.#result({ op: "revert", name, dispose });
   }
@@ -530,6 +538,8 @@ export async function startClient(target, descriptor, environment, options = {})
         channel.constrainedArrayRemove(targetPath, path, start, end),
       transaction: (scope) => channel.transaction(scope),
       retainLastLocalCommit: (name) => channel.retainLastLocalCommit(name),
+      revertibleStatus: (name) => channel.revertibleStatus(name),
+      disposeRevertible: (name) => channel.disposeRevertible(name),
       revert: (name, dispose) => channel.revert(name, dispose),
       async close() {
         const cleanupErrors = [];

@@ -125,6 +125,8 @@ pub type Command {
   ConstrainedArrayRemove(FieldPath, FieldPath, Int, Int)
   Transaction(TransactionScope)
   RetainLastLocalCommit(String)
+  RevertibleStatus(String)
+  DisposeRevertible(String)
   Revert(String, Bool)
   AwaitSynced(Int)
   Checkpoint
@@ -319,6 +321,9 @@ pub fn decode_request(raw: String) -> Result(Request, ProtocolError) {
     "transaction" -> decode_transaction_scope(data) |> result.map(Transaction)
     "retainLastLocalCommit" ->
       nonempty(data, "name") |> result.map(RetainLastLocalCommit)
+    "revertibleStatus" -> nonempty(data, "name") |> result.map(RevertibleStatus)
+    "disposeRevertible" ->
+      nonempty(data, "name") |> result.map(DisposeRevertible)
     "revert" -> {
       use name <- result.try(nonempty(data, "name"))
       use dispose <- result.try(required(data, "dispose", decode.bool))

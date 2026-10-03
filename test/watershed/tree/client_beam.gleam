@@ -518,12 +518,33 @@ fn execute(
           active,
           False,
         )
+        protocol.RevertibleStatus(name) -> #(
+          process.call(handle_store, waiting: 1000, sending: fn(reply) {
+            HandleStatus(name, reply)
+          }),
+          tree,
+          events,
+          active,
+          False,
+        )
+        protocol.DisposeRevertible(name) -> #(
+          process.call(handle_store, waiting: 1000, sending: fn(reply) {
+            DisposeHandle(name, reply)
+          }),
+          tree,
+          events,
+          active,
+          False,
+        )
         protocol.Revert(name, dispose) -> #(
           process.call(handle_store, waiting: 1000, sending: fn(reply) {
             RevertHandle(
               name,
               dispose,
-              fn() { observe(document).pending_tree_count },
+              fn() {
+                let observation = observe(document)
+                #(observation.pending_tree_count, observation.sequence_number)
+              },
               reply,
             )
           }),
@@ -896,10 +917,12 @@ type HandleMessage {
   CaptureCommit(TreeCommitKind, Bool, Bool, Option(watershed.TreeRevertible))
   SettleCommit(TreeCommitKind, TreeCommitOutcome)
   RetainHandle(String, process.Subject(Result(Json, protocol.ProtocolError)))
+  HandleStatus(String, process.Subject(Result(Json, protocol.ProtocolError)))
+  DisposeHandle(String, process.Subject(Result(Json, protocol.ProtocolError)))
   RevertHandle(
     String,
     Bool,
-    fn() -> Int,
+    fn() -> #(Int, Option(Int)),
     process.Subject(Result(Json, protocol.ProtocolError)),
   )
   DrainCommits(process.Subject(List(Json)))
@@ -958,6 +981,44 @@ fn observe_commit(
         })
       Nil
     }
+  }
+}
+
+@target(erlang)
+fn await_revert_commit(
+  subject: process.Subject(HandleMessage),
+  commits: List(Json),
+) -> Result(
+  #(TreeCommitKind, Option(watershed.TreeRevertible), Json, List(Json)),
+  protocol.ProtocolError,
+) {
+  case process.receive(subject, 1000) {
+    Error(_) -> Error(facade("revert", "Revert authored no local commit event"))
+    Ok(SettleCommit(kind, outcome)) ->
+      await_revert_commit(subject, [
+        json.object([
+          #("type", json.string("settlement")),
+          #("kind", json.string(commit_kind(kind))),
+          #("outcome", json.string(commit_outcome(outcome))),
+        ]),
+        ..commits
+      ])
+    Ok(CaptureCommit(kind, local, factory_available, acquired)) -> {
+      let commit =
+        json.object([
+          #("type", json.string("commit")),
+          #("kind", json.string(commit_kind(kind))),
+          #("local", json.bool(local)),
+          #("factoryAvailable", json.bool(factory_available)),
+          #("handleAcquired", json.bool(option.is_some(acquired))),
+        ])
+      case local {
+        True -> Ok(#(kind, acquired, commit, commits))
+        False -> await_revert_commit(subject, [commit, ..commits])
+      }
+    }
+    Ok(_) ->
+      Error(facade("revert", "Revert produced an unexpected handle operation"))
   }
 }
 
@@ -1026,7 +1087,45 @@ fn handle_store_loop(
           )
         }
       }
-    RevertHandle(name, dispose, _pending_count, reply) ->
+    HandleStatus(name, reply) -> {
+      let outcome = case dict.get(handles, name) {
+        Error(_) ->
+          Error(facade(
+            "revertibleStatus",
+            "Unknown revertible handle: " <> name,
+          ))
+        Ok(entry) ->
+          Ok(
+            json.object([
+              #("name", json.string(name)),
+              #("status", json.string(revertible_status(entry.0))),
+            ]),
+          )
+      }
+      process.send(reply, outcome)
+      handle_store_loop(subject, handles, last_local, commits)
+    }
+    DisposeHandle(name, reply) -> {
+      let outcome = case dict.get(handles, name) {
+        Error(_) ->
+          Error(facade(
+            "disposeRevertible",
+            "Unknown revertible handle: " <> name,
+          ))
+        Ok(entry) ->
+          watershed.tree_dispose_revertible(entry.0)
+          |> result.map(fn(_) {
+            json.object([
+              #("name", json.string(name)),
+              #("status", json.string(revertible_status(entry.0))),
+            ])
+          })
+          |> result.map_error(fn(reason) { facade("disposeRevertible", reason) })
+      }
+      process.send(reply, outcome)
+      handle_store_loop(subject, handles, last_local, commits)
+    }
+    RevertHandle(name, dispose, pending_count, reply) ->
       case dict.get(handles, name) {
         Error(_) -> {
           process.send(
@@ -1036,24 +1135,58 @@ fn handle_store_loop(
           handle_store_loop(subject, handles, last_local, commits)
         }
         Ok(entry) -> {
-          let outcome =
-            watershed.tree_revert(entry.0, dispose)
-            |> result.map(fn(_) {
-              let authored_kind = case entry.1 {
-                UndoCommit -> RedoCommit
-                DefaultCommit | RedoCommit -> UndoCommit
+          let #(before_pending, before_sequence) = pending_count()
+          let outcome = case watershed.tree_revert(entry.0, dispose) {
+            Error(reason) -> Error(facade("revert", reason))
+            Ok(_) ->
+              case await_revert_commit(subject, commits) {
+                Error(error) -> Error(error)
+                Ok(#(authored_kind, acquired, commit, observed_commits)) -> {
+                  let #(after_pending, after_sequence) = pending_count()
+                  let sequence_count = case before_sequence, after_sequence {
+                    Some(before), Some(after) -> int.max(after - before, 0)
+                    _, _ -> 0
+                  }
+                  let authored_count = list.length([commit])
+                  let outbound_count =
+                    int.max(
+                      after_pending - before_pending,
+                      int.min(sequence_count, authored_count),
+                    )
+                  Ok(#(
+                    json.object([
+                      #("name", json.string(name)),
+                      #("authoredKind", json.string(commit_kind(authored_kind))),
+                      #("status", json.string(revertible_status(entry.0))),
+                      #("settlement", json.string("Pending")),
+                      #("authoredCount", json.int(authored_count)),
+                      #("outboundCount", json.int(outbound_count)),
+                    ]),
+                    authored_kind,
+                    acquired,
+                    commit,
+                    observed_commits,
+                  ))
+                }
               }
-              json.object([
-                #("name", json.string(name)),
-                #("authoredKind", json.string(commit_kind(authored_kind))),
-                #("status", json.string(revertible_status(entry.0))),
-                #("settlement", json.string("Pending")),
-                #("outboundCount", json.int(1)),
+          }
+          case outcome {
+            Error(error) -> {
+              process.send(reply, Error(error))
+              handle_store_loop(subject, handles, last_local, commits)
+            }
+            Ok(#(value, authored_kind, acquired, commit, observed_commits)) -> {
+              process.send(reply, Ok(value))
+              let next = case acquired {
+                Some(handle) -> Some(#(handle, authored_kind))
+                None -> last_local
+              }
+              handle_store_loop(subject, handles, next, [
+                commit,
+                ..observed_commits
               ])
-            })
-            |> result.map_error(fn(reason) { facade("revert", reason) })
-          process.send(reply, outcome)
-          handle_store_loop(subject, handles, last_local, commits)
+            }
+          }
         }
       }
     DrainCommits(reply) -> {

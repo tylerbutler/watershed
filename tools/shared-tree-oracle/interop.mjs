@@ -691,6 +691,7 @@ function artifactReferences(report) {
     ...report.transactionReconnect.flatMap(({ evidence }) => evidence.artifacts),
     ...Object.values(report.transactionReloadMatrix).flatMap((row) =>
       Object.values(row).flatMap(({ artifacts }) => artifacts)),
+    ...report.undoRedoKinds.implementations.flatMap(({ artifacts }) => artifacts),
     ...report.undoRedoConcurrent.flatMap(({ artifacts }) => artifacts),
     ...report.undoRedoReconnect.flatMap(({ artifacts }) => artifacts),
     ...Object.values(report.undoRedoReloadMatrix).flatMap((row) =>
@@ -1193,6 +1194,7 @@ function seededMeasuredPayload(item) {
     reloads: item.reloads,
     schemaTransitions: item.schemaTransitions,
     transactions: item.transactions,
+    undoRedo: item.undoRedo,
     evidence: item.evidence,
   };
 }
@@ -1548,6 +1550,81 @@ function seededEvidence(item, label) {
       && observation && typeof observation === "object"
       && Array.isArray(selectedSummaryRequests)),
   `${label} has invalid fresh reload evidence`);
+
+  const lifecycleActions = item.actions.filter(({ type }) =>
+    ["retain", "revert", "dispose"].includes(type));
+  assert(Array.isArray(item.undoRedo)
+    && item.undoRedo.length === lifecycleActions.length,
+  `${label} has incomplete undo/redo lifecycle evidence`);
+  for (const [index, action] of lifecycleActions.entries()) {
+    const record = object(item.undoRedo[index],
+      `${label} lacks undo/redo lifecycle ${index}`);
+    assert.equal(record.author, action.author,
+      `${label} lifecycle ${index} changed author`);
+    assert.equal(record.name, action.name,
+      `${label} lifecycle ${index} changed handle`);
+    assert.equal(record.lifecycle, action.lifecycle,
+      `${label} lifecycle ${index} changed phase`);
+    const result = object(record.result,
+      `${label} lifecycle ${index} lacks a result`);
+    assert.equal(result.name, action.name,
+      `${label} lifecycle ${index} returned another handle`);
+    if (action.type === "retain") {
+      assert.equal(record.type, "retain",
+        `${label} lifecycle ${index} changed action`);
+      assert.equal(result.kind, action.lifecycle === "undo" ? "Undo" : "Default",
+        `${label} lifecycle ${index} retained another commit kind`);
+      assert.equal(result.factoryAvailable, true,
+        `${label} lifecycle ${index} lacks a factory`);
+      assert.equal(result.status, "Valid",
+        `${label} lifecycle ${index} retained an invalid handle`);
+    } else if (action.type === "revert") {
+      assert.equal(record.type, action.lifecycle,
+        `${label} lifecycle ${index} changed revert phase`);
+      assert.equal(record.dispose, action.dispose,
+        `${label} lifecycle ${index} changed disposal`);
+      assert.equal(result.authoredKind,
+        action.lifecycle === "redo" ? "Redo" : "Undo",
+      `${label} lifecycle ${index} authored another kind`);
+      assert.equal(result.authoredCount, 1,
+        `${label} lifecycle ${index} authored another commit count`);
+      assert.equal(result.outboundCount, 1,
+        `${label} lifecycle ${index} submitted another operation count`);
+      assert.equal(result.status, action.dispose ? "Disposed" : "Valid",
+        `${label} lifecycle ${index} has another handle transition`);
+    } else {
+      assert.equal(record.type, "dispose",
+        `${label} lifecycle ${index} changed disposal action`);
+      assert.equal(result.status, "Disposed",
+        `${label} lifecycle ${index} did not dispose the handle`);
+    }
+  }
+  const lifecycleAuthors = new Set(lifecycleActions.map(({ author }) => author));
+  const lifecycleEvents = item.checkpoints.flatMap(({ observations }) =>
+    observations
+      .filter(({ implementation }) => lifecycleAuthors.has(implementation))
+      .flatMap(({ commits }) => commits ?? []));
+  const revertActions = lifecycleActions.filter(({ type }) => type === "revert");
+  const expectedKinds = revertActions.map(({ lifecycle }) =>
+    lifecycle === "redo" ? "Redo" : "Undo");
+  const commitEvents = lifecycleEvents.filter(
+    ({ type, local, kind }) =>
+      type === "commit" && local === true && ["Undo", "Redo"].includes(kind),
+  );
+  const settlementEvents = lifecycleEvents.filter(
+    ({ type, kind }) =>
+      type === "settlement" && ["Undo", "Redo"].includes(kind),
+  );
+  assert.deepEqual(commitEvents.map(({ kind }) => kind), expectedKinds,
+    `${label} lifecycle commit events are missing, duplicated, or reordered`);
+  assert(commitEvents.every(({ factoryAvailable, handleAcquired }) =>
+    factoryAvailable === true && handleAcquired === true),
+  `${label} lifecycle commit event lacks its accepted factory`);
+  assert.deepEqual(settlementEvents.map(({ kind, outcome }) => ({
+    kind,
+    outcome,
+  })), expectedKinds.map((kind) => ({ kind, outcome: "FullyApplied" })),
+  `${label} lifecycle settlements are missing, duplicated, or reordered`);
 }
 
 function measured(item, expected, authors, evidence, label) {
@@ -2469,7 +2546,47 @@ function validateTransactionSections(report, expected, evidence) {
   }
 }
 
-function validateUndoRedoSections(report) {
+function undoRedoMeasuredPayload(item) {
+  return Object.fromEntries(Object.entries(item)
+    .filter(([name]) => name !== "artifacts"));
+}
+
+function validUndoRedoRow(item, evidence, expected, contract, label) {
+  assert.equal(item.runId, expected.runId, `${label} belongs to another run`);
+  assert.equal(item.profileDigest, expected.profileDigest,
+    `${label} uses another profile`);
+  assert(typeof item.documentId === "string" && item.documentId.length > 0,
+    `${label} lacks a document ID`);
+  assert.equal(item.passed, true, `${label} did not pass`);
+  assert.equal(item.failed, false, `${label} is marked failed`);
+  assert.equal(item.skipped, false, `${label} was skipped`);
+  assert.equal(item.error, null, `${label} contains an error`);
+  artifacts(item, evidence, expected, contract, label);
+  for (const reference of item.artifacts) {
+    const claim = evidence.get(reference).claim;
+    assert.deepEqual(claim.measured, undoRedoMeasuredPayload(item),
+      `${label} artifact measured payload differs`);
+    object(claim.raw, `${label} artifact lacks raw observations`);
+  }
+}
+
+function validateCommitLifecycle(item, label, handleStatuses) {
+  assert.deepEqual(item.localKinds, ["Default", "Undo", "Redo"],
+    `${label} local commit kinds changed`);
+  assert.deepEqual(item.factoryAvailability, [true, true, true],
+    `${label} factory availability changed`);
+  assert.deepEqual(item.handleStatuses, handleStatuses,
+    `${label} handle statuses changed`);
+  assert.deepEqual(item.settlements,
+    ["FullyApplied", "FullyApplied", "FullyApplied"],
+    `${label} lacks settlement observations`);
+  assert.deepEqual(item.authoredCounts, [1, 1, 1],
+    `${label} authored another commit count`);
+  assert.deepEqual(item.outboundCounts, [1, 1, 1],
+    `${label} submitted another operation count`);
+}
+
+function validateUndoRedoSections(report, evidence, expected) {
   for (const section of requiredUndoRedoSections) {
     assert(report[section] !== undefined, `Missing ${section}`);
   }
@@ -2484,16 +2601,24 @@ function validateUndoRedoSections(report) {
     "Undo/redo kinds lack an implementation",
   );
   for (const item of kinds.implementations) {
-    assert.deepEqual(item.localKinds, ["Default", "Undo", "Redo"],
-      `${item.implementation} undo/redo kinds changed`);
-    assert.deepEqual(item.factoryAvailability, [true, true, true],
-      `${item.implementation} lacks local factories`);
-    assert.deepEqual(item.settlements,
-      ["FullyApplied", "FullyApplied", "FullyApplied"],
-      `${item.implementation} lacks settlement observations`);
-    assert.deepEqual(item.outboundCounts, [1, 1, 1],
-      `${item.implementation} submitted another operation count`);
+    validateCommitLifecycle(
+      item,
+      `${item.implementation} undo/redo kinds`,
+      ["Valid", "Disposed"],
+    );
     object(item.finalTree, `${item.implementation} lacks a final tree`);
+    validUndoRedoRow(item, evidence, expected, {
+      kind: "undo-redo-kind",
+      subject: item.implementation,
+      documentId: item.documentId,
+    }, `${item.implementation} undo/redo kinds`);
+    for (const reference of item.artifacts) {
+      const raw = evidence.get(reference).claim.raw;
+      assert.equal(raw.sourceId, item.sourceId,
+        `${item.implementation} undo/redo kind artifact names another source`);
+      assert(Array.isArray(raw.sourceArtifacts) && raw.sourceArtifacts.length > 0,
+        `${item.implementation} undo/redo kind artifact lacks source evidence`);
+    }
   }
 
   const pairs = [
@@ -2517,23 +2642,50 @@ function validateUndoRedoSections(report) {
         assert.deepEqual(item.authors, authors, `${id} authors changed`);
         assert.equal(item.fieldKind, fieldKind, `${id} field kind changed`);
         assert.equal(item.order, order, `${id} race ordering changed`);
-        assert.deepEqual(item.localKinds, ["Default", "Undo", "Redo"],
-          `${id} local commit kinds changed`);
-        assert.deepEqual(item.factoryAvailability, [true, true, true],
-          `${id} factory availability changed`);
-        assert.deepEqual(item.settlements,
-          ["FullyApplied", "FullyApplied", "FullyApplied"],
-          `${id} lacks settlement observations`);
-        assert.deepEqual(item.outboundCounts, [1, 1, 1],
-          `${id} outbound counts changed`);
+        validateCommitLifecycle(item, id, ["Valid", "Disposed", "Disposed"]);
         assert.equal(item.remoteFactoryAvailable, false,
           `${id} gave the peer a revertible factory`);
         assert.equal(item.passed, true, `${id} failed`);
         assert.equal(item.skipped, false, `${id} was skipped`);
         for (const phase of ["authored", "concurrent", "undone", "redone"]) {
           object(item.snapshots?.[phase], `${id} lacks the ${phase} snapshot`);
+          assert.deepEqual(item.snapshots[phase], item.expectedSnapshots?.[phase],
+            `${id} ${phase} whole tree differs from its expectation`);
         }
-        object(item.finalTree, `${id} lacks a final tree`);
+        assert.deepEqual(item.finalTree, item.expectedSnapshots.redone,
+          `${id} final tree differs from the redone expectation`);
+        validUndoRedoRow(item, evidence, expected, {
+          kind: "undo-redo",
+          subject: id,
+          documentId: item.documentId,
+        }, id);
+        for (const reference of item.artifacts) {
+          const raw = evidence.get(reference).claim.raw;
+          const trace = object(raw.eventTrace, `${id} lacks raw event traces`);
+          const authorEvents = trace[item.authors[0]];
+          const peerEvents = trace[item.authors[1]];
+          assert(Array.isArray(authorEvents) && Array.isArray(peerEvents),
+            `${id} lacks author or peer events`);
+          const local = authorEvents.filter(
+            ({ type, local }) => type === "commit" && local === true,
+          );
+          assert.deepEqual(local.map(({ kind }) => kind), item.localKinds,
+            `${id} raw local events changed`);
+          assert(local.every(({ factoryAvailable, handleAcquired }) =>
+            factoryAvailable === true && handleAcquired === true),
+          `${id} raw local event lacks its factory`);
+          const settlements = authorEvents.filter(
+            ({ type }) => type === "settlement",
+          );
+          assert.deepEqual(settlements.map(({ outcome }) => outcome),
+            item.settlements, `${id} raw settlements changed`);
+          const remote = peerEvents.filter(
+            ({ type, local }) => type === "commit" && local === false,
+          );
+          assert(remote.length > 0
+            && remote.every(({ factoryAvailable }) => factoryAvailable === false),
+          `${id} lacks remote events without factories`);
+        }
       }
     }
   }
@@ -2556,9 +2708,22 @@ function validateUndoRedoSections(report) {
       `${implementation} reconnect lacks settlement observation`);
     assert.equal(item.outboundCount, 1,
       `${implementation} reconnect submitted another operation count`);
-    assert.equal(item.passed, true, `${implementation} reconnect failed`);
-    assert.equal(item.skipped, false, `${implementation} reconnect was skipped`);
-    object(item.finalTree, `${implementation} reconnect lacks a final tree`);
+    assert.equal(item.authoredCount, 1,
+      `${implementation} reconnect authored another commit count`);
+    assert.deepEqual(item.finalTree, item.expectedTree,
+      `${implementation} reconnect restored another tree`);
+    validUndoRedoRow(item, evidence, expected, {
+      kind: "undo-redo-reconnect",
+      subject: item.id,
+      documentId: item.documentId,
+    }, `${implementation} reconnect`);
+    for (const reference of item.artifacts) {
+      const raw = evidence.get(reference).claim.raw;
+      assert(Array.isArray(raw.eventTrace) && raw.eventTrace.length > 0,
+        `${implementation} reconnect lacks raw events`);
+      assert.deepEqual(raw.handleNames, ["edit"],
+        `${implementation} reconnect names another handle`);
+    }
   }
 
   const reload = object(report.undoRedoReloadMatrix,
@@ -2579,6 +2744,35 @@ function validateUndoRedoSections(report) {
         assert.equal(item.loaded, true, "Undo/redo reload did not load");
         assert.equal(item.historicalHandleAvailable, false,
           "Undo/redo reload recreated a historical handle");
+        assert.match(item.historicalRetainError,
+          /No unretained local commit is available/,
+        "Undo/redo reload returned another historical retain error");
+        assert(Array.isArray(item.historicalLoadCommits)
+          && item.historicalLoadCommits.every(
+            ({ type, local, factoryAvailable }) =>
+              type !== "commit" || (local !== true && factoryAvailable !== true),
+          ),
+        "Undo/redo reload observed a historical local commit or factory");
+        assert.equal(item.loadedVersion, item.writerVersion,
+          "Undo/redo reload selected another writer version");
+        assert(Number.isSafeInteger(item.snapshotSequenceNumber)
+          && item.snapshotSequenceNumber >= 0
+          && Number.isSafeInteger(item.replayStartSequenceNumber)
+          && item.replayStartSequenceNumber >= item.snapshotSequenceNumber,
+        "Undo/redo reload lacks exact snapshot replay evidence");
+        assert(Array.isArray(item.selectedSummaryRequests)
+          && item.selectedSummaryRequests.includes(item.writerVersion),
+        "Undo/redo reload did not request the published writer version");
+        const load = object(item.loadEvidence,
+          "Undo/redo reload lacks storage load evidence");
+        assert.equal(load.loadedVersion, item.writerVersion,
+          "Undo/redo reload load evidence names another version");
+        assert.equal(load.replayStartSequenceNumber,
+          item.replayStartSequenceNumber,
+        "Undo/redo reload load evidence names another sequence");
+        assert.deepEqual(load.selectedSummaryRequests,
+          item.selectedSummaryRequests,
+        "Undo/redo reload selected-summary evidence changed");
         assert.equal(item.newLocalKind, "Default",
           "Undo/redo reload authored another local kind");
         assert.equal(item.newFactoryAvailable, true,
@@ -2589,9 +2783,25 @@ function validateUndoRedoSections(report) {
           "Undo/redo reload lacks settlement observation");
         assert.equal(item.outboundCount, 1,
           "Undo/redo reload submitted another operation count");
-        assert.equal(item.passed, true, "Undo/redo reload cell failed");
-        assert.equal(item.skipped, false, "Undo/redo reload cell was skipped");
+        assert.equal(item.authoredCount, 1,
+          "Undo/redo reload authored another commit count");
+        assert.equal(item.newHandleStatus, "Valid",
+          "Undo/redo reload created another handle status");
         object(item.finalTree, "Undo/redo reload lacks a final tree");
+        validUndoRedoRow(item, evidence, expected, {
+          kind: "undo-redo-reload",
+          subject: `${writer}:${stage}->${reader}`,
+          documentId: item.documentId,
+        }, `Undo/redo reload ${writer}:${stage}->${reader}`);
+        for (const reference of item.artifacts) {
+          const raw = evidence.get(reference).claim.raw;
+          assert.deepEqual(raw.load, item.loadEvidence,
+            "Undo/redo reload raw load evidence changed");
+          assert.deepEqual(raw.loaded?.commits, item.historicalLoadCommits,
+            "Undo/redo reload raw historical commits changed");
+          assert.deepEqual(raw.handleNames, ["post-load"],
+            "Undo/redo reload names another handle");
+        }
       }
     }
   }
@@ -2653,7 +2863,7 @@ export function validateInteropReport(report, expected) {
   validateSchemaSections(report, expected, evidence);
   validateIdentifierSections(report, expected, evidence);
   validateTransactionSections(report, expected, evidence);
-  validateUndoRedoSections(report);
+  validateUndoRedoSections(report, evidence, expected);
 
   const requiredScenarios = requiredScenarioCells();
   const scenariosById = exactCells(
@@ -2705,6 +2915,7 @@ export function validateInteropReport(report, expected) {
     iterations: expected.iterations,
   });
   const seededIndexes = new Set();
+  const lifecycleCoverage = new Set();
   for (const item of report.seeded) {
     assert(Number.isSafeInteger(item.index)
       && item.index >= 0 && item.index < expected.iterations,
@@ -2718,12 +2929,45 @@ export function validateInteropReport(report, expected) {
     assert.equal(item.profile, schedule.profile, "Seeded profile changed");
     assert.deepEqual(item.roles, schedule.roles, "Seeded roles changed");
     assert.deepEqual(item.actions, schedule.actions, "Seeded actions changed");
+    const retainIndex = item.actions.findIndex(
+      ({ type, lifecycle }) => type === "retain" && lifecycle === "edit",
+    );
+    const undoIndex = item.actions.findIndex(
+      ({ type, lifecycle }) => type === "revert" && lifecycle === "undo",
+    );
+    const redoIndex = item.actions.findIndex(
+      ({ type, lifecycle }) => type === "revert" && lifecycle === "redo",
+    );
+    const disposeIndex = item.actions.findIndex(
+      ({ type }) => type === "dispose",
+    );
+    assert(retainIndex >= 0 && undoIndex > retainIndex
+      && redoIndex > undoIndex && disposeIndex > redoIndex,
+    `Seeded ${item.index} lacks an ordered retained lifetime`);
+    for (const action of item.actions.slice(retainIndex + 1, undoIndex)) {
+      lifecycleCoverage.add(action.type);
+    }
     validateSeededTransactions(item, schedule);
     measured(item, expected, implementations, evidence, `Seeded ${item.index}`);
   }
   assert.deepEqual([...seededIndexes].sort((a, b) => a - b),
     Array.from({ length: expected.iterations }, (_, index) => index),
   "Seeded results omit an index");
+  for (const type of [
+    "set",
+    "map-set",
+    "array-insert",
+    "release",
+    "checkpoint",
+    "transaction",
+    "disconnect",
+    "reconnect",
+    "summarize",
+    "reload",
+  ]) {
+    assert(lifecycleCoverage.has(type),
+      `Seeded undo/redo lifetimes lack intervening ${type} coverage`);
+  }
 
   validateReload(report, expected, evidence);
   validateMapReload(report, expected, evidence);

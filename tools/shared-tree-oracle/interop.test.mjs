@@ -24,6 +24,7 @@ import {
   requiredScenarioCells,
   transactionConstraintCells,
   transactionPairCells,
+  writeSeededFailure,
 } from "./interop-scenarios.mjs";
 
 const oracleDirectory = resolve(import.meta.dirname);
@@ -474,7 +475,60 @@ async function validFixture() {
           outboundCount: action.result === "abort" ? 0 : 1,
           events: [],
         })),
+      undoRedo: schedule.actions
+        .filter(({ type }) => ["retain", "revert", "dispose"].includes(type))
+        .map((action) => ({
+          type: action.type === "revert" ? action.lifecycle : action.type,
+          lifecycle: action.lifecycle,
+          author: action.author,
+          name: action.name,
+          ...(action.dispose === undefined ? {} : { dispose: action.dispose }),
+          result: action.type === "retain"
+            ? {
+                name: action.name,
+                kind: action.lifecycle === "undo" ? "Undo" : "Default",
+                factoryAvailable: true,
+                status: "Valid",
+              }
+            : action.type === "revert"
+              ? {
+                  name: action.name,
+                  authoredKind: action.lifecycle === "redo" ? "Redo" : "Undo",
+                  status: action.dispose ? "Disposed" : "Valid",
+                  settlement: "Pending",
+                  authoredCount: 1,
+                  outboundCount: 1,
+                }
+              : {
+                  name: action.name,
+                  status: "Disposed",
+                },
+        })),
     };
+    const lifecycleAuthor = item.actions.find(
+      ({ type, lifecycle }) => type === "retain" && lifecycle === "edit",
+    )?.author;
+    const lifecycleObservation = item.checkpoints.at(-1).observations.find(
+      ({ implementation }) => implementation === lifecycleAuthor,
+    );
+    lifecycleObservation.commits = [
+      {
+        type: "commit",
+        kind: "Undo",
+        local: true,
+        factoryAvailable: true,
+        handleAcquired: true,
+      },
+      { type: "settlement", kind: "Undo", outcome: "FullyApplied" },
+      {
+        type: "commit",
+        kind: "Redo",
+        local: true,
+        factoryAvailable: true,
+        handleAcquired: true,
+      },
+      { type: "settlement", kind: "Redo", outcome: "FullyApplied" },
+    ];
     item.evidence.rawSequencedOperationCount = 30;
     const releaseActions = item.actions.filter(({ type }) => type === "release");
     const outboundActions = releaseActions.filter(({ direction }) => direction === "outbound");
@@ -537,6 +591,7 @@ async function validFixture() {
         reloads: item.reloads,
         schemaTransitions: item.schemaTransitions,
         transactions: item.transactions,
+        undoRedo: item.undoRedo,
         evidence: item.evidence,
       }, ...rawGates() },
     )];
@@ -1752,6 +1807,210 @@ async function validFixture() {
       return [reader, item];
     })),
   ]));
+  const undoCommitEvents = (local) => [
+    ...["Default", "Undo", "Redo"].map((kind) => ({
+      type: "commit",
+      kind,
+      local,
+      factoryAvailable: local,
+      handleAcquired: local,
+    })),
+    ...["Default", "Undo", "Redo"].map((kind) => ({
+      type: "settlement",
+      kind,
+      outcome: "FullyApplied",
+    })),
+  ];
+  const undoRedoConcurrent = [
+    ["javascript", "upstream"],
+    ["erlang", "upstream"],
+    ["javascript", "erlang"],
+  ].flatMap((authors) => ["object", "map", "array", "move", "transaction"]
+    .flatMap((fieldKind) => ["a-first", "b-first"].map((order) => {
+      const id = `undo-redo:${authors.join("<->")}:${fieldKind}:${order}`;
+      const expectedSnapshots = {
+        authored: { phase: "authored", edit: true, peer: false },
+        concurrent: { phase: "concurrent", edit: true, peer: true },
+        undone: { phase: "undone", edit: false, peer: true },
+        redone: { phase: "redone", edit: true, peer: true },
+      };
+      const item = {
+        id,
+        authors,
+        fieldKind,
+        order,
+        runId: "current",
+        profileDigest: loaded.profileDigest,
+        documentId: `document-${id}`,
+        snapshots: structuredClone(expectedSnapshots),
+        expectedSnapshots,
+        localKinds: ["Default", "Undo", "Redo"],
+        factoryAvailability: [true, true, true],
+        handleStatuses: ["Valid", "Disposed", "Disposed"],
+        settlements: ["FullyApplied", "FullyApplied", "FullyApplied"],
+        authoredCounts: [1, 1, 1],
+        outboundCounts: [1, 1, 1],
+        remoteFactoryAvailable: false,
+        finalTree: structuredClone(expectedSnapshots.redone),
+        passed: true,
+        failed: false,
+        skipped: false,
+        error: null,
+        artifacts: [],
+      };
+      item.artifacts = [artifact("undo-redo", id, item.documentId, {
+        measured: reloadMeasuredPayload(item),
+        raw: {
+          checkpoints: structuredClone(item.snapshots),
+          eventTrace: {
+            [authors[0]]: undoCommitEvents(true),
+            [authors[1]]: [
+              {
+                type: "commit",
+                kind: "Default",
+                local: true,
+                factoryAvailable: true,
+                handleAcquired: true,
+              },
+              ...undoCommitEvents(false).filter(({ type }) => type === "commit"),
+            ],
+            [implementations.find((value) => !authors.includes(value))]: [],
+          },
+          handleNames: ["edit", "undo"],
+        },
+      })];
+      return item;
+    })));
+  const undoRedoKinds = {
+    implementations: implementations.map((implementation) => {
+      const source = undoRedoConcurrent.find(
+        ({ authors }) => authors[0] === implementation,
+      ) ?? undoRedoConcurrent[0];
+      const item = {
+        id: implementation,
+        implementation,
+        sourceId: source.id,
+        runId: "current",
+        profileDigest: loaded.profileDigest,
+        documentId: `undo-kinds-${implementation}`,
+        localKinds: ["Default", "Undo", "Redo"],
+        factoryAvailability: [true, true, true],
+        handleStatuses: ["Valid", "Disposed"],
+        settlements: ["FullyApplied", "FullyApplied", "FullyApplied"],
+        authoredCounts: [1, 1, 1],
+        outboundCounts: [1, 1, 1],
+        finalTree: { title: `${implementation}-redo` },
+        passed: true,
+        failed: false,
+        skipped: false,
+        error: null,
+        artifacts: [],
+      };
+      item.artifacts = [artifact(
+        "undo-redo-kind",
+        implementation,
+        item.documentId,
+        {
+          measured: reloadMeasuredPayload(item),
+          raw: { sourceId: source.id, sourceArtifacts: source.artifacts },
+        },
+      )];
+      return item;
+    }),
+  };
+  const undoRedoReconnect = ["javascript", "erlang"].map((implementation) => {
+    const item = {
+      id: `undo-redo-reconnect:${implementation}`,
+      implementation,
+      runId: "current",
+      profileDigest: loaded.profileDigest,
+      documentId: `undo-reconnect-${implementation}`,
+      liveHandleBeforeDisconnect: "Valid",
+      liveHandleAfterReconnect: "Valid",
+      undoKind: "Undo",
+      settlement: "FullyApplied",
+      authoredCount: 1,
+      outboundCount: 1,
+      expectedTree: { phase: "baseline", peer: true },
+      finalTree: { phase: "baseline", peer: true },
+      passed: true,
+      failed: false,
+      skipped: false,
+      error: null,
+      artifacts: [],
+    };
+    item.artifacts = [artifact(
+      "undo-redo-reconnect",
+      item.id,
+      item.documentId,
+      {
+        measured: reloadMeasuredPayload(item),
+        raw: {
+          eventTrace: undoCommitEvents(true),
+          handleNames: ["edit"],
+        },
+      },
+    )];
+    return item;
+  });
+  const undoRedoReloadMatrix = Object.fromEntries(implementations.map((writer) => [
+    writer,
+    Object.fromEntries(["undo", "redo"].map((stage, stageIndex) => [
+      stage,
+      Object.fromEntries(implementations.map((reader, readerIndex) => {
+        const item = {
+          writer,
+          reader,
+          stage,
+          runId: "current",
+          profileDigest: loaded.profileDigest,
+          documentId: `undo-reload-${writer}-${stage}`,
+          writerVersion: `${writer}-${stage}-version`,
+          loadedVersion: `${writer}-${stage}-version`,
+          snapshotSequenceNumber: 70 + stageIndex,
+          replayStartSequenceNumber: 70 + stageIndex + readerIndex,
+          selectedSummaryRequests: [`${writer}-${stage}-version`],
+          loadEvidence: {
+            loadedVersion: `${writer}-${stage}-version`,
+            replayStartSequenceNumber: 70 + stageIndex + readerIndex,
+            selectedSummaryRequests: [`${writer}-${stage}-version`],
+          },
+          loaded: true,
+          historicalHandleAvailable: false,
+          historicalRetainError: "No unretained local commit is available",
+          historicalLoadCommits: [],
+          newLocalKind: "Default",
+          newFactoryAvailable: true,
+          newHandleStatus: "Valid",
+          undoKind: "Undo",
+          settlement: "FullyApplied",
+          authoredCount: 1,
+          outboundCount: 1,
+          finalTree: { writer, reader, stage },
+          passed: true,
+          failed: false,
+          skipped: false,
+          error: null,
+          artifacts: [],
+        };
+        item.artifacts = [artifact(
+          "undo-redo-reload",
+          `${writer}:${stage}->${reader}`,
+          item.documentId,
+          {
+            measured: reloadMeasuredPayload(item),
+            raw: {
+              load: item.loadEvidence,
+              loaded: { commits: [] },
+              final: { commits: undoCommitEvents(true) },
+              handleNames: ["post-load"],
+            },
+          },
+        )];
+        return [reader, item];
+      })),
+    ])),
+  ]));
   const report = {
     formatVersion: 1,
     runId: "current",
@@ -1798,76 +2057,10 @@ async function validFixture() {
     transactionConstraints,
     transactionReconnect,
     transactionReloadMatrix,
-    undoRedoKinds: {
-      implementations: implementations.map((implementation) => ({
-        implementation,
-        localKinds: ["Default", "Undo", "Redo"],
-        factoryAvailability: [true, true, true],
-        handleStatuses: ["Valid", "Disposed"],
-        settlements: ["FullyApplied", "FullyApplied", "FullyApplied"],
-        outboundCounts: [1, 1, 1],
-        finalTree: { title: `${implementation}-redo` },
-      })),
-    },
-    undoRedoConcurrent: [
-      ["javascript", "upstream"],
-      ["erlang", "upstream"],
-      ["javascript", "erlang"],
-    ].flatMap((authors) => ["object", "map", "array", "move", "transaction"]
-      .flatMap((fieldKind) => ["a-first", "b-first"].map((order) => ({
-        id: `undo-redo:${authors.join("<->")}:${fieldKind}:${order}`,
-        authors,
-        fieldKind,
-        order,
-        snapshots: {
-          authored: { phase: "authored" },
-          concurrent: { phase: "concurrent" },
-          undone: { phase: "undone" },
-          redone: { phase: "redone" },
-        },
-        localKinds: ["Default", "Undo", "Redo"],
-        factoryAvailability: [true, true, true],
-        handleStatuses: ["Valid", "Disposed", "Disposed"],
-        settlements: ["FullyApplied", "FullyApplied", "FullyApplied"],
-        outboundCounts: [1, 1, 1],
-        remoteFactoryAvailable: false,
-        finalTree: { phase: "redone" },
-        passed: true,
-        skipped: false,
-      })))),
-    undoRedoReconnect: ["javascript", "erlang"].map((implementation) => ({
-      implementation,
-      liveHandleBeforeDisconnect: "Valid",
-      liveHandleAfterReconnect: "Valid",
-      undoKind: "Undo",
-      settlement: "FullyApplied",
-      outboundCount: 1,
-      finalTree: { phase: "undone" },
-      passed: true,
-      skipped: false,
-    })),
-    undoRedoReloadMatrix: Object.fromEntries(implementations.map((writer) => [
-      writer,
-      Object.fromEntries(["undo", "redo"].map((stage) => [
-        stage,
-        Object.fromEntries(implementations.map((reader) => [reader, {
-          writer,
-          reader,
-          stage,
-          loaded: true,
-          historicalHandleAvailable: false,
-          newLocalKind: "Default",
-          newFactoryAvailable: true,
-          newHandleStatus: "Valid",
-          undoKind: "Undo",
-          settlement: "FullyApplied",
-          outboundCount: 1,
-          finalTree: { writer, reader, stage },
-          passed: true,
-          skipped: false,
-        }])),
-      ])),
-    ])),
+    undoRedoKinds,
+    undoRedoConcurrent,
+    undoRedoReconnect,
+    undoRedoReloadMatrix,
     corpus: Object.fromEntries(implementations.slice(1).map((target) => {
       const output = "Running 1 tests\nTests: 1 passed (1)";
       return [target, {
@@ -2120,6 +2313,166 @@ test("undo and redo coverage rejects missing sections and observations", async (
       label,
     );
   }
+});
+
+test("undo and redo evidence rejects concrete proof mutations", async () => {
+  const cases = [
+    ["constant authored count", (report) => {
+      report.undoRedoConcurrent[0].authoredCounts[1] = 0;
+    }],
+    ["inferred reconnect status", (report) => {
+      report.undoRedoReconnect[0].liveHandleAfterReconnect = "Invalid";
+    }],
+    ["wrong converged tree", (report) => {
+      report.undoRedoConcurrent[0].snapshots.undone.peer = false;
+    }],
+    ["lost peer edit in final tree", (report) => {
+      report.undoRedoConcurrent[0].finalTree.peer = false;
+    }],
+    ["missing artifact", (report) => {
+      report.undoRedoConcurrent[0].artifacts = [];
+    }],
+    ["duplicate artifact", (report) => {
+      report.undoRedoConcurrent[0].artifacts.push(
+        report.undoRedoConcurrent[0].artifacts[0],
+      );
+    }],
+    ["mislabeled artifact", (report) => {
+      report.undoRedoConcurrent[0].artifacts =
+        report.undoRedoReconnect[0].artifacts;
+    }],
+    ["wrong run", (report) => {
+      report.undoRedoConcurrent[0].runId = "other";
+    }],
+    ["wrong document", (report) => {
+      report.undoRedoConcurrent[0].documentId = "other";
+    }],
+    ["failed implementation", (report) => {
+      report.undoRedoConcurrent[0].failed = true;
+    }],
+    ["error-shaped implementation", (report) => {
+      report.undoRedoConcurrent[0].error = { message: "failed" };
+    }],
+    ["fake writer version", (report) => {
+      report.undoRedoReloadMatrix.javascript.undo.erlang.loadedVersion = "fake";
+    }],
+    ["fake load evidence", (report) => {
+      report.undoRedoReloadMatrix.javascript.undo.erlang
+        .loadEvidence.selectedSummaryRequests = ["fake"];
+    }],
+    ["wrong snapshot sequence", (report) => {
+      report.undoRedoReloadMatrix.javascript.undo.erlang
+        .replayStartSequenceNumber = 0;
+    }],
+    ["unrelated historical error", (report) => {
+      report.undoRedoReloadMatrix.javascript.undo.erlang
+        .historicalRetainError = "Transport timeout";
+    }],
+    ["historical local factory", (report) => {
+      report.undoRedoReloadMatrix.javascript.undo.erlang
+        .historicalLoadCommits.push({
+          type: "commit",
+          local: true,
+          factoryAvailable: true,
+        });
+    }],
+    ["missing lifecycle record", (report) => {
+      report.seeded[0].undoRedo.pop();
+    }],
+    ["duplicate lifecycle record", (report) => {
+      report.seeded[0].undoRedo.push(structuredClone(report.seeded[0].undoRedo[0]));
+    }],
+    ["reordered lifecycle record", (report) => {
+      report.seeded[0].undoRedo.reverse();
+    }],
+    ["error-shaped lifecycle result", (report) => {
+      report.seeded[0].undoRedo[0].result = { error: "failed" };
+    }],
+  ];
+  for (const [label, mutate] of cases) {
+    const { expected, report } = await validFixture();
+    mutate(report);
+    assert.throws(
+      () => validateInteropReport(report, expected),
+      undefined,
+      label,
+    );
+  }
+});
+
+test("seed 42 integrates legal undo lifetimes across generated schedules", () => {
+  const schedules = generateSchedules({ seed: 42, iterations: 300 });
+  const intervening = new Set();
+  for (const schedule of schedules) {
+    const retain = schedule.actions.findIndex(
+      ({ type, lifecycle }) => type === "retain" && lifecycle === "edit",
+    );
+    const undo = schedule.actions.findIndex(
+      ({ type, lifecycle }) => type === "revert" && lifecycle === "undo",
+    );
+    const redo = schedule.actions.findIndex(
+      ({ type, lifecycle }) => type === "revert" && lifecycle === "redo",
+    );
+    const dispose = schedule.actions.findIndex(({ type }) => type === "dispose");
+    assert(retain >= 0 && undo > retain && redo > undo && dispose > redo);
+    for (const action of schedule.actions.slice(retain + 1, undo)) {
+      intervening.add(action.type);
+    }
+  }
+  for (const type of [
+    "set",
+    "map-set",
+    "array-insert",
+    "release",
+    "checkpoint",
+    "transaction",
+    "disconnect",
+    "reconnect",
+    "summarize",
+    "reload",
+  ]) {
+    assert(intervening.has(type), `missing intervening ${type}`);
+  }
+});
+
+test("seeded failure artifacts retain primary and incremental undo evidence", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "watershed-seeded-failure-"));
+  const schedule = generateSchedules({ seed: 42, iterations: 1 })[0];
+  const error = new Error("primary failure");
+  const state = {
+    documentId: "document",
+    checkpoints: [{
+      label: "failure-drain",
+      observations: [{
+        commits: [
+          { type: "commit", kind: "Undo" },
+          { type: "settlement", outcome: "FullyApplied" },
+        ],
+      }],
+    }],
+    summaries: [],
+    schemaTransitions: [],
+    transactions: [],
+    undoRedo: [{
+      type: "retain",
+      name: "edit-0",
+      result: { kind: "Default", status: "Valid" },
+    }],
+    currentAction: { index: 3, type: "revert", name: "edit-0" },
+  };
+  const path = await writeSeededFailure({
+    runId: "run",
+    profileDigest: "a".repeat(64),
+    artifactDirectory: directory,
+  }, schedule, state, error);
+  const artifact = JSON.parse(await readFile(path, "utf8"));
+  assert.equal(artifact.error.message, "primary failure");
+  assert.equal(artifact.seed, 42);
+  assert.equal(artifact.index, 0);
+  assert.deepEqual(artifact.handleNames, ["edit-0"]);
+  assert.deepEqual(artifact.commitKinds, ["Undo"]);
+  assert.deepEqual(artifact.settlements, ["FullyApplied"]);
+  assert.equal(artifact.eventTrace.length, 1);
 });
 
 test("sequence refusals require distinct diagnostics and a stopped document", async () => {

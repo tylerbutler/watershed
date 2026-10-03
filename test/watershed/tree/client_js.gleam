@@ -358,8 +358,11 @@ fn execute(
           run_transaction(document, tree, events, scope)
         protocol.RetainLastLocalCommit(name) ->
           retain_last_local_commit(name, handles, last_local)
+        protocol.RevertibleStatus(name) ->
+          revertible_status_for_name(name, handles)
+        protocol.DisposeRevertible(name) -> dispose_revertible(name, handles)
         protocol.Revert(name, dispose) ->
-          revert_handle(document, name, dispose, handles)
+          revert_handle(document, name, dispose, handles, last_local)
         protocol.Checkpoint -> checkpoint(tree, events, commits)
         protocol.Disconnect -> {
           watershed.go_offline(document)
@@ -793,11 +796,56 @@ fn retain_last_local_commit(
 }
 
 @target(javascript)
+fn revertible_status_for_name(
+  name: String,
+  handles: Cell(Dict(String, #(watershed.TreeRevertible, TreeCommitKind))),
+) -> Result(Json, protocol.ProtocolError) {
+  use entry <- result.try(
+    transport_js.get_cell(handles)
+    |> dict.get(name)
+    |> result.map_error(fn(_) {
+      facade("revertibleStatus", "Unknown revertible handle: " <> name)
+    }),
+  )
+  Ok(
+    json.object([
+      #("name", json.string(name)),
+      #("status", json.string(revertible_status(entry.0))),
+    ]),
+  )
+}
+
+@target(javascript)
+fn dispose_revertible(
+  name: String,
+  handles: Cell(Dict(String, #(watershed.TreeRevertible, TreeCommitKind))),
+) -> Result(Json, protocol.ProtocolError) {
+  use entry <- result.try(
+    transport_js.get_cell(handles)
+    |> dict.get(name)
+    |> result.map_error(fn(_) {
+      facade("disposeRevertible", "Unknown revertible handle: " <> name)
+    }),
+  )
+  use _ <- result.try(
+    watershed.tree_dispose_revertible(entry.0)
+    |> result.map_error(fn(reason) { facade("disposeRevertible", reason) }),
+  )
+  Ok(
+    json.object([
+      #("name", json.string(name)),
+      #("status", json.string(revertible_status(entry.0))),
+    ]),
+  )
+}
+
+@target(javascript)
 fn revert_handle(
-  _document: watershed.Document(a),
+  document: watershed.Document(a),
   name: String,
   dispose: Bool,
   handles: Cell(Dict(String, #(watershed.TreeRevertible, TreeCommitKind))),
+  last_local: Cell(Option(#(watershed.TreeRevertible, TreeCommitKind))),
 ) -> Result(Json, protocol.ProtocolError) {
   use entry <- result.try(
     transport_js.get_cell(handles)
@@ -806,22 +854,26 @@ fn revert_handle(
       facade("revert", "Unknown revertible handle: " <> name)
     }),
   )
+  let before_pending = observe(document).pending_tree_count
   use _ <- result.try(
     watershed.tree_revert(entry.0, dispose)
     |> result.map_error(fn(reason) { facade("revert", reason) }),
   )
+  use authored <- result.try(case transport_js.get_cell(last_local) {
+    Some(authored) -> Ok(authored)
+    None -> Error(facade("revert", "Revert authored no local commit event"))
+  })
   let status = revertible_status(entry.0)
-  let authored_kind = case entry.1 {
-    UndoCommit -> RedoCommit
-    DefaultCommit | RedoCommit -> UndoCommit
-  }
+  let outbound_count =
+    int.max(observe(document).pending_tree_count - before_pending, 0)
   Ok(
     json.object([
       #("name", json.string(name)),
-      #("authoredKind", json.string(commit_kind(authored_kind))),
+      #("authoredKind", json.string(commit_kind(authored.1))),
       #("status", json.string(status)),
       #("settlement", json.string("Pending")),
-      #("outboundCount", json.int(1)),
+      #("authoredCount", json.int(1)),
+      #("outboundCount", json.int(outbound_count)),
     ]),
   )
 }

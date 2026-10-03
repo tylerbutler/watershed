@@ -4267,6 +4267,9 @@ async function openUndoRedoReader(
     });
     return {
       adapter: upstreamAdapter(session),
+      loadEvidence(version) {
+        return storageLoad(session.storageObservations, version);
+      },
       close() {
         if (!session.container.closed) session.container.dispose();
       },
@@ -4278,7 +4281,17 @@ async function openUndoRedoReader(
     tenant: config.tenantId,
     viewSchema: context.viewSchema,
   }, jwt);
-  return { adapter, close: () => adapter.close() };
+  return {
+    adapter,
+    loadEvidence(version, snapshotSequenceNumber) {
+      return loadRequests(
+        adapter.evidence(),
+        version,
+        snapshotSequenceNumber,
+      );
+    },
+    close: () => adapter.close(),
+  };
 }
 
 async function publishUndoRedoSummary(
@@ -4288,15 +4301,26 @@ async function publishUndoRedoSummary(
   writer,
   adapter,
   stage,
+  jwt,
 ) {
-  return writer === "upstream"
-    ? (await publishUpstreamSummary(
+  if (writer === "upstream") {
+    const publication = await publishUpstreamSummary(
         config,
         containers,
         documentId,
         `Task 8 ${writer} ${stage}`,
-      )).summaryAckOp.contents.handle
-    : adapter.summarize();
+      );
+    return {
+      version: publication.summaryAckOp.contents.handle,
+      snapshotSequenceNumber: publication.summaryReferenceSequenceNumber,
+    };
+  }
+  const version = await adapter.summarize();
+  return {
+    version,
+    snapshotSequenceNumber:
+      await publishedSequence(config, documentId, jwt, version),
+  };
 }
 
 async function writeUndoRedoReloadArtifact(context, item, raw) {
@@ -4311,7 +4335,8 @@ async function writeUndoRedoReloadArtifact(context, item, raw) {
     kind: "undo-redo-reload",
     subject: `${item.writer}:${item.stage}->${item.reader}`,
     documentId: item.documentId,
-    measured: item,
+    measured: Object.fromEntries(Object.entries(item)
+      .filter(([name]) => name !== "artifacts")),
     raw,
   })}\n`, { mode: 0o600 });
   return relative;
@@ -4325,6 +4350,7 @@ async function runUndoRedoReloadReader(
   reader,
   stage,
   version,
+  snapshotSequenceNumber,
   expectedTree,
 ) {
   const fresh = await openUndoRedoReader(
@@ -4336,24 +4362,41 @@ async function runUndoRedoReloadReader(
     reader,
   );
   let failure;
+  const trace = [];
+  const handleNames = [];
   try {
     await fresh.adapter.awaitSynced();
     const loaded = await fresh.adapter.checkpoint();
+    trace.push({ label: "loaded", observation: loaded });
+    const load = fresh.loadEvidence(version, snapshotSequenceNumber);
     assert.deepEqual(loaded.wholeTree, expectedTree,
       `${writer} ${stage}->${reader} loaded another tree`);
-    let historicalHandleAvailable = true;
+    let historicalRetainError;
     try {
-      await fresh.adapter.revert("edit", true);
-    } catch {
-      historicalHandleAvailable = false;
+      await fresh.adapter.retainLastLocalCommit("historical");
+    } catch (error) {
+      const message = error?.cause?.message ?? error?.message ?? String(error);
+      assert.match(message, /No unretained local commit is available/,
+        `${writer} ${stage}->${reader} returned another pre-edit retain error`);
+      historicalRetainError = message;
     }
-    assert.equal(historicalHandleAvailable, false,
+    assert(historicalRetainError,
       `${writer} ${stage}->${reader} recreated a historical handle`);
+    assert.equal(
+      (loaded.commits ?? []).some(
+        ({ type, local, factoryAvailable }) =>
+          type === "commit" && (local === true || factoryAvailable === true),
+      ),
+      false,
+      `${writer} ${stage}->${reader} loaded a historical local commit factory`,
+    );
     await fresh.adapter.set(["note"], `${writer}-${stage}-${reader}`);
     const retained = await fresh.adapter.retainLastLocalCommit("post-load");
+    handleNames.push("post-load");
     const undo = await fresh.adapter.revert("post-load", true);
     await fresh.adapter.awaitSynced();
     const final = await fresh.adapter.checkpoint();
+    trace.push({ label: "final", observation: final });
     const commits = [...(loaded.commits ?? []), ...(final.commits ?? [])];
     const settlement = commits.findLast(
       ({ type, kind }) => type === "settlement" && kind === "Undo",
@@ -4366,17 +4409,27 @@ async function runUndoRedoReloadReader(
       profileDigest: context.profileDigest,
       documentId: environment.documentId,
       writerVersion: version,
+      loadedVersion: version,
+      snapshotSequenceNumber,
+      replayStartSequenceNumber: load.replayStartSequenceNumber,
+      selectedSummaryRequests: load.selectedSummaryRequests,
+      loadEvidence: load,
       loaded: true,
-      historicalHandleAvailable,
+      historicalHandleAvailable: false,
+      historicalRetainError,
+      historicalLoadCommits: loaded.commits ?? [],
       newLocalKind: retained.kind,
       newFactoryAvailable: retained.factoryAvailable,
       newHandleStatus: retained.status,
       undoKind: undo.authoredKind,
       settlement,
+      authoredCount: undo.authoredCount,
       outboundCount: undo.outboundCount,
       finalTree: final.wholeTree,
       passed: true,
+      failed: false,
       skipped: false,
+      error: null,
       artifacts: [],
     };
     assert.deepEqual(final.wholeTree, expectedTree,
@@ -4384,6 +4437,7 @@ async function runUndoRedoReloadReader(
     item.artifacts = [await writeUndoRedoReloadArtifact(context, item, {
       loaded,
       final,
+      load,
       handleNames: ["post-load"],
       commitKinds: commits.filter(({ type }) => type === "commit")
         .map(({ kind }) => kind),
@@ -4393,6 +4447,54 @@ async function runUndoRedoReloadReader(
     return item;
   } catch (error) {
     failure = error;
+    try {
+      trace.push({
+        label: "failure-drain",
+        observation: await fresh.adapter.checkpoint(),
+      });
+    } catch (drainError) {
+      error.drainErrors = [{
+        name: drainError?.name ?? "Error",
+        message: drainError?.message ?? String(drainError),
+      }];
+    }
+    const relative =
+      `undo-redo-reload-failure/${writer}-${stage}-${reader}.json`;
+    const path = join(context.artifactDirectory, relative);
+    try {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, `${JSON.stringify({
+        formatVersion: 1,
+        kind: "undo-redo-reload-failure",
+        runId: context.runId,
+        profileDigest: context.profileDigest,
+        subject: `${writer}:${stage}->${reader}`,
+        documentId: environment.documentId,
+        writer,
+        reader,
+        stage,
+        writerVersion: version,
+        snapshotSequenceNumber,
+        handleNames,
+        commitKinds: trace.flatMap(({ observation }) =>
+          (observation.commits ?? [])
+            .filter(({ type }) => type === "commit")
+            .map(({ kind }) => kind)),
+        settlements: trace.flatMap(({ observation }) =>
+          (observation.commits ?? [])
+            .filter(({ type }) => type === "settlement")
+            .map(({ outcome }) => outcome)),
+        eventTrace: trace,
+        error: {
+          name: error?.name ?? "Error",
+          message: error?.message ?? String(error),
+          ...(error?.cause === undefined ? {} : { cause: error.cause }),
+        },
+      })}\n`, { mode: 0o600 });
+      error.failurePath = path;
+    } catch (captureError) {
+      error.artifactCaptureError = captureError;
+    }
     throw error;
   } finally {
     try {
@@ -4442,13 +4544,14 @@ async function runUndoRedoReloadWriter(config, context, writer) {
     await adapters[writer].retainLastLocalCommit("undo");
     const undone = await settle(adapters);
     const undoTree = undone.observations[0].wholeTree;
-    const undoVersion = await publishUndoRedoSummary(
+    const undoPublication = await publishUndoRedoSummary(
       config,
       containers,
       documentId,
       writer,
       adapters[writer],
       "undo",
+      jwt,
     );
     const row = { undo: {}, redo: {} };
     for (const reader of implementations) {
@@ -4459,20 +4562,22 @@ async function runUndoRedoReloadWriter(config, context, writer) {
         writer,
         reader,
         "undo",
-        undoVersion,
+        undoPublication.version,
+        undoPublication.snapshotSequenceNumber,
         undoTree,
       );
     }
     await adapters[writer].revert("undo", true);
     const redone = await settle(adapters);
     const redoTree = redone.observations[0].wholeTree;
-    const redoVersion = await publishUndoRedoSummary(
+    const redoPublication = await publishUndoRedoSummary(
       config,
       containers,
       documentId,
       writer,
       adapters[writer],
       "redo",
+      jwt,
     );
     for (const reader of implementations) {
       row.redo[reader] = await runUndoRedoReloadReader(
@@ -4482,7 +4587,8 @@ async function runUndoRedoReloadWriter(config, context, writer) {
         writer,
         reader,
         "redo",
-        redoVersion,
+        redoPublication.version,
+        redoPublication.snapshotSequenceNumber,
         redoTree,
       );
     }

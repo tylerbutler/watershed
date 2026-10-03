@@ -342,6 +342,16 @@ pub fn shared_tree_client_decodes_schema_commands_test() -> Nil {
   Nil
 }
 
+pub fn shared_tree_client_decodes_revertible_status_test() -> Nil {
+  client_protocol.decode_request(
+    "{\"requestId\":9,\"op\":\"revertibleStatus\",\"name\":\"edit\"}",
+  )
+  |> expect.to_equal(
+    Ok(client_protocol.Request(9, client_protocol.RevertibleStatus("edit"))),
+  )
+  Nil
+}
+
 pub fn shared_tree_client_rejects_invalid_map_commands_test() -> Nil {
   list.each(
     [

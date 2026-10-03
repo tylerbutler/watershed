@@ -204,9 +204,11 @@ test("undo helpers send explicit named-handle commands", async (t) => {
   const process = child(`
     const expected = [
       { op: "retainLastLocalCommit", name: "edit" },
+      { op: "revertibleStatus", name: "edit" },
       { op: "revert", name: "edit", dispose: true },
       { op: "retainLastLocalCommit", name: "undo" },
       { op: "revert", name: "undo", dispose: true },
+      { op: "disposeRevertible", name: "edit" },
     ];
     let input = "";
     let index = 0;
@@ -222,18 +224,23 @@ test("undo helpers send explicit named-handle commands", async (t) => {
           ? {
               requestId,
               ok: true,
-              result: index % 2 === 0
+              result: index === 0 || index === 3
                 ? {
                     name: command.name,
                     kind: index === 0 ? "Default" : "Undo",
                     factoryAvailable: true,
                     status: "Valid",
                   }
+                : index === 1
+                  ? { name: command.name, status: "Valid" }
+                  : index === 5
+                    ? { name: command.name, status: "Disposed" }
                 : {
                     name: command.name,
-                    authoredKind: index === 1 ? "Undo" : "Redo",
+                    authoredKind: index === 2 ? "Undo" : "Redo",
                     status: "Disposed",
                     settlement: "FullyApplied",
+                    authoredCount: 1,
                     outboundCount: 1,
                   },
             }
@@ -254,11 +261,16 @@ test("undo helpers send explicit named-handle commands", async (t) => {
     factoryAvailable: true,
     status: "Valid",
   });
+  assert.deepEqual(await channel.revertibleStatus("edit"), {
+    name: "edit",
+    status: "Valid",
+  });
   assert.deepEqual(await channel.revert("edit", true), {
     name: "edit",
     authoredKind: "Undo",
     status: "Disposed",
     settlement: "FullyApplied",
+    authoredCount: 1,
     outboundCount: 1,
   });
   assert.deepEqual(await channel.retainLastLocalCommit("undo"), {
@@ -272,7 +284,12 @@ test("undo helpers send explicit named-handle commands", async (t) => {
     authoredKind: "Redo",
     status: "Disposed",
     settlement: "FullyApplied",
+    authoredCount: 1,
     outboundCount: 1,
+  });
+  assert.deepEqual(await channel.disposeRevertible("edit"), {
+    name: "edit",
+    status: "Disposed",
   });
 });
 
