@@ -99,8 +99,11 @@ test("storage observation wraps real calls without replacing their results", asy
     {
       operation: "getSnapshotTree",
       id: "tree",
-      blobs: ["data"],
-      trees: [],
+      tree: {
+        id: "tree",
+        blobs: { data: "blob" },
+        trees: {},
+      },
     },
     {
       operation: "readBlob",

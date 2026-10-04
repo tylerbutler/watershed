@@ -851,3 +851,219 @@ exposed a BEAM event with a null revision before its retained action resolved.
 The exact action ID join handles that valid BEAM shape without restoring a null
 revision wildcard. The final 300-schedule run passed with no skips or
 divergences.
+
+## Fix round 5
+
+### Scope
+
+This round closes the final five reproduced false-pass classes:
+
+1. Outbound multiplicity now comes from gateway-observed connection
+   occurrences. A retry requires another observed connection epoch. Mutable
+   payload classifications cannot turn a duplicate on one transport into a
+   retry.
+2. Upstream and native actions carry `revisionResolution` with the exact action
+   ID, local wire revision when available, and decompressed stable revision.
+   Validation decodes preserved server payloads, matches the accepted wire
+   operation, and proves that the stable UUID is inside its accepted allocation
+   range. A null commit-event revision is valid only through this exact action
+   resolution.
+3. Reconnect and reload claims are checked against raw events, statuses,
+   factories, checkpoints, and storage responses. Reload compares the reader
+   tree with both the writer publication checkpoint and the final restored
+   tree.
+4. Snapshot identity is derived from the selected commit, root tree, protocol
+   tree, attributes blob, response hash, and snapshot sequence at the actual
+   storage boundary. Replay start remains separate.
+5. Collection failures preserve the original merged checkpoint as
+   `primaryCheckpoint`. Later cleanup observations are appended separately as
+   `drainCheckpoint` across deterministic, reconnect, reload writer/reader, and
+   seeded paths.
+
+Upstream action evidence remains attached to the runtime after the action
+returns. If the runtime later resubmits that operation after reconnect, the
+same action evidence gains the new observed send and connection epoch. This is
+required when the server accepts the retry rather than the first transport
+occurrence.
+
+### RED evidence
+
+The five exact review counterexamples failed before the implementation:
+
+```text
+node --test --test-name-pattern='round 5' tools/shared-tree-oracle/interop.test.mjs
+tests 5
+pass 0
+fail 5
+```
+
+The mutations cover a forged same-transport retry label, coordinated stable
+revision fabrication, copied reload lifecycle trees, copied storage identity
+with an unchanged raw response, and replacement of an earlier successful
+checkpoint by a later failure.
+
+### Representative raw evidence
+
+Successful seeded schedule 227 records one original occurrence and one
+reconnect retry for the same accepted operation:
+
+```text
+index: 227
+template: schema-reconnect-summary
+actionId: event-7
+localRevision: 518
+stableRevision: 66fd18b2-1a67-4040-91f2-e0b2983c5d0e
+outboundRecords: 2
+transportConnections:
+  - epoch: 1
+    connectionId: 469112599303BDAA452E0221A50C05E6
+  - epoch: 2
+    connectionId: 256E2FA598B3B2E6E710C5ABA633820F
+```
+
+The accepted operation is decoded from `raw.acceptedOperationPayloads`. Its
+wire revision and originator are joined to `revisionResolution`, the authored
+event, settlement, outbound payload, and accepted allocation. The stable UUID
+is not read from `raw.acceptedOperations` or `sequencedHistory`.
+
+A successful native reload row records:
+
+```text
+publication.version: 5268f46a7a3e7e004823fa879d3820c8008c4497
+publication.snapshotSequenceNumber: 8
+rawLoadIdentity.commitId: 5268f46a7a3e7e004823fa879d3820c8008c4497
+rawLoadIdentity.rootTreeId: 752782d2773e5737a54222e8febefeb0f02b8e7c
+rawLoadIdentity.protocolTreeId: 26669b9943ffa346adbc4c9fca791615ffa31a76
+rawLoadIdentity.blobId: cca6011baa96641a1a1765212dba1f99a4d2959f
+rawLoadIdentity.responseHash: 9a8eca9df3d807f1855fe4defb1c24828725a82811d4dabb7294e81d62a5a570
+rawLoadIdentity.snapshotSequenceNumber: 8
+replayStartSequenceNumber: 8
+postUndoStatus: Disposed
+loadedTreeEqualsFinal: true
+```
+
+The identity is reconstructed from
+`raw.boundaryStorageResponses`; copied `loadEvidence` values are checked
+against, but cannot replace, those responses.
+
+Failure evidence uses this shape:
+
+```text
+error.checkpoint === error.primaryCheckpoint
+error.primaryCheckpoint.observations: all fulfilled observations available at
+  the original collection boundary, including the failing collection's partial
+  observations
+error.drainCheckpoint.observations: later cleanup drain only
+```
+
+### GREEN evidence
+
+Focused review tests:
+
+```text
+tests 5
+pass 5
+fail 0
+skipped 0
+duration_ms 17108.145411
+```
+
+Native client suites:
+
+```text
+gleam test --target javascript -- shared_tree_client
+20 passed
+
+gleam test --target erlang -- shared_tree_client
+20 passed
+```
+
+Exact five Node files:
+
+```text
+node --test tools/shared-tree-oracle/client-driver.test.mjs tools/shared-tree-oracle/client-interop.test.mjs tools/shared-tree-oracle/summary-interop.test.mjs tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/service.test.mjs
+```
+
+```text
+tests 122
+pass 122
+fail 0
+skipped 0
+duration_ms 248116.155606
+```
+
+Storage and transport boundary tests:
+
+```text
+node --test tools/shared-tree-oracle/delivery-gate.test.mjs
+tests 14
+pass 14
+fail 0
+skipped 0
+duration_ms 713.912936
+```
+
+Pinned Floodgate interoperability gate:
+
+```text
+TMPDIR=/home/tylerbu/.copilot/session-state/639fae85-1eeb-4848-adc3-c4b99863f12c/files/tmp-round5 just shared-tree-interop
+```
+
+Exit status: 0.
+
+```text
+runId: 92f2b012-9e92-495b-a5f5-6eae3aaa5a4c
+profileDigest: 588a2f41621f4f352497915168a5dc8af55140721066a04f217ab03e639a1813
+undoRedoKinds.implementations: 3
+undoRedoConcurrent: 30
+undoRedoReconnect: 2
+undoRedoReloadMatrix cells: 18
+seeded schedules: 300, seed 42
+javascript corpus: 956
+erlang corpus: 974
+skipped: 0
+divergences: 0
+```
+
+Report:
+`tools/shared-tree-oracle/.output/interop/92f2b012-9e92-495b-a5f5-6eae3aaa5a4c/report.json`
+
+Create interoperability gate:
+
+```text
+TMPDIR=/home/tylerbu/.copilot/session-state/639fae85-1eeb-4848-adc3-c4b99863f12c/files/tmp-round5 just shared-tree-create-interop
+```
+
+Exit status: 0.
+
+```text
+runId: ecd3df6d-745c-477a-9470-606963ca0944
+profileDigest: 588a2f41621f4f352497915168a5dc8af55140721066a04f217ab03e639a1813
+cells: 18
+skipped: 0
+divergences: 0
+```
+
+Report:
+`tools/shared-tree-oracle/.output/creation/ecd3df6d-745c-477a-9470-606963ca0944/report.json`
+
+### Concerns
+
+Several full runs were useful failures before the final pass:
+
+- `f39338f7-1c70-4223-a667-487c18970165` exposed that upstream checkpoint
+  history preserves the local wire revision while action evidence carries the
+  decompressed stable UUID.
+- `2f881a86-7d98-4bfd-b7b5-468dd6548bab` exposed the same valid local-to-stable
+  transition in an earlier seeded checkpoint.
+- `77716631-9cfd-4838-b1e6-26af818e67ae` exposed inconsistent global versus
+  action-local epoch numbering in producer evidence.
+- `d1ab89d2-8eb7-4cda-9185-5d4a33a4c033` exposed an operation accepted only
+  after a later reconnect retry; action evidence now preserves that retry.
+- `d02d52b9-c691-4cac-a309-8dd943113d87` stopped in the existing live schema
+  reload matrix because an Erlang continuation was not observed. The retry
+  passed that matrix and the complete gate.
+
+Floodgate continues to emit its existing decode warnings for transport-control
+and non-event Socket.IO frames. They did not cause skips or divergences in the
+successful runs.

@@ -20,6 +20,7 @@ import {
   decodeReconnectPayload,
   decodeTreeSubmissions,
   nativeAdapter,
+  preserveFailureCheckpoints,
   publishUpstreamSummary,
   refresherValues,
   rootValue,
@@ -1268,8 +1269,8 @@ async function writeArrayReloadArtifact(context, item, raw) {
   })}\n`, { mode: 0o600 });
   return relative;
 }
-export function loadRequests(evidence, version) {
-  const successful = evidence.http.filter(({ status }) => status >= 200 && status < 300);
+export function nativeStorageLoad(http, version) {
+  const successful = http.filter(({ status }) => status >= 200 && status < 300);
   const selectedSummaryRequests = [...new Set(successful.flatMap(({ path }) => {
     const match = path.match(/\/git\/commits\/([^/?]+)/);
     return match ? [decodeURIComponent(match[1])] : [];
@@ -1288,10 +1289,6 @@ export function loadRequests(evidence, version) {
   }))];
   assert(selectedBlobRequests.length > 0,
     "Native reader did not request the selected summary blobs");
-  const deliveredSequences = evidence.delivered
-    .filter(({ direction, kind }) => direction === "inbound" && kind === "op")
-    .flatMap(({ sequenceNumbers }) => sequenceNumbers)
-    .filter(Number.isSafeInteger);
   const storage = successful.flatMap((observation) =>
     observation.storageResponse === undefined
       ? []
@@ -1350,11 +1347,28 @@ export function loadRequests(evidence, version) {
     responseHash: blob.responseHash,
     snapshotSequenceNumber,
   };
+  return {
+    loadedVersion: version,
+    selectedSummaryRequests,
+    selectedTreeRequests,
+    selectedBlobRequests,
+    rawLoadIdentity,
+    storageResponses,
+    snapshotSequenceNumber,
+  };
+}
+
+export function loadRequests(evidence, version) {
+  const storage = nativeStorageLoad(evidence.http, version);
+  const deliveredSequences = evidence.delivered
+    .filter(({ direction, kind }) => direction === "inbound" && kind === "op")
+    .flatMap(({ sequenceNumbers }) => sequenceNumbers)
+    .filter(Number.isSafeInteger);
   const handshakeStarts = (evidence.handshakes ?? []).flatMap((handshake) => {
     const initial = handshake.initialMessageSequenceNumbers
       ?.filter(Number.isSafeInteger) ?? [];
     const applied = initial.filter((sequenceNumber) =>
-      sequenceNumber > snapshotSequenceNumber);
+      sequenceNumber > storage.snapshotSequenceNumber);
     if (applied.length > 0) return [Math.min(...applied) - 1];
     return [];
   });
@@ -1364,13 +1378,7 @@ export function loadRequests(evidence, version) {
   const measuredStarts = deliveryStarts.length > 0 ? deliveryStarts : handshakeStarts;
   assert(measuredStarts.length > 0, "Native reader lacks measured replay evidence");
   return {
-    loadedVersion: version,
-    selectedSummaryRequests,
-    selectedTreeRequests,
-    selectedBlobRequests,
-    rawLoadIdentity,
-    storageResponses,
-    snapshotSequenceNumber,
+    ...storage,
     replayStartSequenceNumber: Math.min(...measuredStarts),
     replayEvidence: deliveryStarts.length > 0 ? "native-delivery" : "native-handshake",
   };
@@ -1391,7 +1399,7 @@ function restoredDetachedPoint(removed) {
   return detached;
 }
 
-function storageLoad(observations, version) {
+export function storageLoad(observations, version) {
   const selectedVersions = observations.flatMap((observation) =>
     observation.operation === "getVersions" ? observation.versions : []);
   const selectedSummaryRequests = [...new Set(selectedVersions.map(({ id }) => id))];
@@ -1405,6 +1413,20 @@ function storageLoad(observations, version) {
     .flatMap(({ id }) => typeof id === "string" && id.length > 0 ? [id] : []);
   assert(selectedTreeRequests.includes(selectedSummaryTreeId),
     "Upstream reader did not request the selected snapshot");
+  const selectedTreeResponse = observations.find(
+    ({ operation, id }) =>
+      operation === "getSnapshotTree" && id === selectedSummaryTreeId,
+  );
+  const root = selectedTreeResponse?.tree;
+  assert(root && root.id === selectedSummaryTreeId,
+    "Upstream reader lacks the selected root tree response");
+  const protocol = root.trees?.[".protocol"]
+    ?? root.trees?.[".app"]?.trees?.[".protocol"];
+  assert(typeof protocol?.id === "string" && protocol.id.length > 0,
+    "Upstream reader selected tree lacks .protocol");
+  const attributesBlobId = protocol.blobs?.attributes;
+  assert(typeof attributesBlobId === "string" && attributesBlobId.length > 0,
+    "Upstream reader selected protocol tree lacks attributes");
   const selectedBlobRequests = observations
     .filter(({ operation }) => operation === "readBlob")
     .map(({ id, byteLength, hash, snapshotSequenceNumber }) => ({
@@ -1421,7 +1443,9 @@ function storageLoad(observations, version) {
       && typeof hash === "string" && hash.length > 0),
     "Upstream reader did not read the selected summary hierarchy");
   const identities = selectedBlobRequests.filter(
-    ({ snapshotSequenceNumber }) =>
+    ({ id, snapshotSequenceNumber }) =>
+      id === attributesBlobId
+        &&
       Number.isSafeInteger(snapshotSequenceNumber)
         && snapshotSequenceNumber >= 0,
   );
@@ -1439,6 +1463,7 @@ function storageLoad(observations, version) {
     rawLoadIdentity: {
       loadedVersion: version,
       treeId: selectedSummaryTreeId,
+      protocolTreeId: protocol.id,
       blobId: identities[0].id,
       blobHash: identities[0].hash,
       snapshotSequenceNumber: identities[0].snapshotSequenceNumber,
@@ -4368,6 +4393,9 @@ async function openUndoRedoReader(
       loadEvidence(version) {
         return storageLoad(session.storageObservations, version);
       },
+      boundaryStorageResponses() {
+        return structuredClone(session.storageObservations);
+      },
       close() {
         if (!session.container.closed) session.container.dispose();
       },
@@ -4383,6 +4411,9 @@ async function openUndoRedoReader(
     adapter,
     loadEvidence(version) {
       return loadRequests(adapter.evidence(), version);
+    },
+    boundaryStorageResponses() {
+      return structuredClone(adapter.evidence().http);
     },
     close: () => adapter.close(),
   };
@@ -4481,6 +4512,7 @@ async function runUndoRedoReloadReader(
     const loaded = await fresh.adapter.checkpoint();
     trace.push({ label: "loaded", observation: loaded });
     const load = fresh.loadEvidence(version);
+    const boundaryStorageResponses = fresh.boundaryStorageResponses();
     const consumedSnapshotSequenceNumber = load.snapshotSequenceNumber;
     assert.deepEqual(loaded.wholeTree, expectedTree,
       `${writer} ${stage}->${reader} loaded another tree`);
@@ -4558,6 +4590,7 @@ async function runUndoRedoReloadReader(
       publication: {
         ...environment.publication.rawPublicationIdentity,
         referenceSequenceNumber: snapshotSequenceNumber,
+        checkpoint: environment.publication.checkpoint,
       },
       loaded: {
         ...loaded,
@@ -4571,6 +4604,7 @@ async function runUndoRedoReloadReader(
       },
       postUndoStatus,
       load,
+      boundaryStorageResponses,
       storageResponses: load.storageResponses,
       sequencedHistory: checkpointRevisionEvidence(final),
       acceptedOperationPayloads: acceptedHistory,
@@ -4591,9 +4625,8 @@ async function runUndoRedoReloadReader(
       "failure-drain",
       "intermediate",
       { [reader]: fresh.adapter },
-      error.checkpoint,
     );
-    error.checkpoint = drained.checkpoint;
+    preserveFailureCheckpoints(error, drained.checkpoint);
     trace.push(...drained.checkpoint.observations.map((observation) => ({
       label: "failure-drain",
       observation,
@@ -4626,6 +4659,8 @@ async function runUndoRedoReloadReader(
             .filter(({ type }) => type === "settlement")
             .map(({ outcome }) => outcome)),
         eventTrace: trace,
+        primaryCheckpoint: error.primaryCheckpoint,
+        drainCheckpoint: error.drainCheckpoint,
         error: {
           name: error?.name ?? "Error",
           message: error?.message ?? String(error),
@@ -4703,6 +4738,10 @@ async function runUndoRedoReloadWriter(config, context, writer) {
       jwt,
     );
     environment.publication = undoPublication;
+    environment.publication.checkpoint =
+      structuredClone(undone.observations.find(
+        ({ implementation }) => implementation === writer,
+      ));
     const row = { undo: {}, redo: {} };
     for (const reader of implementations) {
       row.undo[reader] = await runUndoRedoReloadReader(
@@ -4730,6 +4769,10 @@ async function runUndoRedoReloadWriter(config, context, writer) {
       jwt,
     );
     environment.publication = redoPublication;
+    environment.publication.checkpoint =
+      structuredClone(redone.observations.find(
+        ({ implementation }) => implementation === writer,
+      ));
     for (const reader of implementations) {
       row.redo[reader] = await runUndoRedoReloadReader(
         config,
@@ -4752,9 +4795,8 @@ async function runUndoRedoReloadWriter(config, context, writer) {
         "undo-redo-reload-writer-failure-drain",
         "intermediate",
         adapters,
-        error.checkpoint,
       );
-      error.checkpoint = drained.checkpoint;
+      preserveFailureCheckpoints(error, drained.checkpoint);
       error.drainErrors = drained.errors;
       const relative = `undo-redo-reload-writer-failure/${writer}.json`;
       const path = join(context.artifactDirectory, relative);
@@ -4768,7 +4810,8 @@ async function runUndoRedoReloadWriter(config, context, writer) {
           subject: writer,
           documentId,
           writer,
-          checkpoint: drained.checkpoint,
+          primaryCheckpoint: error.primaryCheckpoint,
+          drainCheckpoint: error.drainCheckpoint,
           error: {
             name: error?.name ?? "Error",
             message: error?.message ?? String(error),

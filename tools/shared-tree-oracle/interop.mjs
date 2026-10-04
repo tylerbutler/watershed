@@ -25,6 +25,7 @@ import {
 } from "./client-interop.mjs";
 import {
   acceptedTreeOperations,
+  decodeTreeSubmissions,
   generateSchedules,
   decodeReconnectPayload,
   loadReplayArtifact,
@@ -58,10 +59,12 @@ import {
   runArrayReloadMatrix,
   runIdentifierReloadMatrix,
   runMapReloadMatrix,
+  nativeStorageLoad,
   runReloadMatrix,
   runSchemaReloadMatrices,
   runTransactionReloadMatrix,
   runUndoRedoReloadMatrix,
+  storageLoad,
   validateArrayResults,
   validateIdentifierReloadResults,
   validateMapResults,
@@ -2650,38 +2653,14 @@ function jsonValue(value, label) {
   }
 }
 
-function decodedOutboundOperation(record, label) {
-  object(record, `${label} lacks an outbound record`);
-  assert(Number.isSafeInteger(record.sendId) && record.sendId > 0,
-    `${label} has an invalid send ID`);
-  assert(["original", "reconnect-retry", "duplicate-send"]
-    .includes(record.classification),
-    `${label} has an unknown send classification`);
-  assert(typeof record.clientId === "string" && record.clientId.length > 0,
-    `${label} lacks a client ID`);
-  assert(typeof record.clientInstanceId === "string"
-    && record.clientInstanceId.length > 0,
-  `${label} lacks a client instance ID`);
-  assert.equal(record.transportId, record.clientId,
-    `${label} transport identity differs from the native client`);
-  assert(Number.isSafeInteger(record.connectionEpoch)
-    && record.connectionEpoch > 0,
-  `${label} lacks a connection epoch`);
-  assert(typeof record.stableRevision === "string"
-    && record.stableRevision.length > 0,
-  `${label} lacks a stable revision`);
-  assert(Number.isSafeInteger(record.clientSequenceNumber)
-    && record.clientSequenceNumber >= 0,
-  `${label} lacks a client sequence number`);
-  const payload = object(record.payload, `${label} lacks the raw submit payload`);
-  assert.equal(payload.clientId, record.clientId,
-    `${label} payload names another client`);
+function decodedPayloadOperation(payload, clientSequenceNumber, label) {
+  assert(typeof payload?.clientId === "string" && payload.clientId.length > 0,
+    `${label} payload lacks a client ID`);
   assert(Array.isArray(payload.messageBatches),
     `${label} payload lacks message batches`);
   const operations = payload.messageBatches.flat();
   const operation = operations.find(
-    ({ clientSequenceNumber }) =>
-      clientSequenceNumber === record.clientSequenceNumber,
+    (candidate) => candidate.clientSequenceNumber === clientSequenceNumber,
   );
   assert(operation, `${label} payload lacks its operation`);
   const outer = jsonValue(operation.contents, `${label} operation contents`);
@@ -2706,34 +2685,149 @@ function decodedOutboundOperation(record, label) {
     }];
   });
   assert(commits.length > 0, `${label} lacks a decoded tree commit`);
-  assert.equal(record.operationId,
-    `revision:${commits.map(({ originatorId, revision }) =>
+  return {
+    clientId: payload.clientId,
+    clientSequenceNumber,
+    operationId: `revision:${commits.map(({ originatorId, revision }) =>
       `${originatorId}:${revision}`).join(",")}`,
-  `${label} has an unstable operation ID`);
-  return { record, commits };
+    commits,
+  };
 }
 
-function exactOutboundEvidence(records, eventId, label) {
+function decodedOutboundOperation(record, label) {
+  object(record, `${label} lacks an outbound record`);
+  assert(Number.isSafeInteger(record.sendId) && record.sendId > 0,
+    `${label} has an invalid send ID`);
+  assert(["original", "reconnect-retry", "duplicate-send"]
+    .includes(record.classification),
+    `${label} has an unknown send classification`);
+  assert(typeof record.clientId === "string" && record.clientId.length > 0,
+    `${label} lacks a client ID`);
+  assert(typeof record.clientInstanceId === "string"
+    && record.clientInstanceId.length > 0,
+  `${label} lacks a client instance ID`);
+  assert(typeof record.transportId === "string" && record.transportId.length > 0,
+    `${label} lacks a transport identity`);
+  assert(Number.isSafeInteger(record.connectionEpoch)
+    && record.connectionEpoch > 0,
+  `${label} lacks a connection epoch`);
+  assert(typeof record.stableRevision === "string"
+    && record.stableRevision.length > 0,
+  `${label} lacks a stable revision`);
+  assert(Number.isSafeInteger(record.clientSequenceNumber)
+    && record.clientSequenceNumber >= 0,
+  `${label} lacks a client sequence number`);
+  const payload = object(record.payload, `${label} lacks the raw submit payload`);
+  assert.equal(payload.clientId, record.clientId,
+    `${label} payload names another client`);
+  const decoded = decodedPayloadOperation(
+    payload,
+    record.clientSequenceNumber,
+    label,
+  );
+  assert.equal(record.operationId, decoded.operationId,
+  `${label} has an unstable operation ID`);
+  return { record, commits: decoded.commits };
+}
+
+function exactOutboundEvidence(
+  records,
+  transportObservations,
+  transportConnections,
+  eventId,
+  label,
+) {
   assert(Array.isArray(records),
     `${label} lacks native outbound send records`);
   const decoded = records.map((record, index) =>
     decodedOutboundOperation(record, `${label} outbound ${index}`));
-  const originals = decoded.filter(
-    ({ record }) => record.classification === "original",
-  );
+  assert(Array.isArray(transportConnections)
+    && transportConnections.length > 0,
+  `${label} lacks raw transport connections`);
+  const connections = new Map();
+  for (const connection of transportConnections) {
+    assert(typeof connection.connectionId === "string"
+      && connection.connectionId.length > 0,
+    `${label} has an invalid transport connection`);
+    assert(Number.isSafeInteger(connection.epoch) && connection.epoch > 0,
+      `${label} transport connection lacks an epoch`);
+    assert.equal(connection.state, "opened",
+      `${label} transport connection was not opened`);
+    assert(!connections.has(connection.connectionId),
+      `${label} repeats a transport connection`);
+    connections.set(connection.connectionId, connection);
+  }
+  assert(Array.isArray(transportObservations),
+    `${label} lacks raw transport occurrences`);
+  const occurrences = transportObservations.flatMap((observation, index) => {
+    const occurrenceId = observation.occurrenceId ?? observation.id;
+    assert(Number.isSafeInteger(occurrenceId) && occurrenceId > 0,
+      `${label} transport occurrence ${index} lacks an ID`);
+    const connection = connections.get(observation.connectionId);
+    assert(connection,
+      `${label} transport occurrence ${index} lacks its connection`);
+    const submissions = observation.submissions;
+    assert(Array.isArray(submissions) && submissions.length > 0,
+      `${label} transport occurrence ${index} lacks submissions`);
+    return submissions.flatMap((payload, submissionIndex) =>
+      payload.messageBatches.flat().map((operation, operationIndex) => ({
+        occurrenceId,
+        connection,
+        payload,
+        ...decodedPayloadOperation(
+          payload,
+          operation.clientSequenceNumber,
+          `${label} transport occurrence ${index}.${submissionIndex}.${operationIndex}`,
+        ),
+      })));
+  });
+  assert.equal(occurrences.length, decoded.length,
+    `${label} outbound records differ from raw transport occurrences`);
+  const matched = new Set();
+  const classified = occurrences.map((occurrence) => {
+    const match = decoded.findIndex(({ record, commits }, index) =>
+      !matched.has(index)
+        && record.clientId === occurrence.clientId
+        && record.clientSequenceNumber === occurrence.clientSequenceNumber
+        && record.operationId === occurrence.operationId
+        && isDeepStrictEqual(commits, occurrence.commits));
+    assert(match >= 0, `${label} transport occurrence has no outbound record`);
+    matched.add(match);
+    return { occurrence, outbound: decoded[match] };
+  });
+  const seen = new Map();
+  for (const evidence of classified) {
+    const { occurrence, outbound } = evidence;
+    const original = seen.get(occurrence.operationId);
+    const classification = original === undefined
+      ? "original"
+      : original.connection.connectionId === occurrence.connection.connectionId
+        ? "duplicate-send"
+        : "reconnect-retry";
+    assert.equal(outbound.record.classification, classification,
+      `${label} outbound classification differs from raw transport evidence`);
+    assert.equal(outbound.record.transportId, occurrence.connection.connectionId,
+      `${label} outbound transport differs from raw transport evidence`);
+    assert.equal(outbound.record.connectionEpoch, occurrence.connection.epoch,
+      `${label} outbound epoch differs from raw transport evidence`);
+    if (classification === "reconnect-retry") {
+      assert(occurrence.connection.epoch > original.connection.epoch,
+        `${label} retry lacks a later observed connection epoch`);
+    }
+    if (original === undefined) seen.set(occurrence.operationId, occurrence);
+    evidence.classification = classification;
+  }
+  const originals = classified.filter(
+    ({ classification }) => classification === "original",
+  ).map(({ outbound }) => outbound);
   assert.equal(originals.length, 1,
     `${label} requires exactly one original outbound send`);
-  assert.equal(decoded.filter(
-    ({ record }) => record.classification === "duplicate-send",
+  assert.equal(classified.filter(
+    ({ classification }) => classification === "duplicate-send",
   ).length, 0, `${label} contains another send on the same transport`);
-  const retries = decoded.filter(
-    ({ record }) => record.classification === "reconnect-retry",
-  );
-  assert(retries.every(({ record }) =>
-    record.operationId === originals[0].record.operationId
-      && record.transportId !== originals[0].record.transportId
-      && record.connectionEpoch > originals[0].record.connectionEpoch),
-  `${label} retry lacks a later reconnect transport`);
+  assert(classified.every(({ outbound }) =>
+    outbound.record.operationId === originals[0].record.operationId),
+  `${label} transport occurrence names another operation`);
   assert.equal(new Set(decoded.map(({ record }) => record.sendId)).size,
     decoded.length, `${label} repeats a send occurrence`);
   assert.equal(originals[0].record.authoredEventId,
@@ -2757,6 +2851,8 @@ function exactActionEvidence(result, label) {
     `${label} authored count differs from event evidence`);
   const original = exactOutboundEvidence(
     result.outboundRecords,
+    result.transportObservations,
+    result.transportConnections,
     result.authoredEventIds[0],
     label,
   );
@@ -2764,6 +2860,11 @@ function exactActionEvidence(result, label) {
     `${label} outbound send resolves to another stable revision`);
   assert(typeof result.actionId === "string" && result.actionId.length > 0,
     `${label} lacks an action identity`);
+  assert.equal(result.revisionResolution?.actionId, result.actionId,
+    `${label} revision resolution names another action`);
+  assert.equal(result.revisionResolution?.stableRevision,
+    result.submittedRevisions[0],
+  `${label} revision resolution names another stable revision`);
   assert.equal(result.outboundCount, 1,
     `${label} outbound count differs from original send evidence`);
   return original;
@@ -2786,12 +2887,61 @@ function localCommitEvents(raw, author, label) {
   return { events, commits };
 }
 
-function acceptedOutboundOperation(raw, outbound, label) {
+function offsetUuid(value, offset, label) {
+  if (offset === 0) return value;
+  assert.match(value,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    `${label} allocation session is not a UUID`);
+  const hex = value.replaceAll("-", "");
+  const next = (BigInt(`0x${hex}`) + BigInt(offset))
+    .toString(16).padStart(32, "0");
+  return `${next.slice(0, 8)}-${next.slice(8, 12)}-${next.slice(12, 16)}-${next.slice(16, 20)}-${next.slice(20)}`;
+}
+
+function acceptedStableRevision(submission, outbound, resolution, label) {
+  assert.equal(submission.commits.length, 1,
+    `${label} accepted operation has another commit count`);
+  const commit = submission.commits[0];
+  assert.equal(outbound.commits.length, 1,
+    `${label} outbound operation has another commit count`);
+  const submitted = outbound.commits[0];
+  assert.equal(submitted.originatorId, commit.originatorId,
+    `${label} accepted commit has another originator`);
+  object(resolution, `${label} lacks its action-to-wire revision resolution`);
+  assert(typeof resolution.stableRevision === "string"
+    && resolution.stableRevision.length > 0,
+  `${label} revision resolution lacks a stable revision`);
+  const localRevision = resolution.localRevision != null
+      && Number.isSafeInteger(Number(resolution.localRevision))
+    ? Number(resolution.localRevision)
+    : undefined;
+  if (localRevision !== undefined) {
+    assert.equal(submitted.revision, localRevision,
+      `${label} revision resolution differs from the accepted wire revision`);
+    assert.equal(commit.revision, localRevision,
+      `${label} accepted commit differs from the resolved wire revision`);
+  }
+  const allocations = submission.allocations.filter(
+    ({ sessionId, first, last }) =>
+      sessionId === commit.originatorId
+        && Array.from(
+          { length: last - first + 1 },
+          (_, index) => offsetUuid(sessionId, first + index - 1, label),
+        ).includes(resolution.stableRevision),
+  );
+  assert.equal(allocations.length, 1,
+    `${label} accepted operation lacks one exact revision allocation`);
+  const allocation = allocations[0];
+  return resolution.stableRevision;
+}
+
+function acceptedOutboundOperation(raw, outbound, resolution, label) {
   assert(Array.isArray(raw.acceptedOperationPayloads),
     `${label} lacks preserved raw accepted operations`);
-  const acceptedOperations = acceptedTreeOperations(
+  const acceptedSubmissions = decodeTreeSubmissions(
     raw.acceptedOperationPayloads,
   );
+  const acceptedOperations = acceptedTreeOperations(raw.acceptedOperationPayloads);
   assert(acceptedOperations.length > 0,
     `${label} raw accepted operations contain no tree commits`);
   if (raw.acceptedOperations !== undefined) {
@@ -2813,7 +2963,21 @@ function acceptedOutboundOperation(raw, outbound, label) {
   assert(sent, `${label} accepted operation does not match an outbound send`);
   assert.deepEqual(accepted[0].commits, sent.commits,
     `${label} accepted operation differs from the outbound payload`);
-  return accepted[0];
+  const submission = acceptedSubmissions.find(
+    ({ clientId, clientSequenceNumber }) =>
+      clientId === accepted[0].clientId
+        && clientSequenceNumber === accepted[0].clientSequenceNumber,
+  );
+  assert(submission, `${label} lacks its decoded accepted submission`);
+  return {
+    ...accepted[0],
+    stableRevision: acceptedStableRevision(
+      submission,
+      outbound,
+      resolution,
+      label,
+    ),
+  };
 }
 
 function validateRetainedAction(raw, result, kind, events, label) {
@@ -2826,11 +2990,17 @@ function validateRetainedAction(raw, result, kind, events, label) {
     `${label} lacks a retained revision`);
   const outbound = exactOutboundEvidence(
     result.outboundRecords,
+    result.transportObservations,
+    result.transportConnections,
     result.eventId,
     label,
   );
   assert.equal(outbound.record.stableRevision, result.revision,
     `${label} outbound send resolves to another stable revision`);
+  assert.equal(result.revisionResolution?.actionId, result.actionId,
+    `${label} revision resolution names another action`);
+  assert.equal(result.revisionResolution?.stableRevision, result.revision,
+    `${label} revision resolution names another stable revision`);
   const checkpoints = Array.isArray(raw.checkpoints) ? raw.checkpoints : [];
   const checkpointEvents = checkpoints.flatMap(({ observations }) =>
     (observations ?? [])
@@ -2850,9 +3020,20 @@ function validateRetainedAction(raw, result, kind, events, label) {
     `${label} retained commit event lacks an acquired handle`);
   assert.equal(authored.actionId, result.actionId,
     `${label} retained event has another action identity`);
-  assert(authored.revision === result.revision || authored.revision == null,
+  assert(authored.revision === result.revision
+      || (result.revisionResolution?.localRevision != null
+        && String(authored.revision)
+          === String(result.revisionResolution.localRevision))
+      || authored.revision == null,
     `${label} retained event has another revision`);
-  acceptedOutboundOperation(raw, outbound, label);
+  const accepted = acceptedOutboundOperation(
+    raw,
+    outbound,
+    result.revisionResolution,
+    label,
+  );
+  assert.equal(accepted.stableRevision, result.revision,
+    `${label} retained revision differs from the accepted wire identity`);
 }
 
 function validateSequencedAction(raw, result, kind, label) {
@@ -2880,14 +3061,28 @@ function validateSequencedAction(raw, result, kind, label) {
   assert(authored, `${label} does not identify its authored commit event`);
   assert.equal(authored.actionId, result.actionId,
     `${label} commit event has another action identity`);
-  assert(authored.revision === revision || authored.revision == null,
+  assert(authored.revision === revision
+      || (result.revisionResolution?.localRevision != null
+        && String(authored.revision)
+          === String(result.revisionResolution.localRevision))
+      || authored.revision == null,
     `${label} commit event has another revision`);
   assert(Array.isArray(raw.sequencedHistory),
     `${label} lacks raw sequenced history`);
-  assert(raw.sequencedHistory.some(
-    (entry) => entry.revision === revision),
-  `${label} lacks its exact sequenced revision`);
-  acceptedOutboundOperation(raw, outbound, label);
+  const wireRevision = result.revisionResolution?.localRevision;
+  assert(raw.sequencedHistory.some((entry) =>
+    entry.revision === revision
+      || (wireRevision != null
+        && String(entry.revision) === String(wireRevision))),
+  `${label} lacks its resolved sequenced revision`);
+  const accepted = acceptedOutboundOperation(
+    raw,
+    outbound,
+    result.revisionResolution,
+    label,
+  );
+  assert.equal(accepted.stableRevision, revision,
+    `${label} submitted revision differs from the accepted wire identity`);
   assert(events.some((event) =>
     event.type === "settlement"
       && event.kind === kind
@@ -3261,6 +3456,15 @@ function validateUndoRedoSections(report, evidence, expected) {
           assert.equal(raw.publication?.referenceSequenceNumber,
             item.snapshotSequenceNumber,
           "Undo/redo reload publication boundary changed");
+          assert.deepEqual(raw.publication?.checkpoint?.wholeTree,
+            item.expectedPublishedTree,
+          "Undo/redo reload expected tree differs from the published checkpoint");
+          assert.deepEqual(raw.loaded?.wholeTree,
+            raw.publication?.checkpoint?.wholeTree,
+          "Undo/redo reload loaded tree differs from the published checkpoint");
+          assert.deepEqual(raw.final?.wholeTree,
+            raw.publication?.checkpoint?.wholeTree,
+          "Undo/redo reload final tree differs from the published checkpoint");
           assert.deepEqual(raw.load, item.loadEvidence,
             "Undo/redo reload raw load evidence changed");
           assert.deepEqual(raw.loaded?.rawLoadIdentity,
@@ -3272,6 +3476,28 @@ function validateUndoRedoSections(report, evidence, expected) {
             "Undo/redo reload raw historical commits changed");
           assert.deepEqual(raw.final?.wholeTree, item.finalTree,
             "Undo/redo reload final tree differs from raw checkpoint");
+          assert(Array.isArray(raw.boundaryStorageResponses),
+            "Undo/redo reload lacks raw boundary storage responses");
+          const boundaryLoad = reader === "upstream"
+            ? storageLoad(raw.boundaryStorageResponses, item.writerVersion)
+            : nativeStorageLoad(
+                raw.boundaryStorageResponses,
+                item.writerVersion,
+              );
+          assert.deepEqual(boundaryLoad.rawLoadIdentity,
+            item.loadEvidence.rawLoadIdentity,
+          "Undo/redo reload copied identity differs from the storage response");
+          assert.deepEqual(boundaryLoad.selectedSummaryRequests,
+            item.loadEvidence.selectedSummaryRequests,
+          "Undo/redo reload copied version differs from the storage response");
+          assert.equal(boundaryLoad.snapshotSequenceNumber,
+            item.snapshotSequenceNumber,
+          "Undo/redo reload storage response names another snapshot");
+          if (reader === "upstream") {
+            assert.equal(boundaryLoad.replayStartSequenceNumber,
+              item.replayStartSequenceNumber,
+            "Undo/redo reload storage replay boundary changed");
+          }
           if (reader === "upstream") {
             assert.equal(rawLoadIdentity.treeId,
               item.loadEvidence.selectedSummaryTreeId,

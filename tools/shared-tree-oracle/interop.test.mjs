@@ -339,7 +339,7 @@ async function validFixture() {
   ) => ({
     sendId: eventId,
     classification,
-    operationId: `revision:${clientId}:${clientSequenceNumber}`,
+    operationId: `revision:${revision}:${clientSequenceNumber}`,
     clientId,
     clientInstanceId: `${clientId}-instance`,
     transportId: clientId,
@@ -360,7 +360,7 @@ async function validFixture() {
               content: {
                 contents: {
                   revision: clientSequenceNumber,
-                  originatorId: clientId,
+                  originatorId: revision,
                   changeset: [],
                 },
               },
@@ -370,19 +370,45 @@ async function validFixture() {
       }]],
     },
   });
+  const withTransportEvidence = (result) => {
+    const outboundRecords = result.outboundRecords.map((record) => ({
+      ...record,
+      transportId: "connection-1",
+      connectionEpoch: 1,
+    }));
+    return {
+      ...result,
+      outboundRecords,
+      revisionResolution: {
+        actionId: result.actionId,
+        localRevision: null,
+        stableRevision: result.revision ?? result.submittedRevisions?.[0],
+      },
+      transportConnections: [{
+        connectionId: "connection-1",
+        epoch: 1,
+        state: "opened",
+      }],
+      transportObservations: outboundRecords.map((record, index) => ({
+        occurrenceId: index + 1,
+        connectionId: "connection-1",
+        submissions: [structuredClone(record.payload)],
+      })),
+    };
+  };
   const acceptedOperation = (
     revision,
     eventId,
     clientId = "native-client",
     clientSequenceNumber = eventId,
   ) => ({
-    operationId: `revision:${clientId}:${clientSequenceNumber}`,
+    operationId: `revision:${revision}:${clientSequenceNumber}`,
     clientId,
     clientSequenceNumber,
     outerSequenceNumber: 100 + clientSequenceNumber,
     commits: [{
       revision: clientSequenceNumber,
-      originatorId: clientId,
+      originatorId: revision,
       changeset: [],
     }],
   });
@@ -391,27 +417,43 @@ async function validFixture() {
     clientSequenceNumber,
     outerSequenceNumber,
     commits,
-  }) => ({
+  }, stableRevision) => ({
     type: "op",
     clientId,
     clientSequenceNumber,
     referenceSequenceNumber: 0,
     sequenceNumber: outerSequenceNumber,
     contents: {
-      type: "component",
-      contents: {
-        contents: {
-          content: {
-            contents: commits[0],
+      type: "groupedBatch",
+      contents: [
+        {
+          contents: {
+            type: "idAllocation",
+            contents: {
+              sessionId: stableRevision,
+              ids: { firstGenCount: 1, count: 1 },
+            },
           },
         },
-      },
+        {
+          contents: {
+            type: "component",
+            contents: {
+              contents: {
+                content: {
+                  contents: commits[0],
+                },
+              },
+            },
+          },
+        },
+      ],
     },
   });
   function artifact(kind, subject, documentId, extra = {}) {
     const name = `${kind}-${subject}`.replace(/[^a-z0-9.-]+/gi, "_");
     const reference = `evidence/${name}.json`;
-    const pending = [extra.raw];
+    const pending = [extra.raw, extra.measured];
     while (pending.length > 0) {
       const value = pending.pop();
       if (!value || typeof value !== "object") continue;
@@ -420,12 +462,48 @@ async function validFixture() {
         && value.actionId === undefined) {
         value.actionId = `event-${value.authoredEventIds[0]}`;
       }
+      if (Array.isArray(value.outboundRecords)
+        && value.revisionResolution === undefined) {
+        value.revisionResolution = {
+          actionId: value.actionId,
+          localRevision: null,
+          stableRevision: value.revision ?? value.submittedRevisions?.[0],
+        };
+      }
+      if (Array.isArray(value.outboundRecords)
+        && value.transportObservations === undefined) {
+        const transport = withTransportEvidence(value);
+        value.outboundRecords = transport.outboundRecords;
+        value.transportConnections = transport.transportConnections;
+        value.transportObservations = transport.transportObservations;
+      }
       pending.push(...Object.values(value));
     }
     if (Array.isArray(extra.raw?.acceptedOperations)
       && extra.raw.acceptedOperationPayloads === undefined) {
-      extra.raw.acceptedOperationPayloads =
-        extra.raw.acceptedOperations.map(acceptedPayload);
+      const revisions = new Map();
+      const values = [extra.raw];
+      while (values.length > 0) {
+        const value = values.pop();
+        if (!value || typeof value !== "object") continue;
+        if (Array.isArray(value.outboundRecords)) {
+          for (const record of value.outboundRecords) {
+            revisions.set(
+              `${record.clientId}:${record.clientSequenceNumber}`,
+              record.stableRevision,
+            );
+          }
+        }
+        values.push(...Object.values(value));
+      }
+      extra.raw.acceptedOperationPayloads = extra.raw.acceptedOperations.map(
+        (operation) => acceptedPayload(
+          operation,
+          revisions.get(
+            `${operation.clientId}:${operation.clientSequenceNumber}`,
+          ),
+        ),
+      );
     }
     artifactFiles.set(reference, {
       formatVersion: 1,
@@ -598,7 +676,7 @@ async function validFixture() {
           name: action.name,
           ...(action.dispose === undefined ? {} : { dispose: action.dispose }),
           result: action.type === "retain"
-            ? {
+            ? withTransportEvidence({
                 name: action.name,
                 kind: action.lifecycle === "undo" ? "Undo" : "Default",
                 factoryAvailable: true,
@@ -613,9 +691,9 @@ async function validFixture() {
                   action.lifecycle === "undo" ? 2 : 1,
                   `${prefix}-${action.author}`,
                 )],
-              }
+              })
             : action.type === "revert"
-              ? {
+              ? withTransportEvidence({
                   name: action.name,
                   authoredKind: action.lifecycle === "redo" ? "Redo" : "Undo",
                   status: action.dispose ? "Disposed" : "Valid",
@@ -632,7 +710,7 @@ async function validFixture() {
                     action.lifecycle === "redo" ? 3 : 2,
                     `${prefix}-${action.author}`,
                   )],
-                }
+                })
               : {
                   name: action.name,
                   status: "Disposed",
@@ -2320,7 +2398,7 @@ async function validFixture() {
             }],
           },
           eventTrace: undoCommitEvents(true),
-          retained: {
+          retained: withTransportEvidence({
             name: "edit",
             kind: "Default",
             factoryAvailable: true,
@@ -2329,9 +2407,9 @@ async function validFixture() {
             actionId: "event-1",
             revision: "default-revision",
             outboundRecords: [outboundRecord("default-revision", 1)],
-          },
+          }),
           reconnectLifecycle: {
-            beforeDisconnect: {
+            beforeDisconnect: withTransportEvidence({
               name: "edit",
               kind: "Default",
               factoryAvailable: true,
@@ -2340,11 +2418,11 @@ async function validFixture() {
               actionId: "event-1",
               revision: "default-revision",
               outboundRecords: [outboundRecord("default-revision", 1)],
-            },
+            }),
             afterReconnect: { name: "edit", status: "Valid" },
             postUndo: { name: "edit", status: "Disposed" },
           },
-          lifecycle: {
+          lifecycle: withTransportEvidence({
             authoredKind: "Undo",
             authoredCount: 1,
             outboundCount: 1,
@@ -2353,7 +2431,7 @@ async function validFixture() {
             submittedRevisions: ["undo-revision"],
             outboundRecords: [outboundRecord("undo-revision", 2)],
             settlement: "FullyApplied",
-          },
+          }),
           sequencedHistory: [{ revision: "undo-revision", kind: "Undo" }],
           acceptedOperations: [
             acceptedOperation("default-revision", 1),
@@ -2400,6 +2478,7 @@ async function validFixture() {
                     loadedVersion: `${writer}-${stage}-version`,
                     snapshotSequenceNumber: 70 + stageIndex,
                     treeId: `${writer}-${stage}-root-tree`,
+                    protocolTreeId: `${writer}-${stage}-protocol-tree`,
                     blobId: `${writer}-${stage}-attributes-blob`,
                     blobHash: "a".repeat(64),
                   },
@@ -2451,8 +2530,101 @@ async function validFixture() {
                 referenceSequenceNumber: 70 + stageIndex,
                 snapshotSequenceNumber: 70 + stageIndex,
                 sequenceNumber: 80 + stageIndex,
+                checkpoint: {
+                  implementation: writer,
+                  wholeTree: structuredClone(item.expectedPublishedTree),
+                },
               },
               load: item.loadEvidence,
+              boundaryStorageResponses: reader === "upstream"
+                ? [
+                    {
+                      operation: "getVersions",
+                      versions: [{
+                        id: `${writer}-${stage}-version`,
+                        treeId: `${writer}-${stage}-root-tree`,
+                      }],
+                    },
+                    {
+                      operation: "getSnapshotTree",
+                      id: `${writer}-${stage}-root-tree`,
+                      tree: {
+                        id: `${writer}-${stage}-root-tree`,
+                        blobs: {},
+                        trees: {
+                          ".protocol": {
+                            id: `${writer}-${stage}-protocol-tree`,
+                            blobs: {
+                              attributes:
+                                `${writer}-${stage}-attributes-blob`,
+                            },
+                            trees: {},
+                          },
+                        },
+                      },
+                    },
+                    {
+                      operation: "readBlob",
+                      id: `${writer}-${stage}-attributes-blob`,
+                      byteLength: 1,
+                      hash: "a".repeat(64),
+                      snapshotSequenceNumber: 70 + stageIndex,
+                    },
+                    {
+                      operation: "fetchMessages",
+                      from: 70 + stageIndex + readerIndex,
+                    },
+                  ]
+                : [
+                    {
+                      status: 200,
+                      path: `/git/commits/${writer}-${stage}-version`,
+                      responseHash: "1".repeat(64),
+                      storageResponse: {
+                        kind: "commit",
+                        requestedId: `${writer}-${stage}-version`,
+                        treeId: `${writer}-${stage}-root-tree`,
+                      },
+                    },
+                    {
+                      status: 200,
+                      path: `/git/trees/${writer}-${stage}-root-tree`,
+                      responseHash: "2".repeat(64),
+                      storageResponse: {
+                        kind: "tree",
+                        requestedId: `${writer}-${stage}-root-tree`,
+                        entries: [{
+                          path: ".protocol",
+                          type: "tree",
+                          id: `${writer}-${stage}-protocol-tree`,
+                        }],
+                      },
+                    },
+                    {
+                      status: 200,
+                      path: `/git/trees/${writer}-${stage}-protocol-tree`,
+                      responseHash: "3".repeat(64),
+                      storageResponse: {
+                        kind: "tree",
+                        requestedId: `${writer}-${stage}-protocol-tree`,
+                        entries: [{
+                          path: "attributes",
+                          type: "blob",
+                          id: `${writer}-${stage}-attributes-blob`,
+                        }],
+                      },
+                    },
+                    {
+                      status: 200,
+                      path: `/git/blobs/${writer}-${stage}-attributes-blob`,
+                      responseHash: "a".repeat(64),
+                      storageResponse: {
+                        kind: "blob",
+                        requestedId: `${writer}-${stage}-attributes-blob`,
+                        snapshotSequenceNumber: 70 + stageIndex,
+                      },
+                    },
+                  ],
               storageResponses: {
                 commit: {
                   kind: "commit",
@@ -2495,7 +2667,7 @@ async function validFixture() {
                 wholeTree: structuredClone(item.finalTree),
                 commits: undoCommitEvents(true),
               },
-              retained: {
+              retained: withTransportEvidence({
                 kind: "Default",
                 factoryAvailable: true,
                 status: "Valid",
@@ -2503,8 +2675,8 @@ async function validFixture() {
                 actionId: "event-1",
                 revision: "default-revision",
                 outboundRecords: [outboundRecord("default-revision", 1)],
-              },
-              lifecycle: {
+              }),
+              lifecycle: withTransportEvidence({
                 authoredKind: "Undo",
                 authoredCount: 1,
                 outboundCount: 1,
@@ -2513,7 +2685,7 @@ async function validFixture() {
                 submittedRevisions: ["undo-revision"],
                 outboundRecords: [outboundRecord("undo-revision", 2)],
                 settlement: "FullyApplied",
-              },
+              }),
               postUndoStatus: { name: "post-load", status: "Disposed" },
               sequencedHistory: [{ revision: "undo-revision", kind: "Undo" }],
               acceptedOperations: [
@@ -3241,6 +3413,176 @@ test("settle merges an earlier Undo collection into a later failure", async () =
       ));
       return true;
     },
+  );
+});
+
+test("round 5 derives retries from raw transport connection occurrences", async () => {
+  const { expected, report } = await validFixture();
+  const item = report.undoRedoReconnect[0];
+  const raw = expected.artifacts.get(item.artifacts[0]).claim.raw;
+  const original = raw.lifecycle.outboundRecords[0];
+  raw.lifecycle.outboundRecords.push({
+    ...structuredClone(original),
+    sendId: original.sendId + 1,
+    classification: "reconnect-retry",
+    clientId: "forged-reconnect-client",
+    transportId: "forged-reconnect-client",
+    connectionEpoch: original.connectionEpoch + 1,
+    payload: {
+      ...structuredClone(original.payload),
+      clientId: "forged-reconnect-client",
+    },
+  });
+  assert.throws(() => validateInteropReport(report, expected));
+});
+
+test("round 5 resolves submitted revisions from decoded accepted allocations", async () => {
+  const reconnect = async () => {
+    const fixture = await validFixture();
+    const item = fixture.report.undoRedoReconnect.find(
+      ({ implementation }) => implementation === "erlang",
+    );
+    return {
+      ...fixture,
+      raw: fixture.expected.artifacts.get(item.artifacts[0]).claim.raw,
+    };
+  };
+  {
+    const { expected, report, raw } = await reconnect();
+    raw.eventTrace.find(({ actionId, type }) =>
+      actionId === raw.lifecycle.actionId && type === "commit").revision = null;
+    assert.doesNotThrow(() => validateInteropReport(report, expected));
+  }
+  {
+    const { expected, report, raw } = await reconnect();
+    const madeUp = "made-up-stable-revision";
+    raw.lifecycle.submittedRevisions = [madeUp];
+    raw.lifecycle.outboundRecords[0].stableRevision = madeUp;
+    raw.lifecycle.revisionResolution.stableRevision = madeUp;
+    for (const event of raw.eventTrace) {
+      if (event.actionId === raw.lifecycle.actionId) event.revision = madeUp;
+    }
+    raw.sequencedHistory = [{ revision: madeUp, kind: "Undo" }];
+    assert.throws(() => validateInteropReport(report, expected));
+  }
+  for (const mutate of [
+    (raw) => { delete raw.lifecycle.revisionResolution; },
+    (raw) => { raw.lifecycle.revisionResolution.actionId = "another-action"; },
+    (raw) => { raw.lifecycle.revisionResolution.localRevision = 999; },
+  ]) {
+    const { expected, report, raw } = await reconnect();
+    mutate(raw);
+    assert.throws(() => validateInteropReport(report, expected));
+  }
+});
+
+test("round 5 reload lifecycle follows the writer publication checkpoint", async () => {
+  const { expected, report } = await validFixture();
+  const item = report.undoRedoReloadMatrix.javascript.undo.erlang;
+  const claim = expected.artifacts.get(item.artifacts[0]).claim;
+  const wrong = { coordinated: "copied-only-tree" };
+  item.loadedTree = structuredClone(wrong);
+  item.expectedPublishedTree = structuredClone(wrong);
+  item.finalTree = structuredClone(wrong);
+  claim.measured.loadedTree = structuredClone(wrong);
+  claim.measured.expectedPublishedTree = structuredClone(wrong);
+  claim.measured.finalTree = structuredClone(wrong);
+  claim.raw.loaded.wholeTree = structuredClone(wrong);
+  claim.raw.final.wholeTree = structuredClone(wrong);
+  assert.throws(() => validateInteropReport(report, expected));
+});
+
+test("round 5 reload identity follows raw boundary storage responses", async () => {
+  {
+    const { expected, report } = await validFixture();
+    const item = report.undoRedoReloadMatrix.javascript.undo.erlang;
+    const claim = expected.artifacts.get(item.artifacts[0]).claim;
+    const load = item.loadEvidence;
+    load.rawLoadIdentity.rootTreeId = "copied-root";
+    load.rawLoadIdentity.protocolTreeId = "copied-protocol";
+    load.rawLoadIdentity.blobId = "copied-blob";
+    load.rawLoadIdentity.responseHash = "b".repeat(64);
+    claim.measured.loadEvidence = structuredClone(load);
+    claim.raw.load = structuredClone(load);
+    claim.raw.loaded.rawLoadIdentity = structuredClone(load.rawLoadIdentity);
+    claim.raw.storageResponses.commit.treeId = "copied-root";
+    claim.raw.storageResponses.trees[0].requestedId = "copied-root";
+    claim.raw.storageResponses.trees[0].entries[0].id = "copied-protocol";
+    claim.raw.storageResponses.trees[1].requestedId = "copied-protocol";
+    claim.raw.storageResponses.trees[1].entries[0].id = "copied-blob";
+    claim.raw.storageResponses.blob.requestedId = "copied-blob";
+    claim.raw.storageResponses.blob.responseHash = "b".repeat(64);
+    assert.throws(() => validateInteropReport(report, expected));
+  }
+  {
+    const { expected, report } = await validFixture();
+    const item = report.undoRedoReloadMatrix.javascript.undo.erlang;
+    const raw = expected.artifacts.get(item.artifacts[0]).claim.raw;
+    const blob = raw.boundaryStorageResponses.find(
+      ({ storageResponse }) => storageResponse?.kind === "blob",
+    );
+    blob.storageResponse.snapshotSequenceNumber += 1;
+    blob.responseHash = "c".repeat(64);
+    assert.throws(() => validateInteropReport(report, expected));
+  }
+});
+
+test("round 5 failure paths preserve primary checkpoints before separate drains", async () => {
+  const primary = {
+    label: "primary",
+    stage: "failed",
+    observations: [{ commits: [{ type: "commit", kind: "Undo" }] }],
+  };
+  const drain = {
+    label: "drain",
+    stage: "intermediate",
+    observations: [{ commits: [] }],
+  };
+  for (const path of [
+    "deterministic",
+    "reconnect",
+    "reload-reader",
+    "reload-writer",
+    "seeded",
+  ]) {
+    const error = Object.assign(new Error(`${path} failed`), {
+      checkpoint: structuredClone(primary),
+    });
+    const state = scenarios.preserveFailureCheckpoints(
+      error,
+      structuredClone(drain),
+    );
+    assert.deepEqual(error.checkpoint, primary);
+    assert.deepEqual(error.primaryCheckpoint, primary);
+    assert.deepEqual(error.drainCheckpoint, drain);
+    assert.deepEqual(state, {
+      primaryCheckpoint: primary,
+      drainCheckpoint: drain,
+    });
+  }
+  const scenarioSource = await readFile(
+    join(oracleDirectory, "interop-scenarios.mjs"),
+    "utf8",
+  );
+  const reloadSource = await readFile(
+    join(oracleDirectory, "summary-interop.mjs"),
+    "utf8",
+  );
+  assert.equal(
+    scenarioSource.match(
+      /preserveFailureCheckpoints\(error, drained\.checkpoint\);/g,
+    )?.length,
+    3,
+  );
+  assert.equal(
+    reloadSource.match(
+      /preserveFailureCheckpoints\(error, drained\.checkpoint\);/g,
+    )?.length,
+    2,
+  );
+  assert.doesNotMatch(
+    `${scenarioSource}\n${reloadSource}`,
+    /error\.checkpoint = drained\.checkpoint/,
   );
 });
 

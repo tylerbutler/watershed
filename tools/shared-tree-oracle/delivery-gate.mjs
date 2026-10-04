@@ -79,6 +79,32 @@ function inspectPayload(bytes) {
   };
 }
 
+function submittedPayloads(value) {
+  const submissions = [];
+  const pending = [value];
+  const seen = new Set();
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (typeof current === "string" && /^[\[{]/.test(current.trim())) {
+      try {
+        pending.push(JSON.parse(current));
+      } catch {
+        // Operation data can resemble JSON without containing an encoded payload.
+      }
+      continue;
+    }
+    if (!current || typeof current !== "object" || seen.has(current)) continue;
+    seen.add(current);
+    if (typeof current.clientId === "string"
+      && Array.isArray(current.messageBatches)) {
+      submissions.push(sanitizedPayload(current));
+      continue;
+    }
+    pending.push(...Object.values(current));
+  }
+  return submissions;
+}
+
 function inspectHandshake(bytes) {
   let value;
   try {
@@ -249,6 +275,7 @@ export class DeliveryGate {
     outbound: 0,
   };
   #nextMessageId = 1;
+  #nextConnectionId = 1;
   #nextHttpId = 1;
   #dropped = {
     inbound: false,
@@ -260,6 +287,8 @@ export class DeliveryGate {
     delivered: [],
     handshakes: [],
     repairRequests: [],
+    connections: [],
+    outboundOccurrences: [],
     outboundTreeMessages: [],
     injections: [],
     errors: [],
@@ -458,7 +487,7 @@ export class DeliveryGate {
     }
   }
 
-  #message(direction, bytes, binary, send, drop) {
+  #message(direction, bytes, binary, send, drop, connectionId) {
     let deliveryBytes = bytes;
     if (direction === "inbound") {
       const handshake = inspectHandshake(deliveryBytes);
@@ -504,6 +533,7 @@ export class DeliveryGate {
     const id = this.#nextMessageId++;
     const identity = {
       id,
+      connectionId,
       direction,
       kind: inspected.kind,
       hash: digest(deliveryBytes),
@@ -512,6 +542,12 @@ export class DeliveryGate {
       event: inspected.event,
       sequenceNumbers: inspected.sequenceNumbers,
     };
+    if (direction === "outbound" && inspected.kind === "op") {
+      identity.submissions = submittedPayloads(
+        JSON.parse(deliveryBytes.toString("utf8")),
+      );
+      this.#evidence.outboundOccurrences.push(structuredClone(identity));
+    }
     const item = {
       direction,
       kind: inspected.kind,
@@ -544,6 +580,8 @@ export class DeliveryGate {
       return;
     }
     this.#webSockets.handleUpgrade(request, socket, head, (client) => {
+      const connectionId = `connection-${this.#nextConnectionId++}`;
+      const epoch = this.#nextConnectionId - 1;
       const protocols = request.headers["sec-websocket-protocol"]
         ?.split(",").map((value) => value.trim()).filter(Boolean);
       const upstream = new WebSocket(
@@ -555,8 +593,13 @@ export class DeliveryGate {
           maxPayload: maxMessageBytes,
         },
       );
-      const bridge = { client, upstream };
+      const bridge = { client, upstream, connectionId };
       this.#bridges.add(bridge);
+      this.#evidence.connections.push({
+        connectionId,
+        epoch,
+        state: "opened",
+      });
       const pending = [];
       let pendingBytes = 0;
       const finish = (source, target, direction) => {
@@ -594,7 +637,7 @@ export class DeliveryGate {
         this.#message("outbound", bytes, binary, send, () => {
           client.terminate();
           upstream.terminate();
-        });
+        }, connectionId);
       });
       upstream.on("open", () => {
         for (const forward of pending.splice(0)) forward();
@@ -613,7 +656,7 @@ export class DeliveryGate {
         this.#message("inbound", bytes, binary, send, () => {
           client.terminate();
           upstream.terminate();
-        });
+        }, connectionId);
       });
     });
   }

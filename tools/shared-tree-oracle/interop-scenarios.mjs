@@ -3640,6 +3640,115 @@ function normalizeOutboundRecords(
       })));
 }
 
+function outboundTransportEvidence(records) {
+  const connections = [];
+  const epochs = new Map();
+  const observations = records.map((record, index) => {
+    let epoch = epochs.get(record.clientId);
+    if (epoch === undefined) {
+      epoch = connections.length + 1;
+      epochs.set(record.clientId, epoch);
+      connections.push({
+        connectionId: record.clientId,
+        epoch,
+        state: "opened",
+      });
+    }
+    record.transportId = record.clientId;
+    record.connectionEpoch = epoch;
+    return {
+      occurrenceId: index + 1,
+      connectionId: record.clientId,
+      submissions: [structuredClone(record.payload)],
+    };
+  });
+  return { connections, observations };
+}
+
+function bindOutboundTransport(records, gateEvidence) {
+  const occurrences = gateEvidence.outboundOccurrences ?? [];
+  const connections = gateEvidence.connections ?? [];
+  const matched = new Set();
+  const seen = new Map();
+  const bound = records.map((record) => {
+    const match = occurrences.find(({ id, submissions }) =>
+      !matched.has(id) && submissions?.some((payload) =>
+        payload.clientId === record.clientId
+          && (payload.messageBatches ?? []).flat().some((operation) =>
+            operation.clientSequenceNumber === record.clientSequenceNumber
+              && decodeTreeSubmissions([{
+                ...operation,
+                clientId: payload.clientId,
+              }]).some(({ commits }) =>
+                record.operationId
+                  === `revision:${commits.map(({ originatorId, revision }) =>
+                    `${originatorId}:${revision}`).join(",")}`))));
+    assert(match,
+      `Native outbound record lacks its transport occurrence: ${JSON.stringify({
+        record: {
+          clientId: record.clientId,
+          clientSequenceNumber: record.clientSequenceNumber,
+          operationId: record.operationId,
+        },
+        occurrences: occurrences.map(({ id, connectionId, submissions }) => ({
+          id,
+          connectionId,
+          submissions: submissions?.map((payload) => ({
+            clientId: payload.clientId,
+            clientSequenceNumbers: (payload.messageBatches ?? []).flat()
+              .map(({ clientSequenceNumber }) => clientSequenceNumber),
+          })),
+        })),
+      })}`);
+    matched.add(match.id);
+    const connection = connections.find(
+      ({ connectionId }) => connectionId === match.connectionId,
+    );
+    assert(connection, "Native outbound occurrence lacks its connection");
+    const original = seen.get(record.operationId);
+    const classification = original === undefined
+      ? "original"
+      : original.connectionId === match.connectionId
+        ? "duplicate-send"
+        : "reconnect-retry";
+    if (original === undefined) {
+      seen.set(record.operationId, {
+        connectionId: match.connectionId,
+        epoch: connection.epoch,
+      });
+    }
+    return {
+      ...record,
+      classification,
+      transportId: match.connectionId,
+      connectionEpoch: connection.epoch,
+    };
+  });
+  return {
+    outboundRecords: bound,
+    transportConnections: structuredClone(connections),
+    transportObservations: structuredClone(
+      occurrences.filter(({ id }) => matched.has(id)),
+    ),
+  };
+}
+
+async function awaitOutboundTransport(records, gate, label) {
+  let evidence;
+  await until(() => {
+    evidence = gate.evidence();
+    return records.every((record) =>
+      evidence.outboundOccurrences.some(({ submissions }) =>
+        submissions?.some((payload) =>
+          payload.clientId === record.clientId
+            && (payload.messageBatches ?? []).flat().some(
+              ({ clientSequenceNumber }) =>
+                clientSequenceNumber === record.clientSequenceNumber,
+            ))));
+  }, `${label} transport occurrence`, 5_000);
+  return bindOutboundTransport(records, evidence);
+}
+
 function outboundRecordsForRevision(
   records,
   revision,
@@ -3663,14 +3772,88 @@ function outboundRecordsForRevision(
   });
 }
 
+function offsetStableId(value, offset) {
+  if (offset === 0) return value;
+  assert.match(value,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    "Outbound allocation session is not a UUID");
+  const hex = value.replaceAll("-", "");
+  const next = (BigInt(`0x${hex}`) + BigInt(offset))
+    .toString(16).padStart(32, "0");
+  return `${next.slice(0, 8)}-${next.slice(8, 12)}-${next.slice(12, 16)}-${next.slice(16, 20)}-${next.slice(20)}`;
+}
+
+function stableRevisionFromOutbound(records, localRevision, stableRevision) {
+  assert(Number.isSafeInteger(Number(localRevision))
+    && Number(localRevision) !== 0,
+  "Outbound action lacks its local revision generation");
+  assert(typeof stableRevision === "string" && stableRevision.length > 0,
+    "Outbound action lacks its decompressed stable revision");
+  const revisions = records.flatMap((record) => {
+    const operation = record.payload.messageBatches
+      ?.at(record.batchIndex)?.at(record.operationIndex);
+    if (operation === undefined) return [];
+    return decodeTreeSubmissions([{
+      ...operation,
+      clientId: record.clientId,
+    }]).flatMap((submission) => submission.commits.map((commit) => {
+      assert.equal(commit.revision, Number(localRevision),
+        "Outbound commit differs from its local revision");
+      const allocations = submission.allocations.filter(
+        ({ sessionId, first, last }) => sessionId === commit.originatorId
+          && Array.from(
+            { length: last - first + 1 },
+            (_, index) => offsetStableId(sessionId, first + index - 1),
+          ).includes(stableRevision),
+      );
+      assert.equal(allocations.length, 1,
+        "Outbound commit lacks one exact revision allocation");
+      return stableRevision;
+    }));
+  });
+  assert.equal(new Set(revisions).size, 1,
+    "Outbound action does not resolve to one stable revision");
+  return revisions[0];
+}
+
 export function upstreamAdapter(session, viewConfigurations = {}) {
   const instanceId = randomUUID();
   const events = [];
   const commits = [];
   const handles = new Map();
+  const resolvedRevisions = new Map();
   let lastLocal;
   let commitEventCount = 0;
   const outboundSends = [];
+  const actionEvidence = new Set();
+  const refreshActionEvidence = (evidence) => {
+    let outboundRecords = outboundRecordsForRevision(
+      outboundSends,
+      evidence.localRevision,
+      evidence.eventId,
+      instanceId,
+    ).map((record) => ({
+      ...record,
+      stableRevision: evidence.stableRevision,
+    }));
+    const transport = outboundTransportEvidence(outboundRecords);
+    Object.assign(evidence.result, {
+      outboundRecords,
+      transportConnections: transport.connections,
+      transportObservations: transport.observations,
+    });
+  };
+  const trackActionEvidence = (
+    result,
+    localRevision,
+    stableRevision,
+    eventId,
+  ) => {
+    const evidence = { result, localRevision, stableRevision, eventId };
+    actionEvidence.add(evidence);
+    refreshActionEvidence(evidence);
+    return result;
+  };
   session.container.deltaManager.on("submitOp", (message) => {
     outboundSends.push({
       sendId: outboundSends.length + 1,
@@ -3679,6 +3862,7 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
         messageBatches: [[structuredClone(message)]],
       },
     });
+    for (const evidence of actionEvidence) refreshActionEvidence(evidence);
   });
   const connectionEvents = [];
   session.container.deltaManager.on("disconnect", (reason, error) => {
@@ -3743,7 +3927,7 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
               ),
               eventId,
               actionId,
-              revision,
+              revision: resolvedRevisions.get(actionId) ?? revision,
             });
           });
         }
@@ -3878,16 +4062,37 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
         );
         return outboundRecords.length > 0;
       }, `upstream retained ${name} outbound send`, 5_000);
-      return {
+      const stableRevision = stableRevisionFromOutbound(
+        outboundRecords,
+        retained.revision,
+        session.runtime.idCompressor.decompress(Number(retained.revision)),
+      );
+      resolvedRevisions.set(retained.actionId, stableRevision);
+      for (const event of commits) {
+        if (event.actionId === retained.actionId) event.revision = stableRevision;
+      }
+      outboundRecords = outboundRecords.map((record) => ({
+        ...record,
+        stableRevision,
+      }));
+      const transport = outboundTransportEvidence(outboundRecords);
+      return trackActionEvidence({
         name,
         kind: enumName(CommitKind, retained.kind),
         factoryAvailable: true,
         status: enumName(RevertibleStatus, retained.handle.status),
         eventId: retained.eventId,
         actionId: retained.actionId,
-        revision: retained.revision,
+        revision: stableRevision,
+        revisionResolution: {
+          actionId: retained.actionId,
+          localRevision: retained.revision,
+          stableRevision,
+        },
         outboundRecords,
-      };
+        transportConnections: transport.connections,
+        transportObservations: transport.observations,
+      }, retained.revision, stableRevision, retained.eventId);
     },
     async revert(name, dispose) {
       const retained = handles.get(name);
@@ -3919,7 +4124,24 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
         );
         return outboundRecords.length > 0;
       }, `upstream revert ${name} outbound send`, 5_000);
-      return {
+      const localRevision = submittedRevisions[0];
+      const stableRevision = stableRevisionFromOutbound(
+        outboundRecords,
+        localRevision,
+        session.runtime.idCompressor.decompress(Number(localRevision)),
+      );
+      resolvedRevisions.set(authored[0].actionId, stableRevision);
+      for (const event of commits) {
+        if (event.actionId === authored[0].actionId) {
+          event.revision = stableRevision;
+        }
+      }
+      outboundRecords = outboundRecords.map((record) => ({
+        ...record,
+        stableRevision,
+      }));
+      const transport = outboundTransportEvidence(outboundRecords);
+      return trackActionEvidence({
         name,
         authoredKind: authored[0].kind,
         status: enumName(RevertibleStatus, retained.handle.status),
@@ -3928,9 +4150,16 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
         outboundCount: submittedRevisions.length,
         authoredEventIds: authored.map(({ eventId }) => eventId),
         actionId: authored[0].actionId,
-        submittedRevisions,
+        submittedRevisions: [stableRevision],
+        revisionResolution: {
+          actionId: authored[0].actionId,
+          localRevision,
+          stableRevision,
+        },
         outboundRecords,
-      };
+        transportConnections: transport.connections,
+        transportObservations: transport.observations,
+      }, localRevision, stableRevision, authored[0].eventId);
     },
     async revertibleStatus(name) {
       const retained = handles.get(name);
@@ -4206,14 +4435,25 @@ export async function nativeAdapter(
         && typeof result.revision === "string") {
         resolvedRevisions.set(result.actionId, result.revision);
       }
-      return {
-        ...result,
-        outboundRecords: normalizeOutboundRecords(
+      const outboundRecords = normalizeOutboundRecords(
           result.outboundRecords ?? [],
           result.eventId,
           client.instanceId,
           result.revision,
-        ),
+        );
+      const transport = await awaitOutboundTransport(
+        outboundRecords,
+        client.gate,
+        `${target} retained ${name}`,
+      );
+      return {
+        ...result,
+        ...transport,
+        revisionResolution: {
+          actionId: result.actionId,
+          localRevision: null,
+          stableRevision: result.revision,
+        },
       };
     },
     async revertibleStatus(name) {
@@ -4225,16 +4465,29 @@ export async function nativeAdapter(
     async revert(name, dispose) {
       const result = await client.revert(name, dispose);
       const outboundRecords = normalizeOutboundRecords(
-        result.outboundRecords ?? [],
-        result.authoredEventIds?.[0],
-        client.instanceId,
-        result.submittedRevisions?.[0],
+          result.outboundRecords ?? [],
+          result.authoredEventIds?.[0],
+          client.instanceId,
+          result.submittedRevisions?.[0],
+        );
+      const transport = await awaitOutboundTransport(
+        outboundRecords,
+        client.gate,
+        `${target} revert ${name}`,
       );
       if (typeof result.actionId === "string"
         && typeof result.submittedRevisions?.[0] === "string") {
         resolvedRevisions.set(result.actionId, result.submittedRevisions[0]);
       }
-      return { ...result, outboundRecords };
+      return {
+        ...result,
+        ...transport,
+        revisionResolution: {
+          actionId: result.actionId,
+          localRevision: null,
+          stableRevision: result.submittedRevisions?.[0],
+        },
+      };
     },
     async checkpoint() {
       const reply = success(await client.request({ command: "checkpoint" }),
@@ -5038,6 +5291,13 @@ export async function captureFailureCheckpoint(
     errors: collected.clientErrors.map(({ error }) => error),
     clientErrors: collected.clientErrors,
   };
+}
+
+export function preserveFailureCheckpoints(error, drainCheckpoint) {
+  const primaryCheckpoint = error.checkpoint ?? null;
+  error.primaryCheckpoint = primaryCheckpoint;
+  error.drainCheckpoint = drainCheckpoint;
+  return { primaryCheckpoint, drainCheckpoint };
 }
 
 export async function settle(adapters) {
@@ -7433,6 +7693,8 @@ async function writeUndoRedoFailure(context, identity, state, error, kind) {
         (commits ?? []).filter(({ type }) => type === "settlement")
           .map(({ outcome }) => outcome))),
     eventTrace: state.checkpoints ?? [],
+    primaryCheckpoint: error.primaryCheckpoint ?? error.checkpoint ?? null,
+    drainCheckpoint: error.drainCheckpoint ?? null,
     undoRedo: state.undoRedo ?? [],
     error: replayError(error),
   })}\n`, { mode: 0o600 });
@@ -7659,13 +7921,13 @@ async function runUndoRedoCell(config, context, cell) {
     return item;
   } catch (error) {
     failure = error;
+    if (error.checkpoint) failureState.checkpoints.push(error.checkpoint);
     const drained = await captureFailureCheckpoint(
       "undo-redo-failure-drain",
       "intermediate",
       environment.adapters,
-      error.checkpoint,
     );
-    error.checkpoint = drained.checkpoint;
+    preserveFailureCheckpoints(error, drained.checkpoint);
     failureState.checkpoints.push(drained.checkpoint);
     error.drainErrors = drained.errors.map(replayError);
     try {
@@ -7754,13 +8016,13 @@ async function runUndoRedoReconnectTarget(config, context, implementation) {
     return item;
   } catch (error) {
     failure = error;
+    if (error.checkpoint) failureState.checkpoints.push(error.checkpoint);
     const drained = await captureFailureCheckpoint(
       "undo-redo-reconnect-failure-drain",
       "intermediate",
       environment.adapters,
-      error.checkpoint,
     );
-    error.checkpoint = drained.checkpoint;
+    preserveFailureCheckpoints(error, drained.checkpoint);
     failureState.checkpoints.push(drained.checkpoint);
     error.drainErrors = drained.errors.map(replayError);
     try {
@@ -8082,6 +8344,8 @@ export async function writeSeededFailure(context, schedule, state, error) {
         .filter(([key]) => key !== "index"))
       : null,
     failedCheckpoint: error.checkpoint ?? null,
+    primaryCheckpoint: error.primaryCheckpoint ?? error.checkpoint ?? null,
+    drainCheckpoint: error.drainCheckpoint ?? null,
     schemaTransitions: state.schemaTransitions,
     transactions: state.transactions ?? [],
     undoRedo: state.undoRedo ?? [],
@@ -8642,14 +8906,9 @@ export async function runSeededSchedule(config, context, schedule) {
         "seeded-failure-drain",
         "intermediate",
         state.adapters,
-        error.checkpoint,
       );
-      error.checkpoint = drained.checkpoint;
-      if (state.checkpoints.at(-1)?.stage === "failed") {
-        state.checkpoints[state.checkpoints.length - 1] = drained.checkpoint;
-      } else {
-        state.checkpoints.push(drained.checkpoint);
-      }
+      preserveFailureCheckpoints(error, drained.checkpoint);
+      state.checkpoints.push(drained.checkpoint);
       state.drainErrors = [
         ...(state.drainErrors ?? []),
         ...drained.errors.map(replayError),

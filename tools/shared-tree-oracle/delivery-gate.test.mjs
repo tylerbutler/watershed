@@ -161,6 +161,50 @@ test("one Phoenix op payload records every contained sequence number", async (t)
   assert.deepEqual(gate.evidence().outboundTreeMessages[0].sequenceNumbers, [20, 21]);
 });
 
+test("outbound occurrences retain independent connection epochs and submissions", async (t) => {
+  const upstream = await service();
+  const gate = await DeliveryGate.open("127.0.0.1", upstream.port);
+  let socket = await connected(gate.port);
+  t.after(async () => {
+    socket.terminate();
+    await gate.close();
+    await upstream.close();
+  });
+  const submission = {
+    clientId: "runtime-client",
+    messageBatches: [[{
+      clientSequenceNumber: 1,
+      contents: { type: "component" },
+    }]],
+  };
+  const payload = JSON.stringify([
+    "1", "2", "document:test", "submitOp", JSON.stringify(submission),
+  ]);
+  socket.send(payload);
+  await until(() => gate.evidence().outboundOccurrences.length === 1,
+    "Gate did not record the first transport occurrence");
+  await gate.disconnect();
+  await gate.reconnect();
+  socket = await connected(gate.port);
+  socket.send(payload);
+  await until(() => gate.evidence().outboundOccurrences.length === 2,
+    "Gate did not record the reconnect transport occurrence");
+  const evidence = gate.evidence();
+  assert.deepEqual(
+    evidence.connections.map(({ epoch, state }) => ({ epoch, state })),
+    [
+      { epoch: 1, state: "opened" },
+      { epoch: 2, state: "opened" },
+    ],
+  );
+  assert.notEqual(
+    evidence.outboundOccurrences[0].connectionId,
+    evidence.outboundOccurrences[1].connectionId,
+  );
+  assert.deepEqual(evidence.outboundOccurrences.map(({ submissions }) => submissions),
+    [[submission], [submission]]);
+});
+
 test("requestOps forwards unchanged and records only sanitized repair evidence", async (t) => {
   const upstream = await service();
   const gate = await DeliveryGate.open("127.0.0.1", upstream.port);

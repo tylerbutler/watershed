@@ -283,6 +283,17 @@ function bind(target, property) {
   return typeof value === "function" ? value.bind(target) : value;
 }
 
+function snapshotTreeEvidence(tree) {
+  if (!tree) return null;
+  return {
+    id: tree.id,
+    blobs: { ...(tree.blobs ?? {}) },
+    trees: Object.fromEntries(Object.entries(tree.trees ?? {}).map(
+      ([name, child]) => [name, snapshotTreeEvidence(child)],
+    )),
+  };
+}
+
 function observedStorage(storage, observations) {
   return new Proxy(storage, {
     get(target, property) {
@@ -303,8 +314,7 @@ function observedStorage(storage, observations) {
           observations.push({
             operation: "getSnapshotTree",
             id: result?.id,
-            blobs: Object.keys(result?.blobs ?? {}),
-            trees: Object.keys(result?.trees ?? {}),
+            tree: snapshotTreeEvidence(result),
           });
           return result;
         });
