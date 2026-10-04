@@ -1055,6 +1055,7 @@ fn revert_handle(
       #("authoredCount", json.int(list.length(authored_event_ids))),
       #("outboundCount", json.int(list.length(submitted_revisions))),
       #("authoredEventIds", json.array(authored_event_ids, json.int)),
+      #("actionId", json.string("event-" <> int.to_string(authored.2))),
       #("submittedRevisions", json.array(submitted_revisions, json.string)),
       #("outboundRecords", json.array(outbound_records, fn(record) { record })),
     ]),

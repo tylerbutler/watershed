@@ -1292,61 +1292,64 @@ export function loadRequests(evidence, version) {
     .filter(({ direction, kind }) => direction === "inbound" && kind === "op")
     .flatMap(({ sequenceNumbers }) => sequenceNumbers)
     .filter(Number.isSafeInteger);
-  const storageLoadIdentities = evidence.http.flatMap(
-    ({ status, responseSnapshotSequenceNumber }, observationIndex) =>
-      status === 200 && Number.isSafeInteger(responseSnapshotSequenceNumber)
-        && responseSnapshotSequenceNumber >= 0
-        ? [{
-            loadedVersion: version,
-            snapshotSequenceNumber: responseSnapshotSequenceNumber,
-            observationIndex,
-          }]
-        : [],
+  const storage = successful.flatMap((observation) =>
+    observation.storageResponse === undefined
+      ? []
+      : [{ ...observation.storageResponse, responseHash: observation.responseHash }]);
+  const commit = storage.find(
+    ({ kind, requestedId }) => kind === "commit" && requestedId === version,
   );
-  const runtimeLoadIdentities = (evidence.nativeLoadIdentities ?? []).flatMap(
-    ({ snapshotSequenceNumber, observedSequenceNumber }, observationIndex) =>
-      Number.isSafeInteger(snapshotSequenceNumber)
-        && snapshotSequenceNumber >= 0
-        ? [{
-            loadedVersion: version,
-            snapshotSequenceNumber,
-            observedSequenceNumber,
-            observationIndex,
-          }]
-        : [],
+  assert(commit, "Native reader lacks the selected commit response identity");
+  const trees = storage.filter(({ kind }) => kind === "tree");
+  const root = trees.find(({ requestedId }) => requestedId === commit.treeId);
+  assert(root, "Native reader lacks the selected root tree response identity");
+  let protocolEntry = root.entries.find(
+    ({ path, type }) => path === ".protocol" && type === "tree",
   );
-  const handshakeLoadIdentities = (evidence.handshakes ?? []).flatMap(
-    (handshake, handshakeIndex) => {
-      const snapshotSequenceNumber = handshake.summarySequenceNumber;
-      const consumedSnapshotSequenceNumber =
-        Number.isSafeInteger(snapshotSequenceNumber)
-          && snapshotSequenceNumber >= 0
-          ? snapshotSequenceNumber
-          : snapshotSequenceNumber === undefined
-            ? 0
-            : undefined;
-      return consumedSnapshotSequenceNumber !== undefined
-        ? [{
-            loadedVersion: version,
-            snapshotSequenceNumber: consumedSnapshotSequenceNumber,
-            handshakeIndex,
-          }]
-        : [];
-    },
+  let app;
+  if (protocolEntry === undefined) {
+    const appEntry = root.entries.find(
+      ({ path, type }) => path === ".app" && type === "tree",
+    );
+    assert(appEntry, "Native reader selected tree lacks .app or .protocol");
+    app = trees.find(({ requestedId }) => requestedId === appEntry.id);
+    assert(app, "Native reader lacks the selected .app tree response identity");
+    protocolEntry = app.entries.find(
+      ({ path, type }) => path === ".protocol" && type === "tree",
+    );
+  }
+  assert(protocolEntry, "Native reader selected tree lacks .protocol");
+  const protocol = trees.find(
+    ({ requestedId }) => requestedId === protocolEntry.id,
   );
-  const loadIdentities = storageLoadIdentities.length > 0
-    ? storageLoadIdentities
-    : runtimeLoadIdentities.length > 0
-      ? runtimeLoadIdentities
-      : handshakeLoadIdentities;
-  assert(loadIdentities.length > 0,
-    "Native reader lacks a consumed snapshot identity");
-  const snapshotSequences = [...new Set(
-    loadIdentities.map(({ snapshotSequenceNumber }) => snapshotSequenceNumber),
-  )];
-  assert.equal(snapshotSequences.length, 1,
-    "Native reader consumed multiple snapshot identities");
-  const snapshotSequenceNumber = snapshotSequences[0];
+  assert(protocol, "Native reader lacks the selected protocol tree response identity");
+  const attributes = protocol.entries.find(
+    ({ path, type }) => path === "attributes" && type === "blob",
+  );
+  assert(attributes, "Native reader selected protocol tree lacks attributes");
+  const blob = storage.find(
+    ({ kind, requestedId }) =>
+      kind === "blob" && requestedId === attributes.id,
+  );
+  assert(blob, "Native reader lacks the selected attributes blob response identity");
+  assert(Number.isSafeInteger(blob.snapshotSequenceNumber)
+    && blob.snapshotSequenceNumber >= 0,
+  "Native reader attributes blob lacks a snapshot sequence");
+  const snapshotSequenceNumber = blob.snapshotSequenceNumber;
+  const storageResponses = {
+    commit,
+    trees: app === undefined ? [root, protocol] : [root, app, protocol],
+    blob,
+  };
+  const rawLoadIdentity = {
+    loadedVersion: version,
+    commitId: commit.requestedId,
+    rootTreeId: root.requestedId,
+    protocolTreeId: protocol.requestedId,
+    blobId: blob.requestedId,
+    responseHash: blob.responseHash,
+    snapshotSequenceNumber,
+  };
   const handshakeStarts = (evidence.handshakes ?? []).flatMap((handshake) => {
     const initial = handshake.initialMessageSequenceNumbers
       ?.filter(Number.isSafeInteger) ?? [];
@@ -1365,7 +1368,8 @@ export function loadRequests(evidence, version) {
     selectedSummaryRequests,
     selectedTreeRequests,
     selectedBlobRequests,
-    rawLoadIdentity: loadIdentities[0],
+    rawLoadIdentity,
+    storageResponses,
     snapshotSequenceNumber,
     replayStartSequenceNumber: Math.min(...measuredStarts),
     replayEvidence: deliveryStarts.length > 0 ? "native-delivery" : "native-handshake",
@@ -4503,6 +4507,7 @@ async function runUndoRedoReloadReader(
     const retained = await fresh.adapter.retainLastLocalCommit("post-load");
     handleNames.push("post-load");
     const undo = await fresh.adapter.revert("post-load", true);
+    const postUndoStatus = await fresh.adapter.revertibleStatus("post-load");
     await fresh.adapter.awaitSynced();
     const final = await fresh.adapter.checkpoint();
     trace.push({ label: "final", observation: final });
@@ -4529,9 +4534,12 @@ async function runUndoRedoReloadReader(
       historicalHandleAvailable: false,
       historicalRetainError,
       historicalLoadCommits: loaded.commits ?? [],
+      loadedTree: loaded.wholeTree,
+      expectedPublishedTree: expectedTree,
       newLocalKind: retained.kind,
       newFactoryAvailable: retained.factoryAvailable,
       newHandleStatus: retained.status,
+      postUndoHandleStatus: postUndoStatus.status,
       undoKind: undo.authoredKind,
       settlement,
       authoredCount: undo.authoredCount,
@@ -4561,8 +4569,11 @@ async function runUndoRedoReloadReader(
         ...undo,
         settlement,
       },
+      postUndoStatus,
       load,
+      storageResponses: load.storageResponses,
       sequencedHistory: checkpointRevisionEvidence(final),
+      acceptedOperationPayloads: acceptedHistory,
       acceptedOperations: acceptedTreeOperations(acceptedHistory),
       handleNames: ["post-load"],
       commitKinds: commits.filter(({ type }) => type === "commit")
@@ -4580,7 +4591,9 @@ async function runUndoRedoReloadReader(
       "failure-drain",
       "intermediate",
       { [reader]: fresh.adapter },
+      error.checkpoint,
     );
+    error.checkpoint = drained.checkpoint;
     trace.push(...drained.checkpoint.observations.map((observation) => ({
       label: "failure-drain",
       observation,
@@ -4739,6 +4752,7 @@ async function runUndoRedoReloadWriter(config, context, writer) {
         "undo-redo-reload-writer-failure-drain",
         "intermediate",
         adapters,
+        error.checkpoint,
       );
       error.checkpoint = drained.checkpoint;
       error.drainErrors = drained.errors;

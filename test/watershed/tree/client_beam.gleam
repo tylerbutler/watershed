@@ -1452,6 +1452,7 @@ fn handle_store_loop(
                         "authoredEventIds",
                         json.array(authored_event_ids, json.int),
                       ),
+                      #("actionId", json.string(action_id)),
                       #(
                         "submittedRevisions",
                         json.array(submitted_revisions, json.string),

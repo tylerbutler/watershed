@@ -636,3 +636,218 @@ directories remained there. All final commands used the session `TMPDIR`
 shown above. One pinned retry stopped on the existing Erlang schema-reload
 continuation timeout before seeded acceptance. The next run completed the same
 300 schedules with no skips or divergences.
+
+## Fix round 4
+
+### RED evidence
+
+The five new counterexamples failed before the implementation changes:
+
+```text
+tests 5
+pass 0
+fail 5
+skipped 0
+duration_ms 9204.08572
+```
+
+The failures covered:
+
+- a same-transport duplicate with a forged `reconnect-retry` label;
+- made-up BEAM stable revisions, missing raw accepted payloads, missing
+  sequenced history, and a null revision paired with a forged action ID;
+- a wrong loaded tree, false retained factory, removed local-event factory,
+  and `Valid` post-undo status;
+- a changed raw selected blob response with unchanged copied load fields;
+- a second checkpoint-collection failure that discarded the first collection's
+  surviving `Undo` observation.
+
+### Implementation
+
+Outbound evidence now records `transportId`, `connectionEpoch`, and
+`stableRevision` for every native send occurrence. Repeated operation IDs on
+the same transport are classified as `duplicate-send`; only the same operation
+on a different observed transport can be a `reconnect-retry`. Validation
+rejects duplicate send IDs, same-transport duplicates, and retry labels without
+a later transport epoch.
+
+Revert results now carry an exact action ID. The validator joins that action ID,
+the authored event ID, the stable submitted revision, the outbound raw payload,
+the settlement, and the server-accepted raw operation. BEAM events with no
+revision can use the exact action ID join, but null revisions no longer act as
+a wildcard. Accepted operations are decoded during validation from preserved
+raw server payloads; the pre-derived `acceptedOperations` field must equal that
+decode.
+
+Reconnect artifacts now preserve the retained response and the raw
+before-disconnect, after-reconnect, and post-undo status observations. Reload
+artifacts preserve the loaded tree, expected published tree, final restored
+tree, fresh `Default` factory, and post-undo status.
+
+Native storage evidence now records the selected response chain:
+
+```text
+commit version -> root tree -> .protocol tree -> attributes blob
+```
+
+The raw load identity includes the commit, root tree, protocol tree, blob,
+response hash, and snapshot sequence. Replay start remains separate. Upstream
+readers continue to bind their selected version, tree, and `readBlob` identity
+at the service boundary.
+
+Checkpoint failures now merge prior fulfilled collections, the failing
+collection's fulfilled and partial observations, and the later drain without
+overwriting the primary checkpoint.
+
+### Representative raw evidence
+
+The successful Erlang reconnect row records:
+
+```text
+retained:
+  eventId: 1
+  actionId: a3423208-ff57-4280-8ece-f59f69ede6c6
+  revision: 9f86f312-04e6-455d-b47d-66add5e54ecd
+  sendId: 1
+  classification: original
+  operationId: revision:9f86f312-04e6-455d-b47d-66add5e54ecd:-1
+  clientInstanceId: b095147b-efb6-4922-9681-b2f00c44dd75
+  transportId: 80FC5B57AEF3DE27ACC6F32EF211B4B5
+  connectionEpoch: 1
+  stableRevision: 9f86f312-04e6-455d-b47d-66add5e54ecd
+
+undo:
+  actionId: 3bda86fb-05a1-4023-8dde-eff1a9405857
+  authoredEventIds: [2]
+  submittedRevisions: [9f86f312-04e6-455d-b47d-66add5e54ece]
+  classification: original
+  transportId: 8EB596A572600B8A833A593A6D632F26
+  stableRevision: 9f86f312-04e6-455d-b47d-66add5e54ece
+
+reconnectLifecycle:
+  beforeDisconnect.status: Valid
+  afterReconnect.status: Valid
+  postUndo.status: Disposed
+```
+
+The successful JavaScript reload row records:
+
+```text
+rawLoadIdentity:
+  loadedVersion: 58acc2852ae1da0f7117ce9c4325e03aa56413cb
+  rootTreeId: ba4665f4050d77a8b8baec62e7f36a945fffa745
+  protocolTreeId: bd973fec0906b2e0491247dcfec62acc8a4ec7ae
+  blobId: cca6011baa96641a1a1765212dba1f99a4d2959f
+  responseHash: 746c120824341e42ade0114f686219c95fb6dc09760ee96739bc9364c1f28a39
+  snapshotSequenceNumber: 8
+postUndoStatus: Disposed
+loadedTreeEqualsFinal: true
+```
+
+The two-collection failure regression preserves the first `Undo` checkpoint
+before the later partial checkpoint in `error.checkpoint.observations`.
+
+### GREEN evidence
+
+Focused review tests:
+
+```text
+tests 5
+pass 5
+fail 0
+skipped 0
+duration_ms 10055.736853
+```
+
+Native client suites:
+
+```text
+gleam test --target javascript -- shared_tree_client
+20 passed
+
+gleam test --target erlang -- shared_tree_client
+20 passed
+```
+
+Exact five Node files:
+
+```text
+node --test tools/shared-tree-oracle/client-driver.test.mjs tools/shared-tree-oracle/client-interop.test.mjs tools/shared-tree-oracle/summary-interop.test.mjs tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/service.test.mjs
+```
+
+```text
+tests 117
+pass 117
+fail 0
+skipped 0
+duration_ms 167198.613057
+```
+
+Storage-response boundary tests:
+
+```text
+node --test tools/shared-tree-oracle/delivery-gate.test.mjs
+tests 13
+pass 13
+fail 0
+skipped 0
+duration_ms 936.394101
+```
+
+Pinned Floodgate interoperability gate:
+
+```text
+TMPDIR=/home/tylerbu/.copilot/session-state/639fae85-1eeb-4848-adc3-c4b99863f12c/files/tmp-round4 just shared-tree-interop
+```
+
+Exit status: 0.
+
+```text
+runId: ca44d197-746e-46d8-8efb-bcbdfd624ba3
+profileDigest: 588a2f41621f4f352497915168a5dc8af55140721066a04f217ab03e639a1813
+undoRedoKinds.implementations: 3
+undoRedoConcurrent: 30
+undoRedoReconnect: 2
+undoRedoReloadMatrix cells: 18
+seeded schedules: 300, seed 42
+javascript corpus: 956
+erlang corpus: 974
+skipped: 0
+divergences: 0
+```
+
+Report:
+`tools/shared-tree-oracle/.output/interop/ca44d197-746e-46d8-8efb-bcbdfd624ba3/report.json`
+
+Create interoperability gate:
+
+```text
+TMPDIR=/home/tylerbu/.copilot/session-state/639fae85-1eeb-4848-adc3-c4b99863f12c/files/tmp-round4 just shared-tree-create-interop
+```
+
+Exit status: 0.
+
+```text
+runId: 360d5d6f-196a-4e23-8dcb-9768c540d8dc
+profileDigest: 588a2f41621f4f352497915168a5dc8af55140721066a04f217ab03e639a1813
+cells: 18
+skipped: 0
+divergences: 0
+```
+
+Report:
+`tools/shared-tree-oracle/.output/creation/360d5d6f-196a-4e23-8dcb-9768c540d8dc/report.json`
+
+### Concerns
+
+The first pinned run reached final validation and exposed an overconstraint that
+required native HTTP storage evidence for the upstream reader. Upstream now
+uses its actual service `getVersions`, tree, and `readBlob` response identity;
+native readers require the HTTP commit/tree/blob chain.
+
+Two later pinned attempts ended before a successful report: one stopped during
+the existing refusal matrix without a coordinator failure artifact, and one
+exposed a BEAM event with a null revision before its retained action resolved.
+The exact action ID join handles that valid BEAM shape without restoring a null
+revision wildcard. The final 300-schedule run passed with no skips or
+divergences.

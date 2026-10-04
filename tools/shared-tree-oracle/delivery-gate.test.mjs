@@ -21,7 +21,10 @@ async function service(responseBody) {
         "content-type": "application/octet-stream",
         "x-private-token": "must-not-be-recorded",
       });
-      response.end(responseBody ?? Buffer.concat([Buffer.from("echo:"), body]));
+      const selectedResponse = typeof responseBody === "function"
+        ? responseBody(request)
+        : responseBody;
+      response.end(selectedResponse ?? Buffer.concat([Buffer.from("echo:"), body]));
     });
   });
   const sockets = new Set();
@@ -445,6 +448,73 @@ test("summary load evidence identifies only protocol attribute responses", async
     sequenceNumber: 9,
   });
   assert.equal(gate.evidence().http[0].responseSnapshotSequenceNumber, 8);
+  assert.deepEqual(gate.evidence().http[0].storageResponse, {
+    kind: "blob",
+    requestedId: "protocol-attributes",
+    snapshotSequenceNumber: 8,
+  });
+});
+
+test("summary load evidence links commit tree and protocol blob responses", async (t) => {
+  const attributes = {
+    minimumSequenceNumber: 3,
+    sequenceNumber: 9,
+  };
+  const upstream = await service((request) => {
+    if (request.url.endsWith("/git/commits/version")) {
+      return Buffer.from(JSON.stringify({ tree: { sha: "root-tree" } }));
+    }
+    if (request.url.endsWith("/git/trees/root-tree")) {
+      return Buffer.from(JSON.stringify({
+        tree: [{ path: ".protocol", type: "tree", sha: "protocol-tree" }],
+      }));
+    }
+    if (request.url.endsWith("/git/trees/protocol-tree")) {
+      return Buffer.from(JSON.stringify({
+        tree: [{ path: "attributes", type: "blob", sha: "attributes-blob" }],
+      }));
+    }
+    return Buffer.from(JSON.stringify({
+      content: Buffer.from(JSON.stringify(attributes)).toString("base64"),
+      encoding: "base64",
+    }));
+  });
+  const gate = await DeliveryGate.open("127.0.0.1", upstream.port);
+  t.after(async () => {
+    await gate.close();
+    await upstream.close();
+  });
+  for (const path of [
+    "/git/commits/version",
+    "/git/trees/root-tree",
+    "/git/trees/protocol-tree",
+    "/git/blobs/attributes-blob",
+  ]) {
+    const response = await fetch(`http://127.0.0.1:${gate.port}${path}`);
+    assert.equal(response.status, 206);
+    await response.arrayBuffer();
+  }
+  assert.deepEqual(
+    gate.evidence().http.map(({ storageResponse }) => storageResponse),
+    [
+      { kind: "commit", requestedId: "version", treeId: "root-tree" },
+      {
+        kind: "tree",
+        requestedId: "root-tree",
+        entries: [{ path: ".protocol", type: "tree", id: "protocol-tree" }],
+      },
+      {
+        kind: "tree",
+        requestedId: "protocol-tree",
+        entries: [{ path: "attributes", type: "blob", id: "attributes-blob" }],
+      },
+      {
+        kind: "blob",
+        requestedId: "attributes-blob",
+        snapshotSequenceNumber: 9,
+      },
+    ],
+  );
 });
 
 test("summary-load injection changes one scoped response without recording secrets", async (t) => {

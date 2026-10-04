@@ -658,14 +658,56 @@ test("array reload binds retained evidence to the loaded reader and summary", ()
   }
 });
 
+function storageHttp(version, snapshotSequenceNumber) {
+  return [
+    {
+      status: 200,
+      path: `/git/commits/${version}`,
+      responseHash: "1".repeat(64),
+      storageResponse: {
+        kind: "commit",
+        requestedId: version,
+        treeId: "root-tree",
+      },
+    },
+    {
+      status: 200,
+      path: "/git/trees/root-tree",
+      responseHash: "2".repeat(64),
+      storageResponse: {
+        kind: "tree",
+        requestedId: "root-tree",
+        entries: [{ path: ".protocol", type: "tree", id: "protocol-tree" }],
+      },
+    },
+    {
+      status: 200,
+      path: "/git/trees/protocol-tree",
+      responseHash: "3".repeat(64),
+      storageResponse: {
+        kind: "tree",
+        requestedId: "protocol-tree",
+        entries: [{ path: "attributes", type: "blob", id: "attributes-blob" }],
+      },
+    },
+    {
+      status: 200,
+      path: "/git/blobs/attributes-blob",
+      responseHash: "4".repeat(64),
+      responseSnapshotSequenceNumber: snapshotSequenceNumber,
+      storageResponse: {
+        kind: "blob",
+        requestedId: "attributes-blob",
+        snapshotSequenceNumber,
+      },
+    },
+  ];
+}
+
 test("native replay start prefers delivered operations over stale handshake context", () => {
   const version = "selected-version";
   const load = loadRequests({
-    http: [
-      { status: 200, path: `/git/commits/${version}` },
-      { status: 200, path: "/git/trees/tree" },
-      { status: 200, path: "/git/blobs/blob" },
-    ],
+    http: storageHttp(version, 0),
     delivered: [{
       direction: "inbound",
       kind: "op",
@@ -677,30 +719,20 @@ test("native replay start prefers delivered operations over stale handshake cont
       initialMessageSequenceNumbers: [130],
     }],
   }, version, 123);
-  assert.deepEqual(load, {
-    loadedVersion: version,
-    selectedSummaryRequests: [version],
-    selectedTreeRequests: ["tree"],
-    selectedBlobRequests: ["blob"],
-    rawLoadIdentity: {
-      loadedVersion: version,
-      snapshotSequenceNumber: 0,
-      handshakeIndex: 0,
-    },
-    snapshotSequenceNumber: 0,
-    replayStartSequenceNumber: 129,
-    replayEvidence: "native-delivery",
-  });
+  assert.equal(load.rawLoadIdentity.commitId, version);
+  assert.equal(load.rawLoadIdentity.rootTreeId, "root-tree");
+  assert.equal(load.rawLoadIdentity.protocolTreeId, "protocol-tree");
+  assert.equal(load.rawLoadIdentity.blobId, "attributes-blob");
+  assert.equal(load.rawLoadIdentity.responseHash, "4".repeat(64));
+  assert.equal(load.snapshotSequenceNumber, 0);
+  assert.equal(load.replayStartSequenceNumber, 129);
+  assert.equal(load.replayEvidence, "native-delivery");
 });
 
 test("native handshake replay start uses initial messages before summary context", () => {
   const version = "selected-version";
   const load = loadRequests({
-    http: [
-      { status: 200, path: `/git/commits/${version}` },
-      { status: 200, path: "/git/trees/tree" },
-      { status: 200, path: "/git/blobs/blob" },
-    ],
+    http: storageHttp(version, 0),
     delivered: [],
     handshakes: [{
       checkpointSequenceNumber: 124,
@@ -715,11 +747,7 @@ test("native handshake replay start uses initial messages before summary context
 test("native omitted summary context identifies the sequence-zero snapshot", () => {
   const version = "selected-version";
   const load = loadRequests({
-    http: [
-      { status: 200, path: `/git/commits/${version}` },
-      { status: 200, path: "/git/trees/tree" },
-      { status: 200, path: "/git/blobs/blob" },
-    ],
+    http: storageHttp(version, 0),
     delivered: [],
     handshakes: [{
       checkpointSequenceNumber: 1,
@@ -731,14 +759,10 @@ test("native omitted summary context identifies the sequence-zero snapshot", () 
   assert.equal(load.replayStartSequenceNumber, 0);
 });
 
-test("native runtime load identity overrides a full-log handshake", () => {
+test("native storage identity overrides copied runtime state", () => {
   const version = "selected-version";
   const load = loadRequests({
-    http: [
-      { status: 200, path: `/git/commits/${version}` },
-      { status: 200, path: "/git/trees/tree" },
-      { status: 200, path: "/git/blobs/blob" },
-    ],
+    http: storageHttp(version, 18),
     delivered: [],
     nativeLoadIdentities: [{
       snapshotSequenceNumber: 18,
@@ -753,22 +777,19 @@ test("native runtime load identity overrides a full-log handshake", () => {
     }],
   }, version);
   assert.equal(load.snapshotSequenceNumber, 18);
-  assert.equal(load.rawLoadIdentity.observedSequenceNumber, 31);
+  assert.equal(load.rawLoadIdentity.responseHash, "4".repeat(64));
   assert.equal(load.replayStartSequenceNumber, 18);
 });
 
-test("native storage response identity overrides copied runtime state", () => {
+test("native selected blob identity overrides copied response scalars", () => {
   const version = "selected-version";
   const load = loadRequests({
-    http: [
-      { status: 200, path: `/git/commits/${version}` },
-      { status: 200, path: "/git/trees/tree" },
-      {
-        status: 200,
-        path: "/git/blobs/protocol-attributes",
-        responseSnapshotSequenceNumber: 18,
-      },
-    ],
+    http: storageHttp(version, 18).map((observation) => ({
+      ...observation,
+      responseSnapshotSequenceNumber: observation.storageResponse.kind === "blob"
+        ? 19
+        : observation.responseSnapshotSequenceNumber,
+    })),
     delivered: [],
     nativeLoadIdentities: [{
       snapshotSequenceNumber: 19,
@@ -783,18 +804,14 @@ test("native storage response identity overrides copied runtime state", () => {
     }],
   }, version);
   assert.equal(load.snapshotSequenceNumber, 18);
-  assert.equal(load.rawLoadIdentity.observationIndex, 2);
+  assert.equal(load.rawLoadIdentity.blobId, "attributes-blob");
   assert.equal(load.replayStartSequenceNumber, 18);
 });
 
 test("native handshake excludes the redundant server prefix before selected summary", () => {
   const version = "selected-version";
   const load = loadRequests({
-    http: [
-      { status: 200, path: `/git/commits/${version}` },
-      { status: 200, path: "/git/trees/tree" },
-      { status: 200, path: "/git/blobs/blob" },
-    ],
+    http: storageHttp(version, 15),
     delivered: [],
     handshakes: [{
       checkpointSequenceNumber: 29,
@@ -810,9 +827,7 @@ test("native summary load rejects absent replay evidence", () => {
   const version = "selected-version";
   assert.throws(() => loadRequests({
     http: [
-      { status: 200, path: `/git/commits/${version}` },
-      { status: 200, path: "/git/trees/tree" },
-      { status: 200, path: "/git/blobs/blob" },
+      ...storageHttp(version, 15),
       { status: 200, path: "/deltas/document?from=15" },
     ],
     delivered: [],
@@ -828,9 +843,7 @@ test("native summary load rejects a selected-summary handshake without applied t
   const version = "selected-version";
   assert.throws(() => loadRequests({
     http: [
-      { status: 200, path: `/git/commits/${version}` },
-      { status: 200, path: "/git/trees/tree" },
-      { status: 200, path: "/git/blobs/blob" },
+      ...storageHttp(version, 15),
       { status: 200, path: "/deltas/document?from=15" },
     ],
     delivered: [],
@@ -853,11 +866,7 @@ test("reload tree mismatch remains primary when reader close also fails", async 
     async awaitSynced() {},
     evidence() {
       return {
-        http: [
-          { status: 200, path: "/git/commits/version" },
-          { status: 200, path: "/git/trees/tree" },
-          { status: 200, path: "/git/blobs/blob" },
-        ],
+        http: storageHttp("version", 15),
         delivered: [],
         handshakes: [{
           checkpointSequenceNumber: 16,

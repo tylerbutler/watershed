@@ -183,6 +183,43 @@ function snapshotSequenceNumber(bytes) {
   }
 }
 
+function storageResponseIdentity(path, bytes) {
+  const match = path.match(/\/git\/(commits|trees|blobs)\/([^/?]+)/);
+  if (!match) return undefined;
+  let value;
+  try {
+    value = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    return undefined;
+  }
+  const requestedId = decodeURIComponent(match[2]);
+  if (match[1] === "commits") {
+    const treeId = value?.tree?.sha ?? value?.tree?.id;
+    return typeof treeId === "string"
+      ? { kind: "commit", requestedId, treeId }
+      : undefined;
+  }
+  if (match[1] === "trees") {
+    const entries = Array.isArray(value?.tree)
+      ? value.tree.flatMap(({ path: entryPath, type, sha, id }) => {
+        const entryId = sha ?? id;
+        return typeof entryPath === "string"
+          && ["tree", "blob"].includes(type)
+          && typeof entryId === "string"
+          ? [{ path: entryPath, type, id: entryId }]
+          : [];
+      })
+      : [];
+    return entries.length > 0
+      ? { kind: "tree", requestedId, entries }
+      : undefined;
+  }
+  const sequenceNumber = snapshotSequenceNumber(bytes);
+  return sequenceNumber === undefined
+    ? undefined
+    : { kind: "blob", requestedId, snapshotSequenceNumber: sequenceNumber };
+}
+
 function documentTopic(topic, documentId) {
   return topic === `document:${documentId}`
     || (topic?.startsWith("document:") && topic.endsWith(`:${documentId}`));
@@ -653,11 +690,20 @@ export class DeliveryGate {
             responseHash: responseHash.digest("hex"),
           };
           if (!bufferResponse) {
+            const responseBytes = identityOverflow
+              ? undefined
+              : Buffer.concat(identityChunks);
             const sequenceNumber = identityOverflow
               ? undefined
-              : snapshotSequenceNumber(Buffer.concat(identityChunks));
+              : snapshotSequenceNumber(responseBytes);
             if (sequenceNumber !== undefined) {
               observation.responseSnapshotSequenceNumber = sequenceNumber;
+            }
+            const storageResponse = responseBytes === undefined
+              ? undefined
+              : storageResponseIdentity(path, responseBytes);
+            if (storageResponse !== undefined) {
+              observation.storageResponse = storageResponse;
             }
             this.#evidence.http.push(observation);
             clientResponse.end();
@@ -702,6 +748,10 @@ export class DeliveryGate {
           const sequenceNumber = snapshotSequenceNumber(bytes);
           if (sequenceNumber !== undefined) {
             observation.responseSnapshotSequenceNumber = sequenceNumber;
+          }
+          const storageResponse = storageResponseIdentity(path, bytes);
+          if (storageResponse !== undefined) {
+            observation.storageResponse = storageResponse;
           }
           this.#evidence.http.push(observation);
           if (!holdResponse) {

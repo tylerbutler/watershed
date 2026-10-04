@@ -339,11 +339,14 @@ async function validFixture() {
   ) => ({
     sendId: eventId,
     classification,
-    operationId: `revision:${clientId}:${revision}`,
+    operationId: `revision:${clientId}:${clientSequenceNumber}`,
     clientId,
     clientInstanceId: `${clientId}-instance`,
+    transportId: clientId,
+    connectionEpoch: 1,
     clientSequenceNumber,
     authoredEventId: eventId,
+    stableRevision: revision,
     payload: {
       clientId,
       messageBatches: [[{
@@ -356,7 +359,7 @@ async function validFixture() {
             contents: {
               content: {
                 contents: {
-                  revision,
+                  revision: clientSequenceNumber,
                   originatorId: clientId,
                   changeset: [],
                 },
@@ -373,19 +376,57 @@ async function validFixture() {
     clientId = "native-client",
     clientSequenceNumber = eventId,
   ) => ({
-    operationId: `revision:${clientId}:${revision}`,
+    operationId: `revision:${clientId}:${clientSequenceNumber}`,
     clientId,
     clientSequenceNumber,
     outerSequenceNumber: 100 + clientSequenceNumber,
     commits: [{
-      revision,
+      revision: clientSequenceNumber,
       originatorId: clientId,
       changeset: [],
     }],
   });
+  const acceptedPayload = ({
+    clientId,
+    clientSequenceNumber,
+    outerSequenceNumber,
+    commits,
+  }) => ({
+    type: "op",
+    clientId,
+    clientSequenceNumber,
+    referenceSequenceNumber: 0,
+    sequenceNumber: outerSequenceNumber,
+    contents: {
+      type: "component",
+      contents: {
+        contents: {
+          content: {
+            contents: commits[0],
+          },
+        },
+      },
+    },
+  });
   function artifact(kind, subject, documentId, extra = {}) {
     const name = `${kind}-${subject}`.replace(/[^a-z0-9.-]+/gi, "_");
     const reference = `evidence/${name}.json`;
+    const pending = [extra.raw];
+    while (pending.length > 0) {
+      const value = pending.pop();
+      if (!value || typeof value !== "object") continue;
+      if (Array.isArray(value.authoredEventIds)
+        && value.authoredEventIds.length === 1
+        && value.actionId === undefined) {
+        value.actionId = `event-${value.authoredEventIds[0]}`;
+      }
+      pending.push(...Object.values(value));
+    }
+    if (Array.isArray(extra.raw?.acceptedOperations)
+      && extra.raw.acceptedOperationPayloads === undefined) {
+      extra.raw.acceptedOperationPayloads =
+        extra.raw.acceptedOperations.map(acceptedPayload);
+    }
     artifactFiles.set(reference, {
       formatVersion: 1,
       runId: "current",
@@ -582,6 +623,7 @@ async function validFixture() {
                   authoredCount: 1,
                   outboundCount: 1,
                   authoredEventIds: [action.lifecycle === "redo" ? 3 : 2],
+                  actionId: `event-${action.lifecycle === "redo" ? 3 : 2}`,
                   submittedRevisions: [
                     `${prefix}-${action.lifecycle}`,
                   ],
@@ -2250,6 +2292,7 @@ async function validFixture() {
       documentId: `undo-reconnect-${implementation}`,
       liveHandleBeforeDisconnect: "Valid",
       liveHandleAfterReconnect: "Valid",
+      postUndoHandleStatus: "Disposed",
       undoKind: "Undo",
       settlement: "FullyApplied",
       authoredCount: 1,
@@ -2277,11 +2320,36 @@ async function validFixture() {
             }],
           },
           eventTrace: undoCommitEvents(true),
+          retained: {
+            name: "edit",
+            kind: "Default",
+            factoryAvailable: true,
+            status: "Valid",
+            eventId: 1,
+            actionId: "event-1",
+            revision: "default-revision",
+            outboundRecords: [outboundRecord("default-revision", 1)],
+          },
+          reconnectLifecycle: {
+            beforeDisconnect: {
+              name: "edit",
+              kind: "Default",
+              factoryAvailable: true,
+              status: "Valid",
+              eventId: 1,
+              actionId: "event-1",
+              revision: "default-revision",
+              outboundRecords: [outboundRecord("default-revision", 1)],
+            },
+            afterReconnect: { name: "edit", status: "Valid" },
+            postUndo: { name: "edit", status: "Disposed" },
+          },
           lifecycle: {
             authoredKind: "Undo",
             authoredCount: 1,
             outboundCount: 1,
             authoredEventIds: [2],
+            actionId: "event-2",
             submittedRevisions: ["undo-revision"],
             outboundRecords: [outboundRecord("undo-revision", 2)],
             settlement: "FullyApplied",
@@ -2319,11 +2387,34 @@ async function validFixture() {
           loadEvidence: {
             loadedVersion: `${writer}-${stage}-version`,
             snapshotSequenceNumber: 70 + stageIndex,
-            rawLoadIdentity: {
-              loadedVersion: `${writer}-${stage}-version`,
-              snapshotSequenceNumber: 70 + stageIndex,
-              handshakeIndex: 0,
-            },
+            ...(reader === "upstream"
+              ? {
+                  selectedSummaryTreeId: `${writer}-${stage}-root-tree`,
+                  selectedTreeRequests: [`${writer}-${stage}-root-tree`],
+                  selectedBlobRequests: [{
+                    id: `${writer}-${stage}-attributes-blob`,
+                    hash: "a".repeat(64),
+                    snapshotSequenceNumber: 70 + stageIndex,
+                  }],
+                  rawLoadIdentity: {
+                    loadedVersion: `${writer}-${stage}-version`,
+                    snapshotSequenceNumber: 70 + stageIndex,
+                    treeId: `${writer}-${stage}-root-tree`,
+                    blobId: `${writer}-${stage}-attributes-blob`,
+                    blobHash: "a".repeat(64),
+                  },
+                }
+              : {
+                  rawLoadIdentity: {
+                    loadedVersion: `${writer}-${stage}-version`,
+                    snapshotSequenceNumber: 70 + stageIndex,
+                    commitId: `${writer}-${stage}-version`,
+                    rootTreeId: `${writer}-${stage}-root-tree`,
+                    protocolTreeId: `${writer}-${stage}-protocol-tree`,
+                    blobId: `${writer}-${stage}-attributes-blob`,
+                    responseHash: "a".repeat(64),
+                  },
+                }),
             replayStartSequenceNumber: 70 + stageIndex + readerIndex,
             selectedSummaryRequests: [`${writer}-${stage}-version`],
           },
@@ -2331,9 +2422,12 @@ async function validFixture() {
           historicalHandleAvailable: false,
           historicalRetainError: "No unretained local commit is available",
           historicalLoadCommits: [],
+          loadedTree: { writer, reader, stage },
+          expectedPublishedTree: { writer, reader, stage },
           newLocalKind: "Default",
           newFactoryAvailable: true,
           newHandleStatus: "Valid",
+          postUndoHandleStatus: "Disposed",
           undoKind: "Undo",
           settlement: "FullyApplied",
           authoredCount: 1,
@@ -2359,6 +2453,39 @@ async function validFixture() {
                 sequenceNumber: 80 + stageIndex,
               },
               load: item.loadEvidence,
+              storageResponses: {
+                commit: {
+                  kind: "commit",
+                  requestedId: `${writer}-${stage}-version`,
+                  treeId: `${writer}-${stage}-root-tree`,
+                },
+                trees: [
+                  {
+                    kind: "tree",
+                    requestedId: `${writer}-${stage}-root-tree`,
+                    entries: [{
+                      path: ".protocol",
+                      type: "tree",
+                      id: `${writer}-${stage}-protocol-tree`,
+                    }],
+                  },
+                  {
+                    kind: "tree",
+                    requestedId: `${writer}-${stage}-protocol-tree`,
+                    entries: [{
+                      path: "attributes",
+                      type: "blob",
+                      id: `${writer}-${stage}-attributes-blob`,
+                    }],
+                  },
+                ],
+                blob: {
+                  kind: "blob",
+                  requestedId: `${writer}-${stage}-attributes-blob`,
+                  snapshotSequenceNumber: 70 + stageIndex,
+                  responseHash: "a".repeat(64),
+                },
+              },
               loaded: {
                 wholeTree: structuredClone(item.finalTree),
                 commits: [],
@@ -2370,6 +2497,7 @@ async function validFixture() {
               },
               retained: {
                 kind: "Default",
+                factoryAvailable: true,
                 status: "Valid",
                 eventId: 1,
                 actionId: "event-1",
@@ -2381,10 +2509,12 @@ async function validFixture() {
                 authoredCount: 1,
                 outboundCount: 1,
                 authoredEventIds: [2],
+                actionId: "event-2",
                 submittedRevisions: ["undo-revision"],
                 outboundRecords: [outboundRecord("undo-revision", 2)],
                 settlement: "FullyApplied",
               },
+              postUndoStatus: { name: "post-load", status: "Disposed" },
               sequencedHistory: [{ revision: "undo-revision", kind: "Undo" }],
               acceptedOperations: [
                 acceptedOperation("default-revision", 1),
@@ -2926,16 +3056,18 @@ test("seeded undo lifecycle requires exact Default event and accepted revisions"
     }],
     ["default accepted operation removed", (raw) => {
       raw.acceptedOperations = raw.acceptedOperations.filter(
-        ({ commits }) => commits.every(
-          ({ revision }) => !revision.endsWith("-default"),
-        ),
+        ({ clientSequenceNumber }) => clientSequenceNumber !== 1,
+      );
+      raw.acceptedOperationPayloads = raw.acceptedOperationPayloads.filter(
+        ({ clientSequenceNumber }) => clientSequenceNumber !== 1,
       );
     }],
     ["undo accepted operation removed", (raw) => {
       raw.acceptedOperations = raw.acceptedOperations.filter(
-        ({ commits }) => commits.every(
-          ({ revision }) => !revision.endsWith("-undo"),
-        ),
+        ({ clientSequenceNumber }) => clientSequenceNumber !== 2,
+      );
+      raw.acceptedOperationPayloads = raw.acceptedOperationPayloads.filter(
+        ({ clientSequenceNumber }) => clientSequenceNumber !== 2,
       );
     }],
     ["failed settlement", (raw) => {
@@ -2959,6 +3091,157 @@ test("seeded undo lifecycle requires exact Default event and accepted revisions"
       label,
     );
   }
+});
+
+test("same-transport duplicate sends cannot be forged as reconnect retries", async () => {
+  const { expected, report } = await validFixture();
+  const item = report.undoRedoReconnect[0];
+  const raw = expected.artifacts.get(item.artifacts[0]).claim.raw;
+  const original = raw.lifecycle.outboundRecords[0];
+  raw.lifecycle.outboundRecords.push({
+    ...structuredClone(original),
+    sendId: original.sendId + 1,
+    classification: "reconnect-retry",
+  });
+  assert.throws(() => validateInteropReport(report, expected));
+});
+
+test("BEAM revision joins require raw accepted operations and exact identities", async () => {
+  for (const [label, mutate] of [
+    ["made-up stable revision", (raw) => {
+      raw.lifecycle.submittedRevisions = ["made-up-revision"];
+      raw.eventTrace.find(
+        ({ type, kind }) => type === "commit" && kind === "Undo",
+      ).revision = "made-up-revision";
+      raw.sequencedHistory = [{ revision: "made-up-revision", kind: "Undo" }];
+    }],
+    ["removed raw accepted payloads", (raw) => {
+      delete raw.acceptedOperationPayloads;
+    }],
+    ["removed raw sequenced history", (raw) => {
+      delete raw.sequencedHistory;
+    }],
+    ["null revision wildcard", (raw) => {
+      const authored = raw.eventTrace.find(
+        ({ type, kind }) => type === "commit" && kind === "Undo",
+      );
+      authored.revision = null;
+      authored.actionId = "forged-action";
+    }],
+  ]) {
+    const { expected, report } = await validFixture();
+    const item = report.undoRedoReconnect.find(
+      ({ implementation }) => implementation === "erlang",
+    );
+    mutate(expected.artifacts.get(item.artifacts[0]).claim.raw);
+    assert.throws(
+      () => validateInteropReport(report, expected),
+      undefined,
+      label,
+    );
+  }
+});
+
+test("reconnect and reload rows bind every lifecycle claim to raw evidence", async () => {
+  for (const [label, select, mutate] of [
+    ["wrong loaded wholeTree",
+      (report) => report.undoRedoReloadMatrix.javascript.undo.erlang,
+      (raw) => {
+        raw.loaded.wholeTree = { wrong: true };
+      }],
+    ["false reconnect retained factory",
+      (report) => report.undoRedoReconnect[0],
+      (raw) => {
+        raw.retained.factoryAvailable = false;
+        raw.reconnectLifecycle.beforeDisconnect.factoryAvailable = false;
+      }],
+    ["removed reload local-event factory",
+      (report) => report.undoRedoReloadMatrix.javascript.undo.erlang,
+      (raw) => {
+        delete raw.final.commits.find(
+          ({ type, kind }) => type === "commit" && kind === "Default",
+        ).factoryAvailable;
+      }],
+    ["valid post-undo status",
+      (report) => report.undoRedoReconnect[0],
+      (raw) => {
+        raw.reconnectLifecycle.postUndo.status = "Valid";
+      }],
+  ]) {
+    const { expected, report } = await validFixture();
+    const item = select(report);
+    mutate(expected.artifacts.get(item.artifacts[0]).claim.raw);
+    assert.throws(
+      () => validateInteropReport(report, expected),
+      undefined,
+      label,
+    );
+  }
+});
+
+test("reload identity follows the selected raw commit tree and blob responses", async () => {
+  const { expected, report } = await validFixture();
+  const item = report.undoRedoReloadMatrix.javascript.undo.erlang;
+  const raw = expected.artifacts.get(item.artifacts[0]).claim.raw;
+  raw.storageResponses.blob.snapshotSequenceNumber += 1;
+  raw.storageResponses.blob.responseHash = "b".repeat(64);
+  assert.throws(() => validateInteropReport(report, expected));
+});
+
+test("settle merges an earlier Undo collection into a later failure", async () => {
+  let upstreamCalls = 0;
+  const undo = {
+    implementation: "upstream",
+    sequenceNumber: 4,
+    pendingTreeCount: 1,
+    inflightSubmissionCount: 0,
+    wholeTree: { title: "undo survived" },
+    events: [],
+    commits: [{ type: "commit", kind: "Undo", local: true }],
+  };
+  const partial = {
+    implementation: "upstream",
+    sequenceNumber: 5,
+    pendingTreeCount: 1,
+    inflightSubmissionCount: 0,
+    wholeTree: { title: "later partial" },
+    events: [],
+    commits: [],
+  };
+  const primary = Object.assign(new Error("second collection failed"), {
+    checkpoint: partial,
+  });
+  const stable = (implementation) => ({
+    checkpoint: async () => ({
+      ...undo,
+      implementation,
+      pendingTreeCount: 0,
+      commits: [],
+    }),
+    awaitSynced: async () => {},
+  });
+  await assert.rejects(
+    scenarios.settle({
+      upstream: {
+        checkpoint: async () => {
+          upstreamCalls += 1;
+          if (upstreamCalls === 1) return undo;
+          throw primary;
+        },
+        awaitSynced: async () => {},
+      },
+      javascript: stable("javascript"),
+      erlang: stable("erlang"),
+    }),
+    (error) => {
+      assert.equal(error, primary);
+      assert.deepEqual(error.checkpoint.observations[0], undo);
+      assert(error.checkpoint.observations.some(
+        ({ wholeTree }) => wholeTree.title === "later partial",
+      ));
+      return true;
+    },
+  );
 });
 
 test("settle preserves surviving Undo observations when one client fails", async () => {

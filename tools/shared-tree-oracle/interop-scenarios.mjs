@@ -3588,12 +3588,24 @@ export function canonicalTransactionResult(result) {
   };
 }
 
-function normalizeOutboundRecords(records, authoredEventId, clientInstanceId) {
-  const seen = new Set();
+function normalizeOutboundRecords(
+  records,
+  authoredEventId,
+  clientInstanceId,
+  stableRevision,
+) {
+  const seen = new Map();
+  let connectionEpoch = 0;
+  let previousTransportId;
   return records.flatMap(({ sendId, payload }) =>
     (payload?.messageBatches ?? []).flatMap((batch, batchIndex) =>
       batch.map((operation, operationIndex) => {
         const clientId = payload.clientId;
+        const transportId = clientId;
+        if (transportId !== previousTransportId) {
+          connectionEpoch += 1;
+          previousTransportId = transportId;
+        }
         const clientSequenceNumber = operation.clientSequenceNumber;
         const commits = decodeTreeSubmissions([{
           ...operation,
@@ -3603,10 +3615,13 @@ function normalizeOutboundRecords(records, authoredEventId, clientInstanceId) {
           ? `revision:${commits.map(({ originatorId, revision }) =>
             `${originatorId}:${revision}`).join(",")}`
           : `${clientId}:${clientSequenceNumber}`;
-        const classification = seen.has(operationId)
-          ? "reconnect-retry"
-          : "original";
-        seen.add(operationId);
+        const originalTransportId = seen.get(operationId);
+        const classification = originalTransportId === undefined
+          ? "original"
+          : originalTransportId === transportId
+            ? "duplicate-send"
+            : "reconnect-retry";
+        if (originalTransportId === undefined) seen.set(operationId, transportId);
         return {
           sendId,
           batchIndex,
@@ -3615,8 +3630,11 @@ function normalizeOutboundRecords(records, authoredEventId, clientInstanceId) {
           operationId,
           clientId,
           clientInstanceId,
+          transportId,
+          connectionEpoch,
           clientSequenceNumber,
           authoredEventId,
+          stableRevision,
           payload,
         };
       })));
@@ -3632,6 +3650,7 @@ function outboundRecordsForRevision(
     records,
     authoredEventId,
     clientInstanceId,
+    revision,
   ).filter((record) => {
     const operation = record.payload.messageBatches
       ?.at(record.batchIndex)?.at(record.operationIndex);
@@ -3908,6 +3927,7 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
         authoredCount: authored.length,
         outboundCount: submittedRevisions.length,
         authoredEventIds: authored.map(({ eventId }) => eventId),
+        actionId: authored[0].actionId,
         submittedRevisions,
         outboundRecords,
       };
@@ -4094,6 +4114,7 @@ export async function nativeAdapter(
   let reconnectRetryUsed = false;
   const reconnectRetries = [];
   const nativeLoadIdentities = [];
+  const resolvedRevisions = new Map();
   try {
     success(await client.request({ command: "subscribe" }), `${target} subscribe`);
   } catch (error) {
@@ -4181,12 +4202,17 @@ export async function nativeAdapter(
     },
     async retainLastLocalCommit(name) {
       const result = await client.retainLastLocalCommit(name);
+      if (typeof result.actionId === "string"
+        && typeof result.revision === "string") {
+        resolvedRevisions.set(result.actionId, result.revision);
+      }
       return {
         ...result,
         outboundRecords: normalizeOutboundRecords(
           result.outboundRecords ?? [],
           result.eventId,
           client.instanceId,
+          result.revision,
         ),
       };
     },
@@ -4202,7 +4228,12 @@ export async function nativeAdapter(
         result.outboundRecords ?? [],
         result.authoredEventIds?.[0],
         client.instanceId,
+        result.submittedRevisions?.[0],
       );
+      if (typeof result.actionId === "string"
+        && typeof result.submittedRevisions?.[0] === "string") {
+        resolvedRevisions.set(result.actionId, result.submittedRevisions[0]);
+      }
       return { ...result, outboundRecords };
     },
     async checkpoint() {
@@ -4225,7 +4256,10 @@ export async function nativeAdapter(
         inflightSubmissionCount: reply.observation.inFlightCount,
         wholeTree: canonicalValue(reply.result.root),
         events: reply.result.events,
-        commits: reply.result.commits,
+        commits: reply.result.commits.map((event) => {
+          const revision = resolvedRevisions.get(event.actionId);
+          return revision === undefined ? event : { ...event, revision };
+        }),
         history: reply.result.history,
         readError: reply.result.readError,
         connection: reply.observation,
@@ -4977,10 +5011,30 @@ async function captureCheckpoint(label, stage, adapters) {
   return collected.checkpoint;
 }
 
-export async function captureFailureCheckpoint(label, stage, adapters) {
+export function mergeCheckpoints(label, stage, ...checkpoints) {
+  return {
+    label,
+    stage,
+    observations: checkpoints.flatMap(
+      (checkpoint) => checkpoint?.observations ?? [],
+    ),
+  };
+}
+
+export async function captureFailureCheckpoint(
+  label,
+  stage,
+  adapters,
+  priorCheckpoint,
+) {
   const collected = await collectCheckpointObservations(label, stage, adapters);
   return {
-    checkpoint: collected.checkpoint,
+    checkpoint: mergeCheckpoints(
+      label,
+      stage,
+      priorCheckpoint,
+      collected.checkpoint,
+    ),
     errors: collected.clientErrors.map(({ error }) => error),
     clientErrors: collected.clientErrors,
   };
@@ -5019,13 +5073,12 @@ export async function settle(adapters) {
           pendingTreeCount === 0 && inflightSubmissionCount === 0);
     }, "three-client quiescence", 60_000);
   } catch (error) {
-    if (error.checkpoint === undefined) {
-      error.checkpoint = {
-        label: "settled",
-        stage: "failed",
-        observations: observations ?? [],
-      };
-    }
+    error.checkpoint = mergeCheckpoints(
+      "settled",
+      "failed",
+      observations === undefined ? undefined : { observations },
+      error.checkpoint,
+    );
     throw error;
   }
   return { label: "settled", stage: "quiescent", observations };
@@ -7599,6 +7652,7 @@ async function runUndoRedoCell(config, context, cell) {
       ])),
       lifecycle: failureState.undoRedo,
       sequencedHistory: checkpointSequencedRevisions(checkpoints),
+      acceptedOperationPayloads: history,
       acceptedOperations: acceptedTreeOperations(history),
       handleNames: ["edit", "undo"],
     })];
@@ -7609,7 +7663,9 @@ async function runUndoRedoCell(config, context, cell) {
       "undo-redo-failure-drain",
       "intermediate",
       environment.adapters,
+      error.checkpoint,
     );
+    error.checkpoint = drained.checkpoint;
     failureState.checkpoints.push(drained.checkpoint);
     error.drainErrors = drained.errors.map(replayError);
     try {
@@ -7645,13 +7701,14 @@ async function runUndoRedoReconnectTarget(config, context, implementation) {
     const expectedTree = checkpointFor(baseline, implementation).wholeTree;
     await adapter.set(["title"], `${implementation}-reconnect`);
     const retained = await adapter.retainLastLocalCommit("edit");
-    await settle(environment.adapters);
+    const edited = await settle(environment.adapters);
     await adapter.disconnect();
     await adapter.reconnect();
     const reconnectedStatus = await adapter.revertibleStatus("edit");
     const undo = await adapter.revert("edit", true);
+    const postUndoStatus = await adapter.revertibleStatus("edit");
     const undone = await settle(environment.adapters);
-    const commits = commitTrace([undone], implementation);
+    const commits = commitTrace([edited, undone], implementation);
     const settlement = commits.findLast(
       ({ type, kind }) => type === "settlement" && kind === "Undo",
     )?.outcome;
@@ -7663,6 +7720,7 @@ async function runUndoRedoReconnectTarget(config, context, implementation) {
       documentId: environment.documentId,
       liveHandleBeforeDisconnect: retained.status,
       liveHandleAfterReconnect: reconnectedStatus.status,
+      postUndoHandleStatus: postUndoStatus.status,
       undoKind: undo.authoredKind,
       settlement,
       authoredCount: undo.authoredCount,
@@ -7681,8 +7739,15 @@ async function runUndoRedoReconnectTarget(config, context, implementation) {
     item.artifacts = [await writeUndoRedoArtifact(context, item, {
       checkpoint: undone,
       eventTrace: commits,
+      retained,
+      reconnectLifecycle: {
+        beforeDisconnect: retained,
+        afterReconnect: reconnectedStatus,
+        postUndo: postUndoStatus,
+      },
       lifecycle: { ...undo, settlement },
       sequencedHistory: checkpointSequencedRevisions([undone]),
+      acceptedOperationPayloads: history,
       acceptedOperations: acceptedTreeOperations(history),
       handleNames: ["edit"],
     }, "undo-redo-reconnect")];
@@ -7693,7 +7758,9 @@ async function runUndoRedoReconnectTarget(config, context, implementation) {
       "undo-redo-reconnect-failure-drain",
       "intermediate",
       environment.adapters,
+      error.checkpoint,
     );
+    error.checkpoint = drained.checkpoint;
     failureState.checkpoints.push(drained.checkpoint);
     error.drainErrors = drained.errors.map(replayError);
     try {
@@ -8558,6 +8625,7 @@ export async function runSeededSchedule(config, context, schedule) {
       checkpoints: item.checkpoints,
       lifecycle: item.undoRedo,
       sequencedHistory: checkpointSequencedRevisions(item.checkpoints),
+      acceptedOperationPayloads: finalHistory,
       acceptedOperations: acceptedTreeOperations(finalHistory),
       gates: Object.fromEntries(nativeTargets.map((target) =>
         [target, state.adapters[target].evidence()])),
@@ -8574,8 +8642,14 @@ export async function runSeededSchedule(config, context, schedule) {
         "seeded-failure-drain",
         "intermediate",
         state.adapters,
+        error.checkpoint,
       );
-      state.checkpoints.push(drained.checkpoint);
+      error.checkpoint = drained.checkpoint;
+      if (state.checkpoints.at(-1)?.stage === "failed") {
+        state.checkpoints[state.checkpoints.length - 1] = drained.checkpoint;
+      } else {
+        state.checkpoints.push(drained.checkpoint);
+      }
       state.drainErrors = [
         ...(state.drainErrors ?? []),
         ...drained.errors.map(replayError),
