@@ -10,7 +10,7 @@ const require = createRequire(new URL("../../package.json", import.meta.url));
 const WebSocket = require("ws");
 const WebSocketServer = WebSocket.WebSocketServer ?? WebSocket.Server;
 
-async function service() {
+async function service(responseBody) {
   const received = [];
   const server = createServer((request, response) => {
     const chunks = [];
@@ -21,7 +21,7 @@ async function service() {
         "content-type": "application/octet-stream",
         "x-private-token": "must-not-be-recorded",
       });
-      response.end(Buffer.concat([Buffer.from("echo:"), body]));
+      response.end(responseBody ?? Buffer.concat([Buffer.from("echo:"), body]));
     });
   });
   const sockets = new Set();
@@ -416,6 +416,35 @@ test("summary loads hold complete HTTP responses and preserve bytes and status",
   }]);
   assert(!JSON.stringify(evidence).includes("private"));
   assert(!JSON.stringify(evidence).includes("token=secret"));
+});
+
+test("summary load evidence identifies only protocol attribute responses", async (t) => {
+  const attributes = {
+    minimumSequenceNumber: 3,
+    sequenceNumber: 8,
+    term: 1,
+  };
+  const upstream = await service(Buffer.from(JSON.stringify({
+    content: Buffer.from(JSON.stringify(attributes)).toString("base64"),
+    encoding: "base64",
+    minimumSequenceNumber: 3,
+    sequenceNumber: 9,
+  })));
+  const gate = await DeliveryGate.open("127.0.0.1", upstream.port);
+  t.after(async () => {
+    await gate.close();
+    await upstream.close();
+  });
+  const response = await fetch(
+    `http://127.0.0.1:${gate.port}/repos/fluid/git/blobs/protocol-attributes`,
+  );
+  assert.deepEqual(await response.json(), {
+    content: Buffer.from(JSON.stringify(attributes)).toString("base64"),
+    encoding: "base64",
+    minimumSequenceNumber: 3,
+    sequenceNumber: 9,
+  });
+  assert.equal(gate.evidence().http[0].responseSnapshotSequenceNumber, 8);
 });
 
 test("summary-load injection changes one scoped response without recording secrets", async (t) => {

@@ -1,6 +1,8 @@
 @target(javascript)
 import gleam/dict.{type Dict}
 @target(javascript)
+import gleam/dynamic/decode
+@target(javascript)
 import gleam/int
 @target(javascript)
 import gleam/javascript/promise.{type Promise}
@@ -68,8 +70,10 @@ pub fn main() -> Promise(Nil) {
     }
     Ok(config) -> {
       let #(ready, signal) = promise.start()
+      let outbound_sends = transport_js.new_cell([])
+      let outbound_send_count = transport_js.new_cell(0)
       let document =
-        watershed.connect(
+        watershed.connect_observing(
           watershed.WatershedConfig(
             url: config.socket_url,
             tenant: config.tenant,
@@ -77,6 +81,22 @@ pub fn main() -> Promise(Nil) {
             token: token(),
             user_id: "shared-tree-client-js",
           ),
+          observe_push: fn(event, payload) {
+            case event {
+              "submitOp" -> {
+                let send_id = transport_js.get_cell(outbound_send_count) + 1
+                transport_js.set_cell(outbound_send_count, send_id)
+                push_json(
+                  outbound_sends,
+                  json.object([
+                    #("sendId", json.int(send_id)),
+                    #("payload", payload),
+                  ]),
+                )
+              }
+              _ -> Nil
+            }
+          },
           on_ready: signal,
         )
       use opened <- promise.await(ready)
@@ -154,6 +174,8 @@ pub fn main() -> Promise(Nil) {
                             handles,
                             last_local,
                             commit_event_count,
+                            outbound_sends,
+                            outbound_send_count,
                             subscription,
                           )
                         },
@@ -203,6 +225,14 @@ fn optional_string(value: Option(String)) -> Json {
 }
 
 @target(javascript)
+fn optional_int(value: Option(Int)) -> Json {
+  case value {
+    Some(value) -> json.int(value)
+    None -> json.null()
+  }
+}
+
+@target(javascript)
 fn require_revert_evidence(
   condition: Bool,
   message: String,
@@ -229,6 +259,8 @@ fn execute(
     Option(#(watershed.TreeRevertible, TreeCommitKind, Int, Option(String))),
   ),
   commit_event_count: Cell(Int),
+  outbound_sends: Cell(List(Json)),
+  outbound_send_count: Cell(Int),
   subscription: Cell(Option(watershed.SubscriptionToken)),
 ) -> Promise(String) {
   case protocol.decode_request(raw) {
@@ -389,7 +421,7 @@ fn execute(
         protocol.Transaction(scope) ->
           run_transaction(document, tree, events, scope)
         protocol.RetainLastLocalCommit(name) ->
-          retain_last_local_commit(name, handles, last_local)
+          retain_last_local_commit(name, handles, last_local, outbound_sends)
         protocol.RevertibleStatus(name) ->
           revertible_status_for_name(name, handles)
         protocol.DisposeRevertible(name) -> dispose_revertible(name, handles)
@@ -401,8 +433,10 @@ fn execute(
             handles,
             last_local,
             commit_event_count,
+            outbound_sends,
+            outbound_send_count,
           )
-        protocol.Checkpoint -> checkpoint(tree, events, commits)
+        protocol.Checkpoint -> checkpoint(document, tree, events, commits)
         protocol.Disconnect -> {
           watershed.go_offline(document)
           Ok(json.null())
@@ -471,10 +505,19 @@ fn execute(
           promise.resolve(response(Some(id), synced, document))
         }
         protocol.Summarize -> {
+          let snapshot_sequence_number = observe(document).sequence_number
           use outcome <- promise.await(watershed.summarize(document))
           promise.resolve(response(
             Some(id),
-            map_result("summarize", outcome, json.string),
+            map_result("summarize", outcome, fn(version) {
+              json.object([
+                #("version", json.string(version)),
+                #(
+                  "snapshotSequenceNumber",
+                  optional_int(snapshot_sequence_number),
+                ),
+              ])
+            }),
             document,
           ))
         }
@@ -639,6 +682,7 @@ fn run_transaction(
 
 @target(javascript)
 fn checkpoint(
+  document: watershed.Document(a),
   tree: watershed.SharedTree,
   events: Cell(List(Json)),
   commits: Cell(List(Json)),
@@ -661,6 +705,7 @@ fn checkpoint(
         history,
         Some(reason),
         None,
+        summary_sequence_number(document),
       ))
     Ok(root_value) -> {
       let root = protocol.encode_read(root_value)
@@ -720,9 +765,17 @@ fn checkpoint(
         history,
         None,
         retained,
+        summary_sequence_number(document),
       ))
     }
   }
+}
+
+@target(javascript)
+fn summary_sequence_number(document: watershed.Document(a)) -> Option(Int) {
+  option.map(observe(document).sequence_number, fn(sequence_number) {
+    sequence_number - watershed.operations_since_summary(document)
+  })
 }
 
 @target(javascript)
@@ -768,6 +821,7 @@ fn observe_commit(
 ) -> Nil {
   let watershed.TreeCommitEvent(kind, local, factory, settlement) = event
   let event_id = transport_js.get_cell(commit_event_count) + 1
+  let action_id = "event-" <> int.to_string(event_id)
   transport_js.set_cell(commit_event_count, event_id)
   let revision =
     watershed.tree_history_evidence(tree)
@@ -799,6 +853,7 @@ fn observe_commit(
       #("factoryAvailable", json.bool(factory_available)),
       #("handleAcquired", json.bool(acquired)),
       #("eventId", json.int(event_id)),
+      #("actionId", json.string(action_id)),
       #("revision", optional_string(revision)),
     ]),
   )
@@ -813,6 +868,9 @@ fn observe_commit(
               #("type", json.string("settlement")),
               #("kind", json.string(commit_kind(kind))),
               #("outcome", json.string(commit_outcome(outcome))),
+              #("eventId", json.int(event_id)),
+              #("actionId", json.string(action_id)),
+              #("revision", optional_string(revision)),
             ]),
           )
         })
@@ -830,6 +888,7 @@ fn retain_last_local_commit(
   last_local: Cell(
     Option(#(watershed.TreeRevertible, TreeCommitKind, Int, Option(String))),
   ),
+  outbound_sends: Cell(List(Json)),
 ) -> Result(Json, protocol.ProtocolError) {
   case transport_js.get_cell(last_local) {
     None ->
@@ -844,6 +903,11 @@ fn retain_last_local_commit(
           |> dict.insert(name, #(entry.0, entry.1, entry.3)),
       )
       transport_js.set_cell(last_local, None)
+      let outbound_records =
+        transport_js.get_cell(outbound_sends)
+        |> list.first
+        |> result.map(fn(record) { [record] })
+        |> result.unwrap([])
       Ok(
         json.object([
           #("name", json.string(name)),
@@ -851,7 +915,12 @@ fn retain_last_local_commit(
           #("factoryAvailable", json.bool(True)),
           #("status", json.string(revertible_status(entry.0))),
           #("eventId", json.int(entry.2)),
+          #("actionId", json.string("event-" <> int.to_string(entry.2))),
           #("revision", optional_string(entry.3)),
+          #(
+            "outboundRecords",
+            json.array(outbound_records, fn(record) { record }),
+          ),
         ]),
       )
     }
@@ -918,6 +987,8 @@ fn revert_handle(
     Option(#(watershed.TreeRevertible, TreeCommitKind, Int, Option(String))),
   ),
   commit_event_count: Cell(Int),
+  outbound_sends: Cell(List(Json)),
+  outbound_send_count: Cell(Int),
 ) -> Result(Json, protocol.ProtocolError) {
   use entry <- result.try(
     transport_js.get_cell(handles)
@@ -927,6 +998,7 @@ fn revert_handle(
     }),
   )
   let before_event_count = transport_js.get_cell(commit_event_count)
+  let before_send_count = transport_js.get_cell(outbound_send_count)
   let before_commits =
     watershed.tree_history_evidence(tree)
     |> result.map(protocol.history_commit_ids)
@@ -957,6 +1029,14 @@ fn revert_handle(
     })
     |> list.map(fn(commit) { commit.0 })
   let authored_event_ids = [authored.2]
+  let outbound_records =
+    transport_js.get_cell(outbound_sends)
+    |> list.filter(fn(record) {
+      json.parse(json.to_string(record), decode.at(["sendId"], decode.int))
+      |> result.map(fn(send_id) { send_id > before_send_count })
+      |> result.unwrap(False)
+    })
+    |> list.reverse
   use _ <- result.try(require_revert_evidence(
     list.length(authored_event_ids) == 1,
     "Revert authored another local commit count",
@@ -976,6 +1056,7 @@ fn revert_handle(
       #("outboundCount", json.int(list.length(submitted_revisions))),
       #("authoredEventIds", json.array(authored_event_ids, json.int)),
       #("submittedRevisions", json.array(submitted_revisions, json.string)),
+      #("outboundRecords", json.array(outbound_records, fn(record) { record })),
     ]),
   )
 }

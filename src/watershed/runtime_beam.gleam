@@ -986,6 +986,60 @@ pub fn start(
 }
 
 @target(erlang)
+/// Start a live runtime and observe each transport push before it is sent.
+pub fn start_observing(
+  host host: String,
+  port port: Int,
+  path path: String,
+  tenant tenant: String,
+  document document: String,
+  connect_message connect_message: ConnectMessage,
+  observe_push observe_push: fn(String, Json) -> Nil,
+) -> Result(Subject(Msg), actor.StartError) {
+  let topic = "document:" <> tenant <> ":" <> document
+  let join_payload = case connect_message.token {
+    Some(token) -> json.object([#("token", json.string(token))])
+    None -> json.object([])
+  }
+  start_with_transport(
+    host: host,
+    port: port,
+    connect_message: connect_message,
+    transport: observing_transport(
+      aquamarine_transport(host, port, path, topic, join_payload),
+      observe_push,
+    ),
+  )
+}
+
+@target(erlang)
+fn observing_transport(
+  transport: Transport,
+  observe_push: fn(String, Json) -> Nil,
+) -> Transport {
+  let Transport(connect) = transport
+  Transport(connect: fn(callbacks) {
+    let TransportCallbacks(on_ready, on_event, on_fail, on_close) = callbacks
+    connect(TransportCallbacks(
+      on_ready: fn(handle) {
+        let TransportHandle(push, close, drop) = handle
+        on_ready(TransportHandle(
+          push: fn(event, payload) {
+            observe_push(event, payload)
+            push(event, payload)
+          },
+          close: close,
+          drop: drop,
+        ))
+      },
+      on_event: on_event,
+      on_fail: on_fail,
+      on_close: on_close,
+    ))
+  })
+}
+
+@target(erlang)
 /// Start a document runtime against any transport. The live `start` function,
 /// which uses aquamarine, calls this function, and so does the in-memory hub
 /// test driver. `host` and `port` supply the REST summary API only. A transport

@@ -365,8 +365,15 @@ async function caseRun(config, viewSchema, runId, target, caseId) {
       assert.equal(field(changed, "y").value.value, 8);
       assert(changed.result.events.some((event) => event.local),
         "No local tree notification");
+      const beforePublication = await capture("before-summary-publication");
       const published = success(await native.request({ command: "summarize" }), "summarize");
-      assert.equal(typeof published.result, "string");
+      assert.equal(typeof published.result.version, "string");
+      assert(Number.isSafeInteger(published.result.snapshotSequenceNumber));
+      assert.equal(
+        beforePublication.sequenceNumber,
+        published.result.snapshotSequenceNumber,
+        "Summary response did not identify the state sent for publication",
+      );
       const fresh = await openSession(config, containers, documentId);
       assert.equal(fresh.data.view.root.title, title);
       fresh.data.view.root.title = `${title}-continued`;
@@ -453,9 +460,16 @@ async function caseRun(config, viewSchema, runId, target, caseId) {
       assert.equal(field(after, "y").value.value, 4);
       assert.equal(peer.data.view.root.point.x, 3,
         "Native and upstream views diverged after detached repair");
+      const beforePublication = await capture("before-repair-summary-publication");
       const published = success(await native.request({ command: "summarize" }),
         "publish repaired detached state");
-      assert.equal(typeof published.result, "string");
+      assert.equal(typeof published.result.version, "string");
+      assert(Number.isSafeInteger(published.result.snapshotSequenceNumber));
+      assert.equal(
+        beforePublication.sequenceNumber,
+        published.result.snapshotSequenceNumber,
+        "Summary response did not identify the state sent for publication",
+      );
       const fresh = await openSession(config, containers, documentId);
       assert.equal(fresh.data.view.root.point.x, 3);
       assert.equal(fresh.data.view.root.point.y, 4);

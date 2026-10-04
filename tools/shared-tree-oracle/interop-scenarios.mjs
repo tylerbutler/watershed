@@ -1663,6 +1663,7 @@ export function decodeTreeSubmissions(messages) {
     return [{
       outerSequenceNumber: message.sequenceNumber,
       clientId: message.clientId,
+      clientSequenceNumber: message.clientSequenceNumber,
       referenceSequenceNumber: message.referenceSequenceNumber,
       batchId,
       allocations,
@@ -3587,6 +3588,62 @@ export function canonicalTransactionResult(result) {
   };
 }
 
+function normalizeOutboundRecords(records, authoredEventId, clientInstanceId) {
+  const seen = new Set();
+  return records.flatMap(({ sendId, payload }) =>
+    (payload?.messageBatches ?? []).flatMap((batch, batchIndex) =>
+      batch.map((operation, operationIndex) => {
+        const clientId = payload.clientId;
+        const clientSequenceNumber = operation.clientSequenceNumber;
+        const commits = decodeTreeSubmissions([{
+          ...operation,
+          clientId,
+        }]).flatMap((submission) => submission.commits);
+        const operationId = commits.length > 0
+          ? `revision:${commits.map(({ originatorId, revision }) =>
+            `${originatorId}:${revision}`).join(",")}`
+          : `${clientId}:${clientSequenceNumber}`;
+        const classification = seen.has(operationId)
+          ? "reconnect-retry"
+          : "original";
+        seen.add(operationId);
+        return {
+          sendId,
+          batchIndex,
+          operationIndex,
+          classification,
+          operationId,
+          clientId,
+          clientInstanceId,
+          clientSequenceNumber,
+          authoredEventId,
+          payload,
+        };
+      })));
+}
+
+function outboundRecordsForRevision(
+  records,
+  revision,
+  authoredEventId,
+  clientInstanceId,
+) {
+  return normalizeOutboundRecords(
+    records,
+    authoredEventId,
+    clientInstanceId,
+  ).filter((record) => {
+    const operation = record.payload.messageBatches
+      ?.at(record.batchIndex)?.at(record.operationIndex);
+    if (operation === undefined) return false;
+    return decodeTreeSubmissions([{
+      ...operation,
+      clientId: record.clientId,
+    }]).some(({ commits }) =>
+      commits.some((commit) => String(commit.revision) === String(revision)));
+  });
+}
+
 export function upstreamAdapter(session, viewConfigurations = {}) {
   const instanceId = randomUUID();
   const events = [];
@@ -3594,6 +3651,16 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
   const handles = new Map();
   let lastLocal;
   let commitEventCount = 0;
+  const outboundSends = [];
+  session.container.deltaManager.on("submitOp", (message) => {
+    outboundSends.push({
+      sendId: outboundSends.length + 1,
+      payload: {
+        clientId: session.container.clientId,
+        messageBatches: [[structuredClone(message)]],
+      },
+    });
+  });
   const connectionEvents = [];
   session.container.deltaManager.on("disconnect", (reason, error) => {
     connectionEvents.push({ reason, ...(error ? { error: replayError(error) } : {}) });
@@ -3622,6 +3689,8 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
       "changed",
       (metadata, getRevertible) => {
         commitEventCount += 1;
+        const eventId = commitEventCount;
+        const actionId = `event-${eventId}`;
         const revision = upstreamHistoryRevisions(session).at(-1);
         let handle;
         if (metadata.isLocal && getRevertible !== undefined) {
@@ -3629,7 +3698,8 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
           lastLocal = {
             handle,
             kind: metadata.kind,
-            eventId: commitEventCount,
+            eventId,
+            actionId,
             revision,
           };
         }
@@ -3639,7 +3709,8 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
           local: metadata.isLocal,
           factoryAvailable: getRevertible !== undefined,
           handleAcquired: handle !== undefined,
-          eventId: commitEventCount,
+          eventId,
+          actionId,
           revision,
         });
         if (metadata.isLocal) {
@@ -3651,6 +3722,9 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
                 { 0: "FullyApplied", 1: "FullyDropped", 2: "NewContentOnly" },
                 outcome,
               ),
+              eventId,
+              actionId,
+              revision,
             });
           });
         }
@@ -3775,13 +3849,25 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
       handles.set(name, lastLocal);
       const retained = lastLocal;
       lastLocal = undefined;
+      let outboundRecords = [];
+      await until(() => {
+        outboundRecords = outboundRecordsForRevision(
+          outboundSends,
+          retained.revision,
+          retained.eventId,
+          instanceId,
+        );
+        return outboundRecords.length > 0;
+      }, `upstream retained ${name} outbound send`, 5_000);
       return {
         name,
         kind: enumName(CommitKind, retained.kind),
         factoryAvailable: true,
         status: enumName(RevertibleStatus, retained.handle.status),
         eventId: retained.eventId,
+        actionId: retained.actionId,
         revision: retained.revision,
+        outboundRecords,
       };
     },
     async revert(name, dispose) {
@@ -3789,6 +3875,7 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
       assert(retained, `Unknown upstream revertible handle: ${name}`);
       const beforeRevisions = upstreamHistoryRevisions(session);
       const beforeEventCount = commitEventCount;
+      const beforeOutboundCount = outboundSends.length;
       retained.handle.revert(dispose);
       const authored = commits.filter(
         ({ type, local, eventId }) =>
@@ -3803,6 +3890,16 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
         `Upstream revert ${name} submitted another operation count`);
       assert.equal(authored[0].revision, submittedRevisions[0],
         `Upstream revert ${name} event differs from its submission`);
+      let outboundRecords = [];
+      await until(() => {
+        outboundRecords = outboundRecordsForRevision(
+          outboundSends.slice(beforeOutboundCount),
+          submittedRevisions[0],
+          authored[0].eventId,
+          instanceId,
+        );
+        return outboundRecords.length > 0;
+      }, `upstream revert ${name} outbound send`, 5_000);
       return {
         name,
         authoredKind: authored[0].kind,
@@ -3812,6 +3909,7 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
         outboundCount: submittedRevisions.length,
         authoredEventIds: authored.map(({ eventId }) => eventId),
         submittedRevisions,
+        outboundRecords,
       };
     },
     async revertibleStatus(name) {
@@ -3995,6 +4093,7 @@ export async function nativeAdapter(
   let inboundEvidenceOffset = 0;
   let reconnectRetryUsed = false;
   const reconnectRetries = [];
+  const nativeLoadIdentities = [];
   try {
     success(await client.request({ command: "subscribe" }), `${target} subscribe`);
   } catch (error) {
@@ -4081,7 +4180,15 @@ export async function nativeAdapter(
       return canonicalTransactionResult(await client.transaction(scope));
     },
     async retainLastLocalCommit(name) {
-      return client.retainLastLocalCommit(name);
+      const result = await client.retainLastLocalCommit(name);
+      return {
+        ...result,
+        outboundRecords: normalizeOutboundRecords(
+          result.outboundRecords ?? [],
+          result.eventId,
+          client.instanceId,
+        ),
+      };
     },
     async revertibleStatus(name) {
       return client.revertibleStatus(name);
@@ -4090,12 +4197,26 @@ export async function nativeAdapter(
       return client.disposeRevertible(name);
     },
     async revert(name, dispose) {
-      return client.revert(name, dispose);
+      const result = await client.revert(name, dispose);
+      const outboundRecords = normalizeOutboundRecords(
+        result.outboundRecords ?? [],
+        result.authoredEventIds?.[0],
+        client.instanceId,
+      );
+      return { ...result, outboundRecords };
     },
     async checkpoint() {
       const reply = success(await client.request({ command: "checkpoint" }),
         `${target} checkpoint`);
       if (reply.observation.clientId) clientIds.add(reply.observation.clientId);
+      if (Number.isSafeInteger(reply.result.summarySequenceNumber)
+        && !nativeLoadIdentities.some(({ snapshotSequenceNumber }) =>
+          snapshotSequenceNumber === reply.result.summarySequenceNumber)) {
+        nativeLoadIdentities.push({
+          snapshotSequenceNumber: reply.result.summarySequenceNumber,
+          observedSequenceNumber: reply.sequenceNumber,
+        });
+      }
       return {
         implementation: target,
         instanceId: client.instanceId,
@@ -4212,13 +4333,23 @@ export async function nativeAdapter(
       connected = false;
     },
     isConnected: () => connected,
-    async summarize() {
-      return success(await client.request({ command: "summarize" }),
+    async summarizePublication() {
+      const result = success(await client.request({ command: "summarize" }),
         `${target} summarize`).result;
+      assert(typeof result?.version === "string" && result.version.length > 0,
+        `${target} summarize lacks a published version`);
+      assert(Number.isSafeInteger(result.snapshotSequenceNumber)
+        && result.snapshotSequenceNumber >= 0,
+      `${target} summarize lacks a snapshot sequence`);
+      return result;
+    },
+    async summarize() {
+      return (await this.summarizePublication()).version;
     },
     evidence() {
       return {
         ...client.gate.evidence(),
+        nativeLoadIdentities: structuredClone(nativeLoadIdentities),
         reconnectRetries: structuredClone(reconnectRetries),
       };
     },
@@ -4808,30 +4939,51 @@ async function writeArtifact(context, item, raw) {
   return relative;
 }
 
-async function captureCheckpoint(label, stage, adapters) {
-  const observations = await Promise.all(implementations.map((implementation) =>
-    adapters[implementation].checkpoint()));
-  return { label, stage, observations };
-}
-
-export async function captureFailureCheckpoint(label, stage, adapters) {
+async function collectCheckpointObservations(label, stage, adapters) {
   const entries = Object.entries(adapters);
   const settled = await Promise.allSettled(
     entries.map(([, adapter]) => adapter.checkpoint()),
   );
   const observations = [];
-  const errors = [];
-  for (const result of settled) {
+  const clientErrors = [];
+  for (const [index, result] of settled.entries()) {
+    const implementation = entries[index][0];
     if (result.status === "fulfilled") {
       observations.push(result.value);
-    } else {
-      errors.push(result.reason);
-      if (result.reason?.checkpoint) {
-        observations.push(result.reason.checkpoint);
-      }
+      continue;
+    }
+    clientErrors.push({ implementation, error: result.reason });
+    const partial = result.reason?.checkpoint;
+    if (Array.isArray(partial?.observations)) {
+      observations.push(...partial.observations);
+    } else if (partial !== undefined) {
+      observations.push(partial);
     }
   }
-  return { checkpoint: { label, stage, observations }, errors };
+  return {
+    checkpoint: { label, stage, observations },
+    clientErrors,
+  };
+}
+
+async function captureCheckpoint(label, stage, adapters) {
+  const collected = await collectCheckpointObservations(label, stage, adapters);
+  if (collected.clientErrors.length > 0) {
+    const primary = collected.clientErrors[0].error;
+    primary.checkpoint = collected.checkpoint;
+    primary.clientErrors = collected.clientErrors;
+    throw primary;
+  }
+  return collected.checkpoint;
+}
+
+export async function captureFailureCheckpoint(label, stage, adapters) {
+  const collected = await collectCheckpointObservations(label, stage, adapters);
+  return {
+    checkpoint: collected.checkpoint,
+    errors: collected.clientErrors.map(({ error }) => error),
+    clientErrors: collected.clientErrors,
+  };
 }
 
 export async function settle(adapters) {
@@ -4841,9 +4993,8 @@ export async function settle(adapters) {
     implementations.map((implementation) => [implementation, []]),
   );
   const observe = async () => {
-    const captured = await Promise.all(implementations.map((implementation) =>
-      adapters[implementation].checkpoint()));
-    observations = captured.map((observation) => {
+    const captured = await captureCheckpoint("settled", "collecting", adapters);
+    observations = captured.observations.map((observation) => {
       events[observation.implementation].push(...observation.events);
       commits[observation.implementation].push(...(observation.commits ?? []));
       return {
@@ -4868,7 +5019,13 @@ export async function settle(adapters) {
           pendingTreeCount === 0 && inflightSubmissionCount === 0);
     }, "three-client quiescence", 60_000);
   } catch (error) {
-    error.checkpoint = { label: "settled", stage: "failed", observations: observations ?? [] };
+    if (error.checkpoint === undefined) {
+      error.checkpoint = {
+        label: "settled",
+        stage: "failed",
+        observations: observations ?? [],
+      };
+    }
     throw error;
   }
   return { label: "settled", stage: "quiescent", observations };
@@ -5020,8 +5177,11 @@ function otherAuthor(cell) {
 }
 
 async function concurrentEdits(cell, adapters, upstream, actions) {
-  const baseline = await Promise.all(cell.authors.map((author) =>
-    adapters[author].checkpoint()));
+  const baseline = (await captureCheckpoint(
+    "concurrent-baseline",
+    "intermediate",
+    Object.fromEntries(cell.authors.map((author) => [author, adapters[author]])),
+  )).observations;
   await Promise.all(cell.authors.flatMap((author) => [
     adapters[author].holdInbound(),
     adapters[author].holdOutbound(),
@@ -5220,8 +5380,12 @@ async function runCell(config, context, cell) {
           stage: "intermediate",
           observations: [
             upstreamObservation,
-            ...await Promise.all(nativeTargets.map((implementation) =>
-              adapters[implementation].checkpoint())),
+            ...(await captureCheckpoint(
+              "two-retained-child-edits-native",
+              "intermediate",
+              Object.fromEntries(nativeTargets.map((implementation) =>
+                [implementation, adapters[implementation]])),
+            )).observations,
           ],
         });
         const optimistic = checkpoints.at(-1).observations.find(
@@ -5421,8 +5585,11 @@ async function runCell(config, context, cell) {
       assert.equal(delivery.duplicateAllocations, 0,
         "Duplicate delivery caused an ID allocation");
     } else if (cell.family === "multi-session-ids") {
-      const baseline = await Promise.all(implementations.map((implementation) =>
-        adapters[implementation].checkpoint()));
+      const baseline = (await captureCheckpoint(
+        "multi-session-baseline",
+        "intermediate",
+        adapters,
+      )).observations;
       authoredPrefixes = baseline.map(({ implementation, sequenceNumber }) => ({
         author: implementation,
         referenceSequenceNumber: sequenceNumber,
@@ -5444,8 +5611,11 @@ async function runCell(config, context, cell) {
         await adapters[implementation].releaseInbound();
       }
       await settle(adapters);
-      const beforeReconnect = await Promise.all(implementations.map((implementation) =>
-        adapters[implementation].checkpoint()));
+      const beforeReconnect = (await captureCheckpoint(
+        "multi-session-before-reconnect",
+        "intermediate",
+        adapters,
+      )).observations;
       const historyBefore = decodeTreeSubmissions(await serverHistory(creator));
       await Promise.all(implementations.map((implementation) =>
         adapters[implementation].reconnect()));
@@ -6507,7 +6677,12 @@ async function runIdentifierPair(config, context, cell) {
       }
     }
     if (cleanupErrors.length > 0) {
-      if (failure) failure.cleanupErrors = cleanupErrors;
+      if (failure) {
+        failure.cleanupErrors = [
+          ...(failure.cleanupErrors ?? []),
+          ...cleanupErrors,
+        ];
+      }
       else throw new AggregateError(cleanupErrors, `Cleanup failed for ${cell.id}`);
     }
   }
@@ -7221,6 +7396,25 @@ function checkpointSequencedRevisions(checkpoints) {
     .map((revision) => ({ revision }));
 }
 
+export function acceptedTreeOperations(history) {
+  return decodeTreeSubmissions(history).map((submission) => ({
+    operationId: submission.commits.length > 0
+      ? `revision:${submission.commits.map(({ originatorId, revision }) =>
+        `${originatorId}:${revision}`).join(",")}`
+      : `${submission.clientId}:${submission.clientSequenceNumber}`,
+    clientId: submission.clientId,
+    clientSequenceNumber: submission.clientSequenceNumber,
+    outerSequenceNumber: submission.outerSequenceNumber,
+    commits: submission.commits.map(
+      ({ revision, originatorId, changeset }) => ({
+        revision,
+        originatorId,
+        changeset,
+      }),
+    ),
+  }));
+}
+
 async function runUndoRedoCell(config, context, cell) {
   const environment = await openUndoRedoEnvironment(
     config,
@@ -7311,16 +7505,24 @@ async function runUndoRedoCell(config, context, cell) {
       {
         authoredEventIds: [retainedEdit.eventId],
         submittedRevisions: [retainedEdit.revision],
+        outboundRecords: retainedEdit.outboundRecords,
       },
       undo,
       redo,
     ];
-    assert(actionEvidence.every(({ authoredEventIds, submittedRevisions }) =>
+    assert(actionEvidence.every(({
+      authoredEventIds,
+      submittedRevisions,
+      outboundRecords,
+    }) =>
       authoredEventIds.length === 1
         && Number.isSafeInteger(authoredEventIds[0])
         && submittedRevisions.length === 1
         && typeof submittedRevisions[0] === "string"
-        && submittedRevisions[0].length > 0),
+        && submittedRevisions[0].length > 0
+        && outboundRecords.filter(
+          ({ classification }) => classification === "original",
+        ).length === 1),
     `${cell.id} lacks action-scoped commit evidence`);
     const item = {
       ...cell,
@@ -7346,7 +7548,9 @@ async function runUndoRedoCell(config, context, cell) {
         ({ authoredEventIds }) => authoredEventIds.length,
       ),
       outboundCounts: actionEvidence.map(
-        ({ submittedRevisions }) => submittedRevisions.length,
+        ({ outboundRecords }) => outboundRecords.filter(
+          ({ classification }) => classification === "original",
+        ).length,
       ),
       remoteFactoryAvailable: remoteCommits.some(
         ({ factoryAvailable }) => factoryAvailable,
@@ -7395,6 +7599,7 @@ async function runUndoRedoCell(config, context, cell) {
       ])),
       lifecycle: failureState.undoRedo,
       sequencedHistory: checkpointSequencedRevisions(checkpoints),
+      acceptedOperations: acceptedTreeOperations(history),
       handleNames: ["edit", "undo"],
     })];
     return item;
@@ -7478,6 +7683,7 @@ async function runUndoRedoReconnectTarget(config, context, implementation) {
       eventTrace: commits,
       lifecycle: { ...undo, settlement },
       sequencedHistory: checkpointSequencedRevisions([undone]),
+      acceptedOperations: acceptedTreeOperations(history),
       handleNames: ["edit"],
     }, "undo-redo-reconnect")];
     return item;
@@ -8352,6 +8558,7 @@ export async function runSeededSchedule(config, context, schedule) {
       checkpoints: item.checkpoints,
       lifecycle: item.undoRedo,
       sequencedHistory: checkpointSequencedRevisions(item.checkpoints),
+      acceptedOperations: acceptedTreeOperations(finalHistory),
       gates: Object.fromEntries(nativeTargets.map((target) =>
         [target, state.adapters[target].evidence()])),
     })];
@@ -8397,7 +8604,12 @@ export async function runSeededSchedule(config, context, schedule) {
       }
     }
     if (cleanupErrors.length > 0) {
-      if (scheduleError) scheduleError.cleanupErrors = cleanupErrors;
+      if (scheduleError) {
+        scheduleError.cleanupErrors = [
+          ...(scheduleError.cleanupErrors ?? []),
+          ...cleanupErrors,
+        ];
+      }
       else throw new AggregateError(
         cleanupErrors,
         `Cleanup failed for seeded schedule ${schedule.index}`,

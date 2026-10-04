@@ -13,6 +13,8 @@ import gleam/option.{type Option, None, Some}
 @target(erlang)
 import gleam/result
 @target(erlang)
+import watershed/id
+@target(erlang)
 import watershed/runtime_beam
 @target(erlang)
 import watershed/runtime_core
@@ -59,15 +61,29 @@ pub fn main() -> Nil {
         "descriptor",
         reason.message,
       ))
-    Ok(config) ->
+    Ok(config) -> {
+      let outbound_store_ready = process.new_subject()
+      process.spawn_unlinked(fn() {
+        let outbound_store = process.new_subject()
+        process.send(outbound_store_ready, outbound_store)
+        outbound_store_loop(outbound_store, [], 0)
+      })
+      let outbound_store = process.receive_forever(from: outbound_store_ready)
       case
-        watershed.connect(
+        watershed.connect_observing(
           host: config.host,
           port: config.port,
           tenant: config.tenant,
           document: config.document_id,
           token: token(),
           user_id: "shared-tree-client-beam",
+          observe_push: fn(event, payload) {
+            case event {
+              "submitOp" ->
+                process.send(outbound_store, RecordOutbound(payload))
+              _ -> Nil
+            }
+          },
         )
       {
         Error(reason) ->
@@ -127,6 +143,7 @@ pub fn main() -> Nil {
                         None,
                         False,
                         handle_store,
+                        outbound_store,
                       )
                       watershed.close(document)
                     }
@@ -134,6 +151,7 @@ pub fn main() -> Nil {
               }
           }
       }
+    }
   }
 }
 
@@ -176,6 +194,7 @@ fn loop(
   events: Option(process.Subject(tree_kernel.TreeEvent)),
   active: Bool,
   handle_store: process.Subject(HandleMessage),
+  outbound_store: process.Subject(OutboundMessage),
 ) -> Nil {
   case read_line() {
     Error(_) -> Nil
@@ -193,10 +212,20 @@ fn loop(
                 events,
                 active,
                 handle_store,
+                outbound_store,
               )
             write_line(output)
           })
-          loop(document, handle, config, tree, events, active, handle_store)
+          loop(
+            document,
+            handle,
+            config,
+            tree,
+            events,
+            active,
+            handle_store,
+            outbound_store,
+          )
         }
         _ -> {
           let #(output, next_tree, next_events, next_active, closing) =
@@ -209,6 +238,7 @@ fn loop(
               events,
               active,
               handle_store,
+              outbound_store,
             )
           write_line(output)
           case closing {
@@ -222,6 +252,7 @@ fn loop(
                 next_events,
                 next_active,
                 handle_store,
+                outbound_store,
               )
           }
         }
@@ -240,6 +271,7 @@ fn execute(
   events: Option(process.Subject(tree_kernel.TreeEvent)),
   active: Bool,
   handle_store: process.Subject(HandleMessage),
+  outbound_store: process.Subject(OutboundMessage),
 ) -> #(
   String,
   watershed.SharedTree,
@@ -518,6 +550,7 @@ fn execute(
                 |> result.map(protocol.history_revisions)
                 |> result.unwrap([])
               },
+              fn() { outbound_snapshot(outbound_store) },
               reply,
             )
           }),
@@ -554,6 +587,7 @@ fn execute(
                 |> result.map(protocol.history_commit_ids)
                 |> result.unwrap([])
               },
+              fn() { outbound_snapshot(outbound_store) },
               reply,
             )
           }),
@@ -563,7 +597,7 @@ fn execute(
           False,
         )
         protocol.Checkpoint -> #(
-          checkpoint(tree, events, active, handle_store),
+          checkpoint(document, tree, events, active, handle_store),
           tree,
           events,
           active,
@@ -592,13 +626,24 @@ fn execute(
           active,
           False,
         )
-        protocol.Summarize -> #(
-          map_result("summarize", watershed.summarize(document), json.string),
-          tree,
-          events,
-          active,
-          False,
-        )
+        protocol.Summarize -> {
+          let snapshot_sequence_number = observe(document).sequence_number
+          #(
+            map_result("summarize", watershed.summarize(document), fn(version) {
+              json.object([
+                #("version", json.string(version)),
+                #(
+                  "snapshotSequenceNumber",
+                  optional_int(snapshot_sequence_number),
+                ),
+              ])
+            }),
+            tree,
+            events,
+            active,
+            False,
+          )
+        }
         protocol.PendingSummaryEvidence -> #(
           map_result(
             "pending-summary-evidence",
@@ -638,6 +683,14 @@ fn facade(operation: String, reason: String) -> protocol.ProtocolError {
 fn optional_string(value: Option(String)) -> Json {
   case value {
     Some(value) -> json.string(value)
+    None -> json.null()
+  }
+}
+
+@target(erlang)
+fn optional_int(value: Option(Int)) -> Json {
+  case value {
+    Some(value) -> json.int(value)
     None -> json.null()
   }
 }
@@ -881,6 +934,7 @@ fn encode_event(event: tree_kernel.TreeEvent) -> Json {
 
 @target(erlang)
 fn checkpoint(
+  document: watershed.Document(a),
   tree: watershed.SharedTree,
   events: Option(process.Subject(tree_kernel.TreeEvent)),
   active: Bool,
@@ -910,6 +964,7 @@ fn checkpoint(
         history,
         Some(reason),
         None,
+        summary_sequence_number(document),
       ))
     Ok(root_value) -> {
       let root = protocol.encode_read(root_value)
@@ -973,9 +1028,17 @@ fn checkpoint(
         history,
         None,
         retained,
+        summary_sequence_number(document),
       ))
     }
   }
+}
+
+@target(erlang)
+fn summary_sequence_number(document: watershed.Document(a)) -> Option(Int) {
+  option.map(observe(document).sequence_number, fn(sequence_number) {
+    sequence_number - watershed.operations_since_summary(document)
+  })
 }
 
 @target(erlang)
@@ -986,11 +1049,13 @@ type HandleMessage {
     Bool,
     Option(watershed.TreeRevertible),
     Option(String),
+    String,
   )
-  SettleCommit(TreeCommitKind, TreeCommitOutcome)
+  SettleCommit(TreeCommitKind, TreeCommitOutcome, String)
   RetainHandle(
     String,
     fn() -> List(String),
+    fn() -> List(Json),
     process.Subject(Result(Json, protocol.ProtocolError)),
   )
   HandleStatus(String, process.Subject(Result(Json, protocol.ProtocolError)))
@@ -999,9 +1064,49 @@ type HandleMessage {
     String,
     Bool,
     fn() -> List(#(String, String)),
+    fn() -> List(Json),
     process.Subject(Result(Json, protocol.ProtocolError)),
   )
   DrainCommits(process.Subject(List(Json)))
+}
+
+@target(erlang)
+type OutboundMessage {
+  RecordOutbound(Json)
+  SnapshotOutbound(process.Subject(List(Json)))
+}
+
+@target(erlang)
+fn outbound_store_loop(
+  subject: process.Subject(OutboundMessage),
+  records: List(Json),
+  next_send_id: Int,
+) -> Nil {
+  case process.receive_forever(from: subject) {
+    RecordOutbound(payload) -> {
+      let send_id = next_send_id + 1
+      outbound_store_loop(
+        subject,
+        [
+          json.object([
+            #("sendId", json.int(send_id)),
+            #("payload", payload),
+          ]),
+          ..records
+        ],
+        send_id,
+      )
+    }
+    SnapshotOutbound(reply) -> {
+      process.send(reply, list.reverse(records))
+      outbound_store_loop(subject, records, next_send_id)
+    }
+  }
+}
+
+@target(erlang)
+fn outbound_snapshot(subject: process.Subject(OutboundMessage)) -> List(Json) {
+  process.call(subject, waiting: 1000, sending: SnapshotOutbound)
 }
 
 @target(erlang)
@@ -1036,6 +1141,7 @@ fn observe_commit(
   handle_store: process.Subject(HandleMessage),
 ) -> Nil {
   let watershed.TreeCommitEvent(kind, local, factory, settlement) = event
+  let action_id = id.uuid_v4()
   let acquired = case local, factory {
     True, Some(get_revertible) ->
       case get_revertible() {
@@ -1046,14 +1152,21 @@ fn observe_commit(
   }
   process.send(
     handle_store,
-    CaptureCommit(kind, local, option.is_some(factory), acquired, None),
+    CaptureCommit(
+      kind,
+      local,
+      option.is_some(factory),
+      acquired,
+      None,
+      action_id,
+    ),
   )
   case settlement {
     None -> Nil
     Some(on_settled) -> {
       let _ =
         on_settled(fn(outcome) {
-          process.send(handle_store, SettleCommit(kind, outcome))
+          process.send(handle_store, SettleCommit(kind, outcome, action_id))
         })
       Nil
     }
@@ -1073,12 +1186,13 @@ fn await_revert_commit(
     List(Json),
     Int,
     Option(String),
+    String,
   ),
   protocol.ProtocolError,
 ) {
   case process.receive(subject, 1000) {
     Error(_) -> Error(facade("revert", "Revert authored no local commit event"))
-    Ok(SettleCommit(kind, outcome)) ->
+    Ok(SettleCommit(kind, outcome, action_id)) ->
       await_revert_commit(
         subject,
         [
@@ -1086,12 +1200,20 @@ fn await_revert_commit(
             #("type", json.string("settlement")),
             #("kind", json.string(commit_kind(kind))),
             #("outcome", json.string(commit_outcome(outcome))),
+            #("actionId", json.string(action_id)),
           ]),
           ..commits
         ],
         next_event_id,
       )
-    Ok(CaptureCommit(kind, local, factory_available, acquired, revision)) -> {
+    Ok(CaptureCommit(
+      kind,
+      local,
+      factory_available,
+      acquired,
+      revision,
+      action_id,
+    )) -> {
       let event_id = next_event_id + 1
       let commit =
         json.object([
@@ -1101,10 +1223,12 @@ fn await_revert_commit(
           #("factoryAvailable", json.bool(factory_available)),
           #("handleAcquired", json.bool(option.is_some(acquired))),
           #("eventId", json.int(event_id)),
+          #("actionId", json.string(action_id)),
           #("revision", optional_string(revision)),
         ])
       case local {
-        True -> Ok(#(kind, acquired, commit, commits, event_id, revision))
+        True ->
+          Ok(#(kind, acquired, commit, commits, event_id, revision, action_id))
         False -> await_revert_commit(subject, [commit, ..commits], event_id)
       }
     }
@@ -1121,14 +1245,14 @@ fn handle_store_loop(
     #(watershed.TreeRevertible, TreeCommitKind, Option(String)),
   ),
   last_local: Option(
-    #(watershed.TreeRevertible, TreeCommitKind, Int, Option(String)),
+    #(watershed.TreeRevertible, TreeCommitKind, Int, Option(String), String),
   ),
   commits: List(Json),
   next_event_id: Int,
 ) -> Nil {
   let message = process.receive_forever(from: subject)
   case message {
-    CaptureCommit(kind, local, factory_available, acquired, revision) -> {
+    CaptureCommit(kind, local, factory_available, acquired, revision, action_id) -> {
       let event_id = next_event_id + 1
       let commit =
         json.object([
@@ -1138,15 +1262,16 @@ fn handle_store_loop(
           #("factoryAvailable", json.bool(factory_available)),
           #("handleAcquired", json.bool(option.is_some(acquired))),
           #("eventId", json.int(event_id)),
+          #("actionId", json.string(action_id)),
           #("revision", optional_string(revision)),
         ])
       let next = case acquired {
-        Some(handle) -> Some(#(handle, kind, event_id, revision))
+        Some(handle) -> Some(#(handle, kind, event_id, revision, action_id))
         None -> last_local
       }
       handle_store_loop(subject, handles, next, [commit, ..commits], event_id)
     }
-    SettleCommit(kind, outcome) ->
+    SettleCommit(kind, outcome, action_id) ->
       handle_store_loop(
         subject,
         handles,
@@ -1156,12 +1281,13 @@ fn handle_store_loop(
             #("type", json.string("settlement")),
             #("kind", json.string(commit_kind(kind))),
             #("outcome", json.string(commit_outcome(outcome))),
+            #("actionId", json.string(action_id)),
           ]),
           ..commits
         ],
         next_event_id,
       )
-    RetainHandle(name, revisions, reply) ->
+    RetainHandle(name, revisions, outbound, reply) ->
       case last_local {
         None -> {
           process.send(
@@ -1184,6 +1310,11 @@ fn handle_store_loop(
             Some(_) -> entry.3
             None -> revisions() |> list.last |> option.from_result
           }
+          let outbound_records =
+            outbound()
+            |> list.last
+            |> result.map(fn(record) { [record] })
+            |> result.unwrap([])
           process.send(
             reply,
             Ok(
@@ -1193,7 +1324,12 @@ fn handle_store_loop(
                 #("factoryAvailable", json.bool(True)),
                 #("status", json.string(revertible_status(entry.0))),
                 #("eventId", json.int(entry.2)),
+                #("actionId", json.string(entry.4)),
                 #("revision", optional_string(revision)),
+                #(
+                  "outboundRecords",
+                  json.array(outbound_records, fn(record) { record }),
+                ),
               ]),
             ),
           )
@@ -1244,7 +1380,7 @@ fn handle_store_loop(
       process.send(reply, outcome)
       handle_store_loop(subject, handles, last_local, commits, next_event_id)
     }
-    RevertHandle(name, dispose, revisions, reply) ->
+    RevertHandle(name, dispose, revisions, outbound, reply) ->
       case dict.get(handles, name) {
         Error(_) -> {
           process.send(
@@ -1261,6 +1397,7 @@ fn handle_store_loop(
         }
         Ok(entry) -> {
           let before_revisions = revisions()
+          let before_outbound = outbound()
           let outcome = case watershed.tree_revert(entry.0, dispose) {
             Error(reason) -> Error(facade("revert", reason))
             Ok(_) ->
@@ -1273,6 +1410,7 @@ fn handle_store_loop(
                   observed_commits,
                   event_id,
                   _revision,
+                  action_id,
                 )) -> {
                   use submitted_revisions <- result.try(
                     await_submitted_revisions(
@@ -1293,6 +1431,9 @@ fn handle_store_loop(
                   ))
                   let submitted_revision =
                     list.first(submitted_revisions) |> option.from_result
+                  let outbound_records =
+                    outbound()
+                    |> list.drop(list.length(before_outbound))
                   Ok(#(
                     json.object([
                       #("name", json.string(name)),
@@ -1315,6 +1456,10 @@ fn handle_store_loop(
                         "submittedRevisions",
                         json.array(submitted_revisions, json.string),
                       ),
+                      #(
+                        "outboundRecords",
+                        json.array(outbound_records, fn(record) { record }),
+                      ),
                     ]),
                     authored_kind,
                     acquired,
@@ -1322,6 +1467,7 @@ fn handle_store_loop(
                     observed_commits,
                     event_id,
                     submitted_revision,
+                    action_id,
                   ))
                 }
               }
@@ -1345,11 +1491,12 @@ fn handle_store_loop(
               observed_commits,
               event_id,
               revision,
+              action_id,
             )) -> {
               process.send(reply, Ok(value))
               let next = case acquired {
                 Some(handle) ->
-                  Some(#(handle, authored_kind, event_id, revision))
+                  Some(#(handle, authored_kind, event_id, revision, action_id))
                 None -> last_local
               }
               handle_store_loop(

@@ -161,6 +161,28 @@ function payloadEvidence(bytes) {
   }
 }
 
+function snapshotSequenceNumber(bytes) {
+  try {
+    const value = JSON.parse(bytes.toString("utf8"));
+    const attributes = value && !Array.isArray(value)
+      && typeof value.content === "string"
+      && ["base64", "utf-8"].includes(value.encoding)
+      ? JSON.parse(value.encoding === "base64"
+        ? Buffer.from(value.content, "base64").toString("utf8")
+        : value.content)
+      : value;
+    return attributes && !Array.isArray(attributes)
+      && Number.isSafeInteger(attributes.sequenceNumber)
+      && Number.isSafeInteger(attributes.minimumSequenceNumber)
+      && attributes.minimumSequenceNumber >= 0
+      && attributes.minimumSequenceNumber <= attributes.sequenceNumber
+      ? attributes.sequenceNumber
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function documentTopic(topic, documentId) {
   return topic === `document:${documentId}`
     || (topic?.startsWith("document:") && topic.endsWith(`:${documentId}`));
@@ -584,7 +606,9 @@ export class DeliveryGate {
       }, (upstreamResponse) => {
         const responseHash = createHash("sha256");
         const responseChunks = [];
+        const identityChunks = [];
         let responseBytes = 0;
+        let identityOverflow = false;
         const holdResponse = summaryLoad(clientRequest.url ?? "/")
           && this.#holds.inbound.has("summary-load");
         const injectResponse = summaryLoad(clientRequest.url ?? "/")
@@ -601,6 +625,13 @@ export class DeliveryGate {
         upstreamResponse.on("data", (chunk) => {
           responseHash.update(chunk);
           responseBytes += chunk.length;
+          if (!identityOverflow) {
+            if (responseBytes <= maxMessageBytes) identityChunks.push(chunk);
+            else {
+              identityChunks.length = 0;
+              identityOverflow = true;
+            }
+          }
           if (bufferResponse) {
             if (responseBytes > maxHeldBytes) {
               upstreamResponse.destroy(new Error("Held HTTP response exceeded the bounded limit"));
@@ -621,8 +652,14 @@ export class DeliveryGate {
             requestHash: requestHash.digest("hex"),
             responseHash: responseHash.digest("hex"),
           };
-          this.#evidence.http.push(observation);
           if (!bufferResponse) {
+            const sequenceNumber = identityOverflow
+              ? undefined
+              : snapshotSequenceNumber(Buffer.concat(identityChunks));
+            if (sequenceNumber !== undefined) {
+              observation.responseSnapshotSequenceNumber = sequenceNumber;
+            }
+            this.#evidence.http.push(observation);
             clientResponse.end();
             return;
           }
@@ -662,6 +699,11 @@ export class DeliveryGate {
               this.#injection = undefined;
             }
           }
+          const sequenceNumber = snapshotSequenceNumber(bytes);
+          if (sequenceNumber !== undefined) {
+            observation.responseSnapshotSequenceNumber = sequenceNumber;
+          }
+          this.#evidence.http.push(observation);
           if (!holdResponse) {
             clientResponse.writeHead(status, upstreamResponse.statusMessage, headers);
             clientResponse.end(bytes);

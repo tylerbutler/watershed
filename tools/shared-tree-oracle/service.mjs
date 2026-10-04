@@ -313,11 +313,26 @@ function observedStorage(storage, observations) {
         return observedResult(observations, "readBlob", async (id, ...args) => {
           const result = await target.readBlob(id, ...args);
           const bytes = Buffer.from(result);
+          let snapshotSequenceNumber;
+          try {
+            const decoded = JSON.parse(bytes.toString("utf8"));
+            if (Number.isSafeInteger(decoded?.sequenceNumber)
+              && Number.isSafeInteger(decoded.minimumSequenceNumber)
+              && decoded.minimumSequenceNumber >= 0
+              && decoded.minimumSequenceNumber <= decoded.sequenceNumber) {
+              snapshotSequenceNumber = decoded.sequenceNumber;
+            }
+          } catch {
+            // Binary and non-JSON summary blobs have no snapshot identity.
+          }
           observations.push({
             operation: "readBlob",
             id,
             byteLength: bytes.length,
             hash: createHash("sha256").update(bytes).digest("hex"),
+            ...(snapshotSequenceNumber === undefined
+              ? {}
+              : { snapshotSequenceNumber }),
           });
           return result;
         });

@@ -14,6 +14,7 @@ import { rootDataStoreId } from "@fluidframework/runtime-utils/internal";
 import { DeliveryGate } from "./delivery-gate.mjs";
 import { Point, schemaEvolutionConfigurations } from "./schema.mjs";
 import {
+  acceptedTreeOperations,
   canonicalValue,
   captureFailureCheckpoint,
   decodeReconnectPayload,
@@ -1267,9 +1268,7 @@ async function writeArrayReloadArtifact(context, item, raw) {
   })}\n`, { mode: 0o600 });
   return relative;
 }
-export function loadRequests(evidence, version, snapshotSequenceNumber) {
-  assert(Number.isSafeInteger(snapshotSequenceNumber) && snapshotSequenceNumber >= 0,
-    "Native reader lacks a selected-summary sequence");
+export function loadRequests(evidence, version) {
   const successful = evidence.http.filter(({ status }) => status >= 200 && status < 300);
   const selectedSummaryRequests = [...new Set(successful.flatMap(({ path }) => {
     const match = path.match(/\/git\/commits\/([^/?]+)/);
@@ -1293,6 +1292,61 @@ export function loadRequests(evidence, version, snapshotSequenceNumber) {
     .filter(({ direction, kind }) => direction === "inbound" && kind === "op")
     .flatMap(({ sequenceNumbers }) => sequenceNumbers)
     .filter(Number.isSafeInteger);
+  const storageLoadIdentities = evidence.http.flatMap(
+    ({ status, responseSnapshotSequenceNumber }, observationIndex) =>
+      status === 200 && Number.isSafeInteger(responseSnapshotSequenceNumber)
+        && responseSnapshotSequenceNumber >= 0
+        ? [{
+            loadedVersion: version,
+            snapshotSequenceNumber: responseSnapshotSequenceNumber,
+            observationIndex,
+          }]
+        : [],
+  );
+  const runtimeLoadIdentities = (evidence.nativeLoadIdentities ?? []).flatMap(
+    ({ snapshotSequenceNumber, observedSequenceNumber }, observationIndex) =>
+      Number.isSafeInteger(snapshotSequenceNumber)
+        && snapshotSequenceNumber >= 0
+        ? [{
+            loadedVersion: version,
+            snapshotSequenceNumber,
+            observedSequenceNumber,
+            observationIndex,
+          }]
+        : [],
+  );
+  const handshakeLoadIdentities = (evidence.handshakes ?? []).flatMap(
+    (handshake, handshakeIndex) => {
+      const snapshotSequenceNumber = handshake.summarySequenceNumber;
+      const consumedSnapshotSequenceNumber =
+        Number.isSafeInteger(snapshotSequenceNumber)
+          && snapshotSequenceNumber >= 0
+          ? snapshotSequenceNumber
+          : snapshotSequenceNumber === undefined
+            ? 0
+            : undefined;
+      return consumedSnapshotSequenceNumber !== undefined
+        ? [{
+            loadedVersion: version,
+            snapshotSequenceNumber: consumedSnapshotSequenceNumber,
+            handshakeIndex,
+          }]
+        : [];
+    },
+  );
+  const loadIdentities = storageLoadIdentities.length > 0
+    ? storageLoadIdentities
+    : runtimeLoadIdentities.length > 0
+      ? runtimeLoadIdentities
+      : handshakeLoadIdentities;
+  assert(loadIdentities.length > 0,
+    "Native reader lacks a consumed snapshot identity");
+  const snapshotSequences = [...new Set(
+    loadIdentities.map(({ snapshotSequenceNumber }) => snapshotSequenceNumber),
+  )];
+  assert.equal(snapshotSequences.length, 1,
+    "Native reader consumed multiple snapshot identities");
+  const snapshotSequenceNumber = snapshotSequences[0];
   const handshakeStarts = (evidence.handshakes ?? []).flatMap((handshake) => {
     const initial = handshake.initialMessageSequenceNumbers
       ?.filter(Number.isSafeInteger) ?? [];
@@ -1311,6 +1365,8 @@ export function loadRequests(evidence, version, snapshotSequenceNumber) {
     selectedSummaryRequests,
     selectedTreeRequests,
     selectedBlobRequests,
+    rawLoadIdentity: loadIdentities[0],
+    snapshotSequenceNumber,
     replayStartSequenceNumber: Math.min(...measuredStarts),
     replayEvidence: deliveryStarts.length > 0 ? "native-delivery" : "native-handshake",
   };
@@ -1347,12 +1403,26 @@ function storageLoad(observations, version) {
     "Upstream reader did not request the selected snapshot");
   const selectedBlobRequests = observations
     .filter(({ operation }) => operation === "readBlob")
-    .map(({ id, byteLength, hash }) => ({ id, byteLength, hash }));
+    .map(({ id, byteLength, hash, snapshotSequenceNumber }) => ({
+      id,
+      byteLength,
+      hash,
+      ...(snapshotSequenceNumber === undefined
+        ? {}
+        : { snapshotSequenceNumber }),
+    }));
   assert(selectedBlobRequests.some(({ id, byteLength, hash }) =>
     typeof id === "string" && id.length > 0
       && Number.isSafeInteger(byteLength) && byteLength > 0
       && typeof hash === "string" && hash.length > 0),
     "Upstream reader did not read the selected summary hierarchy");
+  const identities = selectedBlobRequests.filter(
+    ({ snapshotSequenceNumber }) =>
+      Number.isSafeInteger(snapshotSequenceNumber)
+        && snapshotSequenceNumber >= 0,
+  );
+  assert.equal(identities.length, 1,
+    "Upstream reader lacks one consumed snapshot identity");
   const replayStarts = observations.flatMap(({ operation, from }) =>
     operation === "fetchMessages" && Number.isSafeInteger(from) ? [from] : []);
   assert(replayStarts.length > 0, "Upstream reader lacks measured delta replay");
@@ -1362,6 +1432,14 @@ function storageLoad(observations, version) {
     selectedSummaryTreeId,
     selectedTreeRequests,
     selectedBlobRequests,
+    rawLoadIdentity: {
+      loadedVersion: version,
+      treeId: selectedSummaryTreeId,
+      blobId: identities[0].id,
+      blobHash: identities[0].hash,
+      snapshotSequenceNumber: identities[0].snapshotSequenceNumber,
+    },
+    snapshotSequenceNumber: identities[0].snapshotSequenceNumber,
     replayStartSequenceNumber: Math.min(...replayStarts),
     replayEvidence: "upstream-delta-storage",
   };
@@ -1626,6 +1704,7 @@ export async function readCell(config, context, row, reader, {
     assert.equal(headBefore, row.version, "Writer head changed before reload");
     let load;
     let rawLoad;
+    let loaded;
     if (reader === "upstream") {
       const session = await openUpstreamSession(config, containers, row.documentId, false, {
         cache: false,
@@ -1643,6 +1722,7 @@ export async function readCell(config, context, row, reader, {
         viewSchema: context.viewSchema,
       }, row.jwt);
       await adapter.awaitSynced(row.publicationSequenceNumber);
+      loaded = await adapter.checkpoint();
       rawLoad = adapter.evidence();
       load = loadRequests(rawLoad, row.version, row.snapshotSequenceNumber);
     }
@@ -1653,7 +1733,7 @@ export async function readCell(config, context, row, reader, {
         load,
         handshakes: rawLoad?.handshakes,
       })}`);
-    const loaded = await adapter.checkpoint();
+    loaded ??= await adapter.checkpoint();
     assert.deepEqual(loaded.wholeTree,
       canonicalValue(rootValue(row.observer.data.view.root)),
     `${reader} loaded a different typed root`);
@@ -1951,6 +2031,7 @@ async function readMapCell(config, context, row, reader) {
     assert.equal(headBefore, row.version, "Map writer head changed before reload");
     let load;
     let rawLoad;
+    let loaded;
     if (reader === "upstream") {
       const session = await openSession(
         config,
@@ -1971,12 +2052,13 @@ async function readMapCell(config, context, row, reader) {
         viewSchema: context.mapViewSchema,
       }, row.jwt);
       await adapter.awaitSynced(row.publicationSequenceNumber);
+      loaded = await adapter.checkpoint();
       rawLoad = adapter.evidence();
       load = loadRequests(rawLoad, row.version, row.snapshotSequenceNumber);
     }
     assert(load.replayStartSequenceNumber >= row.snapshotSequenceNumber,
       "Fresh map reader replayed from before the selected summary");
-    const loaded = await adapter.checkpoint();
+    loaded ??= await adapter.checkpoint();
     const expected = await row.observerAdapter.checkpoint();
     assert.deepEqual(loaded.wholeTree, expected.wholeTree,
       `${reader} loaded a different map root`);
@@ -2143,6 +2225,7 @@ async function readIdentifierCell(config, context, row, reader) {
   try {
     let load;
     let rawLoad;
+    let loaded;
     if (reader === "upstream") {
       const session = await openSession(
         config,
@@ -2163,10 +2246,11 @@ async function readIdentifierCell(config, context, row, reader) {
         viewSchema: context.identifierViewSchema,
       }, row.jwt);
       await adapter.awaitSynced(row.publicationSequenceNumber);
+      loaded = await adapter.checkpoint();
       rawLoad = adapter.evidence();
       load = loadRequests(rawLoad, row.version, row.snapshotSequenceNumber);
     }
-    const loaded = await adapter.checkpoint();
+    loaded ??= await adapter.checkpoint();
     assert.equal(identifierByLabel(loaded, `${row.writer}-default`).id,
       row.writerAuthored.defaultId, "Identifier reload changed the generated ID");
     assert.equal(identifierByLabel(loaded, `${row.writer}-explicit`).id,
@@ -2359,7 +2443,12 @@ async function runIdentifierWriterRow(config, context, writer) {
       }
     }
     if (cleanupErrors.length > 0) {
-      if (failure) failure.cleanupErrors = cleanupErrors;
+      if (failure) {
+        failure.cleanupErrors = [
+          ...(failure.cleanupErrors ?? []),
+          ...cleanupErrors,
+        ];
+      }
       else throw new AggregateError(
         cleanupErrors,
         `Cleanup failed for ${writer} Identifier reload row`,
@@ -2436,6 +2525,7 @@ async function readArrayCell(config, context, row, reader) {
     assert.equal(headBefore, row.version, "Array writer head changed before reload");
     let load;
     let rawLoad;
+    let loaded;
     if (reader === "upstream") {
       const session = await openSession(
         config,
@@ -2456,12 +2546,13 @@ async function readArrayCell(config, context, row, reader) {
         viewSchema: context.arrayViewSchema,
       }, row.jwt);
       await adapter.awaitSynced(row.publicationSequenceNumber);
+      loaded = await adapter.checkpoint();
       rawLoad = adapter.evidence();
       load = loadRequests(rawLoad, row.version, row.snapshotSequenceNumber);
     }
     assert(load.replayStartSequenceNumber >= row.snapshotSequenceNumber,
       "Fresh array reader replayed from before the selected summary");
-    const loaded = await adapter.checkpoint();
+    loaded ??= await adapter.checkpoint();
     const expected = await row.observerAdapter.checkpoint();
     assert.deepEqual(loaded.wholeTree, expected.wholeTree,
       `${reader} loaded a different array root`);
@@ -3281,13 +3372,13 @@ async function schemaReader(config, context, row, reader) {
       }, row.jwt);
       await adapter.awaitSynced(row.publicationSequenceNumber);
     }
+    const freshLoadCheckpoint = await adapter.checkpoint();
     const rawLoad = reader === "upstream"
       ? adapter.session.storageObservations
       : adapter.evidence();
     const load = reader === "upstream"
       ? storageLoad(rawLoad, row.version)
       : loadRequests(rawLoad, row.version, row.snapshotSequenceNumber);
-    const freshLoadCheckpoint = await adapter.checkpoint();
     const compatibility = await adapter.schemaCompatibility("optional");
     assert.equal(compatibility.canView, true,
       `${reader} did not replay the upgrade-bearing tail`);
@@ -3946,6 +4037,7 @@ async function readTransactionCell(config, context, row, reader) {
   try {
     let load;
     let rawLoad;
+    let loaded;
     if (reader === "upstream") {
       const session = await openSession(config, containers, row.documentId, false,
         { cache: false, observeStorage: true, store: arrayServiceStore });
@@ -3961,10 +4053,11 @@ async function readTransactionCell(config, context, row, reader) {
         viewSchema: context.arrayViewSchema,
       }, row.jwt);
       await adapter.awaitSynced(row.publicationSequenceNumber);
+      loaded = await adapter.checkpoint();
       rawLoad = adapter.evidence();
       load = loadRequests(rawLoad, row.version, row.snapshotSequenceNumber);
     }
-    const loaded = await adapter.checkpoint();
+    loaded ??= await adapter.checkpoint();
     const rightLabels = arrayFieldLabels(loaded, "right");
     const leftLabels = arrayFieldLabels(loaded, "left");
     const writerIndexes = row.writerAuthored.labels
@@ -4284,12 +4377,8 @@ async function openUndoRedoReader(
   }, jwt);
   return {
     adapter,
-    loadEvidence(version, snapshotSequenceNumber) {
-      return loadRequests(
-        adapter.evidence(),
-        version,
-        snapshotSequenceNumber,
-      );
+    loadEvidence(version) {
+      return loadRequests(adapter.evidence(), version);
     },
     close: () => adapter.close(),
   };
@@ -4314,13 +4403,24 @@ async function publishUndoRedoSummary(
     return {
       version: publication.summaryAckOp.contents.handle,
       snapshotSequenceNumber: publication.summaryReferenceSequenceNumber,
+      rawPublicationIdentity: {
+        version: publication.summaryAckOp.contents.handle,
+        snapshotSequenceNumber: publication.summaryReferenceSequenceNumber,
+        sequenceNumber: publication.summaryAckOp.sequenceNumber,
+      },
     };
   }
-  const version = await adapter.summarize();
+  const publication = await adapter.summarizePublication();
+  const version = publication.version;
+  const observedSequenceNumber = publication.snapshotSequenceNumber;
+  const storedSequenceNumber =
+    await publishedSequence(config, documentId, jwt, version);
+  assert.equal(observedSequenceNumber, storedSequenceNumber,
+    `${writer} summary response differs from stored publication`);
   return {
     version,
-    snapshotSequenceNumber:
-      await publishedSequence(config, documentId, jwt, version),
+    snapshotSequenceNumber: observedSequenceNumber,
+    rawPublicationIdentity: publication,
   };
 }
 
@@ -4376,13 +4476,8 @@ async function runUndoRedoReloadReader(
     await fresh.adapter.awaitSynced();
     const loaded = await fresh.adapter.checkpoint();
     trace.push({ label: "loaded", observation: loaded });
-    const load = fresh.loadEvidence(version, snapshotSequenceNumber);
-    const consumedSnapshotSequenceNumber = await publishedSequence(
-      config,
-      environment.documentId,
-      environment.jwt,
-      load.loadedVersion,
-    );
+    const load = fresh.loadEvidence(version);
+    const consumedSnapshotSequenceNumber = load.snapshotSequenceNumber;
     assert.deepEqual(loaded.wholeTree, expectedTree,
       `${writer} ${stage}->${reader} loaded another tree`);
     let historicalRetainError;
@@ -4450,22 +4545,25 @@ async function runUndoRedoReloadReader(
     };
     assert.deepEqual(final.wholeTree, expectedTree,
       `${writer} ${stage}->${reader} did not undo its post-load edit`);
+    const acceptedHistory = await serverHistory(environment.creator);
     item.artifacts = [await writeUndoRedoReloadArtifact(context, item, {
       publication: {
-        version,
+        ...environment.publication.rawPublicationIdentity,
         referenceSequenceNumber: snapshotSequenceNumber,
       },
       loaded: {
         ...loaded,
-        snapshotSequenceNumber: consumedSnapshotSequenceNumber,
+        rawLoadIdentity: load.rawLoadIdentity,
       },
       final,
+      retained,
       lifecycle: {
         ...undo,
         settlement,
       },
       load,
       sequencedHistory: checkpointRevisionEvidence(final),
+      acceptedOperations: acceptedTreeOperations(acceptedHistory),
       handleNames: ["post-load"],
       commitKinds: commits.filter(({ type }) => type === "commit")
         .map(({ kind }) => kind),
@@ -4567,7 +4665,13 @@ async function runUndoRedoReloadWriter(config, context, writer) {
       }, jwt));
     }
     adapters = { upstream, javascript: natives[0], erlang: natives[1] };
-    const environment = { containers, documentId, jwt };
+    const environment = {
+      containers,
+      creator,
+      documentId,
+      jwt,
+      publication: null,
+    };
     await settle(adapters);
     await adapters[writer].set(["title"], `${writer}-undo-redo`);
     await adapters[writer].retainLastLocalCommit("edit");
@@ -4585,6 +4689,7 @@ async function runUndoRedoReloadWriter(config, context, writer) {
       "undo",
       jwt,
     );
+    environment.publication = undoPublication;
     const row = { undo: {}, redo: {} };
     for (const reader of implementations) {
       row.undo[reader] = await runUndoRedoReloadReader(
@@ -4611,6 +4716,7 @@ async function runUndoRedoReloadWriter(config, context, writer) {
       "redo",
       jwt,
     );
+    environment.publication = redoPublication;
     for (const reader of implementations) {
       row.redo[reader] = await runUndoRedoReloadReader(
         config,
@@ -4677,7 +4783,12 @@ async function runUndoRedoReloadWriter(config, context, writer) {
       }
     }
     if (cleanupErrors.length > 0) {
-      if (failure) failure.cleanupErrors = cleanupErrors;
+      if (failure) {
+        failure.cleanupErrors = [
+          ...(failure.cleanupErrors ?? []),
+          ...cleanupErrors,
+        ];
+      }
       else throw new AggregateError(cleanupErrors, "Undo/redo reload cleanup failed");
     }
   }

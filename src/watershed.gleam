@@ -351,6 +351,25 @@ pub fn connect(
   config: WatershedConfig,
   on_ready on_ready: fn(Result(Nil, String)) -> Nil,
 ) -> Document(root) {
+  connect_observed(config, None, on_ready)
+}
+
+@target(javascript)
+/// Connect and observe each transport push before it is sent.
+pub fn connect_observing(
+  config: WatershedConfig,
+  observe_push observe_push: fn(String, Json) -> Nil,
+  on_ready on_ready: fn(Result(Nil, String)) -> Nil,
+) -> Document(root) {
+  connect_observed(config, Some(observe_push), on_ready)
+}
+
+@target(javascript)
+fn connect_observed(
+  config: WatershedConfig,
+  observe_push: Option(fn(String, Json) -> Nil),
+  on_ready: fn(Result(Nil, String)) -> Nil,
+) -> Document(root) {
   let topic = "document:" <> config.tenant <> ":" <> config.document
   let connect_message =
     ConnectMessage(
@@ -379,13 +398,23 @@ pub fn connect(
       relay_user_agent: None,
     )
 
-  let runtime =
-    runtime.start(
-      url: config.url,
-      topic: topic,
-      connect_message: connect_message,
-      on_ready: on_ready,
-    )
+  let runtime = case observe_push {
+    None ->
+      runtime.start(
+        url: config.url,
+        topic: topic,
+        connect_message: connect_message,
+        on_ready: on_ready,
+      )
+    Some(observe_push) ->
+      runtime.start_observing(
+        url: config.url,
+        topic: topic,
+        connect_message: connect_message,
+        observe_push: observe_push,
+        on_ready: on_ready,
+      )
+  }
   Document(runtime: runtime)
 }
 

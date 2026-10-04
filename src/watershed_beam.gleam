@@ -492,19 +492,66 @@ pub fn connect(
   token token: String,
   user_id user_id: String,
 ) -> Result(Document(root), String) {
+  connect_observed(host, port, tenant, document, token, user_id, None)
+}
+
+@target(erlang)
+/// Connect and observe each transport push before it is sent.
+pub fn connect_observing(
+  host host: String,
+  port port: Int,
+  tenant tenant: String,
+  document document: String,
+  token token: String,
+  user_id user_id: String,
+  observe_push observe_push: fn(String, Json) -> Nil,
+) -> Result(Document(root), String) {
+  connect_observed(
+    host,
+    port,
+    tenant,
+    document,
+    token,
+    user_id,
+    Some(observe_push),
+  )
+}
+
+@target(erlang)
+fn connect_observed(
+  host: String,
+  port: Int,
+  tenant: String,
+  document: String,
+  token: String,
+  user_id: String,
+  observe_push: option.Option(fn(String, Json) -> Nil),
+) -> Result(Document(root), String) {
   let connect_message =
     build_connect_message(tenant, document, user_id, Some(token))
 
-  case
-    runtime_beam.start(
-      host: host,
-      port: port,
-      path: socket_path,
-      tenant: tenant,
-      document: document,
-      connect_message: connect_message,
-    )
-  {
+  let started = case observe_push {
+    None ->
+      runtime_beam.start(
+        host: host,
+        port: port,
+        path: socket_path,
+        tenant: tenant,
+        document: document,
+        connect_message: connect_message,
+      )
+    Some(observe_push) ->
+      runtime_beam.start_observing(
+        host: host,
+        port: port,
+        path: socket_path,
+        tenant: tenant,
+        document: document,
+        connect_message: connect_message,
+        observe_push: observe_push,
+      )
+  }
+  case started {
     Error(_) -> Error("failed to start document runtime")
     Ok(subject) ->
       case runtime_beam.await_ready(subject) {

@@ -46,6 +46,7 @@ pub fn shared_tree_client_encodes_full_root_checkpoint_test() -> Nil {
     json.object([]),
     None,
     None,
+    None,
   )
   |> json.to_string
   |> expect.to_equal(

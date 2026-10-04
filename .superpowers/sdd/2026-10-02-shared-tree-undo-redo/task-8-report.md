@@ -405,3 +405,234 @@ Report:
 
 No infrastructure-only transient retry was required for the final successful
 interop or create-interop runs.
+
+## Fix round 3
+
+Base: `8c229a9c`
+
+### RED evidence
+
+The five review counterexamples failed before the implementation changed:
+
+```text
+tests 5
+pass 0
+fail 5
+```
+
+- A revert could claim one outbound operation from history while the client
+  sent the operation twice.
+- A kind row could reference an incomplete source artifact.
+- Reload validation could accept copied publication and load scalars without
+  observing the reader's storage response.
+- Seeded BEAM evidence could replace or remove the Default revision and still
+  pass through null-revision correlation.
+- One failed client could discard surviving Undo checkpoints at the settle
+  boundary.
+
+### Finding resolution
+
+1. JavaScript, BEAM, and upstream clients record outbound operations at their
+   native transport boundary. Each record includes a send ID, stable client
+   instance ID, transport client ID and sequence, decoded originator/revision
+   operation ID, authored event ID, classification, and raw payload. A retry
+   keeps the same originator/revision ID and receives the
+   `reconnect-retry` classification. Validators count only records classified
+   as `original`, require one original send, and bind the accepted server
+   operation to the exact original or retry transport occurrence.
+2. One recursive validator checks each kind row's complete source artifact:
+   phase checkpoints, expected trees, final tree, lifecycle, event and
+   settlement traces, factories, statuses, counts, accepted operations,
+   concurrent retain results, and handle transitions.
+3. Publication evidence stores the native summarize response or upstream
+   summary acknowledgement. Native reader evidence comes from the proxied Git
+   blob response that contains the decoded `.protocol/attributes` body.
+   Upstream reader evidence comes from the storage driver's `readBlob`
+   response. Version and snapshot sequence must match. Replay start remains a
+   separate value derived from delivery, handshake, or delta-storage records.
+4. BEAM commit and settlement evidence carries a stable action ID. Seeded
+   validation scopes events by the adapter instance ID, joins event ID plus
+   revision or action ID, decodes raw accepted operations, and rejects
+   duplicate originator/revision IDs. `sequencedHistory` cannot replace raw
+   accepted operations.
+5. Checkpoint collection uses `Promise.allSettled`. It stores each fulfilled
+   observation and each rejected client's partial checkpoint before queue
+   drainage. The primary error receives the combined checkpoint and
+   per-client errors. Cleanup appends errors without replacing the primary
+   failure.
+
+### Raw evidence shapes
+
+The successful pinned run recorded an upstream reconnect retry in
+`seeded/107.json`:
+
+```json
+{
+  "authoredEventIds": [7],
+  "submittedRevisions": ["518"],
+  "outboundRecords": [
+    {
+      "sendId": 4,
+      "classification": "original",
+      "operationId": "revision:23615654-0f21-406c-b888-ac7e75de5d2c:518",
+      "clientInstanceId": "9cbf8399-6183-4c99-9f76-1afc8ca9397d",
+      "clientId": "F91D0B86ADB6F3F05CF69040AF43497A",
+      "clientSequenceNumber": 1,
+      "authoredEventId": 7
+    },
+    {
+      "sendId": 5,
+      "classification": "reconnect-retry",
+      "operationId": "revision:23615654-0f21-406c-b888-ac7e75de5d2c:518",
+      "clientInstanceId": "9cbf8399-6183-4c99-9f76-1afc8ca9397d",
+      "clientId": "516981E1151387FC2A91A5E7F967EB68",
+      "clientSequenceNumber": 1,
+      "authoredEventId": 7
+    }
+  ]
+}
+```
+
+The server accepted the retry transport occurrence once:
+
+```json
+{
+  "operationId": "revision:23615654-0f21-406c-b888-ac7e75de5d2c:518",
+  "clientId": "516981E1151387FC2A91A5E7F967EB68",
+  "clientSequenceNumber": 1,
+  "outerSequenceNumber": 20,
+  "commits": [
+    {
+      "revision": 518,
+      "originatorId": "23615654-0f21-406c-b888-ac7e75de5d2c"
+    }
+  ]
+}
+```
+
+The JavaScript writer to Erlang reader undo reload recorded independent
+publication and load identities:
+
+```json
+{
+  "publication": {
+    "version": "2e9190958150974c3da5eb7f394ebd63f11c0fde",
+    "snapshotSequenceNumber": 8,
+    "referenceSequenceNumber": 8
+  },
+  "rawLoadIdentity": {
+    "loadedVersion": "2e9190958150974c3da5eb7f394ebd63f11c0fde",
+    "snapshotSequenceNumber": 8,
+    "observationIndex": 4
+  },
+  "replayStartSequenceNumber": 8,
+  "replayEvidence": "native-handshake"
+}
+```
+
+The settle-boundary regression records the primary error with:
+
+```text
+checkpoint.observations:
+  upstream fulfilled checkpoint
+  javascript fulfilled checkpoint with surviving Undo commit
+  erlang partial checkpoint with surviving Undo commit
+clientErrors:
+  erlang -> original primary error
+```
+
+### GREEN evidence
+
+Focused review tests:
+
+```text
+tests 5
+pass 5
+fail 0
+skipped 0
+duration_ms 18992.282187
+```
+
+Native client suites:
+
+```text
+gleam test --target javascript -- shared_tree_client
+20 passed
+
+gleam test --target erlang -- shared_tree_client
+20 passed
+```
+
+Exact five Node files:
+
+```text
+node --test tools/shared-tree-oracle/client-driver.test.mjs tools/shared-tree-oracle/client-interop.test.mjs tools/shared-tree-oracle/summary-interop.test.mjs tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/service.test.mjs
+```
+
+```text
+tests 112
+pass 112
+fail 0
+skipped 0
+duration_ms 149611.732341
+```
+
+Storage-response boundary tests:
+
+```text
+node --test tools/shared-tree-oracle/delivery-gate.test.mjs
+tests 12
+pass 12
+fail 0
+```
+
+Pinned Floodgate interoperability gate:
+
+```text
+TMPDIR=/home/tylerbu/.copilot/session-state/639fae85-1eeb-4848-adc3-c4b99863f12c/files/tmp-round3 just shared-tree-interop
+```
+
+Exit status: 0.
+
+```text
+runId: 86cc410f-8ec1-4383-9735-da0eec5454d9
+profileDigest: 588a2f41621f4f352497915168a5dc8af55140721066a04f217ab03e639a1813
+undoRedoKinds.implementations: 3
+undoRedoConcurrent: 30
+undoRedoReconnect: 2
+undoRedoReloadMatrix cells: 18
+seeded schedules: 300, seed 42
+javascript corpus: 956
+erlang corpus: 974
+skipped: 0
+divergences: 0
+```
+
+Report:
+`tools/shared-tree-oracle/.output/interop/86cc410f-8ec1-4383-9735-da0eec5454d9/report.json`
+
+Create interoperability gate:
+
+```text
+TMPDIR=/home/tylerbu/.copilot/session-state/639fae85-1eeb-4848-adc3-c4b99863f12c/files/tmp-round3 just shared-tree-create-interop
+```
+
+Exit status: 0.
+
+```text
+runId: 5129f9f0-d2e0-4289-a4d3-38a9f1c2d568
+cells: 18
+skipped: 0
+divergences: 0
+```
+
+Report:
+`tools/shared-tree-oracle/.output/creation/5129f9f0-d2e0-4289-a4d3-38a9f1c2d568/report.json`
+
+### Concerns
+
+The host `/tmp` filesystem had no free inodes because old Watershed test
+directories remained there. All final commands used the session `TMPDIR`
+shown above. One pinned retry stopped on the existing Erlang schema-reload
+continuation timeout before seeded acceptance. The next run completed the same
+300 schedules with no skips or divergences.

@@ -415,6 +415,51 @@ pub fn start(
 }
 
 @target(javascript)
+/// Start a live runtime and observe each transport push before it is sent.
+pub fn start_observing(
+  url url: String,
+  topic topic: String,
+  connect_message connect_message: ConnectMessage,
+  observe_push observe_push: fn(String, Json) -> Nil,
+  on_ready on_ready: fn(Result(Nil, String)) -> Nil,
+) -> Runtime {
+  let join_payload = case connect_message.token {
+    Some(token) -> json.object([#("token", json.string(token))])
+    None -> json.object([])
+  }
+  start_with_transport(
+    http_base_url: http_base_from_socket_url(url),
+    connect_message: connect_message,
+    transport: observing_transport(
+      phoenix_transport(url, topic, join_payload),
+      observe_push,
+    ),
+    on_ready: on_ready,
+  )
+}
+
+@target(javascript)
+fn observing_transport(
+  transport: Transport,
+  observe_push: fn(String, Json) -> Nil,
+) -> Transport {
+  let Transport(connect) = transport
+  Transport(connect: fn(callbacks) {
+    let TransportHandle(push, close, drop, hold, resume) = connect(callbacks)
+    TransportHandle(
+      push: fn(event, payload) {
+        observe_push(event, payload)
+        push(event, payload)
+      },
+      close: close,
+      drop: drop,
+      hold: hold,
+      resume: resume,
+    )
+  })
+}
+
+@target(javascript)
 /// Start a runtime against any transport. The live `start` function, which uses
 /// Phoenix, calls this function, and so does the in-memory hub test driver.
 /// `http_base_url` supplies the REST summary API only. A transport that serves

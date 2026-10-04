@@ -743,6 +743,7 @@ pub fn encode_checkpoint(
   history: Json,
   read_error: Option(String),
   retained: Option(Json),
+  summary_sequence_number: Option(Int),
 ) -> Json {
   let fields = [
     #("root", root),
@@ -753,6 +754,13 @@ pub fn encode_checkpoint(
   ]
   let fields = case read_error {
     Some(reason) -> list.append(fields, [#("readError", json.string(reason))])
+    None -> fields
+  }
+  let fields = case summary_sequence_number {
+    Some(sequence_number) ->
+      list.append(fields, [
+        #("summarySequenceNumber", json.int(sequence_number)),
+      ])
     None -> fields
   }
   json.object(case retained {

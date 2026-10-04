@@ -682,6 +682,12 @@ test("native replay start prefers delivered operations over stale handshake cont
     selectedSummaryRequests: [version],
     selectedTreeRequests: ["tree"],
     selectedBlobRequests: ["blob"],
+    rawLoadIdentity: {
+      loadedVersion: version,
+      snapshotSequenceNumber: 0,
+      handshakeIndex: 0,
+    },
+    snapshotSequenceNumber: 0,
     replayStartSequenceNumber: 129,
     replayEvidence: "native-delivery",
   });
@@ -706,6 +712,81 @@ test("native handshake replay start uses initial messages before summary context
   assert.equal(load.replayEvidence, "native-handshake");
 });
 
+test("native omitted summary context identifies the sequence-zero snapshot", () => {
+  const version = "selected-version";
+  const load = loadRequests({
+    http: [
+      { status: 200, path: `/git/commits/${version}` },
+      { status: 200, path: "/git/trees/tree" },
+      { status: 200, path: "/git/blobs/blob" },
+    ],
+    delivered: [],
+    handshakes: [{
+      checkpointSequenceNumber: 1,
+      initialMessageSequenceNumbers: [1],
+    }],
+  }, version);
+  assert.equal(load.snapshotSequenceNumber, 0);
+  assert.equal(load.rawLoadIdentity.snapshotSequenceNumber, 0);
+  assert.equal(load.replayStartSequenceNumber, 0);
+});
+
+test("native runtime load identity overrides a full-log handshake", () => {
+  const version = "selected-version";
+  const load = loadRequests({
+    http: [
+      { status: 200, path: `/git/commits/${version}` },
+      { status: 200, path: "/git/trees/tree" },
+      { status: 200, path: "/git/blobs/blob" },
+    ],
+    delivered: [],
+    nativeLoadIdentities: [{
+      snapshotSequenceNumber: 18,
+      observedSequenceNumber: 31,
+    }],
+    handshakes: [{
+      checkpointSequenceNumber: 31,
+      initialMessageSequenceNumbers: Array.from(
+        { length: 31 },
+        (_, index) => index + 1,
+      ),
+    }],
+  }, version);
+  assert.equal(load.snapshotSequenceNumber, 18);
+  assert.equal(load.rawLoadIdentity.observedSequenceNumber, 31);
+  assert.equal(load.replayStartSequenceNumber, 18);
+});
+
+test("native storage response identity overrides copied runtime state", () => {
+  const version = "selected-version";
+  const load = loadRequests({
+    http: [
+      { status: 200, path: `/git/commits/${version}` },
+      { status: 200, path: "/git/trees/tree" },
+      {
+        status: 200,
+        path: "/git/blobs/protocol-attributes",
+        responseSnapshotSequenceNumber: 18,
+      },
+    ],
+    delivered: [],
+    nativeLoadIdentities: [{
+      snapshotSequenceNumber: 19,
+      observedSequenceNumber: 31,
+    }],
+    handshakes: [{
+      checkpointSequenceNumber: 31,
+      initialMessageSequenceNumbers: Array.from(
+        { length: 31 },
+        (_, index) => index + 1,
+      ),
+    }],
+  }, version);
+  assert.equal(load.snapshotSequenceNumber, 18);
+  assert.equal(load.rawLoadIdentity.observationIndex, 2);
+  assert.equal(load.replayStartSequenceNumber, 18);
+});
+
 test("native handshake excludes the redundant server prefix before selected summary", () => {
   const version = "selected-version";
   const load = loadRequests({
@@ -717,6 +798,7 @@ test("native handshake excludes the redundant server prefix before selected summ
     delivered: [],
     handshakes: [{
       checkpointSequenceNumber: 29,
+      summarySequenceNumber: 15,
       initialMessageSequenceNumbers: Array.from({ length: 29 }, (_, index) => index + 1),
     }],
   }, version, 15);
@@ -734,7 +816,11 @@ test("native summary load rejects absent replay evidence", () => {
       { status: 200, path: "/deltas/document?from=15" },
     ],
     delivered: [],
-    handshakes: [],
+    handshakes: [{
+      checkpointSequenceNumber: 15,
+      summarySequenceNumber: 15,
+      initialMessageSequenceNumbers: [],
+    }],
   }, version, 15), /lacks measured replay evidence/);
 });
 
@@ -750,6 +836,7 @@ test("native summary load rejects a selected-summary handshake without applied t
     delivered: [],
     handshakes: [{
       checkpointSequenceNumber: 15,
+      summarySequenceNumber: 15,
       initialMessageSequenceNumbers: Array.from(
         { length: 15 },
         (_, index) => index + 1,
@@ -774,6 +861,7 @@ test("reload tree mismatch remains primary when reader close also fails", async 
         delivered: [],
         handshakes: [{
           checkpointSequenceNumber: 16,
+          summarySequenceNumber: 15,
           initialMessageSequenceNumbers: [16],
         }],
       };
