@@ -44,6 +44,12 @@ npm --prefix tools/shared-tree-oracle test
 just shared-tree-test
 ```
 
+The Node tests register temporary-directory cleanup before fixture setup and
+remove their own fixtures when a test passes, fails, or cannot finish setup.
+The cleanup regression tests run fixture tests with an isolated `TMPDIR` and
+check that they leave no files behind. Acceptance artifacts under `.output/`
+remain available for diagnostics and replay.
+
 The native recipe executes both complete file-selected SharedTree suites,
 storage/facade coverage, and the owned HTTP/bootstrap/creation smokes. It needs
 the root Node transport dependencies, but no Fluid SDK, upstream source build,

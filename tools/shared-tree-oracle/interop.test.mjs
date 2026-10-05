@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { createIdCompressor } from "@fluidframework/id-compressor/internal";
 import * as interop from "./interop.mjs";
 import * as scenarios from "./interop-scenarios.mjs";
@@ -44,6 +44,12 @@ const service = {
   revision: "0eb493fc46d1bb9baf1151a6ccdde93544e057e7",
 };
 const implementations = ["upstream", "javascript", "erlang"];
+
+async function temporaryDirectory(prefix) {
+  const directory = await mkdtemp(join(tmpdir(), prefix));
+  after(() => rm(directory, { recursive: true, force: true }));
+  return directory;
+}
 
 test("corpus commands select SharedTree test files and cannot use function filters", () => {
   assert.deepEqual(corpusCommand("erlang"),
@@ -116,7 +122,7 @@ test("kind source artifacts reuse existing evidence references", async () => {
 });
 
 test("failed status publication preserves the primary coordinator failure", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "watershed-status-failure-"));
+  const directory = await temporaryDirectory("watershed-status-failure-");
   await mkdir(join(directory, "status.json.tmp"));
   const primary = Object.assign(new Error("primary acceptance failure"), {
     code: "PRIMARY",
@@ -137,7 +143,7 @@ test("failed status publication preserves the primary coordinator failure", asyn
 });
 
 test("failed status publication preserves a frozen primary error", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "watershed-frozen-failure-"));
+  const directory = await temporaryDirectory("watershed-frozen-failure-");
   await mkdir(join(directory, "status.json.tmp"));
   const primary = Object.freeze(new Error("frozen primary failure"));
 
@@ -328,7 +334,7 @@ function measured(prefix, cell, artifact) {
 }
 
 async function validFixture() {
-  const owned = await mkdtemp(join(tmpdir(), "watershed-interop-test-"));
+  const owned = await temporaryDirectory("watershed-interop-test-");
   await mkdir(join(owned, "evidence"));
   const loaded = await loadInteropProfile(profilePath);
   const artifactFiles = new Map();
@@ -3862,7 +3868,7 @@ test("completion preserves every partial observation when reconnect synchronizat
 });
 
 test("completion reconnect failure retains earlier phases before the cleanup drain", async () => {
-  const owned = await mkdtemp(join(tmpdir(), "watershed-reconnect-failure-"));
+  const owned = await temporaryDirectory("watershed-reconnect-failure-");
   let phase = "baseline";
   const primary = new Error("undo checkpoint failed");
   const observation = (implementation, kind) => ({
@@ -4004,7 +4010,7 @@ test("seed 42 integrates legal undo lifetimes across generated schedules", () =>
 });
 
 test("seeded failure artifacts retain primary and incremental undo evidence", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "watershed-seeded-failure-"));
+  const directory = await temporaryDirectory("watershed-seeded-failure-");
   const schedule = generateSchedules({ seed: 42, iterations: 1 })[0];
   const error = new Error("primary failure");
   const state = {
@@ -4769,8 +4775,8 @@ test("partial, stale, and synthetic-shaped evidence cannot pass", async () => {
 });
 
 test("artifact evidence is nonempty, regular, and contained by the owned root", async () => {
-  const owned = await mkdtemp(join(tmpdir(), "watershed-artifacts-"));
-  const outside = join(await mkdtemp(join(tmpdir(), "watershed-outside-")), "outside.json");
+  const owned = await temporaryDirectory("watershed-artifacts-");
+  const outside = join(await temporaryDirectory("watershed-outside-"), "outside.json");
   await writeFile(outside, "{}");
   await writeFile(join(owned, "empty.json"), "");
   await symlink(outside, join(owned, "escape.json"));
@@ -4839,7 +4845,7 @@ test("the committed profile is hashed and every compatibility pin is validated",
   ]);
   assert(!loaded.profile.excludedFeatures.includes("arrays"));
   assert(!loaded.profile.excludedFeatures.includes("maps-in-tree"));
-  const directory = await mkdtemp(join(tmpdir(), "watershed-profile-"));
+  const directory = await temporaryDirectory("watershed-profile-");
   const profile = JSON.parse(await readFile(profilePath, "utf8"));
   for (const [name, mutate] of [
     ["reference", (copy) => { copy.reference.commit = "stale"; }],

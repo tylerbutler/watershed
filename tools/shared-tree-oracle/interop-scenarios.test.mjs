@@ -1806,12 +1806,10 @@ test("native array-move action failures round-trip without a difference path", a
 test("replay classifies native array-move failures by structured protocol cause", async (t) => {
   const originalDirectory =
     await mkdtemp(join(tmpdir(), "watershed-array-move-original-"));
+  t.after(() => rm(originalDirectory, { recursive: true, force: true }));
   const replayDirectory =
     await mkdtemp(join(tmpdir(), "watershed-array-move-replay-"));
-  t.after(() => Promise.all([
-    rm(originalDirectory, { recursive: true, force: true }),
-    rm(replayDirectory, { recursive: true, force: true }),
-  ]));
+  t.after(() => rm(replayDirectory, { recursive: true, force: true }));
   const schedule = generateSchedules({ seed: 42, iterations: 300 })
     .find(({ profile, actions }) =>
       profile === "array" && actions.some(({ type }) => type === "array-move"));
