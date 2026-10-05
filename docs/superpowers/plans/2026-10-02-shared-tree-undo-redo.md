@@ -14,9 +14,11 @@
 
 **Current status:** Tasks 1-9 are implemented. The supported profile, public
 documentation, roadmap handoff, generated manifest, and permanent oracle gate
-now publish the approved undo/redo slice. Task 10 full-regression closure
-remains in progress. Undo/redo is the M5 slice in the approved design; M6 is
-local branching, not undo/redo.
+now publish the approved undo/redo slice. Task 10 records passing local native,
+codec, real-service, creation, and repository tests. Full build and standalone
+browser acceptance remain blocked by a pnpm policy failure reproduced at the
+unchanged execution base. Undo/redo is the M5 slice in the approved design;
+M6 is local branching, not undo/redo.
 
 The pure implementation is present in
 `src/watershed/tree/history.gleam:1372-1465`,
@@ -49,8 +51,10 @@ and are not part of this closure.
 The unchecked substeps under Tasks 1-8 are retained as archived red/green
 instructions. Source, tests, fixtures, and interop validators show that the
 behavior exists; they do not prove that every historical command ran or that
-current gates pass. No tests, service, build, or hosted workflow were run for
-this docs-only reconciliation.
+current gates pass. The initial reconciliation did not execute gates; the
+continuation from `8194fbc5` ran the commands recorded under Task 10 and in the
+[combined M5 validation record](2026-09-21-shared-tree.md#m5-combined-validation).
+No hosted workflow was dispatched.
 
 ## Global Constraints
 
@@ -78,8 +82,9 @@ constraint algebra, transaction boundaries, reconnect behavior, Identifier
 support, and interoperability evidence.
 
 Undo/redo implementation commits now extend through the native acceptance and
-mixed-client work, including `cb6892ec`, `eaa1c686`, and `81c679ec`. The next
-unchecked task is Task 9, not Task 1.
+mixed-client work, including `cb6892ec`, `eaa1c686`, and `81c679ec`. Profile
+publication is complete in `32162f20`; the remaining release checks belong to
+Task 10, not Task 1.
 
 Use test-first steps. Add one named failing case, run it, implement the
 smallest complete behavior, and run it again before adding the next case.
@@ -1423,7 +1428,7 @@ git commit -m "docs(tree): close undo and redo profile"
 - Consumes: all undo/redo implementation and permanent gates.
 - Produces: final M5 acceptance evidence.
 
-- [ ] **Step 1: Run formatting and focused gates.**
+- [x] **Step 1: Run formatting and focused gates.**
 
 ```bash
 gleam format --check src test
@@ -1432,7 +1437,7 @@ just shared-tree-test
 just shared-tree-codec-interop
 ```
 
-- [ ] **Step 2: Run service, creation, and complete repository gates.**
+- [x] **Step 2: Run service, creation, and complete repository gates.**
 
 ```bash
 just shared-tree-interop
@@ -1445,21 +1450,60 @@ just lint
 Investigate each failure against the execution base. A known baseline report is
 not evidence until the unchanged base reproduces the same failure.
 
-- [ ] **Step 3: Verify the acceptance matrix.**
+All listed commands ran. `just build` failed during checklist bundle preparation
+because pnpm rejected 28 pre-existing registry URLs; unchanged base `8194fbc5`
+reproduced it. The other commands passed. The standalone
+`just shared-tree-checklist` also failed before browser execution with the same
+policy error. These checked execution steps do not claim full-build/browser
+acceptance.
+
+- [x] **Step 3: Verify the acceptance matrix.**
 
 Check every item in section 5 against a named test, corpus observation, or
 interop report cell. Do not close an item from final-value equality alone.
 
-- [ ] **Step 4: Commit only regression fixes, if any.**
+- [x] **Step 4: Commit only regression fixes, if any.**
 
 Use a focused Conventional Commit message that names the corrected undo or redo
 behavior. Do not create an empty closure commit.
 
+No production undo/redo regression fix was needed. Task 9 corrected the stale
+oracle fixtures; this closure corrects the public stack example and records
+acceptance evidence. Queue dispatched messages so synchronous commit callbacks
+cannot overwrite the state returned by `update_undo` during reversion.
+
+#### Task 10 evidence
+
+See the [combined validation record](2026-09-21-shared-tree.md#m5-combined-validation)
+for command outcomes, pins, report IDs, and the full-build/browser limitation.
+The native acceptance below includes:
+
+| Contract | Native evidence |
+| --- | --- |
+| Factory lifetime and target parity | `shared_tree_map_facade_js_commit_subscription_test`, `shared_tree_map_facade_beam_commit_subscription_test`, `tree_commit_runtime_factory_is_shared_across_subscribers_test` |
+| Kinds, supported fields, and Identifier preservation | `shared_tree_undo_redo_kinds_match_native_observations_test`, `shared_tree_undo_redo_fields_match_native_observations_test`, `shared_tree_undo_redo_identifiers_survive_edit_undo_redo_test` |
+| Transaction reversion and later remote edits | `shared_tree_undo_transaction_reverts_as_one_commit_after_remote_edit_test`, `shared_tree_history_author_revert_peer_target_preserves_later_trunk_and_pending_test` |
+| Sequenced outcomes | `shared_tree_runtime_settles_satisfied_local_commit_test`, `shared_tree_runtime_settles_implicit_conflict_as_fully_dropped_test`, `shared_tree_runtime_settles_explicit_violation_as_new_content_only_test` |
+| Retention, disposal, and repeated reversion | `shared_tree_history_multiple_revertibles_release_only_disposed_pin_test`, `shared_tree_history_pending_revertible_pins_prefix_rollbacks_test`, `shared_tree_history_revertible_allows_repeated_reverts_until_disposed_test` |
+| Reconnect, deduplication, and reload lifetime | `retained_revertible_reconnects_and_reverts_after_later_change_test`, `pending_undo_accepted_before_drop_applies_and_settles_once_test`, `shared_tree_undo_redo_summary_reload_continues_without_old_handles_test` |
+
+Interop report `d3f11933-a84f-4fb6-b9a6-bcb4db584cd8` records kinds and
+lifetime observations for three implementations, 30 concurrent cases, both
+native reconnect cases, and all 18 undo/redo-stage reload cells. Each reloaded
+reader continues editing with a new local factory and no historical handle.
+The passing oracle includes
+`undo and redo coverage rejects missing sections and observations`,
+`undo and redo evidence rejects concrete proof mutations`,
+`undo and redo rows are derived from raw artifacts`,
+`native corpus accounting rejects empty and incomplete runs`, and real-service
+preflight rejection tests.
+
 ## 5. Acceptance checklist
 
-Checked items below mean the behavior and focused test coverage exist in the
-current tree. They do not mean every native, service, root, or hosted command was rerun on
-2026-10-04. Final regression evidence remains open.
+Checked items below use the native and real-service evidence recorded under
+Task 10. Full build and standalone SharedTree browser acceptance remain open;
+the website's passing browser suite does not replace the checklist gate.
+No hosted workflow was dispatched.
 
 - [x] Eligible local data commits provide one one-shot revertible factory.
 - [x] Schema and remote commits provide no factory.
@@ -1484,12 +1528,13 @@ current tree. They do not mean every native, service, root, or hosted command wa
 - [x] Summary reload preserves committed undo/redo state but creates no old handles.
 - [x] Disposal releases retained history and repair data safely.
 - [x] JavaScript and BEAM expose matching public behavior.
-- [ ] Upstream, native JavaScript, and native BEAM clients preserve convergence through pinned Floodgate.
-- [ ] All required summary writer/reader cells continue editing.
-- [ ] Required gates fail on missing artifacts, targets, scenarios, settlements, or service.
-- [ ] Existing M1-M4, Identifier, transaction, creation, and browser behavior remains intact.
+- [x] Upstream, native JavaScript, and native BEAM clients preserve convergence through pinned Floodgate.
+- [x] All required summary writer/reader cells continue editing.
+- [x] Required gates fail on missing artifacts, targets, scenarios, settlements, or service.
+- [x] Existing M1-M4, Identifier, transaction, and creation behavior remains intact.
 - [x] Documentation and the generated profile mark the M5 undo/redo slice
       supported without claiming M6 local branching or later features.
+- [ ] Complete repository build and standalone SharedTree browser acceptance pass.
 
 ## 6. Review matrix and stop conditions
 

@@ -26,10 +26,12 @@ Also read the [parent design](../specs/2026-09-21-shared-tree-design.md),
 
 ## Reconciliation (2026-10-04)
 
-**Current status:** Tasks 1-10 are implemented. Task 11 current
-full-regression closure remains in progress. The task bodies below are retained
-as the historical test-first execution record; an unchecked historical substep
-is not evidence that its named source surface is absent.
+**Current status:** Tasks 1-10 are implemented. Task 11 records passing local
+native, codec, real-service, creation, and repository tests. Full-build release
+acceptance remains blocked by a pnpm policy failure reproduced at the unchanged
+execution base. The task bodies below retain the historical test-first
+execution record; an unchecked historical substep is not evidence that its
+named source surface is absent.
 
 Current code exposes synchronous single-tree transactions on JavaScript at
 `src/watershed.gleam:627` and BEAM at `src/watershed_beam.gleam:739`.
@@ -39,22 +41,23 @@ commit, abort, savepoints, constraints, identity, and wire execution. The
 oracle requires transaction callback, constraint, reconnect, and reload
 sections in `tools/shared-tree-oracle/interop.mjs:86-90`.
 
-The release claim is not closed. `test/fixtures/shared_tree/profile.json:250`
-and `tools/shared-tree-oracle/service.mjs:101` still list
-`public-transactions` as excluded, and the public README still describes
-transactions as deferred. The thin Lustre adapter
-`watershed_lustre/src/watershed_lustre/tree.gleam` has no transaction effect,
-and no user-facing example demonstrates the callback API. Those consumer
-surfaces were not part of Tasks 1-9, but they must not be implied by this plan.
+The generated and service profiles publish synchronous single-tree
+transactions and stable node-existence constraints. The public README includes
+committed, typed-abort, and `NodeInDocument` callback examples. Task 11 records
+current acceptance evidence and its remaining limitation. The thin Lustre adapter
+`watershed_lustre/src/watershed_lustre/tree.gleam` still has no transaction
+effect; richer bindings remain M7 work and are outside this plan's support
+claim.
 
 Undo and redo are implemented and profile-closed separately; references below
 that call them unimplemented describe the 2026-09-29 planning baseline. See
 [the undo/redo plan](2026-10-02-shared-tree-undo-redo.md) for its published
-profile and still-open final regression closure.
+profile and remaining full-build/browser release acceptance.
 
-No test, service, build, or hosted workflow was run for this docs-only
-reconciliation. Existing test and gate files prove coverage is present, not
-that the gates pass at the current revision.
+The initial reconciliation did not execute gates. The continuation from
+`8194fbc5` ran the commands recorded under Task 11 and in the
+[combined M5 validation record](2026-09-21-shared-tree.md#m5-combined-validation).
+No hosted workflow was dispatched.
 
 ## Global Constraints
 
@@ -1665,8 +1668,9 @@ npm --prefix tools/shared-tree-oracle run generate
 npm --prefix tools/shared-tree-oracle run check
 ```
 
-The full oracle now passes with the combined transaction/undo profile. Native,
-codec, service, creation, root, and hosted commands remain Task 11 evidence.
+The full oracle passes with the combined transaction/undo profile. Task 11
+records the subsequent native, codec, service, creation, and root commands.
+Hosted execution remains outside this local record.
 
 - [x] **Step 6: Commit profile and documentation closure.**
 
@@ -1685,7 +1689,7 @@ git commit -m "docs(tree): define transaction support"
 - Consumes: all transaction implementation and permanent gates.
 - Produces: final M5 transaction-foundation acceptance evidence.
 
-- [ ] **Step 1: Run formatting and focused gates.**
+- [x] **Step 1: Run formatting and focused gates.**
 
 ```bash
 gleam format --check src test
@@ -1694,7 +1698,7 @@ just shared-tree-test
 just shared-tree-codec-interop
 ```
 
-- [ ] **Step 2: Run service, creation, and complete repository gates.**
+- [x] **Step 2: Run service, creation, and complete repository gates.**
 
 ```bash
 just shared-tree-interop
@@ -1707,46 +1711,80 @@ just lint
 Investigate each failure against the execution base. A known baseline report is
 not evidence until the unchanged base reproduces the same failure.
 
-- [ ] **Step 3: Verify the acceptance matrix.**
+All listed commands ran. `just build` failed during checklist bundle preparation
+because pnpm rejected 28 pre-existing registry URLs; unchanged base `8194fbc5`
+reproduced it. The other commands passed. This checked execution step does not
+claim full-build acceptance.
+
+- [x] **Step 3: Verify the acceptance matrix.**
 
 Check every item in section 5 against a named test, corpus observation, or
 interop report cell. Do not close an item from final-value equality alone.
 
-- [ ] **Step 4: Commit only regression fixes, if any.**
+- [x] **Step 4: Commit only regression fixes, if any.**
 
 Use a focused Conventional Commit message that names the corrected transaction
 behavior. Do not create an empty closure commit.
 
+No production transaction regression fix was needed. The closure commits
+corrected public examples and the acceptance record alongside the earlier
+profile and stale-oracle fixes.
+
+#### Task 11 evidence
+
+See the [combined validation record](2026-09-21-shared-tree.md#m5-combined-validation)
+for command outcomes, pins, report IDs, and the full-build/browser limitation.
+The native acceptance below uses named tests rather than final-value equality:
+
+| Contract | Native evidence |
+| --- | --- |
+| One outer commit, nested isolation, and rollback | `shared_tree_transaction_commits_one_outer_change_test`, `shared_tree_runtime_transaction_isolates_nested_edits_until_outer_commit_test`, `shared_tree_transaction_abort_restores_document_and_summary_test` |
+| Nested savepoints and pinned compressor advancement | `shared_tree_transaction_nested_savepoints_restore_inner_state_test`, `shared_tree_transaction_outer_abort_after_inner_commit_restores_base_test`, `identifier_transaction_abort_preserves_local_advancement_test` |
+| Stable constraints and exact V5 wire observations | `shared_tree_constraint_resolution_preserves_moved_identity_test`, `shared_tree_transaction_nested_constraint_detects_target_remove_test`, `shared_tree_transaction_wire_observes_constraints_and_encoder_output_test` |
+| No-op allocation and unsupported transitions | `shared_tree_runtime_transaction_noop_restores_base_core_test`, `shared_tree_runtime_transaction_guards_document_transitions_test`, `shared_tree_array_facade_js_transaction_rejects_other_view_test`, `shared_tree_array_facade_beam_transaction_rejects_other_view_test` |
+| Public callback parity and BEAM remote ordering | `shared_tree_map_facade_js_transaction_callback_test`, `shared_tree_map_facade_beam_transaction_callback_and_remote_order_test` |
+| Reconnect deduplication and summary tail continuation | `pending_multi_edit_transaction_resubmits_once_test`, `accepted_transaction_before_drop_deduplicates_by_revision_test`, `pending_transaction_summary_replays_tail_and_continues_test` |
+
+Interop report `d3f11933-a84f-4fb6-b9a6-bcb4db584cd8` supplies the three
+callback pairs, six constraint-race cases, two reconnect cases, and nine
+transaction reload cells. The passing oracle includes
+`transaction coverage rejects missing sections, pairs, orders, and cells`,
+`transaction callbacks reject missing rollback checkpoints in expected and raw`,
+and the real-service preflight rejection tests. Creation report
+`b849a7d7-e61b-453f-949a-3fd71a8379d2` verifies native creation and continued
+editing for all 18 required cells.
+
 ## 5. Acceptance checklist
 
-The unchecked boxes remain release acceptance, not an inventory of implemented
-functions or tests. Close them only with Task 10 profile changes and Task 11
-validation evidence.
+Checked boxes use Task 10 profile changes and Task 11 native/service evidence.
+The full-build release check remains open because the unchanged execution base
+reproduces the pnpm policy failure.
 
-- [ ] One outer success produces one composed SharedTree commit.
-- [ ] Outer abort restores values, identities, history, and summary compressor
+- [x] One outer success produces one composed SharedTree commit.
+- [x] Outer abort restores values, identities, history, and summary compressor
       state while preserving pinned ongoing local compressor advancement.
-- [ ] Nested success and abort match the pinned upstream observations.
-- [ ] One outer commit event and no abort event match the pinned upstream model.
-- [ ] Node-existence constraints use identity and survive node moves.
-- [ ] A concurrent node removal suppresses constrained edits on every client.
-- [ ] Explicit violation remains distinct from an empty or implicit-conflict change.
-- [ ] Constraint codec bytes match ModularChange V5.
-- [ ] Object, map, array, and move edits work in one transaction.
-- [ ] Schema upgrades and cross-tree transactions fail without partial state.
-- [ ] No-op transactions do not allocate or submit. Aborted transactions
+- [x] Nested success and abort match the pinned upstream observations.
+- [x] One outer commit event and no abort event match the pinned upstream model.
+- [x] Node-existence constraints use identity and survive node moves.
+- [x] A concurrent node removal suppresses constrained edits on every client.
+- [x] Explicit violation remains distinct from an empty or implicit-conflict change.
+- [x] Constraint codec bytes match ModularChange V5.
+- [x] Object, map, array, and move edits work in one transaction.
+- [x] Schema upgrades and cross-tree transactions fail without partial state.
+- [x] No-op transactions do not allocate or submit. Aborted transactions
       preserve pinned local compressor advancement but emit no allocation range
       or outbound operation.
-- [ ] JavaScript and BEAM expose matching generic callback APIs.
-- [ ] BEAM defers remote operations until the synchronous outer scope ends.
-- [ ] Reconnect resubmits one transaction without duplicate effects.
-- [ ] Summaries use sequenced state and continue with transaction tail ops.
-- [ ] Upstream, native JavaScript, and native BEAM clients author and continue constrained transactions through pinned Floodgate.
-- [ ] All nine summary writer/reader combinations continue editing.
-- [ ] Required gates fail on missing artifacts, targets, scenarios, or service.
-- [ ] Existing M1-M4 behavior and native container creation remain intact.
+- [x] JavaScript and BEAM expose matching generic callback APIs.
+- [x] BEAM defers remote operations until the synchronous outer scope ends.
+- [x] Reconnect resubmits one transaction without duplicate effects.
+- [x] Summaries use sequenced state and continue with transaction tail ops.
+- [x] Upstream, native JavaScript, and native BEAM clients author and continue constrained transactions through pinned Floodgate.
+- [x] All nine summary writer/reader combinations continue editing.
+- [x] Required gates fail on missing artifacts, targets, scenarios, or service.
+- [x] Existing M1-M4 behavior and native container creation remain intact.
 - [x] Transaction documentation distinguishes this implemented slice from the
       published undo/redo slice and from still-deferred transaction features.
+- [ ] Complete repository build passes.
 
 ## 6. Review matrix and stop conditions
 

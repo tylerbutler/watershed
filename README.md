@@ -308,6 +308,8 @@ The following pattern uses one subscription. The application routes
 `UndoMessage` values through its existing state owner, such as an actor or an
 application update loop. The state owner holds the mutable undo and redo
 stacks; Watershed only creates and reverts handles.
+Queue dispatched messages so a commit callback does not reenter `update_undo`
+during a revert.
 
 ```gleam
 import gleam/list
@@ -341,10 +343,11 @@ pub fn subscribe_undo(
   watershed.subscribe_tree_commits(tree, fn(event) {
     let watershed.TreeCommitEvent(kind, local, factory, settlement) = event
 
-    case #(local, factory, settlement) {
-      #(True, Some(acquire), Some(register)) ->
+    case local, factory, settlement {
+      True, Some(acquire), Some(register) ->
         case acquire() {
-          Error(error) -> report_error("Could not acquire revertible: " <> error)
+          Error(error) ->
+            report_error("Could not acquire revertible: " <> error)
           Ok(handle) ->
             case register(fn(outcome) { dispatch(Settled(outcome)) }) {
               Ok(Nil) -> dispatch(Captured(kind, handle))
@@ -361,7 +364,7 @@ pub fn subscribe_undo(
               }
             }
         }
-      #(False, _, _) | #(_, None, _) | #(_, _, None) -> Nil
+      False, _, _ | _, None, _ | _, _, None -> Nil
     }
   })
 }
@@ -387,7 +390,7 @@ pub fn update_undo(
   case message {
     Captured(types.DefaultCommit, handle) -> {
       dispose_all(state.redo, report_error)
-      UndoState(..state, undo: [handle, ..state.undo], redo: [])
+      UndoState(undo: [handle, ..state.undo], redo: [])
     }
     Captured(types.UndoCommit, handle) ->
       UndoState(..state, redo: [handle, ..state.redo])

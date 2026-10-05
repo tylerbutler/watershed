@@ -24,10 +24,11 @@ service.
 
 ## Current roadmap (code review: 2026-10-04)
 
-This reconciliation compares the implementation at `dad2b680` with the eight
-SharedTree plans, committed profile/corpus, recipes, and workflow definitions.
-It does not rerun native, service, build, or hosted gates. The numbered M0/M1
-tasks and their test counts below remain historical acceptance records.
+The initial reconciliation compared the implementation at `dad2b680` with the
+eight SharedTree plans, committed profile/corpus, recipes, and workflow
+definitions. The M5 continuation started at `8194fbc5` and ran the local gates
+recorded below after the profile commits. The numbered M0/M1 tasks and their
+test counts remain historical acceptance records.
 
 | Area | Current status | Plan or remaining scope |
 | --- | --- | --- |
@@ -36,7 +37,7 @@ tasks and their test counts below remain historical acceptance records.
 | M3: arrays and moves | Implemented and published. | [Arrays and moves](2026-09-26-shared-tree-arrays.md); array schema evolution remains excluded. |
 | M4: schema evolution | Complete for strict-view objects and dynamic maps. | [Schema evolution](2026-09-26-shared-tree-schema-evolution.md); its recorded closure is local, not a hosted M4 run. |
 | Identifier extension | Implemented and published; all seven tasks have implementations. | [Identifiers](2026-10-01-shared-tree-identifiers.md); contextual compression, generated defaults, immutable attached fields, and summary/reload support. |
-| M5: transactions and undo/redo | Public transaction boundaries, stable constraints, runtime-local revertibles, undo, redo, and rebase over remote edits are implemented and published. Final combined regression closure remains in progress. | [Transactions](2026-09-29-shared-tree-transactions.md), Task 11, and [undo/redo](2026-10-02-shared-tree-undo-redo.md), Task 10. |
+| M5: transactions and undo/redo | Implemented and published, with passing local native, codec, service, creation, and repository tests. Full build and standalone browser acceptance remain blocked by a reproduced baseline pnpm policy failure. | [Transactions](2026-09-29-shared-tree-transactions.md), Task 11, and [undo/redo](2026-10-02-shared-tree-undo-redo.md), Task 10; combined evidence below. |
 | M6: branching | Deferred as a public feature. | Local fork/rebase/merge needs its own design; experimental shared branches require a separate profile/version decision. Internal history branches are not a public branching API. |
 | M7: application/container lifecycle | Fixed-layout native creation and the thin Lustre browser slice are implemented, not the whole milestone. | [Browser checklist](2026-09-29-shared-tree-browser-checklist.md); richer bindings, broader layouts, live attachment, handles, production authentication, and disk pending-state recovery remain open. |
 | M8: scale and supported versions | Deferred. | Measurements, safe reclamation, incremental summaries, and additional supported upstream versions need separate scope and proof. |
@@ -44,9 +45,10 @@ tasks and their test counts below remain historical acceptance records.
 The generated and service profiles publish the approved M5 transaction and
 undo/redo slices. Both native facades expose runtime-local revertible handles,
 and the profile names application-owned stacks, commit kinds, reconnect,
-object/map/array/move/transaction reversion, and sequenced outcomes. Final
-native, service, root, and hosted regression evidence remains open. M6 is
-branching.
+object/map/array/move/transaction reversion, and sequenced outcomes. The local
+M5 evidence below covers native behavior and real-service interoperability;
+the full build and standalone SharedTree browser gate remain blocked. No
+hosted workflow was dispatched for this continuation. M6 is branching.
 
 The current manifest has 55 generated cases and 29 registered native semantic
 runners per target. Current service recipes use 300 seeded schedules, or
@@ -55,6 +57,50 @@ checks automatically; `.github/workflows/shared-tree-interop.yml` runs service
 acceptance only on manual dispatch. Their M5 names describe the published
 profile, and workflow existence is not fresh execution evidence. The browser
 checklist is a separate manual recipe, not the website browser workflow.
+
+### M5 combined validation
+
+Execution base: `8194fbc539ccc46bb92974c74ac8b61aba80644a`, directly on `main`
+with user approval. The transaction profile commit is `434633ac`; the undo/redo
+profile and stale-oracle corrections are `32162f20`. Production engine code,
+dependency manifests, and lockfiles did not change in this continuation.
+
+| Command | Observed result |
+| --- | --- |
+| `gleam format --check src test` and `just lint` | Passed. |
+| `npm --prefix tools/shared-tree-oracle test` | 452 tests passed. |
+| Oracle `run generate` and `run check` | Generated and verified 55 cases. |
+| `just test` | Passed all workspace and compile-fail suites; root Erlang ran 2,545 tests and JavaScript ran 2,805. Website tests included 2,360 unit tests and 42 real-browser tests without skips. |
+| `just shared-tree-test` | Passed 991 Erlang and 973 JavaScript tests, plus storage, bootstrap, and creation smokes. |
+| `just shared-tree-codec-interop` | Passed two targets with 38 items each. |
+| `just shared-tree-interop` | Executed all 300 requested schedules with seed 42 through pinned Floodgate; no skips or divergences. |
+| `just shared-tree-create-interop` | Passed all 18 object, array, and Identifier cells across both native creators and all three readers; each cell continued editing and reloaded summary plus tail. |
+| `just build` | Gleam build families passed; checklist bundle preparation failed with `ERR_PNPM_TARBALL_URL_MISMATCH`. |
+| `just shared-tree-checklist` | Blocked before browser execution by the same pnpm policy failure. |
+
+Interop report `d3f11933-a84f-4fb6-b9a6-bcb4db584cd8` records three transaction
+callback pairs, six constraint-race cases, both native reconnect cases, and all
+nine transaction summary writer/reader cells. Those cells verify history and
+node identity, one outbound composed commit after loading, peer observation,
+and drained pending/inflight work. Its undo/redo sections cover three
+implementations, 30 concurrent field/transaction cases, both native reconnect
+cases, and all 18 undo/redo-stage summary writer/reader cells. Reloaded readers
+have no historical handle and acquire a new local factory before reversion.
+
+Creation report `b849a7d7-e61b-453f-949a-3fd71a8379d2` records the 18 creation
+cells above, with no skips or divergences. Both reports use the unchanged Fluid
+3.1.0 and Floodgate references and profile digest
+`df753f54b96d22433cbbc35b74d387240074e7ef92530ebc1b1861905aae9c68`.
+
+The active pnpm policy rejects 28 existing Microsoft-registry tarball URLs in
+the checklist example's lockfile. An archive of unchanged base `8194fbc5`
+reproduced the failure. No policy bypass or lockfile rewrite was used. The
+passing website browser suite does not substitute for the blocked standalone
+SharedTree checklist. Full build/browser release acceptance remains open.
+
+The four public README Gleam examples also passed formatting and JavaScript
+compilation in an isolated source archive. The stack example requires queued
+dispatch so commit callbacks cannot reenter its state update during a revert.
 
 ## Global Constraints
 
@@ -2270,7 +2316,8 @@ M5's [transaction plan](2026-09-29-shared-tree-transactions.md) implements
 synchronous single-tree callbacks, nested savepoints, abort, composed outer
 commits, and stable node-existence constraints. The generated profile, service
 profile, public documentation, and permanent gate definitions now publish that
-restricted slice. Task 11 still owns final regression closure.
+restricted slice. Task 11 records passing local native and service evidence,
+with full-build acceptance blocked by the baseline pnpm policy failure.
 
 The [undo/redo plan](2026-10-02-shared-tree-undo-redo.md) implements and
 publishes commit subscriptions, commit kinds, one-shot factories,
@@ -2279,7 +2326,8 @@ local or remote edits. Applications own their stacks. Reconnect retains live
 handles in-process; reload preserves committed document state but does not
 recreate old handles. Schema commits, active-transaction reversion,
 async/cross-tree transactions, and persisted application stacks remain
-outside the profile. Task 10 still owns final regression evidence.
+outside the profile. Task 10 records local regression evidence; full build and
+standalone browser acceptance remain blocked by the same baseline failure.
 
 Keep the original specification's milestone numbering, but use this roadmap
 and each feature plan's dated reconciliation for implementation status. Each
@@ -2287,7 +2335,7 @@ new scope needs its own approved design and interoperability proof.
 
 | Remaining area | Prerequisite | Required work or proof |
 | --- | --- | --- |
-| M5 final regression closure | Published transaction and undo/redo slices | Record combined native, service, root, and hosted evidence without claiming unsupported transaction or branching extensions. |
+| M5 release acceptance | Published slices and recorded local native/service evidence | Resolve the baseline pnpm policy/lockfile mismatch before completing full build and standalone browser acceptance. Hosted workflows were not dispatched in this continuation. |
 | Array schema evolution | Published M3 and M4 contracts | Separate array-evolution schema/data race and reload matrices. |
 | M6 local branching | Existing modular history and M5 retention rules | Public fork/rebase/merge and branch lifetime without reclaiming live revertible history. |
 | Experimental shared branches | Separate version/profile decision | Explicit shared-branch wire support; no accidental opt-in. |
@@ -2304,7 +2352,7 @@ staging is historical. The remaining work can split as follows:
 
 | Lane | Work that can proceed | Coordination requirement |
 | --- | --- | --- |
-| M5 release owner | Transaction/undo profile, documentation, gate contracts, and final evidence. | Serialize shared profile generation, oracle metadata, recipes, and release records. |
+| M5 release owner | Remaining full-build/browser acceptance and any hosted release evidence. | Preserve the published profile, recorded local proof, and unsupported-feature exclusions. |
 | Selected M7 consumers | Richer bindings, typed consumers, application-owned stack examples, and browser coverage. | Consume the existing facades; do not modify history, allocation, attach, alias, or bootstrap semantics from this lane. |
 | New-scope design/oracle work | Local branching, array schema evolution, crash recovery, broader layouts, and performance measurements. | Approve each contract before implementation; independent research does not authorize overlapping edits to shared runtime/history paths. |
 
