@@ -1,0 +1,237 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "local-branch-transactions",
+  "domain": "branch",
+  "input": {
+    "scenarios": [
+      "nested-abort-and-outer-commit",
+      "source-and-target-operation-guards",
+      "active-transaction-fork-guard",
+      "node-in-document-constraint",
+      "cross-checkout-callback",
+      "allocation-survives-abort"
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "outer-commit",
+        "value": {
+          "title": "outer",
+          "count": 3,
+          "featured": {
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "label": "left"
+            }
+          ],
+          "right": []
+        },
+        "revisions": [
+          "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b09"
+        ],
+        "events": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "local": true,
+            "factory": true,
+            "change": {
+              "version": 1,
+              "revision": 3,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "change": [
+                {
+                  "data": {
+                    "maxId": 8,
+                    "revisions": [
+                      {
+                        "revision": 3
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "title",
+                                  "fieldKind": "Value",
+                                  "change": {
+                                    "r": {
+                                      "e": false,
+                                      "d": [
+                                        1,
+                                        3
+                                      ],
+                                      "s": [
+                                        0,
+                                        3
+                                      ]
+                                    }
+                                  }
+                                },
+                                {
+                                  "fieldKey": "count",
+                                  "fieldKind": "Value",
+                                  "change": {
+                                    "r": {
+                                      "e": false,
+                                      "d": [
+                                        7,
+                                        3
+                                      ],
+                                      "s": [
+                                        6,
+                                        3
+                                      ]
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    "builds": {
+                      "builds": [
+                        [
+                          [
+                            [
+                              0,
+                              0
+                            ],
+                            [
+                              6,
+                              1
+                            ]
+                          ],
+                          3
+                        ]
+                      ],
+                      "trees": {
+                        "version": 2,
+                        "identifiers": [],
+                        "shapes": [
+                          {
+                            "c": {
+                              "extraFields": 1
+                            }
+                          },
+                          {
+                            "a": 0
+                          }
+                        ],
+                        "data": [
+                          [
+                            1,
+                            [
+                              "com.fluidframework.leaf.string",
+                              true,
+                              "outer",
+                              []
+                            ]
+                          ],
+                          [
+                            1,
+                            [
+                              "com.fluidframework.leaf.number",
+                              true,
+                              3,
+                              []
+                            ]
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "guards",
+        "sourceGuard": "Error: A view cannot be rebased while it has a pending transaction.",
+        "targetGuard": "Error: Views cannot be rebased onto a view that has a pending transaction.",
+        "sourceMergeGuard": "Error: Views with an open transaction cannot be merged into another view.",
+        "targetMergeGuard": "Error: Views cannot be merged into a view while it has a pending transaction.",
+        "forkGuard": "Error: A view cannot be forked while it has a pending transaction."
+      },
+      {
+        "id": "constraint",
+        "source": {
+          "title": "base",
+          "count": 0,
+          "featured": {
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+            "label": "replacement"
+          },
+          "left": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "label": "left"
+            }
+          ],
+          "right": []
+        },
+        "target": {
+          "title": "base",
+          "count": 0,
+          "featured": {
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+            "label": "replacement"
+          },
+          "left": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "label": "left"
+            }
+          ],
+          "right": []
+        },
+        "revisions": [
+          "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0b",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b09"
+        ]
+      },
+      {
+        "id": "cross-checkout",
+        "error": "",
+        "changedMain": true
+      },
+      {
+        "id": "abort-allocation",
+        "stateRestored": true,
+        "allocationAdvanced": true,
+        "before": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAABiAQAAAAAAAAAhAAAAAAAAACEAAAAAAAAAQQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAIQA==",
+        "after": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAABiAQAAAAAAAAAhAAAAAAAAAFEAAAAAAAAAQQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAIQA=="
+      }
+    ]
+  },
+  "raw": {
+    "messages": [
+      {
+        "allocationBefore": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAABiAQAAAAAAAAAhAAAAAAAAACEAAAAAAAAAQQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAIQA==",
+        "allocationAfter": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAABiAQAAAAAAAAAhAAAAAAAAAFEAAAAAAAAAQQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAIQA=="
+      }
+    ]
+  }
+}

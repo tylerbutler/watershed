@@ -95,6 +95,122 @@ export const requiredUndoRedoCases = [
 
 requiredCases.push(...requiredUndoRedoCases);
 
+export const requiredBranchCases = [
+  "local-branch-isolation",
+  "local-branch-rebase",
+  "local-branch-merge",
+  "local-branch-transactions",
+  "local-branch-undo",
+  "local-branch-allocation",
+  "local-branch-retention",
+  "local-branch-recovery",
+];
+
+const branchScenarioIds = {
+  "local-branch-isolation": [
+    "main-and-nested-forks",
+    "stable-attached-identity",
+    "detached-identity-isolation",
+    "arbitrary-related-local-target",
+    "parent-disposal-descendant-lifetime",
+    "public-double-disposal",
+    "main-view-disposal",
+    "no-branch-tree-submission",
+  ],
+  "local-branch-rebase": [
+    "both-edit-orders",
+    "target-unchanged",
+    "common-revision-rewrite",
+    "optimistic-main-base",
+    "self-rebase",
+    "schema-divergence",
+  ],
+  "local-branch-merge": [
+    "surviving-source-revisions",
+    "one-event-per-source-commit",
+    "preserved-source-repeat",
+    "empty-merge",
+    "self-merge-preserved-and-default",
+    "default-source-disposal",
+  ],
+  "local-branch-transactions": [
+    "nested-abort-and-outer-commit",
+    "source-and-target-operation-guards",
+    "active-transaction-fork-guard",
+    "node-in-document-constraint",
+    "cross-checkout-callback",
+    "allocation-survives-abort",
+  ],
+  "local-branch-undo": [
+    "branch-local-factory",
+    "duplicate-factory-call",
+    "late-factory-call",
+    "branch-settlement-before-and-after-merge",
+    "target-merge-factory",
+    "redo-from-undo-handle",
+    "source-handle-scope",
+    "source-disposal-invalidates-handle",
+  ],
+  "local-branch-allocation": [
+    "shared-compressor",
+    "interleaved-identifiers",
+    "branch-only-reservation",
+    "main-triggered-publication",
+    "aborted-range-retained",
+    "merge-range-before-tree-use",
+  ],
+  "local-branch-retention": [
+    "multiple-branch-pins",
+    "live-revertible-and-fork",
+    "minimum-sequence-advance",
+    "parent-disposal-descendant-pin",
+    "rebase-advances-pin",
+    "disposal-releases-handle",
+    "post-release-reclamation",
+  ],
+  "local-branch-recovery": [
+    "pending-main-fork-origin",
+    "reconnect-accepted-before-drop",
+    "nonduplicated-merge",
+    "unmerged-summary-exclusion",
+    "merged-summary-continuation",
+  ],
+};
+
+const branchObservationIds = {
+  "local-branch-isolation": ["isolation", "lifetime"],
+  "local-branch-rebase": [
+    "related-target", "optimistic-main", "self-rebase", "schema-divergence",
+  ],
+  "local-branch-merge": ["commit-boundaries", "merge-edge-cases"],
+  "local-branch-transactions": [
+    "outer-commit", "guards", "constraint", "cross-checkout", "abort-allocation",
+  ],
+  "local-branch-undo": ["settlement", "handles"],
+  "local-branch-allocation": [
+    "branch-only", "main-publication", "merge-publication", "abort-range",
+  ],
+  "local-branch-retention": [
+    "minimum-sequence-retention", "parent-disposal", "rebase-release",
+  ],
+  "local-branch-recovery": [
+    "pending-origin", "accepted-before-drop", "summary-exclusion", "merged-continuation",
+  ],
+};
+
+const branchRawKeys = {
+  "local-branch-isolation": ["messages", "processed"],
+  "local-branch-rebase": ["messages"],
+  "local-branch-merge": ["messages", "processed", "encodedChanges"],
+  "local-branch-transactions": ["messages"],
+  "local-branch-undo": ["messages", "sourceEvents", "targetEvents"],
+  "local-branch-allocation": ["messages", "ranges"],
+  "local-branch-retention": ["messages"],
+  "local-branch-recovery": ["messages", "unmergedSummary", "mergedSummary"],
+};
+
+requiredCases.push(...requiredBranchCases.map((id) => [id, "branch"]));
+
 const identifierScenarioIds = {
   "identifier-schema": [
     "valid-string-field",
@@ -4674,6 +4790,308 @@ function validateUndoRedoCase(value) {
   }
 }
 
+export function validateBranchCase(value) {
+  const label = value?.id ?? "branch-case";
+  const check = (condition, detail) => assert(condition, `${label}: ${detail}`);
+  check(requiredBranchCases.includes(label), "unknown branch case");
+  check(value.formatVersion === 1
+    && value.reference?.package === "@fluidframework/tree"
+    && value.reference?.version === reference.version
+    && value.reference?.commit === reference.commit, "reference identity");
+  check(value.domain === "branch", "domain");
+  assert.deepEqual(value.input?.scenarios, branchScenarioIds[label],
+    `${label}: input scenario order`);
+  const observations = value.expected?.observations;
+  check(Array.isArray(observations), "missing observations");
+  assert.deepEqual(observations.map(({ id }) => id), branchObservationIds[label],
+    `${label}: observation order`);
+  for (const key of branchRawKeys[label]) {
+    const raw = value.raw?.[key];
+    check(raw !== undefined
+      && (Array.isArray(raw) ? raw.length > 0 : object(raw) && Object.keys(raw).length > 0),
+    `missing raw ${key}`);
+  }
+  const observation = (id) => observations.find((item) => item.id === id);
+  const revisions = (value, detail) =>
+    check(nonemptyArray(value) && value.every((item) => typeof item === "string"),
+      `${detail} revisions`);
+  const events = (value, detail, count) => {
+    check(Array.isArray(value) && value.length === count, `${detail} events`);
+    for (const event of value) {
+      check(Number.isSafeInteger(event.index)
+        && ["Default", "Undo", "Redo"].includes(event.kind)
+        && typeof event.local === "boolean"
+        && typeof event.factory === "boolean"
+        && (event.change === null || object(event.change)), `${detail} event`);
+    }
+  };
+  const messages = (value, detail) => {
+    check(nonemptyArray(value), `${detail} messages`);
+    for (const message of value) {
+      check(typeof message.originatorId === "string"
+        && nonemptyArray(message.changeset)
+        && message.changeset.every((change) => object(change))
+        && message.version === 7, `${detail} message`);
+    }
+  };
+  const ranges = (value, detail) => {
+    check(nonemptyArray(value), `${detail} ranges`);
+    for (const range of value) {
+      check(typeof range.sessionId === "string"
+        && Number.isSafeInteger(range.ids?.firstGenCount)
+        && Number.isSafeInteger(range.ids?.count)
+        && range.ids.count > 0
+        && Array.isArray(range.ids.localIdRanges), `${detail} range`);
+    }
+  };
+
+  if (label === "local-branch-isolation") {
+    const isolation = observation("isolation");
+    const lifetime = observation("lifetime");
+    check(object(isolation.beforeMerge) && object(isolation.afterMerge), "isolation snapshots");
+    const identities = Object.values(isolation.beforeMerge.identities ?? {});
+    check(identities.length === 3 && new Set(identities).size === 1,
+      "stable attached identities");
+    check(isolation.beforeMerge.main?.title === "base"
+      && isolation.beforeMerge.parent?.title === "parent"
+      && isolation.beforeMerge.nested?.count === 7
+      && isolation.beforeMerge.treeMessages?.length === 0
+      && isolation.afterMerge.title === "arbitrary-target", "isolated values");
+    check(isolation.detachedIsolation?.detached?.id
+        === isolation.detachedIsolation?.main?.left?.[0]?.id
+      && isolation.detachedIsolation?.detached?.label === "left"
+      && isolation.detachedIsolation?.main?.left?.[0]?.label === "left"
+      && typeof isolation.detachedIsolation?.editError === "string"
+      && isolation.detachedIsolation.editError.length > 0,
+    "detached identity isolation");
+    check(lifetime.doubleDisposeError === ""
+      && lifetime.parentDisposed === true
+      && lifetime.descendantDisposed === false
+      && lifetime.descendant?.title === "descendant-live"
+      && lifetime.mainCheckoutDisposed === false, "lifetime contract");
+  } else if (label === "local-branch-rebase") {
+    const related = observation("related-target");
+    const sourceThenTarget = related.sourceThenTarget;
+    const targetThenSource = related.targetThenSource;
+    revisions(sourceThenTarget?.sourceRevisions, "source then target source");
+    revisions(sourceThenTarget?.targetRevisions, "source then target target");
+    revisions(targetThenSource?.sourceRevisions, "target then source source");
+    revisions(targetThenSource?.targetRevisions, "target then source target");
+    const optimisticRevisions = observation("optimistic-main").revisions;
+    const selfRevisions = observation("self-rebase").revisions;
+    revisions(optimisticRevisions, "optimistic main");
+    revisions(selfRevisions, "self rebase");
+    check(sourceThenTarget.sourceRevisions.length === sourceThenTarget.targetRevisions.length + 1
+      && targetThenSource.sourceRevisions.length === targetThenSource.targetRevisions.length + 1
+      && optimisticRevisions.length === sourceThenTarget.sourceRevisions.length,
+    "rebase revision boundaries");
+    assert.deepEqual(selfRevisions, sourceThenTarget.sourceRevisions,
+      `${label}: self rebase history`);
+    check(sourceThenTarget.source?.title === "target"
+      && sourceThenTarget.source?.count === 1
+      && sourceThenTarget.target?.title === "target"
+      && sourceThenTarget.target?.count === 0
+      && targetThenSource.source?.title === "target-first"
+      && targetThenSource.source?.count === 2
+      && targetThenSource.target?.title === "target-first"
+      && targetThenSource.target?.count === 0
+      && observation("optimistic-main").value?.title === "optimistic-main",
+    "rebase values");
+    const schema = observation("schema-divergence");
+    revisions(schema.forkHistory, "schema fork");
+    check(schema.forkHistory.length === 4
+      && schema.forkCanViewWideSchema === false && Array.isArray(schema.main),
+      "schema divergence");
+  } else if (label === "local-branch-merge") {
+    const commits = observation("commit-boundaries");
+    revisions(commits.sourceRevisions, "source");
+    revisions(commits.targetRevisions, "target");
+    check(commits.sourceRevisions.length === commits.events.length + 1
+      && commits.targetRevisions.length === commits.events.length + 1,
+    "merge revision boundaries");
+    assert.deepEqual(commits.targetRevisions, commits.sourceRevisions,
+      `${label}: surviving source revisions`);
+    events(commits.events, "merge", commits.sourceRevisions.length - 1);
+    events(commits.sourceEvents, "source", commits.sourceRevisions.length - 1);
+    check(commits.events.every((event) =>
+      event.kind === "Default" && event.local && event.factory && object(event.change)),
+    "merge event boundaries");
+    check(value.raw.encodedChanges.length === commits.events.length
+      && value.raw.encodedChanges.every(object), "encoded merge changes");
+    const edge = observation("merge-edge-cases");
+    check(edge.repeatedEventCount === 0
+      && edge.emptyDisposed === true
+      && edge.selfPreservedDisposed === false
+      && edge.selfDefaultDisposed === true
+      && edge.defaultDisposed === true, "merge edge cases");
+  } else if (label === "local-branch-transactions") {
+    const outer = observation("outer-commit");
+    revisions(outer.revisions, "transaction");
+    events(outer.events, "outer commit", 1);
+    check(outer.revisions.length === 2
+      && outer.value?.title === "outer" && outer.value?.count === 3,
+      "nested transaction result");
+    const guards = observation("guards");
+    check(["sourceGuard", "targetGuard", "sourceMergeGuard", "targetMergeGuard", "forkGuard"].every((key) =>
+      typeof guards[key] === "string" && guards[key].length > 0), "transaction guards");
+    const constraint = observation("constraint");
+    revisions(constraint.revisions, "constrained transaction");
+    check(constraint.source?.title === "base"
+      && constraint.target?.title === "base"
+      && constraint.source?.featured?.id === constraint.target?.featured?.id
+      && constraint.source?.featured?.label === "replacement"
+      && constraint.revisions.length === 3, "node-in-document constraint");
+    const cross = observation("cross-checkout");
+    check(cross.error === "" && cross.changedMain === true,
+      "pinned cross-checkout callback behavior");
+    const abort = observation("abort-allocation");
+    check(abort.stateRestored === true && abort.allocationAdvanced === true
+      && typeof abort.before === "string" && typeof abort.after === "string"
+      && abort.before !== abort.after, "aborted allocation");
+  } else if (label === "local-branch-undo") {
+    const settlement = observation("settlement");
+    check(settlement.beforeMerge?.sourceHandle === "Valid"
+      && settlement.beforeMerge?.sourceSettled?.length === 0, "pre-merge settlement");
+    for (const key of ["sourceSettled", "targetSettled"]) {
+      check(settlement.afterMerge?.[key]?.length === 1
+        && Number.isSafeInteger(settlement.afterMerge[key][0].index)
+        && settlement.afterMerge[key][0].outcome === "FullyApplied",
+      `${key} settlement`);
+    }
+    const sourceSettlement = settlement.afterMerge.sourceSettled[0];
+    const targetSettlement = settlement.afterMerge.targetSettled[0];
+    check(value.raw.sourceEvents.some((event) =>
+      event.index === sourceSettlement.index && event.local === true)
+      && value.raw.targetEvents.some((event) =>
+        event.index === targetSettlement.index && event.local === true),
+    "settlement event linkage");
+    const handles = observation("handles");
+    check(handles.sourceStatus === "Valid"
+      && handles.targetStatus === "Valid"
+      && handles.disposedSourceStatus === "Disposed"
+      && typeof handles.disposedRevertError === "string"
+      && handles.disposedRevertError.length > 0
+      && typeof handles.duplicateFactoryError === "string"
+      && handles.duplicateFactoryError.length > 0
+      && typeof handles.lateFactoryError === "string"
+      && handles.lateFactoryError.length > 0
+      && handles.undoStatus === "Valid"
+      && handles.targetAfterUndo?.title === "base"
+      && handles.targetAfterRedo?.title === "branch-change", "handle lifetime and redo");
+    events(value.raw.sourceEvents, "source raw", 2);
+    events(value.raw.targetEvents, "target raw", 4);
+  } else if (label === "local-branch-allocation") {
+    const branchOnly = observation("branch-only");
+    const mainPublication = observation("main-publication");
+    const mergePublication = observation("merge-publication");
+    check(branchOnly.messages?.length === 0
+      && branchOnly.allocationRanges?.length === 0
+      && branchOnly.reservationAdvanced === true
+      && typeof branchOnly.before === "string"
+      && typeof branchOnly.after === "string"
+      && branchOnly.before !== branchOnly.after,
+    "branch-only shared reservation");
+    ranges(mainPublication.allocationRanges, "main publication");
+    ranges(mergePublication.allocationRanges, "merge publication");
+    messages(mainPublication.messages, "main publication");
+    messages(mergePublication.messages, "merge publication");
+    check(mainPublication.messages.some((message) =>
+      JSON.stringify(message).includes("main-id"))
+      && mainPublication.messages.every((message) =>
+        !JSON.stringify(message).includes("branch-id")),
+    "main-triggered publication attribution");
+    check(mergePublication.messages.some((message) =>
+      JSON.stringify(message).includes("branch-id")),
+    "merge-triggered publication attribution");
+    check(nonemptyArray(mergePublication.identifiers)
+      && new Set(mergePublication.identifiers).size === mergePublication.identifiers.length,
+    "unique identifiers");
+    const abort = observation("abort-range");
+    check(abort.allocationAdvanced === true
+      && typeof abort.before === "string" && typeof abort.after === "string"
+      && abort.before !== abort.after, "aborted allocation range");
+    ranges(value.raw.ranges, "raw");
+    check(value.raw.ranges.length
+      === mainPublication.allocationRanges.length + mergePublication.allocationRanges.length,
+    "raw allocation range cardinality");
+    assert.deepEqual(value.raw.ranges,
+      [...mainPublication.allocationRanges, ...mergePublication.allocationRanges],
+      `${label}: raw allocation ranges`);
+    check(Array.isArray(value.raw.branchOnlyProcessed)
+      && value.raw.branchOnlyProcessed.length === 0
+      && nonemptyArray(value.raw.mainProcessed)
+      && nonemptyArray(value.raw.mergeProcessed),
+    "processed allocation boundaries");
+  } else if (label === "local-branch-retention") {
+    const retained = observation("minimum-sequence-retention").beforeDisposal;
+    check(Number.isSafeInteger(retained?.minimumSequenceNumber)
+      && retained.minimumSequenceNumber > 0
+      && retained.mainHistory > 1
+      && retained.parentHistory > 0
+      && retained.descendantHistory > 1
+      && retained.handleStatus === "Valid", "retention pins");
+    const parent = observation("parent-disposal").afterParentDisposal;
+    check(parent?.parentDisposed === true
+      && parent.descendantDisposed === false
+      && parent.descendant?.count === 99
+      && parent.handleStatus === "Valid", "descendant retention");
+    const release = observation("rebase-release");
+    revisions(release.afterRebase?.history, "retained");
+    check(release.afterRebase.history.length === 12
+      && release.afterRebase?.value?.title === "base"
+      && release.finalHandleStatus === "Disposed"
+      && Number.isSafeInteger(release.release?.historyBeforeRelease)
+      && Number.isSafeInteger(release.release?.historyAfterRelease)
+      && release.release.historyAfterRelease < release.release.historyBeforeRelease
+      && release.release.minimumSequenceNumber >= retained.minimumSequenceNumber,
+    "rebase, release, and reclamation");
+  } else if (label === "local-branch-recovery") {
+    const pending = observation("pending-origin");
+    check(pending.branchBeforeMerge?.title === "pending-main"
+      && pending.branchBeforeMerge?.count === 17
+      && pending.sourceDisposedAfterMerge === true
+      && pending.mainAfterReconnect?.title === "pending-main",
+    "pending origin");
+    messages(pending.replayAfterReconnect, "reconnect replay");
+    const accepted = observation("accepted-before-drop");
+    messages(accepted.acceptedMessages, "accepted before drop");
+    messages(accepted.reconnectMessages, "accepted reconnect");
+    messages(accepted.mergeMessages, "accepted merge");
+    check(accepted.branchBeforeRecovery?.title === "accepted-before-drop"
+      && accepted.branchBeforeRecovery?.count === 23
+      && accepted.main?.title === "accepted-before-drop"
+      && accepted.main?.count === 23
+      && accepted.peer?.title === "accepted-before-drop"
+      && accepted.peer?.count === 23
+      && accepted.sourceDisposed === true
+      && accepted.acceptedMessages.length === 1
+      && accepted.mergeMessages.length === 1,
+    "accepted-before-drop recovery");
+    const excluded = observation("summary-exclusion");
+    check(excluded.unmergedLoaded?.title === "base"
+      && excluded.unmergedLoaded?.count === 0
+      && excluded.summaryContainsForkCount === false, "summary exclusion");
+    const merged = observation("merged-continuation");
+    messages(merged.mergeMessages, "merge");
+    messages(merged.continuationMessages, "continuation");
+    check(merged.mergeMessages.length === 1
+      && value.raw.messages.filter((message) =>
+        isDeepStrictEqual(message, merged.mergeMessages[0])).length === 1
+      && merged.mergedLoaded?.title === "continued"
+      && merged.mergedLoaded?.count === 17, "merged continuation");
+    assert.deepEqual(value.raw.messages, [
+      ...accepted.acceptedMessages,
+      ...accepted.reconnectMessages,
+      ...accepted.mergeMessages,
+      ...pending.replayAfterReconnect,
+      ...merged.mergeMessages,
+      ...merged.continuationMessages,
+    ], `${label}: raw recovery message boundaries`);
+    check(summary(value.raw.unmergedSummary) && summary(value.raw.mergedSummary),
+      "raw summaries");
+  }
+}
+
 export function validateCases(cases) {
   assert(Array.isArray(cases) && cases.length > 0, "The corpus is empty");
   const ids = new Set();
@@ -4778,6 +5196,7 @@ export function validateCases(cases) {
     if (requiredUndoRedoCases.some(([id]) => value.id === id)) {
       validateUndoRedoCase(value);
     }
+    if (requiredBranchCases.includes(value.id)) validateBranchCase(value);
     if (value.id === "summary-writer-matrix") validateSummaryPersistence(value);
     if (value.id === "id-ranges") {
       assert(object(value.input.sessions) && typeof value.input.sessions.summaryRestoration === "string"
@@ -5045,6 +5464,10 @@ export async function writeCorpus(output, cases, smoke) {
         settlementOutcomes: ["FullyApplied", "FullyDropped", "NewContentOnly"],
         handleLifetime: "runtime-local",
       },
+      branchContract: {
+        cases: requiredBranchCases,
+        scope: "pinned executable observations; no native runner registered",
+      },
     },
     nativeSemanticRunners: {
       javascript: [
@@ -5125,6 +5548,7 @@ export async function generate({ check = false } = {}) {
       ...await read(join(source, "transaction-cases.json")),
       ...await read(join(source, "identifier-cases.json")),
       ...await read(join(source, "undo-redo-cases.json")),
+      ...await read(join(source, "branch-cases.json")),
       ...await read(join(container, "container-cases.json")),
     ];
     const malformed = cases.find((item) => item.id === "id-ranges")?.raw.malformedAllocation;

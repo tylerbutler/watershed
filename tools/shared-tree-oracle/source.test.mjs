@@ -8,6 +8,8 @@ import * as source from "./source.mjs";
 import {
   arrayInjectedTestPath,
   arraySupportInjectedPath,
+  branchInjectedTestPath,
+  branchSourceIdentity,
   forestInjectedTestPath,
   historyInjectedTestPath,
   identifierInjectedTestPath,
@@ -216,6 +218,20 @@ test("source runner declares the owned undo and redo injection", () => {
   );
 });
 
+test("source runner registers the pinned branch injection identity", () => {
+  assert.equal(
+    branchInjectedTestPath,
+    "packages/dds/tree/src/test/watershedBranch.spec.ts",
+  );
+  assert.deepEqual(branchSourceIdentity, {
+    path: branchInjectedTestPath,
+    version: "3.1.0",
+    commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+    digest: branchSourceIdentity.digest,
+  });
+  assert.match(branchSourceIdentity.digest, /^[0-9a-f]{64}$/);
+});
+
 test("source runner declares the owned Identifier injection", () => {
   assert.equal(
     identifierInjectedTestPath,
@@ -228,6 +244,7 @@ test("source capture executes the Identifier contract", () => {
     ["lib/test/watershedOracle.spec.js"],
     ["lib/test/watershedIdentifier.spec.js"],
     ["lib/test/watershedUndoRedo.spec.js"],
+    ["lib/test/watershedBranch.spec.js"],
   ]);
 });
 
@@ -271,6 +288,7 @@ test("source runner isolates transaction entropy from the existing corpus", () =
     ],
     ["lib/test/watershedIdentifier.spec.js"],
     ["lib/test/watershedUndoRedo.spec.js"],
+    ["lib/test/watershedBranch.spec.js"],
   ]);
 });
 
@@ -289,6 +307,17 @@ test("source verification byte-checks the owned undo and redo injection", async 
   const { directory, commit } = await checkoutFixture(t);
   const target = join(directory, source.undoRedoInjectedTestPath);
   const contents = await readFile(new URL("./upstream-undo-redo.spec.ts", import.meta.url));
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, contents);
+  await verifyCheckout(directory, commit);
+  await writeFile(target, "// unexpected replacement\n");
+  await assert.rejects(verifyCheckout(directory, commit), /injected/);
+});
+
+test("source verification byte-checks the owned branch injection", async (t) => {
+  const { directory, commit } = await checkoutFixture(t);
+  const target = join(directory, branchInjectedTestPath);
+  const contents = await readFile(new URL("./upstream-branch.spec.ts", import.meta.url));
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, contents);
   await verifyCheckout(directory, commit);

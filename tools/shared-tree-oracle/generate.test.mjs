@@ -65,6 +65,155 @@ const requiredUndoRedoCases = [
   "undo-redo-reconnect",
 ];
 
+test("branch corpus validator registers all eight pinned groups", () => {
+  assert.deepEqual(generator.requiredBranchCases, [
+    "local-branch-isolation",
+    "local-branch-rebase",
+    "local-branch-merge",
+    "local-branch-transactions",
+    "local-branch-undo",
+    "local-branch-allocation",
+    "local-branch-retention",
+    "local-branch-recovery",
+  ]);
+  assert.equal(typeof generator.validateBranchCase, "function");
+});
+
+function branchFixture(id) {
+  return JSON.parse(readFileSync(
+    new URL(`../../test/fixtures/shared_tree/cases/${id}.json`, import.meta.url),
+    "utf8",
+  ));
+}
+
+test("branch corpus validator accepts every generated pinned group", () => {
+  for (const id of generator.requiredBranchCases) {
+    assert.doesNotThrow(() => generator.validateBranchCase(branchFixture(id)), id);
+  }
+});
+
+test("branch corpus validator rejects deleted observations and load-bearing evidence", () => {
+  const mutations = {
+    "local-branch-isolation": (value) => { value.input.scenarios.pop(); },
+    "local-branch-rebase": (value) => {
+      value.expected.observations[0].sourceThenTarget.sourceRevisions.pop();
+    },
+    "local-branch-merge": (value) => {
+      value.expected.observations[0].events.pop();
+    },
+    "local-branch-transactions": (value) => {
+      delete value.expected.observations.find(({ id }) => id === "guards").sourceGuard;
+    },
+    "local-branch-undo": (value) => { value.raw.targetEvents.pop(); },
+    "local-branch-allocation": (value) => {
+      value.expected.observations.find(({ id }) => id === "main-publication")
+        .allocationRanges.pop();
+    },
+    "local-branch-retention": (value) => {
+      value.expected.observations.find(({ id }) => id === "rebase-release")
+        .afterRebase.history.pop();
+    },
+    "local-branch-recovery": (value) => {
+      value.expected.observations.find(({ id }) => id === "accepted-before-drop")
+        .acceptedMessages.pop();
+    },
+  };
+  for (const id of generator.requiredBranchCases) {
+    const missingObservation = branchFixture(id);
+    missingObservation.expected.observations.pop();
+    assert.throws(() => generator.validateBranchCase(missingObservation),
+      new RegExp(id), `${id}: deleted observation`);
+
+    const missingEvidence = branchFixture(id);
+    mutations[id](missingEvidence);
+    assert.throws(() => generator.validateBranchCase(missingEvidence),
+      new RegExp(id), `${id}: deleted evidence`);
+  }
+});
+
+test("branch corpus validator links revisions allocations settlement and recovery evidence", () => {
+  const mutations = [
+    ["local-branch-transactions", (value) => {
+      value.expected.observations.find(({ id }) => id === "outer-commit").revisions.pop();
+    }],
+    ["local-branch-rebase", (value) => {
+      value.expected.observations.find(({ id }) => id === "schema-divergence")
+        .forkHistory.pop();
+    }],
+    ["local-branch-merge", (value) => {
+      value.expected.observations.find(({ id }) => id === "commit-boundaries")
+        .sourceRevisions[1] = "unrelated-revision";
+    }],
+    ["local-branch-transactions", (value) => {
+      const abort = value.expected.observations.find(({ id }) => id === "abort-allocation");
+      delete abort.before;
+      delete abort.after;
+    }],
+    ["local-branch-allocation", (value) => {
+      value.expected.observations.find(({ id }) => id === "main-publication")
+        .allocationRanges[0].ids.count = 1;
+    }],
+    ["local-branch-undo", (value) => {
+      delete value.expected.observations.find(({ id }) => id === "settlement")
+        .afterMerge.sourceSettled[0].index;
+    }],
+    ["local-branch-recovery", (value) => {
+      const merged = value.expected.observations.find(({ id }) => id === "merged-continuation");
+      merged.mergeMessages.push(structuredClone(merged.mergeMessages[0]));
+    }],
+  ];
+  for (const [id, mutate] of mutations) {
+    const value = branchFixture(id);
+    mutate(value);
+    assert.throws(() => generator.validateBranchCase(value), new RegExp(id), id);
+  }
+});
+
+test("branch corpus validator rejects missing reviewed branch contracts", () => {
+  const mutations = [
+    ["local-branch-isolation", (value) => {
+      delete value.expected.observations[0].detachedIsolation.editError;
+    }],
+    ["local-branch-rebase", (value) => {
+      value.expected.observations[0].targetThenSource.source.count = 1;
+    }],
+    ["local-branch-transactions", (value) => {
+      delete value.expected.observations.find(({ id }) => id === "guards").sourceMergeGuard;
+    }],
+    ["local-branch-transactions", (value) => {
+      delete value.expected.observations.find(({ id }) => id === "guards").forkGuard;
+    }],
+    ["local-branch-transactions", (value) => {
+      value.expected.observations.find(({ id }) => id === "constraint").revisions.pop();
+    }],
+    ["local-branch-undo", (value) => {
+      value.expected.observations.find(({ id }) => id === "handles")
+        .targetAfterRedo.title = "base";
+    }],
+    ["local-branch-allocation", (value) => {
+      value.expected.observations.find(({ id }) => id === "branch-only")
+        .reservationAdvanced = false;
+    }],
+    ["local-branch-allocation", (value) => {
+      value.expected.observations.find(({ id }) => id === "merge-publication")
+        .allocationRanges.pop();
+    }],
+    ["local-branch-retention", (value) => {
+      const release = value.expected.observations.find(({ id }) => id === "rebase-release").release;
+      release.historyAfterRelease = release.historyBeforeRelease;
+    }],
+    ["local-branch-recovery", (value) => {
+      const accepted = value.expected.observations.find(({ id }) => id === "accepted-before-drop");
+      accepted.mergeMessages.push(structuredClone(accepted.mergeMessages[0]));
+    }],
+  ];
+  for (const [id, mutate] of mutations) {
+    const value = branchFixture(id);
+    mutate(value);
+    assert.throws(() => generator.validateBranchCase(value), new RegExp(id), id);
+  }
+});
+
 const identifierScenarioIds = {
   "identifier-schema": [
     "valid-string-field",
@@ -1794,7 +1943,7 @@ test("tree codec case validator rejects missing context and observations", () =>
 });
 
 test("corpus requires the tree codecs case", () => {
-  assert.equal(requiredCases.length, 55);
+  assert.equal(requiredCases.length, 63);
   assert(requiredCases.some(([id, domain]) => id === "tree-codecs" && domain === "codec"));
 });
 
@@ -3758,7 +3907,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
 });
 
 test("corpus validation requires every named case and nonempty observations", () => {
-  assert.equal(requiredCases.length, 55);
+  assert.equal(requiredCases.length, 63);
   assert.doesNotThrow(() => validateCases(cases()));
   assert.throws(() => validateCases([]), /empty|missing/i);
   assert.throws(() => validateCases(cases().slice(1)), /schema-profile/);

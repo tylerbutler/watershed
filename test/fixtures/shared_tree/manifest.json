@@ -303,6 +303,19 @@
         "NewContentOnly"
       ],
       "handleLifetime": "runtime-local"
+    },
+    "branchContract": {
+      "cases": [
+        "local-branch-isolation",
+        "local-branch-rebase",
+        "local-branch-merge",
+        "local-branch-transactions",
+        "local-branch-undo",
+        "local-branch-allocation",
+        "local-branch-retention",
+        "local-branch-recovery"
+      ],
+      "scope": "pinned executable observations; no native runner registered"
     }
   },
   "nativeSemanticRunners": {
@@ -644,6 +657,46 @@
       "id": "undo-redo-reconnect",
       "domain": "summary",
       "file": "cases/undo-redo-reconnect.json"
+    },
+    {
+      "id": "local-branch-isolation",
+      "domain": "branch",
+      "file": "cases/local-branch-isolation.json"
+    },
+    {
+      "id": "local-branch-rebase",
+      "domain": "branch",
+      "file": "cases/local-branch-rebase.json"
+    },
+    {
+      "id": "local-branch-merge",
+      "domain": "branch",
+      "file": "cases/local-branch-merge.json"
+    },
+    {
+      "id": "local-branch-transactions",
+      "domain": "branch",
+      "file": "cases/local-branch-transactions.json"
+    },
+    {
+      "id": "local-branch-undo",
+      "domain": "branch",
+      "file": "cases/local-branch-undo.json"
+    },
+    {
+      "id": "local-branch-allocation",
+      "domain": "branch",
+      "file": "cases/local-branch-allocation.json"
+    },
+    {
+      "id": "local-branch-retention",
+      "domain": "branch",
+      "file": "cases/local-branch-retention.json"
+    },
+    {
+      "id": "local-branch-recovery",
+      "domain": "branch",
+      "file": "cases/local-branch-recovery.json"
     }
   ]
 }

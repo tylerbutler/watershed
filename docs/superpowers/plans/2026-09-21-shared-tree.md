@@ -2337,7 +2337,7 @@ new scope needs its own approved design and interoperability proof.
 | --- | --- | --- |
 | M5 release acceptance | Published slices and recorded local native/service evidence | Resolve the baseline pnpm policy/lockfile mismatch before completing full build and standalone browser acceptance. Hosted workflows were not dispatched in this continuation. |
 | Array schema evolution | Published M3 and M4 contracts | Separate array-evolution schema/data race and reload matrices. |
-| M6 local branching | Existing modular history and M5 retention rules | Public fork/rebase/merge and branch lifetime without reclaiming live revertible history. |
+| M6 local branching | Existing modular history and M5 retention rules | [Local branching plan](2026-10-05-shared-tree-local-branching.md): public fork/rebase/merge and branch lifetime without reclaiming live revertible history. Pinned oracle contract captured; native implementation awaits the Task 1 review gate. |
 | Experimental shared branches | Separate version/profile decision | Explicit shared-branch wire support; no accidental opt-in. |
 | Broader container lifecycle | Working fixed-layout creation | Declared layouts, live attachment/alias changes, and handle-valued leaves with fresh upstream/native loading. |
 | Richer Lustre and typed schema UX | Stable native facade | Transaction and commit/revertible effects, application-owned stack examples, and typed consumers without changing kernel or bootstrap contracts. |

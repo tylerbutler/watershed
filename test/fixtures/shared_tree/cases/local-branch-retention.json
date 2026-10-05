@@ -1,0 +1,119 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "local-branch-retention",
+  "domain": "branch",
+  "input": {
+    "scenarios": [
+      "multiple-branch-pins",
+      "live-revertible-and-fork",
+      "minimum-sequence-advance",
+      "parent-disposal-descendant-pin",
+      "rebase-advances-pin",
+      "disposal-releases-handle",
+      "post-release-reclamation"
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "minimum-sequence-retention",
+        "beforeDisposal": {
+          "minimumSequenceNumber": 16,
+          "mainHistory": 9,
+          "parentHistory": 1,
+          "descendantHistory": 2,
+          "handleStatus": "Valid"
+        }
+      },
+      {
+        "id": "parent-disposal",
+        "afterParentDisposal": {
+          "parentDisposed": true,
+          "descendantDisposed": false,
+          "descendant": {
+            "title": "base",
+            "count": 99,
+            "featured": {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "featured"
+            },
+            "left": [
+              {
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "left"
+              }
+            ],
+            "right": []
+          },
+          "handleStatus": "Valid"
+        }
+      },
+      {
+        "id": "rebase-release",
+        "afterRebase": {
+          "history": [
+            "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b0b",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b0c",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b0d",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b0e",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b0f",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b10",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b11",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b12",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b13"
+          ],
+          "value": {
+            "title": "base",
+            "count": 99,
+            "featured": {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "featured"
+            },
+            "left": [
+              {
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "left"
+              }
+            ],
+            "right": []
+          }
+        },
+        "finalHandleStatus": "Disposed",
+        "release": {
+          "historyBeforeRelease": 9,
+          "historyAfterRelease": 1,
+          "minimumSequenceNumber": 22
+        }
+      }
+    ]
+  },
+  "raw": {
+    "messages": [
+      {
+        "minimumSequenceNumber": 22,
+        "revisions": [
+          "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0a",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0b",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0c",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0d",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0e",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0f",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b10",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b11",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b12",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b13"
+        ]
+      }
+    ]
+  }
+}

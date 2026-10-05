@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
   copyFile, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm,
@@ -22,6 +23,7 @@ const schemaEvolutionSource = join(directory, "upstream-schema-evolution.spec.ts
 const transactionSource = join(directory, "upstream-transaction.spec.ts");
 const identifierSource = join(directory, "upstream-identifier.spec.ts");
 const undoRedoSource = join(directory, "upstream-undo-redo.spec.ts");
+const branchSource = join(directory, "upstream-branch.spec.ts");
 
 export const reference = {
   version: "3.1.0",
@@ -61,6 +63,14 @@ export const identifierInjectedTestPath =
   "packages/dds/tree/src/test/watershedIdentifier.spec.ts";
 export const undoRedoInjectedTestPath =
   "packages/dds/tree/src/test/watershedUndoRedo.spec.ts";
+export const branchInjectedTestPath =
+  "packages/dds/tree/src/test/watershedBranch.spec.ts";
+export const branchSourceIdentity = {
+  path: branchInjectedTestPath,
+  version: reference.version,
+  commit: reference.commit,
+  digest: createHash("sha256").update(await readFile(branchSource)).digest("hex"),
+};
 const injections = new Map([
   [injectedTestPath, oracleSource],
   ["packages/dds/tree/src/test/watershedAlgebra.spec.ts", join(directory, "upstream-algebra.spec.ts")],
@@ -77,6 +87,7 @@ const injections = new Map([
   [transactionInjectedTestPath, transactionSource],
   [identifierInjectedTestPath, identifierSource],
   [undoRedoInjectedTestPath, undoRedoSource],
+  [branchInjectedTestPath, branchSource],
 ]);
 
 export async function verifyPackages(root = directory) {
@@ -251,6 +262,7 @@ export function sourceTestBatches(corpus) {
       ["lib/test/watershedOracle.spec.js"],
       ["lib/test/watershedIdentifier.spec.js"],
       ["lib/test/watershedUndoRedo.spec.js"],
+      ["lib/test/watershedBranch.spec.js"],
     ];
   }
   return [
@@ -267,6 +279,7 @@ export function sourceTestBatches(corpus) {
     ],
     ["lib/test/watershedIdentifier.spec.js"],
     ["lib/test/watershedUndoRedo.spec.js"],
+    ["lib/test/watershedBranch.spec.js"],
   ];
 }
 

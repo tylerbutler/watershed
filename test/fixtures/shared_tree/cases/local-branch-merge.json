@@ -1,0 +1,1075 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "local-branch-merge",
+  "domain": "branch",
+  "input": {
+    "scenarios": [
+      "surviving-source-revisions",
+      "one-event-per-source-commit",
+      "preserved-source-repeat",
+      "empty-merge",
+      "self-merge-preserved-and-default",
+      "default-source-disposal"
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "commit-boundaries",
+        "sourceRevisions": [
+          "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0a"
+        ],
+        "targetRevisions": [
+          "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0a"
+        ],
+        "events": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "local": true,
+            "factory": true,
+            "change": {
+              "version": 1,
+              "revision": 3,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "change": [
+                {
+                  "data": {
+                    "maxId": 2,
+                    "revisions": [
+                      {
+                        "revision": 3
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "title",
+                                  "fieldKind": "Value",
+                                  "change": {
+                                    "r": {
+                                      "e": false,
+                                      "d": [
+                                        1,
+                                        3
+                                      ],
+                                      "s": [
+                                        0,
+                                        3
+                                      ]
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    "builds": {
+                      "builds": [
+                        [
+                          [
+                            [
+                              0,
+                              0
+                            ]
+                          ],
+                          3
+                        ]
+                      ],
+                      "trees": {
+                        "version": 2,
+                        "identifiers": [],
+                        "shapes": [
+                          {
+                            "c": {
+                              "extraFields": 1
+                            }
+                          },
+                          {
+                            "a": 0
+                          }
+                        ],
+                        "data": [
+                          [
+                            1,
+                            [
+                              "com.fluidframework.leaf.string",
+                              true,
+                              "first",
+                              []
+                            ]
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "index": 1,
+            "kind": "Default",
+            "local": true,
+            "factory": true,
+            "change": {
+              "version": 1,
+              "revision": 4,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "change": [
+                {
+                  "data": {
+                    "maxId": 5,
+                    "revisions": [
+                      {
+                        "revision": 4
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "count",
+                                  "fieldKind": "Value",
+                                  "change": {
+                                    "r": {
+                                      "e": false,
+                                      "d": [
+                                        4,
+                                        4
+                                      ],
+                                      "s": [
+                                        3,
+                                        4
+                                      ]
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    "builds": {
+                      "builds": [
+                        [
+                          [
+                            [
+                              3,
+                              0
+                            ]
+                          ],
+                          4
+                        ]
+                      ],
+                      "trees": {
+                        "version": 2,
+                        "identifiers": [],
+                        "shapes": [
+                          {
+                            "c": {
+                              "extraFields": 1
+                            }
+                          },
+                          {
+                            "a": 0
+                          }
+                        ],
+                        "data": [
+                          [
+                            1,
+                            [
+                              "com.fluidframework.leaf.number",
+                              true,
+                              2,
+                              []
+                            ]
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "sourceEvents": [
+          {
+            "index": 0,
+            "kind": "Default",
+            "local": true,
+            "factory": true,
+            "change": {
+              "version": 1,
+              "revision": 3,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "change": [
+                {
+                  "data": {
+                    "maxId": 2,
+                    "revisions": [
+                      {
+                        "revision": 3
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "title",
+                                  "fieldKind": "Value",
+                                  "change": {
+                                    "r": {
+                                      "e": false,
+                                      "d": [
+                                        1,
+                                        3
+                                      ],
+                                      "s": [
+                                        0,
+                                        3
+                                      ]
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    "builds": {
+                      "builds": [
+                        [
+                          [
+                            [
+                              0,
+                              0
+                            ]
+                          ],
+                          3
+                        ]
+                      ],
+                      "trees": {
+                        "version": 2,
+                        "identifiers": [],
+                        "shapes": [
+                          {
+                            "c": {
+                              "extraFields": 1
+                            }
+                          },
+                          {
+                            "a": 0
+                          }
+                        ],
+                        "data": [
+                          [
+                            1,
+                            [
+                              "com.fluidframework.leaf.string",
+                              true,
+                              "first",
+                              []
+                            ]
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "index": 1,
+            "kind": "Default",
+            "local": true,
+            "factory": true,
+            "change": {
+              "version": 1,
+              "revision": 4,
+              "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "change": [
+                {
+                  "data": {
+                    "maxId": 5,
+                    "revisions": [
+                      {
+                        "revision": 4
+                      }
+                    ],
+                    "changes": [
+                      {
+                        "fieldKey": "rootFieldKey",
+                        "fieldKind": "ModularEditBuilder.Generic",
+                        "change": [
+                          [
+                            0,
+                            {
+                              "fieldChanges": [
+                                {
+                                  "fieldKey": "count",
+                                  "fieldKind": "Value",
+                                  "change": {
+                                    "r": {
+                                      "e": false,
+                                      "d": [
+                                        4,
+                                        4
+                                      ],
+                                      "s": [
+                                        3,
+                                        4
+                                      ]
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        ]
+                      }
+                    ],
+                    "builds": {
+                      "builds": [
+                        [
+                          [
+                            [
+                              3,
+                              0
+                            ]
+                          ],
+                          4
+                        ]
+                      ],
+                      "trees": {
+                        "version": 2,
+                        "identifiers": [],
+                        "shapes": [
+                          {
+                            "c": {
+                              "extraFields": 1
+                            }
+                          },
+                          {
+                            "a": 0
+                          }
+                        ],
+                        "data": [
+                          [
+                            1,
+                            [
+                              "com.fluidframework.leaf.number",
+                              true,
+                              2,
+                              []
+                            ]
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "merge-edge-cases",
+        "repeatedEventCount": 0,
+        "emptyDisposed": true,
+        "selfPreservedDisposed": false,
+        "selfDefaultDisposed": true,
+        "defaultDisposed": true
+      }
+    ]
+  },
+  "raw": {
+    "messages": [
+      {
+        "revision": 3,
+        "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        "changeset": [
+          {
+            "data": {
+              "maxId": 2,
+              "changes": [
+                {
+                  "fieldKey": "rootFieldKey",
+                  "fieldKind": "ModularEditBuilder.Generic",
+                  "change": [
+                    [
+                      0,
+                      {
+                        "fieldChanges": [
+                          {
+                            "fieldKey": "title",
+                            "fieldKind": "Value",
+                            "change": {
+                              "r": {
+                                "e": false,
+                                "d": 1,
+                                "s": 0
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "builds": {
+                "builds": [
+                  [
+                    [
+                      [
+                        0,
+                        0
+                      ]
+                    ]
+                  ]
+                ],
+                "trees": {
+                  "version": 2,
+                  "identifiers": [],
+                  "shapes": [
+                    {
+                      "c": {
+                        "type": "com.fluidframework.leaf.string",
+                        "value": true
+                      }
+                    }
+                  ],
+                  "data": [
+                    [
+                      0,
+                      "first"
+                    ]
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "version": 7
+      },
+      {
+        "revision": 4,
+        "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        "changeset": [
+          {
+            "data": {
+              "maxId": 5,
+              "changes": [
+                {
+                  "fieldKey": "rootFieldKey",
+                  "fieldKind": "ModularEditBuilder.Generic",
+                  "change": [
+                    [
+                      0,
+                      {
+                        "fieldChanges": [
+                          {
+                            "fieldKey": "count",
+                            "fieldKind": "Value",
+                            "change": {
+                              "r": {
+                                "e": false,
+                                "d": 4,
+                                "s": 3
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "builds": {
+                "builds": [
+                  [
+                    [
+                      [
+                        3,
+                        0
+                      ]
+                    ]
+                  ]
+                ],
+                "trees": {
+                  "version": 2,
+                  "identifiers": [],
+                  "shapes": [
+                    {
+                      "c": {
+                        "type": "com.fluidframework.leaf.number",
+                        "value": true
+                      }
+                    }
+                  ],
+                  "data": [
+                    [
+                      0,
+                      2
+                    ]
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "version": 7
+      },
+      {
+        "revision": 5,
+        "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        "changeset": [
+          {
+            "data": {
+              "maxId": 2,
+              "changes": [
+                {
+                  "fieldKey": "rootFieldKey",
+                  "fieldKind": "ModularEditBuilder.Generic",
+                  "change": [
+                    [
+                      0,
+                      {
+                        "fieldChanges": [
+                          {
+                            "fieldKey": "title",
+                            "fieldKind": "Value",
+                            "change": {
+                              "r": {
+                                "e": false,
+                                "d": 1,
+                                "s": 0
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "builds": {
+                "builds": [
+                  [
+                    [
+                      [
+                        0,
+                        0
+                      ]
+                    ]
+                  ]
+                ],
+                "trees": {
+                  "version": 2,
+                  "identifiers": [],
+                  "shapes": [
+                    {
+                      "c": {
+                        "type": "com.fluidframework.leaf.string",
+                        "value": true
+                      }
+                    }
+                  ],
+                  "data": [
+                    [
+                      0,
+                      "default-disposed"
+                    ]
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "version": 7
+      }
+    ],
+    "processed": [
+      {
+        "clientSequenceNumber": 2,
+        "contents": {
+          "type": "idAllocation",
+          "contents": {
+            "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "ids": {
+              "firstGenCount": 4,
+              "count": 2,
+              "requestedClusterSize": 512,
+              "localIdRanges": []
+            }
+          }
+        },
+        "referenceSequenceNumber": 2,
+        "type": "op",
+        "clientId": "test-client-0",
+        "sequenceNumber": 3,
+        "minimumSequenceNumber": 2
+      },
+      {
+        "clientSequenceNumber": 2,
+        "contents": {
+          "revision": 3,
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "changeset": [
+            {
+              "data": {
+                "maxId": 2,
+                "changes": [
+                  {
+                    "fieldKey": "rootFieldKey",
+                    "fieldKind": "ModularEditBuilder.Generic",
+                    "change": [
+                      [
+                        0,
+                        {
+                          "fieldChanges": [
+                            {
+                              "fieldKey": "title",
+                              "fieldKind": "Value",
+                              "change": {
+                                "r": {
+                                  "e": false,
+                                  "d": 1,
+                                  "s": 0
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ],
+                "builds": {
+                  "builds": [
+                    [
+                      [
+                        [
+                          0,
+                          0
+                        ]
+                      ]
+                    ]
+                  ],
+                  "trees": {
+                    "version": 2,
+                    "identifiers": [],
+                    "shapes": [
+                      {
+                        "c": {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": true
+                        }
+                      }
+                    ],
+                    "data": [
+                      [
+                        0,
+                        "first"
+                      ]
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          "version": 7
+        },
+        "referenceSequenceNumber": 2,
+        "type": "op",
+        "clientId": "test-client-0",
+        "sequenceNumber": 4,
+        "minimumSequenceNumber": 2
+      },
+      {
+        "clientSequenceNumber": 3,
+        "contents": {
+          "revision": 4,
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "changeset": [
+            {
+              "data": {
+                "maxId": 5,
+                "changes": [
+                  {
+                    "fieldKey": "rootFieldKey",
+                    "fieldKind": "ModularEditBuilder.Generic",
+                    "change": [
+                      [
+                        0,
+                        {
+                          "fieldChanges": [
+                            {
+                              "fieldKey": "count",
+                              "fieldKind": "Value",
+                              "change": {
+                                "r": {
+                                  "e": false,
+                                  "d": 4,
+                                  "s": 3
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ],
+                "builds": {
+                  "builds": [
+                    [
+                      [
+                        [
+                          3,
+                          0
+                        ]
+                      ]
+                    ]
+                  ],
+                  "trees": {
+                    "version": 2,
+                    "identifiers": [],
+                    "shapes": [
+                      {
+                        "c": {
+                          "type": "com.fluidframework.leaf.number",
+                          "value": true
+                        }
+                      }
+                    ],
+                    "data": [
+                      [
+                        0,
+                        2
+                      ]
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          "version": 7
+        },
+        "referenceSequenceNumber": 2,
+        "type": "op",
+        "clientId": "test-client-0",
+        "sequenceNumber": 5,
+        "minimumSequenceNumber": 2
+      },
+      {
+        "clientSequenceNumber": 4,
+        "contents": {
+          "type": "idAllocation",
+          "contents": {
+            "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "ids": {
+              "firstGenCount": 6,
+              "count": 1,
+              "requestedClusterSize": 512,
+              "localIdRanges": []
+            }
+          }
+        },
+        "referenceSequenceNumber": 2,
+        "type": "op",
+        "clientId": "test-client-0",
+        "sequenceNumber": 6,
+        "minimumSequenceNumber": 2
+      },
+      {
+        "clientSequenceNumber": 4,
+        "contents": {
+          "revision": 5,
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "changeset": [
+            {
+              "data": {
+                "maxId": 2,
+                "changes": [
+                  {
+                    "fieldKey": "rootFieldKey",
+                    "fieldKind": "ModularEditBuilder.Generic",
+                    "change": [
+                      [
+                        0,
+                        {
+                          "fieldChanges": [
+                            {
+                              "fieldKey": "title",
+                              "fieldKind": "Value",
+                              "change": {
+                                "r": {
+                                  "e": false,
+                                  "d": 1,
+                                  "s": 0
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ],
+                "builds": {
+                  "builds": [
+                    [
+                      [
+                        [
+                          0,
+                          0
+                        ]
+                      ]
+                    ]
+                  ],
+                  "trees": {
+                    "version": 2,
+                    "identifiers": [],
+                    "shapes": [
+                      {
+                        "c": {
+                          "type": "com.fluidframework.leaf.string",
+                          "value": true
+                        }
+                      }
+                    ],
+                    "data": [
+                      [
+                        0,
+                        "default-disposed"
+                      ]
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          "version": 7
+        },
+        "referenceSequenceNumber": 2,
+        "type": "op",
+        "clientId": "test-client-0",
+        "sequenceNumber": 7,
+        "minimumSequenceNumber": 2
+      }
+    ],
+    "encodedChanges": [
+      {
+        "version": 1,
+        "revision": 3,
+        "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        "change": [
+          {
+            "data": {
+              "maxId": 2,
+              "revisions": [
+                {
+                  "revision": 3
+                }
+              ],
+              "changes": [
+                {
+                  "fieldKey": "rootFieldKey",
+                  "fieldKind": "ModularEditBuilder.Generic",
+                  "change": [
+                    [
+                      0,
+                      {
+                        "fieldChanges": [
+                          {
+                            "fieldKey": "title",
+                            "fieldKind": "Value",
+                            "change": {
+                              "r": {
+                                "e": false,
+                                "d": [
+                                  1,
+                                  3
+                                ],
+                                "s": [
+                                  0,
+                                  3
+                                ]
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "builds": {
+                "builds": [
+                  [
+                    [
+                      [
+                        0,
+                        0
+                      ]
+                    ],
+                    3
+                  ]
+                ],
+                "trees": {
+                  "version": 2,
+                  "identifiers": [],
+                  "shapes": [
+                    {
+                      "c": {
+                        "extraFields": 1
+                      }
+                    },
+                    {
+                      "a": 0
+                    }
+                  ],
+                  "data": [
+                    [
+                      1,
+                      [
+                        "com.fluidframework.leaf.string",
+                        true,
+                        "first",
+                        []
+                      ]
+                    ]
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "version": 1,
+        "revision": 4,
+        "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        "change": [
+          {
+            "data": {
+              "maxId": 5,
+              "revisions": [
+                {
+                  "revision": 4
+                }
+              ],
+              "changes": [
+                {
+                  "fieldKey": "rootFieldKey",
+                  "fieldKind": "ModularEditBuilder.Generic",
+                  "change": [
+                    [
+                      0,
+                      {
+                        "fieldChanges": [
+                          {
+                            "fieldKey": "count",
+                            "fieldKind": "Value",
+                            "change": {
+                              "r": {
+                                "e": false,
+                                "d": [
+                                  4,
+                                  4
+                                ],
+                                "s": [
+                                  3,
+                                  4
+                                ]
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "builds": {
+                "builds": [
+                  [
+                    [
+                      [
+                        3,
+                        0
+                      ]
+                    ],
+                    4
+                  ]
+                ],
+                "trees": {
+                  "version": 2,
+                  "identifiers": [],
+                  "shapes": [
+                    {
+                      "c": {
+                        "extraFields": 1
+                      }
+                    },
+                    {
+                      "a": 0
+                    }
+                  ],
+                  "data": [
+                    [
+                      1,
+                      [
+                        "com.fluidframework.leaf.number",
+                        true,
+                        2,
+                        []
+                      ]
+                    ]
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

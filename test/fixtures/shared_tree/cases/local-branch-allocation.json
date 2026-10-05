@@ -1,0 +1,829 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "local-branch-allocation",
+  "domain": "branch",
+  "input": {
+    "scenarios": [
+      "shared-compressor",
+      "interleaved-identifiers",
+      "branch-only-reservation",
+      "main-triggered-publication",
+      "aborted-range-retained",
+      "merge-range-before-tree-use"
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "branch-only",
+        "messages": [],
+        "allocationRanges": [],
+        "reservationAdvanced": true,
+        "before": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAABiAQAAAAAAAAAhAAAAAAAAACEAAAAAAAAAQQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAIQA==",
+        "after": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAABiAQAAAAAAAAAhAAAAAAAAAFEAAAAAAAAAQQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAIQA=="
+      },
+      {
+        "id": "main-publication",
+        "allocationRanges": [
+          {
+            "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "ids": {
+              "firstGenCount": 4,
+              "count": 4,
+              "requestedClusterSize": 512,
+              "localIdRanges": []
+            }
+          }
+        ],
+        "messages": [
+          {
+            "revision": 6,
+            "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 2,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
+                          {
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "left",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1
+                                            },
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "insert": {
+                                                  "id": 0
+                                                }
+                                              },
+                                              "cellId": 0
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  "builds": {
+                    "builds": [
+                      [
+                        [
+                          [
+                            0,
+                            0
+                          ]
+                        ]
+                      ]
+                    ],
+                    "trees": {
+                      "version": 2,
+                      "identifiers": [
+                        "com.fluidframework.leaf.string"
+                      ],
+                      "shapes": [
+                        {
+                          "c": {
+                            "type": "org.watershed.shared-tree.branch.Point",
+                            "value": false,
+                            "fields": [
+                              [
+                                "id",
+                                1
+                              ],
+                              [
+                                "label",
+                                2
+                              ]
+                            ]
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": 0,
+                            "value": 0
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": 0,
+                            "value": true
+                          }
+                        }
+                      ],
+                      "data": [
+                        [
+                          0,
+                          5,
+                          "main-id"
+                        ]
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "version": 7
+          }
+        ]
+      },
+      {
+        "id": "merge-publication",
+        "identifiers": [
+          "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0b",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b09"
+        ],
+        "allocationRanges": [
+          {
+            "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "ids": {
+              "firstGenCount": 8,
+              "count": 3,
+              "requestedClusterSize": 512,
+              "localIdRanges": []
+            }
+          }
+        ],
+        "messages": [
+          {
+            "revision": 4,
+            "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "changeset": [
+              {
+                "data": {
+                  "maxId": 2,
+                  "changes": [
+                    {
+                      "fieldKey": "rootFieldKey",
+                      "fieldKind": "ModularEditBuilder.Generic",
+                      "change": [
+                        [
+                          0,
+                          {
+                            "fieldChanges": [
+                              {
+                                "fieldKey": "right",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "",
+                                          "fieldKind": "Sequence",
+                                          "change": [
+                                            {
+                                              "count": 1,
+                                              "effect": {
+                                                "insert": {
+                                                  "id": 0
+                                                }
+                                              },
+                                              "cellId": 0
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  "builds": {
+                    "builds": [
+                      [
+                        [
+                          [
+                            0,
+                            0
+                          ]
+                        ]
+                      ]
+                    ],
+                    "trees": {
+                      "version": 2,
+                      "identifiers": [
+                        "com.fluidframework.leaf.string"
+                      ],
+                      "shapes": [
+                        {
+                          "c": {
+                            "type": "org.watershed.shared-tree.branch.Point",
+                            "value": false,
+                            "fields": [
+                              [
+                                "id",
+                                1
+                              ],
+                              [
+                                "label",
+                                2
+                              ]
+                            ]
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": 0,
+                            "value": 0
+                          }
+                        },
+                        {
+                          "c": {
+                            "type": 0,
+                            "value": true
+                          }
+                        }
+                      ],
+                      "data": [
+                        [
+                          0,
+                          3,
+                          "branch-id"
+                        ]
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "version": 7
+          }
+        ]
+      },
+      {
+        "id": "abort-range",
+        "allocationAdvanced": true,
+        "before": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAABiAQAAAAAAAABxAAAAAAAAAHEAAAAAAAAAgQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAIQA==",
+        "after": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D8GSxLo18xVx/3bDSb4Vj4CAAAAAAAAAAAAAAAAABiAQAAAAAAAABxAAAAAAAAAIkAAAAAAAAAgQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAIQA=="
+      }
+    ]
+  },
+  "raw": {
+    "messages": [
+      {
+        "revision": 6,
+        "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        "changeset": [
+          {
+            "data": {
+              "maxId": 2,
+              "changes": [
+                {
+                  "fieldKey": "rootFieldKey",
+                  "fieldKind": "ModularEditBuilder.Generic",
+                  "change": [
+                    [
+                      0,
+                      {
+                        "fieldChanges": [
+                          {
+                            "fieldKey": "left",
+                            "fieldKind": "ModularEditBuilder.Generic",
+                            "change": [
+                              [
+                                0,
+                                {
+                                  "fieldChanges": [
+                                    {
+                                      "fieldKey": "",
+                                      "fieldKind": "Sequence",
+                                      "change": [
+                                        {
+                                          "count": 1
+                                        },
+                                        {
+                                          "count": 1,
+                                          "effect": {
+                                            "insert": {
+                                              "id": 0
+                                            }
+                                          },
+                                          "cellId": 0
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "builds": {
+                "builds": [
+                  [
+                    [
+                      [
+                        0,
+                        0
+                      ]
+                    ]
+                  ]
+                ],
+                "trees": {
+                  "version": 2,
+                  "identifiers": [
+                    "com.fluidframework.leaf.string"
+                  ],
+                  "shapes": [
+                    {
+                      "c": {
+                        "type": "org.watershed.shared-tree.branch.Point",
+                        "value": false,
+                        "fields": [
+                          [
+                            "id",
+                            1
+                          ],
+                          [
+                            "label",
+                            2
+                          ]
+                        ]
+                      }
+                    },
+                    {
+                      "c": {
+                        "type": 0,
+                        "value": 0
+                      }
+                    },
+                    {
+                      "c": {
+                        "type": 0,
+                        "value": true
+                      }
+                    }
+                  ],
+                  "data": [
+                    [
+                      0,
+                      5,
+                      "main-id"
+                    ]
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "version": 7
+      },
+      {
+        "revision": 4,
+        "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        "changeset": [
+          {
+            "data": {
+              "maxId": 2,
+              "changes": [
+                {
+                  "fieldKey": "rootFieldKey",
+                  "fieldKind": "ModularEditBuilder.Generic",
+                  "change": [
+                    [
+                      0,
+                      {
+                        "fieldChanges": [
+                          {
+                            "fieldKey": "right",
+                            "fieldKind": "ModularEditBuilder.Generic",
+                            "change": [
+                              [
+                                0,
+                                {
+                                  "fieldChanges": [
+                                    {
+                                      "fieldKey": "",
+                                      "fieldKind": "Sequence",
+                                      "change": [
+                                        {
+                                          "count": 1,
+                                          "effect": {
+                                            "insert": {
+                                              "id": 0
+                                            }
+                                          },
+                                          "cellId": 0
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "builds": {
+                "builds": [
+                  [
+                    [
+                      [
+                        0,
+                        0
+                      ]
+                    ]
+                  ]
+                ],
+                "trees": {
+                  "version": 2,
+                  "identifiers": [
+                    "com.fluidframework.leaf.string"
+                  ],
+                  "shapes": [
+                    {
+                      "c": {
+                        "type": "org.watershed.shared-tree.branch.Point",
+                        "value": false,
+                        "fields": [
+                          [
+                            "id",
+                            1
+                          ],
+                          [
+                            "label",
+                            2
+                          ]
+                        ]
+                      }
+                    },
+                    {
+                      "c": {
+                        "type": 0,
+                        "value": 0
+                      }
+                    },
+                    {
+                      "c": {
+                        "type": 0,
+                        "value": true
+                      }
+                    }
+                  ],
+                  "data": [
+                    [
+                      0,
+                      3,
+                      "branch-id"
+                    ]
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "version": 7
+      }
+    ],
+    "ranges": [
+      {
+        "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        "ids": {
+          "firstGenCount": 4,
+          "count": 4,
+          "requestedClusterSize": 512,
+          "localIdRanges": []
+        }
+      },
+      {
+        "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        "ids": {
+          "firstGenCount": 8,
+          "count": 3,
+          "requestedClusterSize": 512,
+          "localIdRanges": []
+        }
+      }
+    ],
+    "branchOnlyProcessed": [],
+    "mainProcessed": [
+      {
+        "clientSequenceNumber": 2,
+        "contents": {
+          "type": "idAllocation",
+          "contents": {
+            "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "ids": {
+              "firstGenCount": 4,
+              "count": 4,
+              "requestedClusterSize": 512,
+              "localIdRanges": []
+            }
+          }
+        },
+        "referenceSequenceNumber": 2,
+        "type": "op",
+        "clientId": "test-client-0",
+        "sequenceNumber": 3,
+        "minimumSequenceNumber": 2
+      },
+      {
+        "clientSequenceNumber": 2,
+        "contents": {
+          "revision": 6,
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "changeset": [
+            {
+              "data": {
+                "maxId": 2,
+                "changes": [
+                  {
+                    "fieldKey": "rootFieldKey",
+                    "fieldKind": "ModularEditBuilder.Generic",
+                    "change": [
+                      [
+                        0,
+                        {
+                          "fieldChanges": [
+                            {
+                              "fieldKey": "left",
+                              "fieldKind": "ModularEditBuilder.Generic",
+                              "change": [
+                                [
+                                  0,
+                                  {
+                                    "fieldChanges": [
+                                      {
+                                        "fieldKey": "",
+                                        "fieldKind": "Sequence",
+                                        "change": [
+                                          {
+                                            "count": 1
+                                          },
+                                          {
+                                            "count": 1,
+                                            "effect": {
+                                              "insert": {
+                                                "id": 0
+                                              }
+                                            },
+                                            "cellId": 0
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ],
+                "builds": {
+                  "builds": [
+                    [
+                      [
+                        [
+                          0,
+                          0
+                        ]
+                      ]
+                    ]
+                  ],
+                  "trees": {
+                    "version": 2,
+                    "identifiers": [
+                      "com.fluidframework.leaf.string"
+                    ],
+                    "shapes": [
+                      {
+                        "c": {
+                          "type": "org.watershed.shared-tree.branch.Point",
+                          "value": false,
+                          "fields": [
+                            [
+                              "id",
+                              1
+                            ],
+                            [
+                              "label",
+                              2
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "c": {
+                          "type": 0,
+                          "value": 0
+                        }
+                      },
+                      {
+                        "c": {
+                          "type": 0,
+                          "value": true
+                        }
+                      }
+                    ],
+                    "data": [
+                      [
+                        0,
+                        5,
+                        "main-id"
+                      ]
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          "version": 7
+        },
+        "referenceSequenceNumber": 2,
+        "type": "op",
+        "clientId": "test-client-0",
+        "sequenceNumber": 4,
+        "minimumSequenceNumber": 2
+      }
+    ],
+    "mergeProcessed": [
+      {
+        "clientSequenceNumber": 3,
+        "contents": {
+          "type": "idAllocation",
+          "contents": {
+            "sessionId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+            "ids": {
+              "firstGenCount": 8,
+              "count": 3,
+              "requestedClusterSize": 512,
+              "localIdRanges": []
+            }
+          }
+        },
+        "referenceSequenceNumber": 4,
+        "type": "op",
+        "clientId": "test-client-0",
+        "sequenceNumber": 5,
+        "minimumSequenceNumber": 4
+      },
+      {
+        "clientSequenceNumber": 3,
+        "contents": {
+          "revision": 4,
+          "originatorId": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "changeset": [
+            {
+              "data": {
+                "maxId": 2,
+                "changes": [
+                  {
+                    "fieldKey": "rootFieldKey",
+                    "fieldKind": "ModularEditBuilder.Generic",
+                    "change": [
+                      [
+                        0,
+                        {
+                          "fieldChanges": [
+                            {
+                              "fieldKey": "right",
+                              "fieldKind": "ModularEditBuilder.Generic",
+                              "change": [
+                                [
+                                  0,
+                                  {
+                                    "fieldChanges": [
+                                      {
+                                        "fieldKey": "",
+                                        "fieldKind": "Sequence",
+                                        "change": [
+                                          {
+                                            "count": 1,
+                                            "effect": {
+                                              "insert": {
+                                                "id": 0
+                                              }
+                                            },
+                                            "cellId": 0
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ],
+                "builds": {
+                  "builds": [
+                    [
+                      [
+                        [
+                          0,
+                          0
+                        ]
+                      ]
+                    ]
+                  ],
+                  "trees": {
+                    "version": 2,
+                    "identifiers": [
+                      "com.fluidframework.leaf.string"
+                    ],
+                    "shapes": [
+                      {
+                        "c": {
+                          "type": "org.watershed.shared-tree.branch.Point",
+                          "value": false,
+                          "fields": [
+                            [
+                              "id",
+                              1
+                            ],
+                            [
+                              "label",
+                              2
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "c": {
+                          "type": 0,
+                          "value": 0
+                        }
+                      },
+                      {
+                        "c": {
+                          "type": 0,
+                          "value": true
+                        }
+                      }
+                    ],
+                    "data": [
+                      [
+                        0,
+                        3,
+                        "branch-id"
+                      ]
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          "version": 7
+        },
+        "referenceSequenceNumber": 4,
+        "type": "op",
+        "clientId": "test-client-0",
+        "sequenceNumber": 6,
+        "minimumSequenceNumber": 4
+      }
+    ]
+  }
+}

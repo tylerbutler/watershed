@@ -1,0 +1,169 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "local-branch-rebase",
+  "domain": "branch",
+  "input": {
+    "scenarios": [
+      "both-edit-orders",
+      "target-unchanged",
+      "common-revision-rewrite",
+      "optimistic-main-base",
+      "self-rebase",
+      "schema-divergence"
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "id": "related-target",
+        "sourceThenTarget": {
+          "source": {
+            "title": "target",
+            "count": 1,
+            "featured": {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "featured"
+            },
+            "left": [
+              {
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "left"
+              }
+            ],
+            "right": []
+          },
+          "target": {
+            "title": "target",
+            "count": 0,
+            "featured": {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "featured"
+            },
+            "left": [
+              {
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "left"
+              }
+            ],
+            "right": []
+          },
+          "sourceRevisions": [
+            "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b0b",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b0a"
+          ],
+          "targetRevisions": [
+            "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b0b"
+          ]
+        },
+        "targetThenSource": {
+          "source": {
+            "title": "target-first",
+            "count": 2,
+            "featured": {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "featured"
+            },
+            "left": [
+              {
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "left"
+              }
+            ],
+            "right": []
+          },
+          "target": {
+            "title": "target-first",
+            "count": 0,
+            "featured": {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+              "label": "featured"
+            },
+            "left": [
+              {
+                "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+                "label": "left"
+              }
+            ],
+            "right": []
+          },
+          "sourceRevisions": [
+            "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b0a"
+          ],
+          "targetRevisions": [
+            "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+            "8f95be09-8376-4ff7-8755-ccd7e8124b09"
+          ]
+        }
+      },
+      {
+        "id": "optimistic-main",
+        "value": {
+          "title": "optimistic-main",
+          "count": 0,
+          "featured": {
+            "id": "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+            "label": "featured"
+          },
+          "left": [
+            {
+              "id": "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+              "label": "left"
+            }
+          ],
+          "right": []
+        },
+        "revisions": [
+          "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0d"
+        ]
+      },
+      {
+        "id": "self-rebase",
+        "revisions": [
+          "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0b",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0a"
+        ]
+      },
+      {
+        "id": "schema-divergence",
+        "main": [
+          "B",
+          "C"
+        ],
+        "forkCanViewWideSchema": false,
+        "forkHistory": [
+          "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b09",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b07",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b08"
+        ]
+      }
+    ]
+  },
+  "raw": {
+    "messages": [
+      {
+        "sourceRevisions": [
+          "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0b",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0a"
+        ],
+        "targetRevisions": [
+          "8f95be09-8376-4ff7-8755-ccd7e8124b08",
+          "8f95be09-8376-4ff7-8755-ccd7e8124b0b"
+        ]
+      }
+    ]
+  }
+}
