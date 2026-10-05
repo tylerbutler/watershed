@@ -3771,6 +3771,7 @@ pub fn tree_history_evidence(
     peers,
     sequence_number,
     minimum_sequence_number,
+    _,
   ) = sequenced
   use pending <- result.try(
     list.try_map(pending, fn(commit) {

@@ -239,6 +239,7 @@ pub fn shared_tree_history_starts_empty_test() -> Nil {
       [],
       0,
       -9_007_199_254_740_991,
+      [],
     ),
     [],
     0,
@@ -1234,6 +1235,7 @@ pub fn shared_tree_history_restore_rejects_missing_peer_base_test() -> Nil {
       [history.PeerBranch(peer_session(), Some(revision_a()), [])],
       0,
       -9_007_199_254_740_991,
+      [],
     )
   history.restore(invalid, local_session()) |> expect.to_be_error
   Nil
@@ -1249,6 +1251,7 @@ pub fn shared_tree_history_restore_allows_divergent_revision_copy_test() -> Nil 
       [history.PeerBranch(peer_session(), None, [authored])],
       1,
       -9_007_199_254_740_991,
+      [],
     )
   history.restore(snapshot, local_session()) |> expect.to_be_ok
   Nil
@@ -1267,6 +1270,7 @@ pub fn shared_tree_history_restore_rejects_conflicting_trunk_revision_test() -> 
       [],
       2,
       -9_007_199_254_740_991,
+      [],
     )
   history.restore(snapshot, local_session()) |> expect.to_be_error
   Nil
@@ -1283,6 +1287,7 @@ pub fn shared_tree_history_restore_rejects_conflicting_revision_origin_test() ->
       [history.PeerBranch(other_session, None, [peer])],
       1,
       -9_007_199_254_740_991,
+      [],
     )
   history.restore(snapshot, local_session()) |> expect.to_be_error
   Nil
@@ -1569,6 +1574,7 @@ pub fn shared_tree_history_peer_revertible_pins_prefix_test() -> Nil {
       ],
       1,
       -9_007_199_254_740_991,
+      [],
     )
   let restored_result = history.restore(snapshot, local_session())
   restored_result |> expect.to_be_ok

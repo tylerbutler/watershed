@@ -1269,13 +1269,16 @@ fn initial_history_snapshot(
     runtime.wire_to_commit(message.commit)
     |> result.map_error(string.inspect),
   )
-  Ok(history.HistorySnapshot(
-    history.InitialBase,
-    [history.SequencedCommit(commit, SequencePoint(2, 0))],
-    [],
-    2,
-    0,
-  ))
+  Ok(
+    history.HistorySnapshot(
+      history.InitialBase,
+      [history.SequencedCommit(commit, SequencePoint(2, 0))],
+      [],
+      2,
+      0,
+      [],
+    ),
+  )
 }
 
 fn history_points(value: JsonValue) -> Result(List(HistoryPoint), String) {

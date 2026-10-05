@@ -371,13 +371,16 @@ fn summary_history(
     list.last(trunk)
     |> result.map_error(fn(_) { "initial summary has no trunk commit" }),
   )
-  Ok(history.HistorySnapshot(
-    history.InitialBase,
-    trunk,
-    [],
-    last.point.sequence_number,
-    0,
-  ))
+  Ok(
+    history.HistorySnapshot(
+      history.InitialBase,
+      trunk,
+      [],
+      last.point.sequence_number,
+      0,
+      [],
+    ),
+  )
 }
 
 fn bootstrap_changes(

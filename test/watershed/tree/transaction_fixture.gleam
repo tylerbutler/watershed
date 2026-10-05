@@ -1493,6 +1493,7 @@ fn callback_initial_state() -> Result(CallbackState, String) {
       [],
       1,
       0,
+      [],
     )
   use snapshot <- result.try(
     tree_kernel.snapshot_from_parts(

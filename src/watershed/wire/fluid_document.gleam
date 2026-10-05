@@ -81,7 +81,7 @@ pub fn initial_tree(
       view_id,
       stored,
       forest.ForestData(initial_root, [], 1),
-      history.HistorySnapshot(history.InitialBase, [], [], 0, 0),
+      history.HistorySnapshot(history.InitialBase, [], [], 0, 0, []),
     )
     |> result.map_error(fn(error) {
       fluid_summary.MalformedEntry(

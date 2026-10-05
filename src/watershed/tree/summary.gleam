@@ -106,6 +106,7 @@ pub fn from_wire(
       peers,
       sequence_number,
       minimum_sequence_number,
+      [],
     )
   use _ <- result.try(history.restore(
     history_snapshot,

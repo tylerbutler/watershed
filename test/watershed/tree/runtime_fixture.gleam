@@ -314,7 +314,7 @@ fn routed_schema_seed_input(
       tree_view.view_id,
       stored,
       forest.ForestData(Some(root), [], 0),
-      history.HistorySnapshot(history.InitialBase, [], [], 0, 0),
+      history.HistorySnapshot(history.InitialBase, [], [], 0, 0, []),
     )
     |> result.map_error(string.inspect),
   )
@@ -1064,6 +1064,7 @@ fn snapshot(
       [],
       sequence_number,
       minimum_sequence_number,
+      [],
     ),
   )
   |> result.map_error(string.inspect)

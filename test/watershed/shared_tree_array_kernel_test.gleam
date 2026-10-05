@@ -52,7 +52,7 @@ fn core_for(
       view.view_id,
       array_fixture.stored("rootArray"),
       forest.ForestData(Some(root), [], 0),
-      history.HistorySnapshot(history.InitialBase, [], [], 0, 0),
+      history.HistorySnapshot(history.InitialBase, [], [], 0, 0, []),
     )
   let assert Ok(seed) =
     runtime_core.bootstrap_seed(

@@ -332,6 +332,7 @@ pub fn shared_tree_bridge_decodes_losing_peer_data_with_authored_schema_test() {
       [history.PeerBranch(sender_session, None, [losing])],
       2,
       0,
+      [],
     )
   let data =
     forest.ForestData(
@@ -433,6 +434,7 @@ pub fn shared_tree_bridge_decodes_after_duplicate_schema_replay_test() {
       [],
       2,
       0,
+      [SequencePoint(2, 0)],
     )
   let data =
     forest.ForestData(

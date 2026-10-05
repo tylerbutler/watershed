@@ -423,7 +423,7 @@ pub fn seed_input() -> runtime_core.BootstrapSeedInput {
       tree_view.view_id,
       stored(),
       forest.ForestData(Some(point("literal-custom-id", "before")), [], 0),
-      history.HistorySnapshot(history.InitialBase, [], [], 0, 0),
+      history.HistorySnapshot(history.InitialBase, [], [], 0, 0, []),
     )
   runtime_core.BootstrapSeedInput(
     ..input,
@@ -455,7 +455,7 @@ pub fn full_seed_input(
       tree_view.view_id,
       full_stored(),
       forest.ForestData(Some(root), [], 0),
-      history.HistorySnapshot(history.InitialBase, [], [], 0, 0),
+      history.HistorySnapshot(history.InitialBase, [], [], 0, 0, []),
     )
   runtime_core.BootstrapSeedInput(
     ..input,
@@ -1270,7 +1270,7 @@ fn run_initial_summary(
       view_id,
       stored,
       forest.ForestData(Some(root), [], 1),
-      history.HistorySnapshot(history.InitialBase, [], [], 0, 0),
+      history.HistorySnapshot(history.InitialBase, [], [], 0, 0, []),
     )
     |> result.map_error(string.inspect),
   )

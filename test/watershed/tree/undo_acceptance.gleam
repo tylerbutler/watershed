@@ -1202,7 +1202,7 @@ fn core(client: String, session_id: String) -> runtime_core.Core {
       tree_view.view_id,
       stored(),
       forest.ForestData(Some(initial_root()), [], 0),
-      history.HistorySnapshot(history.InitialBase, [], [], 0, 0),
+      history.HistorySnapshot(history.InitialBase, [], [], 0, 0, []),
     )
   let assert Ok(seed) =
     runtime_core.bootstrap_seed(
