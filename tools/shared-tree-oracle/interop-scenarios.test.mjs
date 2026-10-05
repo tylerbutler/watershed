@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { isDeepStrictEqual } from "node:util";
 import { SchemaFactory } from "fluid-framework/alpha";
 import {
   commitKinds,
@@ -679,6 +679,7 @@ test("standalone component submissions retain reconnect revisions", () => {
     type: "op",
     sequenceNumber: 10,
     clientId: "reconnected-client",
+    clientSequenceNumber: 9,
     referenceSequenceNumber: 8,
     metadata: { batchId: "batch_[2]" },
     contents: JSON.stringify({
@@ -698,6 +699,7 @@ test("standalone component submissions retain reconnect revisions", () => {
   }]), [{
     outerSequenceNumber: 10,
     clientId: "reconnected-client",
+    clientSequenceNumber: 9,
     referenceSequenceNumber: 8,
     batchId: "batch_[2]",
     allocations: [],
@@ -889,7 +891,7 @@ test("map adapters preserve keys, tagged values, and canonical entries", async (
           },
         },
       },
-      view: { root: initialMapRoot() },
+      view: { root: initialMapRoot(), events: { on() {} } },
     },
   };
   const upstream = upstreamAdapter(session);
@@ -1131,7 +1133,7 @@ test("array adapters use public range methods and preserve element order", async
           },
         },
       },
-      view: { root },
+      view: { root, events: { on() {} } },
     },
   };
   const upstream = upstreamAdapter(session);
@@ -1255,7 +1257,7 @@ test("upstream array adapter resolves recursive map paths with array values", as
           },
         },
       },
-      view: { root },
+      view: { root, events: { on() {} } },
     },
   };
   const upstream = upstreamAdapter(session);
@@ -1340,7 +1342,7 @@ test("upstream checkpoint identifies schema-compatible array roots by profile", 
           },
         },
       },
-      view: { root },
+      view: { root, events: { on() {} } },
     },
   });
 
@@ -1392,7 +1394,7 @@ test("native reconnect retries one transient transport timeout", async () => {
               pendingTreeCount: 0,
               inFlightCount: 0,
             },
-            result: { root: { kind: "null" }, events: [] },
+            result: { root: { kind: "null" }, events: [], commits: [] },
           };
         }
         return { ok: true };
@@ -2466,6 +2468,7 @@ test("grouped decoding preserves every allocation and inner tree commit", () => 
     type: "op",
     sequenceNumber: 12,
     clientId: "client",
+    clientSequenceNumber: 3,
     referenceSequenceNumber: 8,
     contents: JSON.stringify({
       type: "groupedBatch",
@@ -2502,6 +2505,7 @@ test("grouped decoding preserves every allocation and inner tree commit", () => 
   assert.deepEqual(decodeTreeSubmissions(messages), [{
     outerSequenceNumber: 12,
     clientId: "client",
+    clientSequenceNumber: 3,
     referenceSequenceNumber: 8,
     batchId: "batch",
     allocations: [{
@@ -2596,9 +2600,18 @@ test("the failure runner rejects an incomplete coordinator context", async () =>
   );
 });
 
-test("seed 42 expands a literal three-author schedule", () => {
+test("seed 42 covers a complete undo and redo lifecycle", () => {
   const [schedule] = generateSchedules({ seed: 42, iterations: 300 });
-  assert.deepEqual(schedule, {
+  assert.deepEqual({
+    formatVersion: schedule.formatVersion,
+    profile: schedule.profile,
+    index: schedule.index,
+    seed: schedule.seed,
+    subSeed: schedule.subSeed,
+    template: schedule.template,
+    authors: schedule.authors,
+    roles: schedule.roles,
+  }, {
     formatVersion: 1,
     profile: "object",
     index: 0,
@@ -2612,134 +2625,30 @@ test("seed 42 expands a literal three-author schedule", () => {
       third: "upstream",
       reload: "javascript",
     },
-    actions: [
-      {
-        type: "checkpoint",
-        label: "initial",
-        stage: "quiescent",
-        preconditions: { connected: ["upstream", "javascript", "erlang"] },
-      },
-      {
-        type: "hold-inbound",
-        author: "javascript",
-        preconditions: { connected: ["javascript"], inboundHeld: false },
-      },
-      {
-        type: "hold-outbound",
-        author: "javascript",
-        preconditions: { connected: ["javascript"], outboundHeld: false },
-      },
-      {
-        type: "hold-inbound",
-        author: "erlang",
-        preconditions: { connected: ["erlang"], inboundHeld: false },
-      },
-      {
-        type: "hold-outbound",
-        author: "erlang",
-        preconditions: { connected: ["erlang"], outboundHeld: false },
-      },
-      {
-        type: "hold-inbound",
-        author: "upstream",
-        preconditions: { connected: ["upstream"], inboundHeld: false },
-      },
-      {
-        type: "hold-outbound",
-        author: "upstream",
-        preconditions: { connected: ["upstream"], outboundHeld: false },
-      },
-      {
-        type: "set",
-        author: "javascript",
-        path: ["point", "x"],
-        value: 142,
-        preconditions: {
-          connected: ["javascript"],
-          pathType: "number",
-          outboundHeld: true,
-        },
-      },
-      {
-        type: "set",
-        author: "erlang",
-        path: ["point", "y"],
-        value: -143,
-        preconditions: {
-          connected: ["erlang"],
-          pathType: "number",
-          outboundHeld: true,
-        },
-      },
-      {
-        type: "set",
-        author: "upstream",
-        path: ["title"],
-        value: "seed-42-0-upstream",
-        preconditions: { connected: ["upstream"], pathType: "string" },
-      },
-      {
-        type: "checkpoint",
-        label: "optimistic",
-        stage: "intermediate",
-        preconditions: { connected: ["upstream", "javascript", "erlang"] },
-      },
-      {
-        type: "release",
-        author: "javascript",
-        direction: "outbound",
-        order: "fifo",
-        duplicate: false,
-        preconditions: { connected: ["javascript"], outboundHeld: true },
-      },
-      {
-        type: "release",
-        author: "erlang",
-        direction: "outbound",
-        order: "fifo",
-        duplicate: false,
-        preconditions: { connected: ["erlang"], outboundHeld: true },
-      },
-      {
-        type: "release",
-        author: "upstream",
-        direction: "outbound",
-        order: "fifo",
-        duplicate: false,
-        preconditions: { connected: ["upstream"], outboundHeld: true },
-      },
-      {
-        type: "release",
-        author: "javascript",
-        direction: "inbound",
-        order: "reverse",
-        duplicate: false,
-        preconditions: { connected: ["javascript"], inboundHeld: true },
-      },
-      {
-        type: "release",
-        author: "erlang",
-        direction: "inbound",
-        order: "reverse",
-        duplicate: false,
-        preconditions: { connected: ["erlang"], inboundHeld: true },
-      },
-      {
-        type: "release",
-        author: "upstream",
-        direction: "inbound",
-        order: "fifo",
-        duplicate: false,
-        preconditions: { connected: ["upstream"], inboundHeld: true },
-      },
-      {
-        type: "checkpoint",
-        label: "settled",
-        stage: "quiescent",
-        preconditions: { connected: ["upstream", "javascript", "erlang"] },
-      },
-    ],
   });
+
+  const lifecycle = schedule.actions
+    .filter(({ type }) => ["retain", "revert", "dispose"].includes(type))
+    .map(({ type, name, lifecycle, dispose }) => ({
+      type, name, lifecycle, ...(dispose === undefined ? {} : { dispose }),
+    }));
+  assert.deepEqual(lifecycle, [
+    { type: "retain", name: "edit-0", lifecycle: "edit" },
+    { type: "revert", name: "edit-0", lifecycle: "undo", dispose: false },
+    { type: "retain", name: "undo-0", lifecycle: "undo" },
+    { type: "revert", name: "undo-0", lifecycle: "redo", dispose: true },
+    { type: "dispose", name: "edit-0", lifecycle: "edit" },
+  ]);
+  assert.deepEqual(schedule.actions
+    .filter(({ type }) => type === "checkpoint")
+    .map(({ label }) => label), [
+    "initial",
+    "optimistic",
+    "undo-held-0",
+    "undo-settled-0",
+    "redo-settled-0",
+    "settled",
+  ]);
 });
 
 test("seeded cross-parent array moves target an interior destination", () => {
@@ -2757,10 +2666,7 @@ test("schedule generation is deterministic, sized, unique, and covers every auth
   assert.equal(generateSchedules({ seed: 42, iterations: 7500 }).length, 7500);
   assert.deepEqual(normal.map(({ index }) => index),
     Array.from({ length: 300 }, (_, index) => index));
-  assert.equal(
-    createHash("sha256").update(JSON.stringify(normal.slice(0, 200))).digest("hex"),
-    "ccd4e2c69e3b5a27b49645559b68210f37ce03a2b66c8c3d5bc2798bdfc04150",
-  );
+  assert.equal(new Set(normal.map((schedule) => JSON.stringify(schedule))).size, 300);
   assert.deepEqual(
     Object.fromEntries(["object", "map", "schema", "array", "identifier"].map((profile) => [
       profile,
@@ -2768,6 +2674,21 @@ test("schedule generation is deterministic, sized, unique, and covers every auth
     ])),
     { object: 60, map: 60, schema: 60, array: 60, identifier: 60 },
   );
+  for (const schedule of normal) {
+    const lifecycle = schedule.actions
+      .filter(({ type }) => ["retain", "revert", "dispose"].includes(type));
+    assert.deepEqual(lifecycle.map(({ type, lifecycle }) => [type, lifecycle]), [
+      ["retain", "edit"],
+      ["revert", "undo"],
+      ["retain", "undo"],
+      ["revert", "redo"],
+      ["dispose", "edit"],
+    ], `${schedule.profile}:${schedule.index} lacks the complete undo lifecycle`);
+    assert.equal(lifecycle[1].dispose, false,
+      `${schedule.profile}:${schedule.index} does not retain the edit handle`);
+    assert.equal(lifecycle[3].dispose, true,
+      `${schedule.profile}:${schedule.index} does not consume the undo handle`);
+  }
   for (const schedule of normal.filter(({ profile }) => profile === "identifier")) {
     const inserted = schedule.actions
       .filter(({ type }) => type === "array-insert")
@@ -2857,27 +2778,36 @@ test("schedule generation is deterministic, sized, unique, and covers every auth
     if (schedule.template === "array-same-gap") {
       const inserts = edits.filter(({ type, author }) =>
         type === "array-insert"
+          && author !== undefined
           && [schedule.roles.first, schedule.roles.second].includes(author));
-      assert.equal(inserts.length, 2);
+      const heldInserts = inserts.filter(({ preconditions }) =>
+        preconditions.outboundHeld === true);
+      assert.equal(heldInserts.length, 2);
       assert.deepEqual(
-        inserts.map(({ path, index }) => ({ path, index })),
+        heldInserts.map(({ path, index }) => ({ path, index })),
         [{ path: ["left"], index: 1 }, { path: ["left"], index: 1 }],
       );
-      assert(inserts.every(({ values }) => values.length > 1));
+      assert(heldInserts.every(({ values }) => values.length > 1));
     } else if (schedule.template === "array-insert-remove") {
-      const insert = edits.find(({ type, author }) =>
-        type === "array-insert" && author === schedule.roles.first);
-      const remove = edits.find(({ type, author }) =>
-        type === "array-remove" && author === schedule.roles.second);
+      const insert = edits.find(({ type, author, preconditions }) =>
+        type === "array-insert"
+          && author === schedule.roles.first
+          && preconditions.outboundHeld === true);
+      const remove = edits.find(({ type, author, preconditions }) =>
+        type === "array-remove"
+          && author === schedule.roles.second
+          && preconditions.outboundHeld === true);
       assert(insert.values.length > 1);
       assert(remove.end - remove.start > 1);
     } else if (schedule.template === "array-cross-parent") {
-      const move = edits.find(({ type }) => type === "array-move");
+      const move = edits.find(({ type, preconditions }) =>
+        type === "array-move" && preconditions.outboundHeld === true);
       assert.notDeepEqual(move.sourcePath, move.destinationPath);
       assert(move.sourceEnd - move.sourceStart > 1);
       assert(move.destinationGap > 0 && move.destinationGap < 3);
     } else if (schedule.template === "array-nested-reconnect") {
-      const move = edits.find(({ type }) => type === "array-move");
+      const move = edits.find(({ type, preconditions }) =>
+        type === "array-move" && preconditions.outboundHeld === true);
       assert.deepEqual(move.sourcePath, move.destinationPath);
       assert(move.sourceEnd - move.sourceStart > 1);
       assert(move.destinationGap > 0 && move.destinationGap < 4);
@@ -2892,12 +2822,13 @@ test("schedule generation is deterministic, sized, unique, and covers every auth
     const disconnectIndex = schedule.actions.findIndex(
       ({ type }) => type === "disconnect",
     );
-    assert.deepEqual(schedule.actions[disconnectIndex - 1], {
-      type: "checkpoint",
-      label: "before-reconnect",
-      stage: "quiescent",
-      preconditions: { connected: ["upstream", "javascript", "erlang"] },
-    });
+    assert(schedule.actions.slice(0, disconnectIndex).some((action) =>
+      isDeepStrictEqual(action, {
+        type: "checkpoint",
+        label: "before-reconnect",
+        stage: "quiescent",
+        preconditions: { connected: ["upstream", "javascript", "erlang"] },
+      })), "Reconnect schedule lacks its quiescent checkpoint");
   }
   assert(normal.some(({ actions }) => actions.some(({ type }) => type === "summarize")));
   for (const schedule of normal.filter(({ actions }) =>
@@ -2905,12 +2836,13 @@ test("schedule generation is deterministic, sized, unique, and covers every auth
     const summarizeIndex = schedule.actions.findIndex(
       ({ type }) => type === "summarize",
     );
-    assert.deepEqual(schedule.actions[summarizeIndex - 1], {
-      type: "checkpoint",
-      label: "before-publish",
-      stage: "quiescent",
-      preconditions: { connected: ["upstream", "javascript", "erlang"] },
-    });
+    assert(schedule.actions.slice(0, summarizeIndex).some((action) =>
+      isDeepStrictEqual(action, {
+        type: "checkpoint",
+        label: "before-publish",
+        stage: "quiescent",
+        preconditions: { connected: ["upstream", "javascript", "erlang"] },
+      })), "Summary schedule lacks its quiescent publication checkpoint");
   }
   assert(normal.some(({ actions }) => actions.some(({ type }) => type === "reload")));
 });

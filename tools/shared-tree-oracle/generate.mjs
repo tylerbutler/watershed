@@ -13,6 +13,8 @@ import {
   supportedFeatures,
   transactionExcludedFeatures,
   transactionSupportedFeatures,
+  undoRedoExcludedFeatures,
+  undoRedoSupportedFeatures,
 } from "./service.mjs";
 
 const directory = dirname(fileURLToPath(import.meta.url));
@@ -5033,6 +5035,12 @@ export async function writeCorpus(output, cases, smoke) {
       },
       undoRedoContract: {
         cases: requiredUndoRedoCases.map(([id]) => id),
+        supportedFeatures: undoRedoSupportedFeatures,
+        excludedFeatures: [
+          ...undoRedoExcludedFeatures,
+          "shared-branches",
+          "no-change-constraints",
+        ],
         commitKinds: ["Default", "Undo", "Redo"],
         settlementOutcomes: ["FullyApplied", "FullyDropped", "NewContentOnly"],
         handleLifetime: "runtime-local",

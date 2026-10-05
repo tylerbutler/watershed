@@ -3714,6 +3714,27 @@ test("manifest records complete native runners and actual wire field kinds", asy
   });
   assert.deepEqual(manifest.inventory.undoRedoContract, {
     cases: requiredUndoRedoCases,
+    supportedFeatures: [
+      "application-owned-revertibles",
+      "default-undo-redo-commit-kinds",
+      "runtime-local-handle-lifetime",
+      "reconnect-with-live-handles",
+      "object-map-array-move-transaction-undo-redo",
+      "sequenced-commit-outcomes",
+    ],
+    excludedFeatures: [
+      "persisted-undo-redo-stacks",
+      "schema-undo",
+      "remote-commit-undo",
+      "undo-during-transactions",
+      "cross-tree-atomic-undo",
+      "public-local-branch-apis",
+      "custom-revert-metadata",
+      "clone-to-view",
+      "revert-to",
+      "shared-branches",
+      "no-change-constraints",
+    ],
     commitKinds: ["Default", "Undo", "Redo"],
     settlementOutcomes: ["FullyApplied", "FullyDropped", "NewContentOnly"],
     handleLifetime: "runtime-local",

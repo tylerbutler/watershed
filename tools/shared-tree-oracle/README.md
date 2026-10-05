@@ -214,8 +214,8 @@ The profile explicitly excludes asynchronous transactions, cross-tree
 transactions, schema upgrades inside transactions, the alpha `noChange`
 constraint, transaction metadata, and transaction post-processors. The older
 combined `async-cross-tree-transactions` exclusion remains for compatibility.
-Undo/redo labels are unchanged and remain owned by the separate undo/redo
-release task.
+The undo/redo profile below publishes its own labels without broadening these
+transaction boundaries.
 
 ### M3 array source contract
 
@@ -553,12 +553,11 @@ message, where the originator session supplies the op-space context. A summary
 has no originator and can use only finalized numeric IDs from its stored
 compressor state. Neither decoding nor loading allocates IDs.
 
-The supported profile excludes handles, incremental FieldBatch chunks,
+The supported Identifier profile excludes handles, incremental FieldBatch chunks,
 arbitrary container layouts, `Tree.shortId`, an identifier index, global
 custom-ID uniqueness checks, a detached JavaScript-style node-builder API,
-UUIDv5 healing, undo/redo, asynchronous transactions, cross-tree transactions,
-schema upgrades inside transactions, `noChange`, transaction metadata, and
-transaction post-processors.
+and UUIDv5 healing. The full SharedTree profile supports application-owned
+revertibles and retains the transaction exclusions described above.
 
 Allocation observations use measured call ordinals and tree paths. For the
 attached two-Identifier insertion, the calls are `left[1].firstId`,
@@ -903,10 +902,24 @@ from the pinned source:
 | `undo-redo-constraints` | A retained handle rebases over an unrelated remote edit and over removal of the edited node. The fixtures keep optimistic and settled snapshots, encoded changes, and retained-handle status. Separate pinned probes capture `FullyApplied`, `FullyDropped`, and `NewContentOnly`. |
 | `undo-redo-reconnect` | A live handle remains valid across disconnect and reconnect in the same view. Fresh loads of summaries after committed undo and redo contain the committed state and emit no event or factory for the old commit. |
 
-The manifest records these IDs, commit kinds, settlement outcomes, and the
-runtime-local handle lifetime under `inventory.undoRedoContract`. The injected
-suite runs in its own deterministic Mocha process so its identities cannot
-shift the older corpus.
+The service and generated profiles publish these support labels:
+
+- `application-owned-revertibles`
+- `default-undo-redo-commit-kinds`
+- `runtime-local-handle-lifetime`
+- `reconnect-with-live-handles`
+- `object-map-array-move-transaction-undo-redo`
+- `sequenced-commit-outcomes`
+
+They explicitly exclude persisted stacks, schema undo, remote-commit undo,
+undo during transactions, cross-tree atomic undo, public local-branch APIs,
+custom revert metadata, clone-to-view, and `revertTo`. Shared branches and
+`noChange` remain excluded by the full profile.
+
+The manifest records these support labels and all named exclusions with the
+case IDs, commit kinds, settlement outcomes, and runtime-local handle lifetime under
+`inventory.undoRedoContract`. The injected suite runs in its own deterministic
+Mocha process so its identities cannot shift the older corpus.
 
 ### Native runtime interoperability
 

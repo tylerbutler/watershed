@@ -25,17 +25,24 @@ import {
 } from "./service.mjs";
 import { upstreamAdapter } from "./interop-scenarios.mjs";
 
-test("service profile names supported transactions and their limits", () => {
+test("service profile names supported M5 behavior and its limits", () => {
   for (const feature of [
     "strict-view-object-map-schema-evolution",
     "identifier-summary-reload",
     "synchronous-single-tree-transactions",
     "stable-node-existence-constraints",
+    "application-owned-revertibles",
+    "default-undo-redo-commit-kinds",
+    "runtime-local-handle-lifetime",
+    "reconnect-with-live-handles",
+    "object-map-array-move-transaction-undo-redo",
+    "sequenced-commit-outcomes",
   ]) {
     assert(supportedFeatures.includes(feature), `Missing support: ${feature}`);
   }
   assert(!excludedFeatures.includes("schema-evolution"));
   assert(!excludedFeatures.includes("public-transactions"));
+  assert(!excludedFeatures.includes("undo-redo"));
   for (const feature of [
     "staged-schema-upgrades",
     "array-schema-evolution",
@@ -50,7 +57,15 @@ test("service profile names supported transactions and their limits", () => {
     "custom-identifier-global-uniqueness",
     "detached-node-builder",
     "uuidv5-healing",
-    "undo-redo",
+    "persisted-undo-redo-stacks",
+    "schema-undo",
+    "remote-commit-undo",
+    "undo-during-transactions",
+    "cross-tree-atomic-undo",
+    "public-local-branch-apis",
+    "custom-revert-metadata",
+    "clone-to-view",
+    "revert-to",
     "asynchronous-transactions",
     "cross-tree-transactions",
     "schema-upgrades-in-transactions",

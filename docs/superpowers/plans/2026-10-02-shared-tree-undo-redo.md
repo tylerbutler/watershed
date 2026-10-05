@@ -12,10 +12,11 @@
 
 ## Reconciliation (2026-10-04)
 
-**Current status:** Tasks 1-8 are implemented. Task 9 (supported-profile,
-public documentation, roadmap handoff, and permanent gates) and Task 10
-(current full-regression closure) remain open. Undo/redo is the M5 slice in the
-approved design; M6 is local branching, not undo/redo.
+**Current status:** Tasks 1-9 are implemented. The supported profile, public
+documentation, roadmap handoff, generated manifest, and permanent oracle gate
+now publish the approved undo/redo slice. Task 10 full-regression closure
+remains in progress. Undo/redo is the M5 slice in the approved design; M6 is
+local branching, not undo/redo.
 
 The pure implementation is present in
 `src/watershed/tree/history.gleam:1372-1465`,
@@ -38,11 +39,12 @@ manifest records the five pinned cases at
 `tools/shared-tree-oracle/interop.mjs:93-96` requires kinds, concurrent,
 reconnect, and reload sections.
 
-The release claim is still open. `test/fixtures/shared_tree/profile.json:264`
-and `tools/shared-tree-oracle/service.mjs:115` still list `undo-redo` as
-excluded, while `README.md:114` and `:246` describe it as deferred. The thin
-Lustre adapter has no commit-subscription or revertible effect, and no
-user-facing example demonstrates an application-owned undo/redo stack.
+The generated and service profiles now name application-owned revertibles,
+commit kinds, runtime-local lifetime, reconnect, field and transaction
+reversion, and sequenced outcomes. `README.md` contains one subscription and
+an application-owned stack update pattern. The thin Lustre adapter still has
+no commit-subscription or revertible effect; richer consumers remain M7 work
+and are not part of this closure.
 
 The unchecked substeps under Tasks 1-8 are retained as archived red/green
 instructions. Source, tests, fixtures, and interop validators show that the
@@ -1299,9 +1301,11 @@ git commit -m "test(tree): prove undo and redo interoperability"
 
 ### Task 9: Close permanent gates and document the M5 profile
 
-**Reconciled status:** Open. Generated fixtures contain the oracle contract,
-but the supported profile and public README still exclude undo/redo. Lustre and
-example stack UX are also absent.
+**Reconciled status:** Complete for profile and permanent-oracle closure. The
+generated and service profiles, manifest, public README, oracle README, and CI
+workflow labels publish the approved M5 undo/redo slice. Task 10 still owns
+combined native, service, root, and final regression evidence. Lustre and UI
+APIs remain M7 scope.
 
 **Files:**
 - Modify: `tools/shared-tree-oracle/generate.mjs`
@@ -1321,7 +1325,7 @@ example stack UX are also absent.
 - Consumes: Tasks 1-8 passing evidence.
 - Produces: an accurate full M5 support claim and permanent enforcement.
 
-- [ ] **Step 1: Add failing profile and gate assertions.**
+- [x] **Step 1: Add failing profile and gate assertions.**
 
 Require support labels for:
 
@@ -1338,7 +1342,12 @@ Keep persisted stacks, schema undo, remote-commit undo, undo during
 transactions, cross-tree atomic undo, branches, `noChange`, custom metadata,
 clone, and `revertTo` as explicit exclusions.
 
-- [ ] **Step 2: Regenerate profile metadata.**
+Focused RED evidence: the four contract tests failed before implementation.
+The service profile lacked `application-owned-revertibles`; the committed
+profile still contained the old arrays and digest; and the manifest lacked
+undo/redo support metadata.
+
+- [x] **Step 2: Regenerate profile metadata.**
 
 ```bash
 npm --prefix tools/shared-tree-oracle run generate
@@ -1347,7 +1356,7 @@ npm --prefix tools/shared-tree-oracle run check
 
 Preserve every version, codec, layout, and M1-M4 feature claim.
 
-- [ ] **Step 3: Document the public API and stack pattern.**
+- [x] **Step 3: Document the public API and stack pattern.**
 
 Show one commit subscription that:
 
@@ -1360,7 +1369,7 @@ Show one commit subscription that:
 Explain runtime-local lifetime, reconnect, reload, disposal, repeated
 `revert(False)`, remote events without factories, and transaction exclusion.
 
-- [ ] **Step 4: Update the parent roadmap and transaction handoff.**
+- [x] **Step 4: Update the parent roadmap and transaction handoff.**
 
 Mark M5 complete for public transaction boundaries, constraints, revertible
 lifetime, undo, redo, and remote edits during undo. Link the design and this
@@ -1369,7 +1378,7 @@ plan. Keep branching and M6-M8 deferred.
 Update the transaction plan's handoff so it no longer says undo/redo remains
 unimplemented.
 
-- [ ] **Step 5: Run permanent gate tests.**
+- [x] **Step 5: Run Task 9 focused permanent-gate checks.**
 
 ```bash
 npm --prefix tools/shared-tree-oracle test
@@ -1379,7 +1388,25 @@ just shared-tree-interop
 just shared-tree-create-interop
 ```
 
-- [ ] **Step 6: Commit profile and documentation closure.**
+Task 9 ran the focused profile and stale-oracle tests, generation/check, and
+one full oracle test. The controller owns the native, codec, service, creation,
+root, and combined final gates to avoid competing builds. Those deferred
+commands remain Task 10 evidence and are not claimed here.
+
+Recorded Task 9 evidence:
+
+- RED:
+  `node --test tools/shared-tree-oracle/service.test.mjs tools/shared-tree-oracle/generate.test.mjs tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/gates.test.mjs`
+  ran 201 tests with 197 passing and four intended contract failures.
+- GREEN:
+  `node --test --test-name-pattern='service profile names supported M5|manifest records complete native runners|committed profile is hashed|committed corpus gates the complete undo' tools/shared-tree-oracle/service.test.mjs tools/shared-tree-oracle/generate.test.mjs tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/gates.test.mjs`
+  passed all four selected tests.
+- `npm --prefix tools/shared-tree-oracle run generate` generated 55 source
+  cases, and `npm --prefix tools/shared-tree-oracle run check` verified all 55.
+- `npm --prefix tools/shared-tree-oracle test` passed 452 of 452 tests in
+  315005 ms.
+
+- [x] **Step 6: Commit profile and documentation closure.**
 
 ```bash
 git add tools/shared-tree-oracle test/fixtures/shared_tree README.md .github/workflows justfile docs/superpowers/plans/2026-09-21-shared-tree.md docs/superpowers/plans/2026-09-29-shared-tree-transactions.md
@@ -1431,8 +1458,8 @@ behavior. Do not create an empty closure commit.
 ## 5. Acceptance checklist
 
 Checked items below mean the behavior and focused test coverage exist in the
-current tree. They do not mean the relevant commands were rerun on
-2026-10-04. Service/profile/full-regression items remain open.
+current tree. They do not mean every native, service, root, or hosted command was rerun on
+2026-10-04. Final regression evidence remains open.
 
 - [x] Eligible local data commits provide one one-shot revertible factory.
 - [x] Schema and remote commits provide no factory.
@@ -1461,7 +1488,7 @@ current tree. They do not mean the relevant commands were rerun on
 - [ ] All required summary writer/reader cells continue editing.
 - [ ] Required gates fail on missing artifacts, targets, scenarios, settlements, or service.
 - [ ] Existing M1-M4, Identifier, transaction, creation, and browser behavior remains intact.
-- [ ] Documentation and the generated profile mark the M5 undo/redo slice
+- [x] Documentation and the generated profile mark the M5 undo/redo slice
       supported without claiming M6 local branching or later features.
 
 ## 6. Review matrix and stop conditions

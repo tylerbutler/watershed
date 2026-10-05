@@ -11,6 +11,13 @@ const schemaEvolutionCaseIds = [
   "schema-evolution-history",
   "schema-evolution-codecs",
 ];
+const undoRedoCaseIds = [
+  "revertible-lifetime",
+  "undo-redo-kinds",
+  "undo-redo-fields",
+  "undo-redo-constraints",
+  "undo-redo-reconnect",
+];
 
 function recipeCommands(name) {
   const result = spawnSync("just", [
@@ -52,6 +59,25 @@ test("committed corpus gates source and both native schema evolution coverage", 
   }
 });
 
+test("committed corpus gates the complete undo and redo contract", () => {
+  const manifest = JSON.parse(readFileSync(
+    resolve(repository, "test/fixtures/shared_tree/manifest.json"),
+    "utf8",
+  ));
+  const sourceCases = new Set(manifest.cases.map(({ id }) => id));
+  for (const id of undoRedoCaseIds) {
+    assert(sourceCases.has(id), `Source corpus lacks ${id}`);
+  }
+  assert.deepEqual(manifest.inventory.undoRedoContract.supportedFeatures, [
+    "application-owned-revertibles",
+    "default-undo-redo-commit-kinds",
+    "runtime-local-handle-lifetime",
+    "reconnect-with-live-handles",
+    "object-map-array-move-transaction-undo-redo",
+    "sequenced-commit-outcomes",
+  ]);
+});
+
 test("deep acceptance uses the same coordinator with 7500 schedules", () => {
   assert.deepEqual(recipeCommands("shared-tree-interop-deep"), [
     "node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 7500 --seed 42",
@@ -67,7 +93,7 @@ test("creation acceptance retains native checks and pinned-service proof", () =>
   ]);
 });
 
-test("hosted gates name the supported profile and install the configured rebar tool", () => {
+test("hosted erlang gates install the configured rebar tool", () => {
   const mise = readFileSync(resolve(repository, "mise.toml"), "utf8");
   const nativeWorkflow = readFileSync(
     resolve(repository, ".github/workflows/shared-tree.yml"),
@@ -83,9 +109,6 @@ test("hosted gates name the supported profile and install the configured rebar t
     [...nativeWorkflow.matchAll(/uses: jdx\/mise-action@v3/g)].length,
     1,
   );
-  assert.match(nativeWorkflow, /name: Supported SharedTree profile validators/);
-  assert.match(nativeWorkflow, /name: Supported SharedTree native acceptance/);
-  assert.doesNotMatch(nativeWorkflow, /M1\/M2\/M3/);
   assert.doesNotMatch(nativeWorkflow, /^\s*install_args:/m);
   assert.doesNotMatch(nativeWorkflow, /run: just shared-tree-interop/);
   assert.doesNotMatch(nativeWorkflow, /run: just shared-tree-create-interop/);
@@ -95,9 +118,6 @@ test("hosted gates name the supported profile and install the configured rebar t
   assert.match(interopWorkflow, /^on:\n  workflow_dispatch:\n/m);
   assert.doesNotMatch(interopWorkflow, /^\s{2}(?:pull_request|push):/m);
   assert.match(interopWorkflow, /uses: jdx\/mise-action@v3/);
-  assert.match(interopWorkflow, /name: Supported SharedTree profile validators/);
-  assert.match(interopWorkflow, /name: Three-client supported-profile acceptance/);
-  assert.doesNotMatch(interopWorkflow, /M1\/M2\/M3/);
   assert.doesNotMatch(interopWorkflow, /^\s*install_args:/m);
   assert.match(interopWorkflow, /run: just shared-tree-interop/);
   assert.match(interopWorkflow, /run: just shared-tree-create-interop/);

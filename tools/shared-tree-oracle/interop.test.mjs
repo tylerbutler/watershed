@@ -4790,7 +4790,7 @@ test("the committed profile is hashed and every compatibility pin is validated",
   assert.match(loaded.profileDigest, /^[0-9a-f]{64}$/);
   assert.equal(
     loaded.profileDigest,
-    "08bc0e39dcb8c399d477b70ee183d42f5fbd69e842aa7642befe38e7246aff6b",
+    "df753f54b96d22433cbbc35b74d387240074e7ef92530ebc1b1861905aae9c68",
   );
   assert.deepEqual(loaded.profile.reference, reference);
   assert.deepEqual(
@@ -4822,6 +4822,12 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "strict-view-object-map-schema-evolution",
     "synchronous-single-tree-transactions",
     "stable-node-existence-constraints",
+    "application-owned-revertibles",
+    "default-undo-redo-commit-kinds",
+    "runtime-local-handle-lifetime",
+    "reconnect-with-live-handles",
+    "object-map-array-move-transaction-undo-redo",
+    "sequenced-commit-outcomes",
   ]);
   assert.deepEqual(loaded.profile.excludedFeatures, [
     "array-schema-evolution",
@@ -4841,7 +4847,15 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "custom-identifier-global-uniqueness",
     "detached-node-builder",
     "uuidv5-healing",
-    "undo-redo",
+    "persisted-undo-redo-stacks",
+    "schema-undo",
+    "remote-commit-undo",
+    "undo-during-transactions",
+    "cross-tree-atomic-undo",
+    "public-local-branch-apis",
+    "custom-revert-metadata",
+    "clone-to-view",
+    "revert-to",
     "asynchronous-transactions",
     "cross-tree-transactions",
     "schema-upgrades-in-transactions",
@@ -4851,6 +4865,7 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "async-cross-tree-transactions",
   ]);
   assert(!loaded.profile.excludedFeatures.includes("public-transactions"));
+  assert(!loaded.profile.excludedFeatures.includes("undo-redo"));
   assert(!loaded.profile.excludedFeatures.includes("arrays"));
   assert(!loaded.profile.excludedFeatures.includes("maps-in-tree"));
   const directory = await temporaryDirectory("watershed-profile-");

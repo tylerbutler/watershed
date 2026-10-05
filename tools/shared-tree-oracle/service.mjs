@@ -85,6 +85,26 @@ export const transactionExcludedFeatures = [
   "transaction-post-processors",
 ];
 
+export const undoRedoSupportedFeatures = [
+  "application-owned-revertibles",
+  "default-undo-redo-commit-kinds",
+  "runtime-local-handle-lifetime",
+  "reconnect-with-live-handles",
+  "object-map-array-move-transaction-undo-redo",
+  "sequenced-commit-outcomes",
+];
+export const undoRedoExcludedFeatures = [
+  "persisted-undo-redo-stacks",
+  "schema-undo",
+  "remote-commit-undo",
+  "undo-during-transactions",
+  "cross-tree-atomic-undo",
+  "public-local-branch-apis",
+  "custom-revert-metadata",
+  "clone-to-view",
+  "revert-to",
+];
+
 export const supportedFeatures = [
   "fixed-object-schema",
   "primitive-leaves",
@@ -106,6 +126,7 @@ export const supportedFeatures = [
   "gc-metadata",
   "strict-view-object-map-schema-evolution",
   ...transactionSupportedFeatures,
+  ...undoRedoSupportedFeatures,
 ];
 export const excludedFeatures = [
   "array-schema-evolution",
@@ -125,7 +146,7 @@ export const excludedFeatures = [
   "custom-identifier-global-uniqueness",
   "detached-node-builder",
   "uuidv5-healing",
-  "undo-redo",
+  ...undoRedoExcludedFeatures,
   ...transactionExcludedFeatures,
   "async-cross-tree-transactions",
 ];

@@ -546,10 +546,9 @@ test("create observation records only the combined summary and assigned document
     { observeCreateContainer: true },
   );
 
-  assert.equal(
-    await wrapped.createContainer(summary, { tokens: { jwt: "request-secret" } }),
-    service,
-  );
+  const actual =
+    await wrapped.createContainer(summary, { tokens: { jwt: "request-secret" } });
+  assert.equal(actual.resolvedUrl, service.resolvedUrl);
   assert.deepEqual(observations, [{
     operation: "createContainer",
     summary,

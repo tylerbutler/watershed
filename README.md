@@ -111,8 +111,9 @@ generate replacement IDs.
 The Identifier profile does not add handles, incremental FieldBatch chunks,
 arbitrary container layouts, `Tree.shortId`, an identifier index, global
 uniqueness checks, a detached JavaScript-style node builder, or UUIDv5 healing.
-Undo/redo remains outside the published profile. Transactions are synchronous
-and limited to one tree.
+Transactions are synchronous and limited to one tree. Undo and redo use
+application-owned, runtime-local revertible handles; Watershed does not provide
+or persist an undo stack.
 
 The [profile manifest](test/fixtures/shared_tree/profile.json) records upstream
 commit `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960` and Floodgate commit
@@ -193,6 +194,14 @@ Schema upgrades participate in the same sequenced conflict rules as data.
 A concurrent data edit can win and reduce the local upgrade to an acknowledged
 empty change. Watershed does not merge or retry losing schemas. Inspect
 compatibility again and request a new upgrade from the current stored schema.
+
+The supported authoring profile permits additive object/map changes: optional
+object fields, wider allowed types for existing object fields and map entries,
+required-to-optional field or root changes, wider root types, and definitions
+needed by those transitions. Upstream `can_upgrade` describes the schema
+relation; Watershed's authoring restrictions can still reject a transition
+such as a node-kind replacement. This profile covers initialized documents and
+does not broaden creation or initialization.
 
 ### SharedTree transactions
 
@@ -288,13 +297,153 @@ Asynchronous and cross-tree transactions, schema upgrades inside transactions,
 the alpha `noChange` constraint, transaction metadata, and post-processors are
 not supported.
 
-The supported authoring profile permits additive object/map changes: optional
-object fields, wider allowed types for existing object fields and map entries,
-required-to-optional field or root changes, wider root types, and definitions
-needed by those transitions. Upstream `can_upgrade` describes the schema
-relation; Watershed's authoring restrictions can still reject a transition
-such as a node-kind replacement. This profile covers initialized documents and
-does not broaden creation or initialization.
+### SharedTree undo and redo
+
+`subscribe_tree_commits` reports local default, undo, and redo commits on both
+facades. An eligible local commit supplies a one-shot factory during the
+callback. Call that factory before the callback returns, then store the handle
+in application state. Remote and schema commits do not supply a factory.
+
+The following pattern uses one subscription. The application routes
+`UndoMessage` values through its existing state owner, such as an actor or an
+application update loop. The state owner holds the mutable undo and redo
+stacks; Watershed only creates and reverts handles.
+
+```gleam
+import gleam/list
+import gleam/option.{None, Some}
+import watershed
+import watershed/tree/types
+
+pub type UndoState {
+  UndoState(
+    undo: List(watershed.TreeRevertible),
+    redo: List(watershed.TreeRevertible),
+  )
+}
+
+pub type UndoMessage {
+  Captured(types.TreeCommitKind, watershed.TreeRevertible)
+  Settled(types.TreeCommitOutcome)
+  UndoRequested
+  RedoRequested
+}
+
+pub fn new_undo_state() -> UndoState {
+  UndoState(undo: [], redo: [])
+}
+
+pub fn subscribe_undo(
+  tree: watershed.SharedTree,
+  dispatch: fn(UndoMessage) -> Nil,
+  report_error: fn(String) -> Nil,
+) -> watershed.SubscriptionToken {
+  watershed.subscribe_tree_commits(tree, fn(event) {
+    let watershed.TreeCommitEvent(kind, local, factory, settlement) = event
+
+    case #(local, factory, settlement) {
+      #(True, Some(acquire), Some(register)) ->
+        case acquire() {
+          Error(error) -> report_error("Could not acquire revertible: " <> error)
+          Ok(handle) ->
+            case register(fn(outcome) { dispatch(Settled(outcome)) }) {
+              Ok(Nil) -> dispatch(Captured(kind, handle))
+              Error(error) -> {
+                report_error("Could not register settlement: " <> error)
+                case watershed.tree_dispose_revertible(handle) {
+                  Ok(Nil) -> Nil
+                  Error(dispose_error) ->
+                    report_error(
+                      "Could not dispose unregistered revertible: "
+                      <> dispose_error,
+                    )
+                }
+              }
+            }
+        }
+      #(False, _, _) | #(_, None, _) | #(_, _, None) -> Nil
+    }
+  })
+}
+
+fn dispose_all(
+  handles: List(watershed.TreeRevertible),
+  report_error: fn(String) -> Nil,
+) -> Nil {
+  list.each(handles, fn(handle) {
+    case watershed.tree_dispose_revertible(handle) {
+      Ok(Nil) -> Nil
+      Error(error) -> report_error("Could not dispose redo handle: " <> error)
+    }
+  })
+}
+
+pub fn update_undo(
+  state: UndoState,
+  message: UndoMessage,
+  report_error: fn(String) -> Nil,
+  report_settlement: fn(types.TreeCommitOutcome) -> Nil,
+) -> UndoState {
+  case message {
+    Captured(types.DefaultCommit, handle) -> {
+      dispose_all(state.redo, report_error)
+      UndoState(..state, undo: [handle, ..state.undo], redo: [])
+    }
+    Captured(types.UndoCommit, handle) ->
+      UndoState(..state, redo: [handle, ..state.redo])
+    Captured(types.RedoCommit, handle) ->
+      UndoState(..state, undo: [handle, ..state.undo])
+    Settled(outcome) -> {
+      report_settlement(outcome)
+      state
+    }
+    UndoRequested ->
+      case state.undo {
+        [] -> state
+        [handle, ..rest] ->
+          case watershed.tree_revert(handle, True) {
+            Ok(Nil) -> UndoState(..state, undo: rest)
+            Error(error) -> {
+              report_error("Could not undo commit: " <> error)
+              state
+            }
+          }
+      }
+    RedoRequested ->
+      case state.redo {
+        [] -> state
+        [handle, ..rest] ->
+          case watershed.tree_revert(handle, True) {
+            Ok(Nil) -> UndoState(..state, redo: rest)
+            Error(error) -> {
+              report_error("Could not redo commit: " <> error)
+              state
+            }
+          }
+      }
+  }
+}
+```
+
+A new default commit disposes and clears the redo stack. Reverting a default
+or redo handle emits an undo commit, whose acquired handle goes onto the redo
+stack. Reverting an undo handle emits a redo commit, whose handle goes onto the
+undo stack. The example consumes each popped handle with
+`tree_revert(handle, True)`. `tree_revert(handle, False)` keeps a handle valid,
+and the pinned contract permits repeated reversion of that same target.
+
+Handles belong to one runtime, document, and tree address. They survive
+disconnect and reconnect in that runtime because reconnect keeps the in-memory
+registry and retained history. Closing the runtime disposes them. Summary
+reload preserves the committed undo or redo state but creates a new runtime,
+so old handles and application stacks do not reload. Dispose unused handles to
+release retained history; a second disposal returns an error.
+
+One outer transaction commit can supply one revertible after the transaction
+finishes. `tree_revert` during an active transaction is unsupported. Persisted
+stacks, schema undo, remote-commit undo, cross-tree atomic undo, public
+branches, `noChange`, custom revert metadata, clone-to-view, and `revertTo`
+remain outside the profile. Richer Lustre and UI bindings remain M7 work.
 
 Use `tree_map_get`, `tree_map_set`, `tree_map_delete`, `tree_map_keys`, and
 `tree_map_entries` on either facade. Each operation takes a path to the map;
@@ -337,9 +486,9 @@ collaboration window. History can trim as the minimum sequence advances, but
 there is no published capacity, throughput, or bounded-memory guarantee.
 
 Map-wide clear, array schema evolution, staged upgrades,
-unknown-field adapters, data migration, handle-valued tree leaves, undo/redo,
-branching, and incremental summaries remain deferred. Transaction support is
-limited as described above.
+unknown-field adapters, data migration, handle-valued tree leaves, branching,
+persisted undo stacks, and incremental summaries remain deferred. Transaction
+and undo/redo support is limited as described above.
 The compatibility claim also excludes additional upstream package versions.
 Fixed-layout creation is available below; broader container layouts, live
 attachment, richer SharedTree Lustre bindings, and disk recovery of pending

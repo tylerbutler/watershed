@@ -26,11 +26,10 @@ Also read the [parent design](../specs/2026-09-21-shared-tree-design.md),
 
 ## Reconciliation (2026-10-04)
 
-**Current status:** Tasks 1-9 are implemented. Task 10 (supported-profile and
-permanent-gate closure) and Task 11 (current full-regression closure) remain
-open. The task bodies below are retained as the historical test-first execution
-record; an unchecked historical substep is not evidence that its named source
-surface is absent.
+**Current status:** Tasks 1-10 are implemented. Task 11 current
+full-regression closure remains in progress. The task bodies below are retained
+as the historical test-first execution record; an unchecked historical substep
+is not evidence that its named source surface is absent.
 
 Current code exposes synchronous single-tree transactions on JavaScript at
 `src/watershed.gleam:627` and BEAM at `src/watershed_beam.gleam:739`.
@@ -48,10 +47,10 @@ transactions as deferred. The thin Lustre adapter
 and no user-facing example demonstrates the callback API. Those consumer
 surfaces were not part of Tasks 1-9, but they must not be implied by this plan.
 
-Undo and redo are now implemented separately; references below that call them
-unimplemented describe the 2026-09-29 planning baseline. See
-[the undo/redo plan](2026-10-02-shared-tree-undo-redo.md) for its still-open
-profile and regression closure.
+Undo and redo are implemented and profile-closed separately; references below
+that call them unimplemented describe the 2026-09-29 planning baseline. See
+[the undo/redo plan](2026-10-02-shared-tree-undo-redo.md) for its published
+profile and still-open final regression closure.
 
 No test, service, build, or hosted workflow was run for this docs-only
 reconciliation. Existing test and gate files prove coverage is present, not
@@ -1605,7 +1604,7 @@ git commit -m "test(tree): prove transaction interoperability"
 **Reconciled status:** Complete for the transaction slice. The generated and
 service profiles publish synchronous single-tree transactions and stable
 node-existence constraints. Task 11 still owns final regression closure, and
-the undo/redo plan owns its support labels.
+the undo/redo plan now publishes its support labels.
 
 **Files:**
 - Modify: `tools/shared-tree-oracle/generate.mjs`, `interop.mjs`, `service.mjs`
@@ -1666,9 +1665,8 @@ npm --prefix tools/shared-tree-oracle run generate
 npm --prefix tools/shared-tree-oracle run check
 ```
 
-The full oracle, native, codec, and service commands remain deferred to the
-combined transaction/undo validation and this plan's Task 11, as directed for
-this release sequence.
+The full oracle now passes with the combined transaction/undo profile. Native,
+codec, service, creation, root, and hosted commands remain Task 11 evidence.
 
 - [x] **Step 6: Commit profile and documentation closure.**
 
@@ -1747,9 +1745,8 @@ validation evidence.
 - [ ] All nine summary writer/reader combinations continue editing.
 - [ ] Required gates fail on missing artifacts, targets, scenarios, or service.
 - [ ] Existing M1-M4 behavior and native container creation remain intact.
-- [ ] Transaction documentation distinguishes this implemented slice from the
-      separately implemented but not yet profile-closed undo/redo slice and
-      from still-deferred transaction features.
+- [x] Transaction documentation distinguishes this implemented slice from the
+      published undo/redo slice and from still-deferred transaction features.
 
 ## 6. Review matrix and stop conditions
 
