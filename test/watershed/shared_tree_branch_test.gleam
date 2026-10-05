@@ -1,15 +1,949 @@
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import startest/expect
 import watershed/fluid_ids
+import watershed/tree/array_fixture
+import watershed/tree/branch
 import watershed/tree/change
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/schema
 import watershed/tree/shared_change
 import watershed/tree/types.{NumberValue, ObjectValue, SetField}
+import watershed/tree_kernel
 
 const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+
+fn branch_state() -> tree_kernel.TreeState {
+  let assert Ok(stored) = schema.stored_from_string(tree_schema)
+  let root =
+    ObjectValue("Root", [
+      #(
+        "point",
+        ObjectValue("Point", [
+          #("x", NumberValue(1.0)),
+          #("y", NumberValue(2.0)),
+        ]),
+      ),
+    ])
+  let view_id = revision("98")
+  let assert Ok(initial) = forest.new(view_id, stored, Some(root))
+  let assert Ok(data) = forest.export_data(initial)
+  let assert Ok(snapshot) =
+    tree_kernel.snapshot_from_parts(
+      view_id,
+      stored,
+      data,
+      history.HistorySnapshot(history.InitialBase, [], [], 0, 0, []),
+    )
+  let assert Ok(view) = schema.view_from_json(schema.stored_to_json(stored))
+  let assert Ok(state) = tree_kernel.restore(snapshot, view_id, session(), view)
+  state
+}
+
+const array_items_type = "org.watershed.shared-tree.m3.Items"
+
+const array_point_type = "org.watershed.shared-tree.m3.Point"
+
+fn point(label: String, x: Float) -> types.TreeValue {
+  ObjectValue(array_point_type, [
+    #("label", types.StringValue(label)),
+    #("x", NumberValue(x)),
+  ])
+}
+
+fn rich_root(
+  left: List(types.TreeValue),
+  right: List(types.TreeValue),
+  by_key: List(#(String, types.TreeValue)),
+) -> types.TreeValue {
+  ObjectValue("org.watershed.shared-tree.m3.Root", [
+    #("left", types.ArrayValue(array_items_type, left)),
+    #("right", types.ArrayValue(array_items_type, right)),
+    #("byKey", types.MapValue("org.watershed.shared-tree.m3.ArrayMap", by_key)),
+    #("narrow", types.ArrayValue("org.watershed.shared-tree.m3.Points", [])),
+  ])
+}
+
+fn initial_left() -> List(types.TreeValue) {
+  [point("left-a", 1.0), point("left-b", 2.0)]
+}
+
+fn initial_right() -> List(types.TreeValue) {
+  [point("right-a", 3.0)]
+}
+
+fn initial_map() -> List(#(String, types.TreeValue)) {
+  [
+    #("0", types.ArrayValue(array_items_type, [types.StringValue("existing")])),
+  ]
+}
+
+fn rich_branch_state() -> tree_kernel.TreeState {
+  let root = rich_root(initial_left(), initial_right(), initial_map())
+  let stored = array_fixture.stored("objectArrays")
+  let view_id = array_fixture.view_id()
+  let assert Ok(snapshot) =
+    tree_kernel.snapshot_from_parts(
+      view_id,
+      stored,
+      forest.ForestData(Some(root), [], 0),
+      history.HistorySnapshot(history.InitialBase, [], [], 0, 0, []),
+    )
+  let assert Ok(state) =
+    tree_kernel.restore(
+      snapshot,
+      view_id,
+      session(),
+      array_fixture.view("objectArrays"),
+    )
+  state
+}
+
+pub fn local_branch_fork_isolates_kernel_state_test() -> Nil {
+  let main = branch_state()
+  let origin = branch.origin("runtime", "document", "tree")
+  let forest = branch.new(origin, main)
+  let document = branch.document(forest)
+  let main_reference =
+    branch.reference_at(forest, document, ["point"]) |> expect.to_be_ok
+  let main_data = branch.visible_data(forest, document) |> expect.to_be_ok
+  let main_history = branch.history_view(forest, document) |> expect.to_be_ok
+  let assert Ok(#(forest, fork)) = branch.fork(forest, document)
+  let fork_reference =
+    branch.reference_at(forest, fork, ["point"]) |> expect.to_be_ok
+  let fork_before = branch.visible_data(forest, fork) |> expect.to_be_ok
+
+  let assert Ok(#(edited, _, events)) =
+    branch.apply(
+      forest,
+      fork,
+      revision("0f"),
+      change.identity_order([#(revision("0f"), -1)]) |> expect.to_be_ok,
+      SetField(["point", "x"], NumberValue(7.0)),
+    )
+
+  branch.read(edited, document, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+  branch.read(edited, fork, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+  branch.visible_data(edited, document) |> expect.to_equal(Ok(main_data))
+  branch.history_view(edited, document)
+  |> expect.to_equal(Ok(main_history))
+  main_reference |> expect.to_equal(fork_reference)
+  main_data.detached |> expect.to_equal(fork_before.detached)
+  events
+  |> expect.to_equal(tree_kernel.ChangeEvents(
+    [tree_kernel.TreeChanged(True)],
+    False,
+  ))
+}
+
+fn branch_order() -> change.IdentityOrder {
+  change.identity_order([
+    #(revision("1a"), -4),
+    #(revision("1b"), -3),
+    #(revision("1c"), -2),
+    #(revision("1d"), -1),
+  ])
+  |> expect.to_be_ok
+}
+
+pub fn local_branch_rebase_changes_source_and_preserves_target_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, source)) = branch.fork(forest, document)
+  let assert Ok(#(forest, target)) = branch.fork(forest, document)
+  let assert Ok(#(forest, _, _)) =
+    branch.apply(
+      forest,
+      source,
+      revision("1a"),
+      branch_order(),
+      SetField(["point", "x"], NumberValue(7.0)),
+    )
+  let assert Ok(#(forest, _, _)) =
+    branch.apply(
+      forest,
+      target,
+      revision("1b"),
+      branch_order(),
+      SetField(["point", "y"], NumberValue(9.0)),
+    )
+  let assert Ok(#(branch.ReconcileResult(forest, events, commits), _)) =
+    branch.rebase(
+      forest,
+      source,
+      target,
+      Allocation([revision("1c")], branch_order()),
+      mint,
+    )
+
+  branch.read(forest, source, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+  branch.read(forest, source, ["point", "y"])
+  |> expect.to_equal(Ok(Some(NumberValue(9.0))))
+  branch.read(forest, target, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+  branch.read(forest, target, ["point", "y"])
+  |> expect.to_equal(Ok(Some(NumberValue(9.0))))
+  commits |> expect.to_equal([])
+  list.length(events) |> expect.to_equal(1)
+}
+
+pub fn local_branch_document_update_preserves_authoritative_history_test() -> Nil {
+  let main = branch_state()
+  let forest = branch.new(branch.origin("runtime", "document", "tree"), main)
+  let document = branch.document(forest)
+  let assert Ok(#(forest, fork)) = branch.fork(forest, document)
+  let assert Ok(#(forest, main_commit)) =
+    branch.update_document(forest, fn(authoritative) {
+      use #(updated, commit, _) <- result.try(tree_kernel.apply_local(
+        authoritative,
+        revision("1b"),
+        branch_order(),
+        SetField(["point", "y"], NumberValue(9.0)),
+      ))
+      Ok(#(updated, commit))
+    })
+
+  branch.history_view(forest, document)
+  |> expect.to_be_ok
+  |> fn(view) { view.pending }
+  |> expect.to_equal([main_commit])
+  let assert Ok(#(branch.ReconcileResult(forest, _, _), _)) =
+    branch.rebase(
+      forest,
+      fork,
+      document,
+      Allocation([revision("1c")], branch_order()),
+      mint,
+    )
+  branch.read(forest, fork, ["point", "y"])
+  |> expect.to_equal(Ok(Some(NumberValue(9.0))))
+}
+
+pub fn local_branch_document_update_preserves_remote_progress_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, fork)) = branch.fork(forest, document)
+  let remote =
+    edit_field_commit_with_order(
+      revision("1b"),
+      peer_session(),
+      "y",
+      9.0,
+      branch_order(),
+    )
+  let assert Ok(#(forest, Nil)) =
+    branch.update_document(forest, fn(authoritative) {
+      use #(received, _, Nil) <- result.try(tree_kernel.receive(
+        authoritative,
+        remote,
+        types.SequencePoint(1, 0),
+        0,
+        0,
+        Nil,
+        no_mint,
+      ))
+      Ok(#(received, Nil))
+    })
+  let assert Ok(#(branch.ReconcileResult(forest, _, _), _)) =
+    branch.rebase(
+      forest,
+      fork,
+      document,
+      Allocation([revision("1c")], branch_order()),
+      mint,
+    )
+  branch.read(forest, fork, ["point", "y"])
+  |> expect.to_equal(Ok(Some(NumberValue(9.0))))
+  branch.history_view(forest, document)
+  |> expect.to_be_ok
+  |> fn(view) { view.sequenced.sequence_number }
+  |> expect.to_equal(1)
+}
+
+pub fn local_branch_document_update_preserves_ack_progress_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, fork)) = branch.fork(forest, document)
+  let assert Ok(#(forest, commit)) =
+    branch.update_document(forest, fn(authoritative) {
+      use #(edited, commit, _) <- result.try(tree_kernel.apply_local(
+        authoritative,
+        revision("1b"),
+        branch_order(),
+        SetField(["point", "y"], NumberValue(9.0)),
+      ))
+      Ok(#(edited, commit))
+    })
+  let assert Ok(#(forest, Nil)) =
+    branch.update_document(forest, fn(authoritative) {
+      use #(acked, _, Nil) <- result.try(tree_kernel.receive(
+        authoritative,
+        commit,
+        types.SequencePoint(1, 0),
+        0,
+        0,
+        Nil,
+        no_mint,
+      ))
+      Ok(#(acked, Nil))
+    })
+  let assert Ok(#(branch.ReconcileResult(forest, _, _), _)) =
+    branch.rebase(
+      forest,
+      fork,
+      document,
+      Allocation([revision("1c")], branch_order()),
+      mint,
+    )
+  branch.read(forest, fork, ["point", "y"])
+  |> expect.to_equal(Ok(Some(NumberValue(9.0))))
+  branch.history_view(forest, document)
+  |> expect.to_be_ok
+  |> fn(view) { view.pending }
+  |> expect.to_equal([])
+}
+
+pub fn local_branch_merge_into_document_preserves_boundaries_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, source)) = branch.fork(forest, document)
+  let assert Ok(#(forest, first, _)) =
+    branch.apply(
+      forest,
+      source,
+      revision("1a"),
+      branch_order(),
+      SetField(["point", "x"], NumberValue(7.0)),
+    )
+  let assert Ok(#(forest, second, _)) =
+    branch.apply(
+      forest,
+      source,
+      revision("1b"),
+      branch_order(),
+      SetField(["point", "y"], NumberValue(9.0)),
+    )
+  let assert Ok(#(branch.ReconcileResult(forest, events, commits), _)) =
+    branch.merge(
+      forest,
+      document,
+      source,
+      False,
+      Allocation([revision("1c"), revision("1d")], branch_order()),
+      mint,
+    )
+
+  branch.read(forest, document, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+  branch.read(forest, document, ["point", "y"])
+  |> expect.to_equal(Ok(Some(NumberValue(9.0))))
+  commits |> expect.to_equal([first, second])
+  let assert [
+    branch.BranchEvent(
+      types.DocumentCheckout,
+      Some(first_event),
+      tree_kernel.ChangeEvents([tree_kernel.TreeChanged(True)], False),
+    ),
+    branch.BranchEvent(
+      types.DocumentCheckout,
+      Some(second_event),
+      tree_kernel.ChangeEvents([tree_kernel.TreeChanged(True)], False),
+    ),
+  ] = events
+  first_event |> expect.to_equal(first)
+  second_event |> expect.to_equal(second)
+  branch.history_view(forest, document)
+  |> expect.to_be_ok
+  |> fn(view) { view.pending }
+  |> expect.to_equal([first, second])
+}
+
+pub fn local_branch_document_merge_preserves_authoring_schema_through_ack_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, source)) = branch.fork(forest, document)
+  let assert Ok(#(forest, commit, _)) =
+    branch.apply(
+      forest,
+      source,
+      revision("1a"),
+      branch_order(),
+      SetField(["point", "x"], NumberValue(7.0)),
+    )
+  let assert Ok(#(branch.ReconcileResult(forest, _, [merged]), _)) =
+    branch.merge(
+      forest,
+      document,
+      source,
+      False,
+      Allocation([], branch_order()),
+      mint,
+    )
+  merged.revision |> expect.to_equal(commit.revision)
+  let assert Ok(#(forest, authored_schema)) =
+    branch.update_document(forest, fn(authoritative) {
+      use authored <- result.try(tree_kernel.authoring_schema(
+        authoritative,
+        session(),
+        0,
+        merged.revision,
+      ))
+      Ok(#(authoritative, authored))
+    })
+  authored_schema
+  |> expect.to_equal(
+    schema.FixedSchema(tree_kernel.stored_schema(branch_state())),
+  )
+
+  let assert Ok(#(forest, Nil)) =
+    branch.update_document(forest, fn(authoritative) {
+      use #(acked, _, Nil) <- result.try(tree_kernel.receive(
+        authoritative,
+        merged,
+        types.SequencePoint(1, 0),
+        0,
+        0,
+        Nil,
+        no_mint,
+      ))
+      Ok(#(acked, Nil))
+    })
+  branch.history_view(forest, document)
+  |> expect.to_be_ok
+  |> fn(view) { view.pending }
+  |> expect.to_equal([])
+  branch.read(forest, document, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+}
+
+pub fn local_branch_object_replacement_rebases_exact_state_test() -> Nil {
+  list.each([False, True], fn(target_first) {
+    let forest =
+      branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+    let document = branch.document(forest)
+    let assert Ok(#(forest, source)) = branch.fork(forest, document)
+    let assert Ok(#(forest, target)) = branch.fork(forest, document)
+    let original_reference =
+      branch.reference_at(forest, source, ["point"]) |> expect.to_be_ok
+    let replacement =
+      ObjectValue("Point", [
+        #("x", NumberValue(7.0)),
+        #("y", NumberValue(8.0)),
+      ])
+    let apply_source = fn(forest) {
+      let assert Ok(#(forest, _, _)) =
+        branch.apply(
+          forest,
+          source,
+          revision("1a"),
+          branch_order(),
+          SetField(["point"], replacement),
+        )
+      forest
+    }
+    let apply_target = fn(forest) {
+      let assert Ok(#(forest, _, _)) =
+        branch.apply(
+          forest,
+          target,
+          revision("1b"),
+          branch_order(),
+          SetField(["point", "x"], NumberValue(9.0)),
+        )
+      forest
+    }
+    let forest = case target_first {
+      True -> apply_source(apply_target(forest))
+      False -> apply_target(apply_source(forest))
+    }
+    let assert Ok(#(branch.ReconcileResult(forest, _, _), _)) =
+      branch.rebase(
+        forest,
+        source,
+        target,
+        Allocation([revision("1c")], branch_order()),
+        mint,
+      )
+
+    branch.read(forest, source, ["point"])
+    |> expect.to_equal(
+      Ok(
+        Some(
+          ObjectValue("Point", [
+            #("x", NumberValue(7.0)),
+            #("y", NumberValue(8.0)),
+          ]),
+        ),
+      ),
+    )
+    branch.reference_at(forest, source, ["point"])
+    |> expect.to_not_equal(Ok(original_reference))
+    let assert Ok(history.LocalBranch(_, _, commits)) =
+      branch.local_history(forest, source)
+    list.map(commits, fn(commit) { commit.revision })
+    |> expect.to_equal([revision("1b"), revision("1a")])
+  })
+}
+
+pub fn local_branch_forest_lifecycle_matches_pinned_contract_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, parent)) = branch.fork(forest, document)
+  let assert Ok(#(forest, child)) = branch.fork(forest, parent)
+  let assert Ok(forest) = branch.dispose(forest, parent)
+  branch.read(forest, child, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+  branch.dispose(forest, parent) |> expect.to_equal(Ok(forest))
+  branch.dispose(forest, document) |> expect.to_be_error
+
+  let assert Ok(#(forest, empty)) = branch.fork(forest, document)
+  let assert Ok(#(branch.ReconcileResult(forest, events, commits), _)) =
+    branch.merge(
+      forest,
+      document,
+      empty,
+      True,
+      Allocation([], branch_order()),
+      mint,
+    )
+  events |> expect.to_equal([])
+  commits |> expect.to_equal([])
+  let _ = branch.read(forest, empty, ["point", "x"]) |> expect.to_be_error
+  Nil
+}
+
+pub fn local_branch_reconciliation_guards_are_atomic_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, source)) = branch.fork(forest, document)
+  let before = branch.visible_data(forest, source)
+  let unrelated =
+    branch.document(branch.new(
+      branch.origin("other", "document", "tree"),
+      branch_state(),
+    ))
+
+  branch.rebase(forest, source, unrelated, Allocation([], branch_order()), mint)
+  |> expect.to_be_error
+  branch.visible_data(forest, source) |> expect.to_equal(before)
+
+  let active =
+    branch.set_transaction_active(forest, source, True) |> expect.to_be_ok
+  branch.rebase(active, source, document, Allocation([], branch_order()), mint)
+  |> expect.to_be_error
+  branch.visible_data(active, source) |> expect.to_equal(before)
+
+  let disposed = branch.dispose(forest, source) |> expect.to_be_ok
+  branch.merge(
+    disposed,
+    document,
+    source,
+    False,
+    Allocation([], branch_order()),
+    mint,
+  )
+  |> expect.to_be_error
+  let changed_schema =
+    branch.update_document(forest, fn(authoritative) {
+      Ok(#(
+        tree_kernel.with_branch_history(
+          rich_branch_state(),
+          tree_kernel.branch_history(authoritative),
+        ),
+        Nil,
+      ))
+    })
+    |> expect.to_be_ok
+    |> fn(value) { value.0 }
+  branch.rebase(
+    changed_schema,
+    source,
+    document,
+    Allocation([], branch_order()),
+    mint,
+  )
+  |> expect.to_be_error
+  branch.visible_data(changed_schema, source) |> expect.to_equal(before)
+  let _ =
+    branch.rebase(
+      forest,
+      document,
+      source,
+      Allocation([], branch_order()),
+      mint,
+    )
+    |> expect.to_be_error
+  Nil
+}
+
+type FieldCase {
+  FieldCase(
+    name: String,
+    source: types.Edit,
+    target: types.Edit,
+    expected: types.TreeValue,
+    identity_before: types.FieldPath,
+    identity_after: types.FieldPath,
+    array_changed: Bool,
+  )
+}
+
+fn event_matches_field_case(
+  event: branch.BranchEvent,
+  target: types.LocalCheckoutId,
+  array_changed: Bool,
+) -> Bool {
+  case event {
+    branch.BranchEvent(
+      types.LocalCheckout(event_target),
+      Some(history.Commit(event_revision, event_originator, event_change)),
+      tree_kernel.ChangeEvents([tree_kernel.TreeChanged(True)], event_array),
+    ) -> {
+      let projection = case shared_change.to_changes(event_change) {
+        [shared_change.DataChange(changeset)] -> {
+          let data = change.to_data(changeset)
+          data.revisions == [change.RevisionInfo(revision("1a"), None)]
+          && data.constraint_violation_count == 0
+          && data.fields != []
+        }
+        _ -> False
+      }
+      event_target == target
+      && event_revision == revision("1a")
+      && event_originator == session()
+      && event_array == array_changed
+      && shared_change.identity_revisions(event_change)
+      == [
+        revision("1a"),
+        revision("1b"),
+        revision("1c"),
+        revision("1d"),
+      ]
+      && projection
+    }
+    _ -> False
+  }
+}
+
+fn reconcile_field_case(scenario: FieldCase, target_first: Bool) -> Nil {
+  let forest =
+    branch.new(
+      branch.origin("runtime", "document", "tree"),
+      rich_branch_state(),
+    )
+  let document = branch.document(forest)
+  let assert Ok(#(forest, source)) = branch.fork(forest, document)
+  let assert Ok(#(forest, target)) = branch.fork(forest, document)
+  let source_identity =
+    branch.reference_at(forest, source, scenario.identity_before)
+    |> expect.to_be_ok
+  let apply_source = fn(forest) {
+    let #(forest, _, _) =
+      branch.apply(
+        forest,
+        source,
+        revision("1a"),
+        branch_order(),
+        scenario.source,
+      )
+      |> expect.to_be_ok
+    forest
+  }
+  let apply_target = fn(forest) {
+    let #(forest, _, _) =
+      branch.apply(
+        forest,
+        target,
+        revision("1b"),
+        branch_order(),
+        scenario.target,
+      )
+      |> expect.to_be_ok
+    forest
+  }
+  let forest = case target_first {
+    True -> apply_source(apply_target(forest))
+    False -> apply_target(apply_source(forest))
+  }
+  let target_before = branch.visible_data(forest, target) |> expect.to_be_ok
+  let target_root = branch.reference_at(forest, target, []) |> expect.to_be_ok
+  let assert Ok(history.LocalBranch(target_id, _, _)) =
+    branch.local_history(forest, target)
+  let #(branch.ReconcileResult(rebased, _, _), _) =
+    branch.rebase(
+      forest,
+      source,
+      target,
+      Allocation([revision("1c")], branch_order()),
+      mint,
+    )
+    |> expect.to_be_ok
+  branch.visible_data(rebased, target)
+  |> expect.to_equal(Ok(target_before))
+  branch.reference_at(rebased, target, [])
+  |> expect.to_equal(Ok(target_root))
+
+  let #(branch.ReconcileResult(merged, events, commits), _) =
+    branch.merge(
+      forest,
+      target,
+      source,
+      False,
+      Allocation([revision("1c")], branch_order()),
+      mint,
+    )
+    |> expect.to_be_ok
+  let assert Ok(rebased_data) = branch.visible_data(rebased, source)
+  let assert Ok(merged_data) = branch.visible_data(merged, target)
+  rebased_data.root |> expect.to_equal(Some(scenario.expected))
+  merged_data.root |> expect.to_equal(Some(scenario.expected))
+  rebased_data.root |> expect.to_equal(merged_data.root)
+  branch.reference_at(rebased, source, scenario.identity_after)
+  |> expect.to_equal(Ok(source_identity))
+  branch.reference_at(merged, target, scenario.identity_after)
+  |> expect.to_equal(Ok(source_identity))
+  let assert Ok(history.LocalBranch(_, _, rebased_commits)) =
+    branch.local_history(rebased, source)
+  let assert Ok(rebased_source) = list.last(rebased_commits)
+  let assert [merged_source] = commits
+  rebased_source |> expect.to_equal(merged_source)
+  list.map(commits, fn(commit) { commit.revision })
+  |> expect.to_equal([revision("1a")])
+  let assert [event] = events
+  event_matches_field_case(event, target_id, scenario.array_changed)
+  |> expect.to_equal(True)
+  let assert branch.BranchEvent(_, Some(event_commit), _) = event
+  event_commit |> expect.to_equal(merged_source)
+}
+
+pub fn local_branch_field_reconciliation_matrix_test() -> Nil {
+  let left_a = point("left-a", 1.0)
+  let left_b = point("left-b", 2.0)
+  let right_a = point("right-a", 3.0)
+  let existing = initial_map()
+  let source_map =
+    types.ArrayValue(array_items_type, [types.StringValue("source")])
+  let target_map =
+    types.ArrayValue(array_items_type, [types.StringValue("target")])
+  let cases = [
+    FieldCase(
+      "object-unrelated",
+      SetField(["left", "0", "x"], NumberValue(7.0)),
+      SetField(["left", "0", "label"], types.StringValue("target")),
+      rich_root([point("target", 7.0), left_b], [right_a], existing),
+      ["left", "0"],
+      ["left", "0"],
+      False,
+    ),
+    FieldCase(
+      "object-overlap",
+      SetField(["left", "0", "x"], NumberValue(7.0)),
+      SetField(["left", "0", "x"], NumberValue(9.0)),
+      rich_root([point("left-a", 7.0), left_b], [right_a], existing),
+      ["left", "0"],
+      ["left", "0"],
+      False,
+    ),
+    FieldCase(
+      "map-unrelated",
+      types.MapSet(["byKey"], "source", source_map),
+      types.MapSet(["byKey"], "target", target_map),
+      rich_root(
+        [left_a, left_b],
+        [right_a],
+        list.append(existing, [
+          #("source", source_map),
+          #("target", target_map),
+        ]),
+      ),
+      ["left", "0"],
+      ["left", "0"],
+      False,
+    ),
+    FieldCase(
+      "map-overlap",
+      types.MapDelete(["byKey"], "0"),
+      types.MapSet(["byKey"], "0", target_map),
+      rich_root([left_a, left_b], [right_a], []),
+      ["left", "0"],
+      ["left", "0"],
+      False,
+    ),
+    FieldCase(
+      "array-insert-unrelated",
+      types.ArrayInsert(["left"], 1, [types.StringValue("source")]),
+      types.ArrayInsert(["right"], 1, [types.StringValue("target")]),
+      rich_root(
+        [left_a, types.StringValue("source"), left_b],
+        [right_a, types.StringValue("target")],
+        existing,
+      ),
+      ["left", "1"],
+      ["left", "2"],
+      True,
+    ),
+    FieldCase(
+      "array-insert-overlap",
+      types.ArrayInsert(["left"], 1, [types.StringValue("source")]),
+      types.ArrayInsert(["left"], 1, [types.StringValue("target")]),
+      rich_root(
+        [
+          left_a,
+          types.StringValue("source"),
+          types.StringValue("target"),
+          left_b,
+        ],
+        [right_a],
+        existing,
+      ),
+      ["left", "1"],
+      ["left", "3"],
+      True,
+    ),
+    FieldCase(
+      "array-remove-overlap",
+      types.ArrayRemove(["left"], 0, 1),
+      SetField(["left", "0", "x"], NumberValue(9.0)),
+      rich_root([left_b], [right_a], existing),
+      ["left", "1"],
+      ["left", "0"],
+      True,
+    ),
+    FieldCase(
+      "same-array-move-overlap",
+      types.ArrayMove(["left"], 0, 1, ["left"], 2),
+      types.ArrayMove(["left"], 1, 2, ["left"], 0),
+      rich_root([left_b, left_a], [right_a], existing),
+      ["left", "0"],
+      ["left", "1"],
+      True,
+    ),
+    FieldCase(
+      "same-array-move-unrelated",
+      types.ArrayMove(["left"], 0, 1, ["left"], 2),
+      types.MapSet(["byKey"], "target", target_map),
+      rich_root(
+        [left_b, left_a],
+        [right_a],
+        list.append(existing, [#("target", target_map)]),
+      ),
+      ["left", "0"],
+      ["left", "1"],
+      True,
+    ),
+    FieldCase(
+      "cross-array-move-overlap",
+      types.ArrayMove(["left"], 0, 1, ["right"], 1),
+      SetField(["left", "0", "x"], NumberValue(9.0)),
+      rich_root([left_b], [right_a, point("left-a", 9.0)], existing),
+      ["left", "0"],
+      ["right", "1"],
+      True,
+    ),
+    FieldCase(
+      "cross-array-move-unrelated",
+      types.ArrayMove(["left"], 0, 1, ["right"], 1),
+      types.MapSet(["byKey"], "target", target_map),
+      rich_root(
+        [left_b],
+        [right_a, left_a],
+        list.append(existing, [#("target", target_map)]),
+      ),
+      ["left", "0"],
+      ["right", "1"],
+      True,
+    ),
+  ]
+  list.each(cases, fn(scenario) {
+    reconcile_field_case(scenario, False)
+    reconcile_field_case(scenario, True)
+  })
+}
+
+pub fn local_branch_event_projection_rejects_mutations_test() -> Nil {
+  let forest =
+    branch.new(
+      branch.origin("runtime", "document", "tree"),
+      rich_branch_state(),
+    )
+  let document = branch.document(forest)
+  let assert Ok(#(forest, source)) = branch.fork(forest, document)
+  let assert Ok(#(forest, target)) = branch.fork(forest, document)
+  let assert Ok(#(forest, _, _)) =
+    branch.apply(
+      forest,
+      source,
+      revision("1a"),
+      branch_order(),
+      types.ArrayInsert(["left"], 1, [types.StringValue("source")]),
+    )
+  let assert Ok(#(forest, _, _)) =
+    branch.apply(
+      forest,
+      target,
+      revision("1b"),
+      branch_order(),
+      types.MapSet(
+        ["byKey"],
+        "target",
+        types.ArrayValue(array_items_type, [types.StringValue("target")]),
+      ),
+    )
+  let assert Ok(history.LocalBranch(target_id, _, _)) =
+    branch.local_history(forest, target)
+  let assert Ok(#(branch.ReconcileResult(_, [event], [_]), _)) =
+    branch.merge(
+      forest,
+      target,
+      source,
+      False,
+      Allocation([revision("1c")], branch_order()),
+      mint,
+    )
+  event_matches_field_case(event, target_id, True) |> expect.to_equal(True)
+  let assert branch.BranchEvent(_, Some(commit), changes) = event
+  branch.BranchEvent(types.DocumentCheckout, Some(commit), changes)
+  |> event_matches_field_case(target_id, True)
+  |> expect.to_equal(False)
+  branch.BranchEvent(
+    types.LocalCheckout(target_id),
+    Some(commit),
+    tree_kernel.ChangeEvents([tree_kernel.TreeChanged(True)], False),
+  )
+  |> event_matches_field_case(target_id, True)
+  |> expect.to_equal(False)
+
+  let assert [shared_change.DataChange(changeset)] =
+    shared_change.to_changes(commit.change)
+  let data = change.to_data(changeset)
+  let mutated_data =
+    change.ChangeData(..data, revisions: [
+      change.RevisionInfo(revision("1a"), Some(revision("1b"))),
+    ])
+  let mutated_change =
+    change.from_data(mutated_data, branch_order())
+    |> expect.to_be_ok
+    |> shared_change.from_data
+  branch.BranchEvent(
+    types.LocalCheckout(target_id),
+    Some(history.Commit(..commit, change: mutated_change)),
+    changes,
+  )
+  |> event_matches_field_case(target_id, True)
+  |> expect.to_equal(False)
+}
 
 type Allocation {
   Allocation(revisions: List(fluid_ids.StableId), order: change.IdentityOrder)
@@ -260,6 +1194,33 @@ fn replayed_revision_branches_after_original_trim() {
     |> expect.to_be_ok
   trimmed.trimmed_revisions |> expect.to_equal([replayed.revision])
   #(trimmed.history, old, current, replayed, target)
+}
+
+pub fn local_branch_snapshot_restore_preserves_replay_classification_test() -> Nil {
+  let #(state, _, _, replayed, _) = replayed_revision_branches()
+  let snapshot = history.inspect(state).sequenced
+  snapshot.replayed_receipts
+  |> expect.to_equal([types.SequencePoint(3, 0)])
+
+  let restored = history.restore(snapshot, session()) |> expect.to_be_ok
+  history.inspect(restored).sequenced.replayed_receipts
+  |> expect.to_equal([types.SequencePoint(3, 0)])
+  history.inspect(restored).sequenced.trunk
+  |> list.map(fn(entry) { entry.commit.revision })
+  |> expect.to_equal([replayed.revision, revision("0b"), replayed.revision])
+}
+
+pub fn local_branch_snapshot_restore_releases_trimmed_replay_marker_test() -> Nil {
+  let #(state, _, _, _, _) = replayed_revision_branches()
+  let restored =
+    history.restore(history.inspect(state).sequenced, session())
+    |> expect.to_be_ok
+  let #(trimmed, Nil) =
+    history.advance_minimum(restored, 3, 3, Nil, no_mint)
+    |> expect.to_be_ok
+
+  history.inspect(trimmed.history).sequenced.replayed_receipts
+  |> expect.to_equal([])
 }
 
 pub fn local_branch_fork_pins_optimistic_head_test() -> Nil {

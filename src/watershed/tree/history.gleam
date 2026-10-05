@@ -215,6 +215,10 @@ pub fn new(local_session: fluid_ids.SessionId) -> History {
   )
 }
 
+pub fn local_session(state: History) -> fluid_ids.SessionId {
+  state.local_session
+}
+
 pub fn rebind_identity_order(
   state: History,
   identity_order: change.IdentityOrder,
@@ -558,8 +562,37 @@ pub fn merge_local(
   case target {
     LocalCheckout(id) if id == source_id ->
       Ok(#(HistoryUpdate(state, [], [], []), [], allocation))
-    DocumentCheckout ->
-      Error(InvalidHistory("document ancestry merge is not available"))
+    DocumentCheckout -> {
+      use #(target_base, target_pin, target_commits) <- result.try(
+        checkout_position(state, DocumentCheckout),
+      )
+      let target_state =
+        LocalState(source_id, target_base, target_pin, target_commits)
+      use #(rebased, allocation, rollbacks, next_node_id) <- result.try(
+        reconcile_local_ancestry(state, source, target_state, allocation, mint),
+      )
+      let surviving =
+        list.map(rebased.source_commits, fn(commit) { commit.commit })
+      use net_change <- result.try(
+        surviving
+        |> list.map(tagged_commit)
+        |> compose_optional,
+      )
+      use effects <- result.try(effects_optional(net_change))
+      let pending = append_merged_pending(state.pending, rebased.source_commits)
+      let next =
+        History(
+          ..state,
+          pending:,
+          local_base: case pending {
+            [] -> state.local_base
+            _ -> Some(target_base)
+          },
+          rollbacks:,
+          next_node_id:,
+        )
+      Ok(#(HistoryUpdate(next, effects, [], []), surviving, allocation))
+    }
     LocalCheckout(target_id) -> {
       use target_state <- result.try(require_local_checkout(
         state.local_checkouts,
@@ -595,6 +628,27 @@ pub fn merge_local(
         )
       Ok(#(HistoryUpdate(next, effects, [], []), surviving, allocation))
     }
+  }
+}
+
+fn append_merged_pending(
+  pending: List(LocalCommit),
+  commits: List(BranchCommit),
+) -> List(LocalCommit) {
+  let context = list.map(pending, fn(entry) { entry.current.commit })
+  list.append(pending, merged_pending(commits, context))
+}
+
+fn merged_pending(
+  commits: List(BranchCommit),
+  context: List(Commit),
+) -> List(LocalCommit) {
+  case commits {
+    [] -> []
+    [first, ..rest] -> [
+      LocalCommit(first, first, context),
+      ..merged_pending(rest, list.append(context, [first.commit]))
+    ]
   }
 }
 

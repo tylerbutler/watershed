@@ -358,13 +358,13 @@ pins that coexist with pending/peer/revertible retention.
 **Produces:** Pure fork state, atomic rebase result, and merge result containing
 surviving commits and kernel events.
 
-- [ ] **Step 1: Add the isolation RED using the existing kernel fixture setup.**
+- [x] **Step 1: Add the isolation RED using the existing kernel fixture setup.**
 
   Fork a tree, set its title, and require the main title, pending list, detached
   identities, and event stream to remain unchanged. Assert fork and main share
   initial node IDs, not aliased mutable forests.
 
-- [ ] **Step 2: Implement fork and related-head reconciliation.**
+- [x] **Step 2: Implement fork and related-head reconciliation.**
 
   Copy persistent forest/schema/repair state, retain source ancestry, and start
   independent local subscriptions/revertibles. Do not call summary restore,
@@ -383,7 +383,7 @@ surviving commits and kernel events.
   returns a changed source and unchanged target; preserved-source merge follows
   the Task 1 observation, not an assumed implicit rebase of the source.
 
-- [ ] **Step 3: Add each field/conflict case from the corpus.**
+- [x] **Step 3: Add each field/conflict case from the corpus.**
 
   Cover object set/replacement, map set/delete, array insert/remove,
   same-array and cross-array moves. For each, run unrelated and overlapping
@@ -392,7 +392,7 @@ surviving commits and kernel events.
   main rebase, active transactions, branch schema edits, and unsupported schema
   reconciliation after a main schema change.
 
-- [ ] **Step 4: Verify pure branch and existing field tests.**
+- [x] **Step 4: Verify pure branch and existing field tests.**
 
   ```bash
   rtk proxy gleam test --target erlang -- shared_tree_branch shared_tree_array_kernel shared_tree_map_kernel shared_tree_schema_evolution
@@ -400,6 +400,19 @@ surviving commits and kernel events.
   ```
 
   Suggested authorized commit: `feat(tree): reconcile isolated local checkouts`.
+
+  **Completion record (2026-10-05):** Task 3 adds an opaque pure checkout
+  forest with stable origin-bound handles, isolated persistent kernel state,
+  strict lifetime/transaction/schema guards, atomic related-head rebase and
+  merge candidates, and document-target merge integration into ordinary
+  pending history. Merge results preserve surviving commit boundaries and
+  carry checkout-scoped kernel events. Tests cover object, map, array, and move
+  conflicts in both authoring orders, exact visible state, node identity,
+  rebased changesets, revision boundaries, repair isolation, lifecycle guards,
+  and Task 2 replay-marker snapshot restoration. The required Task 3, history,
+  and resubmit selectors pass on Erlang and JavaScript. Native branch fixtures
+  remain unregistered, and Tasks 4+ allocation, transaction callbacks, undo,
+  runtime routing, facade, recovery, and interop remain unimplemented.
 
 ### Task 4: Wire shared allocation, branch transactions, and revertibles
 

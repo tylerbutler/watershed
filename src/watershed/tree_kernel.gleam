@@ -246,6 +246,60 @@ pub fn history_view(state: TreeState) -> history.HistoryView {
   history.inspect(state.history)
 }
 
+pub fn branch_history(state: TreeState) -> history.History {
+  state.history
+}
+
+pub fn with_branch_history(
+  state: TreeState,
+  branch_history: history.History,
+) -> TreeState {
+  TreeState(..state, history: branch_history)
+}
+
+pub fn apply_branch_effects(
+  state: TreeState,
+  effects: List(shared_change.Effect),
+) -> Result(#(TreeState, ChangeEvents), TreeError) {
+  use #(visible, events) <- result.try(apply_effects_with_events(
+    state.visible,
+    effects,
+    True,
+  ))
+  Ok(#(TreeState(..state, visible:), events))
+}
+
+pub fn apply_branch_commit(
+  state: TreeState,
+  commit: history.Commit,
+) -> Result(#(TreeState, ChangeEvents), TreeError) {
+  use effects <- result.try(
+    shared_change.effects(shared_change.TaggedChange(
+      Some(commit.revision),
+      None,
+      commit.change,
+    )),
+  )
+  apply_branch_effects(state, effects)
+}
+
+pub fn apply_merged_pending_commit(
+  state: TreeState,
+  commit: history.Commit,
+) -> Result(#(TreeState, ChangeEvents), TreeError) {
+  let authoring_schema = schema.FixedSchema(forest.stored_schema(state.visible))
+  use #(state, events) <- result.try(apply_branch_commit(state, commit))
+  Ok(#(
+    TreeState(
+      ..state,
+      local_authoring_schemas: list.append(state.local_authoring_schemas, [
+        #(commit.revision, authoring_schema),
+      ]),
+    ),
+    events,
+  ))
+}
+
 pub fn retain_revertible(
   state: TreeState,
   revision: fluid_ids.StableId,
