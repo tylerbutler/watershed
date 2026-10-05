@@ -26,8 +26,34 @@ Section 2 below defines this extension's behavioral contract. The
 [transaction implementation plan](2026-09-29-shared-tree-transactions.md)
 remains the authority for completing transaction Tasks 8–11.
 
-**Status:** Planning only. No Identifier implementation accompanies this
-document. The user requested a plan for a follow-up session.
+## Reconciliation (2026-10-04)
+
+**Current status:** Tasks 1-7 are implemented. Identifier support is present in
+the generated supported profile at
+`test/fixtures/shared_tree/profile.json:237-240`. The task bodies remain as the
+historical test-first execution script; their unchecked red/green substeps are
+not a current implementation status.
+
+The implementation preserves Identifier schema and wire semantics and
+materializes defaults through `src/watershed/tree/identifier.gleam:10-206`.
+The native fixture and behavioral coverage starts at
+`test/watershed/shared_tree_identifier_test.gleam:23`, including default
+allocation (`:466`), immutability (`:715-734`), duplicate custom strings
+(`:759`), schema widening (`:777`), reconnect, summary, and transaction paths.
+The four required corpus cases are registered by
+`tools/shared-tree-oracle/generate.mjs:72-79`, and mixed-client Identifier
+sections are validated in `tools/shared-tree-oracle/interop.mjs:690-692` and
+`:2515-2554`.
+
+No Identifier-specific public method was added, as designed. JavaScript and
+BEAM read IDs as ordinary `StringValue` content and use their existing edit
+APIs. The thin Lustre tree adapter can pass ordinary edits through `perform`,
+but it has no Identifier-specific typed UX, and no example is an Identifier
+showcase.
+
+The dated Task 7 evidence below records local service and creation runs,
+focused gates, lint, and known build/browser limitations. This reconciliation
+did not rerun those commands or trigger hosted workflows.
 
 ## Global Constraints
 
@@ -85,7 +111,7 @@ assume a future checkout has the same state.
 | Rollback | Abort preserves ongoing local compressor advancement and the forest's nonserialized reference watermark. Summary/document state restores. |
 | No-op finish | `NoCommit(state, compressor)` returns restored state and the base compressor. Consumers must install both. |
 | Reference promotion | Finish preserves attached and retained detached references while canonicalizing revision and repair metadata. |
-| Transaction proof | Parent Tasks 8–11 remain incomplete. The native persistence/corpus gate exposed the Identifier boundary. |
+| Transaction proof | Parent transaction Tasks 8-9 are implemented; Tasks 10-11 still own profile and current regression closure. |
 
 ### Correct the earlier blocker diagnosis
 
@@ -109,7 +135,7 @@ The actual missing pieces are:
    representation.
 5. Identifier-aware outbound encoding, including originatorless summaries.
 
-### Known environment blockers
+### Historical environment blockers
 
 The preceding Task 8 investigation reported that `source:verify` rejected the
 owned injected `watershedCodecs.spec.ts` as stale, and that the transaction
@@ -123,7 +149,7 @@ feed URLs. Do not rewrite them or bypass the policy. Record a remaining build
 block separately from Identifier test results. Reproduce any claimed
 pre-existing failure at the execution baseline before calling it baseline.
 
-### Execution order
+### Archived execution order
 
 ```text
 1 pinned Identifier contract and reproducible capture
@@ -138,9 +164,9 @@ pre-existing failure at the execution baseline before calling it baseline.
            |
 6 native transaction, recovery, and oracle parity
            |
-7 mixed-client persistence and permanent gates
+7 mixed-client persistence and Identifier profile closure
            |
-resume transaction plan Tasks 8 -> 9 -> 10 -> 11
+transaction plan Tasks 8 -> 9 (implemented) -> 10 -> 11 (open)
 ```
 
 Use one integration owner for Tasks 2–5. They share schema, validation,
@@ -472,6 +498,12 @@ of scenario labels.
 
 ### Task 1: Capture and verify the pinned Identifier contract
 
+**Reconciled status:** Implemented. The source capture is
+`tools/shared-tree-oracle/upstream-identifier.spec.ts`; generated cases are in
+`test/fixtures/shared_tree/cases/identifier-*.json`; commit history includes
+`4fac81d5` and subsequent capture hardening. The steps below are archived
+instructions and do not claim a current oracle run.
+
 **Files:**
 - Create: `tools/shared-tree-oracle/upstream-identifier.spec.ts`
 - Modify: `tools/shared-tree-oracle/source.mjs`
@@ -595,6 +627,9 @@ of scenario labels.
   ```
 
 ### Task 2: Preserve Identifier schema and immutable field semantics
+
+**Reconciled status:** Implemented in the schema, change, codec, and Identifier
+tests. Commit history includes `bb74d982` and `0bba9841`.
 
 **Files:**
 - Modify: `src/watershed/tree/schema.gleam`
@@ -735,6 +770,9 @@ of scenario labels.
 
 ### Task 3: Add contextual Identifier FieldBatch support
 
+**Reconciled status:** Implemented, including literal and compressed values
+with message/summary context. Commit history includes `19cc4121`.
+
 **Files:**
 - Modify: `src/watershed/tree/codec/field_batch.gleam`
 - Modify: `test/watershed/shared_tree_field_batch_test.gleam`
@@ -845,6 +883,10 @@ of scenario labels.
 
 ### Task 4: Wire ID context through operations and summaries
 
+**Reconciled status:** Implemented across operation, forest, history, and
+summary codecs, with native-to-upstream codec items. Current gate success was
+not rerun for this reconciliation.
+
 **Files:**
 - Modify: `src/watershed/tree/codec.gleam`
 - Modify: `src/watershed/tree/codec/summary.gleam`
@@ -935,6 +977,11 @@ of scenario labels.
   ```
 
 ### Task 5: Generate defaults during authoring and container creation
+
+**Reconciled status:** Implemented through
+`identifier.materialize_value`/`materialize_edit` and the ordinary,
+transaction, retry, and initial-container paths. Commit history includes
+`7cd2976f`.
 
 **Files:**
 - Create: `src/watershed/tree/identifier.gleam`
@@ -1071,6 +1118,10 @@ of scenario labels.
   ```
 
 ### Task 6: Prove native persistence and remove the transaction workaround
+
+**Reconciled status:** Implemented. The native runners execute complete
+Identifier-bearing transaction and persistence fixtures; commit history
+includes `856e7d3d`, `16df1dbe`, `77225016`, and later evidence hardening.
 
 **Files:**
 - Modify: `test/watershed/tree/identifier_fixture.gleam`
@@ -1247,9 +1298,9 @@ of scenario labels.
   ```
 
   Update the parent plan with the exact Identifier commits, gate results,
-  open external blockers, and the next unchecked task. Resume at transaction
-  Task 8, then complete Tasks 9–11. Do not recapture its Identifier fields
-  as ordinary strings and do not mark M5 undo/redo complete.
+  open external blockers, and the next unchecked task. This handoff resumed at
+  transaction Task 8; transaction Tasks 8-9 are now implemented and Task 10 is
+  next. Do not recapture Identifier fields as ordinary strings.
 
 **Task 7 evidence (2026-10-02):**
 
@@ -1302,26 +1353,23 @@ of scenario labels.
 
 Before calling this plan complete, confirm:
 
-- [ ] No decoder uses a fresh reader session for a sender-local ID.
-- [ ] No summary emits a negative compressed Identifier ID.
-- [ ] No decoder or encoder generates/finalizes IDs to repair input.
-- [ ] Custom strings survive unchanged; no new uniqueness restriction exists.
-- [ ] Defaults run once on insertion and never again on retry, replay, or load.
+- [x] No decoder uses a fresh reader session for a sender-local ID.
+- [x] No summary emits a negative compressed Identifier ID.
+- [x] No decoder or encoder generates/finalizes IDs to repair input.
+- [x] Custom strings survive unchanged; no new uniqueness restriction exists.
+- [x] Defaults run once on insertion and never again on retry, replay, or load.
 - [ ] All pure and public behavior passes on both targets.
-- [ ] Complete transaction builds/refreshers are no longer stripped.
-- [ ] Real upstream clients consume native messages and summaries.
-- [ ] Unsupported features and unverified external gates remain explicit.
-- [ ] The parent transaction plan still distinguishes implemented APIs from
+- [x] Complete transaction builds/refreshers are no longer stripped.
+- [x] Real upstream clients consume native messages and summaries in the
+      recorded Task 7 evidence.
+- [x] Unsupported features and unverified external gates remain explicit.
+- [x] The parent transaction plan distinguishes implemented APIs from
       complete persistence, service, and release acceptance.
 
-## 7. Follow-up session prompt
+## 7. Current handoff
 
-> Implement `docs/superpowers/plans/2026-10-01-shared-tree-identifiers.md`
-> task by task. Start by checking the current worktree and pinned oracle
-> injections. Preserve the transaction implementation through `afc32c65` and
-> do not replace Identifier fields in the oracle with ordinary strings.
-> Use test-first, dual-target changes and the real upstream consumer gates.
-> Keep execution reports outside version control. After Identifier acceptance,
-> resume the unchecked Tasks 8–11 in
-> `docs/superpowers/plans/2026-09-29-shared-tree-transactions.md`.
-> Do not bypass dependency policy or claim complete Fluid compatibility.
+Identifier implementation work is complete for the current supported profile.
+Preserve its corpus, compressor context, immutable-field semantics, and
+default-generation behavior while closing transaction Tasks 10-11 and the
+undo/redo profile. Do not bypass dependency policy or treat the dated Task 7
+evidence as a current full-suite run.

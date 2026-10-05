@@ -23,6 +23,49 @@ Floodgate; existing `just` and GitHub Actions gates.
 Also read the [parent design](../specs/2026-09-21-shared-tree-design.md)
 and [M2 design](../specs/2026-09-24-shared-tree-dynamic-maps-design.md).
 
+## Reconciliation — 2026-10-04
+
+**Current status:** M4 is implemented for the published strict-view object and
+dynamic-map subset. The numbered task checklists below are archived
+red/green/commit instructions, not a live TODO list and not proof that every
+historical command ran in the written order.
+
+Current implementation evidence:
+
+- `src/watershed/tree/schema.gleam:104,492-590` defines
+  `Compatibility`, `compatibility`, `allows_superset`, `prepare_upgrade`, and
+  `validate_upgrade`.
+- `src/watershed/tree/shared_change.gleam:12-249` implements ordered outer
+  schema/data changes, composition, inversion, effects, revision traversal,
+  and data-only rebase. Schema-involved rebases intentionally mute the losing
+  change rather than merge schemas.
+- `src/watershed/tree/forest.gleam:301-307` replaces only the validated schema
+  on an existing forest. History, kernel, runtime, codec, and summary paths now
+  carry the outer change family.
+- `src/watershed.gleam:550-598` and the matching BEAM facade provide
+  `resolve_tree`, `open_tree`, `tree_compatibility`, and
+  `tree_upgrade_schema`; `src/watershed/runtime_core.gleam:4167` owns atomic
+  upgrade submission.
+- `tools/shared-tree-oracle/upstream-schema-evolution.spec.ts` produces the
+  four committed `schema-evolution-*` cases. The manifest registers all four
+  for both native targets at
+  `test/fixtures/shared_tree/manifest.json:290-293,321-324`.
+- Native coverage spans
+  `shared_tree_schema_evolution_test.gleam`,
+  `shared_tree_shared_change_test.gleam`, and the forest, history, kernel,
+  codec, runtime, summary, facade, and client suites named below.
+
+The published feature flag is
+`strict-view-object-map-schema-evolution`
+(`test/fixtures/shared_tree/profile.json:243`). Array schema evolution, staged
+upgrades, unknown-field adapters, data migrations, and additional upstream
+versions remain excluded. The detailed historical release record is
+`.superpowers/sdd/2026-09-26-shared-tree-schema-evolution/task-11-report.md`.
+Its final local closure records the required M4 gates and a real-service run
+with no skips or divergences, but also records that no hosted workflow ran and
+that the final repository-wide `just test`/`just build` retries were blocked by
+Hex API rate limits. This review did not rerun those gates.
+
 ## Global Constraints
 
 - Production SharedTree semantics must run in pure Gleam on JavaScript and BEAM.
@@ -44,19 +87,20 @@ and [M2 design](../specs/2026-09-24-shared-tree-dynamic-maps-design.md).
 
 ## 1. Starting point and execution rules
 
-Planning baseline: `f42deeca` (`docs(tree): close M1 release gates`).
-The working tree already contained changes to `apm.lock.yaml`, the parent plan,
-and untracked M3 design/plan files. Preserve those changes. Commit only files
-owned by the current task; do not use `git add -A`.
+The archived planning baseline was `f42deeca`
+(`docs(tree): close M1 release gates`). At planning time, the working tree
+already contained changes to `apm.lock.yaml`, the parent plan, and untracked M3
+design/plan files. Those execution-time cautions are not standing prerequisites
+for later review or maintenance.
 
-This document plans work; its unchecked boxes do not report completed
-implementation. The user approved the object/map scope and architectural
-direction. Review the written companion design before executing Task 1.
-Review Task 1's captured source contract before implementing native behavior.
+This document originally planned the work. Its numbered-task boxes remain
+archived instructions; use this reconciliation, the acceptance checklist, and
+the Task 11 report for current status. The approved scope remains object/map
+schema evolution under strict views.
 
-M3 is not a prerequisite. Do not add sequence-field algorithms to M4. If M3
-lands first, use its array types and codec dispatch without claiming array
-schema evolution until a separate array-evolution matrix passes.
+M3 was not a prerequisite and has since landed. M4 uses the shared array-aware
+schema and codec surfaces without claiming array schema evolution; that claim
+still requires a separate array-evolution matrix.
 
 Use an isolated worktree for execution. Record the starting revision and
 tool versions from `mise.toml`. Restore dependencies only after a relevant
@@ -1571,6 +1615,9 @@ git commit -m "test(tree): prove schema evolution interoperability"
 
 ## Task 11: Close permanent gates and document the supported profile
 
+**Current status:** Complete for the restricted M4 profile. See the
+reconciliation above and the Task 11 report for recorded evidence and caveats.
+
 **Files:**
 - Modify: `tools/shared-tree-oracle/service.mjs`, `generate.mjs`, `interop.mjs`
 - Modify: their existing tests and `tools/shared-tree-oracle/gates.test.mjs`
@@ -1658,27 +1705,27 @@ and documentation or configuration changed by this task.
 
 ## 5. M4 acceptance checklist
 
-- [ ] The source oracle covers the approved object/map schema profile.
-- [ ] `can_view`, `can_upgrade`, and `is_equivalent` match the pinned source.
-- [ ] Equivalent upgrades allocate nothing and submit/emit nothing.
-- [ ] Invalid and outside-profile local upgrades leave state unchanged.
-- [ ] Ordered schema/data changes survive codecs, history, and summaries.
-- [ ] Inverse schema changes remain internal and cannot be encoded.
-- [ ] Schema/data and schema/schema races match upstream in both orders.
-- [ ] Causal and common-prefix cases do not become false conflicts.
-- [ ] Muted commits retain identity through acknowledgement and reconnect.
-- [ ] Rollback preserves required detached content and node identity.
-- [ ] Snapshots pair sequenced schema, forest, history, and compressor state.
-- [ ] Old strict handles cannot read or write after incompatible upgrades.
-- [ ] View incompatibility does not stop an otherwise valid document.
-- [ ] JS and BEAM expose matching APIs and notification semantics.
-- [ ] A fresh compatible handle can continue editing after invalidation.
-- [ ] Both targets consume upstream schema operations and publish consumable output.
-- [ ] All nine summary writer/reader combinations continue editing.
-- [ ] Real-service reconnect and accepted-before-drop cases pass.
-- [ ] Required gates fail on missing artifacts, targets, scenarios, or service.
-- [ ] Existing DDS behavior and M1/M2 interoperability remain intact.
-- [ ] The supported profile names the M4 limits without claiming M3 or M5 work.
+- [x] The source oracle covers the approved object/map schema profile.
+- [x] `can_view`, `can_upgrade`, and `is_equivalent` match the pinned source.
+- [x] Equivalent upgrades allocate nothing and submit/emit nothing.
+- [x] Invalid and outside-profile local upgrades leave state unchanged.
+- [x] Ordered schema/data changes survive codecs, history, and summaries.
+- [x] Inverse schema changes remain internal and cannot be encoded.
+- [x] Schema/data and schema/schema races match upstream in both orders.
+- [x] Causal and common-prefix cases do not become false conflicts.
+- [x] Muted commits retain identity through acknowledgement and reconnect.
+- [x] Rollback preserves required detached content and node identity.
+- [x] Snapshots pair sequenced schema, forest, history, and compressor state.
+- [x] Old strict handles cannot read or write after incompatible upgrades.
+- [x] View incompatibility does not stop an otherwise valid document.
+- [x] JS and BEAM expose matching APIs and notification semantics.
+- [x] A fresh compatible handle can continue editing after invalidation.
+- [x] Both targets consume upstream schema operations and publish consumable output.
+- [x] All nine summary writer/reader combinations continue editing.
+- [x] Real-service reconnect and accepted-before-drop cases pass.
+- [x] Required gates fail on missing artifacts, targets, scenarios, or service.
+- [x] Existing DDS behavior and M1/M2 interoperability remain intact.
+- [x] The supported profile names the M4 limits without claiming M3 or M5 work.
 
 ## 6. Review checklist and stop conditions
 

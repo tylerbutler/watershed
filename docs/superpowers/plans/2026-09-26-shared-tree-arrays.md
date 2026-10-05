@@ -23,6 +23,36 @@ Floodgate; existing `just` and GitHub Actions gates.
 Also read the [approved parent design](../specs/2026-09-21-shared-tree-design.md)
 and the [M2 design](../specs/2026-09-24-shared-tree-dynamic-maps-design.md).
 
+## Reconciliation — 2026-10-04
+
+**Current status:** M3 arrays and identity-preserving moves are implemented and
+published. The task checklists and release records below are historical
+execution evidence, not commands that this review reran.
+
+Current implementation evidence:
+
+- `src/watershed/tree/types.gleam:16-39` defines `ArrayValue`, `ArrayInsert`,
+  `ArrayRemove`, and `ArrayMove` while retaining `FieldPath = List(String)`.
+- `src/watershed/tree/sequence_field.gleam` and its `compose`, `invert`,
+  `rebase`, and `moves` submodules implement the closed Sequence field
+  algebra; `src/watershed/tree/codec/sequence_field.gleam` owns Sequence V3.
+- `src/watershed.gleam:775-844` and
+  `src/watershed_beam.gleam:928-1002` expose matching array read, insert,
+  remove, and move APIs.
+- The manifest contains nine M3 source cases. Six of them have registered
+  JavaScript and Erlang native semantic runners:
+  `array-schema-content`, `array-forest-delta`, `sequence-field-editor`,
+  `sequence-compose-invert`, `sequence-rebase`, and
+  `array-modular-algebra`
+  (`test/fixtures/shared_tree/manifest.json:284-289,315-320,478-520`).
+- Focused coverage lives in the `shared_tree_array_*` and
+  `shared_tree_sequence_field_test.gleam` suites.
+
+The remaining boundary is unchanged: the current published profile still
+excludes array schema evolution. This review did not rerun local or hosted
+gates; the Task 12 execution record remains the evidence for the checked
+release claims.
+
 ## Global Constraints
 
 - Production SharedTree semantics must run in pure Gleam on JavaScript and BEAM.
@@ -45,10 +75,11 @@ and the [M2 design](../specs/2026-09-24-shared-tree-dynamic-maps-design.md).
 
 ## 1. Starting point and execution rules
 
-Task 1 execution baseline: `8fef0a7f`.
-The M1 completion checklist and M2 final acceptance checklist are closed.
-M3 is the next numbered milestone. M4 and selected M7 work are parallel
-opportunities, not part of this plan.
+The archived Task 1 execution baseline was `8fef0a7f`. At that point, the M1
+completion checklist and M2 final acceptance checklist were closed, and M3 was
+the next numbered milestone. M3 is now complete. M4 later shipped its
+restricted object/map schema-evolution profile; array schema evolution remains
+outside both milestones.
 
 The user selected existing string-list paths with array-aware traversal.
 Review the companion design before executing this plan. Task 1 has a second
@@ -1877,5 +1908,6 @@ Stop and revise the design or contract rather than reducing these cases if:
 - Another milestone changes shared schema, codec, history, or runtime
   interfaces without an agreed integration contract.
 
-The planning deliverable adds no native implementation and claims no M3
-runtime or service results.
+The initial planning deliverable added no native implementation. The completed
+task and acceptance records above now document the implemented M3 runtime and
+service evidence.

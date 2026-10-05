@@ -24,6 +24,39 @@ Also read the [parent design](../specs/2026-09-21-shared-tree-design.md),
 [arrays design](../specs/2026-09-26-shared-tree-arrays-design.md), and
 [schema evolution design](../specs/2026-09-26-shared-tree-schema-evolution-design.md).
 
+## Reconciliation (2026-10-04)
+
+**Current status:** Tasks 1-9 are implemented. Task 10 (supported-profile and
+permanent-gate closure) and Task 11 (current full-regression closure) remain
+open. The task bodies below are retained as the historical test-first execution
+record; an unchecked historical substep is not evidence that its named source
+surface is absent.
+
+Current code exposes synchronous single-tree transactions on JavaScript at
+`src/watershed.gleam:627` and BEAM at `src/watershed_beam.gleam:739`.
+`src/watershed/tree/transaction.gleam:35-508` contains the pure nested state,
+and `test/watershed/shared_tree_transaction_test.gleam:476-1661` covers outer
+commit, abort, savepoints, constraints, identity, and wire execution. The
+oracle requires transaction callback, constraint, reconnect, and reload
+sections in `tools/shared-tree-oracle/interop.mjs:86-90`.
+
+The release claim is not closed. `test/fixtures/shared_tree/profile.json:250`
+and `tools/shared-tree-oracle/service.mjs:101` still list
+`public-transactions` as excluded, and the public README still describes
+transactions as deferred. The thin Lustre adapter
+`watershed_lustre/src/watershed_lustre/tree.gleam` has no transaction effect,
+and no user-facing example demonstrates the callback API. Those consumer
+surfaces were not part of Tasks 1-9, but they must not be implied by this plan.
+
+Undo and redo are now implemented separately; references below that call them
+unimplemented describe the 2026-09-29 planning baseline. See
+[the undo/redo plan](2026-10-02-shared-tree-undo-redo.md) for its still-open
+profile and regression closure.
+
+No test, service, build, or hosted workflow was run for this docs-only
+reconciliation. Existing test and gate files prove coverage is present, not
+that the gates pass at the current revision.
+
 ## Global Constraints
 
 - Production SharedTree semantics must run in pure Gleam on JavaScript and BEAM.
@@ -56,10 +89,12 @@ add one named failing case, run it, implement the smallest complete behavior,
 and run it again before adding the next row in the matrix. Do not stage
 unrelated files.
 
-This plan implements only the approved transaction-foundation slice. Undo,
-redo, `noChange`, revert constraints, schema upgrades in transactions,
-asynchronous transactions, custom metadata, post-processors, and cross-tree
-atomicity remain deferred.
+At the planning baseline, this plan covered only the approved
+transaction-foundation slice. It still excludes `noChange`, revert
+constraints, schema upgrades in transactions, asynchronous transactions,
+custom metadata, post-processors, and cross-tree atomicity. Undo and redo were
+deferred from this plan but have since been implemented under the separate
+undo/redo plan.
 
 ### Identifier prerequisite for Task 8
 
@@ -75,18 +110,21 @@ summaries. The local 300-schedule service run
 `aa20c5fe-b0ca-47d0-b3db-b384440a57e8` and creation run
 `b350cf7f-e90e-405c-8453-db9888392d19` passed.
 
-Resume this plan at Task 8. Keep the oracle's Identifier fields and complete
-builds, refreshers, and summaries. Do not substitute ordinary string fields
-or strip content to make parity pass. Identifier values use ordinary string
-leaves; they do not require a new `TreeValue` node kind.
+Tasks 8 and 9 were subsequently completed. The next unchecked work is Task 10,
+then Task 11. Keep the oracle's Identifier fields and complete builds,
+refreshers, and summaries. Do not substitute ordinary string fields or strip
+content to make parity pass. Identifier values use ordinary string leaves;
+they do not require a new `TreeValue` node kind.
 
-The Identifier plan does not close transaction Tasks 8–11 or M5 undo/redo.
-`just lint` passed. `just test` remains blocked by the unrelated guide-race
-browser timeout, and `just build` remains blocked by the existing pnpm tarball
-URL supply-chain policy. No registry URL or policy was changed, and no hosted
-workflow was triggered.
+The historical Identifier closure recorded `just lint` passing, an unrelated
+browser timeout in `just test`, a pnpm tarball URL policy stop in `just build`,
+and no hosted workflow. Those dated results are not current validation.
 
-### Current constraints to remove
+### Archived baseline constraints
+
+Every row below names a planning-baseline gap that has since been implemented.
+Keep the table as design history; use the reconciliation section and current
+source for status.
 
 | Source at planning time | Required change |
 | --- | --- |
@@ -355,6 +393,13 @@ pub fn tree_transaction(
 
 ### Task 1: Capture the pinned transaction and constraint contract
 
+**Reconciled status:** Implemented. The pinned source adapter is
+`tools/shared-tree-oracle/upstream-transaction.spec.ts`; the four generated
+cases are registered in `test/fixtures/shared_tree/manifest.json`, and the
+source contract is documented in `tools/shared-tree-oracle/README.md:806-862`.
+The unchecked steps below are the archived red/green script, not current gate
+results.
+
 **Files:**
 - Create: `tools/shared-tree-oracle/upstream-transaction.spec.ts`
 - Modify: `tools/shared-tree-oracle/source.mjs`
@@ -588,8 +633,9 @@ git commit -m "feat(tree): decode transaction constraints"
 - The focused Erlang and JavaScript commands each passed 112 tests.
   Codec interoperability passed for 2 targets with 30 items per target.
   The SharedTree profile passed 756 tests and its owned smokes.
-- Task 3 constraint authoring and algebra is next. Transaction runtime and
-  public APIs remain unimplemented. M5 remains incomplete.
+- At this historical checkpoint, Task 3 was next and transaction runtime and
+  public APIs were still unimplemented. Later tasks below supersede that
+  status.
 
 ### Task 3: Implement constraint authoring and algebra
 
@@ -674,7 +720,7 @@ git commit -m "feat(tree): enforce node constraints"
 - Constraint authoring and modular algebra are complete.
 - The focused Erlang and JavaScript commands each passed 125 tests.
 - Task review and subsequent scoped corrective reviews passed.
-- Task 4 remains next and unimplemented.
+- At this historical checkpoint, Task 4 was next and unimplemented.
 - Repository-wide `just build` and `just test` remain blocked only by the
   reported existing pnpm lockfile validation issue.
 
@@ -902,7 +948,7 @@ git commit -m "feat(tree): add nested transactions"
   Task 5 must install both returned values while emitting no operation, event,
   or pending commit.
 - `gleam format --check src test` and `git diff --check` passed.
-- Task 5 remains unimplemented.
+- At this historical checkpoint, Task 5 remained unimplemented.
 
 ### Task 5: Integrate transactions with runtime core
 
@@ -1180,7 +1226,7 @@ git commit -m "feat(tree): expose JS transactions"
   A deterministic array composition failure verifies that the next transaction
   can begin and commit.
 - Target-aware Erlang facade parity passed 7 tests while the BEAM callback API
-  remains deferred to Task 7.
+  was still deferred to Task 7.
 - Targeted formatting and `git diff --check` passed.
 
 **Review fix evidence (2026-09-30):**
@@ -1556,6 +1602,10 @@ git commit -m "test(tree): prove transaction interoperability"
 
 ### Task 10: Close permanent gates and document the transaction profile
 
+**Reconciled status:** Open. The implementation and interop report schema
+exist, but the generated profile and public documentation still exclude
+transactions.
+
 **Files:**
 - Modify: `tools/shared-tree-oracle/generate.mjs`, `interop.mjs`, `service.mjs`
 - Modify: their tests and `tools/shared-tree-oracle/gates.test.mjs`
@@ -1574,8 +1624,10 @@ git commit -m "test(tree): prove transaction interoperability"
 - [ ] **Step 1: Add failing profile and gate assertions.**
 
 Require support labels for synchronous single-tree transactions and stable
-node-existence constraints. Keep undo/redo, async, cross-tree, schema-in-
-transaction, `noChange`, metadata, and post-processors explicit exclusions.
+node-existence constraints. Keep async, cross-tree, schema-in-transaction,
+`noChange`, metadata, and post-processors explicit exclusions. Undo/redo
+profile labels belong to the undo/redo plan's Task 9 and must not be added or
+removed implicitly by this task.
 
 - [ ] **Step 2: Regenerate profile metadata.**
 
@@ -1595,9 +1647,9 @@ features.
 
 - [ ] **Step 4: Update the parent roadmap.**
 
-Mark only the transaction-boundary and stable-constraint portion of M5
-complete. Keep undo/redo and revertible lifetime open. Link the design and this
-plan.
+Mark the transaction-boundary and stable-constraint slice implemented. Do not
+close the full milestone here; the parent roadmap and the undo/redo plan own
+the broader milestone wording.
 
 - [ ] **Step 5: Run permanent gate tests.**
 
@@ -1659,6 +1711,10 @@ behavior. Do not create an empty closure commit.
 
 ## 5. Acceptance checklist
 
+The unchecked boxes remain release acceptance, not an inventory of implemented
+functions or tests. Close them only with Task 10 profile changes and Task 11
+validation evidence.
+
 - [ ] One outer success produces one composed SharedTree commit.
 - [ ] Outer abort restores values, identities, history, and summary compressor
       state while preserving pinned ongoing local compressor advancement.
@@ -1681,7 +1737,9 @@ behavior. Do not create an empty closure commit.
 - [ ] All nine summary writer/reader combinations continue editing.
 - [ ] Required gates fail on missing artifacts, targets, scenarios, or service.
 - [ ] Existing M1-M4 behavior and native container creation remain intact.
-- [ ] Documentation does not claim undo/redo or other deferred M5 features.
+- [ ] Transaction documentation distinguishes this implemented slice from the
+      separately implemented but not yet profile-closed undo/redo slice and
+      from still-deferred transaction features.
 
 ## 6. Review matrix and stop conditions
 

@@ -10,6 +10,46 @@
 
 **Spec:** [SharedTree undo and redo](../specs/2026-10-02-shared-tree-undo-redo-design.md)
 
+## Reconciliation (2026-10-04)
+
+**Current status:** Tasks 1-8 are implemented. Task 9 (supported-profile,
+public documentation, roadmap handoff, and permanent gates) and Task 10
+(current full-regression closure) remain open. Undo/redo is the M5 slice in the
+approved design; M6 is local branching, not undo/redo.
+
+The pure implementation is present in
+`src/watershed/tree/history.gleam:1372-1465`,
+`src/watershed/tree_kernel.gleam:249-296`, and
+`src/watershed/runtime_core.gleam:4260-4354`. JavaScript exposes commit
+subscriptions and runtime-local handles at `src/watershed.gleam:602-627` and
+`:2202-2216`; BEAM exposes the matching surface at
+`src/watershed_beam.gleam:772-796` and `:2270-2278`.
+
+Native tests cover inversion and repeated reversion in
+`test/watershed/shared_tree_undo_test.gleam:204-364`, history retention and
+disposal in `test/watershed/shared_tree_history_test.gleam:1407-1645`,
+reconnect in `test/watershed/shared_tree_history_resubmit_test.gleam:204-331`,
+transaction reversion in
+`test/watershed/shared_tree_transaction_test.gleam:1380`, and reload without
+historical handles in
+`test/watershed/shared_tree_document_summary_test.gleam:733`. The generated
+manifest records the five pinned cases at
+`test/fixtures/shared_tree/manifest.json:246-260`, and
+`tools/shared-tree-oracle/interop.mjs:93-96` requires kinds, concurrent,
+reconnect, and reload sections.
+
+The release claim is still open. `test/fixtures/shared_tree/profile.json:264`
+and `tools/shared-tree-oracle/service.mjs:115` still list `undo-redo` as
+excluded, while `README.md:114` and `:246` describe it as deferred. The thin
+Lustre adapter has no commit-subscription or revertible effect, and no
+user-facing example demonstrates an application-owned undo/redo stack.
+
+The unchecked substeps under Tasks 1-8 are retained as archived red/green
+instructions. Source, tests, fixtures, and interop validators show that the
+behavior exists; they do not prove that every historical command ran or that
+current gates pass. No tests, service, build, or hosted workflow were run for
+this docs-only reconciliation.
+
 ## Global Constraints
 
 - Production SharedTree semantics must run in pure Gleam on JavaScript and BEAM.
@@ -34,6 +74,10 @@ Planning baseline: `b06f795a` (`docs(tree): design undo and redo`).
 The transaction-foundation slice is complete through `4dbb62d0`. Preserve its
 constraint algebra, transaction boundaries, reconnect behavior, Identifier
 support, and interoperability evidence.
+
+Undo/redo implementation commits now extend through the native acceptance and
+mixed-client work, including `cb6892ec`, `eaa1c686`, and `81c679ec`. The next
+unchecked task is Task 9, not Task 1.
 
 Use test-first steps. Add one named failing case, run it, implement the
 smallest complete behavior, and run it again before adding the next case.
@@ -299,6 +343,10 @@ settlement-registration requests before it closes the event.
 
 ### Task 1: Capture and verify the pinned undo/redo contract
 
+**Reconciled status:** Implemented. The pinned adapter, five generated cases,
+manifest contract, and oracle README source contract exist. The steps below
+remain the archived test-first script.
+
 **Files:**
 - Create: `tools/shared-tree-oracle/upstream-undo-redo.spec.ts`
 - Modify: `tools/shared-tree-oracle/source.mjs`
@@ -429,6 +477,9 @@ git commit -m "test(tree): capture undo and redo contract"
 ```
 
 ### Task 2: Add commit metadata and retained history handles
+
+**Reconciled status:** Implemented in `tree/types`, `tree/history`, channel
+events, and history/channel tests.
 
 **Files:**
 - Modify: `src/watershed/tree/types.gleam`
@@ -561,6 +612,10 @@ git commit -m "feat(tree): retain undo history"
 
 ### Task 3: Author inverse commits and expose kernel operations
 
+**Reconciled status:** Implemented, including default-to-undo,
+undo-to-redo, repeated reversion, kernel application, and native fixture
+execution.
+
 **Files:**
 - Modify: `src/watershed/tree/history.gleam`
 - Modify: `src/watershed/tree_kernel.gleam`
@@ -668,6 +723,10 @@ git commit -m "feat(tree): author undo and redo commits"
 ```
 
 ### Task 4: Integrate revertibles and settlement into runtime core
+
+**Reconciled status:** Implemented, including active-transaction refusal,
+commit kinds, settlement outcomes, reconnect retention, and ordinary outbound
+submission.
 
 **Files:**
 - Modify: `src/watershed/runtime_core.gleam`
@@ -782,6 +841,8 @@ git commit -m "feat(tree): route revertible commits"
 ```
 
 ### Task 5: Expose JavaScript revertible handles and commit subscriptions
+
+**Reconciled status:** Implemented on the public JavaScript facade.
 
 **Files:**
 - Modify: `src/watershed/runtime.gleam`
@@ -906,6 +967,8 @@ git commit -m "feat(tree): expose JavaScript undo and redo"
 ```
 
 ### Task 6: Expose BEAM revertible handles and commit subscriptions
+
+**Reconciled status:** Implemented on the public BEAM facade.
 
 **Files:**
 - Modify: `src/watershed/runtime_beam.gleam`
@@ -1054,6 +1117,10 @@ git commit -m "feat(tree): expose BEAM undo and redo"
 
 ### Task 7: Prove native field, recovery, summary, and reload behavior
 
+**Reconciled status:** Implemented in the native acceptance helpers and
+focused history, reconnect, transaction, Identifier, summary, and facade
+tests. This status does not assert a current test run.
+
 **Files:**
 - Modify: `test/watershed/shared_tree_undo_test.gleam`
 - Modify: `test/watershed/shared_tree_history_test.gleam`
@@ -1127,6 +1194,11 @@ git commit -m "test(tree): prove native undo and redo"
 ```
 
 ### Task 8: Prove mixed-client undo and redo through Floodgate
+
+**Reconciled status:** Implemented in the client command protocol, deterministic
+scenario runner, report schema, evidence validator, and reload matrix. Commit
+history includes `eaa1c686` and `81c679ec`. No current service execution was
+performed for this reconciliation.
 
 **Files:**
 - Modify: `tools/shared-tree-oracle/client-driver.mjs`
@@ -1226,6 +1298,10 @@ git commit -m "test(tree): prove undo and redo interoperability"
 ```
 
 ### Task 9: Close permanent gates and document the M5 profile
+
+**Reconciled status:** Open. Generated fixtures contain the oracle contract,
+but the supported profile and public README still exclude undo/redo. Lustre and
+example stack UX are also absent.
 
 **Files:**
 - Modify: `tools/shared-tree-oracle/generate.mjs`
@@ -1354,34 +1430,39 @@ behavior. Do not create an empty closure commit.
 
 ## 5. Acceptance checklist
 
-- [ ] Eligible local data commits provide one one-shot revertible factory.
-- [ ] Schema and remote commits provide no factory.
-- [ ] Duplicate and late factory calls return explicit errors.
-- [ ] A handle reports valid and disposed status correctly.
-- [ ] Revert disposes by default; `dispose: False` keeps the handle valid.
-- [ ] A valid handle can author repeated revert commits.
-- [ ] A second disposal and any operation on a disposed handle return errors.
-- [ ] Default and redo commits revert to undo commits.
-- [ ] Undo commits revert to redo commits.
-- [ ] Object, map, array, move, Identifier, and transaction commits revert.
-- [ ] One transaction commit reverts as one unit.
-- [ ] Later unrelated local and remote edits remain visible.
-- [ ] Overlapping edit behavior matches the pinned source corpus.
-- [ ] Revert-time explicit violations report `NewContentOnly`.
-- [ ] Implicit conflicts report `FullyDropped`.
-- [ ] Satisfied commits report `FullyApplied`.
-- [ ] Settlement callbacks fire once after sequencing.
-- [ ] Reversion during an active transaction fails without partial state.
-- [ ] Live handles survive reconnect in the same runtime.
-- [ ] Accepted-before-drop revert commits deduplicate by revision.
-- [ ] Summary reload preserves committed undo/redo state but creates no old handles.
-- [ ] Disposal releases retained history and repair data safely.
-- [ ] JavaScript and BEAM expose matching public behavior.
+Checked items below mean the behavior and focused test coverage exist in the
+current tree. They do not mean the relevant commands were rerun on
+2026-10-04. Service/profile/full-regression items remain open.
+
+- [x] Eligible local data commits provide one one-shot revertible factory.
+- [x] Schema and remote commits provide no factory.
+- [x] Duplicate and late factory calls return explicit errors.
+- [x] A handle reports valid and disposed status correctly.
+- [x] Revert disposes by default; `dispose: False` keeps the handle valid.
+- [x] A valid handle can author repeated revert commits.
+- [x] A second disposal and any operation on a disposed handle return errors.
+- [x] Default and redo commits revert to undo commits.
+- [x] Undo commits revert to redo commits.
+- [x] Object, map, array, move, Identifier, and transaction commits revert.
+- [x] One transaction commit reverts as one unit.
+- [x] Later unrelated local and remote edits remain visible.
+- [x] Overlapping edit behavior matches the pinned source corpus.
+- [x] Revert-time explicit violations report `NewContentOnly`.
+- [x] Implicit conflicts report `FullyDropped`.
+- [x] Satisfied commits report `FullyApplied`.
+- [x] Settlement callbacks fire once after sequencing.
+- [x] Reversion during an active transaction fails without partial state.
+- [x] Live handles survive reconnect in the same runtime.
+- [x] Accepted-before-drop revert commits deduplicate by revision.
+- [x] Summary reload preserves committed undo/redo state but creates no old handles.
+- [x] Disposal releases retained history and repair data safely.
+- [x] JavaScript and BEAM expose matching public behavior.
 - [ ] Upstream, native JavaScript, and native BEAM clients preserve convergence through pinned Floodgate.
 - [ ] All required summary writer/reader cells continue editing.
 - [ ] Required gates fail on missing artifacts, targets, scenarios, settlements, or service.
 - [ ] Existing M1-M4, Identifier, transaction, creation, and browser behavior remains intact.
-- [ ] Documentation marks M5 complete without claiming M6-M8 features.
+- [ ] Documentation and the generated profile mark the M5 undo/redo slice
+      supported without claiming M6 local branching or later features.
 
 ## 6. Review matrix and stop conditions
 

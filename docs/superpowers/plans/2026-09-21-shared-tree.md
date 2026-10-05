@@ -1,9 +1,8 @@
 # Native SharedTree Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `executing-plans` to implement
-> this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-> Read the specification and this plan before implementation. Stop at the M0
-> review gate before implementing M1.
+> **Implementation record:** M0 and M1 are complete. The task procedures,
+> staging instructions, and dated closure evidence below describe their
+> implementation history, not work to restart. Section 6 tracks later scope.
 
 **Goal:** Enable upstream SharedTree 3.1.0, native Watershed JavaScript, and native
 Watershed BEAM clients to edit, summarize, and reload the same schema-defined
@@ -22,6 +21,43 @@ and source for the development oracle; an explicitly verified Fluid-compatible
 service.
 
 **Spec:** [Native SharedTree interoperability](../specs/2026-09-21-shared-tree-design.md)
+
+## Current roadmap (code review: 2026-10-04)
+
+This reconciliation compares the implementation at `dad2b680` with the eight
+SharedTree plans, committed profile/corpus, recipes, and workflow definitions.
+It does not rerun native, service, build, or hosted gates. The numbered M0/M1
+tasks and their test counts below remain historical acceptance records.
+
+| Area | Current status | Plan or remaining scope |
+| --- | --- | --- |
+| M0/M1: object-tree interoperability | Complete, with recorded local and hosted closure. | Tasks 1-16 and the M1 checklist below. |
+| M2: dynamic maps | Implemented and published. | [Dynamic maps](2026-09-24-shared-tree-dynamic-maps.md); map-wide clear remains outside the profile. |
+| M3: arrays and moves | Implemented and published. | [Arrays and moves](2026-09-26-shared-tree-arrays.md); array schema evolution remains excluded. |
+| M4: schema evolution | Complete for strict-view objects and dynamic maps. | [Schema evolution](2026-09-26-shared-tree-schema-evolution.md); its recorded closure is local, not a hosted M4 run. |
+| Identifier extension | Implemented and published; all seven tasks have implementations. | [Identifiers](2026-10-01-shared-tree-identifiers.md); contextual compression, generated defaults, immutable attached fields, and summary/reload support. |
+| M5: transactions and undo/redo | Native implementation and interop work exist; release/profile closure remains open. | [Transactions](2026-09-29-shared-tree-transactions.md), Tasks 10-11, and [undo/redo](2026-10-02-shared-tree-undo-redo.md), Tasks 9-10. |
+| M6: branching | Deferred as a public feature. | Local fork/rebase/merge needs its own design; experimental shared branches require a separate profile/version decision. Internal history branches are not a public branching API. |
+| M7: application/container lifecycle | Fixed-layout native creation and the thin Lustre browser slice are implemented, not the whole milestone. | [Browser checklist](2026-09-29-shared-tree-browser-checklist.md); richer bindings, broader layouts, live attachment, handles, production authentication, and disk pending-state recovery remain open. |
+| M8: scale and supported versions | Deferred. | Measurements, safe reclamation, incremental summaries, and additional supported upstream versions need separate scope and proof. |
+
+The distinction between implementation and published support matters most for
+M5: `test/fixtures/shared_tree/profile.json` still excludes
+`public-transactions` and `undo-redo`, as does the oracle's service profile.
+Both native facades nevertheless expose synchronous single-tree callback
+transactions and runtime-local revertible handles. Do not restart their native
+implementation, or mark M5 closed, while those profile, documentation, and
+final-regression tasks remain open. M5 includes both transactions and undo/redo;
+M6 is branching.
+
+The current manifest has 55 generated cases and 29 registered native semantic
+runners per target. Current service recipes use 300 seeded schedules, or
+7,500 for the deep run. `.github/workflows/shared-tree.yml` runs the native
+checks automatically; `.github/workflows/shared-tree-interop.yml` runs service
+acceptance only on manual dispatch. Their M1/M2/M3 step names do not limit the
+expanded commands' coverage, and workflow existence is not fresh execution
+evidence. The browser checklist is a separate manual recipe, not the website
+browser workflow.
 
 ## Global Constraints
 
@@ -66,12 +102,13 @@ Tasks 1-16 are complete: the pinned oracle, real-service preflight, corpus,
 native semantics and codecs, routed container messages, JavaScript/BEAM runtime
 integration, compatible summaries, public facades and reconnect, and mixed-client
 acceptance, permanent gates, and supported-profile documentation.
-The manifest records native semantic runners for `id-ranges`,
-`schema-validation`, `forest-delta`, `field-compose-invert-rebase`,
-`modular-nested-algebra`, `container-foundations`, and `summary-foundations` on
-both targets. `history-reconciliation`, `tree-codecs`, `tree-kernel`,
-`bootstrap-map-handles`, and `batched-commits` bring that count to twelve.
-The other generated cases are not evidence of implemented native semantics.
+The original M1 manifest registered twelve native semantic runners per target.
+As of 2026-10-04, `test/fixtures/shared_tree/manifest.json` contains 55 generated
+cases and 29 registered semantic runners on each native target, including later
+map, array, schema-evolution, and identifier coverage. Those lists are explicit
+coverage declarations, not evidence that every generated case has a standalone
+native runner. Transaction and undo/redo acceptance also use dedicated native
+tests, artifact validators, and service scenarios outside those runner lists.
 
 The foundation lanes, Task 11/12 runtime join, Task 13 compatible summaries,
 Task 14 public facades and reconnect, Task 15 mixed-client acceptance, and
@@ -190,8 +227,9 @@ suite after each isolated tree-algebra edit.
 
 ## 2. File map
 
-These are planned paths. Create a file with the task that supplies its behavior,
-not an empty scaffold in an earlier task.
+This is the original M0/M1 responsibility map. The implementation now exists;
+later feature plans describe additional modules and tests. Task-local file
+splits are recorded in their closure notes.
 
 | Path | Responsibility |
 | --- | --- |
@@ -220,7 +258,7 @@ not an empty scaffold in an earlier task.
 | `test/watershed/shared_tree_*_test.gleam` | Focused tests for each native subsystem. |
 | `test/watershed/shared_tree_client.gleam` | Dual-target command/observation runner for real-service acceptance. |
 | `smoke/shared_tree.mjs` | Node orchestration entrypoint, analogous to the existing live JS smoke launchers. |
-| `.github/workflows/shared-tree.yml` | Required, non-skipping interoperability gates. Add after the commands work. |
+| `.github/workflows/shared-tree.yml`, `.github/workflows/shared-tree-interop.yml` | Automatic native checks and a separate manually dispatched, non-skipping service interoperability gate. These workflows do not themselves configure branch protection. |
 
 Existing files that require coordinated changes:
 
@@ -1096,7 +1134,8 @@ replacement source means clear; these cannot share one decoder branch.
 Include set/set both orders; set/clear; clear/set; clear of empty; nested child
 edits through replacement; detach/reattach during rebase; simultaneous register
 swaps; duplicate source/destination rejection; and revision remapping.
-Detached-register moves are required even though public array moves are deferred.
+Detached-register moves are required even though public array moves are outside
+M1. Public array moves were subsequently implemented in M3.
 
 - [x] **4. Exercise the algebra laws with upstream expectations.**
 
@@ -1111,7 +1150,7 @@ Commit subject: `feat(tree): port optional-field change algebra`.
 
 ### Task 8: compose and rebase nested modular changes
 
-**Status:** Complete. The checked pure change boundary is ready for Task 9;
+**Status:** Complete. The checked pure change boundary supplies Task 9;
 history, production codecs, runtime integration, and document clients remain
 outside this task.
 
@@ -1555,7 +1594,8 @@ publication before snapshot, CSN, or HTTP work; disable automatic tree
 summaries. Retain pending edits and compressor state in
 `SuspendedPendingTree` rather than attempting generic resubmission. Task 13
 owns compatible document loading/publication; Task 14 owns full reconnect
-and public tree handles. Tasks 15-16 remain open.
+and public tree handles. Tasks 15-16 were still open at this checkpoint and
+are closed by their later evidence below.
 
 **Scheduling:** This is the join point for Lane A's Task 10, Lane B's `11a`,
 and Lane C's `13a`. One integration owner completes the remaining Task 11 work
@@ -1777,7 +1817,8 @@ real-service mode with the BEAM automatic-policy check. An independent review
 confirmed that all five reported correctness gaps were resolved. Fresh final
 artifact and real-service runs reproduced the persistence results.
 
-Workspace-wide `just build` passes after resolving the example dependencies
+Historical Task 13 checkpoint (superseded by Task 16's broad regression record):
+workspace-wide `just build` passes after resolving the example dependencies
 serially. `just test` passes the native suites, storage/bootstrap smokes,
 compile-fail checks, and website type checks, but the website unit suite has one
 pre-existing failure: `website/scripts/snippet-config.test.mjs:257` reports
@@ -1788,7 +1829,7 @@ at this website prebuild check, before browser scenarios run. This unrelated
 snippet configuration issue remains open; the full `just test` gate is not
 green.
 
-#### Foundation-wave closure
+#### Historical foundation-wave closure
 
 The combined wave passes 1700 Erlang tests, 1978 JavaScript tests, the
 dual-target HTTP storage probe, and 44 oracle tests. All 24 upstream cases
@@ -1796,9 +1837,9 @@ reproduce with the pinned source. The original service profile and the other
 21 existing case files are unchanged; only the field case was expanded and two
 narrow foundation cases were added.
 
-The existing `smoke/runtime_bootstrap.mjs` still fails with
+At this earlier foundation checkpoint, `smoke/runtime_bootstrap.mjs` failed with
 `Missing HTTP request /trees/`, exactly as on the unchanged `5a3ff3f` baseline.
-That pre-existing failure keeps the overall `just test` gate red; it is not a
+That pre-existing failure kept the overall `just test` gate red; it was not a
 passing bootstrap or native-document interoperability claim. No live runtime
 cutover, production dependency, or production FFI was added in this wave.
 
@@ -1954,7 +1995,8 @@ tree state on semantic replay errors. The JavaScript runtime also retains
 pending state on replay errors. The focused gate now checks two distinct
 per-commit detached refreshers against the pinned upstream oracle and
 compares original and resubmitted revision/batch identities. Tasks 15 and 16
-remain open. Review-fix run `7d3d7898-4eeb-4ee0-ab49-2338e20d8083` passed
+were still open at this checkpoint; their closure is recorded below. Review-fix
+run `7d3d7898-4eeb-4ee0-ab49-2338e20d8083` passed
 all twelve live cases, including two refreshers with predecessor values
 `(1, 2)` and `(42, 2)` on each target. The root suites passed 1983 BEAM
 and 2255 JavaScript tests; both builds, 83 oracle unit tests, runtime and
@@ -2026,15 +2068,15 @@ unbounded timeout.
 
 - [x] **4. Add seeded schedules and reproducible failures.**
 
-Start with the deterministic cases, then generate at least 200 schedules for
-the normal gate and 5,000 for a deep run. Use fixed, recorded seeds and shrink or
+Start with the deterministic cases, then generate at least 300 schedules for
+the normal gate and 7,500 for a deep run. Use fixed, recorded seeds and shrink or
 persist the failing schedule. Counts are coverage settings, not performance
 claims. Keep all three implementations in the comparison.
 
 - [x] **5. Run the required service command and commit.**
 
 ```sh
-rtk proxy node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 200 --seed 42
+rtk proxy node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 300 --seed 42
 ```
 
 Required result: all mandatory cases, both native targets, all nine summary
@@ -2089,10 +2131,10 @@ shared-tree-test:
     node smoke/shared_tree_creation.mjs
 
 shared-tree-interop:
-    node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 200 --seed 42
+    node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 300 --seed 42
 
 shared-tree-interop-deep:
-    node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 5000 --seed 42
+    node smoke/shared_tree.mjs --profile test/fixtures/shared_tree/profile.json --iterations 7500 --seed 42
 ```
 
 The client runner is a test module. The native recipe and acceptance coordinator
@@ -2116,8 +2158,9 @@ The `SharedTree native` check runs on pull requests, pushes to `main`, and manua
 dispatch. The long-running `SharedTree interoperability` workflow runs only by
 manual dispatch. Its service job requires both `shared-tree-interop` and
 `shared-tree-create-interop`, preserves their separate evidence directories,
-and has no successful skip path. The manual 5,000-schedule recipe uses the same
-M1 coordinator.
+and has no successful skip path. The manual 7,500-schedule recipe uses the same
+coordinator with the expanded supported profile. Historical M1/M2 reports below
+retain their actual 200-schedule counts.
 
 - [x] **2. Document the exact compatibility claim.**
 
@@ -2204,61 +2247,69 @@ are preserved by run 36213313937. All required closure gates passed.
 
 ## 6. Later plans
 
-M3 arrays and moves are implemented. Its
-[arrays and moves design](../specs/2026-09-26-shared-tree-arrays-design.md) and
-[detailed implementation and acceptance record](2026-09-26-shared-tree-arrays.md)
-cover the published profile, native APIs, source corpus, mixed-client service
-matrices, and fixed-layout creation. All local profile, native, service,
-creation, full-test, build, and lint gates pass. The automatic native and
-manually dispatched interoperability workflows also pass for the integrated
-revision.
+M2 dynamic maps and M3 arrays/moves are implemented and published. Their
+[map plan](2026-09-24-shared-tree-dynamic-maps.md) and
+[array plan](2026-09-26-shared-tree-arrays.md) retain the source corpus,
+native APIs, service matrices, and dated release evidence. Those historical
+results are not claims that this reconciliation reran every local or hosted
+gate.
 
-M4 has a separate
-[schema evolution design](../specs/2026-09-26-shared-tree-schema-evolution-design.md)
-and [detailed implementation plan](2026-09-26-shared-tree-schema-evolution.md).
-M4 is complete for the approved strict-view object and dynamic-map subset.
+M4's [plan](2026-09-26-shared-tree-schema-evolution.md) is complete for the
+approved strict-view object and dynamic-map subset.
 The implementation covers compatibility inspection, explicit monotonic
 upgrades, schema/data conflict behavior, reconnect, summaries, both native
-targets, upstream interchange, and permanent gates. Staged upgrades,
-unknown-field adapters, arrays and array schema evolution, migrations, public
-transactions, and additional upstream versions remain outside the claim.
-M3 coordination remains necessary for shared schema and codec surfaces; M3 is
-not complete.
+targets, upstream interchange, and permanent-gate integration. Array schema
+evolution, staged upgrades, unknown-field adapters, migrations, and additional
+upstream versions remain outside M4. Ordinary arrays are already supported by
+M3; public transactions and undo/redo have separate M5 implementations.
 
-Use the specification's M2-M8 roadmap. Write each feature's own design and
-implementation plan when scheduled, using the working M1 oracle and real-service
-gate. Each later milestone requires M1 and a separate approved design and plan;
-the interface prerequisites below do not replace that gate. In particular:
+The [Identifier extension](2026-10-01-shared-tree-identifiers.md) is implemented
+and included in the generated supported profile. IDs are ordinary string
+leaves, generated through the document compressor only when new containing
+content is authored. Attached Identifier fields are immutable; moves, replay,
+loading, and undo preserve their values rather than generating replacements.
 
-| Next area | Earliest prerequisite | Additional proof |
+M5's [transaction plan](2026-09-29-shared-tree-transactions.md) implements
+synchronous single-tree callbacks, nested savepoints, abort, composed outer
+commits, and stable node-existence constraints. Its native recovery and
+mixed-client work is implemented through Task 9; Tasks 10-11 still own profile,
+documentation, permanent-gate, and final-regression closure.
+
+The [undo/redo plan](2026-10-02-shared-tree-undo-redo.md) implements commit
+subscriptions, commit kinds, one-shot factories, runtime-local revertibles,
+disposal, settlement, and inversion after later local/remote edits through
+Task 8. Tasks 9-10 still own profile/documentation and final-regression closure.
+Applications own their stacks. Reconnect retains live handles in-process;
+reload preserves committed document state but does not recreate old handles.
+Schema commits, active-transaction reversion, async/cross-tree transactions,
+and persisted application stacks remain outside the implemented slice.
+
+Keep the original specification's milestone numbering, but use this roadmap
+and each feature plan's dated reconciliation for implementation status. Each
+new scope needs its own approved design and interoperability proof.
+
+| Remaining area | Prerequisite | Required work or proof |
 | --- | --- | --- |
-| Dynamic maps | M1 | Per-key set/delete, nested values, iteration and summary parity. |
-| Arrays and moves | M1 | Implemented in M3; local and hosted release acceptance pass. |
-| Schema evolution | M1 | Stored/view compatibility and schema/data races across supported client profiles. |
-| Transactions and undo/redo | M1 plus each supported edited field kind | Constraints, atomic abort, selective undo, redo after remote changes, retained repair data. |
-| Local branching | M1 plus working modular history | Fork/rebase/merge and branch lifetime without prematurely reclaiming history. |
-| Shared branches | M1 plus a separate version/profile decision | Explicit support for the experimental shared-branch wire family; no accidental opt-in. |
-| Native container creation | Task 15 container read/write contract | Fixed-layout create-then-connect pulled forward: both native facades publish an initial container to pinned Floodgate. `just shared-tree-create-interop` checks fresh native/upstream loading and continuation. Broader layouts and live attach/alias changes remain deferred. |
-| Lustre and typed schema UX | M1 plus a stable native facade | Deferred effects, schema safety, subscriptions, and one real collaborative example. |
-| Crash-recoverable pending state | M1 reconnect | Restored compressor session, unsent changes, resubmission, and accepted-before-crash deduplication. |
-| Scale and incremental summaries | Measured M1/M3 workloads | Bounded retained history, safe reclamation, operation costs, and cross-version persistence. |
+| M5 release closure | Implemented transaction and revertible surfaces | Reconcile support/exclusion labels, document the restricted scope, and record current permanent/full-regression results without implying missing native APIs. |
+| Array schema evolution | Published M3 and M4 contracts | Separate array-evolution schema/data race and reload matrices. |
+| M6 local branching | Existing modular history and M5 retention rules | Public fork/rebase/merge and branch lifetime without reclaiming live revertible history. |
+| Experimental shared branches | Separate version/profile decision | Explicit shared-branch wire support; no accidental opt-in. |
+| Broader container lifecycle | Working fixed-layout creation | Declared layouts, live attachment/alias changes, and handle-valued leaves with fresh upstream/native loading. |
+| Richer Lustre and typed schema UX | Stable native facade | Transaction and commit/revertible effects, application-owned stack examples, and typed consumers without changing kernel or bootstrap contracts. |
+| Browser-slice evidence gaps | Existing adapter and checklist | Dedicated adapter lifecycle/scheduling tests, move-up browser coverage, and recorded complete release-validation evidence. |
+| Crash-recoverable pending state | In-process reconnect | Disk restoration of compressor session and unsent changes, resubmission, and accepted-before-crash deduplication. |
+| M8 scale and incremental summaries | Representative object/map/array/transaction/undo workloads | Measured operation costs, safe reclamation with live handles, incremental persistence, and cross-version compatibility. |
 
-### Later parallel opportunities
+### Current parallel opportunities
 
-After M1, dynamic maps and array/sequence algorithms can proceed in parallel
-once their modular field-handler and codec interfaces agree. Give shared schema
-and codec dispatch one integration owner. A sequence-field rebaser is not a
-prerequisite for completing the object-only M1 profile. The M2 implementation
-plan keeps its native Tasks 2 through 9 ordered; only its Task 1 oracle work can
-overlap the end of M1.
-
-After M2, use these parallel lanes:
+Do not schedule M2-M4 implementation lanes again. Their original parallel
+staging is historical. The remaining work can split as follows:
 
 | Lane | Work that can proceed | Coordination requirement |
 | --- | --- | --- |
-| M3 arrays and moves | Implemented; local and hosted acceptance pass. | Keep M4 changes compatible with the published sequence-field and codec dispatch. |
-| M4 schema evolution | Stored/view compatibility and schema/data race evidence for object and map fields. | Coordinate each schema change with every field kind that it supports. |
-| Selected M7 consumers | Lustre bindings, examples, and richer typed APIs that use the stable native facade. | Consume the existing facade; do not change attach, alias, or bootstrap contracts from this lane. |
+| M5 release owner | Transaction/undo profile, documentation, gate contracts, and final evidence. | Serialize shared profile generation, oracle metadata, recipes, and release records. |
+| Selected M7 consumers | Richer bindings, typed consumers, application-owned stack examples, and browser coverage. | Consume the existing facades; do not modify history, allocation, attach, alias, or bootstrap semantics from this lane. |
+| New-scope design/oracle work | Local branching, array schema evolution, crash recovery, broader layouts, and performance measurements. | Approve each contract before implementation; independent research does not authorize overlapping edits to shared runtime/history paths. |
 
 Further M7 container lifecycle work can overlap the consumer lane after its
 contracts stabilize, but it needs one owner for attach, alias, bootstrap, and
@@ -2269,19 +2320,23 @@ and `shared_tree_checklist_lustre` example cover browser-native creation,
 fixed-layout resolution, subscriptions, object/array edits, and a two-context
 Chromium gate. They do not close M7. Production token services, arbitrary
 layouts, live attachment, handle-valued leaves, richer typed APIs, and pending
-state recovery remain open.
+state recovery remain open. The adapter does not yet provide transaction or
+commit/revertible effects, and the example has no application-owned undo stack.
+Its local pending counter measures effect completion, not acknowledgement.
 
 The fixed-layout creation slice now has a standalone dual-target example at
 `examples/shared_tree_cli`. It uses caller-authored schema and initial content,
 returns the assigned ID before opening, and has no SDK seed step. Creation
 does not retry uncertain POST outcomes. This slice does not complete Task 16
-or the M1 checklist above.
+or M7 by itself; Task 16 and the M1 checklist were closed separately by their
+recorded gates above.
 
 Schema evolution needs coordinated schema/data integration with the supported
 field kinds. Transactions/undo, branching, crash recovery, and reclamation
 share history or runtime state; do not assign concurrent owners to the same
-reconciliation and retention paths. M8 performance and reclamation work should
-wait for representative M3 workloads. Broader container layouts, handle-valued
+reconciliation and retention paths. M8 reclamation must preserve live
+revertibles as well as collaboration history; measurements can use the
+implemented M3/M5 workloads now. Broader container layouts, handle-valued
 leaves, incremental summaries, and additional supported versions each need
 their own approved scope and interoperability proof. Independent design or
 oracle work does not remove those implementation dependencies.

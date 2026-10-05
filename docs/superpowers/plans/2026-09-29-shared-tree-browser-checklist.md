@@ -1,6 +1,10 @@
 # SharedTree Browser Checklist Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Implementation record:** The browser slice is implemented. The dated status
+> below is authoritative; the original task procedure is retained for context.
+> Checked artifact steps mean their deliverables exist, not that their historical
+> RED/GREEN runs were reconstructed. Unchecked historical test-run and commit
+> steps are not missing implementation.
 
 **Goal:** Add a local-development Lustre application that creates a native SharedTree container in the browser and demonstrates convergent checklist editing in two browser contexts.
 
@@ -10,11 +14,43 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-29-shared-tree-browser-checklist-design.md`
 
+## Current status (code review: 2026-10-04)
+
+Tasks 1-6 have committed implementations, including the HTTP proxy correction
+in `01a90a69`. This review compared source, tests, recipes, and Git history; it
+did not rerun the browser or release gates.
+
+| Task | Current implementation and evidence |
+| --- | --- |
+| 1: Lustre effects | `watershed_lustre/src/watershed_lustre/tree.gleam` exports all seven planned effects. `tree_test.gleam` covers lazy mutation execution, deferred outcomes, mutation errors, and invalid-creation errors. It does not contain dedicated open/read/subscription/unsubscribe tests; root runtime/facade suites cover tree subscriptions but not these effects' scheduling. |
+| 2: Schema and domain | `schema.gleam` and `checklist.gleam` implement the object/array schema, strict decoding, duplicate-ID rejection, ID-addressed edits, stale-ID errors, and boundary no-ops. The example's Gleam suite checks these behaviors. |
+| 3: Browser lifecycle | The app creates or opens a document, preserves its ID in the URL, connects through `watershed_lustre.connect_dev`, and resolves the tree. `serve.mjs` serves assets and proxies Floodgate HTTP requests; the browser FFI rewrites storage requests to the app origin. Node tests cover URL/FFI behavior and HTTP proxying. |
+| 4: Collaborative editing | The app implements every `Action`, renders stable selectors, refreshes after tree events and mutation outcomes, and reports errors explicitly. Its `pending` counter tracks outstanding local effect outcomes, not sequencer acknowledgements. |
+| 5: Browser gate | `smoke/browser.mjs` checks two isolated Chromium contexts, add/edit/toggle/delete, move-down, and the edit/reorder race. It compares ordered IDs, text, completion values, local pending counts, and errors. There is no separate move-up action in the smoke; the pure suite checks its edit preparation. |
+| 6: Documentation | The example README, root README, and parent roadmap describe the implemented development-only slice without closing M7. |
+| 7: Release evidence | Commands remain reproducible below, but this plan has no recorded complete Task 7 handoff proving every command or the three consecutive browser runs. Do not infer that evidence from the implementation commits. |
+
+Effects defer work until effect execution and dispatch callbacks through
+microtasks. `perform` executes its mutation thunk when the effect runs; it
+does not schedule the mutation itself in a microtask. `unsubscribe` likewise
+runs during effect execution and dispatches no callback.
+
+The smoke requires the bundle and Floodgate on port 4000 before checking for
+Chromium. With those prerequisites present, missing Chromium is its only
+successful skip. `just shared-tree-checklist` builds with `corepack pnpm`.
+Neither SharedTree workflow nor `website-browser.yml` invokes this example's
+gate; the website workflow covers the separate website browser suite.
+
+Remaining evidence gaps are dedicated adapter lifecycle/scheduling tests,
+move-up browser coverage, and a recorded release-validation handoff. Production
+authentication, offline authoring, schema upgrades in this example, arbitrary
+container layouts, and drag-and-drop remain outside this slice.
+
 ## Global Constraints
 
 - Keep the adapter schema-neutral. The example owns its schema and checklist semantics.
 - Reuse `watershed_lustre.connect_dev`; do not create a second connection abstraction.
-- Defer every adapter callback and mutation through a microtask.
+- Defer adapter work until effect execution and dispatch every callback through a microtask. Mutations execute as thunks when the effect runs.
 - Use the existing fixed native container layout: alias `root`, datastore `A`, bootstrap map `/A/root`, and SharedTree `/A/_C`.
 - Treat browser-minted tokens as local-development behavior only.
 - Keep the document ID in the URL after creation so another tab can open the same document.
@@ -35,8 +71,8 @@
   - Owns deferred effects for create, development create, fixed-layout open,
     subscription, unsubscribe, root reads, and mutations.
 - Create `watershed_lustre/test/watershed_lustre/tree_test.gleam`
-  - Proves effect laziness, callback deferral, error preservation, and
-    unsubscribe behavior.
+  - Proves mutation-effect laziness, outcome deferral, and mutation/creation
+    error preservation. Root tests own subscription-token semantics.
 
 ### Browser checklist package
 
@@ -57,7 +93,14 @@
 - Create `examples/shared_tree_checklist_lustre/test/shared_tree_checklist_lustre_test.gleam`
   - Entry point and pure schema/domain tests.
 - Create `examples/shared_tree_checklist_lustre/src/shared_tree_checklist_lustre_ffi.mjs`
-  - Reads query parameters and replaces the document ID in the current URL.
+  - Reads query parameters, replaces the document ID, and rewrites Floodgate
+    HTTP requests to the app origin.
+- Create `examples/shared_tree_checklist_lustre/serve.mjs`
+  - Serves assets and proxies HTTP requests to local Floodgate.
+- Create `examples/shared_tree_checklist_lustre/test/browser_ffi.test.mjs`
+  - Checks URL preservation and app-origin HTTP rewriting.
+- Create `examples/shared_tree_checklist_lustre/test/serve.test.mjs`
+  - Checks document-creation and storage HTTP proxying.
 - Create `examples/shared_tree_checklist_lustre/src/shared_tree_checklist_lustre.gleam`
   - Owns the Lustre model, lifecycle, update loop, and view.
 - Create `examples/shared_tree_checklist_lustre/smoke/browser.mjs`
@@ -105,7 +148,7 @@
   - `tree.read_root`
   - `tree.perform`
 
-- [ ] **Step 1: Write failing effect tests**
+- [x] **Step 1: Write failing effect tests**
 
 Create `watershed_lustre/test/watershed_lustre/tree_test.gleam` with a concrete
 message type, an effect runner, a minimal valid schema, and tests for deferred
@@ -167,9 +210,18 @@ pub fn create_preserves_invalid_configuration_and_defers_dispatch_test() -> Prom
 }
 
 fn run(effect_to_run: Effect(Msg), sink: transport_js.Cell(List(Msg))) -> Nil {
-  effect.perform(effect_to_run, fn(message) {
-    transport_js.set_cell(sink, [message, ..transport_js.get_cell(sink)])
-  })
+  effect.perform(
+    effect_to_run,
+    fn(message) {
+      transport_js.set_cell(sink, [message, ..transport_js.get_cell(sink)])
+    },
+    fn(_, _) { Nil },
+    fn(_) { Nil },
+    fn() { panic as "unexpected root action" },
+    fn(_, _) { Nil },
+    fn(_, _) { Nil },
+    fn(_) { Nil },
+  )
 }
 
 fn messages(sink: transport_js.Cell(List(Msg))) -> List(Msg) {
@@ -188,7 +240,7 @@ gleam test
 
 Expected: compilation fails because `watershed_lustre/tree` does not exist.
 
-- [ ] **Step 3: Implement the adapter module**
+- [x] **Step 3: Implement the adapter module**
 
 Create `watershed_lustre/src/watershed_lustre/tree.gleam`. Use the existing
 FFI microtask helper and these public functions:
@@ -311,7 +363,7 @@ pub fn perform(
 Use the same `../watershed_lustre_ffi.mjs` path as
 `watershed_lustre/crdt.gleam`. Do not add a second microtask implementation.
 
-- [ ] **Step 4: Add error-preservation coverage**
+- [x] **Step 4: Add error-preservation coverage**
 
 Extend `tree_test.gleam` with:
 
@@ -376,7 +428,7 @@ git commit -m "feat(tree): add Lustre SharedTree effects"
   - `checklist.move_up(Checklist, String) -> Result(Option(Edit), String)`
   - `checklist.move_down(Checklist, String) -> Result(Option(Edit), String)`
 
-- [ ] **Step 1: Create the package manifest**
+- [x] **Step 1: Create the package manifest**
 
 Create `examples/shared_tree_checklist_lustre/gleam.toml`:
 
@@ -399,7 +451,7 @@ watershed_lustre = { path = "../../watershed_lustre" }
 gleeunit = ">= 1.0.0 and < 2.0.0"
 ```
 
-- [ ] **Step 2: Write failing schema and domain tests**
+- [x] **Step 2: Write failing schema and domain tests**
 
 Create `test/shared_tree_checklist_lustre_test.gleam` with `gleeunit.main()` and
 tests that assert:
@@ -465,7 +517,7 @@ gleam test
 Expected: compilation fails because the schema and checklist modules do not
 exist.
 
-- [ ] **Step 4: Implement the stored schema and value constructors**
+- [x] **Step 4: Implement the stored schema and value constructors**
 
 Create `schema.gleam` with these identifiers and exact schema shape:
 
@@ -523,7 +575,7 @@ pub fn item_value(
 }
 ```
 
-- [ ] **Step 5: Implement strict decoding and edit preparation**
+- [x] **Step 5: Implement strict decoding and edit preparation**
 
 Create `checklist.gleam` with these public types:
 
@@ -676,6 +728,9 @@ git commit -m "feat(tree): define checklist schema and edits"
 - Create: `examples/shared_tree_checklist_lustre/index.html`
 - Create: `examples/shared_tree_checklist_lustre/src/shared_tree_checklist_lustre_ffi.mjs`
 - Create: `examples/shared_tree_checklist_lustre/src/shared_tree_checklist_lustre.gleam`
+- Create: `examples/shared_tree_checklist_lustre/serve.mjs`
+- Create: `examples/shared_tree_checklist_lustre/test/browser_ffi.test.mjs`
+- Create: `examples/shared_tree_checklist_lustre/test/serve.test.mjs`
 - Generate: `examples/shared_tree_checklist_lustre/pnpm-lock.yaml`
 
 **Interfaces:**
@@ -688,7 +743,7 @@ git commit -m "feat(tree): define checklist schema and edits"
   - Stable DOM status selectors
   - Document URL replacement
 
-- [ ] **Step 1: Add package-manager and bundle files**
+- [x] **Step 1: Add package-manager and bundle files**
 
 Create `package.json`:
 
@@ -701,7 +756,7 @@ Create `package.json`:
   "description": "Native SharedTree collaborative checklist browser demo",
   "scripts": {
     "build": "gleam build --target javascript && esbuild build/dev/javascript/shared_tree_checklist_lustre/shared_tree_checklist_lustre.mjs --bundle --format=esm --outfile=dist/shared_tree_checklist_lustre.mjs",
-    "serve": "python3 -m http.server 8080"
+    "serve": "node serve.mjs"
   },
   "dependencies": {
     "esbuild": "^0.28.1",
@@ -732,7 +787,7 @@ node_modules
 dist
 ```
 
-- [ ] **Step 2: Add browser routing FFI tests through Node**
+- [x] **Step 2: Add browser routing FFI tests through Node**
 
 Create `src/shared_tree_checklist_lustre_ffi.mjs` with exports:
 
@@ -750,20 +805,22 @@ export function replaceDocument(documentId) {
 
 Add `test/browser_ffi.test.mjs` that installs fake `location` and `history`
 objects, imports the module, and asserts that `replaceDocument("doc-1")`
-preserves `host`, `port`, `tenant`, and `secret` while replacing only
-`document`.
+preserves `tenant` and `secret` while replacing only `document`. The committed
+test also checks `currentOrigin` and `proxyFloodgateHttp`. `test/serve.test.mjs`
+checks the server-side proxy. A static-only Python server is insufficient for
+this app's cross-origin creation and storage requests.
 
 - [ ] **Step 3: Run the FFI test**
 
 Run:
 
 ```sh
-node --test examples/shared_tree_checklist_lustre/test/browser_ffi.test.mjs
+node --test examples/shared_tree_checklist_lustre/test/*.test.mjs
 ```
 
 Expected: the test passes.
 
-- [ ] **Step 4: Add the initial HTML host**
+- [x] **Step 4: Add the initial HTML host**
 
 Create `index.html` with:
 
@@ -814,13 +871,19 @@ Add this style block inside `<head>`:
 
 Keep smoke selectors in Gleam data attributes rather than CSS class names.
 
-- [ ] **Step 5: Implement configuration and URL replacement externals**
+- [x] **Step 5: Implement configuration and URL replacement externals**
 
 In the Gleam main module, declare:
 
 ```gleam
 @external(javascript, "./shared_tree_checklist_lustre_ffi.mjs", "queryParameter")
 fn query_parameter(name: String, fallback: String) -> String
+
+@external(javascript, "./shared_tree_checklist_lustre_ffi.mjs", "currentOrigin")
+fn current_origin() -> String
+
+@external(javascript, "./shared_tree_checklist_lustre_ffi.mjs", "proxyFloodgateHttp")
+fn proxy_floodgate_http(upstream: String) -> Nil
 
 @external(javascript, "./shared_tree_checklist_lustre_ffi.mjs", "replaceDocument")
 fn replace_document(document_id: String) -> Nil
@@ -836,8 +899,12 @@ const default_secret = "levee-dev-secret-change-in-production"
 ```
 
 Define a `Config` with `base_url`, `socket_url`, `tenant`, and `secret`.
+The implemented HTTP base defaults to `current_origin()` and can be overridden
+with `base`; the socket uses the default Floodgate host and port. The app reads
+`tenant`, `secret`, and `document`, not host/port overrides. Initialization calls
+`proxy_floodgate_http` for the default Floodgate HTTP origin.
 
-- [ ] **Step 6: Implement the create-or-open model**
+- [x] **Step 6: Implement the create-or-open model**
 
 Use these core types:
 
@@ -855,7 +922,6 @@ type Model {
     phase: Phase,
     document_id: String,
     document: Option(watershed.Document(Nil)),
-    connected: Bool,
     tree: Option(watershed.SharedTree),
     subscription: Option(watershed.SubscriptionToken),
     checklist: checklist.Checklist,
@@ -894,7 +960,7 @@ tree.create_dev(
 ```
 
 On `Created(Ok(id))`, call `replace_document(id)`, switch to `Connecting`, and
-run `connect_effect(config, id)`. On `Created(Error(detail))`, use:
+run `connect(config, id)`. On `Created(Error(detail))`, use:
 
 ```text
 Creation failed. The service might have created a document whose ID this browser did not receive: <detail>
@@ -916,8 +982,8 @@ watershed_lustre.connect_dev(
 )
 ```
 
-Store `GotDocument`. After both a document handle and `Connected(Ok(Nil))`
-exist, call:
+Store `GotDocument`. On `Connected(Ok(Nil))`, require that document handle and
+call the following; a missing handle is an explicit lifecycle error:
 
 ```gleam
 tree.open(document, document_schema.view(), Opened)
@@ -932,7 +998,7 @@ effect.batch([
 ])
 ```
 
-- [ ] **Step 7: Decode reads and expose stable status selectors**
+- [x] **Step 7: Decode reads and expose stable status selectors**
 
 Handle `Read` as follows:
 
@@ -991,9 +1057,9 @@ git commit -m "feat(tree): create browser checklist documents"
 - Consumes Task 2 `types.Edit` preparation.
 - Produces complete add, edit, toggle, delete, move-up, and move-down UI.
 
-- [ ] **Step 1: Add failing update-helper tests**
+- [x] **Step 1: Add failing update-helper tests**
 
-Extract this pure function into the application module:
+Use this mutation helper in the application module:
 
 ```gleam
 fn operation(
@@ -1002,7 +1068,7 @@ fn operation(
 ) -> Result(Nil, String)
 ```
 
-Add tests around a second pure helper:
+Add tests around the pure action-preparation helper:
 
 ```gleam
 pub type Action {
@@ -1034,7 +1100,7 @@ gleam test
 
 Expected: compilation fails because `Action` and `prepare` do not exist.
 
-- [ ] **Step 3: Implement action preparation and edit dispatch**
+- [x] **Step 3: Implement action preparation and edit dispatch**
 
 Add messages:
 
@@ -1104,9 +1170,10 @@ fn mutate(model: Model, action: Action) -> #(Model, Effect(Msg)) {
 On every `MutationFinished`, decrement `pending`, append any error, and run
 `tree.read_root` when the tree handle exists.
 
-- [ ] **Step 4: Refresh on every tree event**
+- [x] **Step 4: Refresh on every tree event**
 
-Handle both event variants through the same read path:
+Handle every event variant through the same read path, including the later
+`SchemaChanged` variant:
 
 ```gleam
 TreeChanged(_) ->
@@ -1119,7 +1186,7 @@ TreeChanged(_) ->
 Do not infer the new visible value from event locality or the submitted edit.
 The latest successful SharedTree read is the rendered state.
 
-- [ ] **Step 5: Build the checklist UI**
+- [x] **Step 5: Build the checklist UI**
 
 Render:
 
@@ -1174,30 +1241,30 @@ git commit -m "feat(tree): edit shared checklist in browser"
 - Consumes stable selectors from Tasks 3 and 4.
 - Produces `just shared-tree-checklist`.
 
-- [ ] **Step 1: Write the failing browser smoke**
+- [x] **Step 1: Write the failing browser smoke**
 
 Create `smoke/browser.mjs` from the repository's CDP helpers. Require:
 
 ```js
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { connect } from "node:net";
 import { join, resolve } from "node:path";
 import {
   devtoolsEndpoint,
   findBrowser,
-  startServer,
   stopBrowser,
   withPage,
 } from "../../../smoke/cdp.mjs";
+import { startChecklistServer } from "../serve.mjs";
 ```
 
 The script must:
 
 1. Fail when the bundle is missing.
-2. Exit zero with an explicit skip only when Chromium is unavailable.
-3. Fail with `Start it with: just integration-up` when port 4000 is closed.
-4. Start the static server with `index.html`.
+2. Fail with `Start it with: just integration-up` when port 4000 is closed.
+3. After those prerequisites, exit zero with an explicit skip only when Chromium is unavailable.
+4. Start `startChecklistServer` to serve `index.html` and proxy Floodgate HTTP.
 5. Open the first page without `document`.
 6. Wait for `data-runtime-status="ready"` and capture its changed URL.
 7. Open that URL in a separate browser context.
@@ -1224,7 +1291,7 @@ const snapshot = `(() => ({
 Use helper functions that click by `data-action`, set input values through
 `input` and `change` events, and poll until both snapshots match.
 
-- [ ] **Step 2: Add the just recipe before making the smoke pass**
+- [x] **Step 2: Add the just recipe before making the smoke pass**
 
 Add:
 
@@ -1232,7 +1299,7 @@ Add:
 # Native SharedTree browser demo: browser creation plus two-context checklist
 # convergence. Requires local Floodgate and skips only when Chromium is absent.
 shared-tree-checklist:
-    cd examples/shared_tree_checklist_lustre && pnpm run build
+    cd examples/shared_tree_checklist_lustre && corepack pnpm run build
     node examples/shared_tree_checklist_lustre/smoke/browser.mjs
 ```
 
@@ -1248,7 +1315,7 @@ just shared-tree-checklist
 Expected: the smoke fails at the first missing or incorrect selector,
 lifecycle transition, or operation. Keep Floodgate running for the next steps.
 
-- [ ] **Step 4: Make create and second-context opening pass**
+- [x] **Step 4: Make create and second-context opening pass**
 
 Fix only the creation, URL replacement, connection, and opening path until the
 smoke reaches the first add operation.
@@ -1262,7 +1329,7 @@ just shared-tree-checklist
 Expected: both contexts report `ready`, have the same nonempty document ID,
 have zero errors, and show an empty checklist.
 
-- [ ] **Step 5: Make add, edit, toggle, and delete pass**
+- [x] **Step 5: Make add, edit, toggle, and delete pass**
 
 Drive these exact observations:
 
@@ -1277,7 +1344,7 @@ Drive these exact observations:
 
 Run the gate after each operation family.
 
-- [ ] **Step 6: Add the edit-and-reorder race**
+- [x] **Step 6: Add the edit-and-reorder race**
 
 With three items present:
 
@@ -1317,14 +1384,14 @@ git commit -m "test(tree): gate browser checklist convergence"
 
 **Files:**
 - Create: `examples/shared_tree_checklist_lustre/README.md`
-- Modify: `README.md:237-269`
-- Modify: `docs/superpowers/plans/2026-09-21-shared-tree.md:2210-2255`
+- Modify: the root README's SharedTree creation section.
+- Modify: the parent plan's later-plans and M7 browser-slice sections.
 
 **Interfaces:**
 - Consumes the final commands and limits proven by Tasks 1-5.
 - Produces user-facing run instructions and an accurate roadmap record.
 
-- [ ] **Step 1: Write the example README**
+- [x] **Step 1: Write the example README**
 
 Document these exact commands:
 
@@ -1350,7 +1417,7 @@ Include sections for:
 - unsupported production authentication, offline authoring, schema upgrades,
   arbitrary layouts, and drag-and-drop.
 
-- [ ] **Step 2: Update the root SharedTree creation section**
+- [x] **Step 2: Update the root SharedTree creation section**
 
 After the CLI example paragraph, add:
 
@@ -1362,7 +1429,7 @@ in the browser for the local Floodgate stack; production applications must
 obtain tenant-write and document tokens from a backend.
 ```
 
-- [ ] **Step 3: Update the parent roadmap**
+- [x] **Step 3: Update the parent roadmap**
 
 In the M7 section, record:
 
@@ -1430,7 +1497,7 @@ Run:
 ```sh
 cd watershed_lustre && gleam test
 cd ../examples/shared_tree_checklist_lustre && gleam test
-node --test test/browser_ffi.test.mjs
+node --test test/*.test.mjs
 ```
 
 Expected: all focused tests pass.

@@ -19,6 +19,39 @@ Floodgate interoperability service.
 
 **Spec:** [SharedTree dynamic maps](../specs/2026-09-24-shared-tree-dynamic-maps-design.md)
 
+## Reconciliation — 2026-10-04
+
+**Current status:** M2 is implemented and remains part of the published
+SharedTree profile. The original task checklists below are an archived
+implementation procedure. In particular, the unchecked red/green steps in
+Tasks 1–5 are not current TODOs and are not evidence that those historical
+commands ran in that order.
+
+Current implementation evidence:
+
+- `src/watershed/tree/types.gleam:16-39` defines `MapValue`, `MapSet`, and
+  `MapDelete`.
+- `src/watershed/tree/schema.gleam` validates named and recursive map schemas
+  and map entries; `src/watershed/tree/forest.gleam:1529` provides checked map
+  reads.
+- `src/watershed.gleam:712-767` and the matching BEAM facade expose
+  `tree_map_get`, `tree_map_set`, `tree_map_delete`, `tree_map_keys`, and
+  `tree_map_entries`.
+- `tools/shared-tree-oracle/upstream-map.spec.ts` and the three committed
+  `map-*` fixtures capture the pinned source contract. The manifest registers
+  all three cases for JavaScript and Erlang native semantic coverage at
+  `test/fixtures/shared_tree/manifest.json:281-283,312-314`.
+- Focused native coverage lives in
+  `test/watershed/shared_tree_map_{schema,forest,change,codec,kernel,facade}_test.gleam`.
+
+The M2 scope itself has no open implementation item. Map-wide clear,
+handle-valued tree leaves, and other exclusions remain outside this milestone.
+Arrays and restricted object/map schema evolution were added by later
+milestones, so the M2-only exclusions and commands below must be read as
+historical release instructions, not as a description of the whole current
+repository. This review did not rerun the oracle, native, or real-service
+gates; the recorded Task 9 results remain historical evidence.
+
 ## Global Constraints
 
 - M1 Task 16 and every M1 completion item must pass before M2 release closure.
@@ -913,7 +946,8 @@ Both native facades expose all five map operations through the existing tree
 edit lifecycle. The kernel tests cover visible reads and local edits; runtime
 and facade tests cover allocation atomicity, delivery, acknowledgement,
 resubmission, canonical ordering, and retained reads during reconnect.
-The SharedTree gate passes on both targets. Tasks 7–9 remain open.
+The recorded SharedTree gate passed on both targets. Tasks 7–9 were completed
+later and are recorded below.
 
 **Files:**
 - Modify: `src/watershed/tree_kernel.gleam`
@@ -1081,7 +1115,7 @@ helpers with empty-key, Unicode-key, reverse-reply, and facade-error coverage.
 Focused tests pass on both Gleam targets, and all 200 oracle Node tests pass.
 The repository-wide suite reached the package matrix, but Hex API rate limits
 blocked dependency resolution for eight unchanged example packages. Tasks 8–9
-remain open.
+were completed later and are recorded below.
 
 **Files:**
 - Modify: `test/watershed/tree/client_protocol.gleam`
@@ -1336,7 +1370,7 @@ git commit -m "test(tree): prove dynamic map interoperability"
 
 ### Task 9: Publish the M2 profile and run permanent gates
 
-**Status:** Complete in `adf7815`. The M2 profile digest is
+**Status:** Complete in `adf7815`. The historical M2-only profile digest is
 `a13390fcfcb551c142eee272db78b18fa899e9f2e7dc608e2ca71be06fee8fc2`.
 
 **Files:**
@@ -1476,7 +1510,7 @@ release record closed.
 - [x] Production modules have no Fluid npm or oracle dependency.
 - [x] Documentation names the supported M2 profile and deferred features.
 
-### Task 9 verification
+### Historical Task 9 verification
 
 - `just shared-tree-oracle-check`: passed.
 - `just shared-tree-test`: passed, including 511 Erlang and 511 JavaScript
