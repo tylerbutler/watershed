@@ -2,7 +2,9 @@
 
 **Date:** 2026-10-05
 **Status:** Runtime-local scope and checkout-registry architecture approved in
-conversation. The written contract requires review before implementation.
+conversation. Task 1 captured the pinned contract. User review selected
+upstream-compatible independent cross-checkout callback edits instead of the
+original refusal boundary; native implementation has not started.
 **Milestone:** M6, local branching only.
 **Parent:** [Native SharedTree interoperability](2026-09-21-shared-tree-design.md)
 and [M5 undo and redo](2026-10-02-shared-tree-undo-redo-design.md).
@@ -18,7 +20,8 @@ Include:
 
 - Forks of the document checkout and nested forks of local checkouts.
 - The existing object, map, array, move, and Identifier operations.
-- Synchronous single-checkout transactions and stable node constraints.
+- Synchronous checkout-local transactions and stable node constraints, with
+  independent edits to other checkouts during a transaction callback.
 - Explicit rebase and merge between related checkouts in the same runtime,
   document, and tree.
 - Checkout-scoped change and commit subscriptions, application-owned undo/redo,
@@ -160,15 +163,24 @@ Avoid one branch-specific copy of each field API.
 
 JavaScript cell updates and BEAM actor messages must preserve checkout identity
 through callback delivery and deferred work. Keep the existing event-delivery
-locks; branch callbacks cannot reenter merge, rebase, or transaction mutation
-and overwrite the returned runtime state.
+locks for commit and settlement notifications. Transaction callbacks may edit
+another checkout independently; their completion must install only the owning
+checkout's transaction result, not overwrite the registry, allocator, events,
+or outbound work produced by another checkout during the callback.
 
 ## 5. Behavioral contract
 
 - Fork and rebase reject an active transaction on either affected checkout.
   Merge rejects active transactions on source or target.
-- Transactions retain the existing synchronous, single-checkout discipline.
-  Reject callback edits through a different checkout, even at the same address.
+- Each transaction remains synchronous and owns one checkout. Match pinned
+  upstream by allowing its callback to edit another live checkout in the same
+  runtime, document, and tree. The other edit follows that checkout's normal
+  authoring and publication path; it is not part of the first transaction.
+  Commit or rollback affects only the owning checkout. In particular, a main
+  edit made during a fork transaction survives that transaction's rollback.
+  Preserve the shared allocator's advancement and the other checkout's forest,
+  history, events, and outbound operations on both commit and rollback.
+  Cross-checkout atomicity and cross-tree transactions remain excluded.
 - The document checkout cannot be rebased onto a local checkout.
 - Reject unrelated runtime, document, or tree origins before changing either
   checkout, allocating IDs, delivering events, or queuing operations.
@@ -240,7 +252,8 @@ Require named evidence for:
 3. Common-revision deduplication, preserved-source repeated merge, empty and
    self operations, and atomic refusal cases.
 4. Branch-local undo/redo, target merge factories, source disposal, callback
-   scope, and honest settlement behavior.
+   scope, and honest settlement behavior. Independent cross-checkout callback
+   edits survive the owning transaction's commit or rollback on both targets.
 5. Retention beyond MSN with multiple branches and independent revertibles,
    including parent disposal while a descendant is live.
 6. In-process reconnect, pending-main fork origins, and accepted-before-drop

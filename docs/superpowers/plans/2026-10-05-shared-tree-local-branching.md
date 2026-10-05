@@ -8,7 +8,7 @@
 
 **Tech Stack:** Dual-target Gleam, startest, Node test runner, pinned Fluid source/package oracle, pinned Floodgate, existing `just` and GitHub Actions gates.
 
-**Spec:** [SharedTree local branching](../specs/2026-10-05-shared-tree-local-branching-design.md), approved in conversation on 2026-10-05.
+**Spec:** [SharedTree local branching](../specs/2026-10-05-shared-tree-local-branching-design.md), approved in conversation on 2026-10-05. At the Task 1 review gate, the user selected upstream-compatible independent cross-checkout callback edits instead of the original refusal boundary.
 
 ## Global constraints
 
@@ -88,7 +88,7 @@ required by this plan.
 | `src/watershed/tree/history.gleam` | Local ancestry, common revisions, reconciliation, rollback retention, and branch pins |
 | `src/watershed/tree_kernel.gleam` | Isolated forest/schema/repair state, atomic rebase and merge |
 | New `src/watershed/tree/branch.gleam` | Pure checkout-registry entries and lifecycle reducer; reuse history and kernel algorithms |
-| `src/watershed/tree/runtime.gleam`, `transaction.gleam` | Contextual authoring, shared compressor, single-checkout transactions |
+| `src/watershed/tree/runtime.gleam`, `transaction.gleam` | Contextual authoring, shared compressor, checkout-local transactions with independent cross-checkout callback edits |
 | `src/watershed/runtime_core.gleam` | Registry ownership, checkout selection, normal document submission and recovery |
 | `src/watershed/channel.gleam` | Internal event scope only if necessary; no new routed channel kind |
 | `src/watershed/runtime.gleam`, `runtime_beam.gleam` | Target-specific handle routing, subscribers, delivery locks, cleanup |
@@ -212,7 +212,7 @@ validated branch fixtures, and reviewed pure/runtime contracts.
   | `local-branch-isolation` | Main and nested forks; attached/detached identity; parent disposal; no branch tree submission |
   | `local-branch-rebase` | Both edit orders, target unchanged, common revisions, optimistic main base |
   | `local-branch-merge` | Surviving revisions/encoded changes, event count/kind, preserved source, repeated/empty/self merges, default disposal |
-  | `local-branch-transactions` | Guards, nested abort/commit, constraints, one outer commit, cross-checkout callback refusal |
+  | `local-branch-transactions` | Guards, nested abort/commit, constraints, one outer commit, independent cross-checkout callback edits surviving source rollback |
   | `local-branch-undo` | Local factories, late/duplicate calls, undo/redo, merged target handles, original source handles, settlement registration/delivery |
   | `local-branch-allocation` | Shared compressor, interleaved Identifiers, abort/discard ranges, exact allocation traffic before/after merge |
   | `local-branch-retention` | Multiple pins, live revertible plus fork, MSN advancement, rebase/dispose release, repair content |
@@ -269,7 +269,7 @@ validated branch fixtures, and reviewed pure/runtime contracts.
   | [x] | Merge boundaries and events | Two surviving source commits append two target commits and emit two local `Default` events with factories and encoded changes. Repeating the preserved-source merge emits no event. Empty merge disposes its source by default. Merge does not collapse the source commits into one transaction commit. | `scoped_events` has one target-scoped event per surviving source commit. `outbound_operations` contains only ordinary document operations when the target is main. |
   | [x] | Open transactions | Rebase rejects an active transaction on source or target. Merge rejects an active transaction on source or target. Fork rejects an active source transaction. The pinned implementation rejects rather than committing the transaction despite the public merge comment. | Reject active transactions atomically on every affected checkout. |
   | [x] | Node-existence constraint | A constrained source commit disappears when rebase finds that main replaced the guarded node. Source and target both retain the replacement and the source title returns to `base`. | Preserve commit constraints in local history and evaluate them during rebase. Drop a commit whose required node no longer exists. |
-  | [x] | Cross-checkout transaction callback | Pinned upstream permits a callback running a source-fork transaction to edit main; the main edit succeeds and the source rollback does not undo it. | Deliberate native divergence: reject this callback edit to preserve the approved single-checkout runtime discipline. User review is required before Task 2. |
+  | [x] | Cross-checkout transaction callback | Pinned upstream permits a callback running a source-fork transaction to edit main; the main edit succeeds and the source rollback does not undo it. | User-selected contract: match upstream. Each transaction owns one checkout; edits to another related live checkout commit independently. Commit and rollback preserve the other checkout's state, shared allocator advancement, events, and outbound work. No cross-checkout atomicity. |
   | [x] | Schema divergence | A fork can author a wider schema. Rebasing it onto an old-schema target drops the fork schema change and dependent edit; the target stays unchanged and the fork's wide view becomes incompatible. | Branch schema authoring remains excluded. Reject it before mutation; do not approximate the upstream drop behavior. |
   | [x] | Allocation traffic | A branch-only Identifier insertion advances the shared compressor but processes zero messages and zero ranges. A later main insertion publishes one range (`firstGenCount: 4`, `count: 4`) with only the main tree operation. Merge publishes a second range (`firstGenCount: 8`, `count: 3`) with the branch tree operation. Interleaved IDs are unique. A rolled-back branch transaction advances serialized compressor state and does not reuse its allocation. | All checkouts share the document compressor. A branch reservation alone emits no traffic. Main and merge publication must send the required reserved ranges before their referencing tree operations. |
   | [x] | Settlement before and after merge | A branch-local commit exposes a factory but has no settlement before merge. After merge into main and sequencing, both its source registration and the target merge registration receive `FullyApplied`. | Expose registration on local commits but never report local settlement. Deliver sequencing outcomes to both live registrations after publication. |
@@ -429,8 +429,15 @@ allocation ranges for later document publication.
   Confirm one-shot factories, default/undo/redo kinds, repeated revert without
   disposal, constraint outcomes, and the Task 1 settlement contract.
 
-  Cross-checkout use of a transaction callback must fail even if addresses
-  match. Do not turn fork edits into ordinary document pending entries.
+  Add `local_branch_transaction_abort_preserves_main_callback_edit_test` and
+  `local_branch_transaction_commit_preserves_main_callback_edit_test`.
+  In a fork transaction, edit main through its own handle, then abort or commit
+  the fork transaction. Require the main edit, its revision, event, and
+  publication to survive both outcomes. Add the reverse main-to-fork case and
+  a sibling-fork case; those independent local edits must not submit tree
+  operations. Each transaction owns only its selected checkout. Do not turn
+  fork edits into ordinary document pending entries or roll back allocator
+  reservations when the owning transaction aborts.
 
 - [ ] **Step 4: Verify the coupled allocation/undo suites.**
 
@@ -481,7 +488,12 @@ read/edit/transaction/undo routing, and normal wire publication on main merge.
 
   Snapshot core, registry, compressor, events, and outbound queue before an
   invalid merge/rebase; assert all are identical after failure. Refuse branch
-  schema authoring and cross-selector transaction callbacks. Verify existing
+  schema authoring. Cross-selector transaction callback edits use the selected
+  checkout's normal path and commit independently. On transaction completion,
+  install only its owning checkout's candidate; preserve the current registry,
+  shared compressor, scoped events, and outbound queue from independent edits.
+  Verify main callback edits submit ordinary document operations exactly once,
+  while sibling-fork callback edits submit no tree operation. Verify existing
   main operations still use the original routing envelope.
 
 - [ ] **Step 4: Verify core and recovery compatibility.**
@@ -516,6 +528,9 @@ extend `shared_tree_runtime_js_test.gleam`, map/array facade tests, branch tests
 
   Add callback counters asserting main subscribers never receive an isolated
   fork edit and branch subscribers never receive an unreconciled remote edit.
+  Run the Task 4 independent callback-edit cases through real JavaScript
+  handles; verify owning-checkout rollback leaves the other edit and its
+  notification intact.
 
 - [ ] **Step 2: Carry the selector through every tree runtime call.**
 
@@ -553,7 +568,8 @@ cleanup, and matching facade semantics.
 
   Use a native BEAM runtime and real synchronous calls, not a JS adapter.
   Assert main isolation, nested fork, explicit rebase, merge/disposal,
-  transaction refusal, and main/branch subscription separation.
+  active-transaction lifecycle refusal, independent cross-checkout callback
+  edits surviving commit and rollback, and main/branch subscription separation.
 
 - [ ] **Step 2: Add checkout-bearing actor requests.**
 
@@ -567,8 +583,11 @@ cleanup, and matching facade semantics.
 
   Existing edit/read/transaction/revert/subscription requests carry selectors.
   Both source and target must be validated in the receiving actor. During
-  monitored callback delivery, service only the permitted event-scoped factory
-  and settlement requests; replay deferred work in order afterward.
+  monitored commit/settlement callback delivery, service only the permitted
+  event-scoped factory and settlement requests; replay deferred work in order
+  afterward. During transaction callback execution, service independent edits
+  to other related live checkouts without deadlock and retain their state when
+  installing the owning checkout's transaction result.
 
 - [ ] **Step 3: Add BEAM-specific lifetime tests.**
 
