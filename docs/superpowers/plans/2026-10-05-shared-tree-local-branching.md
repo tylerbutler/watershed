@@ -292,7 +292,7 @@ create `test/watershed/shared_tree_branch_test.gleam`; extend
 **Produces:** Retained local checkout heads, shared-revision reconciliation, and
 pins that coexist with pending/peer/revertible retention.
 
-- [ ] **Step 1: Add `local_branch_fork_pins_optimistic_head_test`.**
+- [x] **Step 1: Add `local_branch_fork_pins_optimistic_head_test`.**
 
   Start with one trunk commit and one pending edit; retain a fork at the
   optimistic head. Advance MSN and assert its exact base/revisions remain
@@ -303,7 +303,7 @@ pins that coexist with pending/peer/revertible retention.
   rtk proxy gleam test --target javascript -- local_branch_fork_pins_optimistic_head
   ```
 
-- [ ] **Step 2: Implement local ancestry using existing reconciliation.**
+- [x] **Step 2: Implement local ancestry using existing reconciliation.**
 
   Add explicit local checkout records and lifecycle operations. Reuse
   `rebase_branch`, common-prefix handling, rollback generation, and identity
@@ -318,7 +318,7 @@ pins that coexist with pending/peer/revertible retention.
   dispose source = release source pin, not descendant/revertible pins
   ```
 
-- [ ] **Step 3: Add independent-pin and revision tests one at a time.**
+- [x] **Step 3: Add independent-pin and revision tests one at a time.**
 
   Required names: `local_branch_descendant_survives_parent_disposal_test`,
   `local_branch_dispose_preserves_revertible_pin_test`,
@@ -327,7 +327,7 @@ pins that coexist with pending/peer/revertible retention.
   Assert retained ancestry and repair/rollback references, not just visible
   values. Do not preserve an entire document history unconditionally.
 
-- [ ] **Step 4: Verify both targets and review history regressions.**
+- [x] **Step 4: Verify both targets and review history regressions.**
 
   ```bash
   rtk proxy gleam test --target erlang -- shared_tree_branch shared_tree_history shared_tree_history_resubmit
@@ -335,6 +335,18 @@ pins that coexist with pending/peer/revertible retention.
   ```
 
   Suggested authorized commit: `feat(tree): retain local branch ancestry`.
+
+  **Completion record (2026-10-05):** Task 2 adds pure local checkout ancestry,
+  independent occurrence pins, related-local rebase and merge reconciliation,
+  and checkout disposal. Review fixes exclude target revisions across divergent
+  paths, keep replay receipts from moving local ancestry pins, and omit replay
+  receipts from semantic ancestry paths even after the original occurrence is
+  trimmed. Bounded replay-receipt points live in history snapshots only while
+  their trunk entries remain retained. The twelve
+  named branch tests and the existing history and resubmit selectors pass on
+  Erlang and JavaScript. This does not register a native branch runner or claim
+  the later M6 forest, runtime, facade, transaction, undo, allocation, recovery,
+  or interop work.
 
 ### Task 3: Implement isolated forests and atomic rebase/merge
 

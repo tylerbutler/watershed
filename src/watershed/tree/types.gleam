@@ -67,3 +67,12 @@ pub type TreeCommitOutcome {
 pub type RevertibleId {
   RevertibleId(Int)
 }
+
+pub type LocalCheckoutId {
+  LocalCheckoutId(value: Int)
+}
+
+pub type CheckoutSelector {
+  DocumentCheckout
+  LocalCheckout(id: LocalCheckoutId)
+}

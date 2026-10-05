@@ -10,8 +10,9 @@ import watershed/tree/change
 import watershed/tree/forest
 import watershed/tree/shared_change
 import watershed/tree/types.{
-  type RevertibleId, type SequencePoint, type TreeCommitKind, type TreeError,
-  InvalidHistory, RevertibleId,
+  type CheckoutSelector, type LocalCheckoutId, type RevertibleId,
+  type SequencePoint, type TreeCommitKind, type TreeError, DocumentCheckout,
+  InvalidHistory, LocalCheckout, LocalCheckoutId, RevertibleId,
 }
 
 const max_safe_integer = 9_007_199_254_740_991
@@ -50,6 +51,7 @@ pub type HistorySnapshot {
     peers: List(PeerBranch),
     sequence_number: Int,
     minimum_sequence_number: Int,
+    replayed_receipts: List(SequencePoint),
   )
 }
 
@@ -72,6 +74,14 @@ pub type HistoryUpdate {
 
 pub type RevertAuthoring {
   RevertAuthoring(target: Commit, inverse: Commit, kind: TreeCommitKind)
+}
+
+pub type LocalBranch {
+  LocalBranch(
+    id: LocalCheckoutId,
+    base: Option(fluid_ids.StableId),
+    commits: List(Commit),
+  )
 }
 
 pub type MintRevision(state) =
@@ -99,6 +109,15 @@ type PeerState {
   PeerState(
     originator: fluid_ids.SessionId,
     base: BranchBase,
+    commits: List(BranchCommit),
+  )
+}
+
+type LocalState {
+  LocalState(
+    id: LocalCheckoutId,
+    base: BranchBase,
+    pin: HistoryBase,
     commits: List(BranchCommit),
   )
 }
@@ -139,6 +158,14 @@ type RebaseResult {
   )
 }
 
+type LocalRebaseResult {
+  LocalRebaseResult(
+    commits: List(BranchCommit),
+    source_commits: List(BranchCommit),
+    net_change: Option(shared_change.Changeset),
+  )
+}
+
 type RepairMode {
   RequiredRepair
   OptionalRepair
@@ -155,9 +182,12 @@ pub opaque type History {
     local_authored_context: List(Commit),
     rollbacks: List(RollbackEntry),
     receipts: List(RetainedReceipt),
+    replayed_receipts: List(SequencePoint),
     revertibles: List(RevertibleRecord),
+    local_checkouts: List(LocalState),
     next_node_id: Int,
     next_revertible_id: Int,
+    next_local_checkout_id: Int,
     sequence_number: Int,
     minimum_sequence_number: Int,
   )
@@ -174,9 +204,12 @@ pub fn new(local_session: fluid_ids.SessionId) -> History {
     local_authored_context: [],
     rollbacks: [],
     receipts: [],
+    replayed_receipts: [],
     revertibles: [],
+    local_checkouts: [],
     next_node_id: 0,
     next_revertible_id: 0,
+    next_local_checkout_id: 0,
     sequence_number: 0,
     minimum_sequence_number: minimum_sequence_number,
   )
@@ -261,6 +294,17 @@ pub fn rebind_identity_order(
       Ok(RevertibleRecord(..record, commits:))
     }),
   )
+  use local_checkouts <- result.try(
+    list.try_map(state.local_checkouts, fn(local) {
+      use commits <- result.try(
+        list.try_map(local.commits, fn(entry) {
+          use commit <- result.try(rebind_commit(entry.commit, identity_order))
+          Ok(BranchCommit(..entry, commit:))
+        }),
+      )
+      Ok(LocalState(..local, commits:))
+    }),
+  )
   Ok(
     History(
       ..state,
@@ -271,6 +315,7 @@ pub fn rebind_identity_order(
       rollbacks:,
       receipts:,
       revertibles:,
+      local_checkouts:,
     ),
   )
 }
@@ -303,6 +348,13 @@ pub fn identity_revisions(state: History) -> List(fluid_ids.StableId) {
           None -> []
           Some(commit) -> [commit]
         }
+      }),
+    )
+  let commits =
+    list.append(
+      commits,
+      list.flat_map(state.local_checkouts, fn(local) {
+        list.map(local.commits, fn(entry) { entry.commit })
       }),
     )
   let commits =
@@ -359,6 +411,7 @@ pub fn append_local(
       list.append(previous.authoring_context, [previous.current.commit])
     Error(Nil) -> state.local_authored_context
   }
+
   let next =
     History(
       ..state,
@@ -376,6 +429,173 @@ pub fn append_local(
       next_node_id: state.next_node_id + 1,
     )
   Ok(HistoryUpdate(next, effects, [], []))
+}
+
+pub fn fork_local(
+  state: History,
+  source: CheckoutSelector,
+) -> Result(#(History, LocalCheckoutId), TreeError) {
+  use #(base, pin, commits) <- result.try(checkout_position(state, source))
+  let id = LocalCheckoutId(state.next_local_checkout_id)
+  Ok(#(
+    History(
+      ..state,
+      local_checkouts: [
+        LocalState(id, base, pin, commits),
+        ..state.local_checkouts
+      ],
+      next_local_checkout_id: state.next_local_checkout_id + 1,
+    ),
+    id,
+  ))
+}
+
+pub fn inspect_local(
+  state: History,
+  id: LocalCheckoutId,
+) -> Result(LocalBranch, TreeError) {
+  use local <- result.try(require_local_checkout(state.local_checkouts, id))
+  Ok(local_branch(local))
+}
+
+pub fn dispose_local(
+  state: History,
+  id: LocalCheckoutId,
+) -> Result(History, TreeError) {
+  Ok(
+    History(
+      ..state,
+      local_checkouts: list.filter(state.local_checkouts, fn(local) {
+        local.id != id
+      }),
+    ),
+  )
+}
+
+pub fn append_local_checkout(
+  state: History,
+  id: LocalCheckoutId,
+  commit: Commit,
+) -> Result(HistoryUpdate, TreeError) {
+  use local <- result.try(require_local_checkout(state.local_checkouts, id))
+  use _ <- result.try(check(
+    commit.originator == state.local_session,
+    "local checkout commit originator does not match the local session",
+  ))
+  use _ <- result.try(check(
+    !has_revision(state, commit.revision),
+    "local checkout commit revision is already present",
+  ))
+  use effects <- result.try(shared_change.effects(tagged_commit(commit)))
+  let node = BranchCommit(state.next_node_id, commit)
+  let updated = LocalState(..local, commits: list.append(local.commits, [node]))
+  Ok(
+    HistoryUpdate(
+      History(
+        ..state,
+        local_checkouts: replace_local_checkout(state.local_checkouts, updated),
+        next_node_id: state.next_node_id + 1,
+      ),
+      effects,
+      [],
+      [],
+    ),
+  )
+}
+
+pub fn rebase_local(
+  state: History,
+  source_id: LocalCheckoutId,
+  target: CheckoutSelector,
+  allocation: allocation,
+  mint: MintRevision(allocation),
+) -> Result(#(HistoryUpdate, allocation), TreeError) {
+  use source <- result.try(require_local_checkout(
+    state.local_checkouts,
+    source_id,
+  ))
+  case target {
+    LocalCheckout(id) if id == source_id ->
+      Ok(#(HistoryUpdate(state, [], [], []), allocation))
+    _ -> {
+      use #(target_base, target_pin, target_commits) <- result.try(
+        checkout_position(state, target),
+      )
+      let target_state =
+        LocalState(source_id, target_base, target_pin, target_commits)
+      use #(rebased, allocation, rollbacks, next_node_id) <- result.try(
+        reconcile_local_ancestry(state, source, target_state, allocation, mint),
+      )
+      use effects <- result.try(effects_optional(rebased.net_change))
+      let updated =
+        LocalState(source.id, target_base, target_pin, rebased.commits)
+      let next =
+        History(
+          ..state,
+          local_checkouts: replace_local_checkout(
+            state.local_checkouts,
+            updated,
+          ),
+          rollbacks:,
+          next_node_id:,
+        )
+      Ok(#(HistoryUpdate(next, effects, [], []), allocation))
+    }
+  }
+}
+
+pub fn merge_local(
+  state: History,
+  target: CheckoutSelector,
+  source_id: LocalCheckoutId,
+  allocation: allocation,
+  mint: MintRevision(allocation),
+) -> Result(#(HistoryUpdate, List(Commit), allocation), TreeError) {
+  use source <- result.try(require_local_checkout(
+    state.local_checkouts,
+    source_id,
+  ))
+  case target {
+    LocalCheckout(id) if id == source_id ->
+      Ok(#(HistoryUpdate(state, [], [], []), [], allocation))
+    DocumentCheckout ->
+      Error(InvalidHistory("document ancestry merge is not available"))
+    LocalCheckout(target_id) -> {
+      use target_state <- result.try(require_local_checkout(
+        state.local_checkouts,
+        target_id,
+      ))
+      use #(rebased, allocation, rollbacks, next_node_id) <- result.try(
+        reconcile_local_ancestry(state, source, target_state, allocation, mint),
+      )
+      let surviving =
+        list.map(rebased.source_commits, fn(commit) { commit.commit })
+      use net_change <- result.try(
+        surviving
+        |> list.map(tagged_commit)
+        |> compose_optional,
+      )
+      use effects <- result.try(effects_optional(net_change))
+      let updated =
+        LocalState(
+          target_id,
+          target_state.base,
+          target_state.pin,
+          rebased.commits,
+        )
+      let next =
+        History(
+          ..state,
+          local_checkouts: replace_local_checkout(
+            state.local_checkouts,
+            updated,
+          ),
+          rollbacks:,
+          next_node_id:,
+        )
+      Ok(#(HistoryUpdate(next, effects, [], []), surviving, allocation))
+    }
+  }
 }
 
 pub fn receive(
@@ -548,6 +768,7 @@ fn receive_replayed_duplicate(
         _ -> Some(Revision(retained.revision))
       },
       receipts: replace_receipt(state.receipts, receipt),
+      replayed_receipts: list.append(state.replayed_receipts, [point]),
       sequence_number: int_max(state.sequence_number, point.sequence_number),
       minimum_sequence_number: supplied_minimum,
     )
@@ -805,11 +1026,37 @@ fn rebase_branch(
   let target_rebase_path = remove_common_prefix(source_commits, target_commits)
   let source_rebase_path =
     remove_source_common_prefix(source_commits, target_commits)
+  rebase_paths(
+    new_base,
+    surviving_source,
+    target_rebase_path,
+    source_rebase_path,
+    up_to_index != -1,
+    rollbacks,
+    known_revisions,
+    next_node_id,
+    allocation,
+    mint,
+  )
+}
+
+fn rebase_paths(
+  new_base: BranchBase,
+  surviving_source: List(BranchCommit),
+  target_rebase_path: List(Commit),
+  source_rebase_path: List(BranchCommit),
+  reparent_unchanged: Bool,
+  rollbacks: List(RollbackEntry),
+  known_revisions: List(fluid_ids.StableId),
+  next_node_id: Int,
+  allocation: allocation,
+  mint: MintRevision(allocation),
+) -> Result(#(RebaseResult, allocation, List(RollbackEntry), Int), TreeError) {
   case target_rebase_path {
     [] -> {
-      let #(surviving_source, next_node_id) = case up_to_index {
-        -1 -> #(surviving_source, next_node_id)
-        _ -> reparent_commits(surviving_source, next_node_id)
+      let #(surviving_source, next_node_id) = case reparent_unchanged {
+        False -> #(surviving_source, next_node_id)
+        True -> reparent_commits(surviving_source, next_node_id)
       }
       Ok(#(
         RebaseResult(new_base, surviving_source, None),
@@ -894,6 +1141,95 @@ fn rebase_branch(
         rollbacks,
         next_node_id,
       ))
+    }
+  }
+}
+
+fn reconcile_local_ancestry(
+  state: History,
+  source: LocalState,
+  target: LocalState,
+  allocation: allocation,
+  mint: MintRevision(allocation),
+) -> Result(
+  #(LocalRebaseResult, allocation, List(RollbackEntry), Int),
+  TreeError,
+) {
+  use source_ancestry <- result.try(local_ancestry(state, source))
+  use target_ancestry <- result.try(local_ancestry(state, target))
+  let #(source_path, target_path) =
+    remove_common_ancestry(source_ancestry, target_ancestry)
+  let #(full_source_path, next_node_id) =
+    materialize_branch_commits(source_path, source.commits, state.next_node_id)
+  let surviving_source =
+    list.filter(full_source_path, fn(commit) {
+      !contains_revision(target_path, commit.commit.revision)
+    })
+  use #(rebased, allocation, rollbacks, next_node_id) <- result.try(
+    rebase_paths(
+      target.base,
+      surviving_source,
+      target_path,
+      full_source_path,
+      False,
+      state.rollbacks,
+      history_revisions(state),
+      next_node_id,
+      allocation,
+      mint,
+    ),
+  )
+  Ok(#(
+    LocalRebaseResult(
+      list.append(target.commits, rebased.commits),
+      rebased.commits,
+      rebased.net_change,
+    ),
+    allocation,
+    rollbacks,
+    next_node_id,
+  ))
+}
+
+fn local_ancestry(
+  state: History,
+  local: LocalState,
+) -> Result(List(Commit), TreeError) {
+  use base <- result.try(commits_through_pin(state, local.pin))
+  Ok(list.append(base, list.map(local.commits, fn(commit) { commit.commit })))
+}
+
+fn remove_common_ancestry(
+  source: List(Commit),
+  target: List(Commit),
+) -> #(List(Commit), List(Commit)) {
+  case source, target {
+    [source, ..source_rest], [target, ..target_rest] ->
+      case source == target {
+        True -> remove_common_ancestry(source_rest, target_rest)
+        False -> #([source, ..source_rest], [target, ..target_rest])
+      }
+    _, _ -> #(source, target)
+  }
+}
+
+fn materialize_branch_commits(
+  commits: List(Commit),
+  existing: List(BranchCommit),
+  next_node_id: Int,
+) -> #(List(BranchCommit), Int) {
+  case commits {
+    [] -> #([], next_node_id)
+    [commit, ..rest] -> {
+      let #(node, next_node_id) = case
+        list.find(existing, fn(entry) { entry.commit == commit })
+      {
+        Ok(entry) -> #(entry, next_node_id)
+        Error(Nil) -> #(BranchCommit(next_node_id, commit), next_node_id + 1)
+      }
+      let #(rest, next_node_id) =
+        materialize_branch_commits(rest, existing, next_node_id)
+      #([node, ..rest], next_node_id)
     }
   }
 }
@@ -1342,6 +1678,52 @@ fn commits_through_base(
   }
 }
 
+fn commits_through_pin(
+  state: History,
+  pin: HistoryBase,
+) -> Result(List(Commit), TreeError) {
+  case pin == state.base {
+    True -> Ok([])
+    False ->
+      case pin {
+        InitialBase ->
+          Error(InvalidHistory("local checkout pin precedes retained history"))
+        SequencedBase(point) ->
+          commits_through_point(state.trunk, state.replayed_receipts, point, [])
+      }
+  }
+}
+
+fn commits_through_point(
+  trunk: List(SequencedCommit),
+  replayed_receipts: List(SequencePoint),
+  point: SequencePoint,
+  before: List(Commit),
+) -> Result(List(Commit), TreeError) {
+  case trunk {
+    [] -> Error(InvalidHistory("local checkout pin is not retained"))
+    [first, ..rest] -> {
+      let semantic_through = case
+        list.contains(replayed_receipts, first.point)
+        || contains_revision(before, first.commit.revision)
+      {
+        True -> before
+        False -> [first.commit, ..before]
+      }
+      case first.point == point {
+        True -> Ok(list.reverse(semantic_through))
+        False ->
+          commits_through_point(
+            rest,
+            replayed_receipts,
+            point,
+            semantic_through,
+          )
+      }
+    }
+  }
+}
+
 fn compose_optional(
   tagged: List(shared_change.TaggedChange),
 ) -> Result(Option(shared_change.Changeset), TreeError) {
@@ -1643,10 +2025,16 @@ fn trunk_revertible_position(
 }
 
 fn retained_nodes(state: History) -> List(Int) {
-  state.revertibles
-  |> list.flat_map(fn(record) {
-    list.map(record.commits, fn(commit) { commit.node_id })
-  })
+  list.append(
+    state.revertibles
+      |> list.flat_map(fn(record) {
+        list.map(record.commits, fn(commit) { commit.node_id })
+      }),
+    state.local_checkouts
+      |> list.flat_map(fn(local) {
+        list.map(local.commits, fn(commit) { commit.node_id })
+      }),
+  )
 }
 
 fn prune_rollbacks(state: History) -> History {
@@ -1684,6 +2072,12 @@ fn trim_history(
         Revision(revision) -> sequenced_revision_index(state.trunk, revision, 0)
       })
       Ok(int_min(desired, retained))
+    }),
+  )
+  use desired <- result.try(
+    list.try_fold(state.local_checkouts, desired, fn(desired, local) {
+      use retained <- result.try(local_pin_index(state, local.pin))
+      Ok(int_min(desired, retained - 1))
     }),
   )
   case item_at(state.trunk, desired) {
@@ -1739,10 +2133,19 @@ fn trim_history(
           receipts: list.filter(state.receipts, fn(receipt) {
             trunk_commit(retained, receipt.revision) != None
           }),
+          replayed_receipts: list.filter(state.replayed_receipts, fn(point) {
+            list.any(retained, fn(entry) { entry.point == point })
+          }),
           revertibles: list.map(state.revertibles, fn(record) {
             RevertibleRecord(..record, base: case record.base == base {
               True -> Sentinel
               False -> record.base
+            })
+          }),
+          local_checkouts: list.map(state.local_checkouts, fn(local) {
+            LocalState(..local, base: case local.base == base {
+              True -> Sentinel
+              False -> local.base
             })
           }),
           next_node_id: next_node_id,
@@ -1850,6 +2253,7 @@ pub fn inspect(state: History) -> HistoryView {
         |> list.map(peer_branch),
       state.sequence_number,
       state.minimum_sequence_number,
+      state.replayed_receipts,
     ),
     pending: pending(state),
     longest_branch_length: longest_branch(state),
@@ -1893,9 +2297,12 @@ pub fn restore(
         None,
       )
     }),
+    replayed_receipts: snapshot.replayed_receipts,
     revertibles: [],
+    local_checkouts: [],
     next_node_id: next_node_id,
     next_revertible_id: 0,
+    next_local_checkout_id: 0,
     sequence_number: snapshot.sequence_number,
     minimum_sequence_number: snapshot.minimum_sequence_number,
   ))
@@ -2220,6 +2627,19 @@ fn validate_snapshot(snapshot: HistorySnapshot) -> Result(Nil, TreeError) {
       == list.length(snapshot.peers),
     "snapshot contains duplicate peer branches",
   ))
+  use _ <- result.try(check(
+    list.length(list.unique(snapshot.replayed_receipts))
+      == list.length(snapshot.replayed_receipts),
+    "snapshot contains duplicate replay receipts",
+  ))
+  use _ <- result.try(
+    list.try_each(snapshot.replayed_receipts, fn(point) {
+      check(
+        list.any(snapshot.trunk, fn(entry) { entry.point == point }),
+        "snapshot replay receipt is not retained",
+      )
+    }),
+  )
   use _ <- result.try(
     validate_consistent_revisions(
       list.map(snapshot.trunk, fn(entry) { entry.commit }),
@@ -2353,6 +2773,9 @@ fn has_revision(state: History, revision: fluid_ids.StableId) -> Bool {
     list.any(peer.commits, fn(commit) { commit.commit.revision == revision })
   })
   || list.any(state.revertibles, fn(record) { record.revision == revision })
+  || list.any(state.local_checkouts, fn(local) {
+    branch_contains_revision(local.commits, revision)
+  })
 }
 
 fn history_revisions(state: History) -> List(fluid_ids.StableId) {
@@ -2371,6 +2794,11 @@ fn history_revisions(state: History) -> List(fluid_ids.StableId) {
     list.map(state.local_authored_context, fn(commit) { commit.revision }),
   )
   |> list.append(list.map(state.revertibles, fn(record) { record.revision }))
+  |> list.append(
+    list.flat_map(state.local_checkouts, fn(local) {
+      list.map(local.commits, fn(commit) { commit.commit.revision })
+    }),
+  )
 }
 
 // ponytail: Use result for fallible functions. This lookup returns Option when
@@ -2400,6 +2828,124 @@ fn require_local_base(
     Some(base) -> Ok(base)
     None -> Error(InvalidHistory("pending branch has no base"))
   }
+}
+
+fn checkout_position(
+  state: History,
+  selector: CheckoutSelector,
+) -> Result(#(BranchBase, HistoryBase, List(BranchCommit)), TreeError) {
+  case selector {
+    DocumentCheckout -> {
+      use pin <- result.try(document_checkout_pin(state))
+      Ok(#(
+        option.unwrap(state.local_base, trunk_head(state.trunk)),
+        pin,
+        list.map(state.pending, fn(entry) { entry.current }),
+      ))
+    }
+    LocalCheckout(id) -> {
+      use local <- result.try(require_local_checkout(state.local_checkouts, id))
+      Ok(#(local.base, local.pin, local.commits))
+    }
+  }
+}
+
+fn document_checkout_pin(state: History) -> Result(HistoryBase, TreeError) {
+  case state.pending {
+    [] ->
+      case list.last(state.trunk) {
+        Ok(entry) -> Ok(SequencedBase(entry.point))
+        Error(Nil) -> Ok(state.base)
+      }
+    _ -> {
+      use base <- result.try(require_local_base(state.local_base))
+      case base {
+        Sentinel -> Ok(state.base)
+        Revision(revision) -> revision_pin(state.trunk, revision, None)
+      }
+    }
+  }
+}
+
+fn revision_pin(
+  trunk: List(SequencedCommit),
+  revision: fluid_ids.StableId,
+  found: Option(HistoryBase),
+) -> Result(HistoryBase, TreeError) {
+  case trunk {
+    [] ->
+      case found {
+        Some(pin) -> Ok(pin)
+        None -> Error(InvalidHistory("local checkout pin is not retained"))
+      }
+    [first, ..rest] ->
+      revision_pin(rest, revision, case first.commit.revision == revision {
+        True -> Some(SequencedBase(first.point))
+        False -> found
+      })
+  }
+}
+
+fn local_pin_index(state: History, pin: HistoryBase) -> Result(Int, TreeError) {
+  case pin == state.base {
+    True -> Ok(-1)
+    False ->
+      case pin {
+        InitialBase ->
+          Error(InvalidHistory("local checkout pin precedes retained history"))
+        SequencedBase(point) -> sequenced_point_index(state.trunk, point, 0)
+      }
+  }
+}
+
+fn sequenced_point_index(
+  trunk: List(SequencedCommit),
+  point: SequencePoint,
+  index: Int,
+) -> Result(Int, TreeError) {
+  case trunk {
+    [] -> Error(InvalidHistory("local checkout pin is not retained"))
+    [first, ..rest] ->
+      case first.point == point {
+        True -> Ok(index)
+        False -> sequenced_point_index(rest, point, index + 1)
+      }
+  }
+}
+
+fn require_local_checkout(
+  checkouts: List(LocalState),
+  id: LocalCheckoutId,
+) -> Result(LocalState, TreeError) {
+  case list.find(checkouts, fn(local) { local.id == id }) {
+    Ok(local) -> Ok(local)
+    Error(Nil) -> Error(InvalidHistory("local checkout is disposed"))
+  }
+}
+
+fn replace_local_checkout(
+  checkouts: List(LocalState),
+  updated: LocalState,
+) -> List(LocalState) {
+  case checkouts {
+    [] -> [updated]
+    [first, ..rest] ->
+      case first.id == updated.id {
+        True -> [updated, ..rest]
+        False -> [first, ..replace_local_checkout(rest, updated)]
+      }
+  }
+}
+
+fn local_branch(local: LocalState) -> LocalBranch {
+  LocalBranch(
+    local.id,
+    case local.base {
+      Sentinel -> None
+      Revision(revision) -> Some(revision)
+    },
+    list.map(local.commits, fn(commit) { commit.commit }),
+  )
 }
 
 // ponytail: Use result for fallible functions. This lookup returns Option when
