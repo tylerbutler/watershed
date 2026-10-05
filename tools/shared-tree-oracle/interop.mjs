@@ -17,6 +17,7 @@ import {
   promisify,
   stripVTControlCharacters,
 } from "node:util";
+import { deserializeIdCompressor } from "@fluidframework/id-compressor/internal";
 import {
   runService as runReconnectCases,
   runTransactionReconnect,
@@ -2814,7 +2815,7 @@ function exactOutboundEvidence(
       assert(occurrence.connection.epoch > original.connection.epoch,
         `${label} retry lacks a later observed connection epoch`);
     }
-    if (original === undefined) seen.set(occurrence.operationId, occurrence);
+    seen.set(occurrence.operationId, occurrence);
     evidence.classification = classification;
   }
   const originals = classified.filter(
@@ -2887,18 +2888,7 @@ function localCommitEvents(raw, author, label) {
   return { events, commits };
 }
 
-function offsetUuid(value, offset, label) {
-  if (offset === 0) return value;
-  assert.match(value,
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    `${label} allocation session is not a UUID`);
-  const hex = value.replaceAll("-", "");
-  const next = (BigInt(`0x${hex}`) + BigInt(offset))
-    .toString(16).padStart(32, "0");
-  return `${next.slice(0, 8)}-${next.slice(8, 12)}-${next.slice(12, 16)}-${next.slice(16, 20)}-${next.slice(20)}`;
-}
-
-function acceptedStableRevision(submission, outbound, resolution, label) {
+function acceptedStableRevision(raw, submission, outbound, resolution, label) {
   assert.equal(submission.commits.length, 1,
     `${label} accepted operation has another commit count`);
   const commit = submission.commits[0];
@@ -2921,18 +2911,31 @@ function acceptedStableRevision(submission, outbound, resolution, label) {
     assert.equal(commit.revision, localRevision,
       `${label} accepted commit differs from the resolved wire revision`);
   }
-  const allocations = submission.allocations.filter(
-    ({ sessionId, first, last }) =>
-      sessionId === commit.originatorId
-        && Array.from(
-          { length: last - first + 1 },
-          (_, index) => offsetUuid(sessionId, first + index - 1, label),
-        ).includes(resolution.stableRevision),
+  assert(typeof raw.initialCompressorState === "string",
+    `${label} lacks initial compressor state`);
+  const compressor = deserializeIdCompressor(
+    raw.initialCompressorState,
+    "00000000-0000-4000-8000-000000000000",
   );
-  assert.equal(allocations.length, 1,
-    `${label} accepted operation lacks one exact revision allocation`);
-  const allocation = allocations[0];
-  return resolution.stableRevision;
+  for (const message of raw.acceptedOperationPayloads) {
+    if (message.sequenceNumber > submission.outerSequenceNumber) break;
+    if (message.type !== "op") continue;
+    const contents = jsonValue(message.contents, `${label} accepted contents`);
+    const items = contents?.type === "groupedBatch"
+      ? contents.contents.map((item) => item.contents)
+      : [contents];
+    for (const item of items) {
+      if (item?.type === "idAllocation") {
+        compressor.finalizeCreationRange(item.contents);
+      }
+    }
+  }
+  const stableRevision = compressor.decompress(
+    compressor.normalizeToSessionSpace(commit.revision, commit.originatorId),
+  );
+  assert.equal(stableRevision, resolution.stableRevision,
+    `${label} revision differs from the accepted compressor identity`);
+  return stableRevision;
 }
 
 function acceptedOutboundOperation(raw, outbound, resolution, label) {
@@ -2972,6 +2975,7 @@ function acceptedOutboundOperation(raw, outbound, resolution, label) {
   return {
     ...accepted[0],
     stableRevision: acceptedStableRevision(
+      raw,
       submission,
       outbound,
       resolution,
@@ -2982,6 +2986,8 @@ function acceptedOutboundOperation(raw, outbound, resolution, label) {
 
 function validateRetainedAction(raw, result, kind, events, label) {
   successfulResult(result, label);
+  assert.equal(result.kind, kind, `${label} retained another commit kind`);
+  assert.equal(result.status, "Valid", `${label} retained an invalid handle`);
   assert(Number.isSafeInteger(result.eventId),
     `${label} lacks a retained event ID`);
   assert(typeof result.actionId === "string" && result.actionId.length > 0,
@@ -3038,6 +3044,7 @@ function validateRetainedAction(raw, result, kind, events, label) {
 
 function validateSequencedAction(raw, result, kind, label) {
   const outbound = exactActionEvidence(result, label);
+  assert.equal(result.authoredKind, kind, `${label} reports another authored kind`);
   const eventId = result.authoredEventIds[0];
   const revision = result.submittedRevisions[0];
   const checkpoints = Array.isArray(raw.checkpoints) ? raw.checkpoints : [];
@@ -3059,6 +3066,8 @@ function validateSequencedAction(raw, result, kind, label) {
       && event.kind === kind
       && event.eventId === eventId);
   assert(authored, `${label} does not identify its authored commit event`);
+  assert.equal(authored.factoryAvailable, true, `${label} lacks its local factory`);
+  assert.equal(authored.handleAcquired, true, `${label} lacks its acquired handle`);
   assert.equal(authored.actionId, result.actionId,
     `${label} commit event has another action identity`);
   assert(authored.revision === revision
@@ -3083,13 +3092,29 @@ function validateSequencedAction(raw, result, kind, label) {
   );
   assert.equal(accepted.stableRevision, revision,
     `${label} submitted revision differs from the accepted wire identity`);
-  assert(events.some((event) =>
-    event.type === "settlement"
-      && event.kind === kind
-      && event.actionId === authored.actionId
+  const settlements = events.filter((event) =>
+    event.type === "settlement" && event.actionId === authored.actionId);
+  assert(settlements.length > 0 && settlements.every((event) =>
+    event.kind === kind
+      && (event.eventId === undefined || event.eventId === eventId)
       && (event.revision === revision || event.revision == null)
       && event.outcome === "FullyApplied"),
   `${label} lacks a successful settlement`);
+}
+
+function validateRevertedHandle(result, retained, status, item, label) {
+  successfulResult(status, `${label} handle status`);
+  assert(typeof retained.name === "string" && retained.name.length > 0,
+    `${label} lacks its retained handle name`);
+  assert.equal(result.name, retained.name, `${label} reverted another handle`);
+  assert.equal(status.name, retained.name, `${label} observed another handle`);
+  assert.equal(result.status, status.status, `${label} contradicts handle status`);
+  assert.equal(result.settlement, item.settlement,
+    `${label} contradicts the observed settlement`);
+  assert.equal(result.authoredCount, item.authoredCount,
+    `${label} contradicts the observed authored count`);
+  assert.equal(result.outboundCount, item.outboundCount,
+    `${label} contradicts the observed outbound count`);
 }
 
 function validateUndoRedoScenarioArtifact(item, raw, label) {
@@ -3335,6 +3360,9 @@ function validateUndoRedoSections(report, evidence, expected) {
       assert.equal(reconnect.afterReconnect.status,
         item.liveHandleAfterReconnect,
       `${implementation} reconnect post-reconnect status changed`);
+      successfulResult(reconnect.afterReconnect, `${implementation} reconnect status`);
+      assert.equal(reconnect.afterReconnect.name, raw.retained.name,
+        `${implementation} reconnect observed another handle`);
       assert.equal(reconnect.postUndo.status, item.postUndoHandleStatus,
         `${implementation} reconnect post-undo status changed`);
       assert(raw.eventTrace.filter(
@@ -3354,6 +3382,20 @@ function validateUndoRedoSections(report, evidence, expected) {
         "Undo",
         `${implementation} reconnect undo`,
       );
+      assert(Array.isArray(observation.commits) && observation.commits.length > 0,
+        `${implementation} reconnect checkpoint lacks commit events`);
+      for (const event of observation.commits) {
+        assert(raw.eventTrace.some((candidate) => isDeepStrictEqual(candidate, event)),
+          `${implementation} reconnect checkpoint contradicts the event trace`);
+      }
+      validateSequencedAction(
+        { ...raw, eventTrace: observation.commits },
+        raw.lifecycle,
+        "Undo",
+        `${implementation} reconnect checkpoint undo`,
+      );
+      validateRevertedHandle(raw.lifecycle, raw.retained, reconnect.postUndo,
+        item, `${implementation} reconnect`);
       assert.deepEqual(raw.handleNames, ["edit"],
         `${implementation} reconnect names another handle`);
     }
@@ -3584,6 +3626,8 @@ function validateUndoRedoSections(report, evidence, expected) {
             "Undo",
             `Undo/redo reload ${writer}:${stage}->${reader}`,
           );
+          validateRevertedHandle(raw.lifecycle, raw.retained, raw.postUndoStatus,
+            item, `Undo/redo reload ${writer}:${stage}->${reader}`);
           assert.equal(raw.retained?.factoryAvailable, true,
             "Undo/redo reload retained no new local factory");
           assert.equal(raw.postUndoStatus?.status, item.postUndoHandleStatus,

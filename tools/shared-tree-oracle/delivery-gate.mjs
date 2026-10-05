@@ -187,7 +187,7 @@ function payloadEvidence(bytes) {
   }
 }
 
-function snapshotSequenceNumber(bytes) {
+export function snapshotSequenceNumber(bytes) {
   try {
     const value = JSON.parse(bytes.toString("utf8"));
     const attributes = value && !Array.isArray(value)
@@ -209,7 +209,7 @@ function snapshotSequenceNumber(bytes) {
   }
 }
 
-function storageResponseIdentity(path, bytes) {
+export function storageResponseIdentity(path, bytes) {
   const match = path.match(/\/git\/(commits|trees|blobs)\/([^/?]+)/);
   if (!match) return undefined;
   let value;
@@ -747,6 +747,7 @@ export class DeliveryGate {
               : storageResponseIdentity(path, responseBytes);
             if (storageResponse !== undefined) {
               observation.storageResponse = storageResponse;
+              observation.responseBody = responseBytes.toString("base64");
             }
             this.#evidence.http.push(observation);
             clientResponse.end();
@@ -789,12 +790,15 @@ export class DeliveryGate {
             }
           }
           const sequenceNumber = snapshotSequenceNumber(bytes);
+          observation.status = status;
+          observation.responseHash = digest(bytes);
           if (sequenceNumber !== undefined) {
             observation.responseSnapshotSequenceNumber = sequenceNumber;
           }
           const storageResponse = storageResponseIdentity(path, bytes);
           if (storageResponse !== undefined) {
             observation.storageResponse = storageResponse;
+            observation.responseBody = bytes.toString("base64");
           }
           this.#evidence.http.push(observation);
           if (!holdResponse) {

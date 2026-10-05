@@ -11,7 +11,11 @@ import { isDeepStrictEqual, parseArgs, promisify } from "node:util";
 import { SummaryType } from "@fluidframework/driver-definitions/internal";
 import { rootDataStoreId } from "@fluidframework/runtime-utils/internal";
 
-import { DeliveryGate } from "./delivery-gate.mjs";
+import {
+  DeliveryGate,
+  snapshotSequenceNumber,
+  storageResponseIdentity,
+} from "./delivery-gate.mjs";
 import { Point, schemaEvolutionConfigurations } from "./schema.mjs";
 import {
   acceptedTreeOperations,
@@ -1269,6 +1273,17 @@ async function writeArrayReloadArtifact(context, item, raw) {
   })}\n`, { mode: 0o600 });
   return relative;
 }
+function storageResponseBytes(observation, hash) {
+  assert(typeof observation.responseBody === "string",
+    "Storage observation lacks raw response bytes");
+  const bytes = Buffer.from(observation.responseBody, "base64");
+  assert.equal(bytes.toString("base64"), observation.responseBody,
+    "Storage response bytes are not canonical base64");
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), hash,
+    "Storage response hash differs from raw bytes");
+  return bytes;
+}
+
 export function nativeStorageLoad(http, version) {
   const successful = http.filter(({ status }) => status >= 200 && status < 300);
   const selectedSummaryRequests = [...new Set(successful.flatMap(({ path }) => {
@@ -1289,10 +1304,27 @@ export function nativeStorageLoad(http, version) {
   }))];
   assert(selectedBlobRequests.length > 0,
     "Native reader did not request the selected summary blobs");
-  const storage = successful.flatMap((observation) =>
-    observation.storageResponse === undefined
-      ? []
-      : [{ ...observation.storageResponse, responseHash: observation.responseHash }]);
+  const responseHashes = new Map();
+  const storage = successful.flatMap((observation) => {
+    if (observation.storageResponse === undefined) return [];
+    assert.equal(observation.method, "GET", "Storage response was not requested with GET");
+    const bytes = storageResponseBytes(observation, observation.responseHash);
+    const identity = storageResponseIdentity(observation.path, bytes);
+    assert.deepEqual(identity, observation.storageResponse,
+      "Storage identity differs from the request and raw response");
+    const key = `${identity.kind}:${identity.requestedId}`;
+    if (responseHashes.has(key)) {
+      assert.equal(observation.responseHash, responseHashes.get(key),
+        "Storage returned conflicting responses to the same request");
+    }
+    responseHashes.set(key, observation.responseHash);
+    const response = JSON.parse(bytes.toString("utf8"));
+    if (response.sha !== undefined || response.id !== undefined) {
+      assert.equal(response.sha ?? response.id, identity.requestedId,
+        "Storage response names another requested object");
+    }
+    return [{ ...identity, responseHash: observation.responseHash }];
+  });
   const commit = storage.find(
     ({ kind, requestedId }) => kind === "commit" && requestedId === version,
   );
@@ -1400,6 +1432,22 @@ function restoredDetachedPoint(removed) {
 }
 
 export function storageLoad(observations, version) {
+  for (const observation of observations) {
+    if (observation.operation === "getVersions") {
+      assert(Array.isArray(observation.request),
+        "Upstream versions lack their request");
+      const versions = JSON.parse(storageResponseBytes(observation, observation.hash));
+      assert.deepEqual(versions.map(({ id, treeId }) => ({ id, treeId })),
+        observation.versions, "Upstream versions differ from the raw response");
+    }
+    if (observation.operation === "getSnapshotTree") {
+      const tree = JSON.parse(storageResponseBytes(observation, observation.hash));
+      assert.deepEqual(tree, observation.tree,
+        "Upstream snapshot differs from the raw response");
+      assert.equal(tree.id, observation.id,
+        "Upstream snapshot response names another tree");
+    }
+  }
   const selectedVersions = observations.flatMap((observation) =>
     observation.operation === "getVersions" ? observation.versions : []);
   const selectedSummaryRequests = [...new Set(selectedVersions.map(({ id }) => id))];
@@ -1417,6 +1465,10 @@ export function storageLoad(observations, version) {
     ({ operation, id }) =>
       operation === "getSnapshotTree" && id === selectedSummaryTreeId,
   );
+  assert.equal(selectedTreeResponse?.request?.[0]?.id, version,
+    "Upstream reader requested another snapshot version");
+  assert.equal(selectedTreeResponse?.request?.[0]?.treeId, selectedSummaryTreeId,
+    "Upstream reader requested another snapshot tree");
   const root = selectedTreeResponse?.tree;
   assert(root && root.id === selectedSummaryTreeId,
     "Upstream reader lacks the selected root tree response");
@@ -1429,14 +1481,22 @@ export function storageLoad(observations, version) {
     "Upstream reader selected protocol tree lacks attributes");
   const selectedBlobRequests = observations
     .filter(({ operation }) => operation === "readBlob")
-    .map(({ id, byteLength, hash, snapshotSequenceNumber }) => ({
-      id,
-      byteLength,
-      hash,
-      ...(snapshotSequenceNumber === undefined
-        ? {}
-        : { snapshotSequenceNumber }),
-    }));
+    .map((observation) => {
+      const { id, byteLength, hash } = observation;
+      const bytes = storageResponseBytes(observation, hash);
+      assert.equal(bytes.length, byteLength, "Upstream blob response length changed");
+      const sequenceNumber = snapshotSequenceNumber(bytes);
+      assert.equal(observation.snapshotSequenceNumber, sequenceNumber,
+        "Upstream snapshot sequence differs from raw blob bytes");
+      return {
+        id,
+        byteLength,
+        hash,
+        ...(sequenceNumber === undefined
+          ? {}
+          : { snapshotSequenceNumber: sequenceNumber }),
+      };
+    });
   assert(selectedBlobRequests.some(({ id, byteLength, hash }) =>
     typeof id === "string" && id.length > 0
       && Number.isSafeInteger(byteLength) && byteLength > 0
@@ -4608,6 +4668,7 @@ async function runUndoRedoReloadReader(
       storageResponses: load.storageResponses,
       sequencedHistory: checkpointRevisionEvidence(final),
       acceptedOperationPayloads: acceptedHistory,
+      initialCompressorState: environment.creator.initialCompressorState,
       acceptedOperations: acceptedTreeOperations(acceptedHistory),
       handleNames: ["post-load"],
       commitKinds: commits.filter(({ type }) => type === "commit")

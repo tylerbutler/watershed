@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import {
   continueArrayReader,
   loadRequests,
+  nativeStorageLoad,
+  storageLoad,
   mapEntryMatches,
   readCell,
   runArrayReloadMatrix,
@@ -701,8 +704,78 @@ function storageHttp(version, snapshotSequenceNumber) {
         snapshotSequenceNumber,
       },
     },
-  ];
+  ].map((observation, index) => {
+    const identity = observation.storageResponse;
+    const response = identity.kind === "commit"
+      ? { sha: identity.requestedId, tree: { sha: identity.treeId } }
+      : identity.kind === "tree"
+        ? { sha: identity.requestedId, tree: identity.entries.map(({ id, ...entry }) =>
+            ({ ...entry, sha: id })) }
+        : { sha: identity.requestedId, encoding: "base64",
+            content: Buffer.from(JSON.stringify({
+              sequenceNumber: snapshotSequenceNumber, minimumSequenceNumber: 0,
+            })).toString("base64") };
+    const bytes = Buffer.from(JSON.stringify(response));
+    return { ...observation, id: index + 1, method: "GET",
+      responseBody: bytes.toString("base64"),
+      responseHash: createHash("sha256").update(bytes).digest("hex") };
+  });
 }
+
+test("completion binds native storage identity to request and response bytes", async (t) => {
+  for (const [label, mutate] of [
+    ["unrequested blob", (http) => { http[3].path = "/git/blobs/other"; }],
+    ["copied hash", (http) => { http[3].responseHash = "a".repeat(64); }],
+    ["copied sequence", (http) => { http[3].storageResponse.snapshotSequenceNumber = 20; }],
+    ["copied tree", (http) => { http[0].storageResponse.treeId = "other"; }],
+    ["changed raw body", (http) => {
+      http[3].responseBody = Buffer.from('{"sequenceNumber":20,"minimumSequenceNumber":0}')
+        .toString("base64");
+    }],
+    ["conflicting response to the same request", (http) => {
+      http.push({ ...storageHttp("version", 20)[3], id: 5 });
+    }],
+  ]) {
+    await t.test(label, () => {
+      const http = storageHttp("version", 18);
+      assert.equal(nativeStorageLoad(http, "version").snapshotSequenceNumber, 18);
+      mutate(http);
+      assert.throws(() => nativeStorageLoad(http, "version"));
+    });
+  }
+});
+
+test("completion binds upstream load to the requested snapshot and blob bytes", async (t) => {
+  const body = Buffer.from('{"sequenceNumber":18,"minimumSequenceNumber":0}');
+  const observations = [
+    { operation: "getVersions", request: [null, 1], versions: [{ id: "version", treeId: "root" }] },
+    { operation: "getSnapshotTree", request: [{ id: "version", treeId: "root" }],
+      id: "root", tree: { id: "root", blobs: {}, trees: {
+        ".protocol": { id: "protocol", trees: {}, blobs: { attributes: "blob" } },
+      } } },
+    { operation: "readBlob", id: "blob", byteLength: body.length,
+      hash: createHash("sha256").update(body).digest("hex"),
+      responseBody: body.toString("base64"), snapshotSequenceNumber: 18 },
+    { operation: "fetchMessages", from: 18 },
+  ];
+  for (const observation of observations.slice(0, 2)) {
+    const bytes = Buffer.from(JSON.stringify(observation.versions ?? observation.tree));
+    observation.responseBody = bytes.toString("base64");
+    observation.hash = createHash("sha256").update(bytes).digest("hex");
+  }
+  for (const [label, mutate] of [
+    ["another snapshot request", (raw) => { raw[1].request[0].id = "other"; }],
+    ["copied blob sequence", (raw) => { raw[2].snapshotSequenceNumber = 20; }],
+    ["copied blob hash", (raw) => { raw[2].hash = "a".repeat(64); }],
+  ]) {
+    await t.test(label, () => {
+      const raw = structuredClone(observations);
+      assert.equal(storageLoad(raw, "version").snapshotSequenceNumber, 18);
+      mutate(raw);
+      assert.throws(() => storageLoad(raw, "version"));
+    });
+  }
+});
 
 test("native replay start prefers delivered operations over stale handshake context", () => {
   const version = "selected-version";
@@ -723,7 +796,7 @@ test("native replay start prefers delivered operations over stale handshake cont
   assert.equal(load.rawLoadIdentity.rootTreeId, "root-tree");
   assert.equal(load.rawLoadIdentity.protocolTreeId, "protocol-tree");
   assert.equal(load.rawLoadIdentity.blobId, "attributes-blob");
-  assert.equal(load.rawLoadIdentity.responseHash, "4".repeat(64));
+  assert.equal(load.rawLoadIdentity.responseHash, storageHttp(version, 0).at(-1).responseHash);
   assert.equal(load.snapshotSequenceNumber, 0);
   assert.equal(load.replayStartSequenceNumber, 129);
   assert.equal(load.replayEvidence, "native-delivery");
@@ -777,7 +850,7 @@ test("native storage identity overrides copied runtime state", () => {
     }],
   }, version);
   assert.equal(load.snapshotSequenceNumber, 18);
-  assert.equal(load.rawLoadIdentity.responseHash, "4".repeat(64));
+  assert.equal(load.rawLoadIdentity.responseHash, storageHttp(version, 18).at(-1).responseHash);
   assert.equal(load.replayStartSequenceNumber, 18);
 });
 

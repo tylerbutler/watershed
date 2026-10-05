@@ -3621,7 +3621,7 @@ function normalizeOutboundRecords(
           : originalTransportId === transportId
             ? "duplicate-send"
             : "reconnect-retry";
-        if (originalTransportId === undefined) seen.set(operationId, transportId);
+        seen.set(operationId, transportId);
         return {
           sendId,
           batchIndex,
@@ -3665,7 +3665,7 @@ function outboundTransportEvidence(records) {
   return { connections, observations };
 }
 
-function bindOutboundTransport(records, gateEvidence) {
+export function bindOutboundTransport(records, gateEvidence) {
   const occurrences = gateEvidence.outboundOccurrences ?? [];
   const connections = gateEvidence.connections ?? [];
   const matched = new Set();
@@ -3711,12 +3711,10 @@ function bindOutboundTransport(records, gateEvidence) {
       : original.connectionId === match.connectionId
         ? "duplicate-send"
         : "reconnect-retry";
-    if (original === undefined) {
-      seen.set(record.operationId, {
-        connectionId: match.connectionId,
-        epoch: connection.epoch,
-      });
-    }
+    seen.set(record.operationId, {
+      connectionId: match.connectionId,
+      epoch: connection.epoch,
+    });
     return {
       ...record,
       classification,
@@ -3728,7 +3726,12 @@ function bindOutboundTransport(records, gateEvidence) {
     outboundRecords: bound,
     transportConnections: structuredClone(connections),
     transportObservations: structuredClone(
-      occurrences.filter(({ id }) => matched.has(id)),
+      occurrences.filter(({ submissions }) => submissions.some((payload) =>
+        acceptedTreeOperations((payload.messageBatches ?? []).flat().map(
+          (operation) => ({ ...operation, clientId: payload.clientId }),
+        )).some(({ operationId }) => records.some(
+          (record) => record.operationId === operationId,
+        )))),
     ),
   };
 }
@@ -5226,17 +5229,19 @@ async function writeArtifact(context, item, raw) {
   return relative;
 }
 
-async function collectCheckpointObservations(label, stage, adapters) {
+async function collectCheckpointObservations(
+  label, stage, adapters, observe = (adapter) => adapter.checkpoint(),
+) {
   const entries = Object.entries(adapters);
   const settled = await Promise.allSettled(
-    entries.map(([, adapter]) => adapter.checkpoint()),
+    entries.map(([, adapter]) => observe(adapter)),
   );
   const observations = [];
   const clientErrors = [];
   for (const [index, result] of settled.entries()) {
     const implementation = entries[index][0];
     if (result.status === "fulfilled") {
-      observations.push(result.value);
+      if (result.value !== undefined) observations.push(result.value);
       continue;
     }
     clientErrors.push({ implementation, error: result.reason });
@@ -5253,8 +5258,8 @@ async function collectCheckpointObservations(label, stage, adapters) {
   };
 }
 
-async function captureCheckpoint(label, stage, adapters) {
-  const collected = await collectCheckpointObservations(label, stage, adapters);
+async function captureCheckpoint(label, stage, adapters, observe) {
+  const collected = await collectCheckpointObservations(label, stage, adapters, observe);
   if (collected.clientErrors.length > 0) {
     const primary = collected.clientErrors[0].error;
     primary.checkpoint = collected.checkpoint;
@@ -5294,7 +5299,8 @@ export async function captureFailureCheckpoint(
 }
 
 export function preserveFailureCheckpoints(error, drainCheckpoint) {
-  const primaryCheckpoint = error.checkpoint ?? null;
+  const primaryCheckpoint = error.primaryCheckpoint ?? error.checkpoint ?? null;
+  error.checkpoint = primaryCheckpoint;
   error.primaryCheckpoint = primaryCheckpoint;
   error.drainCheckpoint = drainCheckpoint;
   return { primaryCheckpoint, drainCheckpoint };
@@ -5322,8 +5328,8 @@ export async function settle(adapters) {
     await until(async () => {
       await observe();
       const watermark = Math.max(...observations.map(({ sequenceNumber }) => sequenceNumber));
-      await Promise.all(implementations.map((implementation) =>
-        adapters[implementation].awaitSynced(watermark)));
+      await captureCheckpoint("settled", "synchronizing", adapters,
+        (adapter) => adapter.awaitSynced(watermark));
       await observe();
       const [first, ...rest] = observations;
       return rest.every(({ sequenceNumber, wholeTree }) =>
@@ -7915,6 +7921,7 @@ async function runUndoRedoCell(config, context, cell) {
       lifecycle: failureState.undoRedo,
       sequencedHistory: checkpointSequencedRevisions(checkpoints),
       acceptedOperationPayloads: history,
+      initialCompressorState: creator.initialCompressorState,
       acceptedOperations: acceptedTreeOperations(history),
       handleNames: ["edit", "undo"],
     })];
@@ -7947,9 +7954,11 @@ async function runUndoRedoCell(config, context, cell) {
   }
 }
 
-async function runUndoRedoReconnectTarget(config, context, implementation) {
+export async function runUndoRedoReconnectTarget(config, context, implementation, {
+  openEnvironment = openUndoRedoEnvironment,
+} = {}) {
   const id = `undo-redo-reconnect:${implementation}`;
-  const environment = await openUndoRedoEnvironment(
+  const environment = await openEnvironment(
     config,
     context,
     "object",
@@ -7960,16 +7969,19 @@ async function runUndoRedoReconnectTarget(config, context, implementation) {
   try {
     const adapter = environment.adapters[implementation];
     const baseline = await settle(environment.adapters);
+    failureState.checkpoints.push(baseline);
     const expectedTree = checkpointFor(baseline, implementation).wholeTree;
     await adapter.set(["title"], `${implementation}-reconnect`);
     const retained = await adapter.retainLastLocalCommit("edit");
     const edited = await settle(environment.adapters);
+    failureState.checkpoints.push(edited);
     await adapter.disconnect();
     await adapter.reconnect();
     const reconnectedStatus = await adapter.revertibleStatus("edit");
     const undo = await adapter.revert("edit", true);
     const postUndoStatus = await adapter.revertibleStatus("edit");
     const undone = await settle(environment.adapters);
+    failureState.checkpoints.push(undone);
     const commits = commitTrace([edited, undone], implementation);
     const settlement = commits.findLast(
       ({ type, kind }) => type === "settlement" && kind === "Undo",
@@ -8010,13 +8022,18 @@ async function runUndoRedoReconnectTarget(config, context, implementation) {
       lifecycle: { ...undo, settlement },
       sequencedHistory: checkpointSequencedRevisions([undone]),
       acceptedOperationPayloads: history,
+      initialCompressorState: environment.creator.initialCompressorState,
       acceptedOperations: acceptedTreeOperations(history),
       handleNames: ["edit"],
     }, "undo-redo-reconnect")];
     return item;
   } catch (error) {
     failure = error;
-    if (error.checkpoint) failureState.checkpoints.push(error.checkpoint);
+    error.checkpoint = mergeCheckpoints(
+      "undo-redo-reconnect", "failed", ...failureState.checkpoints, error.checkpoint,
+    );
+    preserveFailureCheckpoints(error, null);
+    failureState.checkpoints.push(error.checkpoint);
     const drained = await captureFailureCheckpoint(
       "undo-redo-reconnect-failure-drain",
       "intermediate",
@@ -8890,6 +8907,7 @@ export async function runSeededSchedule(config, context, schedule) {
       lifecycle: item.undoRedo,
       sequencedHistory: checkpointSequencedRevisions(item.checkpoints),
       acceptedOperationPayloads: finalHistory,
+      initialCompressorState: state.creator.initialCompressorState,
       acceptedOperations: acceptedTreeOperations(finalHistory),
       gates: Object.fromEntries(nativeTargets.map((target) =>
         [target, state.adapters[target].evidence()])),

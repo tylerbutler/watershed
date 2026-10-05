@@ -283,17 +283,6 @@ function bind(target, property) {
   return typeof value === "function" ? value.bind(target) : value;
 }
 
-function snapshotTreeEvidence(tree) {
-  if (!tree) return null;
-  return {
-    id: tree.id,
-    blobs: { ...(tree.blobs ?? {}) },
-    trees: Object.fromEntries(Object.entries(tree.trees ?? {}).map(
-      ([name, child]) => [name, snapshotTreeEvidence(child)],
-    )),
-  };
-}
-
 function observedStorage(storage, observations) {
   return new Proxy(storage, {
     get(target, property) {
@@ -302,6 +291,9 @@ function observedStorage(storage, observations) {
           const result = await target.getVersions(...args);
           observations.push({
             operation: "getVersions",
+            request: structuredClone(args),
+            responseBody: Buffer.from(JSON.stringify(result)).toString("base64"),
+            hash: createHash("sha256").update(JSON.stringify(result)).digest("hex"),
             count: result.length,
             versions: result.map(({ id, treeId }) => ({ id, treeId })),
           });
@@ -313,8 +305,11 @@ function observedStorage(storage, observations) {
           const result = await target.getSnapshotTree(...args);
           observations.push({
             operation: "getSnapshotTree",
+            request: structuredClone(args),
+            responseBody: Buffer.from(JSON.stringify(result)).toString("base64"),
+            hash: createHash("sha256").update(JSON.stringify(result)).digest("hex"),
             id: result?.id,
-            tree: snapshotTreeEvidence(result),
+            tree: structuredClone(result),
           });
           return result;
         });
@@ -340,6 +335,7 @@ function observedStorage(storage, observations) {
             id,
             byteLength: bytes.length,
             hash: createHash("sha256").update(bytes).digest("hex"),
+            responseBody: bytes.toString("base64"),
             ...(snapshotSequenceNumber === undefined
               ? {}
               : { snapshotSequenceNumber }),
@@ -532,6 +528,9 @@ export async function openSession(
     container,
     runtime,
     data,
+    initialCompressorState: documentId === undefined
+      ? runtime.idCompressor.serialize(false)
+      : undefined,
     documentServiceFactory,
     storageObservations,
   };

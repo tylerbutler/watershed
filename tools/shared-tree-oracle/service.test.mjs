@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import test from "node:test";
@@ -86,18 +87,24 @@ test("storage observation wraps real calls without replacing their results", asy
   const actualService = await wrapped.createDocumentService({ id: "document" });
   const actualStorage = await actualService.connectToStorage();
   assert.equal(await actualStorage.getVersions(null, 1), versions);
-  assert.equal(await actualStorage.getSnapshotTree(), snapshot);
+  assert.equal(await actualStorage.getSnapshotTree(versions[0]), snapshot);
   assert.equal(await actualStorage.readBlob("blob"), bytes);
   assert.deepEqual(observations, [
     { operation: "createDocumentService", documentId: "document", result: "connected" },
     { operation: "connectToStorage", result: "connected" },
     {
       operation: "getVersions",
+      request: [null, 1],
+      responseBody: Buffer.from(JSON.stringify(versions)).toString("base64"),
+      hash: createHash("sha256").update(JSON.stringify(versions)).digest("hex"),
       count: 1,
       versions: [{ id: "commit", treeId: "tree" }],
     },
     {
       operation: "getSnapshotTree",
+      request: [versions[0]],
+      responseBody: Buffer.from(JSON.stringify(snapshot)).toString("base64"),
+      hash: createHash("sha256").update(JSON.stringify(snapshot)).digest("hex"),
       id: "tree",
       tree: {
         id: "tree",
@@ -110,6 +117,7 @@ test("storage observation wraps real calls without replacing their results", asy
       id: "blob",
       byteLength: 3,
       hash: "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+      responseBody: "AQID",
     },
   ]);
 });

@@ -559,6 +559,12 @@ test("summary load evidence links commit tree and protocol blob responses", asyn
       },
     ],
   );
+  for (const observation of gate.evidence().http) {
+    const bytes = Buffer.from(observation.responseBody, "base64");
+    assert.equal(createHash("sha256").update(bytes).digest("hex"),
+      observation.responseHash);
+    assert.equal(observation.method, "GET");
+  }
 });
 
 test("summary-load injection changes one scoped response without recording secrets", async (t) => {
@@ -605,6 +611,10 @@ test("summary-load injection changes one scoped response without recording secre
     version: 999,
     token: "[redacted]",
   });
+  assert.equal(evidence.http[0].responseHash,
+    createHash("sha256").update(JSON.stringify({
+      version: 999, token: "must-not-be-recorded",
+    })).digest("hex"));
   assert(!JSON.stringify(evidence).includes("must-not-be-recorded"));
   assert(!JSON.stringify(evidence).includes("token=secret"));
 });

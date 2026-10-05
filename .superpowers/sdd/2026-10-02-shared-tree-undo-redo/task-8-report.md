@@ -1067,3 +1067,218 @@ Several full runs were useful failures before the final pass:
 Floodgate continues to emit its existing decode warnings for transport-control
 and non-event Socket.IO frames. They did not cause skips or divergences in the
 successful runs.
+
+## Completion pass after review cap
+
+Base: `d9f404e8` on current `main`. This pass used no branch, worktree,
+subagent, or reviewer. Tasks 1-7, the public undo/redo API, dependency versions,
+and service/profile pins remain unchanged.
+
+### Findings and root-cause fixes
+
+1. **Duplicate retry transport pairs.** The validator compared each retry with
+   the original connection, so two sends on the second connection both counted
+   as retries. It now compares with the preceding observed connection and
+   requires an increasing epoch for a retry. The native collector also retains
+   matching raw occurrences that have no corresponding client send record.
+   Previously, filtering by matched records could erase an unreported duplicate.
+   Both native binding and upstream normalization use the corrected retry rule.
+2. **Exact compressor reconstruction.** Allocation-range membership allowed a
+   client to substitute another allocated UUID. The service now captures the
+   initial compressor serialization when it creates the document. The
+   validator restores that state with the pinned ID compressor, applies raw
+   accepted allocation operations in sequence, and decompresses the accepted
+   wire revision in the accepted originator's session. It compares that result
+   with the action's stable revision. Positive final-space IDs and negative
+   local IDs have separate adversarial cases. Neither copied history nor a
+   nullable event revision supplies the accepted identity.
+3. **Lifecycle field joins.** Reconnect and reload now join the authored kind,
+   handle name/status, retained kind/status, factory acquisition, settlement,
+   authored count, and outbound count to their action evidence. Reconnect
+   validates the final checkpoint's events against the event trace and runs
+   the Undo action checks against that checkpoint. Settlement validation rejects
+   a contradictory outcome for the same action even when another observation
+   says `FullyApplied`.
+4. **Request-bound storage responses.** Native storage evidence includes the
+   response bytes from the HTTP boundary. Validation recomputes SHA-256,
+   decodes identity from the actual request path and body, and joins the
+   selected commit, root tree, protocol tree, and attributes blob. It rejects
+   conflicting responses to the same object request. Upstream storage evidence
+   records the request arguments and raw response bytes for versions, snapshots,
+   and blobs. Validation binds the selected snapshot request to its version
+   and tree and derives the snapshot sequence from the blob bytes. Injected
+   HTTP responses now carry the hash and status of the bytes the reader receives.
+5. **Reconnect failure history.** Synchronization now uses the same
+   all-settled collector as checkpoints, including each rejected client's
+   partial observation. The reconnect runner records successful phases as
+   they finish, merges them with the failing phase before cleanup, and retains
+   that object as both `checkpoint` and `primaryCheckpoint`. Cleanup observations
+   go into `drainCheckpoint`. An executable runner test replaces the earlier
+   reliance on helper assertions and source-text matching.
+
+### RED/GREEN evidence
+
+Commands using temporary fixtures ran with:
+
+```text
+TMPDIR=/home/tylerbu/.copilot/session-state/f0314904-8ed9-4e5b-8ddb-7339a023eb18/files/tmp
+```
+
+Each command below ran before its corresponding fix and then after it.
+The first compressor test attempt hit a test setup error because it tried to
+replace the frozen artifact's `raw` property. After correcting the test to
+mutate its contents, RED showed the intended false pass.
+
+| Finding | Command following `node --test` | RED | GREEN |
+| --- | --- | --- | --- |
+| Duplicate retry pair | `--test-name-pattern='completion rejects duplicate' tools/shared-tree-oracle/interop.test.mjs` | 1 failed: `Missing expected exception` | 1 passed |
+| Omitted raw duplicate | `--test-name-pattern='completion preserves unmatched' tools/shared-tree-oracle/interop.test.mjs` | 1 failed: `1 !== 2`, unreported duplicate disappeared | 1 passed |
+| Exact compressor identity | `--test-name-pattern='completion reconstructs' tools/shared-tree-oracle/interop.test.mjs` | 1 failed: `Missing expected exception` for another allocated UUID | 1 passed, negative and positive wire IDs |
+| Lifecycle fields | `--test-name-pattern='completion joins' tools/shared-tree-oracle/interop.test.mjs` | 17 failed, 2 passed; 16 previously accepted field mutations plus parent failure | All field mutations rejected |
+| Final checkpoint join | `--test-name-pattern='completion joins reconnect events' tools/shared-tree-oracle/interop.test.mjs` | 1 failed: `Missing expected exception` | 1 passed |
+| Contradictory settlements | `--test-name-pattern='completion joins reconnect and reload' tools/shared-tree-oracle/interop.test.mjs` | Both added contradictory-settlement subtests failed with `Missing expected exception` | Both passed |
+| Storage request/body binding | `--test-name-pattern='completion binds' tools/shared-tree-oracle/summary-interop.test.mjs` | 9 failed, 1 passed; copied hashes/sequences and another snapshot request passed validation | All request/body mutations rejected |
+| Conflicting storage response | `--test-name-pattern='completion binds native' tools/shared-tree-oracle/summary-interop.test.mjs` | Added subtest failed with `Missing expected exception` | Added subtest passed |
+| Fail-fast synchronization | `--test-name-pattern='completion preserves every partial' tools/shared-tree-oracle/interop.test.mjs` | Actual kinds: `Default, Default, Default`; expected also `Undo, Redo` | 1 passed with both partial observations |
+| Actual reconnect failure path | `--test-name-pattern='completion reconnect failure' tools/shared-tree-oracle/interop.test.mjs` | `The primary checkpoint lost the successful edited phase` | 1 passed with earlier phase, partial Undo, and separate drain |
+
+Combined focused command:
+
+```text
+node --test --test-name-pattern='completion' tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/summary-interop.test.mjs
+tests 38
+pass 38
+fail 0
+skipped 0
+duration_ms 25874.496953
+```
+
+The round-5 test that treated a null event revision as acceptable despite a
+different final-checkpoint revision now expects rejection. The first full
+Node run exposed that obsolete expectation: 170 tests, 169 passed, 1 failed.
+The focused rerun of the revised test passed.
+
+### Changed files
+
+- `tools/shared-tree-oracle/interop.mjs`: transport, compressor, lifecycle,
+  checkpoint, and settlement validation.
+- `tools/shared-tree-oracle/interop-scenarios.mjs`: raw duplicate preservation,
+  retry classification, initial compressor evidence, all-settled
+  synchronization, and reconnect failure history.
+- `tools/shared-tree-oracle/service.mjs`: creation-time compressor capture and
+  upstream storage request/response observations.
+- `tools/shared-tree-oracle/delivery-gate.mjs`: raw native storage response bytes
+  and delivered-response hash/status.
+- `tools/shared-tree-oracle/summary-interop.mjs`: request/hash-bound storage
+  decoding and compressor evidence in reload artifacts.
+- `tools/shared-tree-oracle/interop.test.mjs`: adversarial regressions, executable
+  reconnect failure coverage, and protocol-valid UUID/allocation fixtures.
+- `tools/shared-tree-oracle/summary-interop.test.mjs`: raw-byte/request mutations
+  and consistent native storage fixtures.
+- `tools/shared-tree-oracle/service.test.mjs`: observed request and raw-response
+  contract.
+- `tools/shared-tree-oracle/delivery-gate.test.mjs`: response bytes, hashes, and
+  injection-boundary checks.
+- This report: appended completion evidence; prior evidence remains intact.
+
+### Full gates
+
+Exact five Node files:
+
+```text
+node --test tools/shared-tree-oracle/client-driver.test.mjs tools/shared-tree-oracle/client-interop.test.mjs tools/shared-tree-oracle/summary-interop.test.mjs tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/service.test.mjs
+tests 160
+pass 160
+fail 0
+skipped 0
+duration_ms 442917.567277
+```
+
+Transport/storage boundary suite:
+
+```text
+node --test tools/shared-tree-oracle/delivery-gate.test.mjs
+tests 14
+pass 14
+fail 0
+skipped 0
+duration_ms 1461.966524
+```
+
+Create interoperability gate:
+
+```text
+TMPDIR=/home/tylerbu/.copilot/session-state/f0314904-8ed9-4e5b-8ddb-7339a023eb18/files/tmp just shared-tree-create-interop
+exit status: 0
+runId: 28822486-a6de-453e-93a2-edf608b20bd1
+service: floodgate 0eb493fc46d1bb9baf1151a6ccdde93544e057e7
+profileDigest: 588a2f41621f4f352497915168a5dc8af55140721066a04f217ab03e639a1813
+cells: 18
+skipped: 0
+divergences: 0
+```
+
+Report:
+`tools/shared-tree-oracle/.output/creation/28822486-a6de-453e-93a2-edf608b20bd1/report.json`
+
+Pinned Floodgate interoperability gate:
+
+```text
+TMPDIR=/home/tylerbu/.copilot/session-state/f0314904-8ed9-4e5b-8ddb-7339a023eb18/files/tmp just shared-tree-interop
+exit status: 0
+runId: 227906cc-54ee-4093-8890-5a943fcf6b33
+service: floodgate 0eb493fc46d1bb9baf1151a6ccdde93544e057e7
+profileDigest: 588a2f41621f4f352497915168a5dc8af55140721066a04f217ab03e639a1813
+undoRedoKinds.implementations: 3
+undoRedoConcurrent: 30
+undoRedoReconnect: 2
+undoRedoReloadMatrix cells: 18
+seeded schedules: 300, seed 42
+javascript corpus: 956
+erlang corpus: 974
+skipped: 0
+divergences: 0
+```
+
+Report:
+`tools/shared-tree-oracle/.output/interop/227906cc-54ee-4093-8890-5a943fcf6b33/report.json`
+
+I added the final negative-case guards while that live run was in progress.
+After it finished, I reopened its 811 artifact references with
+`createArtifactEvidence` and called `validateInteropReport` using the final
+source, the pinned profile, seed 42, and 300 iterations. That validation exited
+0 with the same counts above. The final five-file Node run and delivery suite
+also used the final implementation.
+
+### Remaining diagnostics
+
+The pinned service emitted its existing Socket.IO transport-control decode
+warnings. Upstream Fluid also emitted `0x92a` assertion telemetry for document
+`413E5FCB3878DF65FC7739692E216A6B` during seeded schedule 12, from the bootstrap
+creator and a summarizer. The gate continued, verified all three measured
+clients, and reported no skipped schedules or divergences. This pass does not
+change upstream Fluid or suppress that telemetry.
+
+Session logs remain under
+`/home/tylerbu/.copilot/session-state/f0314904-8ed9-4e5b-8ddb-7339a023eb18/files/`.
+I removed the completed unit-test fixture directories from the session
+`TMPDIR`; live gate artifacts remain in `.output`.
+
+### Self-review
+
+The review traces report claims back to separate observations: transport
+occurrences and connection epochs; creation-time compressor bytes plus raw
+accepted allocations and wire operations; local events and final checkpoints;
+and storage request arguments/paths plus response bytes. Derived classifications,
+`revisionResolution`, `sequencedHistory`, copied load identities, and
+success-shaped row fields do not establish those identities on their own.
+The new tests include valid controls before mutation and check the previously
+accepted evidence rather than source spelling.
+
+The final review covered the complete diff from `d9f404e8`, including all
+shared-validator callers. It confirmed that retry classification cannot add
+transport evidence, allocation membership cannot substitute for decompression,
+an unrelated successful settlement cannot hide a contradictory outcome, and
+copied storage identity fields cannot replace hash-checked response bytes.
+Reconnect cleanup retains the original merged primary checkpoint. No generated,
+`.code-map`, or apm-managed file is part of the commit.

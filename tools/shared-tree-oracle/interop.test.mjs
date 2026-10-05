@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { createIdCompressor } from "@fluidframework/id-compressor/internal";
 import * as interop from "./interop.mjs";
 import * as scenarios from "./interop-scenarios.mjs";
 import { caseIds, transactionCaseIds } from "./client-interop.mjs";
@@ -330,6 +332,7 @@ async function validFixture() {
   await mkdir(join(owned, "evidence"));
   const loaded = await loadInteropProfile(profilePath);
   const artifactFiles = new Map();
+  const revisionIds = new Map();
   const outboundRecord = (
     revision,
     eventId,
@@ -339,7 +342,7 @@ async function validFixture() {
   ) => ({
     sendId: eventId,
     classification,
-    operationId: `revision:${revision}:${clientSequenceNumber}`,
+    operationId: `revision:${revision}:-1`,
     clientId,
     clientInstanceId: `${clientId}-instance`,
     transportId: clientId,
@@ -359,7 +362,7 @@ async function validFixture() {
             contents: {
               content: {
                 contents: {
-                  revision: clientSequenceNumber,
+                  revision: -1,
                   originatorId: revision,
                   changeset: [],
                 },
@@ -402,12 +405,12 @@ async function validFixture() {
     clientId = "native-client",
     clientSequenceNumber = eventId,
   ) => ({
-    operationId: `revision:${revision}:${clientSequenceNumber}`,
+    operationId: `revision:${revision}:-1`,
     clientId,
     clientSequenceNumber,
     outerSequenceNumber: 100 + clientSequenceNumber,
     commits: [{
-      revision: clientSequenceNumber,
+      revision: -1,
       originatorId: revision,
       changeset: [],
     }],
@@ -431,7 +434,8 @@ async function validFixture() {
             type: "idAllocation",
             contents: {
               sessionId: stableRevision,
-              ids: { firstGenCount: 1, count: 1 },
+              ids: { firstGenCount: 1, count: 1, requestedClusterSize: 512,
+                localIdRanges: [[1, 1]] },
             },
           },
         },
@@ -492,6 +496,10 @@ async function validFixture() {
               `${record.clientId}:${record.clientSequenceNumber}`,
               record.stableRevision,
             );
+            const hash = createHash("sha256").update(record.stableRevision)
+              .digest("hex");
+            revisionIds.set(record.stableRevision,
+              `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`);
           }
         }
         values.push(...Object.values(value));
@@ -504,6 +512,41 @@ async function validFixture() {
           ),
         ),
       );
+      extra.raw.initialCompressorState = createIdCompressor().serialize(false);
+    }
+    for (const observation of extra.raw?.boundaryStorageResponses ?? []) {
+      let response;
+      if (observation.storageResponse) {
+        const identity = observation.storageResponse;
+        observation.method = "GET";
+        response = identity.kind === "commit"
+          ? { sha: identity.requestedId, tree: { sha: identity.treeId } }
+          : identity.kind === "tree"
+            ? { sha: identity.requestedId, tree: identity.entries.map(({ id, ...entry }) =>
+                ({ ...entry, sha: id })) }
+            : { sha: identity.requestedId, encoding: "base64",
+                content: Buffer.from(JSON.stringify({
+                  sequenceNumber: identity.snapshotSequenceNumber,
+                  minimumSequenceNumber: 0,
+                })).toString("base64") };
+      } else if (observation.operation === "getVersions") {
+        observation.request = [null, 1];
+        response = observation.versions;
+      } else if (observation.operation === "getSnapshotTree") {
+        observation.request = [{
+          id: extra.raw.load.loadedVersion,
+          treeId: observation.id,
+        }];
+        response = observation.tree;
+      } else if (observation.operation === "readBlob") {
+        response = { sequenceNumber: observation.snapshotSequenceNumber,
+          minimumSequenceNumber: 0 };
+      } else continue;
+      const bytes = Buffer.from(JSON.stringify(response));
+      observation.responseBody = bytes.toString("base64");
+      observation[observation.storageResponse ? "responseHash" : "hash"] =
+        createHash("sha256").update(bytes).digest("hex");
+      if (observation.operation === "readBlob") observation.byteLength = bytes.length;
     }
     artifactFiles.set(reference, {
       formatVersion: 1,
@@ -2395,6 +2438,7 @@ async function validFixture() {
             observations: [{
               implementation,
               wholeTree: structuredClone(item.finalTree),
+              commits: undoCommitEvents(true).filter(({ kind }) => kind === "Undo"),
             }],
           },
           eventTrace: undoCommitEvents(true),
@@ -2423,6 +2467,8 @@ async function validFixture() {
             postUndo: { name: "edit", status: "Disposed" },
           },
           lifecycle: withTransportEvidence({
+            name: "edit",
+            status: "Disposed",
             authoredKind: "Undo",
             authoredCount: 1,
             outboundCount: 1,
@@ -2448,6 +2494,15 @@ async function validFixture() {
     Object.fromEntries(["undo", "redo"].map((stage, stageIndex) => [
       stage,
       Object.fromEntries(implementations.map((reader, readerIndex) => {
+        const attributesBytes = Buffer.from(JSON.stringify({
+          sequenceNumber: 70 + stageIndex, minimumSequenceNumber: 0,
+        }));
+        const blobBytes = reader === "upstream" ? attributesBytes
+          : Buffer.from(JSON.stringify({
+              sha: `${writer}-${stage}-attributes-blob`,
+              encoding: "base64", content: attributesBytes.toString("base64"),
+            }));
+        const blobHash = createHash("sha256").update(blobBytes).digest("hex");
         const item = {
           writer,
           reader,
@@ -2471,7 +2526,7 @@ async function validFixture() {
                   selectedTreeRequests: [`${writer}-${stage}-root-tree`],
                   selectedBlobRequests: [{
                     id: `${writer}-${stage}-attributes-blob`,
-                    hash: "a".repeat(64),
+                    hash: blobHash,
                     snapshotSequenceNumber: 70 + stageIndex,
                   }],
                   rawLoadIdentity: {
@@ -2480,7 +2535,7 @@ async function validFixture() {
                     treeId: `${writer}-${stage}-root-tree`,
                     protocolTreeId: `${writer}-${stage}-protocol-tree`,
                     blobId: `${writer}-${stage}-attributes-blob`,
-                    blobHash: "a".repeat(64),
+                    blobHash,
                   },
                 }
               : {
@@ -2491,7 +2546,7 @@ async function validFixture() {
                     rootTreeId: `${writer}-${stage}-root-tree`,
                     protocolTreeId: `${writer}-${stage}-protocol-tree`,
                     blobId: `${writer}-${stage}-attributes-blob`,
-                    responseHash: "a".repeat(64),
+                    responseHash: blobHash,
                   },
                 }),
             replayStartSequenceNumber: 70 + stageIndex + readerIndex,
@@ -2617,7 +2672,7 @@ async function validFixture() {
                     {
                       status: 200,
                       path: `/git/blobs/${writer}-${stage}-attributes-blob`,
-                      responseHash: "a".repeat(64),
+                      responseHash: blobHash,
                       storageResponse: {
                         kind: "blob",
                         requestedId: `${writer}-${stage}-attributes-blob`,
@@ -2655,7 +2710,7 @@ async function validFixture() {
                   kind: "blob",
                   requestedId: `${writer}-${stage}-attributes-blob`,
                   snapshotSequenceNumber: 70 + stageIndex,
-                  responseHash: "a".repeat(64),
+                  responseHash: blobHash,
                 },
               },
               loaded: {
@@ -2668,6 +2723,7 @@ async function validFixture() {
                 commits: undoCommitEvents(true),
               },
               retained: withTransportEvidence({
+                name: "post-load",
                 kind: "Default",
                 factoryAvailable: true,
                 status: "Valid",
@@ -2677,6 +2733,8 @@ async function validFixture() {
                 outboundRecords: [outboundRecord("default-revision", 1)],
               }),
               lifecycle: withTransportEvidence({
+                name: "post-load",
+                status: "Disposed",
                 authoredKind: "Undo",
                 authoredCount: 1,
                 outboundCount: 1,
@@ -2770,8 +2828,14 @@ async function validFixture() {
     skipped: [],
     divergences: [],
   };
+  const revisionPattern = new RegExp([...revisionIds.keys()]
+    .sort((left, right) => right.length - left.length)
+    .map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|"), "g");
+  const serialize = (value) => JSON.stringify(value)
+    .replace(revisionPattern, (revision) => revisionIds.get(revision));
   await Promise.all([...artifactFiles].map(([path, value]) =>
-    writeFile(join(owned, path), `${JSON.stringify(value)}\n`)));
+    writeFile(join(owned, path), `${serialize(value)}\n`)));
   const artifacts = await createArtifactEvidence(owned, [...artifactFiles.keys()]);
   const expected = {
     runId: "current",
@@ -2783,7 +2847,7 @@ async function validFixture() {
     artifactDirectory: owned,
     artifacts,
   };
-  return { artifacts, expected, loaded, owned, report };
+  return { artifacts, expected, loaded, owned, report: JSON.parse(serialize(report)) };
 }
 
 test("an empty result cannot prove interoperability", async () => {
@@ -3436,6 +3500,149 @@ test("round 5 derives retries from raw transport connection occurrences", async 
   assert.throws(() => validateInteropReport(report, expected));
 });
 
+test("completion rejects duplicate sends on a retry connection", async () => {
+  const { expected, report } = await validFixture();
+  const item = report.undoRedoReconnect[0];
+  const result = expected.artifacts.get(item.artifacts[0]).claim.raw.lifecycle;
+  const original = result.outboundRecords[0];
+  result.transportConnections.push({
+    connectionId: "connection-2", epoch: 2, state: "opened",
+  });
+  for (let index = 1; index <= 2; index += 1) {
+    const retry = {
+      ...structuredClone(original),
+      sendId: original.sendId + index,
+      classification: "reconnect-retry",
+      transportId: "connection-2",
+      connectionEpoch: 2,
+      clientId: "retry-client",
+    };
+    retry.payload.clientId = retry.clientId;
+    result.outboundRecords.push(retry);
+    result.transportObservations.push({
+      occurrenceId: index + 1,
+      connectionId: "connection-2",
+      submissions: [structuredClone(retry.payload)],
+    });
+    if (index === 1) {
+      assert.doesNotThrow(() => validateInteropReport(report, expected));
+    }
+  }
+  assert.throws(() => validateInteropReport(report, expected),
+    /classification|same transport|connection epoch/);
+});
+
+test("completion preserves unmatched raw duplicate transport occurrences", async () => {
+  const { expected, report } = await validFixture();
+  const result = expected.artifacts.get(report.undoRedoReconnect[0].artifacts[0])
+    .claim.raw.lifecycle;
+  const occurrence = result.transportObservations[0];
+  const gate = {
+    connections: result.transportConnections,
+    outboundOccurrences: [1, 2].map((id) => ({ ...structuredClone(occurrence), id })),
+  };
+  const bound = scenarios.bindOutboundTransport(result.outboundRecords, gate);
+  assert.equal(bound.transportObservations.length, 2,
+    "An unreported duplicate disappeared from the raw transport evidence");
+  Object.assign(result, bound);
+  assert.throws(() => validateInteropReport(report, expected), /transport occurrences/);
+});
+
+test("completion reconstructs the exact accepted compressor revision", async () => {
+  const fixture = await validFixture();
+  const item = fixture.report.undoRedoReconnect.find(
+    ({ implementation }) => implementation === "erlang",
+  );
+  const artifact = fixture.expected.artifacts.get(item.artifacts[0]);
+  const session = "294e5b4e-26d5-4187-9c51-d469f4446728";
+  const stable = "294e5b4e-26d5-4187-9c51-d469f4446729";
+  const original = structuredClone(artifact.claim.raw);
+  for (const wire of [-2, 514]) {
+    const raw = JSON.parse(JSON.stringify(original)
+      .replaceAll(original.lifecycle.submittedRevisions[0], stable));
+    raw.initialCompressorState = createIdCompressor().serialize(false);
+    const record = raw.lifecycle.outboundRecords[0];
+    const commit = record.payload.messageBatches[0][0]
+      .contents.contents.contents.content.contents;
+    commit.originatorId = session;
+    commit.revision = wire;
+    record.operationId = `revision:${session}:${wire}`;
+    raw.lifecycle.transportObservations[0].submissions = [
+      structuredClone(record.payload),
+    ];
+    const accepted = raw.acceptedOperationPayloads[1].contents.contents;
+    accepted[0].contents.contents = {
+      sessionId: session,
+      ids: { firstGenCount: 1, count: 3, requestedClusterSize: 512,
+        localIdRanges: [[1, 3]] },
+    };
+    accepted[1].contents.contents.contents.content.contents = structuredClone(commit);
+    raw.acceptedOperations = scenarios.acceptedTreeOperations(raw.acceptedOperationPayloads);
+    Object.assign(artifact.claim.raw, raw);
+    assert.doesNotThrow(() => validateInteropReport(fixture.report, fixture.expected));
+    // A different, allocated UUID is not the revision carried by this wire ID.
+    Object.assign(artifact.claim.raw,
+      JSON.parse(JSON.stringify(raw).replaceAll(stable, session)));
+    assert.throws(() => validateInteropReport(fixture.report, fixture.expected),
+      /revision|compressor/);
+    Object.assign(artifact.claim.raw, raw);
+  }
+});
+
+test("completion joins reconnect and reload lifecycle fields", async (t) => {
+  const { expected, report } = await validFixture();
+  assert.doesNotThrow(() => validateInteropReport(report, expected));
+  for (const item of [
+    report.undoRedoReconnect[0],
+    report.undoRedoReloadMatrix.javascript.undo.erlang,
+  ]) {
+    const raw = expected.artifacts.get(item.artifacts[0]).claim.raw;
+    const original = structuredClone(raw);
+    for (const [label, mutate] of [
+      ["authored kind", (value) => { value.lifecycle.authoredKind = "Redo"; }],
+      ["revert status", (value) => { value.lifecycle.status = "Valid"; }],
+      ["settlement", (value) => { value.lifecycle.settlement = "Pending"; }],
+      ["revert handle", (value) => { value.lifecycle.name = "other-handle"; }],
+      ["retained kind", (value) => { value.retained.kind = "Redo"; }],
+      ["retained status", (value) => { value.retained.status = "Disposed"; }],
+      ["status handle", (value) => {
+        (value.postUndoStatus ?? value.reconnectLifecycle.postUndo).name = "other";
+      }],
+      ["status error", (value) => {
+        (value.postUndoStatus ?? value.reconnectLifecycle.postUndo).error = "failed";
+      }],
+      ["undo factory", (value) => {
+        const events = value.eventTrace ?? value.final.commits;
+        events.find(({ type, kind }) => type === "commit" && kind === "Undo")
+          .handleAcquired = false;
+      }],
+      ["contradictory settlement", (value) => {
+        const events = value.eventTrace ?? value.final.commits;
+        events.push({ ...events.find(
+          ({ type, kind }) => type === "settlement" && kind === "Undo",
+        ), outcome: "FullyDropped" });
+      }],
+    ]) {
+      await t.test(`${item.implementation ?? item.reader}: ${label}`, () => {
+        Object.assign(raw, structuredClone(original));
+        mutate(raw);
+        assert.throws(() => validateInteropReport(report, expected));
+      });
+    }
+    Object.assign(raw, original);
+  }
+});
+
+test("completion joins reconnect events to the final checkpoint", async () => {
+  const { expected, report } = await validFixture();
+  const raw = expected.artifacts.get(report.undoRedoReconnect[0].artifacts[0]).claim.raw;
+  const observation = raw.checkpoint.observations[0];
+  observation.commits = structuredClone(raw.eventTrace.filter(({ kind }) => kind === "Undo"));
+  assert.doesNotThrow(() => validateInteropReport(report, expected));
+  observation.commits[0].revision = "contradictory-checkpoint-revision";
+  assert.throws(() => validateInteropReport(report, expected), /checkpoint|revision/);
+});
+
 test("round 5 resolves submitted revisions from decoded accepted allocations", async () => {
   const reconnect = async () => {
     const fixture = await validFixture();
@@ -3451,7 +3658,7 @@ test("round 5 resolves submitted revisions from decoded accepted allocations", a
     const { expected, report, raw } = await reconnect();
     raw.eventTrace.find(({ actionId, type }) =>
       actionId === raw.lifecycle.actionId && type === "commit").revision = null;
-    assert.doesNotThrow(() => validateInteropReport(report, expected));
+    assert.throws(() => validateInteropReport(report, expected), /checkpoint/);
   }
   {
     const { expected, report, raw } = await reconnect();
@@ -3584,6 +3791,96 @@ test("round 5 failure paths preserve primary checkpoints before separate drains"
     `${scenarioSource}\n${reloadSource}`,
     /error\.checkpoint = drained\.checkpoint/,
   );
+});
+
+test("completion preserves every partial observation when reconnect synchronization fails", async () => {
+  const observation = (implementation, kind) => ({
+    implementation, sequenceNumber: 4, wholeTree: { title: "same" },
+    pendingTreeCount: 0, inflightSubmissionCount: 0, events: [],
+    commits: [{ type: "commit", kind, local: true }],
+  });
+  const primary = Object.assign(new Error("javascript reconnect failed"), {
+    checkpoint: observation("javascript", "Undo"),
+  });
+  const secondary = Object.assign(new Error("erlang reconnect failed"), {
+    checkpoint: observation("erlang", "Redo"),
+  });
+  const adapters = Object.fromEntries(implementations.map((implementation) => [
+    implementation, {
+      checkpoint: async () => observation(implementation, "Default"),
+      awaitSynced: async () => {
+        if (implementation === "javascript") throw primary;
+        if (implementation === "erlang") {
+          await new Promise((resolve) => setImmediate(resolve));
+          throw secondary;
+        }
+      },
+    },
+  ]));
+  await assert.rejects(scenarios.settle(adapters), (error) => {
+    assert.equal(error, primary);
+    assert.deepEqual(error.checkpoint.observations.map(({ commits }) => commits[0].kind),
+      ["Default", "Default", "Default", "Undo", "Redo"]);
+    const checkpoint = structuredClone(error.checkpoint);
+    scenarios.preserveFailureCheckpoints(error, {
+      observations: [observation("javascript", "drain")],
+    });
+    assert.deepEqual(error.primaryCheckpoint, checkpoint);
+    assert.deepEqual(error.checkpoint, checkpoint);
+    assert.equal(error.drainCheckpoint.observations.length, 1);
+    return true;
+  });
+});
+
+test("completion reconnect failure retains earlier phases before the cleanup drain", async () => {
+  const owned = await mkdtemp(join(tmpdir(), "watershed-reconnect-failure-"));
+  let phase = "baseline";
+  const primary = new Error("undo checkpoint failed");
+  const observation = (implementation, kind) => ({
+    implementation, sequenceNumber: 4, wholeTree: { title: phase },
+    pendingTreeCount: 0, inflightSubmissionCount: 0, events: [],
+    commits: [{ type: "commit", kind, local: true }],
+  });
+  const adapters = Object.fromEntries(implementations.map((implementation) => [
+    implementation, {
+      awaitSynced: async () => {},
+      checkpoint: async () => {
+        if (phase === "undo" && implementation === "javascript") {
+          primary.checkpoint = observation(implementation, "Undo");
+          phase = "drain";
+          throw primary;
+        }
+        return observation(implementation, phase === "edited" ? "Default" : phase);
+      },
+    },
+  ]));
+  Object.assign(adapters.javascript, {
+    set: async () => { phase = "edited"; },
+    retainLastLocalCommit: async () => ({ name: "edit", status: "Valid" }),
+    disconnect: async () => {},
+    reconnect: async () => {},
+    revertibleStatus: async () => ({ name: "edit", status: "Valid" }),
+    revert: async () => { phase = "undo"; return {}; },
+  });
+  await assert.rejects(scenarios.runUndoRedoReconnectTarget({}, {
+    runId: "failure-test", profileDigest: "a".repeat(64), artifactDirectory: owned,
+  }, "javascript", {
+    openEnvironment: async () => ({
+      containers: [], natives: [], documentId: "failure-document", adapters,
+    }),
+  }), (error) => {
+    assert.equal(error, primary);
+    assert(error.primaryCheckpoint.observations.some(
+      ({ commits }) => commits.some(({ kind }) => kind === "Default")),
+    "The primary checkpoint lost the successful edited phase");
+    assert(error.primaryCheckpoint.observations.some(
+      ({ commits }) => commits.some(({ kind }) => kind === "Undo")),
+    "The primary checkpoint lost the partial Undo");
+    assert.equal(error.checkpoint, error.primaryCheckpoint);
+    assert(error.drainCheckpoint.observations.every(
+      ({ wholeTree }) => wholeTree.title === "drain"));
+    return true;
+  });
 });
 
 test("settle preserves surviving Undo observations when one client fails", async () => {
