@@ -1282,3 +1282,338 @@ an unrelated successful settlement cannot hide a contradictory outcome, and
 copied storage identity fields cannot replace hash-checked response bytes.
 Reconnect cleanup retains the original merged primary checkpoint. No generated,
 `.code-map`, or apm-managed file is part of the commit.
+
+## Fix follow-up after independent review of 81c679ec
+
+I reproduced both Important findings on `81c679ec` and fixed them on current
+`main`. I used no branch, worktree, subagent, or reviewer. The findings correct
+two claims in the preceding completion pass: upstream connection evidence still
+came from normalized records, and deleting derived storage metadata could skip
+validation of preserved response bytes.
+
+### Findings and changes
+
+1. **Upstream transport capture.** `openSession` now observes the returned
+   driver's `connectToDeltaStream` and `submit` calls for both newly created and
+   loaded documents. A completed connection call records its own connection ID,
+   epoch, and handshake client ID before any send. Submission capture clones the
+   driver's messages and associates them with that connection. Session readers
+   receive cloned snapshots, so later normalization cannot change the captured
+   observations. The adapter binds normalized records through the existing
+   `bindOutboundTransport` helper. Neither normalization nor
+   `outboundTransportEvidence` creates connection events.
+
+   A local Floodgate probe exposed another consequence of the old boundary:
+   `deltaManager.submitOp` can fire on a read connection for a queued operation
+   that never reaches the driver. The first probe timed out waiting for that
+   nonexistent transport occurrence. I removed this source of send records;
+   the adapter now normalizes actual driver submissions and refreshes retained
+   action evidence at checkpoints. The repeated probe covered create, load,
+   edit, reconnect, and undo through the real driver and passed for both
+   sessions.
+
+   A subsequent full run exposed a required distinction: a handle can be
+   retained while the coordinator holds the outbound queue. Waiting for an
+   actual send at that point deadlocks the scenario. A new live regression
+   reproduced this failure. Retain/revert now read the stable revision from
+   the runtime compressor and return without inventing a send. Until the
+   driver submits the operation, raw send arrays remain empty and the measured
+   outbound count stays zero. Checkpoints fill in evidence after release.
+   Final acceptance still reconstructs the exact revision from accepted wire
+   operations and compressor state, and rejects missing send evidence.
+
+2. **Storage validation without derived metadata.** `nativeStorageLoad` selects
+   successful GET responses by the actual commit/tree/blob request path. It
+   requires the raw bytes, recomputes their hash, parses the response, and checks
+   repeated requests for conflicting hashes before selecting the load chain.
+   `storageResponse` is an optional identity claim to compare with the decoded
+   body. Removing it cannot skip validation. The same checks cover ordinary
+   content blobs whose bodies contain no snapshot sequence.
+
+   The first full interoperability run exposed the matching producer defect:
+   `DeliveryGate` also saved response bytes only when it decoded snapshot
+   metadata. I added failing HTTP-boundary tests, then made byte capture depend
+   on the request path. Streamed, held, and injected responses now retain the
+   bytes delivered to the reader. Capture uses the existing 8 MiB HTTP bound;
+   larger responses fail the request instead of dropping its evidence.
+
+### RED/GREEN evidence
+
+Temporary fixtures used:
+
+```text
+TMPDIR=/home/tylerbu/.copilot/session-state/f0314904-8ed9-4e5b-8ddb-7339a023eb18/files/tmp
+```
+
+Storage RED, before changing `nativeStorageLoad`:
+
+```text
+node --test --test-name-pattern='review follow-up validates raw storage' tools/shared-tree-oracle/summary-interop.test.mjs
+tests 6; pass 0; fail 6; skipped 0
+```
+
+The conflicting duplicate with its `storageResponse` deleted failed with
+`Missing expected exception`. Missing bytes, a copied hash, and conflicting
+non-attributes blob bodies also failed with `Missing expected exception`.
+The valid control with all derived identities omitted failed with
+`Native reader lacks the selected commit response identity`.
+
+Storage GREEN, including adjacent request/body and replay tests:
+
+```text
+node --test --test-name-pattern='review follow-up validates raw storage|completion binds native|native .* (identity|replay|summary)' tools/shared-tree-oracle/summary-interop.test.mjs
+tests 19; pass 19; fail 0; skipped 0
+duration_ms 2058.140592
+```
+
+Transport RED, after exporting the existing helper for direct regression
+coverage but before changing its behavior:
+
+```text
+node --test --test-name-pattern='review follow-up (upstream|captures upstream)' tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/service.test.mjs
+tests 4; pass 0; fail 4; skipped 0
+```
+
+The adversary first confirmed rejection of a same-connection duplicate, then
+changed the second normalized record's client IDs, relabeled it as a retry, and
+regenerated evidence without adding a raw connection. RED was
+`Missing expected exception`. The create and load driver-boundary tests failed
+with `Opening a driver connection was not captured before any submission`,
+`0 !== 1`. These tests also check message-copy isolation and a genuine second
+connection after reconnect.
+
+Transport GREEN:
+
+```text
+node --test --test-name-pattern='review follow-up (upstream|captures upstream)|completion (rejects duplicate|preserves unmatched)|storage observation' tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/service.test.mjs
+tests 7; pass 7; fail 0; skipped 0
+duration_ms 9138.791002
+```
+
+Combined focused coverage after switching normalization to driver submissions:
+
+```text
+node --test --test-name-pattern='review follow-up|completion (rejects duplicate|preserves unmatched)|storage observation' tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/service.test.mjs tools/shared-tree-oracle/summary-interop.test.mjs
+tests 13; pass 13; fail 0; skipped 0
+duration_ms 10825.608979
+```
+
+The executable live probe used `withLocalFloodgate`, `openSession`, and
+`upstreamAdapter` to run the actions described above. It asserted one raw send
+per action, different observed transport IDs before/after reconnect, and
+membership in the session's captured connection records. Its final exit status
+was 0; both sessions reported three observed connections.
+
+HTTP collector RED, after the first full gate exposed missing content-blob
+bytes:
+
+```text
+node --test --test-name-pattern='review follow-up captures storage bytes' tools/shared-tree-oracle/delivery-gate.test.mjs
+tests 6; pass 0; fail 6; skipped 0
+```
+
+Streamed, held, injected, and greater-than-1-MiB responses failed with
+`Raw storage bytes were dropped because the body has no snapshot identity`.
+The greater-than-8-MiB case failed with `Missing expected rejection`.
+
+HTTP collector GREEN:
+
+```text
+node --test tools/shared-tree-oracle/delivery-gate.test.mjs
+tests 20; pass 20; fail 0; skipped 0
+duration_ms 871.115802
+```
+
+A bounded live rerun of `runTransactionReloadMatrix` through
+`withLocalFloodgate` then passed all nine writer/reader cells (exit 0).
+
+Final combined focused coverage, including the HTTP collector:
+
+```text
+node --test --test-name-pattern='review follow-up|completion (rejects duplicate|preserves unmatched)|storage observation' tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/service.test.mjs tools/shared-tree-oracle/summary-interop.test.mjs tools/shared-tree-oracle/delivery-gate.test.mjs
+tests 19; pass 19; fail 0; skipped 0
+duration_ms 8849.581938
+```
+
+Held-action RED/GREEN:
+
+```text
+node --test --test-name-pattern='review follow-up retains held' tools/shared-tree-oracle/service.test.mjs
+RED: tests 1; pass 0; fail 1; skipped 0
+     Timed out: upstream retained edit outbound send
+GREEN: tests 1; pass 1; fail 0; skipped 0
+       duration_ms 18973.665176
+```
+
+This test runs real upstream retain and revert actions with the outbound queue
+paused. It checks empty raw send arrays and zero measured sends before release,
+then one observed send after release, synchronization, and checkpoint capture.
+I removed the obsolete allocation-range helper from the adapter; report
+acceptance keeps its exact compressor reconstruction.
+
+Before the final full gate, a bounded live run of `runUndoRedoScenarios` and
+`runUndoRedoReloadMatrix` passed all 3 kind rows, 30 concurrent rows, 2 reconnect
+rows, and 18 reload cells. Final focused coverage added the held-action and
+compressor regression:
+
+```text
+node --test --test-name-pattern='review follow-up|completion (rejects duplicate|preserves unmatched|reconstructs)|storage observation' tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/service.test.mjs tools/shared-tree-oracle/summary-interop.test.mjs tools/shared-tree-oracle/delivery-gate.test.mjs
+tests 21; pass 21; fail 0; skipped 0
+duration_ms 26123.984197
+```
+
+### Changed files
+
+- `tools/shared-tree-oracle/service.mjs`: driver-boundary observation for create
+  and load, with cloned session evidence.
+- `tools/shared-tree-oracle/interop-scenarios.mjs`: normalize actual sends, bind
+  to captured connections, and refresh action evidence at checkpoints.
+- `tools/shared-tree-oracle/summary-interop.mjs`: validate raw responses without
+  relying on the presence of derived storage metadata.
+- `tools/shared-tree-oracle/delivery-gate.mjs`: capture storage response bytes
+  without derived metadata and fail requests that exceed the evidence bound.
+- `tools/shared-tree-oracle/service.test.mjs`: create/load capture, independent
+  connection epochs, cloned submissions, and real held-action coverage.
+- `tools/shared-tree-oracle/interop.test.mjs`: the forged-client retry regression.
+- `tools/shared-tree-oracle/summary-interop.test.mjs`: missing-metadata conflict,
+  optional-claim control, missing bytes/hash, and non-attributes blob regressions.
+- `tools/shared-tree-oracle/delivery-gate.test.mjs`: streamed, held, injected,
+  large-response, and oversized-response capture regressions.
+- This report: appended evidence; previous sections remain intact.
+
+### Full tests and gates
+
+```text
+node --test tools/shared-tree-oracle/client-driver.test.mjs tools/shared-tree-oracle/client-interop.test.mjs tools/shared-tree-oracle/summary-interop.test.mjs tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/service.test.mjs
+tests 170; pass 170; fail 0; skipped 0
+duration_ms 468711.562889
+
+node --test tools/shared-tree-oracle/delivery-gate.test.mjs
+tests 14; pass 14; fail 0; skipped 0
+duration_ms 1457.146502
+```
+
+After the HTTP collector fix, I reran the exact five-file command: 170 tests,
+170 passes, 0 failures, 0 skips, `duration_ms 426246.659645`. The final delivery
+suite has 20 passes, as recorded above.
+
+After the held-action fix, the final exact five-file run passed:
+
+```text
+node --test tools/shared-tree-oracle/client-driver.test.mjs tools/shared-tree-oracle/client-interop.test.mjs tools/shared-tree-oracle/summary-interop.test.mjs tools/shared-tree-oracle/interop.test.mjs tools/shared-tree-oracle/service.test.mjs
+tests 171; pass 171; fail 0; skipped 0
+duration_ms 366697.067498
+```
+
+Creation gate before the HTTP collector fix:
+
+```text
+TMPDIR=/home/tylerbu/.copilot/session-state/f0314904-8ed9-4e5b-8ddb-7339a023eb18/files/tmp just shared-tree-create-interop
+exit status: 0
+runId: b560966b-575c-4a58-8b61-87ce8bd04899
+service: floodgate 0eb493fc46d1bb9baf1151a6ccdde93544e057e7
+profileDigest: 588a2f41621f4f352497915168a5dc8af55140721066a04f217ab03e639a1813
+cells: 18; skipped: 0; divergences: 0
+```
+
+Report:
+`tools/shared-tree-oracle/.output/creation/b560966b-575c-4a58-8b61-87ce8bd04899/report.json`
+
+The same creation command passed again after the collector fix, run
+`1ac3439d-73d9-4306-bcf1-2c184aac4a2f`, with 18 cells, 0 skips, and 0
+divergences, using the same service revision and profile digest. Report:
+`tools/shared-tree-oracle/.output/creation/1ac3439d-73d9-4306-bcf1-2c184aac4a2f/report.json`
+
+The final-source creation run also exited 0:
+`6e775a3d-946d-4d68-8cc4-9fc8eac9123c`, 18 cells, 0 skips, 0 divergences, and
+the same service revision/profile digest. Report:
+`tools/shared-tree-oracle/.output/creation/6e775a3d-946d-4d68-8cc4-9fc8eac9123c/report.json`
+
+The first `just shared-tree-interop` run,
+`247f6e45-b071-433d-aad0-ed7813f59e34`, exited 1 during the transaction reload
+matrix with `Storage observation lacks raw response bytes`. The failure
+artifact remains at
+`tools/shared-tree-oracle/.output/interop/247f6e45-b071-433d-aad0-ed7813f59e34/failure.json`.
+This prompted the collector RED/GREEN cycle above.
+
+The second full run, `9f0f66e7-5aea-4ee8-ad29-aa01d017efb6`, reached undo/redo
+kinds and exited 1 with `Timed out: upstream retained edit outbound send`.
+Its artifact is
+`tools/shared-tree-oracle/.output/interop/9f0f66e7-5aea-4ee8-ad29-aa01d017efb6/undo-redo-failure/undo-redo-kinds_upstream.json`.
+This prompted the held-action RED/GREEN cycle above.
+
+The final full gate passed on the final implementation:
+
+```text
+TMPDIR=/home/tylerbu/.copilot/session-state/f0314904-8ed9-4e5b-8ddb-7339a023eb18/files/tmp just shared-tree-interop
+exit status: 0
+runId: 70e347d4-d553-4ca8-928e-41d570a72cf0
+reference: @fluidframework/tree 3.1.0
+reference commit: c3c5bf0ecd313362e83fe8a02b7d39e7e0736960
+service: floodgate 0eb493fc46d1bb9baf1151a6ccdde93544e057e7
+profileDigest: 588a2f41621f4f352497915168a5dc8af55140721066a04f217ab03e639a1813
+undoRedoKinds.implementations: 3
+undoRedoConcurrent: 30
+undoRedoReconnect: 2
+undoRedoReloadMatrix cells: 18
+seeded schedules requested/generated/executed: 300/300/300, seed 42
+seeded profiles: 60 each for object, map, schema, array, identifier
+javascript corpus: 956
+erlang corpus: 974
+skipped: 0
+divergences: 0
+```
+
+Report:
+`tools/shared-tree-oracle/.output/interop/70e347d4-d553-4ca8-928e-41d570a72cf0/report.json`
+
+### Auxiliary coverage and concerns
+
+I also ran:
+
+```text
+node --test tools/shared-tree-oracle/interop-scenarios.test.mjs tools/shared-tree-oracle/delivery-gate.test.mjs
+tests 88; pass 79; fail 9; skipped 0
+```
+
+All nine failures came from the additional scenario suite. I reran that suite
+with a Node `registerHooks` load hook supplying
+`git show 81c679ec:tools/shared-tree-oracle/interop-scenarios.mjs`, without
+changing the worktree. The baseline produced 74 tests, 65 passes, and the same
+nine failures. I compared the failure-name arrays with `assert.deepEqual`.
+The failures cover two outdated decoder expectations, four incomplete upstream
+adapter doubles, an incomplete native reconnect double, and two outdated
+seeded-schedule expectations. I left these unrelated baseline failures intact.
+The final-source rerun of `node --test
+tools/shared-tree-oracle/interop-scenarios.test.mjs` also produced 74 tests,
+65 passes, and the same nine failure names.
+
+The local service continues to emit Socket.IO transport-control decode warnings
+and shutdown diagnostics. The probe and creation gate exited 0 despite those
+messages. No diagnostic suppression or service changes are part of this fix.
+
+The final interoperability run also emitted upstream `0x92a` telemetry for
+schedule 87, document `23A61126B73B8D19BE444AE84EBA750D`, from an unmeasured
+interactive client and a summarizer. Neither identified client appeared in
+the schedule's measured checkpoints. All three measured implementations
+finished at sequence 21 without read errors, and the schedule passed. This
+upstream diagnostic remains a concern; this change does not suppress it.
+
+Logs for this pass use the `review-` prefix under
+`/home/tylerbu/.copilot/session-state/f0314904-8ed9-4e5b-8ddb-7339a023eb18/files/`.
+
+### Self-review
+
+I traced the service factory's create/load paths, all upstream adapter callers,
+native and upstream transport binding, and both callers of
+`nativeStorageLoad`. Connection creation and send capture happen before report
+normalization, with no data flow from normalized records back into the captured
+session history. The validator still counts unmatched raw duplicate sends.
+The storage scan checks relevant GET bodies even when the identity decoder
+returns no snapshot metadata; conflict detection uses the request's object kind
+and decoded ID. I reviewed the complete diff from `81c679ec` after the final
+gate, including the producer changes and held-action behavior. Empty
+pre-submission evidence cannot satisfy final acceptance. The exact accepted
+compressor reconstruction, lifecycle joins, and primary failure-checkpoint
+preservation remain in place. No generated, `.code-map`, apm-managed, or public
+Gleam API files changed.

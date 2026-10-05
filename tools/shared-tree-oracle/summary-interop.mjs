@@ -1285,7 +1285,9 @@ function storageResponseBytes(observation, hash) {
 }
 
 export function nativeStorageLoad(http, version) {
-  const successful = http.filter(({ status }) => status >= 200 && status < 300);
+  const successful = http.filter(({ method, path, status }) =>
+    method === "GET" && status >= 200 && status < 300
+      && /\/git\/(commits|trees|blobs)\/([^/?]+)/.test(path));
   const selectedSummaryRequests = [...new Set(successful.flatMap(({ path }) => {
     const match = path.match(/\/git\/commits\/([^/?]+)/);
     return match ? [decodeURIComponent(match[1])] : [];
@@ -1306,13 +1308,17 @@ export function nativeStorageLoad(http, version) {
     "Native reader did not request the selected summary blobs");
   const responseHashes = new Map();
   const storage = successful.flatMap((observation) => {
-    if (observation.storageResponse === undefined) return [];
-    assert.equal(observation.method, "GET", "Storage response was not requested with GET");
     const bytes = storageResponseBytes(observation, observation.responseHash);
     const identity = storageResponseIdentity(observation.path, bytes);
-    assert.deepEqual(identity, observation.storageResponse,
-      "Storage identity differs from the request and raw response");
-    const key = `${identity.kind}:${identity.requestedId}`;
+    if (observation.storageResponse !== undefined) {
+      assert.deepEqual(identity, observation.storageResponse,
+        "Storage identity differs from the request and raw response");
+    }
+    const [, kind, encodedId] = observation.path.match(
+      /\/git\/(commits|trees|blobs)\/([^/?]+)/,
+    );
+    const requestedId = decodeURIComponent(encodedId);
+    const key = `${kind}:${requestedId}`;
     if (responseHashes.has(key)) {
       assert.equal(observation.responseHash, responseHashes.get(key),
         "Storage returned conflicting responses to the same request");
@@ -1320,10 +1326,12 @@ export function nativeStorageLoad(http, version) {
     responseHashes.set(key, observation.responseHash);
     const response = JSON.parse(bytes.toString("utf8"));
     if (response.sha !== undefined || response.id !== undefined) {
-      assert.equal(response.sha ?? response.id, identity.requestedId,
+      assert.equal(response.sha ?? response.id, requestedId,
         "Storage response names another requested object");
     }
-    return [{ ...identity, responseHash: observation.responseHash }];
+    return identity === undefined
+      ? []
+      : [{ ...identity, responseHash: observation.responseHash }];
   });
   const commit = storage.find(
     ({ kind, requestedId }) => kind === "commit" && requestedId === version,

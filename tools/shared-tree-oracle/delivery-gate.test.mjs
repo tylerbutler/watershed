@@ -465,6 +465,56 @@ test("summary loads hold complete HTTP responses and preserve bytes and status",
   assert(!JSON.stringify(evidence).includes("token=secret"));
 });
 
+test("review follow-up captures storage bytes without snapshot metadata", async (t) => {
+  for (const mode of ["streamed", "held", "injected", "large"]) {
+    await t.test(mode, async (t) => {
+      const original = Buffer.from(JSON.stringify({
+        encoding: "utf-8", content: mode === "large" ? "x".repeat(1024 * 1024) : "tree content",
+      }));
+      const injected = Buffer.from('{"encoding":"utf-8","content":"injected content"}');
+      const expected = mode === "injected" ? injected : original;
+      const upstream = await service(original);
+      const gate = await DeliveryGate.open("127.0.0.1", upstream.port, { documentId: "owned" });
+      t.after(async () => {
+        await gate.close();
+        await upstream.close();
+      });
+      if (mode === "held") gate.hold("inbound", "summary-load");
+      if (mode === "injected") {
+        gate.inject({ documentId: "owned", mutation: "content", expectedStage: "summary-load",
+          direction: "inbound", kind: "summary-load", transform() { return { bytes: injected }; } });
+      }
+      const pending = fetch(`http://127.0.0.1:${gate.port}/repos/fluid/git/blobs/content`);
+      if (mode === "held") {
+        await until(() => gate.evidence().held.length === 1, "Storage response was not held");
+        await gate.release("inbound");
+      }
+      const response = await pending;
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), expected);
+      const observation = gate.evidence().http[0];
+      assert.equal(observation.storageResponse, undefined);
+      assert.equal(typeof observation.responseBody, "string",
+        "Raw storage bytes were dropped because the body has no snapshot identity");
+      assert.deepEqual(Buffer.from(observation.responseBody, "base64"), expected);
+      assert.equal(observation.responseHash,
+        createHash("sha256").update(expected).digest("hex"));
+    });
+  }
+  await t.test("oversized responses fail instead of losing raw evidence", async (t) => {
+    const upstream = await service(Buffer.alloc(8 * 1024 * 1024 + 1, "x"));
+    const gate = await DeliveryGate.open("127.0.0.1", upstream.port);
+    t.after(async () => {
+      await gate.close();
+      await upstream.close();
+    });
+    await assert.rejects(async () => {
+      const response = await fetch(`http://127.0.0.1:${gate.port}/repos/fluid/git/blobs/large`);
+      await response.arrayBuffer();
+    }, /terminated|fetch failed/);
+    assert.equal(gate.evidence().http.length, 0);
+  });
+});
+
 test("summary load evidence identifies only protocol attribute responses", async (t) => {
   const attributes = {
     minimumSequenceNumber: 3,

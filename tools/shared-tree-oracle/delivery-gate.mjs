@@ -669,6 +669,8 @@ export class DeliveryGate {
     const id = this.#nextHttpId++;
     const method = clientRequest.method ?? "GET";
     const path = sanitizedPath(clientRequest.url ?? "/");
+    const captureStorage = method === "GET"
+      && /\/git\/(?:commits|trees|blobs)\/[^/?]+/.test(path);
     const requestHash = createHash("sha256");
     const requestChunks = [];
     let requestBytes = 0;
@@ -705,9 +707,14 @@ export class DeliveryGate {
         upstreamResponse.on("data", (chunk) => {
           responseHash.update(chunk);
           responseBytes += chunk.length;
+          if (captureStorage && responseBytes > maxHeldBytes) {
+            upstreamResponse.destroy(new Error("Storage response exceeded the bounded evidence limit"));
+            return;
+          }
           if (!identityOverflow) {
-            if (responseBytes <= maxMessageBytes) identityChunks.push(chunk);
-            else {
+            if (responseBytes <= (captureStorage ? maxHeldBytes : maxMessageBytes)) {
+              identityChunks.push(chunk);
+            } else {
               identityChunks.length = 0;
               identityOverflow = true;
             }
@@ -747,6 +754,8 @@ export class DeliveryGate {
               : storageResponseIdentity(path, responseBytes);
             if (storageResponse !== undefined) {
               observation.storageResponse = storageResponse;
+            }
+            if (captureStorage || storageResponse !== undefined) {
               observation.responseBody = responseBytes.toString("base64");
             }
             this.#evidence.http.push(observation);
@@ -798,6 +807,8 @@ export class DeliveryGate {
           const storageResponse = storageResponseIdentity(path, bytes);
           if (storageResponse !== undefined) {
             observation.storageResponse = storageResponse;
+          }
+          if (captureStorage || storageResponse !== undefined) {
             observation.responseBody = bytes.toString("base64");
           }
           this.#evidence.http.push(observation);

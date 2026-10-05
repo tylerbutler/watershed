@@ -380,22 +380,79 @@ function observedDeltaStorage(storage, observations) {
 export function observedDocumentServiceFactory(
   factory,
   observations,
-  { observeCreateContainer = false, observeStorage = true } = {},
+  { observeCreateContainer = false, observeStorage = true, transportEvidence } = {},
 ) {
-  return new Proxy(factory, {
-    get(target, property) {
-      if (property === "createContainer" && observeCreateContainer) {
-        return observedResult(observations, "createContainer", async (summary, ...args) => {
-          const service = await target.createContainer(summary, ...args);
-          observations.push({
-            operation: "createContainer",
-            summary,
-            documentId: service.resolvedUrl?.id ?? null,
+  const observeService = (service) => new Proxy(service, {
+    get(serviceTarget, serviceProperty) {
+      if (serviceProperty === "connectToDeltaStream" && transportEvidence) {
+        return async (...args) => {
+          const connection = await serviceTarget.connectToDeltaStream(...args);
+          const connectionId = randomUUID();
+          const clientId = connection.clientId;
+          transportEvidence.connections.push({
+            connectionId,
+            clientId,
+            epoch: transportEvidence.connections.length + 1,
+            state: "opened",
           });
-          return service;
+          return new Proxy(connection, {
+            get(connectionTarget, property) {
+              if (property !== "submit") return bind(connectionTarget, property);
+              return (messages) => {
+                transportEvidence.outboundOccurrences.push({
+                  id: transportEvidence.outboundOccurrences.length + 1,
+                  connectionId,
+                  submissions: [{
+                    clientId,
+                    messageBatches: [structuredClone(messages)],
+                  }],
+                });
+                return connectionTarget.submit(messages);
+              };
+            },
+          });
+        };
+      }
+      if (serviceProperty === "connectToStorage" && observeStorage) {
+        return observedResult(observations, "connectToStorage", async (...storageArgs) => {
+          const storage = await serviceTarget.connectToStorage(...storageArgs);
+          observations.push({ operation: "connectToStorage", result: "connected" });
+          return observedStorage(storage, observations);
         });
       }
-      if (!observeStorage) return bind(target, property);
+      if (serviceProperty === "connectToDeltaStorage" && observeStorage) {
+        return observedResult(
+          observations,
+          "connectToDeltaStorage",
+          async (...storageArgs) => {
+            const storage = await serviceTarget.connectToDeltaStorage(...storageArgs);
+            observations.push({
+              operation: "connectToDeltaStorage",
+              result: "connected",
+            });
+            return observedDeltaStorage(storage, observations);
+          },
+        );
+      }
+      return bind(serviceTarget, serviceProperty);
+    },
+  });
+  return new Proxy(factory, {
+    get(target, property) {
+      if (property === "createContainer" && (observeCreateContainer || transportEvidence)) {
+        return observedResult(observations, "createContainer", async (summary, ...args) => {
+          const service = await target.createContainer(summary, ...args);
+          if (observeCreateContainer) {
+            observations.push({
+              operation: "createContainer",
+              summary,
+              documentId: service.resolvedUrl?.id ?? null,
+            });
+          }
+          return observeService(service);
+        });
+      }
+      if (!observeStorage && !transportEvidence) return bind(target, property);
       if (property !== "createDocumentService") return bind(target, property);
       return observedResult(observations, "createDocumentService", async (resolved, ...args) => {
         const service = await target.createDocumentService(resolved, ...args);
@@ -404,32 +461,7 @@ export function observedDocumentServiceFactory(
           documentId: resolved?.id,
           result: "connected",
         });
-        return new Proxy(service, {
-          get(serviceTarget, serviceProperty) {
-            if (serviceProperty === "connectToStorage") {
-              return observedResult(observations, "connectToStorage", async (...storageArgs) => {
-                const storage = await serviceTarget.connectToStorage(...storageArgs);
-                observations.push({ operation: "connectToStorage", result: "connected" });
-                return observedStorage(storage, observations);
-              });
-            }
-            if (serviceProperty === "connectToDeltaStorage") {
-              return observedResult(
-                observations,
-                "connectToDeltaStorage",
-                async (...storageArgs) => {
-                  const storage = await serviceTarget.connectToDeltaStorage(...storageArgs);
-                  observations.push({
-                    operation: "connectToDeltaStorage",
-                    result: "connected",
-                  });
-                  return observedDeltaStorage(storage, observations);
-                },
-              );
-            }
-            return bind(serviceTarget, serviceProperty);
-          },
-        });
+        return observeService(service);
       });
     },
   });
@@ -457,15 +489,16 @@ export async function openSession(
   assert(typeof store?.type === "string", "openSession store must be a data store");
   let runtime;
   const storageObservations = [];
+  const transportEvidence = { connections: [], outboundOccurrences: [] };
   const baseDocumentServiceFactory = new RouterliciousDocumentServiceFactory(
     tokenProvider(config), driverPolicies,
   );
-  const documentServiceFactory = observeStorage || observeCreateContainer
-    ? observedDocumentServiceFactory(baseDocumentServiceFactory, storageObservations, {
+  const documentServiceFactory =
+    observedDocumentServiceFactory(baseDocumentServiceFactory, storageObservations, {
       observeCreateContainer,
       observeStorage,
-    })
-    : baseDocumentServiceFactory;
+      transportEvidence,
+    });
   const codeLoader = makeCodeLoader(
     async (type) => {
       assert.equal(type, store.type, "Unexpected data store type");
@@ -533,6 +566,7 @@ export async function openSession(
       : undefined,
     documentServiceFactory,
     storageObservations,
+    transportEvidence: () => structuredClone(transportEvidence),
   };
 }
 

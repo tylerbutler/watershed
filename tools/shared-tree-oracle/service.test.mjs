@@ -13,6 +13,7 @@ import {
   localFloodgateReady,
   preflight,
   observedDocumentServiceFactory,
+  openSession,
   mapServiceStore,
   excludedFeatures,
   serviceConfig,
@@ -20,7 +21,9 @@ import {
   supportedFeatures,
   runServiceCommand,
   validatePreflight,
+  withLocalFloodgate,
 } from "./service.mjs";
+import { upstreamAdapter } from "./interop-scenarios.mjs";
 
 test("service profile names the restricted schema evolution support", () => {
   assert(supportedFeatures.includes("strict-view-object-map-schema-evolution"));
@@ -120,6 +123,103 @@ test("storage observation wraps real calls without replacing their results", asy
       responseBody: "AQID",
     },
   ]);
+});
+
+test("review follow-up captures upstream connections and sends at the driver boundary", async (t) => {
+  for (const method of ["createDocumentService", "createContainer"]) {
+    await t.test(method, async () => {
+      const sent = [];
+      let clientId = "first-client";
+      const service = {
+        async connectToDeltaStream() {
+          return { clientId, submit(messages) { sent.push(structuredClone(messages)); } };
+        },
+      };
+      const transportEvidence = { connections: [], outboundOccurrences: [] };
+      const factory = observedDocumentServiceFactory({
+        async [method]() { return service; },
+      }, [], { observeStorage: false, transportEvidence });
+      const document = await factory[method]({ id: "document" });
+      const connection = await document.connectToDeltaStream({ mode: "write" });
+      assert.equal(transportEvidence.connections.length, 1,
+        "Opening a driver connection was not captured before any submission");
+      const first = structuredClone(transportEvidence.connections[0]);
+      assert.equal(first.state, "opened");
+      assert.equal(first.epoch, 1);
+      assert.equal(first.clientId, "first-client");
+      const messages = [{ type: "op", clientSequenceNumber: 1, contents: "original" }];
+      connection.submit(messages);
+      connection.clientId = "forged-client";
+      connection.submit(messages);
+      messages[0].contents = "mutated after submit";
+      assert.equal(transportEvidence.connections.length, 1,
+        "Changing a send's client ID created a connection");
+      assert.deepEqual(transportEvidence.outboundOccurrences.map(
+        ({ connectionId, submissions }) => ({
+          connectionId, clientId: submissions[0].clientId,
+          contents: submissions[0].messageBatches[0][0].contents,
+        }),
+      ), [1, 2].map(() => ({
+        connectionId: first.connectionId, clientId: "first-client", contents: "original",
+      })));
+      clientId = "second-client";
+      const retry = await document.connectToDeltaStream({ mode: "write" });
+      retry.submit(sent[0]);
+      const second = transportEvidence.connections[1];
+      assert.equal(second.epoch, 2);
+      assert.notEqual(second.connectionId, first.connectionId);
+      assert.equal(second.clientId, "second-client");
+      assert.equal(transportEvidence.outboundOccurrences[2].connectionId, second.connectionId);
+      assert.deepEqual(sent, Array.from({ length: 3 }, () =>
+        [{ type: "op", clientSequenceNumber: 1, contents: "original" }]));
+    });
+  }
+});
+
+test("review follow-up retains held upstream commits without inventing sends", {
+  timeout: 60_000,
+}, async () => {
+  await withLocalFloodgate(async (config) => {
+    const containers = [];
+    try {
+      const session = await openSession(config, containers);
+      const adapter = upstreamAdapter(session);
+      await adapter.set(["title"], "warmup");
+      await adapter.awaitSynced();
+      await adapter.checkpoint();
+      await adapter.holdOutbound();
+      const beforeEdit = session.transportEvidence().outboundOccurrences.length;
+      await adapter.set(["title"], "held");
+      const edit = await adapter.retainLastLocalCommit("edit");
+      assert.deepEqual(edit.outboundRecords, []);
+      assert.deepEqual(edit.transportObservations, []);
+      assert.equal(session.transportEvidence().outboundOccurrences.length, beforeEdit);
+      await adapter.releaseOutbound();
+      await adapter.awaitSynced();
+      await adapter.checkpoint();
+      assert.equal(edit.outboundRecords.length, 1);
+      assert.equal(edit.transportObservations.length, 1);
+      await adapter.holdOutbound();
+      const beforeUndo = session.transportEvidence().outboundOccurrences.length;
+      const undo = await adapter.revert("edit", true);
+      const retainedUndo = await adapter.retainLastLocalCommit("undo");
+      await adapter.checkpoint();
+      assert.equal(undo.authoredCount, 1);
+      assert.equal(undo.outboundCount, 0);
+      assert.deepEqual(undo.outboundRecords, []);
+      assert.deepEqual(retainedUndo.transportObservations, []);
+      assert.equal(session.transportEvidence().outboundOccurrences.length, beforeUndo);
+      await adapter.releaseOutbound();
+      await adapter.awaitSynced();
+      await adapter.checkpoint();
+      assert.equal(undo.outboundCount, 1);
+      assert.equal(undo.transportObservations.length, 1);
+      assert.equal(retainedUndo.transportObservations.length, 1);
+      assert.equal(session.data.view.root.title, "warmup");
+    } finally {
+      cleanupOwned(containers);
+    }
+  });
 });
 
 test("the service bootstrap is a real SharedMap containing a hierarchical tree handle", {

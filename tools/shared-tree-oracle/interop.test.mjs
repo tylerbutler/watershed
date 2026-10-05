@@ -3548,6 +3548,35 @@ test("completion preserves unmatched raw duplicate transport occurrences", async
   assert.throws(() => validateInteropReport(report, expected), /transport occurrences/);
 });
 
+test("review follow-up upstream records cannot manufacture a retry connection", async () => {
+  const { expected, report } = await validFixture();
+  const result = expected.artifacts.get(report.undoRedoReconnect[0].artifacts[0])
+    .claim.raw.lifecycle;
+  const original = result.outboundRecords[0];
+  const records = [original, { ...structuredClone(original), sendId: original.sendId + 1 }];
+  const rawTransport = {
+    connections: structuredClone(result.transportConnections),
+    outboundOccurrences: [1, 2].map((id) => ({
+      ...structuredClone(result.transportObservations[0]), id,
+    })),
+  };
+  const observed = structuredClone(rawTransport);
+  const transport = scenarios.outboundTransportEvidence(records, rawTransport);
+  Object.assign(result, { outboundRecords: records,
+    transportConnections: transport.connections, transportObservations: transport.observations });
+  assert.throws(() => validateInteropReport(report, expected), /same transport|classification/);
+  records[1].clientId = "forged-client";
+  records[1].payload.clientId = "forged-client";
+  records[1].classification = "reconnect-retry";
+  assert.throws(() => {
+    const forged = scenarios.outboundTransportEvidence(records, rawTransport);
+    Object.assign(result, { outboundRecords: records,
+      transportConnections: forged.connections, transportObservations: forged.observations });
+    validateInteropReport(report, expected);
+  }, /transport occurrence|same transport|classification/);
+  assert.deepEqual(rawTransport, observed);
+});
+
 test("completion reconstructs the exact accepted compressor revision", async () => {
   const fixture = await validFixture();
   const item = fixture.report.undoRedoReconnect.find(

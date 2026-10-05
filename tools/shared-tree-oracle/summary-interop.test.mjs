@@ -745,6 +745,43 @@ test("completion binds native storage identity to request and response bytes", a
   }
 });
 
+test("review follow-up validates raw storage responses without derived metadata", async (t) => {
+  await t.test("conflicting duplicate cannot hide by deleting storageResponse", () => {
+    const http = storageHttp("version", 18);
+    assert.equal(nativeStorageLoad(http, "version").snapshotSequenceNumber, 18);
+    const duplicate = { ...storageHttp("version", 20)[3], id: 5 };
+    delete duplicate.storageResponse;
+    http.push(duplicate);
+    assert.throws(() => nativeStorageLoad(http, "version"), /conflicting responses/);
+  });
+  await t.test("derived metadata is optional on valid responses", () => {
+    const http = storageHttp("version", 18);
+    for (const observation of http) delete observation.storageResponse;
+    assert.equal(nativeStorageLoad(http, "version").snapshotSequenceNumber, 18);
+  });
+  for (const [label, mutate, expected] of [
+    ["missing bytes", (response) => { delete response.responseBody; }, /raw response bytes/],
+    ["copied hash", (response) => { response.responseHash = "a".repeat(64); }, /hash/],
+    ["conflicting non-attributes blob", (response, http) => {
+      const bytes = Buffer.from('{"encoding":"utf-8","content":"different"}');
+      http.push({ ...response, id: 6, responseBody: bytes.toString("base64"),
+        responseHash: createHash("sha256").update(bytes).digest("hex") });
+    }, /conflicting responses/],
+  ]) {
+    await t.test(label, () => {
+      const http = storageHttp("version", 18);
+      const bytes = Buffer.from('{"encoding":"utf-8","content":"tree data"}');
+      const response = { id: 5, method: "GET", path: "/git/blobs/content",
+        status: 200, responseBody: bytes.toString("base64"),
+        responseHash: createHash("sha256").update(bytes).digest("hex") };
+      http.push(response);
+      assert.equal(nativeStorageLoad(http, "version").snapshotSequenceNumber, 18);
+      mutate(response, http);
+      assert.throws(() => nativeStorageLoad(http, "version"), expected);
+    });
+  }
+});
+
 test("completion binds upstream load to the requested snapshot and blob bytes", async (t) => {
   const body = Buffer.from('{"sequenceNumber":18,"minimumSequenceNumber":0}');
   const observations = [

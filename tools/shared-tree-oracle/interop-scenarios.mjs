@@ -3594,18 +3594,10 @@ function normalizeOutboundRecords(
   clientInstanceId,
   stableRevision,
 ) {
-  const seen = new Map();
-  let connectionEpoch = 0;
-  let previousTransportId;
   return records.flatMap(({ sendId, payload }) =>
     (payload?.messageBatches ?? []).flatMap((batch, batchIndex) =>
       batch.map((operation, operationIndex) => {
         const clientId = payload.clientId;
-        const transportId = clientId;
-        if (transportId !== previousTransportId) {
-          connectionEpoch += 1;
-          previousTransportId = transportId;
-        }
         const clientSequenceNumber = operation.clientSequenceNumber;
         const commits = decodeTreeSubmissions([{
           ...operation,
@@ -3615,23 +3607,13 @@ function normalizeOutboundRecords(
           ? `revision:${commits.map(({ originatorId, revision }) =>
             `${originatorId}:${revision}`).join(",")}`
           : `${clientId}:${clientSequenceNumber}`;
-        const originalTransportId = seen.get(operationId);
-        const classification = originalTransportId === undefined
-          ? "original"
-          : originalTransportId === transportId
-            ? "duplicate-send"
-            : "reconnect-retry";
-        seen.set(operationId, transportId);
         return {
           sendId,
           batchIndex,
           operationIndex,
-          classification,
           operationId,
           clientId,
           clientInstanceId,
-          transportId,
-          connectionEpoch,
           clientSequenceNumber,
           authoredEventId,
           stableRevision,
@@ -3640,29 +3622,13 @@ function normalizeOutboundRecords(
       })));
 }
 
-function outboundTransportEvidence(records) {
-  const connections = [];
-  const epochs = new Map();
-  const observations = records.map((record, index) => {
-    let epoch = epochs.get(record.clientId);
-    if (epoch === undefined) {
-      epoch = connections.length + 1;
-      epochs.set(record.clientId, epoch);
-      connections.push({
-        connectionId: record.clientId,
-        epoch,
-        state: "opened",
-      });
-    }
-    record.transportId = record.clientId;
-    record.connectionEpoch = epoch;
-    return {
-      occurrenceId: index + 1,
-      connectionId: record.clientId,
-      submissions: [structuredClone(record.payload)],
-    };
-  });
-  return { connections, observations };
+export function outboundTransportEvidence(records, rawTransport) {
+  const bound = bindOutboundTransport(records, rawTransport);
+  records.splice(0, records.length, ...bound.outboundRecords);
+  return {
+    connections: bound.transportConnections,
+    observations: bound.transportObservations,
+  };
 }
 
 export function bindOutboundTransport(records, gateEvidence) {
@@ -3684,7 +3650,7 @@ export function bindOutboundTransport(records, gateEvidence) {
                   === `revision:${commits.map(({ originatorId, revision }) =>
                     `${originatorId}:${revision}`).join(",")}`))));
     assert(match,
-      `Native outbound record lacks its transport occurrence: ${JSON.stringify({
+      `Outbound record lacks its transport occurrence: ${JSON.stringify({
         record: {
           clientId: record.clientId,
           clientSequenceNumber: record.clientSequenceNumber,
@@ -3704,7 +3670,7 @@ export function bindOutboundTransport(records, gateEvidence) {
     const connection = connections.find(
       ({ connectionId }) => connectionId === match.connectionId,
     );
-    assert(connection, "Native outbound occurrence lacks its connection");
+    assert(connection, "Outbound occurrence lacks its connection");
     const original = seen.get(record.operationId);
     const classification = original === undefined
       ? "original"
@@ -3775,50 +3741,6 @@ function outboundRecordsForRevision(
   });
 }
 
-function offsetStableId(value, offset) {
-  if (offset === 0) return value;
-  assert.match(value,
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    "Outbound allocation session is not a UUID");
-  const hex = value.replaceAll("-", "");
-  const next = (BigInt(`0x${hex}`) + BigInt(offset))
-    .toString(16).padStart(32, "0");
-  return `${next.slice(0, 8)}-${next.slice(8, 12)}-${next.slice(12, 16)}-${next.slice(16, 20)}-${next.slice(20)}`;
-}
-
-function stableRevisionFromOutbound(records, localRevision, stableRevision) {
-  assert(Number.isSafeInteger(Number(localRevision))
-    && Number(localRevision) !== 0,
-  "Outbound action lacks its local revision generation");
-  assert(typeof stableRevision === "string" && stableRevision.length > 0,
-    "Outbound action lacks its decompressed stable revision");
-  const revisions = records.flatMap((record) => {
-    const operation = record.payload.messageBatches
-      ?.at(record.batchIndex)?.at(record.operationIndex);
-    if (operation === undefined) return [];
-    return decodeTreeSubmissions([{
-      ...operation,
-      clientId: record.clientId,
-    }]).flatMap((submission) => submission.commits.map((commit) => {
-      assert.equal(commit.revision, Number(localRevision),
-        "Outbound commit differs from its local revision");
-      const allocations = submission.allocations.filter(
-        ({ sessionId, first, last }) => sessionId === commit.originatorId
-          && Array.from(
-            { length: last - first + 1 },
-            (_, index) => offsetStableId(sessionId, first + index - 1),
-          ).includes(stableRevision),
-      );
-      assert.equal(allocations.length, 1,
-        "Outbound commit lacks one exact revision allocation");
-      return stableRevision;
-    }));
-  });
-  assert.equal(new Set(revisions).size, 1,
-    "Outbound action does not resolve to one stable revision");
-  return revisions[0];
-}
-
 export function upstreamAdapter(session, viewConfigurations = {}) {
   const instanceId = randomUUID();
   const events = [];
@@ -3827,11 +3749,15 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
   const resolvedRevisions = new Map();
   let lastLocal;
   let commitEventCount = 0;
-  const outboundSends = [];
+  const outboundSends = () => session.transportEvidence().outboundOccurrences
+    .flatMap(({ id, submissions }) => submissions.map((payload) => ({
+      sendId: id,
+      payload,
+    })));
   const actionEvidence = new Set();
   const refreshActionEvidence = (evidence) => {
-    let outboundRecords = outboundRecordsForRevision(
-      outboundSends,
+    const outboundRecords = outboundRecordsForRevision(
+      outboundSends(),
       evidence.localRevision,
       evidence.eventId,
       instanceId,
@@ -3839,12 +3765,17 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
       ...record,
       stableRevision: evidence.stableRevision,
     }));
-    const transport = outboundTransportEvidence(outboundRecords);
+    const transport = outboundTransportEvidence(outboundRecords, session.transportEvidence());
     Object.assign(evidence.result, {
       outboundRecords,
       transportConnections: transport.connections,
       transportObservations: transport.observations,
     });
+    if (Object.hasOwn(evidence.result, "outboundCount")) {
+      evidence.result.outboundCount = outboundRecords.filter(
+        ({ classification }) => classification === "original",
+      ).length;
+    }
   };
   const trackActionEvidence = (
     result,
@@ -3857,16 +3788,6 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
     refreshActionEvidence(evidence);
     return result;
   };
-  session.container.deltaManager.on("submitOp", (message) => {
-    outboundSends.push({
-      sendId: outboundSends.length + 1,
-      payload: {
-        clientId: session.container.clientId,
-        messageBatches: [[structuredClone(message)]],
-      },
-    });
-    for (const evidence of actionEvidence) refreshActionEvidence(evidence);
-  });
   const connectionEvents = [];
   session.container.deltaManager.on("disconnect", (reason, error) => {
     connectionEvents.push({ reason, ...(error ? { error: replayError(error) } : {}) });
@@ -4055,30 +3976,11 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
       handles.set(name, lastLocal);
       const retained = lastLocal;
       lastLocal = undefined;
-      let outboundRecords = [];
-      await until(() => {
-        outboundRecords = outboundRecordsForRevision(
-          outboundSends,
-          retained.revision,
-          retained.eventId,
-          instanceId,
-        );
-        return outboundRecords.length > 0;
-      }, `upstream retained ${name} outbound send`, 5_000);
-      const stableRevision = stableRevisionFromOutbound(
-        outboundRecords,
-        retained.revision,
-        session.runtime.idCompressor.decompress(Number(retained.revision)),
-      );
+      const stableRevision = session.runtime.idCompressor.decompress(Number(retained.revision));
       resolvedRevisions.set(retained.actionId, stableRevision);
       for (const event of commits) {
         if (event.actionId === retained.actionId) event.revision = stableRevision;
       }
-      outboundRecords = outboundRecords.map((record) => ({
-        ...record,
-        stableRevision,
-      }));
-      const transport = outboundTransportEvidence(outboundRecords);
       return trackActionEvidence({
         name,
         kind: enumName(CommitKind, retained.kind),
@@ -4092,9 +3994,6 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
           localRevision: retained.revision,
           stableRevision,
         },
-        outboundRecords,
-        transportConnections: transport.connections,
-        transportObservations: transport.observations,
       }, retained.revision, stableRevision, retained.eventId);
     },
     async revert(name, dispose) {
@@ -4102,7 +4001,6 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
       assert(retained, `Unknown upstream revertible handle: ${name}`);
       const beforeRevisions = upstreamHistoryRevisions(session);
       const beforeEventCount = commitEventCount;
-      const beforeOutboundCount = outboundSends.length;
       retained.handle.revert(dispose);
       const authored = commits.filter(
         ({ type, local, eventId }) =>
@@ -4117,40 +4015,21 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
         `Upstream revert ${name} submitted another operation count`);
       assert.equal(authored[0].revision, submittedRevisions[0],
         `Upstream revert ${name} event differs from its submission`);
-      let outboundRecords = [];
-      await until(() => {
-        outboundRecords = outboundRecordsForRevision(
-          outboundSends.slice(beforeOutboundCount),
-          submittedRevisions[0],
-          authored[0].eventId,
-          instanceId,
-        );
-        return outboundRecords.length > 0;
-      }, `upstream revert ${name} outbound send`, 5_000);
       const localRevision = submittedRevisions[0];
-      const stableRevision = stableRevisionFromOutbound(
-        outboundRecords,
-        localRevision,
-        session.runtime.idCompressor.decompress(Number(localRevision)),
-      );
+      const stableRevision = session.runtime.idCompressor.decompress(Number(localRevision));
       resolvedRevisions.set(authored[0].actionId, stableRevision);
       for (const event of commits) {
         if (event.actionId === authored[0].actionId) {
           event.revision = stableRevision;
         }
       }
-      outboundRecords = outboundRecords.map((record) => ({
-        ...record,
-        stableRevision,
-      }));
-      const transport = outboundTransportEvidence(outboundRecords);
       return trackActionEvidence({
         name,
         authoredKind: authored[0].kind,
         status: enumName(RevertibleStatus, retained.handle.status),
         settlement: "Pending",
         authoredCount: authored.length,
-        outboundCount: submittedRevisions.length,
+        outboundCount: 0,
         authoredEventIds: authored.map(({ eventId }) => eventId),
         actionId: authored[0].actionId,
         submittedRevisions: [stableRevision],
@@ -4159,9 +4038,6 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
           localRevision,
           stableRevision,
         },
-        outboundRecords,
-        transportConnections: transport.connections,
-        transportObservations: transport.observations,
       }, localRevision, stableRevision, authored[0].eventId);
     },
     async revertibleStatus(name) {
@@ -4182,6 +4058,7 @@ export function upstreamAdapter(session, viewConfigurations = {}) {
       };
     },
     async checkpoint() {
+      for (const evidence of actionEvidence) refreshActionEvidence(evidence);
       if (session.container.clientId) clientIds.add(session.container.clientId);
       const captured = events.splice(0);
       let wholeTree = null;
