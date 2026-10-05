@@ -7,11 +7,13 @@ import watershed/fluid_ids
 import watershed/tree/change
 import watershed/tree/forest
 import watershed/tree/history
+import watershed/tree/runtime
 import watershed/tree/schema
+import watershed/tree/transaction as tree_transaction
 import watershed/tree/types.{
   type CheckoutSelector, type Edit, type FieldPath, type LocalCheckoutId,
-  type TreeError, type TreeValue, DocumentCheckout, InvalidHistory,
-  LocalCheckout,
+  type RevertibleId, type TreeCommitKind, type TreeError, type TreeValue,
+  DocumentCheckout, InvalidHistory, LocalCheckout,
 }
 import watershed/tree_kernel
 
@@ -50,6 +52,44 @@ pub type ReconcileResult {
     forest: Forest,
     events: List(BranchEvent),
     commits: List(history.Commit),
+  )
+}
+
+pub type AuthorResult {
+  AuthorResult(
+    forest: Forest,
+    commit: Option(history.Commit),
+    events: List(BranchEvent),
+    compressor: fluid_ids.Compressor,
+  )
+}
+
+pub opaque type BranchTransaction {
+  BranchTransaction(checkout: Checkout, value: tree_transaction.Transaction)
+}
+
+pub type TransactionResult {
+  TransactionNoCommit(forest: Forest, compressor: fluid_ids.Compressor)
+  TransactionCommit(
+    forest: Forest,
+    commit: history.Commit,
+    events: List(BranchEvent),
+    compressor: fluid_ids.Compressor,
+  )
+}
+
+pub opaque type Revertible {
+  Revertible(checkout: Checkout, id: RevertibleId)
+}
+
+pub type RevertResult {
+  RevertResult(
+    forest: Forest,
+    commit: history.Commit,
+    kind: TreeCommitKind,
+    events: List(BranchEvent),
+    revertible: Revertible,
+    compressor: fluid_ids.Compressor,
   )
 }
 
@@ -97,7 +137,7 @@ pub fn fork(
     True -> Error(InvalidHistory("source checkout has an active transaction"))
     False -> Ok(Nil)
   })
-  use source_state <- result.try(checkout_state(state, selector))
+  use source_state <- result.try(state_for_selector(state, selector))
   use #(branch_history, id) <- result.try(history.fork_local(
     tree_kernel.branch_history(state.document),
     selector,
@@ -185,6 +225,341 @@ pub fn apply(
   }
 }
 
+/// Author an edit with the document compressor.
+pub fn author(
+  state: Forest,
+  checkout: Checkout,
+  edit: Edit,
+  compressor: fluid_ids.Compressor,
+) -> Result(AuthorResult, TreeError) {
+  use selector <- result.try(validate_checkout(state, checkout))
+  case selector {
+    DocumentCheckout -> {
+      use #(forest, #(commit, changes, compressor)) <- result.try(
+        update_document(state, fn(document) {
+          use #(document, commit, changes, compressor) <- result.try(
+            runtime.author_edit(document, edit, compressor),
+          )
+          Ok(#(document, #(commit, changes, compressor)))
+        }),
+      )
+      let events = case commit {
+        None -> []
+        Some(_) -> [BranchEvent(DocumentCheckout, commit, changes)]
+      }
+      Ok(AuthorResult(forest, commit, events, compressor))
+    }
+    LocalCheckout(id) -> {
+      use local <- result.try(require_local(state.locals, id))
+      use authored <- result.try(runtime.author_edit_change(
+        local.state,
+        edit,
+        compressor,
+      ))
+      case authored {
+        None -> Ok(AuthorResult(state, None, [], compressor))
+        Some(authored) -> {
+          use revision <- result.try(runtime.authored_revision(authored.change))
+          let commit =
+            history.Commit(revision, local_session(state), authored.change)
+          use update <- result.try(history.append_local_checkout(
+            tree_kernel.branch_history(state.document),
+            id,
+            commit,
+          ))
+          let candidate =
+            tree_kernel.with_branch_history(authored.state, update.history)
+          let locals =
+            state.locals
+            |> replace_local(LocalState(id, candidate))
+            |> sync_local_histories(update.history)
+          let forest =
+            Forest(
+              ..state,
+              document: tree_kernel.with_branch_history(
+                state.document,
+                update.history,
+              ),
+              locals:,
+            )
+          Ok(AuthorResult(
+            forest,
+            Some(commit),
+            [BranchEvent(selector, Some(commit), authored.events)],
+            authored.compressor,
+          ))
+        }
+      }
+    }
+  }
+}
+
+pub fn begin_transaction(
+  state: Forest,
+  checkout: Checkout,
+  compressor: fluid_ids.Compressor,
+  constraints: List(change.ConstraintTarget),
+) -> Result(#(Forest, BranchTransaction), TreeError) {
+  use selector <- result.try(validate_checkout(state, checkout))
+  use _ <- result.try(case list.contains(state.active_transactions, selector) {
+    True -> Error(InvalidHistory("checkout already has an active transaction"))
+    False -> Ok(Nil)
+  })
+  use checkout_state <- result.try(state_for_selector(state, selector))
+  use value <- result.try(tree_transaction.begin(
+    checkout_state,
+    compressor,
+    constraints,
+  ))
+  use state <- result.try(set_transaction_active(state, checkout, True))
+  Ok(#(state, BranchTransaction(checkout, value)))
+}
+
+pub fn transaction_apply(
+  open: BranchTransaction,
+  edit: Edit,
+) -> Result(BranchTransaction, TreeError) {
+  use value <- result.try(tree_transaction.apply_edit(open.value, edit))
+  Ok(BranchTransaction(..open, value:))
+}
+
+pub fn transaction_apply_with_compressor(
+  open: BranchTransaction,
+  edit: Edit,
+  compressor: fluid_ids.Compressor,
+) -> Result(BranchTransaction, TreeError) {
+  use value <- result.try(tree_transaction.apply_edit_with_compressor(
+    open.value,
+    edit,
+    compressor,
+  ))
+  Ok(BranchTransaction(..open, value:))
+}
+
+pub fn transaction_begin_nested(open: BranchTransaction) -> BranchTransaction {
+  BranchTransaction(..open, value: tree_transaction.begin_nested(open.value))
+}
+
+pub fn transaction_abort_nested(
+  open: BranchTransaction,
+) -> Result(BranchTransaction, TreeError) {
+  use value <- result.try(tree_transaction.abort_nested(open.value))
+  Ok(BranchTransaction(..open, value:))
+}
+
+pub fn transaction_commit_nested(
+  open: BranchTransaction,
+) -> Result(BranchTransaction, TreeError) {
+  use value <- result.try(tree_transaction.commit_nested(open.value))
+  Ok(BranchTransaction(..open, value:))
+}
+
+pub fn transaction_read(
+  open: BranchTransaction,
+  path: FieldPath,
+) -> Result(Option(TreeValue), TreeError) {
+  tree_kernel.read(tree_transaction.state(open.value), path)
+}
+
+pub fn transaction_compressor(open: BranchTransaction) -> fluid_ids.Compressor {
+  tree_transaction.compressor(open.value)
+}
+
+pub fn finish_transaction(
+  state: Forest,
+  open: BranchTransaction,
+  compressor: fluid_ids.Compressor,
+) -> Result(TransactionResult, TreeError) {
+  use selector <- result.try(validate_checkout(state, open.checkout))
+  use #(finished, changes) <- result.try(tree_transaction.finish(open.value))
+  case finished {
+    tree_transaction.NoCommit(checkout_state, _) -> {
+      use forest <- result.try(install_checkout_state(
+        state,
+        selector,
+        checkout_state,
+        None,
+      ))
+      use forest <- result.try(set_transaction_active(
+        forest,
+        open.checkout,
+        False,
+      ))
+      Ok(TransactionNoCommit(forest, compressor))
+    }
+    tree_transaction.Commit(checkout_state, _, commit) -> {
+      use forest <- result.try(install_checkout_state(
+        state,
+        selector,
+        checkout_state,
+        Some(commit),
+      ))
+      use forest <- result.try(set_transaction_active(
+        forest,
+        open.checkout,
+        False,
+      ))
+      Ok(TransactionCommit(
+        forest,
+        commit,
+        [BranchEvent(selector, Some(commit), changes)],
+        compressor,
+      ))
+    }
+  }
+}
+
+pub fn abort_transaction(
+  state: Forest,
+  open: BranchTransaction,
+  compressor: fluid_ids.Compressor,
+) -> Result(#(Forest, fluid_ids.Compressor), TreeError) {
+  use selector <- result.try(validate_checkout(state, open.checkout))
+  use #(checkout_state, _) <- result.try(tree_transaction.abort(open.value))
+  use forest <- result.try(install_checkout_state(
+    state,
+    selector,
+    checkout_state,
+    None,
+  ))
+  use forest <- result.try(set_transaction_active(forest, open.checkout, False))
+  Ok(#(forest, compressor))
+}
+
+pub fn retain_revertible(
+  state: Forest,
+  checkout: Checkout,
+  revision: fluid_ids.StableId,
+  kind: TreeCommitKind,
+) -> Result(#(Forest, Revertible), TreeError) {
+  use selector <- result.try(validate_checkout(state, checkout))
+  use #(branch_history, id) <- result.try(history.retain_revertible_on(
+    tree_kernel.branch_history(state.document),
+    selector,
+    revision,
+    kind,
+  ))
+  Ok(#(install_history(state, branch_history), Revertible(checkout, id)))
+}
+
+pub fn revertible_is_valid(state: Forest, revertible: Revertible) -> Bool {
+  case validate_checkout(state, revertible.checkout) {
+    Error(_) -> False
+    Ok(selector) ->
+      history.revertible_is_valid_on(
+        tree_kernel.branch_history(state.document),
+        selector,
+        revertible.id,
+      )
+  }
+}
+
+pub fn dispose_revertible(
+  state: Forest,
+  revertible: Revertible,
+) -> Result(Forest, TreeError) {
+  use selector <- result.try(validate_checkout(state, revertible.checkout))
+  use branch_history <- result.try(history.dispose_revertible(
+    tree_kernel.branch_history(state.document),
+    revertible.id,
+  ))
+  use _ <- result.try(
+    case
+      history.revertible_is_valid_on(
+        tree_kernel.branch_history(state.document),
+        selector,
+        revertible.id,
+      )
+    {
+      True -> Ok(Nil)
+      False ->
+        Error(InvalidHistory(
+          "revertible does not belong to the selected checkout",
+        ))
+    },
+  )
+  Ok(install_history(state, branch_history))
+}
+
+pub fn revert(
+  state: Forest,
+  revertible: Revertible,
+  compressor: fluid_ids.Compressor,
+) -> Result(RevertResult, TreeError) {
+  use selector <- result.try(validate_checkout(state, revertible.checkout))
+  let branch_history = tree_kernel.branch_history(state.document)
+  use _ <- result.try(
+    case
+      history.revertible_is_valid_on(branch_history, selector, revertible.id)
+    {
+      True -> Ok(Nil)
+      False ->
+        Error(InvalidHistory(
+          "revertible does not belong to the selected checkout",
+        ))
+    },
+  )
+  use checkout_state <- result.try(state_for_selector(state, selector))
+  use #(revision, order, compressor) <- result.try(
+    runtime.allocate_transaction_revision(checkout_state, compressor),
+  )
+  use authored <- result.try(history.author_revert_on(
+    branch_history,
+    selector,
+    revertible.id,
+    revision,
+    order,
+  ))
+  let history.RevertAuthoring(_, inverse, kind) = authored
+  use #(forest, inverse, changes) <- result.try(case selector {
+    DocumentCheckout -> {
+      use #(checkout_state, inverse, changes) <- result.try(
+        tree_kernel.apply_local_change(
+          checkout_state,
+          revision,
+          order,
+          inverse.change,
+        ),
+      )
+      use #(forest, Nil) <- result.try(
+        update_document(state, fn(_) { Ok(#(checkout_state, Nil)) }),
+      )
+      Ok(#(forest, inverse, changes))
+    }
+    LocalCheckout(_) -> {
+      use #(checkout_state, changes) <- result.try(
+        tree_kernel.apply_local_preview(
+          checkout_state,
+          revision,
+          order,
+          inverse.change,
+        ),
+      )
+      use forest <- result.try(install_checkout_state(
+        state,
+        selector,
+        checkout_state,
+        Some(inverse),
+      ))
+      Ok(#(forest, inverse, changes))
+    }
+  })
+  use #(forest, next) <- result.try(retain_revertible(
+    forest,
+    revertible.checkout,
+    inverse.revision,
+    kind,
+  ))
+  Ok(RevertResult(
+    forest,
+    inverse,
+    kind,
+    [BranchEvent(selector, Some(inverse), changes)],
+    next,
+    compressor,
+  ))
+}
+
 pub fn rebase(
   state: Forest,
   source: Checkout,
@@ -200,8 +575,8 @@ pub fn rebase(
     source_selector,
     target_selector,
   ))
-  use source_state <- result.try(checkout_state(state, source_selector))
-  use target_state <- result.try(checkout_state(state, target_selector))
+  use source_state <- result.try(state_for_selector(state, source_selector))
+  use target_state <- result.try(state_for_selector(state, target_selector))
   use _ <- result.try(require_same_schema(source_state, target_state))
   use #(update, allocation) <- result.try(history.rebase_local(
     tree_kernel.branch_history(state.document),
@@ -233,6 +608,18 @@ pub fn rebase(
   Ok(#(ReconcileResult(forest, events, []), allocation))
 }
 
+pub fn rebase_with_compressor(
+  state: Forest,
+  source: Checkout,
+  target: Checkout,
+  compressor: fluid_ids.Compressor,
+) -> Result(#(ReconcileResult, fluid_ids.Compressor), TreeError) {
+  let revisions = tree_kernel.identity_revisions(state.document)
+  rebase(state, source, target, compressor, fn(current) {
+    runtime.mint_revision(current, revisions)
+  })
+}
+
 pub fn merge(
   state: Forest,
   target: Checkout,
@@ -249,8 +636,8 @@ pub fn merge(
     source_selector,
     target_selector,
   ))
-  use source_state <- result.try(checkout_state(state, source_selector))
-  use target_state <- result.try(checkout_state(state, target_selector))
+  use source_state <- result.try(state_for_selector(state, source_selector))
+  use target_state <- result.try(state_for_selector(state, target_selector))
   use _ <- result.try(require_same_schema(source_state, target_state))
   use #(update, commits, allocation) <- result.try(history.merge_local(
     tree_kernel.branch_history(state.document),
@@ -293,6 +680,20 @@ pub fn merge(
   Ok(#(ReconcileResult(forest, events, commits), allocation))
 }
 
+/// Merge while allocating rollback revisions from the document compressor.
+pub fn merge_with_compressor(
+  state: Forest,
+  target: Checkout,
+  source: Checkout,
+  dispose_source: Bool,
+  compressor: fluid_ids.Compressor,
+) -> Result(#(ReconcileResult, fluid_ids.Compressor), TreeError) {
+  let revisions = tree_kernel.identity_revisions(state.document)
+  merge(state, target, source, dispose_source, compressor, fn(current) {
+    runtime.mint_revision(current, revisions)
+  })
+}
+
 pub fn dispose(state: Forest, checkout: Checkout) -> Result(Forest, TreeError) {
   use _ <- result.try(case checkout.origin == state.origin {
     True -> Ok(Nil)
@@ -305,8 +706,13 @@ pub fn dispose(state: Forest, checkout: Checkout) -> Result(Forest, TreeError) {
       case list.contains(state.disposed, id) {
         True -> Ok(state)
         False -> {
+          let branch_history =
+            history.dispose_checkout_revertibles(
+              tree_kernel.branch_history(state.document),
+              LocalCheckout(id),
+            )
           use branch_history <- result.try(history.dispose_local(
-            tree_kernel.branch_history(state.document),
+            branch_history,
             id,
           ))
           Ok(
@@ -351,7 +757,7 @@ pub fn read(
   path: FieldPath,
 ) -> Result(Option(TreeValue), TreeError) {
   use selector <- result.try(validate_checkout(state, checkout))
-  use checkout <- result.try(checkout_state(state, selector))
+  use checkout <- result.try(state_for_selector(state, selector))
   tree_kernel.read(checkout, path)
 }
 
@@ -361,7 +767,7 @@ pub fn reference_at(
   path: FieldPath,
 ) -> Result(forest.NodeRef, TreeError) {
   use selector <- result.try(validate_checkout(state, checkout))
-  use checkout <- result.try(checkout_state(state, selector))
+  use checkout <- result.try(state_for_selector(state, selector))
   tree_kernel.reference_at(checkout, path)
 }
 
@@ -370,7 +776,7 @@ pub fn visible_data(
   checkout: Checkout,
 ) -> Result(forest.ForestData, TreeError) {
   use selector <- result.try(validate_checkout(state, checkout))
-  use checkout <- result.try(checkout_state(state, selector))
+  use checkout <- result.try(state_for_selector(state, selector))
   tree_kernel.visible_data(checkout)
 }
 
@@ -379,7 +785,7 @@ pub fn history_view(
   checkout: Checkout,
 ) -> Result(history.HistoryView, TreeError) {
   use selector <- result.try(validate_checkout(state, checkout))
-  use checkout <- result.try(checkout_state(state, selector))
+  use checkout <- result.try(state_for_selector(state, selector))
   Ok(tree_kernel.history_view(checkout))
 }
 
@@ -397,12 +803,63 @@ pub fn stored_schema(
   checkout: Checkout,
 ) -> Result(schema.StoredSchema, TreeError) {
   use selector <- result.try(validate_checkout(state, checkout))
-  use checkout <- result.try(checkout_state(state, selector))
+  use checkout <- result.try(state_for_selector(state, selector))
   Ok(tree_kernel.stored_schema(checkout))
 }
 
 fn local_session(state: Forest) -> fluid_ids.SessionId {
   history.local_session(tree_kernel.branch_history(state.document))
+}
+
+fn install_checkout_state(
+  state: Forest,
+  selector: CheckoutSelector,
+  checkout_state: tree_kernel.TreeState,
+  commit: Option(history.Commit),
+) -> Result(Forest, TreeError) {
+  let shared_history = tree_kernel.branch_history(state.document)
+  use shared_history <- result.try(case selector, commit {
+    _, None -> Ok(shared_history)
+    DocumentCheckout, Some(commit) ->
+      history.append_local(shared_history, commit)
+      |> result.map(fn(update) { update.history })
+    LocalCheckout(id), Some(commit) ->
+      history.append_local_checkout(shared_history, id, commit)
+      |> result.map(fn(update) { update.history })
+  })
+  let checkout_state =
+    tree_kernel.with_branch_history(checkout_state, shared_history)
+  case selector {
+    DocumentCheckout ->
+      Ok(
+        Forest(
+          ..state,
+          document: checkout_state,
+          locals: sync_local_histories(state.locals, shared_history),
+        ),
+      )
+    LocalCheckout(id) ->
+      Ok(
+        Forest(
+          ..state,
+          document: tree_kernel.with_branch_history(
+            state.document,
+            shared_history,
+          ),
+          locals: state.locals
+            |> replace_local(LocalState(id, checkout_state))
+            |> sync_local_histories(shared_history),
+        ),
+      )
+  }
+}
+
+fn install_history(state: Forest, branch_history: history.History) -> Forest {
+  Forest(
+    ..state,
+    document: tree_kernel.with_branch_history(state.document, branch_history),
+    locals: sync_local_histories(state.locals, branch_history),
+  )
 }
 
 fn apply_merged_commits(
@@ -482,7 +939,15 @@ fn validate_checkout(
   }
 }
 
-fn checkout_state(
+pub fn checkout_state(
+  state: Forest,
+  checkout: Checkout,
+) -> Result(tree_kernel.TreeState, TreeError) {
+  use selector <- result.try(validate_checkout(state, checkout))
+  state_for_selector(state, selector)
+}
+
+fn state_for_selector(
   state: Forest,
   selector: CheckoutSelector,
 ) -> Result(tree_kernel.TreeState, TreeError) {

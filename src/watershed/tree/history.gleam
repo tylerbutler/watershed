@@ -133,6 +133,7 @@ type RollbackEntry {
 type RevertibleRecord {
   RevertibleRecord(
     id: RevertibleId,
+    checkout: Option(CheckoutSelector),
     revision: fluid_ids.StableId,
     kind: TreeCommitKind,
     base: BranchBase,
@@ -542,6 +543,16 @@ pub fn rebase_local(
           ),
           rollbacks:,
           next_node_id:,
+        )
+      use ancestry <- result.try(local_ancestry(next, updated))
+      let next =
+        History(
+          ..next,
+          revertibles: retain_checkout_revertibles_on(
+            state.revertibles,
+            LocalCheckout(source.id),
+            ancestry,
+          ),
         )
       Ok(#(HistoryUpdate(next, effects, [], []), allocation))
     }
@@ -1245,6 +1256,17 @@ fn reconcile_local_ancestry(
   ))
 }
 
+fn retain_checkout_revertibles_on(
+  revertibles: List(RevertibleRecord),
+  checkout: CheckoutSelector,
+  commits: List(Commit),
+) -> List(RevertibleRecord) {
+  list.filter(revertibles, fn(record) {
+    record.checkout != Some(checkout)
+    || contains_revision(commits, record.revision)
+  })
+}
+
 fn local_ancestry(
   state: History,
   local: LocalState,
@@ -1819,7 +1841,46 @@ pub fn retain_revertible(
     revision,
   ))
   let id = RevertibleId(state.next_revertible_id)
-  let record = RevertibleRecord(id, revision, kind, base, commits)
+  let record = RevertibleRecord(id, None, revision, kind, base, commits)
+  Ok(#(
+    History(
+      ..state,
+      revertibles: [record, ..state.revertibles],
+      next_node_id:,
+      next_revertible_id: state.next_revertible_id + 1,
+    ),
+    id,
+  ))
+}
+
+pub fn retain_revertible_on(
+  state: History,
+  checkout: CheckoutSelector,
+  revision: fluid_ids.StableId,
+  kind: TreeCommitKind,
+) -> Result(#(History, RevertibleId), TreeError) {
+  use _ <- result.try(check(
+    !list.any(state.revertibles, fn(record) {
+      record.checkout == Some(checkout) && record.revision == revision
+    }),
+    "revertible revision is already retained",
+  ))
+  use #(base, commits, next_node_id) <- result.try(case checkout {
+    DocumentCheckout -> revertible_position(state, revision)
+    LocalCheckout(_) -> {
+      use #(base, _, commits) <- result.try(checkout_position(state, checkout))
+      use commits <- result.try(
+        branch_revertible_position(commits, base, revision)
+        |> option.to_result(InvalidHistory(
+          "revertible target is not on the selected checkout",
+        )),
+      )
+      Ok(#(commits.0, commits.1, state.next_node_id))
+    }
+  })
+  let id = RevertibleId(state.next_revertible_id)
+  let record =
+    RevertibleRecord(id, Some(checkout), revision, kind, base, commits)
   Ok(#(
     History(
       ..state,
@@ -1833,6 +1894,28 @@ pub fn retain_revertible(
 
 pub fn revertible_is_valid(state: History, id: RevertibleId) -> Bool {
   list.any(state.revertibles, fn(record) { record.id == id })
+}
+
+pub fn revertible_is_valid_on(
+  state: History,
+  checkout: CheckoutSelector,
+  id: RevertibleId,
+) -> Bool {
+  list.any(state.revertibles, fn(record) {
+    record.id == id && record.checkout == Some(checkout)
+  })
+}
+
+pub fn dispose_checkout_revertibles(
+  state: History,
+  checkout: CheckoutSelector,
+) -> History {
+  History(
+    ..state,
+    revertibles: list.filter(state.revertibles, fn(record) {
+      record.checkout != Some(checkout)
+    }),
+  )
 }
 
 pub fn dispose_revertible(
@@ -1872,10 +1955,11 @@ pub fn author_revert(
     Ok(_) -> Ok(Nil)
     Error(Nil) -> Error(InvalidHistory("revertible has no target commit"))
   })
-  use #(current_target, later) <- result.try(
-    current_branch(state, record.revision)
-    |> commit_and_after(record.revision),
-  )
+  use branch <- result.try(current_branch_for_record(state, record))
+  use #(current_target, later) <- result.try(commit_and_after(
+    branch,
+    record.revision,
+  ))
   use target_change <- result.try(shared_change.rebind_identity_order(
     current_target.change,
     identity_order,
@@ -1922,6 +2006,34 @@ pub fn author_revert(
     Commit(inverse_revision, state.local_session, inverse),
     kind,
   ))
+}
+
+pub fn author_revert_on(
+  state: History,
+  checkout: CheckoutSelector,
+  id: RevertibleId,
+  inverse_revision: fluid_ids.StableId,
+  identity_order: change.IdentityOrder,
+) -> Result(RevertAuthoring, TreeError) {
+  use _ <- result.try(check(
+    revertible_is_valid_on(state, checkout, id),
+    "revertible does not belong to the selected checkout",
+  ))
+  author_revert(state, id, inverse_revision, identity_order)
+}
+
+fn current_branch_for_record(
+  state: History,
+  record: RevertibleRecord,
+) -> Result(List(Commit), TreeError) {
+  case record.checkout {
+    None -> Ok(current_branch(state, record.revision))
+    Some(DocumentCheckout) -> Ok(current_branch(state, record.revision))
+    Some(LocalCheckout(id)) -> {
+      use local <- result.try(require_local_checkout(state.local_checkouts, id))
+      local_ancestry(state, local)
+    }
+  }
 }
 
 fn current_branch(

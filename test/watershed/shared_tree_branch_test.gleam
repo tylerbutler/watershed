@@ -8,10 +8,946 @@ import watershed/tree/branch
 import watershed/tree/change
 import watershed/tree/forest
 import watershed/tree/history
+import watershed/tree/identifier_fixture
+import watershed/tree/runtime
 import watershed/tree/schema
 import watershed/tree/shared_change
+import watershed/tree/transaction
 import watershed/tree/types.{NumberValue, ObjectValue, SetField}
 import watershed/tree_kernel
+
+fn identifier_branch_state() -> tree_kernel.TreeState {
+  identifier_fixture.state(
+    identifier_fixture.full_stored(),
+    identifier_fixture.full_view(),
+    identifier_fixture.full_root(
+      identifier_fixture.point("child", "child"),
+      [],
+      [],
+      [],
+    ),
+  )
+}
+
+fn generated_point(label: String) -> types.TreeValue {
+  ObjectValue(identifier_fixture.point_type, [
+    #("label", types.StringValue(label)),
+  ])
+}
+
+fn reserve_ids(
+  compressor: fluid_ids.Compressor,
+  count: Int,
+) -> fluid_ids.Compressor {
+  case count {
+    0 -> compressor
+    _ -> {
+      let assert Ok(#(compressor, _)) = fluid_ids.generate(compressor)
+      reserve_ids(compressor, count - 1)
+    }
+  }
+}
+
+pub fn local_branch_shared_allocator_matches_pinned_ranges_test() -> Nil {
+  let initial = reserve_ids(fluid_ids.new(identifier_fixture.session()), 3)
+  let #(compressor, _) = fluid_ids.take_creation_range(initial)
+  let forest =
+    branch.new(
+      branch.origin("runtime", "document", "tree"),
+      identifier_branch_state(),
+    )
+  let document = branch.document(forest)
+  let assert Ok(#(forest, fork)) = branch.fork(forest, document)
+
+  let assert Ok(branch.AuthorResult(forest, Some(branch_commit), _, compressor)) =
+    branch.author(
+      forest,
+      fork,
+      types.ArrayInsert(["right"], 0, [generated_point("branch-id")]),
+      compressor,
+    )
+  let assert Ok(Some(types.StringValue(branch_id))) =
+    branch.read(forest, fork, ["right", "0", "id"])
+  let assert Ok(branch.AuthorResult(forest, Some(main_commit), _, compressor)) =
+    branch.author(
+      forest,
+      document,
+      types.ArrayInsert(["left"], 0, [generated_point("main-id")]),
+      compressor,
+    )
+  let assert Ok(Some(types.StringValue(main_id))) =
+    branch.read(forest, document, ["left", "0", "id"])
+  let assert #(compressor, Some(fluid_ids.CreationRange(_, Some(main_range)))) =
+    fluid_ids.take_creation_range(compressor)
+
+  main_range.first_gen_count |> expect.to_equal(4)
+  main_range.count |> expect.to_equal(4)
+  branch_commit.revision |> expect.to_not_equal(main_commit.revision)
+  branch_id |> expect.to_not_equal(main_id)
+
+  let assert Ok(open) =
+    transaction.begin(
+      branch.checkout_state(forest, fork) |> expect.to_be_ok,
+      compressor,
+      [],
+    )
+  let assert Ok(open) =
+    transaction.apply_edit(
+      open,
+      types.ArrayInsert(["right"], 1, [generated_point("aborted-id")]),
+    )
+  let assert Ok(#(_, compressor)) = transaction.abort(open)
+  let assert Ok(branch.AuthorResult(forest, Some(_), _, compressor)) =
+    branch.author(
+      forest,
+      fork,
+      types.ArrayMove(["right"], 0, 1, ["right"], 1),
+      compressor,
+    )
+  let assert Ok(#(branch.ReconcileResult(forest, _, [_, _]), compressor)) =
+    branch.merge_with_compressor(forest, document, fork, False, compressor)
+  let assert #(_, Some(fluid_ids.CreationRange(_, Some(merge_range)))) =
+    fluid_ids.take_creation_range(compressor)
+
+  merge_range.first_gen_count |> expect.to_equal(8)
+  merge_range.count |> expect.to_equal(5)
+  branch.read(forest, document, ["right", "0", "id"])
+  |> expect.to_equal(Ok(Some(types.StringValue(branch_id))))
+  Nil
+}
+
+pub fn local_branch_shared_allocator_interleaves_three_checkouts_test() -> Nil {
+  let forest =
+    branch.new(
+      branch.origin("runtime", "document", "tree"),
+      identifier_branch_state(),
+    )
+  let document = branch.document(forest)
+  let compressor = fluid_ids.new(identifier_fixture.session())
+  let assert Ok(branch.AuthorResult(forest, Some(main_first), _, compressor)) =
+    branch.author(
+      forest,
+      document,
+      types.SetField(["child", "label"], types.StringValue("main-first")),
+      compressor,
+    )
+  let assert Ok(#(forest, fork_a)) = branch.fork(forest, document)
+  let assert Ok(#(forest, fork_b)) = branch.fork(forest, document)
+  let assert Ok(branch.AuthorResult(forest, Some(commit_a), _, compressor)) =
+    branch.author(
+      forest,
+      fork_a,
+      types.ArrayInsert(["right"], 0, [generated_point("fork-a")]),
+      compressor,
+    )
+  let assert Ok(Some(types.StringValue(id_a))) =
+    branch.read(forest, fork_a, ["right", "0", "id"])
+  let reference_a =
+    branch.reference_at(forest, fork_a, ["right", "0"]) |> expect.to_be_ok
+  let assert Ok(branch.AuthorResult(forest, Some(commit_b), _, compressor)) =
+    branch.author(
+      forest,
+      fork_b,
+      types.ArrayInsert(["right"], 0, [generated_point("fork-b")]),
+      compressor,
+    )
+  let assert Ok(Some(types.StringValue(id_b))) =
+    branch.read(forest, fork_b, ["right", "0", "id"])
+  id_a |> expect.to_not_equal(id_b)
+
+  let before_abort = fluid_ids.serialize(compressor, True)
+  let assert Ok(#(forest, open)) =
+    branch.begin_transaction(forest, fork_a, compressor, [])
+  let assert Ok(open) =
+    branch.transaction_apply(
+      open,
+      types.ArrayInsert(["left"], 0, [generated_point("aborted")]),
+    )
+  let compressor = branch.transaction_compressor(open)
+  let assert Ok(#(forest, compressor)) =
+    branch.abort_transaction(forest, open, compressor)
+  fluid_ids.serialize(compressor, True) |> expect.to_not_equal(before_abort)
+
+  let assert Ok(branch.AuthorResult(forest, Some(move_a), _, compressor)) =
+    branch.author(
+      forest,
+      fork_a,
+      types.ArrayMove(["right"], 0, 1, ["right"], 1),
+      compressor,
+    )
+  branch.reference_at(forest, fork_a, ["right", "0"])
+  |> expect.to_equal(Ok(reference_a))
+  let assert Ok(branch.AuthorResult(forest, Some(main_second), _, compressor)) =
+    branch.author(
+      forest,
+      document,
+      types.ArrayInsert(["left"], 0, [generated_point("main-second")]),
+      compressor,
+    )
+  let assert #(compressor, Some(fluid_ids.CreationRange(_, Some(main_range)))) =
+    fluid_ids.take_creation_range(compressor)
+  main_range.first_gen_count |> expect.to_equal(1)
+  main_range.count |> expect.to_equal(10)
+
+  let assert Ok(#(branch.ReconcileResult(forest, _, merged_a), compressor)) =
+    branch.merge_with_compressor(forest, document, fork_a, False, compressor)
+  list.map(merged_a, fn(commit) { commit.revision })
+  |> expect.to_equal([commit_a.revision, move_a.revision])
+  branch.read(forest, document, ["right", "0", "id"])
+  |> expect.to_equal(Ok(Some(types.StringValue(id_a))))
+  let assert #(compressor, Some(fluid_ids.CreationRange(_, Some(a_range)))) =
+    fluid_ids.take_creation_range(compressor)
+  let assert Ok(#(branch.ReconcileResult(forest, _, merged_b), compressor)) =
+    branch.merge_with_compressor(forest, document, fork_b, False, compressor)
+  list.map(merged_b, fn(commit) { commit.revision })
+  |> expect.to_equal([commit_b.revision])
+  let assert #(_, Some(fluid_ids.CreationRange(_, Some(b_range)))) =
+    fluid_ids.take_creation_range(compressor)
+
+  a_range.first_gen_count |> expect.to_equal(11)
+  a_range.count |> expect.to_equal(2)
+  b_range.first_gen_count |> expect.to_equal(13)
+  b_range.count |> expect.to_equal(1)
+  main_first.revision |> expect.to_not_equal(main_second.revision)
+  let assert Ok(Some(types.StringValue(main_right_zero))) =
+    branch.read(forest, document, ["right", "0", "id"])
+  let assert Ok(Some(types.StringValue(main_right_one))) =
+    branch.read(forest, document, ["right", "1", "id"])
+  list.contains([main_right_zero, main_right_one], id_a) |> expect.to_be_true
+  list.contains([main_right_zero, main_right_one], id_b) |> expect.to_be_true
+}
+
+pub fn local_branch_transaction_is_one_outer_commit_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, fork)) = branch.fork(forest, document)
+  let compressor = fluid_ids.new(session())
+  let assert Ok(#(forest, open)) =
+    branch.begin_transaction(forest, fork, compressor, [])
+  let assert Ok(open) =
+    branch.transaction_apply(open, SetField(["point", "x"], NumberValue(7.0)))
+  let assert Ok(open) =
+    branch.transaction_apply(open, SetField(["point", "y"], NumberValue(9.0)))
+  let compressor = branch.transaction_compressor(open)
+  let assert Ok(branch.TransactionCommit(forest, commit, events, compressor)) =
+    branch.finish_transaction(forest, open, compressor)
+
+  branch.local_history(forest, fork)
+  |> expect.to_be_ok
+  |> fn(local) { local.commits }
+  |> expect.to_equal([commit])
+  branch.read(forest, fork, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+  branch.read(forest, fork, ["point", "y"])
+  |> expect.to_equal(Ok(Some(NumberValue(9.0))))
+  list.length(events) |> expect.to_equal(1)
+  let assert #(_, Some(fluid_ids.CreationRange(_, Some(range)))) =
+    fluid_ids.take_creation_range(compressor)
+  range.count |> expect.to_equal(1)
+}
+
+pub fn local_branch_nested_abort_preserves_identifier_allocation_test() -> Nil {
+  let forest =
+    branch.new(
+      branch.origin("runtime", "document", "tree"),
+      identifier_branch_state(),
+    )
+  let document = branch.document(forest)
+  let assert Ok(#(forest, fork)) = branch.fork(forest, document)
+  let assert Ok(#(forest, open)) =
+    branch.begin_transaction(
+      forest,
+      fork,
+      fluid_ids.new(identifier_fixture.session()),
+      [],
+    )
+  let open = branch.transaction_begin_nested(open)
+  let assert Ok(open) =
+    branch.transaction_apply(
+      open,
+      types.ArrayInsert(["left"], 0, [generated_point("aborted")]),
+    )
+  let assert Ok(Some(types.StringValue(aborted_id))) =
+    branch.transaction_read(open, ["left", "0", "id"])
+  let assert Ok(open) = branch.transaction_abort_nested(open)
+  let assert Ok(open) =
+    branch.transaction_apply(
+      open,
+      types.ArrayInsert(["left"], 0, [generated_point("committed")]),
+    )
+  let assert Ok(Some(types.StringValue(committed_id))) =
+    branch.transaction_read(open, ["left", "0", "id"])
+  aborted_id |> expect.to_not_equal(committed_id)
+  let compressor = branch.transaction_compressor(open)
+  let assert Ok(branch.TransactionCommit(forest, _, _, compressor)) =
+    branch.finish_transaction(forest, open, compressor)
+  branch.read(forest, fork, ["left", "0", "id"])
+  |> expect.to_equal(Ok(Some(types.StringValue(committed_id))))
+  let assert #(_, Some(fluid_ids.CreationRange(_, Some(range)))) =
+    fluid_ids.take_creation_range(compressor)
+  range.first_gen_count |> expect.to_equal(1)
+  range.count |> expect.to_equal(4)
+}
+
+pub fn local_branch_transaction_abort_preserves_main_callback_edit_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, fork)) = branch.fork(forest, document)
+  let assert Ok(#(forest, open)) =
+    branch.begin_transaction(forest, fork, fluid_ids.new(session()), [])
+  let assert Ok(open) =
+    branch.transaction_apply(open, SetField(["point", "x"], NumberValue(7.0)))
+  let assert Ok(branch.AuthorResult(
+    forest,
+    Some(main_commit),
+    [main_event],
+    compressor,
+  )) =
+    branch.author(
+      forest,
+      document,
+      SetField(["point", "y"], NumberValue(9.0)),
+      branch.transaction_compressor(open),
+    )
+  let assert Ok(#(forest, compressor)) =
+    branch.abort_transaction(forest, open, compressor)
+
+  branch.read(forest, fork, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+  branch.read(forest, document, ["point", "y"])
+  |> expect.to_equal(Ok(Some(NumberValue(9.0))))
+  branch.history_view(forest, document)
+  |> expect.to_be_ok
+  |> fn(view) { view.pending }
+  |> expect.to_equal([main_commit])
+  main_event
+  |> expect.to_equal(branch.BranchEvent(
+    types.DocumentCheckout,
+    Some(main_commit),
+    tree_kernel.ChangeEvents([tree_kernel.TreeChanged(True)], False),
+  ))
+  let assert #(_, Some(fluid_ids.CreationRange(_, Some(range)))) =
+    fluid_ids.take_creation_range(compressor)
+  range.count |> expect.to_equal(2)
+}
+
+pub fn local_branch_transaction_commit_preserves_main_callback_edit_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, fork)) = branch.fork(forest, document)
+  let assert Ok(#(forest, open)) =
+    branch.begin_transaction(forest, fork, fluid_ids.new(session()), [])
+  let assert Ok(open) =
+    branch.transaction_apply(open, SetField(["point", "x"], NumberValue(7.0)))
+  let assert Ok(branch.AuthorResult(
+    forest,
+    Some(main_commit),
+    [main_event],
+    compressor,
+  )) =
+    branch.author(
+      forest,
+      document,
+      SetField(["point", "y"], NumberValue(9.0)),
+      branch.transaction_compressor(open),
+    )
+  let assert Ok(open) =
+    branch.transaction_apply_with_compressor(
+      open,
+      SetField(["point", "y"], NumberValue(8.0)),
+      compressor,
+    )
+  let compressor = branch.transaction_compressor(open)
+  let assert Ok(branch.TransactionCommit(
+    forest,
+    fork_commit,
+    [fork_event],
+    compressor,
+  )) = branch.finish_transaction(forest, open, compressor)
+
+  branch.read(forest, fork, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+  branch.read(forest, fork, ["point", "y"])
+  |> expect.to_equal(Ok(Some(NumberValue(8.0))))
+  branch.read(forest, document, ["point", "y"])
+  |> expect.to_equal(Ok(Some(NumberValue(9.0))))
+  branch.history_view(forest, document)
+  |> expect.to_be_ok
+  |> fn(view) { view.pending }
+  |> expect.to_equal([main_commit])
+  branch.local_history(forest, fork)
+  |> expect.to_be_ok
+  |> fn(local) { local.commits }
+  |> expect.to_equal([fork_commit])
+  main_event.checkout |> expect.to_equal(types.DocumentCheckout)
+  fork_event.commit |> expect.to_equal(Some(fork_commit))
+  let assert #(_, Some(fluid_ids.CreationRange(_, Some(range)))) =
+    fluid_ids.take_creation_range(compressor)
+  range.count |> expect.to_equal(3)
+}
+
+pub fn local_branch_main_transaction_preserves_fork_callback_edit_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, fork)) = branch.fork(forest, document)
+  let assert Ok(#(forest, open)) =
+    branch.begin_transaction(forest, document, fluid_ids.new(session()), [])
+  let assert Ok(open) =
+    branch.transaction_apply(open, SetField(["point", "x"], NumberValue(7.0)))
+  let assert Ok(branch.AuthorResult(
+    forest,
+    Some(fork_commit),
+    [fork_event],
+    compressor,
+  )) =
+    branch.author(
+      forest,
+      fork,
+      SetField(["point", "y"], NumberValue(9.0)),
+      branch.transaction_compressor(open),
+    )
+  let assert Ok(branch.TransactionCommit(forest, main_commit, [main_event], _)) =
+    branch.finish_transaction(forest, open, compressor)
+
+  branch.read(forest, document, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+  branch.read(forest, fork, ["point", "y"])
+  |> expect.to_equal(Ok(Some(NumberValue(9.0))))
+  branch.history_view(forest, document)
+  |> expect.to_be_ok
+  |> fn(view) { view.pending }
+  |> expect.to_equal([main_commit])
+  branch.local_history(forest, fork)
+  |> expect.to_be_ok
+  |> fn(local) { local.commits }
+  |> expect.to_equal([fork_commit])
+  main_event.checkout |> expect.to_equal(types.DocumentCheckout)
+  fork_event.commit |> expect.to_equal(Some(fork_commit))
+}
+
+pub fn local_branch_transaction_preserves_sibling_callback_edit_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, source)) = branch.fork(forest, document)
+  let assert Ok(#(forest, sibling)) = branch.fork(forest, document)
+  let assert Ok(#(forest, open)) =
+    branch.begin_transaction(forest, source, fluid_ids.new(session()), [])
+  let assert Ok(open) =
+    branch.transaction_apply(open, SetField(["point", "x"], NumberValue(7.0)))
+  let assert Ok(branch.AuthorResult(
+    forest,
+    Some(sibling_commit),
+    [_],
+    compressor,
+  )) =
+    branch.author(
+      forest,
+      sibling,
+      SetField(["point", "y"], NumberValue(9.0)),
+      branch.transaction_compressor(open),
+    )
+  let assert Ok(#(forest, _)) =
+    branch.abort_transaction(forest, open, compressor)
+
+  branch.read(forest, source, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+  branch.read(forest, sibling, ["point", "y"])
+  |> expect.to_equal(Ok(Some(NumberValue(9.0))))
+  branch.history_view(forest, document)
+  |> expect.to_be_ok
+  |> fn(view) { view.pending }
+  |> expect.to_equal([])
+  branch.local_history(forest, sibling)
+  |> expect.to_be_ok
+  |> fn(local) { local.commits }
+  |> expect.to_equal([sibling_commit])
+}
+
+pub fn local_branch_constrained_source_commit_is_retained_after_rebase_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let compressor = fluid_ids.new(session())
+  let assert Ok(branch.AuthorResult(forest, Some(initial_commit), _, compressor)) =
+    branch.author(
+      forest,
+      document,
+      SetField(["point", "y"], NumberValue(2.0)),
+      compressor,
+    )
+  let assert Ok(#(forest, fork)) = branch.fork(forest, document)
+  let constraint =
+    branch.checkout_state(forest, fork)
+    |> expect.to_be_ok
+    |> tree_kernel.resolve_constraint(["point"])
+    |> expect.to_be_ok
+  let assert Ok(#(forest, open)) =
+    branch.begin_transaction(forest, fork, compressor, [constraint])
+  let assert Ok(open) =
+    branch.transaction_apply(open, SetField(["point", "x"], NumberValue(7.0)))
+  let compressor = branch.transaction_compressor(open)
+  let assert Ok(branch.TransactionCommit(
+    forest,
+    transaction_commit,
+    _,
+    compressor,
+  )) = branch.finish_transaction(forest, open, compressor)
+  let assert Ok(#(forest, guarded_handle)) =
+    branch.retain_revertible(
+      forest,
+      fork,
+      transaction_commit.revision,
+      types.DefaultCommit,
+    )
+  let assert Ok(branch.AuthorResult(forest, Some(main_commit), _, compressor)) =
+    branch.author(
+      forest,
+      document,
+      SetField(
+        ["point"],
+        ObjectValue("Point", [
+          #("x", NumberValue(30.0)),
+          #("y", NumberValue(40.0)),
+        ]),
+      ),
+      compressor,
+    )
+  let assert Ok(#(
+    branch.ReconcileResult(
+      forest,
+      [
+        branch.BranchEvent(
+          types.LocalCheckout(_),
+          None,
+          tree_kernel.ChangeEvents([tree_kernel.TreeChanged(True)], False),
+        ),
+      ],
+      [],
+    ),
+    compressor,
+  )) = branch.rebase_with_compressor(forest, fork, document, compressor)
+
+  branch.local_history(forest, fork)
+  |> expect.to_be_ok
+  |> fn(local) { local.commits }
+  |> list.map(fn(commit) { commit.revision })
+  |> expect.to_equal([
+    initial_commit.revision,
+    main_commit.revision,
+    transaction_commit.revision,
+  ])
+  let replacement =
+    ObjectValue("Point", [
+      #("x", NumberValue(30.0)),
+      #("y", NumberValue(40.0)),
+    ])
+  branch.read(forest, fork, ["point"])
+  |> expect.to_equal(Ok(Some(replacement)))
+  branch.read(forest, document, ["point"])
+  |> expect.to_equal(Ok(Some(replacement)))
+  branch.revertible_is_valid(forest, guarded_handle) |> expect.to_be_true
+  let assert Ok(#(
+    branch.ReconcileResult(
+      forest,
+      [branch.BranchEvent(types.DocumentCheckout, Some(merged), _)],
+      [published],
+    ),
+    compressor,
+  )) = branch.merge_with_compressor(forest, document, fork, False, compressor)
+  published.revision |> expect.to_equal(transaction_commit.revision)
+  merged |> expect.to_equal(published)
+  runtime.commit_outcome(published.change)
+  |> expect.to_equal(types.NewContentOnly)
+  branch.history_view(forest, document)
+  |> expect.to_be_ok
+  |> fn(view) { list.map(view.pending, fn(commit) { commit.revision }) }
+  |> expect.to_equal([
+    initial_commit.revision,
+    main_commit.revision,
+    transaction_commit.revision,
+  ])
+  transaction_commit.revision |> expect.to_not_equal(main_commit.revision)
+  let assert #(_, Some(fluid_ids.CreationRange(_, Some(range)))) =
+    fluid_ids.take_creation_range(compressor)
+  range.first_gen_count |> expect.to_equal(1)
+  range.count |> expect.to_equal(4)
+}
+
+pub fn local_branch_constraint_violation_preserves_unrelated_source_commit_test() -> Nil {
+  let forest =
+    branch.new(
+      branch.origin("runtime", "document", "tree"),
+      rich_branch_state(),
+    )
+  let document = branch.document(forest)
+  let assert Ok(#(forest, fork)) = branch.fork(forest, document)
+  let compressor = fluid_ids.new(session())
+  let assert Ok(branch.AuthorResult(
+    forest,
+    Some(unrelated_commit),
+    _,
+    compressor,
+  )) =
+    branch.author(
+      forest,
+      fork,
+      types.MapSet(["byKey"], "source", point("source", 8.0)),
+      compressor,
+    )
+  let constraint =
+    branch.checkout_state(forest, fork)
+    |> expect.to_be_ok
+    |> tree_kernel.resolve_constraint(["left", "0"])
+    |> expect.to_be_ok
+  let assert Ok(#(forest, open)) =
+    branch.begin_transaction(forest, fork, compressor, [constraint])
+  let assert Ok(open) =
+    branch.transaction_apply(
+      open,
+      SetField(["left", "0", "x"], NumberValue(7.0)),
+    )
+  let compressor = branch.transaction_compressor(open)
+  let assert Ok(branch.TransactionCommit(forest, guarded_commit, _, compressor)) =
+    branch.finish_transaction(forest, open, compressor)
+  let assert Ok(#(forest, guarded_handle)) =
+    branch.retain_revertible(
+      forest,
+      fork,
+      guarded_commit.revision,
+      types.DefaultCommit,
+    )
+  let assert Ok(branch.AuthorResult(forest, Some(remove_commit), _, compressor)) =
+    branch.author(
+      forest,
+      document,
+      types.ArrayRemove(["left"], 0, 1),
+      compressor,
+    )
+  let assert Ok(#(branch.ReconcileResult(forest, [_], []), compressor)) =
+    branch.rebase_with_compressor(forest, fork, document, compressor)
+
+  branch.local_history(forest, fork)
+  |> expect.to_be_ok
+  |> fn(local) { list.map(local.commits, fn(commit) { commit.revision }) }
+  |> expect.to_equal([
+    remove_commit.revision,
+    unrelated_commit.revision,
+    guarded_commit.revision,
+  ])
+  branch.read(forest, fork, ["byKey", "source"])
+  |> expect.to_equal(Ok(Some(point("source", 8.0))))
+  branch.read(forest, fork, ["left"])
+  |> expect.to_equal(
+    Ok(
+      Some(
+        types.ArrayValue(array_items_type, [
+          point("left-b", 2.0),
+        ]),
+      ),
+    ),
+  )
+  branch.revertible_is_valid(forest, guarded_handle) |> expect.to_be_true
+
+  let assert Ok(#(
+    branch.ReconcileResult(
+      forest,
+      [
+        branch.BranchEvent(
+          types.DocumentCheckout,
+          Some(merged_unrelated),
+          tree_kernel.ChangeEvents([tree_kernel.TreeChanged(True)], False),
+        ),
+        branch.BranchEvent(
+          types.DocumentCheckout,
+          Some(merged_guarded),
+          tree_kernel.ChangeEvents([], False),
+        ),
+      ],
+      [published_unrelated, published_guarded],
+    ),
+    compressor,
+  )) = branch.merge_with_compressor(forest, document, fork, False, compressor)
+  published_unrelated.revision |> expect.to_equal(unrelated_commit.revision)
+  published_guarded.revision |> expect.to_equal(guarded_commit.revision)
+  merged_unrelated |> expect.to_equal(published_unrelated)
+  merged_guarded |> expect.to_equal(published_guarded)
+  runtime.commit_outcome(published_guarded.change)
+  |> expect.to_equal(types.NewContentOnly)
+  branch.history_view(forest, document)
+  |> expect.to_be_ok
+  |> fn(view) { list.map(view.pending, fn(commit) { commit.revision }) }
+  |> expect.to_equal([
+    remove_commit.revision,
+    unrelated_commit.revision,
+    guarded_commit.revision,
+  ])
+  let assert #(_, Some(fluid_ids.CreationRange(_, Some(range)))) =
+    fluid_ids.take_creation_range(compressor)
+  range.first_gen_count |> expect.to_equal(1)
+  range.count |> expect.to_equal(5)
+}
+
+pub fn local_branch_violated_commit_preserves_created_node_dependencies_test() -> Nil {
+  let forest =
+    branch.new(
+      branch.origin("runtime", "document", "tree"),
+      rich_branch_state(),
+    )
+  let document = branch.document(forest)
+  let assert Ok(#(forest, fork)) = branch.fork(forest, document)
+  let compressor = fluid_ids.new(session())
+  let constraint =
+    branch.checkout_state(forest, fork)
+    |> expect.to_be_ok
+    |> tree_kernel.resolve_constraint(["left", "0"])
+    |> expect.to_be_ok
+  let assert Ok(#(forest, open)) =
+    branch.begin_transaction(forest, fork, compressor, [constraint])
+  let assert Ok(open) =
+    branch.transaction_apply(
+      open,
+      types.ArrayInsert(["right"], 1, [point("guarded", 8.0)]),
+    )
+  let compressor = branch.transaction_compressor(open)
+  let assert Ok(branch.TransactionCommit(forest, guarded_commit, _, compressor)) =
+    branch.finish_transaction(forest, open, compressor)
+  let assert Ok(branch.AuthorResult(forest, Some(later_commit), _, compressor)) =
+    branch.author(
+      forest,
+      fork,
+      SetField(["right", "1", "x"], NumberValue(9.0)),
+      compressor,
+    )
+  let assert Ok(branch.AuthorResult(forest, Some(remove_commit), _, compressor)) =
+    branch.author(
+      forest,
+      document,
+      types.ArrayRemove(["left"], 0, 1),
+      compressor,
+    )
+  let assert Ok(#(branch.ReconcileResult(forest, [_], []), compressor)) =
+    branch.rebase_with_compressor(forest, fork, document, compressor)
+
+  let assert Ok(history.LocalBranch(_, _, commits)) =
+    branch.local_history(forest, fork)
+  list.map(commits, fn(commit) { commit.revision })
+  |> expect.to_equal([
+    remove_commit.revision,
+    guarded_commit.revision,
+    later_commit.revision,
+  ])
+  let assert Ok(rebased_guarded) =
+    list.find(commits, fn(commit) { commit.revision == guarded_commit.revision })
+  let assert [shared_change.DataChange(guarded_data)] =
+    shared_change.to_changes(rebased_guarded.change)
+  change.to_data(guarded_data).constraint_violation_count
+  |> expect.to_equal(1)
+  change.to_data(guarded_data).builds |> expect.to_not_equal([])
+  runtime.commit_outcome(rebased_guarded.change)
+  |> expect.to_equal(types.NewContentOnly)
+  let assert Ok(rebased_later) =
+    list.find(commits, fn(commit) { commit.revision == later_commit.revision })
+  runtime.commit_outcome(rebased_later.change)
+  |> expect.to_equal(types.FullyApplied)
+  branch.read(forest, fork, ["right"])
+  |> expect.to_equal(
+    Ok(Some(types.ArrayValue(array_items_type, [point("right-a", 3.0)]))),
+  )
+
+  let assert Ok(#(branch.ReconcileResult(forest, events, published), _)) =
+    branch.merge_with_compressor(forest, document, fork, False, compressor)
+  list.map(published, fn(commit) { commit.revision })
+  |> expect.to_equal([guarded_commit.revision, later_commit.revision])
+  list.map(events, fn(event) {
+    let assert Some(commit) = event.commit
+    commit.revision
+  })
+  |> expect.to_equal([guarded_commit.revision, later_commit.revision])
+  branch.history_view(forest, document)
+  |> expect.to_be_ok
+  |> fn(view) { list.map(view.pending, fn(commit) { commit.revision }) }
+  |> expect.to_equal([
+    remove_commit.revision,
+    guarded_commit.revision,
+    later_commit.revision,
+  ])
+  branch.read(forest, document, ["right"])
+  |> expect.to_equal(
+    Ok(Some(types.ArrayValue(array_items_type, [point("right-a", 3.0)]))),
+  )
+}
+
+pub fn local_branch_undo_is_checkout_scoped_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, fork)) = branch.fork(forest, document)
+  let compressor = fluid_ids.new(session())
+  let assert Ok(branch.AuthorResult(forest, Some(fork_commit), _, compressor)) =
+    branch.author(
+      forest,
+      fork,
+      SetField(["point", "x"], NumberValue(7.0)),
+      compressor,
+    )
+  let assert Ok(#(forest, original)) =
+    branch.retain_revertible(
+      forest,
+      fork,
+      fork_commit.revision,
+      types.DefaultCommit,
+    )
+  let assert Ok(branch.RevertResult(
+    forest,
+    _,
+    types.UndoCommit,
+    [_],
+    undo,
+    compressor,
+  )) = branch.revert(forest, original, compressor)
+  branch.read(forest, fork, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+  branch.read(forest, document, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+
+  let assert Ok(branch.RevertResult(
+    forest,
+    _,
+    types.RedoCommit,
+    [_],
+    _,
+    compressor,
+  )) = branch.revert(forest, undo, compressor)
+  branch.read(forest, fork, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+
+  let assert Ok(branch.RevertResult(forest, _, types.UndoCommit, [_], _, _)) =
+    branch.revert(forest, original, compressor)
+  branch.read(forest, fork, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+}
+
+pub fn local_branch_source_revertible_survives_merged_ack_and_rebase_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, source)) = branch.fork(forest, document)
+  let compressor = fluid_ids.new(session())
+  let assert Ok(branch.AuthorResult(forest, Some(source_commit), _, compressor)) =
+    branch.author(
+      forest,
+      source,
+      SetField(["point", "x"], NumberValue(7.0)),
+      compressor,
+    )
+  let assert Ok(#(forest, source_handle)) =
+    branch.retain_revertible(
+      forest,
+      source,
+      source_commit.revision,
+      types.DefaultCommit,
+    )
+  let assert Ok(#(branch.ReconcileResult(forest, _, [merged]), compressor)) =
+    branch.merge_with_compressor(forest, document, source, False, compressor)
+  let assert Ok(#(forest, Nil)) =
+    branch.update_document(forest, fn(authoritative) {
+      use #(acked, _, Nil) <- result.try(tree_kernel.receive(
+        authoritative,
+        merged,
+        types.SequencePoint(1, 0),
+        0,
+        0,
+        Nil,
+        no_mint,
+      ))
+      Ok(#(acked, Nil))
+    })
+  let assert Ok(#(branch.ReconcileResult(forest, _, []), compressor)) =
+    branch.rebase_with_compressor(forest, source, document, compressor)
+  let assert Ok(history.LocalBranch(_, Some(base), [])) =
+    branch.local_history(forest, source)
+  base |> expect.to_equal(source_commit.revision)
+  branch.revertible_is_valid(forest, source_handle) |> expect.to_be_true
+
+  let assert Ok(branch.RevertResult(
+    forest,
+    _,
+    types.UndoCommit,
+    [_],
+    undo,
+    compressor,
+  )) = branch.revert(forest, source_handle, compressor)
+  branch.read(forest, source, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+  branch.read(forest, document, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+  branch.history_view(forest, document)
+  |> expect.to_be_ok
+  |> fn(view) { view.pending }
+  |> expect.to_equal([])
+
+  let assert Ok(branch.RevertResult(forest, _, types.RedoCommit, [_], _, _)) =
+    branch.revert(forest, undo, compressor)
+  branch.read(forest, source, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+  branch.read(forest, document, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+  branch.history_view(forest, document)
+  |> expect.to_be_ok
+  |> fn(view) { view.pending }
+  |> expect.to_equal([])
+}
+
+pub fn local_branch_disposal_invalidates_only_its_revertibles_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, fork)) = branch.fork(forest, document)
+  let compressor = fluid_ids.new(session())
+  let assert Ok(branch.AuthorResult(forest, Some(fork_commit), _, compressor)) =
+    branch.author(
+      forest,
+      fork,
+      SetField(["point", "x"], NumberValue(7.0)),
+      compressor,
+    )
+  let assert Ok(#(forest, fork_handle)) =
+    branch.retain_revertible(
+      forest,
+      fork,
+      fork_commit.revision,
+      types.DefaultCommit,
+    )
+  let assert Ok(#(branch.ReconcileResult(forest, _, [merged]), compressor)) =
+    branch.merge_with_compressor(forest, document, fork, False, compressor)
+  merged.revision |> expect.to_equal(fork_commit.revision)
+  let assert Ok(#(forest, target_handle)) =
+    branch.retain_revertible(
+      forest,
+      document,
+      merged.revision,
+      types.DefaultCommit,
+    )
+  let _ =
+    branch.retain_revertible(
+      forest,
+      fork,
+      fork_commit.revision,
+      types.DefaultCommit,
+    )
+    |> expect.to_be_error
+  let forest = branch.dispose(forest, fork) |> expect.to_be_ok
+
+  branch.revertible_is_valid(forest, target_handle) |> expect.to_be_true
+  branch.revertible_is_valid(forest, fork_handle) |> expect.to_be_false
+  let _ = branch.revert(forest, fork_handle, compressor) |> expect.to_be_error
+  Nil
+}
 
 const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
@@ -424,6 +1360,88 @@ pub fn local_branch_document_merge_preserves_authoring_schema_through_ack_test()
   |> expect.to_equal([])
   branch.read(forest, document, ["point", "x"])
   |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+}
+
+pub fn local_branch_document_revert_records_authoring_schema_through_ack_test() -> Nil {
+  let forest =
+    branch.new(branch.origin("runtime", "document", "tree"), branch_state())
+  let document = branch.document(forest)
+  let assert Ok(#(forest, source)) = branch.fork(forest, document)
+  let compressor = fluid_ids.new(session())
+  let assert Ok(branch.AuthorResult(forest, Some(source_commit), _, compressor)) =
+    branch.author(
+      forest,
+      source,
+      SetField(["point", "x"], NumberValue(7.0)),
+      compressor,
+    )
+  let assert Ok(#(branch.ReconcileResult(forest, _, [merged]), compressor)) =
+    branch.merge_with_compressor(forest, document, source, False, compressor)
+  merged.revision |> expect.to_equal(source_commit.revision)
+  let assert Ok(#(forest, target_handle)) =
+    branch.retain_revertible(
+      forest,
+      document,
+      merged.revision,
+      types.DefaultCommit,
+    )
+  let assert Ok(#(forest, Nil)) =
+    branch.update_document(forest, fn(authoritative) {
+      use #(acked, _, Nil) <- result.try(tree_kernel.receive(
+        authoritative,
+        merged,
+        types.SequencePoint(1, 0),
+        0,
+        0,
+        Nil,
+        no_mint,
+      ))
+      Ok(#(acked, Nil))
+    })
+
+  let assert Ok(branch.RevertResult(
+    forest,
+    inverse,
+    types.UndoCommit,
+    [_],
+    _,
+    _,
+  )) = branch.revert(forest, target_handle, compressor)
+  branch.read(forest, document, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+  let assert Ok(#(forest, authored_schema)) =
+    branch.update_document(forest, fn(authoritative) {
+      use authored <- result.try(tree_kernel.authoring_schema(
+        authoritative,
+        session(),
+        1,
+        inverse.revision,
+      ))
+      Ok(#(authoritative, authored))
+    })
+  authored_schema
+  |> expect.to_equal(
+    schema.FixedSchema(tree_kernel.stored_schema(branch_state())),
+  )
+  let assert Ok(#(forest, Nil)) =
+    branch.update_document(forest, fn(authoritative) {
+      use #(acked, _, Nil) <- result.try(tree_kernel.receive(
+        authoritative,
+        inverse,
+        types.SequencePoint(2, 0),
+        1,
+        0,
+        Nil,
+        no_mint,
+      ))
+      Ok(#(acked, Nil))
+    })
+  branch.history_view(forest, document)
+  |> expect.to_be_ok
+  |> fn(view) { view.pending }
+  |> expect.to_equal([])
+  branch.read(forest, document, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
 }
 
 pub fn local_branch_object_replacement_rebases_exact_state_test() -> Nil {

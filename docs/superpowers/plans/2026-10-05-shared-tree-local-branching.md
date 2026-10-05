@@ -268,7 +268,7 @@ validated branch fixtures, and reviewed pure/runtime contracts.
   | [x] | Attached and detached identity | Main, parent, and nested forks retain the same attached node ID. Removing the left node on a fork leaves the main node attached with the same ID. Editing the detached fork node errors because it is not `InDocument`. | Preserve stable IDs across persistent forests. Keep detached repair data checkout-local and reject edits through detached node proxies. |
   | [x] | Merge boundaries and events | Two surviving source commits append two target commits and emit two local `Default` events with factories and encoded changes. Repeating the preserved-source merge emits no event. Empty merge disposes its source by default. Merge does not collapse the source commits into one transaction commit. | `scoped_events` has one target-scoped event per surviving source commit. `outbound_operations` contains only ordinary document operations when the target is main. |
   | [x] | Open transactions | Rebase rejects an active transaction on source or target. Merge rejects an active transaction on source or target. Fork rejects an active source transaction. The pinned implementation rejects rather than committing the transaction despite the public merge comment. | Reject active transactions atomically on every affected checkout. |
-  | [x] | Node-existence constraint | A constrained source commit disappears when rebase finds that main replaced the guarded node. Source and target both retain the replacement and the source title returns to `base`. | Preserve commit constraints in local history and evaluate them during rebase. Drop a commit whose required node no longer exists. |
+  | [x] | Node-existence constraint | When rebase finds that main replaced the guarded node, the constrained source commit remains in ancestry after the target commit. Its outcome is `NewContentOnly`: ordinary edits are suppressed, while created content and revision dependencies remain available to later commits. Source and target retain the replacement and the source title returns to `base`. | Preserve the violated commit, its revision, and its created content in local history. Apply no ordinary field effects while the constraint is violated. |
   | [x] | Cross-checkout transaction callback | Pinned upstream permits a callback running a source-fork transaction to edit main; the main edit succeeds and the source rollback does not undo it. | User-selected contract: match upstream. Each transaction owns one checkout; edits to another related live checkout commit independently. Commit and rollback preserve the other checkout's state, shared allocator advancement, events, and outbound work. No cross-checkout atomicity. |
   | [x] | Schema divergence | A fork can author a wider schema. Rebasing it onto an old-schema target drops the fork schema change and dependent edit; the target stays unchanged and the fork's wide view becomes incompatible. | Branch schema authoring remains excluded. Reject it before mutation; do not approximate the upstream drop behavior. |
   | [x] | Allocation traffic | A branch-only Identifier insertion advances the shared compressor but processes zero messages and zero ranges. A later main insertion publishes one range (`firstGenCount: 4`, `count: 4`) with only the main tree operation. Merge publishes a second range (`firstGenCount: 8`, `count: 3`) with the branch tree operation. Interleaved IDs are unique. A rolled-back branch transaction advances serialized compressor state and does not reuse its allocation. | All checkouts share the document compressor. A branch reservation alone emits no traffic. Main and merge publication must send the required reserved ranges before their referencing tree operations. |
@@ -425,14 +425,14 @@ extend branch, Identifier, transaction, and undo tests.
 **Produces:** Contextual branch authoring, isolated undo/redo, and correct
 allocation ranges for later document publication.
 
-- [ ] **Step 1: Add shared-allocation RED.**
+- [x] **Step 1: Add shared-allocation RED.**
 
   Interleave main edit, fork A Identifier insert, fork B Identifier insert,
   aborted branch transaction, fork A move, main edit, and both merges.
   Require unique stable IDs and revisions, preserved moved IDs, and captured
   compressor/range observations matching Task 1.
 
-- [ ] **Step 2: Reuse contextual authoring with one allocator.**
+- [x] **Step 2: Reuse contextual authoring with one allocator.**
 
   ```text
   author(branch state, document compressor, edit)
@@ -445,7 +445,7 @@ allocation ranges for later document publication.
   captured upstream allocation/abort rules. No branch tree operation is
   submitted during authoring; allocation-only behavior follows the oracle.
 
-- [ ] **Step 3: Add branch transaction and undo cycles.**
+- [x] **Step 3: Add branch transaction and undo cycles.**
 
   Required tests: `local_branch_transaction_is_one_outer_commit_test`,
   `local_branch_nested_abort_preserves_identifier_allocation_test`,
@@ -464,7 +464,7 @@ allocation ranges for later document publication.
   fork edits into ordinary document pending entries or roll back allocator
   reservations when the owning transaction aborts.
 
-- [ ] **Step 4: Verify the coupled allocation/undo suites.**
+- [x] **Step 4: Verify the coupled allocation/undo suites.**
 
   ```bash
   rtk proxy gleam test --target erlang -- shared_tree_branch shared_tree_identifier shared_tree_transaction shared_tree_undo
@@ -472,6 +472,31 @@ allocation ranges for later document publication.
   ```
 
   Suggested authorized commit: `feat(tree): author branch edits with shared identity`.
+
+  **Completion record (2026-10-05):** Task 4 adds compressor-backed contextual
+  authoring and reconciliation, checkout-owned nested transactions, explicit
+  shared-compressor resynchronization after independent callback edits, and
+  checkout-scoped revertibles with inverse handles for undo and redo. Branch
+  commits remain outside document pending history until merge. Allocation
+  tests cover the pinned `firstGenCount: 4, count: 4` publication boundary,
+  discarded transaction reservations, array moves, two forks, document edits,
+  and both merges without ID or revision reuse. Callback tests cover fork
+  rollback and commit, the reverse document-to-fork direction, and a sibling
+  fork while preserving independent forests, history, events, document
+  pending state, and allocator advancement. Local reconciliation retains a
+  constrained source commit when its guarded node no longer exists and marks
+  it `NewContentOnly`. Its ordinary field edits stay suppressed, but its
+  revision, created content, dependent later edits, rollback reservations, and
+  exact ancestry survive rebase and merge. Document-target undo records the
+  inverse commit's pre-edit authoring schema, and the normal acknowledgement
+  path can decode it. A source-owned handle remains usable when its target
+  commit is acknowledged and absorbed into the rebased checkout base. Local
+  authoring emits no settlement outcome; Task 5 owns registration routing and
+  delivers sequenced outcomes.
+  The prescribed branch, Identifier, transaction, and undo selectors, plus
+  related history and resubmit selectors, pass on Erlang and JavaScript. This
+  does not implement Task 5 runtime-core routing, facade callbacks, or native
+  delivery.
 
 ### Task 5: Integrate checkout selection into runtime-core
 

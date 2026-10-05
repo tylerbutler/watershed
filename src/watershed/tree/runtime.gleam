@@ -511,7 +511,7 @@ fn allocate_revision(
   Ok(#(revision, order, compressor))
 }
 
-fn authored_revision(
+pub fn authored_revision(
   value: shared_change.Changeset,
 ) -> Result(fluid_ids.StableId, TreeError) {
   case
@@ -523,7 +523,7 @@ fn authored_revision(
   }
 }
 
-fn mint_revision(
+pub fn mint_revision(
   compressor: fluid_ids.Compressor,
   revisions: List(fluid_ids.StableId),
 ) -> Result(

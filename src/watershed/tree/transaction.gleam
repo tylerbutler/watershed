@@ -187,6 +187,45 @@ pub fn apply_edit(
   }
 }
 
+/// Apply after another checkout advances the shared compressor.
+pub fn apply_edit_with_compressor(
+  value: Transaction,
+  edit: Edit,
+  compressor: fluid_ids.Compressor,
+) -> Result(Transaction, TreeError) {
+  case compressor == value.current_compressor {
+    True -> apply_edit(value, edit)
+    False ->
+      case value.changes {
+        [] ->
+          apply_edit(
+            Transaction(
+              ..value,
+              current_compressor: compressor,
+              revision_compressor: compressor,
+            ),
+            edit,
+          )
+        _ -> {
+          use #(_, _, reserved) <- result.try(
+            runtime.allocate_transaction_revision(
+              value.current_state,
+              compressor,
+            ),
+          )
+          apply_edit(
+            Transaction(
+              ..value,
+              current_compressor: reserved,
+              revision_compressor: compressor,
+            ),
+            edit,
+          )
+        }
+      }
+  }
+}
+
 pub fn commit_nested(value: Transaction) -> Result(Transaction, TreeError) {
   case value.savepoints {
     [] -> Error(types.InvalidHistory("tree transaction has no nested scope"))
