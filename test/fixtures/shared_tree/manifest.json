@@ -243,6 +243,26 @@
         }
       ]
     },
+    "transactionContract": {
+      "cases": [
+        "transaction-callbacks",
+        "transaction-constraints",
+        "transaction-wire",
+        "transaction-history"
+      ],
+      "supportedFeatures": [
+        "synchronous-single-tree-transactions",
+        "stable-node-existence-constraints"
+      ],
+      "excludedFeatures": [
+        "asynchronous-transactions",
+        "cross-tree-transactions",
+        "schema-upgrades-in-transactions",
+        "no-change-constraints",
+        "transaction-metadata",
+        "transaction-post-processors"
+      ]
+    },
     "undoRedoContract": {
       "cases": [
         "revertible-lifetime",

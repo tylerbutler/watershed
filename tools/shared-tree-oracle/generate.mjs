@@ -8,7 +8,12 @@ import { deserializeIdCompressor } from "@fluidframework/id-compressor/internal"
 import { reference, runSource, validateCapture } from "./source.mjs";
 import { validateContainerFoundationsCase } from "./container-foundations.mjs";
 import { validateSummaryFoundationsCase } from "./summary-foundations.mjs";
-import { excludedFeatures, supportedFeatures } from "./service.mjs";
+import {
+  excludedFeatures,
+  supportedFeatures,
+  transactionExcludedFeatures,
+  transactionSupportedFeatures,
+} from "./service.mjs";
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const fixtures = resolve(directory, "../../test/fixtures/shared_tree");
@@ -5020,6 +5025,11 @@ export async function writeCorpus(output, cases, smoke) {
         cases: requiredIdentifierCases.map(([id]) => id),
         valueShapeDiscriminator: identifierDiscriminator,
         allocationOrder: identifierAllocationOrder,
+      },
+      transactionContract: {
+        cases: requiredTransactionCases,
+        supportedFeatures: transactionSupportedFeatures,
+        excludedFeatures: transactionExcludedFeatures,
       },
       undoRedoContract: {
         cases: requiredUndoRedoCases.map(([id]) => id),

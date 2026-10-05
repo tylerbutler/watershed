@@ -109,7 +109,7 @@ const service = {
   revision: "0eb493fc46d1bb9baf1151a6ccdde93544e057e7",
 };
 const profileDigest =
-  "588a2f41621f4f352497915168a5dc8af55140721066a04f217ab03e639a1813";
+  "08bc0e39dcb8c399d477b70ee183d42f5fbd69e842aa7642befe38e7246aff6b";
 const runtimeOptions = {
   enableRuntimeIdCompressor: "on",
   compressionOptions: {

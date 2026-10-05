@@ -72,6 +72,19 @@ export const summarizerRuntimeOptions = {
   },
 };
 
+export const transactionSupportedFeatures = [
+  "synchronous-single-tree-transactions",
+  "stable-node-existence-constraints",
+];
+export const transactionExcludedFeatures = [
+  "asynchronous-transactions",
+  "cross-tree-transactions",
+  "schema-upgrades-in-transactions",
+  "no-change-constraints",
+  "transaction-metadata",
+  "transaction-post-processors",
+];
+
 export const supportedFeatures = [
   "fixed-object-schema",
   "primitive-leaves",
@@ -92,13 +105,13 @@ export const supportedFeatures = [
   "grouped-batches",
   "gc-metadata",
   "strict-view-object-map-schema-evolution",
+  ...transactionSupportedFeatures,
 ];
 export const excludedFeatures = [
   "array-schema-evolution",
   "staged-schema-upgrades",
   "unknown-field-view-adapters",
   "data-migrations",
-  "public-transactions",
   "additional-upstream-versions",
   "shared-branches",
   "gc-sweep",
@@ -113,6 +126,7 @@ export const excludedFeatures = [
   "detached-node-builder",
   "uuidv5-healing",
   "undo-redo",
+  ...transactionExcludedFeatures,
   "async-cross-tree-transactions",
 ];
 

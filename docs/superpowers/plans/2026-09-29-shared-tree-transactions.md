@@ -1602,9 +1602,10 @@ git commit -m "test(tree): prove transaction interoperability"
 
 ### Task 10: Close permanent gates and document the transaction profile
 
-**Reconciled status:** Open. The implementation and interop report schema
-exist, but the generated profile and public documentation still exclude
-transactions.
+**Reconciled status:** Complete for the transaction slice. The generated and
+service profiles publish synchronous single-tree transactions and stable
+node-existence constraints. Task 11 still owns final regression closure, and
+the undo/redo plan owns its support labels.
 
 **Files:**
 - Modify: `tools/shared-tree-oracle/generate.mjs`, `interop.mjs`, `service.mjs`
@@ -1621,7 +1622,7 @@ transactions.
 - Consumes: Tasks 1-9 passing evidence.
 - Produces: an accurate supported transaction claim and permanent enforcement.
 
-- [ ] **Step 1: Add failing profile and gate assertions.**
+- [x] **Step 1: Add failing profile and gate assertions.**
 
 Require support labels for synchronous single-tree transactions and stable
 node-existence constraints. Keep async, cross-tree, schema-in-transaction,
@@ -1629,7 +1630,11 @@ node-existence constraints. Keep async, cross-tree, schema-in-transaction,
 profile labels belong to the undo/redo plan's Task 9 and must not be added or
 removed implicitly by this task.
 
-- [ ] **Step 2: Regenerate profile metadata.**
+Focused RED evidence: the transaction profile, generated transaction contract,
+and supported-profile workflow-name assertions all failed before the profile
+owner and workflows changed.
+
+- [x] **Step 2: Regenerate profile metadata.**
 
 ```bash
 npm --prefix tools/shared-tree-oracle run generate
@@ -1638,29 +1643,34 @@ npm --prefix tools/shared-tree-oracle run check
 
 Preserve every version, codec, layout, and M1-M4 feature claim.
 
-- [ ] **Step 3: Document the public API and limits.**
+- [x] **Step 3: Document the public API and limits.**
 
 Show one committed callback, one aborted callback with typed error, and a
 `NodeInDocument` constraint. Explain nested scopes, one outer local event and
 network commit, no abort event, sequenced constraint checks, and deferred
 features.
 
-- [ ] **Step 4: Update the parent roadmap.**
+- [x] **Step 4: Update the parent roadmap.**
 
 Mark the transaction-boundary and stable-constraint slice implemented. Do not
 close the full milestone here; the parent roadmap and the undo/redo plan own
 the broader milestone wording.
 
-- [ ] **Step 5: Run permanent gate tests.**
+- [x] **Step 5: Run Task 10 focused permanent-gate checks.**
 
 ```bash
-npm --prefix tools/shared-tree-oracle test
-just shared-tree-test
-just shared-tree-codec-interop
-just shared-tree-interop
+cd tools/shared-tree-oracle && node --test \
+  --test-name-pattern='service profile names supported transactions|manifest records complete native runners|committed profile is hashed|hosted gates name the supported profile' \
+  service.test.mjs generate.test.mjs interop.test.mjs gates.test.mjs
+npm --prefix tools/shared-tree-oracle run generate
+npm --prefix tools/shared-tree-oracle run check
 ```
 
-- [ ] **Step 6: Commit profile and documentation closure.**
+The full oracle, native, codec, and service commands remain deferred to the
+combined transaction/undo validation and this plan's Task 11, as directed for
+this release sequence.
+
+- [x] **Step 6: Commit profile and documentation closure.**
 
 ```bash
 git add tools/shared-tree-oracle test/fixtures/shared_tree README.md .github/workflows justfile docs/superpowers/plans/2026-09-21-shared-tree.md

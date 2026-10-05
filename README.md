@@ -110,8 +110,9 @@ generate replacement IDs.
 
 The Identifier profile does not add handles, incremental FieldBatch chunks,
 arbitrary container layouts, `Tree.shortId`, an identifier index, global
-uniqueness checks, a detached JavaScript-style node builder, UUIDv5 healing,
-undo/redo, or asynchronous or cross-tree transactions.
+uniqueness checks, a detached JavaScript-style node builder, or UUIDv5 healing.
+Undo/redo remains outside the published profile. Transactions are synchronous
+and limited to one tree.
 
 The [profile manifest](test/fixtures/shared_tree/profile.json) records upstream
 commit `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960` and Floodgate commit
@@ -193,6 +194,100 @@ A concurrent data edit can win and reduce the local upgrade to an acknowledged
 empty change. Watershed does not merge or retry losing schemas. Inspect
 compatibility again and request a new upgrade from the current stored schema.
 
+### SharedTree transactions
+
+Both facades support synchronous transactions on one SharedTree. The callback
+uses the ordinary read and edit functions, and its `Result` decides whether the
+scope commits or aborts:
+
+```gleam
+import watershed
+import watershed/tree/types
+
+pub fn commit_title(
+  tree: watershed.SharedTree,
+) -> Result(Nil, watershed.TreeTransactionError(String)) {
+  watershed.tree_transaction(tree, [], fn(transaction_tree) {
+    watershed.tree_set(
+      transaction_tree,
+      ["title"],
+      types.StringValue("committed"),
+    )
+  })
+}
+```
+
+The callback error stays typed inside `Aborted`. Runtime, setup, constraint,
+composition, and transport failures use `TransactionFailed(String)`:
+
+```gleam
+import gleam/result
+import watershed
+import watershed/tree/types
+
+pub type DraftAbort {
+  EditFailed(String)
+  InvalidTitle
+}
+
+pub fn abort_draft(
+  tree: watershed.SharedTree,
+) -> Result(Nil, watershed.TreeTransactionError(DraftAbort)) {
+  watershed.tree_transaction(tree, [], fn(transaction_tree) {
+    use _ <- result.try(
+      watershed.tree_set(
+        transaction_tree,
+        ["title"],
+        types.StringValue("temporary"),
+      )
+      |> result.map_error(EditFailed),
+    )
+    Error(InvalidTitle)
+  })
+}
+```
+
+Use `NodeInDocument` when the commit is valid only while a selected node remains
+in the document:
+
+```gleam
+import watershed
+import watershed/tree/types
+
+pub fn update_while_item_exists(
+  tree: watershed.SharedTree,
+) -> Result(Nil, watershed.TreeTransactionError(String)) {
+  watershed.tree_transaction(
+    tree,
+    [watershed.NodeInDocument(["items", "0"])],
+    fn(transaction_tree) {
+      watershed.tree_set(
+        transaction_tree,
+        ["title"],
+        types.StringValue("item still exists"),
+      )
+    },
+  )
+}
+```
+
+Nested calls on the same tree use savepoints. Inner success remains part of the
+outer scope; inner abort restores its savepoint and lets the outer callback
+continue. A successful outer scope with visible edits emits one local
+`TreeChanged` event and submits one composed network commit. Intermediate
+edits, inner scopes, aborts, and no-op transactions emit no public data event;
+an outer abort submits nothing.
+
+`NodeInDocument` checks identity, not the original path. Moving the node keeps
+the constraint valid. A missing or detached node fails before the callback
+runs. Every client checks the constraint again after sequencing, so a removal
+that sequences first suppresses the constrained edits instead of relying on a
+local preflight approximation.
+
+Asynchronous and cross-tree transactions, schema upgrades inside transactions,
+the alpha `noChange` constraint, transaction metadata, and post-processors are
+not supported.
+
 The supported authoring profile permits additive object/map changes: optional
 object fields, wider allowed types for existing object fields and map entries,
 required-to-optional field or root changes, wider root types, and definitions
@@ -242,8 +337,9 @@ collaboration window. History can trim as the minimum sequence advances, but
 there is no published capacity, throughput, or bounded-memory guarantee.
 
 Map-wide clear, array schema evolution, staged upgrades,
-unknown-field adapters, data migration, handle-valued tree leaves, public
-transactions, undo/redo, branching, and incremental summaries remain deferred.
+unknown-field adapters, data migration, handle-valued tree leaves, undo/redo,
+branching, and incremental summaries remain deferred. Transaction support is
+limited as described above.
 The compatibility claim also excludes additional upstream package versions.
 Fixed-layout creation is available below; broader container layouts, live
 attachment, richer SharedTree Lustre bindings, and disk recovery of pending

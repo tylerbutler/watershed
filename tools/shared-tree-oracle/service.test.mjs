@@ -25,16 +25,22 @@ import {
 } from "./service.mjs";
 import { upstreamAdapter } from "./interop-scenarios.mjs";
 
-test("service profile names the restricted schema evolution support", () => {
-  assert(supportedFeatures.includes("strict-view-object-map-schema-evolution"));
-  assert(supportedFeatures.includes("identifier-summary-reload"));
+test("service profile names supported transactions and their limits", () => {
+  for (const feature of [
+    "strict-view-object-map-schema-evolution",
+    "identifier-summary-reload",
+    "synchronous-single-tree-transactions",
+    "stable-node-existence-constraints",
+  ]) {
+    assert(supportedFeatures.includes(feature), `Missing support: ${feature}`);
+  }
   assert(!excludedFeatures.includes("schema-evolution"));
+  assert(!excludedFeatures.includes("public-transactions"));
   for (const feature of [
     "staged-schema-upgrades",
     "array-schema-evolution",
     "unknown-field-view-adapters",
     "data-migrations",
-    "public-transactions",
     "additional-upstream-versions",
     "identifier-handles",
     "incremental-field-batch-chunks",
@@ -45,6 +51,12 @@ test("service profile names the restricted schema evolution support", () => {
     "detached-node-builder",
     "uuidv5-healing",
     "undo-redo",
+    "asynchronous-transactions",
+    "cross-tree-transactions",
+    "schema-upgrades-in-transactions",
+    "no-change-constraints",
+    "transaction-metadata",
+    "transaction-post-processors",
     "async-cross-tree-transactions",
   ]) {
     assert(excludedFeatures.includes(feature), `Missing exclusion: ${feature}`);

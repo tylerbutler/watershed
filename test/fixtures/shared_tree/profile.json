@@ -240,14 +240,15 @@
     "identifier-summary-reload",
     "grouped-batches",
     "gc-metadata",
-    "strict-view-object-map-schema-evolution"
+    "strict-view-object-map-schema-evolution",
+    "synchronous-single-tree-transactions",
+    "stable-node-existence-constraints"
   ],
   "excludedFeatures": [
     "array-schema-evolution",
     "staged-schema-upgrades",
     "unknown-field-view-adapters",
     "data-migrations",
-    "public-transactions",
     "additional-upstream-versions",
     "shared-branches",
     "gc-sweep",
@@ -262,6 +263,12 @@
     "detached-node-builder",
     "uuidv5-healing",
     "undo-redo",
+    "asynchronous-transactions",
+    "cross-tree-transactions",
+    "schema-upgrades-in-transactions",
+    "no-change-constraints",
+    "transaction-metadata",
+    "transaction-post-processors",
     "async-cross-tree-transactions"
   ]
 }

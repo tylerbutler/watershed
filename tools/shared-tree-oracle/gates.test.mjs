@@ -67,7 +67,7 @@ test("creation acceptance retains native checks and pinned-service proof", () =>
   ]);
 });
 
-test("hosted erlang gates install the configured rebar tool", () => {
+test("hosted gates name the supported profile and install the configured rebar tool", () => {
   const mise = readFileSync(resolve(repository, "mise.toml"), "utf8");
   const nativeWorkflow = readFileSync(
     resolve(repository, ".github/workflows/shared-tree.yml"),
@@ -83,6 +83,9 @@ test("hosted erlang gates install the configured rebar tool", () => {
     [...nativeWorkflow.matchAll(/uses: jdx\/mise-action@v3/g)].length,
     1,
   );
+  assert.match(nativeWorkflow, /name: Supported SharedTree profile validators/);
+  assert.match(nativeWorkflow, /name: Supported SharedTree native acceptance/);
+  assert.doesNotMatch(nativeWorkflow, /M1\/M2\/M3/);
   assert.doesNotMatch(nativeWorkflow, /^\s*install_args:/m);
   assert.doesNotMatch(nativeWorkflow, /run: just shared-tree-interop/);
   assert.doesNotMatch(nativeWorkflow, /run: just shared-tree-create-interop/);
@@ -92,6 +95,9 @@ test("hosted erlang gates install the configured rebar tool", () => {
   assert.match(interopWorkflow, /^on:\n  workflow_dispatch:\n/m);
   assert.doesNotMatch(interopWorkflow, /^\s{2}(?:pull_request|push):/m);
   assert.match(interopWorkflow, /uses: jdx\/mise-action@v3/);
+  assert.match(interopWorkflow, /name: Supported SharedTree profile validators/);
+  assert.match(interopWorkflow, /name: Three-client supported-profile acceptance/);
+  assert.doesNotMatch(interopWorkflow, /M1\/M2\/M3/);
   assert.doesNotMatch(interopWorkflow, /^\s*install_args:/m);
   assert.match(interopWorkflow, /run: just shared-tree-interop/);
   assert.match(interopWorkflow, /run: just shared-tree-create-interop/);

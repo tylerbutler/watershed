@@ -3692,6 +3692,26 @@ test("manifest records complete native runners and actual wire field kinds", asy
       { ordinal: 3, kind: "revision", path: [], op: 4 },
     ],
   });
+  assert.deepEqual(manifest.inventory.transactionContract, {
+    cases: [
+      "transaction-callbacks",
+      "transaction-constraints",
+      "transaction-wire",
+      "transaction-history",
+    ],
+    supportedFeatures: [
+      "synchronous-single-tree-transactions",
+      "stable-node-existence-constraints",
+    ],
+    excludedFeatures: [
+      "asynchronous-transactions",
+      "cross-tree-transactions",
+      "schema-upgrades-in-transactions",
+      "no-change-constraints",
+      "transaction-metadata",
+      "transaction-post-processors",
+    ],
+  });
   assert.deepEqual(manifest.inventory.undoRedoContract, {
     cases: requiredUndoRedoCases,
     commitKinds: ["Default", "Undo", "Redo"],

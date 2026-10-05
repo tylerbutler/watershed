@@ -36,19 +36,18 @@ tasks and their test counts below remain historical acceptance records.
 | M3: arrays and moves | Implemented and published. | [Arrays and moves](2026-09-26-shared-tree-arrays.md); array schema evolution remains excluded. |
 | M4: schema evolution | Complete for strict-view objects and dynamic maps. | [Schema evolution](2026-09-26-shared-tree-schema-evolution.md); its recorded closure is local, not a hosted M4 run. |
 | Identifier extension | Implemented and published; all seven tasks have implementations. | [Identifiers](2026-10-01-shared-tree-identifiers.md); contextual compression, generated defaults, immutable attached fields, and summary/reload support. |
-| M5: transactions and undo/redo | Native implementation and interop work exist; release/profile closure remains open. | [Transactions](2026-09-29-shared-tree-transactions.md), Tasks 10-11, and [undo/redo](2026-10-02-shared-tree-undo-redo.md), Tasks 9-10. |
+| M5: transactions and undo/redo | The synchronous single-tree transaction and stable-constraint slice is implemented and published. Undo/redo profile closure and final regression closure remain open. | [Transactions](2026-09-29-shared-tree-transactions.md), Task 11, and [undo/redo](2026-10-02-shared-tree-undo-redo.md), Tasks 9-10. |
 | M6: branching | Deferred as a public feature. | Local fork/rebase/merge needs its own design; experimental shared branches require a separate profile/version decision. Internal history branches are not a public branching API. |
 | M7: application/container lifecycle | Fixed-layout native creation and the thin Lustre browser slice are implemented, not the whole milestone. | [Browser checklist](2026-09-29-shared-tree-browser-checklist.md); richer bindings, broader layouts, live attachment, handles, production authentication, and disk pending-state recovery remain open. |
 | M8: scale and supported versions | Deferred. | Measurements, safe reclamation, incremental summaries, and additional supported upstream versions need separate scope and proof. |
 
 The distinction between implementation and published support matters most for
-M5: `test/fixtures/shared_tree/profile.json` still excludes
-`public-transactions` and `undo-redo`, as does the oracle's service profile.
-Both native facades nevertheless expose synchronous single-tree callback
-transactions and runtime-local revertible handles. Do not restart their native
-implementation, or mark M5 closed, while those profile, documentation, and
-final-regression tasks remain open. M5 includes both transactions and undo/redo;
-M6 is branching.
+M5. The generated and service profiles now publish synchronous single-tree
+transactions and stable node-existence constraints. They still exclude
+`undo-redo`; its separate plan owns that label. Both native facades also expose
+runtime-local revertible handles, but M5 is not closed while undo/redo profile
+work and the remaining final-regression tasks are open. M5 includes both
+transactions and undo/redo; M6 is branching.
 
 The current manifest has 55 generated cases and 29 registered native semantic
 runners per target. Current service recipes use 300 seeded schedules, or
@@ -2271,9 +2270,9 @@ loading, and undo preserve their values rather than generating replacements.
 
 M5's [transaction plan](2026-09-29-shared-tree-transactions.md) implements
 synchronous single-tree callbacks, nested savepoints, abort, composed outer
-commits, and stable node-existence constraints. Its native recovery and
-mixed-client work is implemented through Task 9; Tasks 10-11 still own profile,
-documentation, permanent-gate, and final-regression closure.
+commits, and stable node-existence constraints. The generated profile, service
+profile, public documentation, and permanent gate definitions now publish that
+restricted slice. Task 11 still owns final regression closure.
 
 The [undo/redo plan](2026-10-02-shared-tree-undo-redo.md) implements commit
 subscriptions, commit kinds, one-shot factories, runtime-local revertibles,
@@ -2290,7 +2289,7 @@ new scope needs its own approved design and interoperability proof.
 
 | Remaining area | Prerequisite | Required work or proof |
 | --- | --- | --- |
-| M5 release closure | Implemented transaction and revertible surfaces | Reconcile support/exclusion labels, document the restricted scope, and record current permanent/full-regression results without implying missing native APIs. |
+| M5 release closure | Published transaction slice and implemented revertible surfaces | Close undo/redo support labels in its own plan, then record the combined permanent and full-regression results without claiming unsupported transaction extensions. |
 | Array schema evolution | Published M3 and M4 contracts | Separate array-evolution schema/data race and reload matrices. |
 | M6 local branching | Existing modular history and M5 retention rules | Public fork/rebase/merge and branch lifetime without reclaiming live revertible history. |
 | Experimental shared branches | Separate version/profile decision | Explicit shared-branch wire support; no accidental opt-in. |

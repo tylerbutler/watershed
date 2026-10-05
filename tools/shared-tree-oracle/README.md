@@ -185,8 +185,37 @@ The local authoring profile is narrower than upstream `can_upgrade`.
 Watershed rejects node-kind replacement and other transitions outside the
 listed object/map subset even when the upstream repository relation reports a
 superset. Staged upgrades, unknown-field adapters, arrays and array schema
-evolution, data migration, public transactions, handle-valued leaves, and
-additional upstream versions remain outside this claim.
+evolution, data migration, handle-valued leaves, and additional upstream
+versions remain outside this claim.
+
+### Transaction profile
+
+The generated profile publishes `synchronous-single-tree-transactions` and
+`stable-node-existence-constraints`. Its transaction contract names the four
+pinned source cases: callbacks, constraints, V5 wire data, and retained
+history. The service profile and committed profile use the same feature arrays,
+and the interoperability loader pins the resulting profile digest.
+
+Transactions use the public callback API on the JavaScript and BEAM facades.
+Nested scopes on the same tree are savepoints. One successful outer scope with
+visible edits produces one native local event, one composed commit, and one
+channel operation. Intermediate edits and inner scopes produce no public data
+event. An outer abort restores the scope, emits no event, and submits no commit.
+A successful no-op also emits and submits nothing.
+
+`NodeInDocument` resolves the selected path to node identity before the
+callback. Moves preserve the constraint. Missing or detached nodes prevent the
+callback from running. The encoded ModularChange V5 constraint is checked again
+after sequencing, so a concurrent removal that sequences first marks the
+transaction explicitly violated and suppresses its constrained field effects
+on every client.
+
+The profile explicitly excludes asynchronous transactions, cross-tree
+transactions, schema upgrades inside transactions, the alpha `noChange`
+constraint, transaction metadata, and transaction post-processors. The older
+combined `async-cross-tree-transactions` exclusion remains for compatibility.
+Undo/redo labels are unchanged and remain owned by the separate undo/redo
+release task.
 
 ### M3 array source contract
 
@@ -527,7 +556,9 @@ compressor state. Neither decoding nor loading allocates IDs.
 The supported profile excludes handles, incremental FieldBatch chunks,
 arbitrary container layouts, `Tree.shortId`, an identifier index, global
 custom-ID uniqueness checks, a detached JavaScript-style node-builder API,
-UUIDv5 healing, undo/redo, and asynchronous or cross-tree transactions.
+UUIDv5 healing, undo/redo, asynchronous transactions, cross-tree transactions,
+schema upgrades inside transactions, `noChange`, transaction metadata, and
+transaction post-processors.
 
 Allocation observations use measured call ordinals and tree paths. For the
 attached two-Identifier insertion, the calls are `left[1].firstId`,

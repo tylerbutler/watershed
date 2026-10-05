@@ -4790,7 +4790,7 @@ test("the committed profile is hashed and every compatibility pin is validated",
   assert.match(loaded.profileDigest, /^[0-9a-f]{64}$/);
   assert.equal(
     loaded.profileDigest,
-    "588a2f41621f4f352497915168a5dc8af55140721066a04f217ab03e639a1813",
+    "08bc0e39dcb8c399d477b70ee183d42f5fbd69e842aa7642befe38e7246aff6b",
   );
   assert.deepEqual(loaded.profile.reference, reference);
   assert.deepEqual(
@@ -4820,13 +4820,14 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "grouped-batches",
     "gc-metadata",
     "strict-view-object-map-schema-evolution",
+    "synchronous-single-tree-transactions",
+    "stable-node-existence-constraints",
   ]);
   assert.deepEqual(loaded.profile.excludedFeatures, [
     "array-schema-evolution",
     "staged-schema-upgrades",
     "unknown-field-view-adapters",
     "data-migrations",
-    "public-transactions",
     "additional-upstream-versions",
     "shared-branches",
     "gc-sweep",
@@ -4841,8 +4842,15 @@ test("the committed profile is hashed and every compatibility pin is validated",
     "detached-node-builder",
     "uuidv5-healing",
     "undo-redo",
+    "asynchronous-transactions",
+    "cross-tree-transactions",
+    "schema-upgrades-in-transactions",
+    "no-change-constraints",
+    "transaction-metadata",
+    "transaction-post-processors",
     "async-cross-tree-transactions",
   ]);
+  assert(!loaded.profile.excludedFeatures.includes("public-transactions"));
   assert(!loaded.profile.excludedFeatures.includes("arrays"));
   assert(!loaded.profile.excludedFeatures.includes("maps-in-tree"));
   const directory = await temporaryDirectory("watershed-profile-");

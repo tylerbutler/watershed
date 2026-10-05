@@ -28,7 +28,7 @@ jobs:
           cache-dependency-path: tools/shared-tree-oracle/package-lock.json
       - run: pnpm install --frozen-lockfile
       - run: npm --prefix tools/shared-tree-oracle ci
-      - name: M1/M2/M3 oracle and artifact validators
+      - name: Supported SharedTree profile validators
         run: npm --prefix tools/shared-tree-oracle test
-      - name: M1/M2/M3 native acceptance
+      - name: Supported SharedTree native acceptance
         run: just shared-tree-test
