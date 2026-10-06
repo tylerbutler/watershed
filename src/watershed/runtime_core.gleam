@@ -57,12 +57,12 @@ import watershed/sequence_kernel
 import watershed/summary_policy.{type Policy}
 import watershed/task_manager_kernel
 import watershed/text_kernel
+import watershed/tree/branch as tree_branch
 import watershed/tree/change as tree_change
 import watershed/tree/history
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema as tree_schema
 import watershed/tree/shared_change
-import watershed/tree/transaction as tree_transaction
 import watershed/tree/types as tree_types
 import watershed/tree_kernel
 import watershed/two_p_set_kernel
@@ -93,8 +93,18 @@ pub type Core {
     client_id: String,
     routing: Routing,
     compressor: Option(fluid_ids.Compressor),
+    tree_checkouts: Dict(String, tree_branch.Forest),
+    tree_publication_scopes: Dict(
+      String,
+      List(#(fluid_ids.StableId, List(tree_types.CheckoutSelector))),
+    ),
     active_tree_transaction: Option(
-      #(String, tree_schema.ViewSchema, tree_transaction.Transaction),
+      #(
+        String,
+        tree_types.CheckoutSelector,
+        tree_schema.ViewSchema,
+        tree_branch.BranchTransaction,
+      ),
     ),
     persistence: Option(fluid_document.DocumentSummary),
     minimum_sequence_number: Int,
@@ -178,6 +188,15 @@ pub type TreeRetainedSnapshot {
     snapshot: tree_kernel.TreeSnapshot,
     compressor: Option(fluid_ids.Compressor),
   )
+}
+
+pub type ScopedTreeEvent =
+  #(String, tree_types.CheckoutSelector, ChannelEvent)
+
+pub type TreeBranchStatus {
+  DocumentBranch
+  BranchValid
+  BranchDisposed
 }
 
 pub fn connection_observation(
@@ -880,6 +899,8 @@ fn start_core(
       client_id: connected.client_id,
       routing: routing,
       compressor: compressor,
+      tree_checkouts: initial_tree_checkouts(connected.client_id, channels),
+      tree_publication_scopes: dict.new(),
       active_tree_transaction: None,
       persistence: persistence,
       minimum_sequence_number: minimum_sequence_number,
@@ -920,6 +941,26 @@ fn start_core(
       core.last_seen_sequence_number,
     )
   Ok(settle_bootstrap(core, checkpoint))
+}
+
+fn initial_tree_checkouts(
+  runtime_id: String,
+  channels: Dict(String, ChannelState),
+) -> Dict(String, tree_branch.Forest) {
+  dict.fold(channels, dict.new(), fn(checkouts, address, state) {
+    case state {
+      channel.TreeState(tree) ->
+        dict.insert(
+          checkouts,
+          address,
+          tree_branch.new(
+            tree_branch.origin(runtime_id, "document", address),
+            tree,
+          ),
+        )
+      _ -> checkouts
+    }
+  })
 }
 
 pub fn root_channel_address(core: Core) -> Result(String, CoreError) {
@@ -1699,8 +1740,9 @@ fn resubmit_tree_batch(
   })
   use _ <- result.try(case grouped, batch_id {
     True, Some(_) -> Ok(Nil)
+    False, None -> Ok(Nil)
     _, _ ->
-      Error(AckMismatch("pending tree submission has no grouped identity"))
+      Error(AckMismatch("pending tree submission has an invalid batch identity"))
   })
   let #(compressor, creation) = case last_tree_batch {
     True -> fluid_ids.take_creation_range(compressor)
@@ -1778,28 +1820,40 @@ fn resubmit_tree_batch(
       ])
     }
   }
-  let metadata =
-    json.object([
-      #("batchId", json.string(option.unwrap(batch_id, ""))),
-      #("groupedOpCount", json.int(list.length(rebuilt))),
-    ])
+  let grouped = list.length(rebuilt) > 1
+  let batch_id = case grouped, batch_id {
+    True, Some(batch_id) -> Some(batch_id)
+    True, None -> Some(core.client_id <> "_[" <> int.to_string(csn) <> "]")
+    False, _ -> None
+  }
+  let metadata = case batch_id {
+    Some(batch_id) ->
+      Some(
+        json.object([
+          #("batchId", json.string(batch_id)),
+          #("groupedOpCount", json.int(list.length(rebuilt))),
+        ]),
+      )
+    None -> None
+  }
   let last = list.length(rebuilt) - 1
   use contents <- result.try(
     fluid_container.encode_batch(fluid_container.DecodedBatch(
-      True,
-      Some(metadata),
+      grouped,
+      metadata,
       list.index_map(rebuilt, fn(item, index) {
-        let boundary = case index {
-          0 ->
+        let boundary = case grouped, index {
+          False, _ -> None
+          True, 0 ->
             Some(
               json.object([
                 #("batch", json.bool(True)),
                 #("batchId", json.string(option.unwrap(batch_id, ""))),
               ]),
             )
-          index if index == last ->
+          True, index if index == last ->
             Some(json.object([#("batch", json.bool(False))]))
-          _ -> None
+          _, _ -> None
         }
         fluid_container.ContainerMessage(item, index, boundary)
       }),
@@ -1812,7 +1866,7 @@ fn resubmit_tree_batch(
       core.last_seen_sequence_number,
       "op",
       contents,
-      Some(metadata),
+      metadata,
     )
   Ok(#(
     Some(compressor),
@@ -1821,7 +1875,7 @@ fn resubmit_tree_batch(
       core.client_id,
       csn,
       core.last_seen_sequence_number,
-      True,
+      grouped,
       batch_id,
       rebuilt,
       [],
@@ -2294,6 +2348,7 @@ fn apply_one(
     },
   )
   use core <- result.try(advance_tree_positions(core, msg.sequence_number))
+  use core <- result.try(sync_tree_checkouts(core))
   use tree_events <- result.try(tree_change_events(before, core))
   use persistence <- result.try(case core.persistence {
     Some(summary) ->
@@ -3607,12 +3662,226 @@ pub fn has_pending_tree(core: Core) -> Bool {
   })
 }
 
+fn sync_tree_checkouts(core: Core) -> Result(Core, CoreError) {
+  use checkouts <- result.try(
+    list.try_fold(
+      core.channel_order,
+      core.tree_checkouts,
+      fn(checkouts, address) {
+        case dict.get(core.channels, address) {
+          Ok(channel.TreeState(document)) -> {
+            use forest <- result.try(case dict.get(checkouts, address) {
+              Ok(forest) ->
+                tree_branch.update_document(forest, fn(_) {
+                  Ok(#(document, Nil))
+                })
+                |> result.map(fn(updated) { updated.0 })
+                |> result.map_error(fn(error) {
+                  TreeOperationFailed(address, error)
+                })
+              Error(_) ->
+                Ok(tree_branch.new(
+                  tree_branch.origin(core.client_id, "document", address),
+                  document,
+                ))
+            })
+            Ok(dict.insert(checkouts, address, forest))
+          }
+          _ -> Ok(checkouts)
+        }
+      },
+    ),
+  )
+  Ok(
+    Core(..core, tree_checkouts: checkouts)
+    |> prune_tree_publication_scopes,
+  )
+}
+
+fn checkout_forest(
+  core: Core,
+  address: String,
+) -> Result(tree_branch.Forest, CoreError) {
+  use _ <- result.try(tree_channel(core, address))
+  dict.get(core.tree_checkouts, address)
+  |> result.map_error(fn(_) {
+    TreeOperationFailed(
+      address,
+      tree_types.InvalidHistory("tree checkout registry is missing"),
+    )
+  })
+}
+
+fn resolve_tree_checkout(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> Result(#(tree_branch.Forest, tree_branch.Checkout), CoreError) {
+  use forest <- result.try(checkout_forest(core, address))
+  use checkout <- result.try(
+    tree_branch.checkout(forest, selector)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  Ok(#(forest, checkout))
+}
+
+fn selected_tree_state(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> Result(tree_kernel.TreeState, CoreError) {
+  case core.active_tree_transaction {
+    Some(#(active_address, active_selector, _, transaction))
+      if active_address == address && active_selector == selector
+    -> Ok(tree_branch.transaction_state(transaction))
+    _ -> {
+      use #(forest, checkout) <- result.try(resolve_tree_checkout(
+        core,
+        address,
+        selector,
+      ))
+      tree_branch.checkout_state(forest, checkout)
+      |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+    }
+  }
+}
+
+fn install_checkout_forest(
+  core: Core,
+  address: String,
+  forest: tree_branch.Forest,
+  compressor: fluid_ids.Compressor,
+) -> Result(Core, CoreError) {
+  use core <- result.try(install_checkout_forest_state(core, address, forest))
+  Ok(Core(..core, compressor: Some(compressor)))
+}
+
+fn install_checkout_forest_state(
+  core: Core,
+  address: String,
+  forest: tree_branch.Forest,
+) -> Result(Core, CoreError) {
+  use document <- result.try(
+    tree_branch.checkout_state(forest, tree_branch.document(forest))
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  Ok(
+    Core(
+      ..core,
+      channels: dict.insert(core.channels, address, channel.TreeState(document)),
+      tree_checkouts: dict.insert(core.tree_checkouts, address, forest),
+    )
+    |> prune_tree_publication_scopes,
+  )
+}
+
+pub fn fork_tree(
+  core: Core,
+  address: String,
+  source_selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+) -> Result(#(Core, tree_types.LocalCheckoutId), CoreError) {
+  use #(forest, source) <- result.try(resolve_tree_checkout(
+    core,
+    address,
+    source_selector,
+  ))
+  use source_state <- result.try(
+    tree_branch.checkout_state(forest, source)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  use _ <- result.try(
+    tree_schema.can_view(tree_kernel.stored_schema(source_state), view)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  use #(forest, checkout) <- result.try(
+    tree_branch.fork(forest, source)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  let assert tree_types.LocalCheckout(id) =
+    tree_branch.checkout_selector(checkout)
+  use core <- result.try(install_checkout_forest_state(core, address, forest))
+  Ok(#(core, id))
+}
+
+pub fn tree_branch_status(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> TreeBranchStatus {
+  case dict.get(core.tree_checkouts, address) {
+    Ok(forest) ->
+      case tree_branch.status(forest, selector) {
+        tree_branch.DocumentBranch -> DocumentBranch
+        tree_branch.BranchValid -> BranchValid
+        tree_branch.BranchDisposed -> BranchDisposed
+      }
+    Error(_) -> BranchDisposed
+  }
+}
+
+pub fn dispose_tree_branch(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> Result(Core, CoreError) {
+  use _ <- result.try(case core.active_tree_transaction {
+    Some(#(active_address, active_selector, _, _))
+      if active_address == address && active_selector == selector
+    -> transaction_error(address, "checkout has an active transaction")
+    _ -> Ok(Nil)
+  })
+  use forest <- result.try(checkout_forest(core, address))
+  use forest <- result.try(
+    tree_branch.dispose_selector(forest, selector)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  use core <- result.try(install_checkout_forest_state(core, address, forest))
+  Ok(remove_tree_publication_scope(core, address, selector))
+}
+
+pub fn scope_tree_events(
+  core: Core,
+  events: List(#(String, ChannelEvent)),
+) -> List(ScopedTreeEvent) {
+  list.flat_map(events, fn(event) {
+    let scopes = case event.1 {
+      channel.TreeCommitSettled(revision, _) ->
+        dict.get(core.tree_publication_scopes, event.0)
+        |> result.unwrap([])
+        |> list.find_map(fn(entry) {
+          case entry.0 == revision {
+            True -> Ok(entry.1)
+            False -> Error(Nil)
+          }
+        })
+        |> result.unwrap([tree_types.DocumentCheckout])
+        |> list.filter(fn(selector) {
+          tree_branch_status(core, event.0, selector) != BranchDisposed
+        })
+      _ -> [tree_types.DocumentCheckout]
+    }
+    list.map(scopes, fn(selector) { #(event.0, selector, event.1) })
+  })
+}
+
 pub fn tree_read(
   core: Core,
   address: String,
   path: tree_types.FieldPath,
 ) -> Result(Option(tree_types.TreeValue), CoreError) {
   use state <- result.try(read_tree_channel(core, address))
+  tree_kernel.read(state, path)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+pub fn tree_read_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  path: tree_types.FieldPath,
+) -> Result(Option(tree_types.TreeValue), CoreError) {
+  use state <- result.try(selected_tree_state(core, address, selector))
   tree_kernel.read(state, path)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3627,8 +3896,8 @@ pub fn tree_retained_snapshot(
     |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
   )
   let compressor = case core.active_tree_transaction {
-    Some(#(active_address, _, value)) if active_address == address ->
-      Some(tree_transaction.compressor(value))
+    Some(#(active_address, _, _, value)) if active_address == address ->
+      Some(tree_branch.transaction_compressor(value))
     _ -> core.compressor
   }
   Ok(TreeRetainedSnapshot(snapshot, compressor))
@@ -3644,6 +3913,17 @@ pub fn tree_compatibility(
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
 
+pub fn tree_compatibility_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+) -> Result(tree_schema.Compatibility, CoreError) {
+  use state <- result.try(selected_tree_state(core, address, selector))
+  tree_kernel.compatibility(state, view)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
 pub fn tree_read_view(
   core: Core,
   address: String,
@@ -3655,6 +3935,22 @@ pub fn tree_read_view(
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
 
+pub fn tree_read_view_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(Option(tree_types.TreeValue), CoreError) {
+  use state <- result.try(selected_tree_state(core, address, selector))
+  use _ <- result.try(
+    tree_schema.can_view(tree_kernel.stored_schema(state), view)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  tree_kernel.read(state, path)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
 pub fn tree_map_get(
   core: Core,
   address: String,
@@ -3662,6 +3958,18 @@ pub fn tree_map_get(
   key: String,
 ) -> Result(Option(tree_types.TreeValue), CoreError) {
   use state <- result.try(read_tree_channel(core, address))
+  tree_kernel.map_get(state, path, key)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+pub fn tree_map_get_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  path: tree_types.FieldPath,
+  key: String,
+) -> Result(Option(tree_types.TreeValue), CoreError) {
+  use state <- result.try(selected_tree_state(core, address, selector))
   tree_kernel.map_get(state, path, key)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3678,12 +3986,40 @@ pub fn tree_map_get_view(
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
 
+pub fn tree_map_get_view_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+  key: String,
+) -> Result(Option(tree_types.TreeValue), CoreError) {
+  use state <- result.try(selected_tree_state(core, address, selector))
+  use _ <- result.try(
+    tree_schema.can_view(tree_kernel.stored_schema(state), view)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  tree_kernel.map_get(state, path, key)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
 pub fn tree_map_entries(
   core: Core,
   address: String,
   path: tree_types.FieldPath,
 ) -> Result(List(#(String, tree_types.TreeValue)), CoreError) {
   use state <- result.try(read_tree_channel(core, address))
+  tree_kernel.map_entries(state, path)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+pub fn tree_map_entries_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  path: tree_types.FieldPath,
+) -> Result(List(#(String, tree_types.TreeValue)), CoreError) {
+  use state <- result.try(selected_tree_state(core, address, selector))
   tree_kernel.map_entries(state, path)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3695,6 +4031,18 @@ pub fn tree_array_get(
   index: Int,
 ) -> Result(Option(tree_types.TreeValue), CoreError) {
   use state <- result.try(read_tree_channel(core, address))
+  tree_kernel.array_get(state, path, index)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+pub fn tree_array_get_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  path: tree_types.FieldPath,
+  index: Int,
+) -> Result(Option(tree_types.TreeValue), CoreError) {
+  use state <- result.try(selected_tree_state(core, address, selector))
   tree_kernel.array_get(state, path, index)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3711,12 +4059,40 @@ pub fn tree_array_get_view(
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
 
+pub fn tree_array_get_view_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+  index: Int,
+) -> Result(Option(tree_types.TreeValue), CoreError) {
+  use state <- result.try(selected_tree_state(core, address, selector))
+  use _ <- result.try(
+    tree_schema.can_view(tree_kernel.stored_schema(state), view)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  tree_kernel.array_get(state, path, index)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
 pub fn tree_array_values(
   core: Core,
   address: String,
   path: tree_types.FieldPath,
 ) -> Result(List(tree_types.TreeValue), CoreError) {
   use state <- result.try(read_tree_channel(core, address))
+  tree_kernel.array_values(state, path)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+pub fn tree_array_values_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  path: tree_types.FieldPath,
+) -> Result(List(tree_types.TreeValue), CoreError) {
+  use state <- result.try(selected_tree_state(core, address, selector))
   tree_kernel.array_values(state, path)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3732,6 +4108,22 @@ pub fn tree_array_values_view(
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
 
+pub fn tree_array_values_view_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(List(tree_types.TreeValue), CoreError) {
+  use state <- result.try(selected_tree_state(core, address, selector))
+  use _ <- result.try(
+    tree_schema.can_view(tree_kernel.stored_schema(state), view)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  tree_kernel.array_values(state, path)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
 pub fn tree_map_entries_view(
   core: Core,
   address: String,
@@ -3743,6 +4135,22 @@ pub fn tree_map_entries_view(
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
 
+pub fn tree_map_entries_view_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(List(#(String, tree_types.TreeValue)), CoreError) {
+  use state <- result.try(selected_tree_state(core, address, selector))
+  use _ <- result.try(
+    tree_schema.can_view(tree_kernel.stored_schema(state), view)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  tree_kernel.map_entries(state, path)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
 pub fn tree_history_evidence(
   core: Core,
   address: String,
@@ -3750,8 +4158,8 @@ pub fn tree_history_evidence(
   use state <- result.try(read_tree_channel(core, address))
   let Core(last_seen_sequence_number:, ..) = core
   let compressor = case core.active_tree_transaction {
-    Some(#(active_address, _, value)) if active_address == address ->
-      Some(tree_transaction.compressor(value))
+    Some(#(active_address, _, _, value)) if active_address == address ->
+      Some(tree_branch.transaction_compressor(value))
     _ -> core.compressor
   }
   use compressor <- result.try(
@@ -3862,7 +4270,7 @@ fn checked_read_tree_channel(
 ) -> Result(tree_kernel.TreeState, CoreError) {
   use state <- result.try(read_tree_channel(core, address))
   use _ <- result.try(case core.active_tree_transaction {
-    Some(#(active_address, active_view, _))
+    Some(#(active_address, tree_types.DocumentCheckout, active_view, _))
       if active_address == address && active_view != view
     -> transaction_error(address, "tree transaction uses another view")
     _ -> Ok(Nil)
@@ -3879,8 +4287,9 @@ fn read_tree_channel(
   address: String,
 ) -> Result(tree_kernel.TreeState, CoreError) {
   case core.active_tree_transaction {
-    Some(#(active_address, _, value)) if active_address == address ->
-      Ok(tree_transaction.state(value))
+    Some(#(active_address, tree_types.DocumentCheckout, _, value))
+      if active_address == address
+    -> Ok(tree_branch.transaction_state(value))
     _ -> tree_channel(core, address)
   }
 }
@@ -3901,6 +4310,321 @@ fn tree_channel(
   }
 }
 
+fn scoped_branch_change_events(
+  address: String,
+  events: List(tree_branch.BranchEvent),
+) -> List(ScopedTreeEvent) {
+  list.flat_map(events, fn(event) {
+    let tree_branch.BranchEvent(selector, commit, changes) = event
+    let commit_events = case commit {
+      Some(commit) -> [
+        #(
+          address,
+          selector,
+          channel.TreeCommitApplied(
+            commit.revision,
+            tree_types.DefaultCommit,
+            True,
+            True,
+          ),
+        ),
+      ]
+      None -> []
+    }
+    list.append(
+      commit_events,
+      list.map(changes.events, fn(change) {
+        #(address, selector, channel.TreeEvent(change))
+      }),
+    )
+  })
+}
+
+fn unscoped_tree_events(
+  events: List(ScopedTreeEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(event.0, event.2) })
+}
+
+fn register_tree_publications(
+  core: Core,
+  address: String,
+  commits: List(history.Commit),
+  scopes: List(tree_types.CheckoutSelector),
+) -> Core {
+  register_tree_revisions(
+    core,
+    address,
+    list.map(commits, fn(commit) { commit.revision }),
+    scopes,
+  )
+}
+
+fn register_tree_revisions(
+  core: Core,
+  address: String,
+  revisions: List(fluid_ids.StableId),
+  scopes: List(tree_types.CheckoutSelector),
+) -> Core {
+  let existing =
+    dict.get(core.tree_publication_scopes, address)
+    |> result.unwrap([])
+  let entries =
+    list.fold(revisions, existing, fn(entries, revision) {
+      case list.find(entries, fn(entry) { entry.0 == revision }) {
+        Ok(_) ->
+          list.map(entries, fn(entry) {
+            case entry.0 == revision {
+              True -> #(entry.0, list.unique(list.append(entry.1, scopes)))
+              False -> entry
+            }
+          })
+        Error(_) -> list.append(entries, [#(revision, scopes)])
+      }
+    })
+  Core(..core, tree_publication_scopes: case entries {
+    [] -> dict.delete(core.tree_publication_scopes, address)
+    _ -> dict.insert(core.tree_publication_scopes, address, entries)
+  })
+}
+
+fn remove_tree_publication_scope(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> Core {
+  let entries =
+    dict.get(core.tree_publication_scopes, address)
+    |> result.unwrap([])
+    |> list.filter_map(fn(entry) {
+      let scopes = list.filter(entry.1, fn(current) { current != selector })
+      case scopes {
+        [] -> Error(Nil)
+        _ -> Ok(#(entry.0, scopes))
+      }
+    })
+  Core(..core, tree_publication_scopes: case entries {
+    [] -> dict.delete(core.tree_publication_scopes, address)
+    _ -> dict.insert(core.tree_publication_scopes, address, entries)
+  })
+}
+
+fn prune_tree_publication_scopes(core: Core) -> Core {
+  let scopes =
+    list.fold(
+      core.channel_order,
+      core.tree_publication_scopes,
+      fn(scopes, address) {
+        case dict.get(core.tree_checkouts, address) {
+          Error(_) -> scopes
+          Ok(forest) -> {
+            let entries =
+              dict.get(scopes, address)
+              |> result.unwrap([])
+              |> list.filter_map(fn(entry) {
+                let selectors =
+                  list.filter(entry.1, fn(selector) {
+                    tree_branch.checkout_contains_revision(
+                      forest,
+                      selector,
+                      entry.0,
+                    )
+                  })
+                case selectors {
+                  [] -> Error(Nil)
+                  _ -> Ok(#(entry.0, selectors))
+                }
+              })
+            case entries {
+              [] -> dict.delete(scopes, address)
+              _ -> dict.insert(scopes, address, entries)
+            }
+          }
+        }
+      },
+    )
+  Core(..core, tree_publication_scopes: scopes)
+}
+
+fn registered_checkout_revisions(
+  core: Core,
+  address: String,
+  forest: tree_branch.Forest,
+  selector: tree_types.CheckoutSelector,
+) -> List(fluid_ids.StableId) {
+  dict.get(core.tree_publication_scopes, address)
+  |> result.unwrap([])
+  |> list.filter_map(fn(entry) {
+    case tree_branch.checkout_contains_revision(forest, selector, entry.0) {
+      True -> Ok(entry.0)
+      False -> Error(Nil)
+    }
+  })
+}
+
+pub fn submit_tree_edits_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  edits: List(tree_types.Edit),
+) -> Result(
+  #(Core, List(ScopedTreeEvent), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use _ <- result.try(case edits {
+    [] -> Error(EmptyTreeEditBatch)
+    _ -> Ok(Nil)
+  })
+  use #(forest, checkout) <- result.try(resolve_tree_checkout(
+    core,
+    address,
+    selector,
+  ))
+  use compressor <- result.try(
+    core.compressor
+    |> option.to_result(BadBootstrapSeed(
+      "tree channel has no document compressor",
+    )),
+  )
+  case core.active_tree_transaction {
+    Some(#(active_address, active_selector, view, transaction))
+      if active_address == address && active_selector == selector
+    -> {
+      use transaction <- result.try(
+        list.try_fold(edits, #(transaction, compressor), fn(current, edit) {
+          use transaction <- result.try(
+            tree_branch.transaction_apply_with_compressor(
+              current.0,
+              edit,
+              current.1,
+            ),
+          )
+          Ok(#(transaction, tree_branch.transaction_compressor(transaction)))
+        })
+        |> result.map(fn(value) { value.0 })
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
+      Ok(
+        #(
+          Core(
+            ..core,
+            compressor: Some(tree_branch.transaction_compressor(transaction)),
+            active_tree_transaction: Some(#(
+              address,
+              selector,
+              view,
+              transaction,
+            )),
+          ),
+          [],
+          [],
+        ),
+      )
+    }
+    Some(#(active_address, _, _, _)) if active_address != address ->
+      transaction_error(address, "tree transaction uses another tree")
+    _ ->
+      submit_tree_edits_on_now(
+        core,
+        address,
+        selector,
+        forest,
+        checkout,
+        edits,
+        compressor,
+      )
+  }
+}
+
+fn submit_tree_edits_on_now(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  forest: tree_branch.Forest,
+  checkout: tree_branch.Checkout,
+  edits: List(tree_types.Edit),
+  compressor: fluid_ids.Compressor,
+) -> Result(
+  #(Core, List(ScopedTreeEvent), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use before <- result.try(
+    tree_branch.checkout_state(forest, checkout)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  use #(forest, compressor, commits, branch_events) <- result.try(
+    list.try_fold(edits, #(forest, compressor, [], []), fn(acc, edit) {
+      let #(forest, compressor, commits, events) = acc
+      use authored <- result.try(
+        tree_branch.author(forest, checkout, edit, compressor)
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
+      Ok(#(
+        authored.forest,
+        authored.compressor,
+        case authored.commit {
+          Some(commit) -> list.append(commits, [commit])
+          None -> commits
+        },
+        list.append(events, authored.events),
+      ))
+    }),
+  )
+  use core <- result.try(install_checkout_forest(
+    core,
+    address,
+    forest,
+    compressor,
+  ))
+  use <- bool.guard(list.is_empty(commits), Ok(#(core, [], [])))
+  let core = register_tree_publications(core, address, commits, [selector])
+  let scoped = scoped_branch_change_events(address, branch_events)
+  case selector {
+    tree_types.LocalCheckout(_) -> Ok(#(core, scoped, []))
+    tree_types.DocumentCheckout -> {
+      use route <- result.try(
+        fluid_container.route_from_path("/" <> address)
+        |> result.map_error(ContainerOperationFailed),
+      )
+      use state <- result.try(tree_channel(core, address))
+      use before_value <- result.try(
+        tree_kernel.read(before, [])
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
+      use after_value <- result.try(
+        tree_kernel.read(state, [])
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
+      let array_changed =
+        list.any(branch_events, fn(event) { event.changes.array_changed })
+      let events = case before_value == after_value && !array_changed {
+        True -> []
+        False -> [
+          #(address, channel.TreeEvent(tree_kernel.TreeChanged(True))),
+        ]
+      }
+      use #(core, events, outbound) <- result.try(submit_tree_commits(
+        core,
+        address,
+        route,
+        state,
+        compressor,
+        commits,
+        events,
+        tree_types.DefaultCommit,
+        True,
+      ))
+      Ok(#(
+        core,
+        list.map(events, fn(event) {
+          #(event.0, tree_types.DocumentCheckout, event.1)
+        }),
+        outbound,
+      ))
+    }
+  }
+}
+
 pub fn submit_tree_edits(
   core: Core,
   address: String,
@@ -3909,90 +4633,144 @@ pub fn submit_tree_edits(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
-  use _ <- result.try(case edits {
-    [] -> Error(EmptyTreeEditBatch)
-    _ -> Ok(Nil)
-  })
-  case core.active_tree_transaction {
-    Some(#(active_address, view, value)) if active_address == address -> {
-      use value <- result.try(
-        list.try_fold(edits, value, fn(value, edit) {
-          tree_transaction.apply_edit(value, edit)
-        })
-        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
-      )
-      Ok(
-        #(
-          Core(..core, active_tree_transaction: Some(#(address, view, value))),
-          [],
-          [],
-        ),
-      )
-    }
-    Some(_) -> transaction_error(address, "tree transaction uses another tree")
-    None -> submit_tree_edits_now(core, address, edits)
-  }
-}
-
-fn submit_tree_edits_now(
-  core: Core,
-  address: String,
-  edits: List(tree_types.Edit),
-) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
-  CoreError,
-) {
-  use state <- result.try(tree_channel(core, address))
-  use compressor <- result.try(case core.compressor {
-    Some(compressor) -> Ok(compressor)
-    None -> Error(BadBootstrapSeed("tree channel has no document compressor"))
-  })
-  use route <- result.try(
-    fluid_container.route_from_path("/" <> address)
-    |> result.map_error(ContainerOperationFailed),
-  )
-  use before <- result.try(
-    tree_kernel.read(state, [])
-    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
-  )
-  use #(state, compressor, commits, array_changed) <- result.try(
-    list.try_fold(edits, #(state, compressor, [], False), fn(acc, edit) {
-      let #(state, compressor, commits, array_changed) = acc
-      use #(state, commit, changes, compressor) <- result.try(
-        tree_runtime.author_edit(state, edit, compressor)
-        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
-      )
-      Ok(#(
-        state,
-        compressor,
-        case commit {
-          Some(commit) -> list.append(commits, [commit])
-          None -> commits
-        },
-        array_changed || changes.array_changed,
-      ))
-    }),
-  )
-  use <- bool.guard(list.is_empty(commits), Ok(#(core, [], [])))
-  use after <- result.try(
-    tree_kernel.read(state, [])
-    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
-  )
-  let events = case before == after && !array_changed {
-    True -> []
-    False -> [#(address, channel.TreeEvent(tree_kernel.TreeChanged(True)))]
-  }
-  submit_tree_commits(
+  use #(core, events, outbound) <- result.try(submit_tree_edits_on(
     core,
     address,
-    route,
-    state,
-    compressor,
-    commits,
-    events,
-    tree_types.DefaultCommit,
-    True,
+    tree_types.DocumentCheckout,
+    edits,
+  ))
+  Ok(#(core, unscoped_tree_events(events), outbound))
+}
+
+pub fn rebase_tree_onto(
+  core: Core,
+  address: String,
+  source_selector: tree_types.CheckoutSelector,
+  target_selector: tree_types.CheckoutSelector,
+) -> Result(#(Core, List(ScopedTreeEvent)), CoreError) {
+  use #(forest, source) <- result.try(resolve_tree_checkout(
+    core,
+    address,
+    source_selector,
+  ))
+  use #(_, target) <- result.try(resolve_tree_checkout(
+    core,
+    address,
+    target_selector,
+  ))
+  use compressor <- result.try(
+    core.compressor
+    |> option.to_result(BadBootstrapSeed(
+      "tree channel has no document compressor",
+    )),
   )
+  use #(reconciled, compressor) <- result.try(
+    tree_branch.rebase_with_compressor(forest, source, target, compressor)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  use core <- result.try(install_checkout_forest(
+    core,
+    address,
+    reconciled.forest,
+    compressor,
+  ))
+  Ok(#(core, scoped_branch_change_events(address, reconciled.events)))
+}
+
+pub fn merge_tree(
+  core: Core,
+  address: String,
+  target_selector: tree_types.CheckoutSelector,
+  source_selector: tree_types.CheckoutSelector,
+  dispose_source: Bool,
+) -> Result(
+  #(Core, List(ScopedTreeEvent), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use #(forest, target) <- result.try(resolve_tree_checkout(
+    core,
+    address,
+    target_selector,
+  ))
+  use #(_, source) <- result.try(resolve_tree_checkout(
+    core,
+    address,
+    source_selector,
+  ))
+  use compressor <- result.try(
+    core.compressor
+    |> option.to_result(BadBootstrapSeed(
+      "tree channel has no document compressor",
+    )),
+  )
+  let registered =
+    registered_checkout_revisions(core, address, forest, source_selector)
+  use #(reconciled, compressor) <- result.try(
+    tree_branch.merge_with_compressor(
+      forest,
+      target,
+      source,
+      dispose_source,
+      compressor,
+    )
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  use core <- result.try(install_checkout_forest(
+    core,
+    address,
+    reconciled.forest,
+    compressor,
+  ))
+  let core =
+    register_tree_revisions(core, address, registered, [
+      source_selector,
+      target_selector,
+    ])
+  let core =
+    register_tree_publications(core, address, reconciled.commits, [
+      source_selector,
+      target_selector,
+    ])
+  let core = case dispose_source {
+    True -> remove_tree_publication_scope(core, address, source_selector)
+    False -> core
+  }
+  let scoped = scoped_branch_change_events(address, reconciled.events)
+  case target_selector, reconciled.commits {
+    tree_types.LocalCheckout(_), _ | _, [] -> Ok(#(core, scoped, []))
+    tree_types.DocumentCheckout, commits -> {
+      use route <- result.try(
+        fluid_container.route_from_path("/" <> address)
+        |> result.map_error(ContainerOperationFailed),
+      )
+      use state <- result.try(tree_channel(core, address))
+      use #(core, events, outbound) <- result.try(submit_tree_commits(
+        core,
+        address,
+        route,
+        state,
+        compressor,
+        commits,
+        unscoped_tree_events(
+          list.filter(scoped, fn(event) {
+            case event.2 {
+              channel.TreeEvent(_) -> True
+              _ -> False
+            }
+          }),
+        ),
+        tree_types.DefaultCommit,
+        True,
+      ))
+      Ok(#(
+        core,
+        list.map(events, fn(event) {
+          #(event.0, tree_types.DocumentCheckout, event.1)
+        }),
+        outbound,
+      ))
+    }
+  }
 }
 
 pub fn submit_tree_edits_view(
@@ -4005,9 +4783,9 @@ pub fn submit_tree_edits_view(
   CoreError,
 ) {
   use _ <- result.try(case core.active_tree_transaction {
-    Some(#(active_address, _, _)) if active_address != address ->
+    Some(#(active_address, _, _, _)) if active_address != address ->
       transaction_error(address, "tree transaction uses another tree")
-    Some(#(active_address, active_view, _))
+    Some(#(active_address, tree_types.DocumentCheckout, active_view, _))
       if active_address == address && active_view != view
     -> transaction_error(address, "tree transaction uses another view")
     _ -> checked_tree_channel(core, address, view) |> result.map(fn(_) { Nil })
@@ -4021,25 +4799,56 @@ pub fn begin_tree_transaction(
   view: tree_schema.ViewSchema,
   constraints: List(tree_types.FieldPath),
 ) -> Result(Core, CoreError) {
+  begin_tree_transaction_on(
+    core,
+    address,
+    tree_types.DocumentCheckout,
+    view,
+    constraints,
+  )
+}
+
+pub fn begin_tree_transaction_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  constraints: List(tree_types.FieldPath),
+) -> Result(Core, CoreError) {
   case core.active_tree_transaction {
-    Some(#(active_address, _, _)) if active_address != address ->
-      transaction_error(address, "tree transaction uses another tree")
-    Some(#(_, active_view, _)) if active_view != view ->
+    Some(#(active_address, active_selector, _, _))
+      if active_address != address || active_selector != selector
+    -> transaction_error(address, "tree transaction uses another tree")
+    Some(#(_, _, active_view, _)) if active_view != view ->
       transaction_error(address, "tree transaction uses another view")
-    Some(#(_, _, value)) -> {
+    Some(#(_, _, _, value)) -> {
       use targets <- result.try(resolve_transaction_constraints(
-        tree_transaction.state(value),
+        tree_branch.transaction_state(value),
         address,
         constraints,
       ))
       use value <- result.try(
-        tree_transaction.begin_nested_with_constraints(value, targets)
+        tree_branch.transaction_begin_nested_with_constraints(value, targets)
         |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
       )
-      Ok(Core(..core, active_tree_transaction: Some(#(address, view, value))))
+      Ok(
+        Core(
+          ..core,
+          active_tree_transaction: Some(#(address, selector, view, value)),
+        ),
+      )
     }
     None -> {
-      use state <- result.try(checked_tree_channel(core, address, view))
+      use #(forest, checkout) <- result.try(resolve_tree_checkout(
+        core,
+        address,
+        selector,
+      ))
+      use state <- result.try(selected_tree_state(core, address, selector))
+      use _ <- result.try(
+        tree_schema.can_view(tree_kernel.stored_schema(state), view)
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
       use compressor <- result.try(case core.compressor {
         Some(compressor) -> Ok(compressor)
         None ->
@@ -4050,11 +4859,21 @@ pub fn begin_tree_transaction(
         address,
         constraints,
       ))
-      use value <- result.try(
-        tree_transaction.begin(state, compressor, targets)
+      use #(forest, value) <- result.try(
+        tree_branch.begin_transaction(forest, checkout, compressor, targets)
         |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
       )
-      Ok(Core(..core, active_tree_transaction: Some(#(address, view, value))))
+      use core <- result.try(install_checkout_forest_state(
+        core,
+        address,
+        forest,
+      ))
+      Ok(
+        Core(
+          ..core,
+          active_tree_transaction: Some(#(address, selector, view, value)),
+        ),
+      )
     }
   }
 }
@@ -4066,54 +4885,110 @@ pub fn commit_tree_transaction(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
-  use #(view, value) <- result.try(active_tree_transaction(core, address))
-  case tree_transaction.depth(value) > 1 {
+  use #(core, events, outbound) <- result.try(commit_tree_transaction_on(
+    core,
+    address,
+    tree_types.DocumentCheckout,
+  ))
+  Ok(#(core, unscoped_tree_events(events), outbound))
+}
+
+pub fn commit_tree_transaction_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> Result(
+  #(Core, List(ScopedTreeEvent), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use #(view, value) <- result.try(active_tree_transaction(
+    core,
+    address,
+    selector,
+  ))
+  case tree_branch.transaction_depth(value) > 1 {
     True -> {
       use value <- result.try(
-        tree_transaction.commit_nested(value)
+        tree_branch.transaction_commit_nested(value)
         |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
       )
       Ok(
         #(
-          Core(..core, active_tree_transaction: Some(#(address, view, value))),
+          Core(
+            ..core,
+            active_tree_transaction: Some(#(address, selector, view, value)),
+          ),
           [],
           [],
         ),
       )
     }
     False -> {
-      use #(finished, events) <- result.try(
-        tree_transaction.finish(value)
+      use forest <- result.try(checkout_forest(core, address))
+      use compressor <- result.try(
+        core.compressor
+        |> option.to_result(BadBootstrapSeed(
+          "tree channel has no document compressor",
+        )),
+      )
+      use finished <- result.try(
+        tree_branch.finish_transaction(forest, value, compressor)
         |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
       )
-      let core = Core(..core, active_tree_transaction: None)
       case finished {
-        tree_transaction.NoCommit(state, compressor) ->
-          Ok(
-            #(
-              install_transaction_state(core, address, state, compressor),
-              [],
-              [],
-            ),
+        tree_branch.TransactionNoCommit(forest, compressor) -> {
+          use core <- result.try(install_checkout_forest(
+            Core(..core, active_tree_transaction: None),
+            address,
+            forest,
+            compressor,
+          ))
+          Ok(#(core, [], []))
+        }
+        tree_branch.TransactionCommit(forest, commit, branch_events, compressor) -> {
+          use core <- result.try(install_checkout_forest(
+            Core(..core, active_tree_transaction: None),
+            address,
+            forest,
+            compressor,
+          ))
+          let core =
+            register_tree_publications(core, address, [commit], [selector])
+          let scoped = scoped_branch_change_events(address, branch_events)
+          use <- bool.guard(
+            selector != tree_types.DocumentCheckout,
+            Ok(#(core, scoped, [])),
           )
-        tree_transaction.Commit(state, compressor, commit) -> {
           use route <- result.try(
             fluid_container.route_from_path("/" <> address)
             |> result.map_error(ContainerOperationFailed),
           )
-          submit_tree_commits(
+          use state <- result.try(tree_channel(core, address))
+          use #(core, events, outbound) <- result.try(submit_tree_commits(
             core,
             address,
             route,
             state,
             compressor,
             [commit],
-            list.map(events.events, fn(event) {
-              #(address, channel.TreeEvent(event))
-            }),
+            unscoped_tree_events(
+              list.filter(scoped, fn(event) {
+                case event.2 {
+                  channel.TreeEvent(_) -> True
+                  _ -> False
+                }
+              }),
+            ),
             tree_types.DefaultCommit,
             True,
-          )
+          ))
+          Ok(#(
+            core,
+            list.map(events, fn(event) {
+              #(event.0, tree_types.DocumentCheckout, event.1)
+            }),
+            outbound,
+          ))
         }
       }
     }
@@ -4124,43 +4999,66 @@ pub fn abort_tree_transaction(
   core: Core,
   address: String,
 ) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
-  use #(view, value) <- result.try(active_tree_transaction(core, address))
-  case tree_transaction.depth(value) > 1 {
+  use #(core, events) <- result.try(abort_tree_transaction_on(
+    core,
+    address,
+    tree_types.DocumentCheckout,
+  ))
+  Ok(#(core, unscoped_tree_events(events)))
+}
+
+pub fn abort_tree_transaction_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> Result(#(Core, List(ScopedTreeEvent)), CoreError) {
+  use #(view, value) <- result.try(active_tree_transaction(
+    core,
+    address,
+    selector,
+  ))
+  case tree_branch.transaction_depth(value) > 1 {
     True -> {
       use value <- result.try(
-        tree_transaction.abort_nested(value)
+        tree_branch.transaction_abort_nested(value)
         |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
       )
       Ok(
         #(
-          Core(..core, active_tree_transaction: Some(#(address, view, value))),
+          Core(
+            ..core,
+            active_tree_transaction: Some(#(address, selector, view, value)),
+          ),
           [],
         ),
       )
     }
     False -> {
-      use #(state, compressor) <- result.try(
-        tree_transaction.abort(value)
+      use forest <- result.try(checkout_forest(core, address))
+      use compressor <- result.try(
+        core.compressor
+        |> option.to_result(BadBootstrapSeed(
+          "tree channel has no document compressor",
+        )),
+      )
+      use #(forest, compressor) <- result.try(
+        tree_branch.abort_transaction(forest, value, compressor)
         |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
       )
-      Ok(
-        #(
-          install_transaction_state(
-            Core(..core, active_tree_transaction: None),
-            address,
-            state,
-            compressor,
-          ),
-          [],
-        ),
-      )
+      use core <- result.try(install_checkout_forest(
+        Core(..core, active_tree_transaction: None),
+        address,
+        forest,
+        compressor,
+      ))
+      Ok(#(core, []))
     }
   }
 }
 
 pub fn tree_transaction_depth(core: Core) -> Int {
   case core.active_tree_transaction {
-    Some(#(_, _, value)) -> tree_transaction.depth(value)
+    Some(#(_, _, _, value)) -> tree_branch.transaction_depth(value)
     None -> 0
   }
 }
@@ -4207,6 +5105,43 @@ pub fn submit_tree_upgrade(
   }
 }
 
+pub fn submit_tree_upgrade_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+) -> Result(
+  #(Core, List(ScopedTreeEvent), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  case selector {
+    tree_types.LocalCheckout(_) -> {
+      use _ <- result.try(resolve_tree_checkout(core, address, selector))
+      Error(TreeOperationFailed(
+        address,
+        tree_types.UnsupportedFeature(
+          "branch schema",
+          "schema authoring on a local checkout",
+        ),
+      ))
+    }
+    tree_types.DocumentCheckout -> {
+      use #(core, events, outbound) <- result.try(submit_tree_upgrade(
+        core,
+        address,
+        view,
+      ))
+      Ok(#(
+        core,
+        list.map(events, fn(event) {
+          #(event.0, tree_types.DocumentCheckout, event.1)
+        }),
+        outbound,
+      ))
+    }
+  }
+}
+
 fn resolve_transaction_constraints(
   state: tree_kernel.TreeState,
   address: String,
@@ -4221,26 +5156,15 @@ fn resolve_transaction_constraints(
 fn active_tree_transaction(
   core: Core,
   address: String,
-) -> Result(#(tree_schema.ViewSchema, tree_transaction.Transaction), CoreError) {
+  selector: tree_types.CheckoutSelector,
+) -> Result(#(tree_schema.ViewSchema, tree_branch.BranchTransaction), CoreError) {
   case core.active_tree_transaction {
     None -> transaction_error(address, "tree transaction is not active")
-    Some(#(active_address, _, _)) if active_address != address ->
-      transaction_error(address, "tree transaction uses another tree")
-    Some(#(_, view, value)) -> Ok(#(view, value))
+    Some(#(active_address, active_selector, _, _))
+      if active_address != address || active_selector != selector
+    -> transaction_error(address, "tree transaction uses another tree")
+    Some(#(_, _, view, value)) -> Ok(#(view, value))
   }
-}
-
-fn install_transaction_state(
-  core: Core,
-  address: String,
-  state: tree_kernel.TreeState,
-  compressor: fluid_ids.Compressor,
-) -> Core {
-  Core(
-    ..core,
-    channels: dict.insert(core.channels, address, channel.TreeState(state)),
-    compressor: Some(compressor),
-  )
 }
 
 fn require_no_tree_transaction(
@@ -4248,7 +5172,7 @@ fn require_no_tree_transaction(
   operation: String,
 ) -> Result(Nil, CoreError) {
   case core.active_tree_transaction {
-    Some(#(address, _, _)) ->
+    Some(#(address, _, _, _)) ->
       transaction_error(address, "tree transaction blocks " <> operation)
     None -> Ok(Nil)
   }
@@ -4269,7 +5193,31 @@ pub fn retain_tree_revertible(
     tree_kernel.retain_revertible(state, revision, kind)
     |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
   )
-  Ok(#(put_attached_channel(core, address, channel.TreeState(state)), id))
+  use core <- result.try(
+    put_attached_channel(core, address, channel.TreeState(state))
+    |> sync_tree_checkouts,
+  )
+  Ok(#(core, id))
+}
+
+pub fn retain_tree_revertible_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  revision: fluid_ids.StableId,
+  kind: tree_types.TreeCommitKind,
+) -> Result(#(Core, tree_types.RevertibleId), CoreError) {
+  use #(forest, checkout) <- result.try(resolve_tree_checkout(
+    core,
+    address,
+    selector,
+  ))
+  use #(forest, revertible) <- result.try(
+    tree_branch.retain_revertible(forest, checkout, revision, kind)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  use core <- result.try(install_checkout_forest_state(core, address, forest))
+  Ok(#(core, tree_branch.revertible_id(revertible)))
 }
 
 pub fn tree_revertible_is_valid(
@@ -4283,6 +5231,22 @@ pub fn tree_revertible_is_valid(
   }
 }
 
+pub fn tree_revertible_is_valid_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  id: tree_types.RevertibleId,
+) -> Bool {
+  case resolve_tree_checkout(core, address, selector) {
+    Error(_) -> False
+    Ok(#(forest, checkout)) ->
+      case tree_branch.revertible(forest, checkout, id) {
+        Ok(revertible) -> tree_branch.revertible_is_valid(forest, revertible)
+        Error(_) -> False
+      }
+  }
+}
+
 pub fn dispose_tree_revertible(
   core: Core,
   address: String,
@@ -4293,7 +5257,126 @@ pub fn dispose_tree_revertible(
     tree_kernel.dispose_revertible(state, id)
     |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
   )
-  Ok(put_attached_channel(core, address, channel.TreeState(state)))
+  put_attached_channel(core, address, channel.TreeState(state))
+  |> sync_tree_checkouts
+}
+
+pub fn dispose_tree_revertible_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  id: tree_types.RevertibleId,
+) -> Result(Core, CoreError) {
+  use #(forest, checkout) <- result.try(resolve_tree_checkout(
+    core,
+    address,
+    selector,
+  ))
+  use revertible <- result.try(
+    tree_branch.revertible(forest, checkout, id)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  use forest <- result.try(
+    tree_branch.dispose_revertible(forest, revertible)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  install_checkout_forest_state(core, address, forest)
+}
+
+pub fn revert_tree_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  id: tree_types.RevertibleId,
+) -> Result(
+  #(Core, List(ScopedTreeEvent), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use _ <- result.try(case core.active_tree_transaction {
+    Some(#(active_address, active_selector, _, _))
+      if active_address == address && active_selector == selector
+    -> transaction_error(address, "checkout has an active transaction")
+    Some(#(active_address, _, _, _)) if active_address != address ->
+      transaction_error(address, "tree transaction uses another tree")
+    _ -> Ok(Nil)
+  })
+  use #(forest, checkout) <- result.try(resolve_tree_checkout(
+    core,
+    address,
+    selector,
+  ))
+  use revertible <- result.try(
+    tree_branch.revertible(forest, checkout, id)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  use compressor <- result.try(
+    core.compressor
+    |> option.to_result(BadBootstrapSeed(
+      "tree channel has no document compressor",
+    )),
+  )
+  use reverted <- result.try(
+    tree_branch.revert(forest, revertible, compressor)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  use forest <- result.try(
+    tree_branch.dispose_revertible(reverted.forest, reverted.revertible)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  use core <- result.try(install_checkout_forest(
+    core,
+    address,
+    forest,
+    reverted.compressor,
+  ))
+  let core =
+    register_tree_publications(core, address, [reverted.commit], [selector])
+  let scoped =
+    scoped_branch_change_events(address, reverted.events)
+    |> list.map(fn(event) {
+      case event.2 {
+        channel.TreeCommitApplied(revision, _, local, revertible) -> #(
+          event.0,
+          event.1,
+          channel.TreeCommitApplied(revision, reverted.kind, local, revertible),
+        )
+        _ -> event
+      }
+    })
+  use <- bool.guard(
+    selector != tree_types.DocumentCheckout,
+    Ok(#(core, scoped, [])),
+  )
+  use route <- result.try(
+    fluid_container.route_from_path("/" <> address)
+    |> result.map_error(ContainerOperationFailed),
+  )
+  use state <- result.try(tree_channel(core, address))
+  use #(core, events, outbound) <- result.try(submit_tree_commits(
+    core,
+    address,
+    route,
+    state,
+    reverted.compressor,
+    [reverted.commit],
+    unscoped_tree_events(
+      list.filter(scoped, fn(event) {
+        case event.2 {
+          channel.TreeEvent(_) -> True
+          _ -> False
+        }
+      }),
+    ),
+    reverted.kind,
+    True,
+  ))
+  Ok(#(
+    core,
+    list.map(events, fn(event) {
+      #(event.0, tree_types.DocumentCheckout, event.1)
+    }),
+    outbound,
+  ))
 }
 
 pub fn revert_tree(
@@ -4365,16 +5448,6 @@ fn submit_tree_commits(
   CoreError,
 ) {
   let #(compressor, range) = fluid_ids.take_creation_range(compressor)
-  use allocation <- result.try(case range {
-    Some(range) -> Ok(range)
-    None ->
-      Error(
-        ContainerOperationFailed(fluid_container.MalformedMessage(
-          "idAllocation",
-          "tree edit produced no creation range",
-        )),
-      )
-  })
   use encoded <- result.try(
     list.try_map(commits, fn(commit) {
       use contents <- result.try(
@@ -4384,34 +5457,44 @@ fn submit_tree_commits(
       Ok(fluid_container.ChannelOperation(route, contents))
     }),
   )
-  let kinds = [fluid_container.IdAllocation(allocation), ..encoded]
+  let kinds = case range {
+    Some(allocation) -> [fluid_container.IdAllocation(allocation), ..encoded]
+    None -> encoded
+  }
   let batch_id =
     core.client_id
     <> "_["
     <> int.to_string(core.next_client_sequence_number)
     <> "]"
   let count = list.length(kinds)
-  let outer_metadata =
-    json.object([
-      #("batchId", json.string(batch_id)),
-      #("groupedOpCount", json.int(count)),
-    ])
+  let grouped = count > 1
+  let outer_metadata = case grouped {
+    True ->
+      Some(
+        json.object([
+          #("batchId", json.string(batch_id)),
+          #("groupedOpCount", json.int(count)),
+        ]),
+      )
+    False -> None
+  }
   use contents <- result.try(
     fluid_container.encode_batch(fluid_container.DecodedBatch(
-      True,
-      Some(outer_metadata),
+      grouped,
+      outer_metadata,
       list.index_map(kinds, fn(kind, index) {
-        let metadata = case index {
-          0 ->
+        let metadata = case grouped, index {
+          False, _ -> None
+          True, 0 ->
             Some(
               json.object([
                 #("batch", json.bool(True)),
                 #("batchId", json.string(batch_id)),
               ]),
             )
-          index if index == count - 1 ->
+          True, index if index == count - 1 ->
             Some(json.object([#("batch", json.bool(False))]))
-          _ -> None
+          _, _ -> None
         }
         fluid_container.ContainerMessage(kind, index, metadata)
       }),
@@ -4425,27 +5508,33 @@ fn submit_tree_commits(
       core.last_seen_sequence_number,
       "op",
       contents,
-      Some(outer_metadata),
+      outer_metadata,
     )
+  let core =
+    Core(
+      ..core,
+      channels: dict.insert(core.channels, address, channel.TreeState(state)),
+      compressor: Some(compressor),
+      next_client_sequence_number: csn + 1,
+      in_flight: list.append(core.in_flight, [
+        InFlightBatch(
+          core.client_id,
+          csn,
+          core.last_seen_sequence_number,
+          grouped,
+          case grouped {
+            True -> Some(batch_id)
+            False -> None
+          },
+          kinds,
+          [],
+        ),
+      ]),
+    )
+  use core <- result.try(sync_tree_checkouts(core))
   Ok(
     #(
-      Core(
-        ..core,
-        channels: dict.insert(core.channels, address, channel.TreeState(state)),
-        compressor: Some(compressor),
-        next_client_sequence_number: csn + 1,
-        in_flight: list.append(core.in_flight, [
-          InFlightBatch(
-            core.client_id,
-            csn,
-            core.last_seen_sequence_number,
-            True,
-            Some(batch_id),
-            kinds,
-            [],
-          ),
-        ]),
-      ),
+      core,
       list.append(
         list.map(commits, fn(commit) {
           #(

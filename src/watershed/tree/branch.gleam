@@ -93,6 +93,12 @@ pub type RevertResult {
   )
 }
 
+pub type Status {
+  DocumentBranch
+  BranchValid
+  BranchDisposed
+}
+
 pub fn origin(runtime: String, document: String, tree: String) -> Origin {
   Origin(runtime, document, tree)
 }
@@ -103,6 +109,46 @@ pub fn new(origin: Origin, document: tree_kernel.TreeState) -> Forest {
 
 pub fn document(state: Forest) -> Checkout {
   Checkout(state.origin, DocumentCheckout)
+}
+
+pub fn checkout(
+  state: Forest,
+  selector: CheckoutSelector,
+) -> Result(Checkout, TreeError) {
+  let value = Checkout(state.origin, selector)
+  use _ <- result.try(validate_checkout(state, value))
+  Ok(value)
+}
+
+pub fn checkout_selector(checkout: Checkout) -> CheckoutSelector {
+  checkout.selector
+}
+
+pub fn checkout_contains_revision(
+  state: Forest,
+  selector: CheckoutSelector,
+  revision: fluid_ids.StableId,
+) -> Bool {
+  history.checkout_contains_revision(
+    tree_kernel.branch_history(state.document),
+    selector,
+    revision,
+  )
+}
+
+pub fn status(state: Forest, selector: CheckoutSelector) -> Status {
+  case selector {
+    DocumentCheckout -> DocumentBranch
+    LocalCheckout(id) ->
+      case list.contains(state.disposed, id) {
+        True -> BranchDisposed
+        False ->
+          case require_local(state.locals, id) {
+            Ok(_) -> BranchValid
+            Error(_) -> BranchDisposed
+          }
+      }
+  }
 }
 
 pub fn update_document(
@@ -340,6 +386,17 @@ pub fn transaction_begin_nested(open: BranchTransaction) -> BranchTransaction {
   BranchTransaction(..open, value: tree_transaction.begin_nested(open.value))
 }
 
+pub fn transaction_begin_nested_with_constraints(
+  open: BranchTransaction,
+  constraints: List(change.ConstraintTarget),
+) -> Result(BranchTransaction, TreeError) {
+  use value <- result.try(tree_transaction.begin_nested_with_constraints(
+    open.value,
+    constraints,
+  ))
+  Ok(BranchTransaction(..open, value:))
+}
+
 pub fn transaction_abort_nested(
   open: BranchTransaction,
 ) -> Result(BranchTransaction, TreeError) {
@@ -363,6 +420,14 @@ pub fn transaction_read(
 
 pub fn transaction_compressor(open: BranchTransaction) -> fluid_ids.Compressor {
   tree_transaction.compressor(open.value)
+}
+
+pub fn transaction_state(open: BranchTransaction) -> tree_kernel.TreeState {
+  tree_transaction.state(open.value)
+}
+
+pub fn transaction_depth(open: BranchTransaction) -> Int {
+  tree_transaction.depth(open.value)
 }
 
 pub fn finish_transaction(
@@ -452,6 +517,22 @@ pub fn revertible_is_valid(state: Forest, revertible: Revertible) -> Bool {
         revertible.id,
       )
   }
+}
+
+pub fn revertible(
+  state: Forest,
+  checkout: Checkout,
+  id: RevertibleId,
+) -> Result(Revertible, TreeError) {
+  let value = Revertible(checkout, id)
+  case revertible_is_valid(state, value) {
+    True -> Ok(value)
+    False -> Error(InvalidHistory("tree revertible is disposed"))
+  }
+}
+
+pub fn revertible_id(revertible: Revertible) -> RevertibleId {
+  revertible.id
 }
 
 pub fn dispose_revertible(
@@ -735,6 +816,13 @@ pub fn dispose(state: Forest, checkout: Checkout) -> Result(Forest, TreeError) {
         }
       }
   }
+}
+
+pub fn dispose_selector(
+  state: Forest,
+  selector: CheckoutSelector,
+) -> Result(Forest, TreeError) {
+  dispose(state, Checkout(state.origin, selector))
 }
 
 pub fn set_transaction_active(

@@ -17,6 +17,7 @@ import watershed/tree/change as tree_change
 import watershed/tree/codec
 import watershed/tree/codec/summary as tree_summary_codec
 import watershed/tree/fixtures
+import watershed/tree/identifier_fixture
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/runtime_fixture
 import watershed/tree/schema as tree_schema
@@ -139,6 +140,27 @@ fn transaction_core() -> #(runtime_core.Core, String, tree_schema.ViewSchema) {
     |> tree_schema.view_from_json
     |> expect.to_be_ok
   #(core, address, view)
+}
+
+fn identifier_core() -> #(runtime_core.Core, String, tree_schema.ViewSchema) {
+  let root =
+    identifier_fixture.full_root(
+      identifier_fixture.point("child", "child"),
+      [],
+      [],
+      [],
+    )
+  let seed =
+    identifier_fixture.full_seed_input(root)
+    |> runtime_core.bootstrap_seed
+    |> expect.to_be_ok
+  let assert runtime_core.Complete(core) =
+    runtime_core.bootstrap_seeded(
+      runtime_fixture.connected("identifier-reader", [], 0),
+      seed,
+    )
+    |> expect.to_be_ok
+  #(core, "A/_C", identifier_fixture.full_view())
 }
 
 fn transaction_wrong_view(
@@ -688,16 +710,25 @@ pub fn shared_tree_runtime_transaction_isolates_nested_edits_until_outer_commit_
     #(_, channel.TreeCommitApplied(_, tree_types.DefaultCommit, True, True)),
     #(address, channel.TreeEvent(tree_kernel.TreeChanged(True))),
   ] = events
-  let assert Ok(batch) =
-    fluid_container.decode(outbound.contents, outbound.metadata)
-  let assert [
-    fluid_container.ContainerMessage(fluid_container.IdAllocation(_), 0, _),
-    fluid_container.ContainerMessage(
-      fluid_container.ChannelOperation(_, _),
-      1,
-      _,
-    ),
-  ] = batch.messages
+  let decoded = fluid_container.decode(outbound.contents, outbound.metadata)
+  decoded |> expect.to_be_ok
+  let messages = case decoded {
+    Ok(batch) -> batch.messages
+    Error(_) -> []
+  }
+  messages |> list.length |> expect.to_equal(2)
+  let allocation_first = case messages {
+    [
+      fluid_container.ContainerMessage(fluid_container.IdAllocation(_), 0, _),
+      fluid_container.ContainerMessage(
+        fluid_container.ChannelOperation(_, _),
+        1,
+        _,
+      ),
+    ] -> True
+    _ -> False
+  }
+  allocation_first |> expect.to_be_true
   runtime_core.tree_map_get_view(
     committed,
     address,
@@ -3355,6 +3386,961 @@ pub fn shared_tree_runtime_rejects_empty_edit_batch_test() {
   let assert Ok(core) = runtime_fixture.routed_core()
   runtime_core.submit_tree_edits(core, "A/_C", [])
   |> expect.to_equal(Error(runtime_core.EmptyTreeEditBatch))
+}
+
+pub fn shared_tree_runtime_local_checkout_isolates_edits_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let selector = tree_types.LocalCheckout(id)
+  let #(core, events, outbound) =
+    runtime_core.submit_tree_edits_on(core, address, selector, [
+      tree_types.MapSet(
+        ["items"],
+        "branch",
+        tree_types.StringValue("branch-only"),
+      ),
+    ])
+    |> expect.to_be_ok
+  outbound |> expect.to_equal([])
+  let assert [#("A/_C", tree_types.LocalCheckout(_), _), ..] = events
+  {
+    runtime_core.tree_read(core, address, ["items", "branch"])
+    != Ok(Some(tree_types.StringValue("branch-only")))
+  }
+  |> expect.to_be_true
+  runtime_core.tree_read_on(core, address, selector, ["items", "branch"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("branch-only"))))
+}
+
+pub fn shared_tree_runtime_document_merge_publishes_each_commit_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let source = tree_types.LocalCheckout(id)
+  let #(core, _, first_outbound) =
+    runtime_core.submit_tree_edits_on(core, address, source, [
+      tree_types.MapSet(["items"], "first", tree_types.StringValue("one")),
+      tree_types.MapSet(["items"], "second", tree_types.StringValue("two")),
+    ])
+    |> expect.to_be_ok
+  first_outbound |> expect.to_equal([])
+  let #(core, events, merge_outbound) =
+    runtime_core.merge_tree(
+      core,
+      address,
+      tree_types.DocumentCheckout,
+      source,
+      False,
+    )
+    |> expect.to_be_ok
+  let assert [outbound] = merge_outbound
+  let applied =
+    list.filter(events, fn(event) {
+      case event {
+        #(
+          "A/_C",
+          tree_types.DocumentCheckout,
+          channel.TreeCommitApplied(_, tree_types.DefaultCommit, True, True),
+        ) -> True
+        _ -> False
+      }
+    })
+  applied |> list.length |> expect.to_equal(2)
+  let assert Ok(batch) =
+    fluid_container.decode(outbound.contents, outbound.metadata)
+  let assert [
+    fluid_container.ContainerMessage(fluid_container.IdAllocation(_), 0, _),
+    fluid_container.ContainerMessage(
+      fluid_container.ChannelOperation(fluid_container.Route("A", "_C"), _),
+      1,
+      _,
+    ),
+    fluid_container.ContainerMessage(
+      fluid_container.ChannelOperation(fluid_container.Route("A", "_C"), _),
+      2,
+      _,
+    ),
+  ] = batch.messages
+  runtime_core.tree_read(core, address, ["items", "second"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("two"))))
+  let #(settled, ingested) =
+    runtime_core.handle_sequenced(core, map_message(core, outbound, 1))
+    |> expect.to_be_ok
+  let scoped = runtime_core.scope_tree_events(settled, ingested.events)
+  scoped |> list.length |> expect.to_equal(4)
+  let selectors = list.map(scoped, fn(event) { event.1 })
+  selectors
+  |> list.filter(fn(selector) { selector == tree_types.DocumentCheckout })
+  |> list.length
+  |> expect.to_equal(2)
+  selectors
+  |> list.filter(fn(selector) { selector == source })
+  |> list.length
+  |> expect.to_equal(2)
+}
+
+pub fn shared_tree_runtime_local_target_merge_has_no_outbound_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, source_id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let #(core, target_id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let source = tree_types.LocalCheckout(source_id)
+  let target = tree_types.LocalCheckout(target_id)
+  let assert #(core, _, []) =
+    runtime_core.submit_tree_edits_on(core, address, source, [
+      tree_types.MapSet(["items"], "local", tree_types.StringValue("merged")),
+    ])
+    |> expect.to_be_ok
+  let #(core, _, outbound) =
+    runtime_core.merge_tree(core, address, target, source, False)
+    |> expect.to_be_ok
+  outbound |> expect.to_equal([])
+  runtime_core.tree_read_on(core, address, target, ["items", "local"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("merged"))))
+  runtime_core.tree_read(core, address, ["items", "local"])
+  |> expect.to_equal(Ok(None))
+}
+
+pub fn shared_tree_runtime_local_transaction_preserves_independent_main_edit_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let branch = tree_types.LocalCheckout(id)
+  let core =
+    runtime_core.begin_tree_transaction_on(core, address, branch, view, [])
+    |> expect.to_be_ok
+  let assert #(core, _, []) =
+    runtime_core.submit_tree_edits_on(core, address, branch, [
+      tree_types.MapSet(["items"], "owner", tree_types.StringValue("discarded")),
+    ])
+    |> expect.to_be_ok
+  let #(core, _, main_outbound) =
+    runtime_core.submit_tree_edits_on(
+      core,
+      address,
+      tree_types.DocumentCheckout,
+      [
+        tree_types.MapSet(
+          ["items"],
+          "main",
+          tree_types.StringValue("preserved"),
+        ),
+      ],
+    )
+    |> expect.to_be_ok
+  main_outbound |> list.length |> expect.to_equal(1)
+  let assert #(core, []) =
+    runtime_core.abort_tree_transaction_on(core, address, branch)
+    |> expect.to_be_ok
+  runtime_core.tree_read(core, address, ["items", "main"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("preserved"))))
+  runtime_core.tree_read_on(core, address, branch, ["items", "owner"])
+  |> expect.to_equal(Ok(None))
+  core.in_flight |> list.length |> expect.to_equal(1)
+}
+
+pub fn shared_tree_runtime_document_transaction_preserves_independent_branch_edit_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let branch = tree_types.LocalCheckout(id)
+  let core =
+    runtime_core.begin_tree_transaction(core, address, view, [])
+    |> expect.to_be_ok
+  let assert #(core, _, []) =
+    runtime_core.submit_tree_edits_on(core, address, branch, [
+      tree_types.MapSet(
+        ["items"],
+        "branch",
+        tree_types.StringValue("preserved"),
+      ),
+    ])
+    |> expect.to_be_ok
+  let assert #(core, []) =
+    runtime_core.abort_tree_transaction(core, address)
+    |> expect.to_be_ok
+  runtime_core.tree_read_on(core, address, branch, ["items", "branch"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("preserved"))))
+  core.in_flight |> expect.to_equal([])
+}
+
+pub fn shared_tree_runtime_local_transaction_commit_preserves_main_submission_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let branch = tree_types.LocalCheckout(id)
+  let core =
+    runtime_core.begin_tree_transaction_on(core, address, branch, view, [])
+    |> expect.to_be_ok
+  let assert #(core, _, []) =
+    runtime_core.submit_tree_edits_on(core, address, branch, [
+      tree_types.MapSet(["items"], "owner", tree_types.StringValue("committed")),
+    ])
+    |> expect.to_be_ok
+  let #(core, _, main_outbound) =
+    runtime_core.submit_tree_edits(core, address, [
+      tree_types.MapSet(["items"], "main", tree_types.StringValue("preserved")),
+    ])
+    |> expect.to_be_ok
+  let #(core, _, branch_outbound) =
+    runtime_core.commit_tree_transaction_on(core, address, branch)
+    |> expect.to_be_ok
+  main_outbound |> list.length |> expect.to_equal(1)
+  branch_outbound |> expect.to_equal([])
+  runtime_core.tree_read(core, address, ["items", "main"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("preserved"))))
+  runtime_core.tree_read_on(core, address, branch, ["items", "owner"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("committed"))))
+}
+
+pub fn shared_tree_runtime_rejects_branch_schema_authoring_atomically_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let before_channels = core.channels
+  let before_compressor = core.compressor
+  let before_in_flight = core.in_flight
+  runtime_core.submit_tree_upgrade_on(
+    core,
+    address,
+    tree_types.LocalCheckout(id),
+    view,
+  )
+  |> expect.to_equal(
+    Error(runtime_core.TreeOperationFailed(
+      address,
+      tree_types.UnsupportedFeature(
+        "branch schema",
+        "schema authoring on a local checkout",
+      ),
+    )),
+  )
+  core.channels |> expect.to_equal(before_channels)
+  core.compressor |> expect.to_equal(before_compressor)
+  core.in_flight |> expect.to_equal(before_in_flight)
+}
+
+pub fn shared_tree_runtime_fork_survives_main_local_ack_and_remote_updates_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let branch = tree_types.LocalCheckout(id)
+  let assert #(pending, _, [outbound]) =
+    runtime_core.submit_tree_edits(core, address, [
+      tree_types.MapSet(["items"], "local", tree_types.StringValue("pending")),
+    ])
+    |> expect.to_be_ok
+  runtime_core.tree_read_on(pending, address, branch, ["items", "local"])
+  |> expect.to_equal(Ok(None))
+  let #(pending, _) =
+    runtime_core.rebase_tree_onto(
+      pending,
+      address,
+      branch,
+      tree_types.DocumentCheckout,
+    )
+    |> expect.to_be_ok
+  runtime_core.tree_read_on(pending, address, branch, ["items", "local"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("pending"))))
+  let #(settled, _) =
+    runtime_core.handle_sequenced(pending, map_message(pending, outbound, 1))
+    |> expect.to_be_ok
+
+  let remote = map_core_for("remote", "50000000-0000-4000-8000-000000000005")
+  let assert #(remote, _, [remote_outbound]) =
+    runtime_core.submit_tree_edits(remote, address, [
+      tree_types.MapSet(
+        ["items"],
+        "remote",
+        tree_types.StringValue("sequenced"),
+      ),
+    ])
+    |> expect.to_be_ok
+  let #(received, _) =
+    runtime_core.handle_sequenced(
+      settled,
+      map_message(remote, remote_outbound, 2),
+    )
+    |> expect.to_be_ok
+  runtime_core.tree_read_on(received, address, branch, ["items", "remote"])
+  |> expect.to_equal(Ok(None))
+  let #(rebased, _) =
+    runtime_core.rebase_tree_onto(
+      received,
+      address,
+      branch,
+      tree_types.DocumentCheckout,
+    )
+    |> expect.to_be_ok
+  runtime_core.tree_read_on(rebased, address, branch, ["items", "remote"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("sequenced"))))
+}
+
+pub fn shared_tree_runtime_rejects_document_rebase_before_mutation_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let before_channels = core.channels
+  let before_compressor = core.compressor
+  let before_in_flight = core.in_flight
+  runtime_core.rebase_tree_onto(
+    core,
+    address,
+    tree_types.DocumentCheckout,
+    tree_types.LocalCheckout(id),
+  )
+  |> expect.to_be_error
+  core.channels |> expect.to_equal(before_channels)
+  core.compressor |> expect.to_equal(before_compressor)
+  core.in_flight |> expect.to_equal(before_in_flight)
+}
+
+pub fn shared_tree_runtime_branch_disposal_is_idempotent_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let selector = tree_types.LocalCheckout(id)
+  let core =
+    runtime_core.dispose_tree_branch(core, address, selector)
+    |> expect.to_be_ok
+  let core =
+    runtime_core.dispose_tree_branch(core, address, selector)
+    |> expect.to_be_ok
+  runtime_core.tree_branch_status(core, address, selector)
+  |> expect.to_equal(runtime_core.BranchDisposed)
+}
+
+pub fn shared_tree_runtime_branch_revert_stays_local_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let selector = tree_types.LocalCheckout(id)
+  let assert #(core, events, []) =
+    runtime_core.submit_tree_edits_on(core, address, selector, [
+      tree_types.MapSet(["items"], "undo", tree_types.StringValue("local")),
+    ])
+    |> expect.to_be_ok
+  let assert [#(_, _, channel.TreeCommitApplied(revision, _, True, True)), ..] =
+    events
+  let #(core, id) =
+    runtime_core.retain_tree_revertible_on(
+      core,
+      address,
+      selector,
+      revision,
+      tree_types.DefaultCommit,
+    )
+    |> expect.to_be_ok
+  let #(core, events, outbound) =
+    runtime_core.revert_tree_on(core, address, selector, id)
+    |> expect.to_be_ok
+  outbound |> expect.to_equal([])
+  let assert [
+    #(_, _, channel.TreeCommitApplied(_, tree_types.UndoCommit, True, True)),
+    ..
+  ] = events
+  runtime_core.tree_read_on(core, address, selector, ["items", "undo"])
+  |> expect.to_equal(Ok(None))
+  runtime_core.tree_read(core, address, ["items", "undo"])
+  |> expect.to_equal(Ok(None))
+  runtime_core.tree_revertible_is_valid_on(core, address, selector, id)
+  |> expect.to_be_true
+}
+
+pub fn shared_tree_runtime_fork_survives_noop_sequence_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let noop = batch_message([])
+  let #(core, _) =
+    runtime_core.handle_sequenced(core, noop)
+    |> expect.to_be_ok
+  runtime_core.tree_branch_status(core, address, tree_types.LocalCheckout(id))
+  |> expect.to_equal(runtime_core.BranchValid)
+}
+
+pub fn shared_tree_runtime_document_revertible_survives_ack_test() {
+  let #(core, address, _) = transaction_core()
+  let assert #(core, events, [outbound]) =
+    runtime_core.submit_tree_edits(core, address, [
+      tree_types.MapSet(["items"], "pin", tree_types.StringValue("value")),
+    ])
+    |> expect.to_be_ok
+  let revision = applied_revision(events)
+  let #(core, id) =
+    runtime_core.retain_tree_revertible_on(
+      core,
+      address,
+      tree_types.DocumentCheckout,
+      revision,
+      tree_types.DefaultCommit,
+    )
+    |> expect.to_be_ok
+  let #(core, _) =
+    runtime_core.handle_sequenced(core, map_message(core, outbound, 1))
+    |> expect.to_be_ok
+  runtime_core.tree_revertible_is_valid_on(
+    core,
+    address,
+    tree_types.DocumentCheckout,
+    id,
+  )
+  |> expect.to_be_true
+}
+
+pub fn shared_tree_runtime_disposed_document_revertible_stays_disposed_test() {
+  let #(core, address, _) = transaction_core()
+  let assert #(core, events, [outbound]) =
+    runtime_core.submit_tree_edits(core, address, [
+      tree_types.MapSet(["items"], "pin", tree_types.StringValue("value")),
+    ])
+    |> expect.to_be_ok
+  let revision = applied_revision(events)
+  let #(core, id) =
+    runtime_core.retain_tree_revertible_on(
+      core,
+      address,
+      tree_types.DocumentCheckout,
+      revision,
+      tree_types.DefaultCommit,
+    )
+    |> expect.to_be_ok
+  let core =
+    runtime_core.dispose_tree_revertible_on(
+      core,
+      address,
+      tree_types.DocumentCheckout,
+      id,
+    )
+    |> expect.to_be_ok
+  let #(core, _) =
+    runtime_core.handle_sequenced(core, map_message(core, outbound, 1))
+    |> expect.to_be_ok
+  runtime_core.tree_revertible_is_valid_on(
+    core,
+    address,
+    tree_types.DocumentCheckout,
+    id,
+  )
+  |> expect.to_be_false
+}
+
+pub fn shared_tree_runtime_transaction_threads_identifier_allocations_test() {
+  let #(core, address, view) = identifier_core()
+  let #(core, branch_id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let branch = tree_types.LocalCheckout(branch_id)
+  let core =
+    runtime_core.begin_tree_transaction_on(core, address, branch, view, [])
+    |> expect.to_be_ok
+  let assert #(core, [], []) =
+    runtime_core.submit_tree_edits_on(core, address, branch, [
+      tree_types.ArrayInsert(["left"], 0, [
+        tree_types.ObjectValue(identifier_fixture.point_type, [
+          #("label", tree_types.StringValue("first")),
+        ]),
+      ]),
+      tree_types.ArrayInsert(["left"], 1, [
+        tree_types.ObjectValue(identifier_fixture.point_type, [
+          #("label", tree_types.StringValue("second")),
+        ]),
+      ]),
+    ])
+    |> expect.to_be_ok
+  let assert Ok(Some(tree_types.StringValue(first))) =
+    runtime_core.tree_read_on(core, address, branch, ["left", "0", "id"])
+  let assert Ok(Some(tree_types.StringValue(second))) =
+    runtime_core.tree_read_on(core, address, branch, ["left", "1", "id"])
+  first |> expect.to_not_equal(second)
+  let assert #(core, _, []) =
+    runtime_core.commit_tree_transaction_on(core, address, branch)
+    |> expect.to_be_ok
+  runtime_core.tree_read_on(core, address, branch, ["left", "1", "id"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue(second))))
+}
+
+pub fn shared_tree_runtime_document_transaction_threads_identifier_allocations_test() {
+  let #(core, address, view) = identifier_core()
+  let core =
+    runtime_core.begin_tree_transaction(core, address, view, [])
+    |> expect.to_be_ok
+  let assert #(core, [], []) =
+    runtime_core.submit_tree_edits(core, address, [
+      tree_types.ArrayInsert(["left"], 0, [
+        tree_types.ObjectValue(identifier_fixture.point_type, [
+          #("label", tree_types.StringValue("first")),
+        ]),
+      ]),
+      tree_types.ArrayInsert(["left"], 1, [
+        tree_types.ObjectValue(identifier_fixture.point_type, [
+          #("label", tree_types.StringValue("second")),
+        ]),
+      ]),
+    ])
+    |> expect.to_be_ok
+  let assert Ok(Some(tree_types.StringValue(first))) =
+    runtime_core.tree_read(core, address, ["left", "0", "id"])
+  let assert Ok(Some(tree_types.StringValue(second))) =
+    runtime_core.tree_read(core, address, ["left", "1", "id"])
+  first |> expect.to_not_equal(second)
+  let assert #(core, _, [_]) =
+    runtime_core.commit_tree_transaction(core, address)
+    |> expect.to_be_ok
+  runtime_core.tree_read(core, address, ["left", "1", "id"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue(second))))
+}
+
+pub fn shared_tree_runtime_transaction_resyncs_after_independent_identifier_edit_test() {
+  let #(core, address, view) = identifier_core()
+  let #(core, branch_id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let branch = tree_types.LocalCheckout(branch_id)
+  let core =
+    runtime_core.begin_tree_transaction_on(core, address, branch, view, [])
+    |> expect.to_be_ok
+  let assert #(core, [], []) =
+    runtime_core.submit_tree_edits_on(core, address, branch, [
+      tree_types.ArrayInsert(["left"], 0, [
+        tree_types.ObjectValue(identifier_fixture.point_type, [
+          #("label", tree_types.StringValue("first")),
+        ]),
+      ]),
+    ])
+    |> expect.to_be_ok
+  let assert Ok(Some(tree_types.StringValue(first))) =
+    runtime_core.tree_read_on(core, address, branch, ["left", "0", "id"])
+  let assert #(core, _, [_]) =
+    runtime_core.submit_tree_edits(core, address, [
+      tree_types.SetField(
+        ["child"],
+        tree_types.ObjectValue(identifier_fixture.point_type, [
+          #("label", tree_types.StringValue("main")),
+        ]),
+      ),
+    ])
+    |> expect.to_be_ok
+  let assert Ok(Some(tree_types.StringValue(main))) =
+    runtime_core.tree_read(core, address, ["child", "id"])
+  let assert #(core, [], []) =
+    runtime_core.submit_tree_edits_on(core, address, branch, [
+      tree_types.ArrayInsert(["left"], 1, [
+        tree_types.ObjectValue(identifier_fixture.point_type, [
+          #("label", tree_types.StringValue("second")),
+        ]),
+      ]),
+    ])
+    |> expect.to_be_ok
+  let assert Ok(Some(tree_types.StringValue(second))) =
+    runtime_core.tree_read_on(core, address, branch, ["left", "1", "id"])
+  first |> expect.to_not_equal(main)
+  first |> expect.to_not_equal(second)
+  main |> expect.to_not_equal(second)
+  let assert #(core, _, []) =
+    runtime_core.commit_tree_transaction_on(core, address, branch)
+    |> expect.to_be_ok
+  let assert #(_, _, [outbound]) =
+    runtime_core.merge_tree(
+      core,
+      address,
+      tree_types.DocumentCheckout,
+      branch,
+      False,
+    )
+    |> expect.to_be_ok
+  let decoded = fluid_container.decode(outbound.contents, outbound.metadata)
+  decoded |> expect.to_be_ok
+  let messages = case decoded {
+    Ok(batch) -> batch.messages
+    Error(_) -> []
+  }
+  messages |> list.length |> expect.to_equal(2)
+  let allocation_first = case messages {
+    [
+      fluid_container.ContainerMessage(fluid_container.IdAllocation(_), 0, _),
+      fluid_container.ContainerMessage(
+        fluid_container.ChannelOperation(_, _),
+        1,
+        _,
+      ),
+    ] -> True
+    _ -> False
+  }
+  allocation_first |> expect.to_be_true
+}
+
+pub fn shared_tree_runtime_transaction_invalid_later_edit_is_atomic_test() {
+  let #(core, address, view) = identifier_core()
+  let #(core, branch_id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let branch = tree_types.LocalCheckout(branch_id)
+  let core =
+    runtime_core.begin_tree_transaction_on(core, address, branch, view, [])
+    |> expect.to_be_ok
+  let before = core
+  runtime_core.submit_tree_edits_on(core, address, branch, [
+    tree_types.ArrayInsert(["left"], 0, [
+      tree_types.ObjectValue(identifier_fixture.point_type, [
+        #("label", tree_types.StringValue("discarded")),
+      ]),
+    ]),
+    tree_types.MapSet(["missing"], "invalid", tree_types.StringValue("bad")),
+  ])
+  |> expect.to_be_error
+  core |> expect.to_equal(before)
+  runtime_core.tree_read_on(core, address, branch, ["left", "0"])
+  |> expect.to_equal(Ok(None))
+}
+
+pub fn shared_tree_runtime_second_merge_publishes_without_allocation_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, a_id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let a = tree_types.LocalCheckout(a_id)
+  let assert #(core, a_events, []) =
+    runtime_core.submit_tree_edits_on(core, address, a, [
+      tree_types.MapSet(["items"], "r", tree_types.StringValue("R")),
+    ])
+    |> expect.to_be_ok
+  let r = case a_events {
+    [#(_, _, channel.TreeCommitApplied(revision, _, _, _)), ..] -> revision
+    _ -> panic as "source A produced no commit"
+  }
+  let #(core, b_id) =
+    runtime_core.fork_tree(core, address, a, view)
+    |> expect.to_be_ok
+  let b = tree_types.LocalCheckout(b_id)
+  let assert #(core, b_events, []) =
+    runtime_core.submit_tree_edits_on(core, address, b, [
+      tree_types.MapSet(["items"], "s", tree_types.StringValue("S")),
+    ])
+    |> expect.to_be_ok
+  let s = case b_events {
+    [#(_, _, channel.TreeCommitApplied(revision, _, _, _)), ..] -> revision
+    _ -> panic as "source B produced no commit"
+  }
+  let assert #(core, _, [first]) =
+    runtime_core.merge_tree(
+      core,
+      address,
+      tree_types.DocumentCheckout,
+      a,
+      False,
+    )
+    |> expect.to_be_ok
+  let assert #(core, second_events, [second]) =
+    runtime_core.merge_tree(
+      core,
+      address,
+      tree_types.DocumentCheckout,
+      b,
+      False,
+    )
+    |> expect.to_be_ok
+  let assert Ok(second_batch) =
+    fluid_container.decode(second.contents, second.metadata)
+  let assert [
+    fluid_container.ContainerMessage(
+      fluid_container.ChannelOperation(_, _),
+      0,
+      _,
+    ),
+  ] = second_batch.messages
+  let assert [
+    #(
+      _,
+      tree_types.DocumentCheckout,
+      channel.TreeCommitApplied(revision, _, _, _),
+    ),
+    ..
+  ] = second_events
+  revision |> expect.to_equal(s)
+  let #(core, _) =
+    runtime_core.handle_sequenced(core, map_message(core, first, 1))
+    |> expect.to_be_ok
+  let peer = map_core_for("merge-peer", "60000000-0000-4000-8000-000000000006")
+  let #(peer, _) =
+    runtime_core.handle_sequenced(peer, map_message(core, first, 1))
+    |> expect.to_be_ok
+  let assert Some(before_reconnect) = core.compressor
+  let session = fluid_ids.local_session(before_reconnect)
+  let reconnected =
+    runtime_core.adopt_reconnect(
+      core,
+      runtime_fixture.connected("merge-rejoined", [], 1),
+    )
+    |> expect.to_be_ok
+    |> runtime_core.go_live
+  let assert #(resubmitted, [resent]) =
+    runtime_core.resubmit(reconnected)
+    |> expect.to_be_ok
+  resent.client_sequence_number
+  |> expect.to_equal(reconnected.next_client_sequence_number)
+  resent.reference_sequence_number |> expect.to_equal(1)
+  resent.metadata |> expect.to_equal(None)
+  let assert [
+    runtime_core.InFlightBatch(grouped: False, batch_id: None, items: [_], ..),
+  ] = resubmitted.in_flight
+  let assert Some(after_reconnect) = resubmitted.compressor
+  fluid_ids.local_session(after_reconnect) |> expect.to_equal(session)
+  let #(core, _) =
+    runtime_core.handle_sequenced(
+      resubmitted,
+      map_message(resubmitted, resent, 2),
+    )
+    |> expect.to_be_ok
+  core.in_flight |> expect.to_equal([])
+  let #(peer, _) =
+    runtime_core.handle_sequenced(peer, map_message(resubmitted, resent, 2))
+    |> expect.to_be_ok
+  let assert #(reserved, _, []) =
+    runtime_core.submit_tree_edits_on(resubmitted, address, a, [
+      tree_types.MapSet(
+        ["items"],
+        "reserved",
+        tree_types.StringValue("local-only"),
+      ),
+    ])
+    |> expect.to_be_ok
+  let regrouped =
+    runtime_core.adopt_reconnect(
+      reserved,
+      runtime_fixture.connected("merge-regrouped", [], 1),
+    )
+    |> expect.to_be_ok
+    |> runtime_core.go_live
+  let assert #(regrouped, [resent_with_range]) =
+    runtime_core.resubmit(regrouped)
+    |> expect.to_be_ok
+  let assert Some(_) = resent_with_range.metadata
+  let regrouped_batch =
+    fluid_container.decode(
+      resent_with_range.contents,
+      resent_with_range.metadata,
+    )
+    |> expect.to_be_ok
+  let assert [
+    fluid_container.ContainerMessage(fluid_container.IdAllocation(_), 0, _),
+    fluid_container.ContainerMessage(
+      fluid_container.ChannelOperation(_, _),
+      1,
+      _,
+    ),
+  ] = regrouped_batch.messages
+  let assert [
+    runtime_core.InFlightBatch(
+      grouped: True,
+      batch_id: Some(_),
+      items: [_, _],
+      ..,
+    ),
+  ] = regrouped.in_flight
+  let #(regrouped, _) =
+    runtime_core.handle_sequenced(
+      regrouped,
+      map_message(regrouped, resent_with_range, 2),
+    )
+    |> expect.to_be_ok
+  regrouped.in_flight |> expect.to_equal([])
+  runtime_core.tree_read(core, address, ["items", "r"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("R"))))
+  runtime_core.tree_read(core, address, ["items", "s"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("S"))))
+  runtime_core.tree_read(peer, address, ["items", "r"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("R"))))
+  runtime_core.tree_read(peer, address, ["items", "s"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("S"))))
+  r |> expect.to_not_equal(s)
+}
+
+pub fn shared_tree_runtime_local_merge_propagates_settlement_scopes_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, a_id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let a = tree_types.LocalCheckout(a_id)
+  let assert #(core, _, []) =
+    runtime_core.submit_tree_edits_on(core, address, a, [
+      tree_types.MapSet(["items"], "r", tree_types.StringValue("R")),
+    ])
+    |> expect.to_be_ok
+  let #(core, b_id) =
+    runtime_core.fork_tree(core, address, a, view)
+    |> expect.to_be_ok
+  let b = tree_types.LocalCheckout(b_id)
+  let assert #(core, _, []) =
+    runtime_core.merge_tree(core, address, b, a, False)
+    |> expect.to_be_ok
+  let assert #(core, _, [outbound]) =
+    runtime_core.merge_tree(
+      core,
+      address,
+      tree_types.DocumentCheckout,
+      b,
+      False,
+    )
+    |> expect.to_be_ok
+  let #(core, ingested) =
+    runtime_core.handle_sequenced(core, map_message(core, outbound, 1))
+    |> expect.to_be_ok
+  let selectors =
+    runtime_core.scope_tree_events(core, ingested.events)
+    |> list.map(fn(event) { event.1 })
+  selectors |> list.length |> expect.to_equal(3)
+  selectors
+  |> list.filter(fn(selector) { selector == a })
+  |> list.length
+  |> expect.to_equal(1)
+  selectors
+  |> list.filter(fn(selector) { selector == b })
+  |> list.length
+  |> expect.to_equal(1)
+  selectors
+  |> list.filter(fn(selector) { selector == tree_types.DocumentCheckout })
+  |> list.length
+  |> expect.to_equal(1)
+}
+
+pub fn shared_tree_runtime_common_copy_registers_without_extra_operation_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, source_id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let source = tree_types.LocalCheckout(source_id)
+  let assert #(core, _, []) =
+    runtime_core.submit_tree_edits_on(core, address, source, [
+      tree_types.MapSet(["items"], "r", tree_types.StringValue("R")),
+    ])
+    |> expect.to_be_ok
+  let #(core, copy_id) =
+    runtime_core.fork_tree(core, address, source, view)
+    |> expect.to_be_ok
+  let copy = tree_types.LocalCheckout(copy_id)
+  let assert #(core, _, [outbound]) =
+    runtime_core.merge_tree(
+      core,
+      address,
+      tree_types.DocumentCheckout,
+      source,
+      False,
+    )
+    |> expect.to_be_ok
+  let assert #(core, _, []) =
+    runtime_core.merge_tree(
+      core,
+      address,
+      tree_types.DocumentCheckout,
+      copy,
+      False,
+    )
+    |> expect.to_be_ok
+  let #(core, ingested) =
+    runtime_core.handle_sequenced(core, map_message(core, outbound, 1))
+    |> expect.to_be_ok
+  let selectors =
+    runtime_core.scope_tree_events(core, ingested.events)
+    |> list.map(fn(event) { event.1 })
+  selectors |> list.contains(copy) |> expect.to_be_true
+}
+
+pub fn shared_tree_runtime_disposing_empty_merge_removes_only_source_scope_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, source_id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let source = tree_types.LocalCheckout(source_id)
+  let assert #(core, _, []) =
+    runtime_core.submit_tree_edits_on(core, address, source, [
+      tree_types.MapSet(["items"], "r", tree_types.StringValue("R")),
+    ])
+    |> expect.to_be_ok
+  let #(core, peer_id) =
+    runtime_core.fork_tree(core, address, source, view)
+    |> expect.to_be_ok
+  let peer = tree_types.LocalCheckout(peer_id)
+  let assert #(core, _, [outbound]) =
+    runtime_core.merge_tree(
+      core,
+      address,
+      tree_types.DocumentCheckout,
+      source,
+      False,
+    )
+    |> expect.to_be_ok
+  let assert #(core, _, []) =
+    runtime_core.merge_tree(
+      core,
+      address,
+      tree_types.DocumentCheckout,
+      peer,
+      False,
+    )
+    |> expect.to_be_ok
+  let assert #(core, _, []) =
+    runtime_core.merge_tree(
+      core,
+      address,
+      tree_types.DocumentCheckout,
+      source,
+      True,
+    )
+    |> expect.to_be_ok
+  let #(core, ingested) =
+    runtime_core.handle_sequenced(core, map_message(core, outbound, 1))
+    |> expect.to_be_ok
+  let selectors =
+    runtime_core.scope_tree_events(core, ingested.events)
+    |> list.map(fn(event) { event.1 })
+  selectors |> list.contains(source) |> expect.to_be_false
+  selectors |> list.contains(peer) |> expect.to_be_true
+}
+
+pub fn shared_tree_runtime_rejects_disposal_of_transaction_owner_test() {
+  let #(core, address, view) = transaction_core()
+  let #(core, id) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+    |> expect.to_be_ok
+  let branch = tree_types.LocalCheckout(id)
+  let core =
+    runtime_core.begin_tree_transaction_on(core, address, branch, view, [])
+    |> expect.to_be_ok
+  runtime_core.dispose_tree_branch(core, address, branch)
+  |> expect.to_be_error
+  runtime_core.tree_branch_status(core, address, branch)
+  |> expect.to_equal(runtime_core.BranchValid)
+  let assert #(core, []) =
+    runtime_core.abort_tree_transaction_on(core, address, branch)
+    |> expect.to_be_ok
+  let core =
+    runtime_core.begin_tree_transaction_on(core, address, branch, view, [])
+    |> expect.to_be_ok
+  let assert #(core, []) =
+    runtime_core.abort_tree_transaction_on(core, address, branch)
+    |> expect.to_be_ok
+  let result =
+    runtime_core.submit_tree_edits(core, address, [
+      tree_types.MapSet(["items"], "main", tree_types.StringValue("usable")),
+    ])
+    |> expect.to_be_ok
+  result.2 |> list.length |> expect.to_equal(1)
 }
 
 pub fn shared_tree_runtime_rejects_ungrouped_compression_test() -> Nil {

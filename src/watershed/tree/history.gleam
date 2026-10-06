@@ -463,6 +463,22 @@ pub fn inspect_local(
   Ok(local_branch(local))
 }
 
+pub fn checkout_contains_revision(
+  state: History,
+  checkout: CheckoutSelector,
+  revision: fluid_ids.StableId,
+) -> Bool {
+  case checkout {
+    DocumentCheckout -> revertible_position(state, revision) |> result.is_ok
+    LocalCheckout(_) ->
+      case checkout_position(state, checkout) {
+        Error(_) -> False
+        Ok(#(base, _, commits)) ->
+          branch_revertible_position(commits, base, revision) != None
+      }
+  }
+}
+
 pub fn dispose_local(
   state: History,
   id: LocalCheckoutId,

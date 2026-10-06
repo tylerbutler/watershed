@@ -508,13 +508,13 @@ allocation ranges for later document publication.
 **Produces:** Concrete runtime-core interfaces from section 3, checkout-aware
 read/edit/transaction/undo routing, and normal wire publication on main merge.
 
-- [ ] **Step 1: Add core isolation and merge-submission RED.**
+- [x] **Step 1: Add core isolation and merge-submission RED.**
 
   Require branch edits to change only the branch. Merge into main must emit the
   captured surviving commits and allocations, in the captured boundaries.
   Merging into another local checkout emits no tree operation.
 
-- [ ] **Step 2: Add the registry and central selector resolution.**
+- [x] **Step 2: Add the registry and central selector resolution.**
 
   Keep branch state out of `Core.channels` and document summaries. Resolve
   `DocumentCheckout` through the existing channel and local IDs through the
@@ -534,7 +534,7 @@ read/edit/transaction/undo routing, and normal wire publication on main merge.
   Document-only wrappers must select main; there is no silent fallback from a
   missing branch ID to the document checkout.
 
-- [ ] **Step 3: Add atomicity and scope refusal REDs.**
+- [x] **Step 3: Add atomicity and scope refusal REDs.**
 
   Snapshot core, registry, compressor, events, and outbound queue before an
   invalid merge/rebase; assert all are identical after failure. Refuse branch
@@ -546,7 +546,7 @@ read/edit/transaction/undo routing, and normal wire publication on main merge.
   while sibling-fork callback edits submit no tree operation. Verify existing
   main operations still use the original routing envelope.
 
-- [ ] **Step 4: Verify core and recovery compatibility.**
+- [x] **Step 4: Verify core and recovery compatibility.**
 
   ```bash
   rtk proxy gleam test --target erlang -- shared_tree_branch shared_tree_runtime shared_tree_transaction shared_tree_history_resubmit
@@ -554,6 +554,28 @@ read/edit/transaction/undo routing, and normal wire publication on main merge.
   ```
 
   Suggested authorized commit: `feat(tree): route runtime operations by checkout`.
+
+  **Completion record (2026-10-05):** Task 5 adds a runtime-owned checkout
+  registry, selector-aware reads and authoring, lifecycle and reconciliation,
+  checkout-local transactions, scoped revertibles, and revision-scoped
+  settlement delivery. Local authoring and local-target merges send no tree
+  operations. Document authoring and document-target merges use the existing
+  submission path, taking any shared compressor range before the exact
+  surviving commit operations. An already-allocated singleton commit uses the
+  ordinary ungrouped envelope, including on reconnect resubmission; if recovery
+  adds a creation range, resubmission promotes it to a valid grouped envelope.
+  Normal local edits, remote receipt,
+  acknowledgement, reconnect state, and resubmission keep the registry's
+  document state current without replacing local ancestry. Independent
+  cross-checkout callback edits retain their state, events, outbound work, and
+  allocator advancement when the owner commits or aborts. Existing unscoped
+  document APIs remain compatible. Disposing the checkout that owns the active
+  transaction is an atomic profile-level refusal; the caller must first commit
+  or abort. This is a watershed runtime guard, not an upstream-equivalence
+  claim. The prescribed branch, runtime,
+  transaction, and history-resubmit selectors, plus runtime-core and history
+  regressions, pass on Erlang and JavaScript. Tasks 6 and 7 still own facade
+  handles and actual callback delivery.
 
 ### Task 6: Expose JavaScript branch handles through existing field APIs
 
