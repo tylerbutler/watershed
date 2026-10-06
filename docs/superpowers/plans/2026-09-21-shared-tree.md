@@ -58,6 +58,17 @@ acceptance only on manual dispatch. Their M5 names describe the published
 profile, and workflow existence is not fresh execution evidence. The browser
 checklist is a separate manual recipe, not the website browser workflow.
 
+### Deferred branch-schema work
+
+- [ ] **Checkout-local schema authoring and schema divergence on rebase.**
+  Deferred by user decision during the [local branching plan](2026-10-05-shared-tree-local-branching.md), Task 8. The pinned `local-branch-rebase` / `schema-divergence` observation shows upstream dropping a fork's wider schema and dependent edit when rebasing onto an old-schema target. Keep that observation as upstream evidence; the current native M6 scope rejects branch schema authoring atomically instead.
+
+Revisit this item through a separately approved design. Acceptance must cover
+checkout-local schema isolation, the upstream drop-on-rebase behavior and view
+compatibility, dependent edits, JavaScript/BEAM parity, and merge, undo,
+retention, wire, and summary boundaries. This deferral is not an M6 support
+claim or authorization to change the pinned codecs or versions.
+
 ### M5 combined validation
 
 Execution base: `8194fbc539ccc46bb92974c74ac8b61aba80644a`, directly on `main`
