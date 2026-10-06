@@ -713,7 +713,7 @@ pub fn shared_tree_map_facade_js_close_rejects_later_settlement_registration_tes
 
   watershed.tree_map_set(tree, [], "key", types.StringValue("value"))
   |> expect.to_equal(Ok(Nil))
-  let assert [Error(_)] = transport_js.get_cell(registrations)
+  transport_js.get_cell(registrations) |> expect.to_equal([])
   watershed.unsubscribe(closer)
   watershed.unsubscribe(registrar)
 }

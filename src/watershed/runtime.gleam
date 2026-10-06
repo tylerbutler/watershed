@@ -214,7 +214,12 @@ pub type PresenceFrame {
 
 @target(javascript)
 type Subscriber {
-  Subscriber(id: String, address: String, handler: fn(ChannelEvent) -> Nil)
+  Subscriber(
+    id: String,
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    handler: fn(ChannelEvent) -> Nil,
+  )
 }
 
 @target(javascript)
@@ -222,6 +227,7 @@ type TreeCommitSubscriber {
   TreeCommitSubscriber(
     id: String,
     address: String,
+    selector: tree_types.CheckoutSelector,
     handler: fn(TreeCommitEvent) -> Nil,
   )
 }
@@ -273,10 +279,13 @@ type State {
     subscribers: List(Subscriber),
     tree_commit_subscribers: List(TreeCommitSubscriber),
     tree_commit_settlements: Dict(
-      fluid_ids.StableId,
+      #(String, tree_types.CheckoutSelector, fluid_ids.StableId),
       List(fn(tree_types.TreeCommitOutcome) -> Nil),
     ),
-    tree_commit_deliveries: Dict(fluid_ids.StableId, TreeCommitDelivery),
+    tree_commit_deliveries: Dict(
+      #(String, tree_types.CheckoutSelector, fluid_ids.StableId),
+      TreeCommitDelivery,
+    ),
     /// The subscribers for the ephemeral ripples. A ripple belongs to one
     /// document and does not sequence, so the fan-out is separate from the
     /// operation event stream.
@@ -352,7 +361,12 @@ pub type TreeRevertibleStatus {
 
 @target(javascript)
 pub opaque type TreeRevertible {
-  TreeRevertible(runtime: Runtime, address: String, id: tree_types.RevertibleId)
+  TreeRevertible(
+    runtime: Runtime,
+    address: String,
+    selector: tree_types.CheckoutSelector,
+    id: tree_types.RevertibleId,
+  )
 }
 
 @target(javascript)
@@ -2184,11 +2198,21 @@ pub fn tree_compatibility(
   address: String,
   view: tree_schema.ViewSchema,
 ) -> Result(tree_schema.Compatibility, String) {
+  tree_compatibility_on(runtime, address, tree_types.DocumentCheckout, view)
+}
+
+@target(javascript)
+pub fn tree_compatibility_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+) -> Result(tree_schema.Compatibility, String) {
   read(
     runtime.cell,
     Error("tree compatibility requires a ready document connection"),
     fn(core) {
-      runtime_core.tree_compatibility(core, address, view)
+      runtime_core.tree_compatibility_on(core, address, selector, view)
       |> result.map_error(string.inspect)
     },
   )
@@ -2261,11 +2285,22 @@ pub fn tree_read_view(
   view: tree_schema.ViewSchema,
   path: tree_types.FieldPath,
 ) -> Result(Option(tree_types.TreeValue), String) {
+  tree_read_view_on(runtime, address, tree_types.DocumentCheckout, view, path)
+}
+
+@target(javascript)
+pub fn tree_read_view_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(Option(tree_types.TreeValue), String) {
   read(
     runtime.cell,
     Error("tree read requires a ready document connection"),
     fn(core) {
-      runtime_core.tree_read_view(core, address, view, path)
+      runtime_core.tree_read_view_on(core, address, selector, view, path)
       |> result.map_error(string.inspect)
     },
   )
@@ -2296,11 +2331,37 @@ pub fn tree_map_get_view(
   path: tree_types.FieldPath,
   key: String,
 ) -> Result(Option(tree_types.TreeValue), String) {
+  tree_map_get_view_on(
+    runtime,
+    address,
+    tree_types.DocumentCheckout,
+    view,
+    path,
+    key,
+  )
+}
+
+@target(javascript)
+pub fn tree_map_get_view_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+  key: String,
+) -> Result(Option(tree_types.TreeValue), String) {
   read(
     runtime.cell,
     Error("tree map read requires a ready document connection"),
     fn(core) {
-      runtime_core.tree_map_get_view(core, address, view, path, key)
+      runtime_core.tree_map_get_view_on(
+        core,
+        address,
+        selector,
+        view,
+        path,
+        key,
+      )
       |> result.map_error(string.inspect)
     },
   )
@@ -2347,11 +2408,37 @@ pub fn tree_array_get_view(
   path: tree_types.FieldPath,
   index: Int,
 ) -> Result(Option(tree_types.TreeValue), String) {
+  tree_array_get_view_on(
+    runtime,
+    address,
+    tree_types.DocumentCheckout,
+    view,
+    path,
+    index,
+  )
+}
+
+@target(javascript)
+pub fn tree_array_get_view_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+  index: Int,
+) -> Result(Option(tree_types.TreeValue), String) {
   read(
     runtime.cell,
     Error("tree array read requires a ready document connection"),
     fn(core) {
-      runtime_core.tree_array_get_view(core, address, view, path, index)
+      runtime_core.tree_array_get_view_on(
+        core,
+        address,
+        selector,
+        view,
+        path,
+        index,
+      )
       |> result.map_error(string.inspect)
     },
   )
@@ -2380,11 +2467,34 @@ pub fn tree_array_values_view(
   view: tree_schema.ViewSchema,
   path: tree_types.FieldPath,
 ) -> Result(List(tree_types.TreeValue), String) {
+  tree_array_values_view_on(
+    runtime,
+    address,
+    tree_types.DocumentCheckout,
+    view,
+    path,
+  )
+}
+
+@target(javascript)
+pub fn tree_array_values_view_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(List(tree_types.TreeValue), String) {
   read(
     runtime.cell,
     Error("tree array read requires a ready document connection"),
     fn(core) {
-      runtime_core.tree_array_values_view(core, address, view, path)
+      runtime_core.tree_array_values_view_on(
+        core,
+        address,
+        selector,
+        view,
+        path,
+      )
       |> result.map_error(string.inspect)
     },
   )
@@ -2397,13 +2507,194 @@ pub fn tree_map_entries_view(
   view: tree_schema.ViewSchema,
   path: tree_types.FieldPath,
 ) -> Result(List(#(String, tree_types.TreeValue)), String) {
+  tree_map_entries_view_on(
+    runtime,
+    address,
+    tree_types.DocumentCheckout,
+    view,
+    path,
+  )
+}
+
+@target(javascript)
+pub fn tree_map_entries_view_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  path: tree_types.FieldPath,
+) -> Result(List(#(String, tree_types.TreeValue)), String) {
   read(
     runtime.cell,
     Error("tree map read requires a ready document connection"),
     fn(core) {
-      runtime_core.tree_map_entries_view(core, address, view, path)
+      runtime_core.tree_map_entries_view_on(core, address, selector, view, path)
       |> result.map_error(string.inspect)
     },
+  )
+}
+
+@target(javascript)
+pub fn tree_fork(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+) -> Result(tree_types.CheckoutSelector, String) {
+  let state = cell_get(runtime.cell)
+  case state.phase, state.bootstrap {
+    Ready(core, None), None -> {
+      use #(core, id) <- result.try(
+        runtime_core.fork_tree(core, address, selector, view)
+        |> result.map_error(string.inspect),
+      )
+      cell_set(runtime.cell, State(..state, phase: Ready(core, None)))
+      Ok(tree_types.LocalCheckout(id))
+    }
+    SuspendedPendingTree(_, reason), _ -> Error(reason)
+    _, _ -> Error("tree fork requires a ready document connection")
+  }
+}
+
+@target(javascript)
+pub fn tree_rebase_onto(
+  runtime: Runtime,
+  address: String,
+  source: tree_types.CheckoutSelector,
+  target: tree_types.CheckoutSelector,
+) -> Result(Nil, String) {
+  let state = cell_get(runtime.cell)
+  use _ <- result.try(require_no_tree_delivery(state, address))
+  case state.phase, state.bootstrap {
+    Ready(core, None), None -> {
+      use #(core, events) <- result.try(
+        runtime_core.rebase_tree_onto(core, address, source, target)
+        |> result.map_error(string.inspect),
+      )
+      cell_set(runtime.cell, State(..state, phase: Ready(core, None)))
+      prime_scoped_tree_commit_deliveries(runtime.cell, events)
+      fan_out_scoped(
+        runtime.cell,
+        state.subscribers,
+        state.tree_commit_subscribers,
+        events,
+      )
+      Ok(Nil)
+    }
+    SuspendedPendingTree(_, reason), _ -> Error(reason)
+    _, _ -> Error("tree rebase requires a ready document connection")
+  }
+}
+
+@target(javascript)
+pub fn tree_merge(
+  runtime: Runtime,
+  address: String,
+  target: tree_types.CheckoutSelector,
+  source: tree_types.CheckoutSelector,
+  dispose_source: Bool,
+) -> Result(Nil, String) {
+  let state = cell_get(runtime.cell)
+  use _ <- result.try(require_no_tree_delivery(state, address))
+  case state.phase, state.bootstrap {
+    Ready(core, None), None -> {
+      use #(core, events, outbound) <- result.try(
+        runtime_core.merge_tree(core, address, target, source, dispose_source)
+        |> result.map_error(string.inspect),
+      )
+      let state = State(..state, phase: Ready(core, None))
+      let state = case dispose_source {
+        False -> state
+        True -> remove_tree_scope(state, address, source)
+      }
+      cell_set(runtime.cell, state)
+      prime_scoped_tree_commit_deliveries(runtime.cell, events)
+      prime_selector_deliveries(runtime.cell, events, source)
+      send_outbound(state.channel, core.client_id, outbound)
+      use _ <- result.try(case cell_get(runtime.cell).phase {
+        Ready(_, _) | Reconnecting(_) -> Ok(Nil)
+        Failed(reason) | SuspendedPendingTree(_, reason) -> Error(reason)
+        Connecting -> Error("tree merge requires a ready document connection")
+      })
+      fan_out_scoped(
+        runtime.cell,
+        state.subscribers,
+        state.tree_commit_subscribers,
+        events,
+      )
+      release_selector_deliveries(runtime.cell, events, source)
+      Ok(Nil)
+    }
+    SuspendedPendingTree(_, reason), _ -> Error(reason)
+    _, _ -> Error("tree merge requires a ready document connection")
+  }
+}
+
+@target(javascript)
+pub fn tree_branch_status(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> tree_types.TreeBranchStatus {
+  case selector, core_from_phase(cell_get(runtime.cell).phase) {
+    tree_types.DocumentCheckout, _ -> tree_types.DocumentBranch
+    tree_types.LocalCheckout(_), Some(core) ->
+      case runtime_core.tree_branch_status(core, address, selector) {
+        runtime_core.DocumentBranch -> tree_types.DocumentBranch
+        runtime_core.BranchValid -> tree_types.BranchValid
+        runtime_core.BranchDisposed -> tree_types.BranchDisposed
+      }
+    tree_types.LocalCheckout(_), None -> tree_types.BranchDisposed
+  }
+}
+
+@target(javascript)
+pub fn tree_dispose_branch(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> Result(Nil, String) {
+  let state = cell_get(runtime.cell)
+  use core <- result.try(
+    core_from_phase(state.phase)
+    |> option.to_result("tree branch is disposed"),
+  )
+  use core <- result.try(
+    runtime_core.dispose_tree_branch(core, address, selector)
+    |> result.map_error(string.inspect),
+  )
+  let state =
+    State(..state, phase: phase_with_core(state.phase, core))
+    |> remove_tree_scope(address, selector)
+  cell_set(runtime.cell, state)
+  Ok(Nil)
+}
+
+@target(javascript)
+fn remove_tree_scope(
+  state: State,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> State {
+  State(
+    ..state,
+    subscribers: list.filter(state.subscribers, fn(subscriber) {
+      subscriber.address != address || subscriber.selector != selector
+    }),
+    tree_commit_subscribers: list.filter(
+      state.tree_commit_subscribers,
+      fn(subscriber) {
+        subscriber.address != address || subscriber.selector != selector
+      },
+    ),
+    tree_commit_settlements: dict.filter(
+      state.tree_commit_settlements,
+      fn(key, _) { key.0 != address || key.1 != selector },
+    ),
+    tree_commit_deliveries: dict.filter(
+      state.tree_commit_deliveries,
+      fn(key, _) { key.0 != address || key.1 != selector },
+    ),
   )
 }
 
@@ -2456,19 +2747,34 @@ pub fn tree_edit_view(
   view: tree_schema.ViewSchema,
   edit: tree_types.Edit,
 ) -> Result(Nil, String) {
+  tree_edit_view_on(runtime, address, tree_types.DocumentCheckout, view, edit)
+}
+
+@target(javascript)
+pub fn tree_edit_view_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  edit: tree_types.Edit,
+) -> Result(Nil, String) {
   let cell = runtime.cell
   let state = cell_get(cell)
   case state.phase, state.bootstrap {
     Ready(core, None), None ->
-      case runtime_core.submit_tree_edits_view(core, address, view, [edit]) {
+      case
+        runtime_core.submit_tree_edits_view_on(core, address, selector, view, [
+          edit,
+        ])
+      {
         Error(error) -> Error(string.inspect(error))
         Ok(#(core, events, outbound)) -> {
           cell_set(cell, State(..state, phase: Ready(core, None)))
-          prime_tree_commit_deliveries(cell, events)
+          prime_scoped_tree_commit_deliveries(cell, events)
           send_outbound(state.channel, core.client_id, outbound)
           case cell_get(cell).phase {
             Ready(_, _) | Reconnecting(_) -> {
-              fan_out(
+              fan_out_scoped(
                 cell,
                 state.subscribers,
                 state.tree_commit_subscribers,
@@ -2498,12 +2804,36 @@ pub fn begin_tree_transaction(
   view: tree_schema.ViewSchema,
   constraints: List(tree_types.FieldPath),
 ) -> Result(Nil, String) {
+  begin_tree_transaction_on(
+    runtime,
+    address,
+    tree_types.DocumentCheckout,
+    view,
+    constraints,
+  )
+}
+
+@target(javascript)
+pub fn begin_tree_transaction_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  constraints: List(tree_types.FieldPath),
+) -> Result(Nil, String) {
   let cell = runtime.cell
   let state = cell_get(cell)
+  use _ <- result.try(require_no_tree_delivery(state, address))
   case state.phase, state.bootstrap {
     Ready(core, None), None ->
       case
-        runtime_core.begin_tree_transaction(core, address, view, constraints)
+        runtime_core.begin_tree_transaction_on(
+          core,
+          address,
+          selector,
+          view,
+          constraints,
+        )
       {
         Error(error) -> Error(string.inspect(error))
         Ok(core) -> {
@@ -2524,13 +2854,22 @@ pub fn commit_tree_transaction(
   runtime: Runtime,
   address: String,
 ) -> Result(Nil, String) {
+  commit_tree_transaction_on(runtime, address, tree_types.DocumentCheckout)
+}
+
+@target(javascript)
+pub fn commit_tree_transaction_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> Result(Nil, String) {
   let cell = runtime.cell
   let state = cell_get(cell)
   case state.phase, state.bootstrap {
     Ready(core, None), None ->
-      case runtime_core.commit_tree_transaction(core, address) {
+      case runtime_core.commit_tree_transaction_on(core, address, selector) {
         Error(error) ->
-          case runtime_core.abort_tree_transaction(core, address) {
+          case runtime_core.abort_tree_transaction_on(core, address, selector) {
             Ok(#(core, _)) -> {
               cell_set(cell, State(..state, phase: Ready(core, None)))
               Error(string.inspect(error))
@@ -2544,11 +2883,11 @@ pub fn commit_tree_transaction(
           }
         Ok(#(core, events, outbound)) -> {
           cell_set(cell, State(..state, phase: Ready(core, None)))
-          prime_tree_commit_deliveries(cell, events)
+          prime_scoped_tree_commit_deliveries(cell, events)
           send_outbound(state.channel, core.client_id, outbound)
           case cell_get(cell).phase {
             Ready(_, _) | Reconnecting(_) -> {
-              fan_out(
+              fan_out_scoped(
                 cell,
                 state.subscribers,
                 state.tree_commit_subscribers,
@@ -2568,7 +2907,7 @@ pub fn commit_tree_transaction(
     Ready(_, Some(_)), _ ->
       Error("tree transaction requires a ready document connection")
     Reconnecting(core), _ ->
-      case runtime_core.abort_tree_transaction(core, address) {
+      case runtime_core.abort_tree_transaction_on(core, address, selector) {
         Error(error) -> Error(string.inspect(error))
         Ok(#(core, _)) -> {
           cell_set(cell, State(..state, phase: Reconnecting(core)))
@@ -2576,7 +2915,7 @@ pub fn commit_tree_transaction(
         }
       }
     SuspendedPendingTree(core, reason), _ ->
-      case runtime_core.abort_tree_transaction(core, address) {
+      case runtime_core.abort_tree_transaction_on(core, address, selector) {
         Error(error) -> Error(string.inspect(error))
         Ok(#(core, _)) -> {
           cell_set(
@@ -2594,17 +2933,26 @@ pub fn abort_tree_transaction(
   runtime: Runtime,
   address: String,
 ) -> Result(Nil, String) {
+  abort_tree_transaction_on(runtime, address, tree_types.DocumentCheckout)
+}
+
+@target(javascript)
+pub fn abort_tree_transaction_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> Result(Nil, String) {
   let cell = runtime.cell
   let state = cell_get(cell)
   case state.phase, state.bootstrap {
     Ready(core, None), None ->
-      case runtime_core.abort_tree_transaction(core, address) {
+      case runtime_core.abort_tree_transaction_on(core, address, selector) {
         Error(error) -> Error(string.inspect(error))
         Ok(#(core, events)) -> {
           cell_set(cell, State(..state, phase: Ready(core, None)))
           case cell_get(cell).phase {
             Ready(_, _) | Reconnecting(_) -> {
-              fan_out(
+              fan_out_scoped(
                 cell,
                 state.subscribers,
                 state.tree_commit_subscribers,
@@ -2624,7 +2972,7 @@ pub fn abort_tree_transaction(
     Ready(_, Some(_)), _ ->
       Error("tree transaction requires a ready document connection")
     Reconnecting(core), _ ->
-      case runtime_core.abort_tree_transaction(core, address) {
+      case runtime_core.abort_tree_transaction_on(core, address, selector) {
         Error(error) -> Error(string.inspect(error))
         Ok(#(core, _)) -> {
           cell_set(cell, State(..state, phase: Reconnecting(core)))
@@ -2632,7 +2980,7 @@ pub fn abort_tree_transaction(
         }
       }
     SuspendedPendingTree(core, reason), _ ->
-      case runtime_core.abort_tree_transaction(core, address) {
+      case runtime_core.abort_tree_transaction_on(core, address, selector) {
         Error(error) -> Error(string.inspect(error))
         Ok(#(core, _)) -> {
           cell_set(
@@ -2651,19 +2999,29 @@ pub fn tree_upgrade_schema(
   address: String,
   view: tree_schema.ViewSchema,
 ) -> Result(Nil, String) {
+  tree_upgrade_schema_on(runtime, address, tree_types.DocumentCheckout, view)
+}
+
+@target(javascript)
+pub fn tree_upgrade_schema_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+) -> Result(Nil, String) {
   let cell = runtime.cell
   let state = cell_get(cell)
   case state.phase, state.bootstrap {
     Ready(core, None), None ->
-      case runtime_core.submit_tree_upgrade(core, address, view) {
+      case runtime_core.submit_tree_upgrade_on(core, address, selector, view) {
         Error(error) -> Error(string.inspect(error))
         Ok(#(core, events, outbound)) -> {
           cell_set(cell, State(..state, phase: Ready(core, None)))
-          prime_tree_commit_deliveries(cell, events)
+          prime_scoped_tree_commit_deliveries(cell, events)
           send_outbound(state.channel, core.client_id, outbound)
           case cell_get(cell).phase {
             Ready(_, _) | Reconnecting(_) -> {
-              fan_out(
+              fan_out_scoped(
                 cell,
                 state.subscribers,
                 state.tree_commit_subscribers,
@@ -2749,12 +3107,27 @@ pub fn subscribe(
   address: String,
   handler: fn(ChannelEvent) -> Nil,
 ) -> SubscriptionToken {
+  subscribe_on(runtime, address, tree_types.DocumentCheckout, handler)
+}
+
+@target(javascript)
+pub fn subscribe_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  handler: fn(ChannelEvent) -> Nil,
+) -> SubscriptionToken {
   let state = cell_get(runtime.cell)
   let token_id = id.uuid_v4()
   cell_set(
     runtime.cell,
     State(..state, subscribers: [
-      Subscriber(id: token_id, address: address, handler: handler),
+      Subscriber(
+        id: token_id,
+        address: address,
+        selector: selector,
+        handler: handler,
+      ),
       ..state.subscribers
     ]),
   )
@@ -2788,12 +3161,32 @@ pub fn subscribe_tree_commits(
   address: String,
   handler: fn(TreeCommitEvent) -> Nil,
 ) -> SubscriptionToken {
+  subscribe_tree_commits_on(
+    runtime,
+    address,
+    tree_types.DocumentCheckout,
+    handler,
+  )
+}
+
+@target(javascript)
+pub fn subscribe_tree_commits_on(
+  runtime: Runtime,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  handler: fn(TreeCommitEvent) -> Nil,
+) -> SubscriptionToken {
   let state = cell_get(runtime.cell)
   let token_id = id.uuid_v4()
   cell_set(
     runtime.cell,
     State(..state, tree_commit_subscribers: [
-      TreeCommitSubscriber(id: token_id, address: address, handler: handler),
+      TreeCommitSubscriber(
+        id: token_id,
+        address: address,
+        selector: selector,
+        handler: handler,
+      ),
       ..state.tree_commit_subscribers
     ]),
   )
@@ -2808,9 +3201,10 @@ pub fn tree_revertible_status(
   case core_from_phase(state.phase) {
     Some(core) ->
       case
-        runtime_core.tree_revertible_is_valid(
+        runtime_core.tree_revertible_is_valid_on(
           core,
           revertible.address,
+          revertible.selector,
           revertible.id,
         )
       {
@@ -2832,9 +3226,10 @@ pub fn tree_dispose_revertible(
     |> option.to_result("tree revertible is disposed"),
   )
   use core <- result.try(
-    runtime_core.dispose_tree_revertible(
+    runtime_core.dispose_tree_revertible_on(
       core,
       revertible.address,
+      revertible.selector,
       revertible.id,
     )
     |> result.map_error(string.inspect),
@@ -2854,28 +3249,35 @@ pub fn tree_revert(
   let runtime = revertible.runtime
   let cell = runtime.cell
   let state = cell_get(cell)
+  use _ <- result.try(require_no_tree_delivery(state, revertible.address))
   case state.phase, state.bootstrap {
     Ready(core, None), None -> {
       use #(core, events, outbound) <- result.try(
-        runtime_core.revert_tree(core, revertible.address, revertible.id)
+        runtime_core.revert_tree_on(
+          core,
+          revertible.address,
+          revertible.selector,
+          revertible.id,
+        )
         |> result.map_error(string.inspect),
       )
       use core <- result.try(case dispose {
         False -> Ok(core)
         True ->
-          runtime_core.dispose_tree_revertible(
+          runtime_core.dispose_tree_revertible_on(
             core,
             revertible.address,
+            revertible.selector,
             revertible.id,
           )
           |> result.map_error(string.inspect)
       })
       cell_set(cell, State(..state, phase: Ready(core, None)))
-      prime_tree_commit_deliveries(cell, events)
-      send_outbound(state.channel, core.client_id, [outbound])
+      prime_scoped_tree_commit_deliveries(cell, events)
+      send_outbound(state.channel, core.client_id, outbound)
       case cell_get(cell).phase {
         Ready(_, _) | Reconnecting(_) -> {
-          fan_out(
+          fan_out_scoped(
             cell,
             state.subscribers,
             state.tree_commit_subscribers,
@@ -3086,6 +3488,7 @@ pub fn close(runtime: Runtime) -> Nil {
       ..state,
       phase: Failed("runtime closed"),
       channel: None,
+      subscribers: [],
       claim_waiters: dict.new(),
       acquire_waiters: dict.new(),
       tree_commit_subscribers: [],
@@ -4075,11 +4478,11 @@ fn apply_received_operations(
           list.each(summary_outcomes, fn(outcome) {
             observe("summary publication", outcome)
           })
-          fan_out(
+          fan_out_scoped(
             cell,
             state.subscribers,
             state.tree_commit_subscribers,
-            events,
+            runtime_core.scope_tree_events(core, events),
           )
           use <- bool.guard(
             !session_current(cell, state.bootstrap_generation),
@@ -4735,18 +5138,34 @@ fn http_base_from_socket_url(url: String) -> String {
 /// that the runtime applied. That rule holds for a local edit, a remote
 /// operation, and a reconnect.
 ///
-/// The `subscribers` argument is one snapshot. A callback can unsubscribe
-/// itself, or another callback, during the fan-out. That change affects the
-/// next fan-out only.
+/// The `subscribers` argument is one snapshot. Before each callback, the
+/// runtime checks that its subscription is still registered.
 fn fan_out(
   cell: Cell(State),
   subscribers: List(Subscriber),
   tree_commit_subscribers: List(TreeCommitSubscriber),
   events: List(#(String, ChannelEvent)),
 ) -> Nil {
+  fan_out_scoped(
+    cell,
+    subscribers,
+    tree_commit_subscribers,
+    list.map(events, fn(event) {
+      #(event.0, tree_types.DocumentCheckout, event.1)
+    }),
+  )
+}
+
+@target(javascript)
+fn fan_out_scoped(
+  cell: Cell(State),
+  subscribers: List(Subscriber),
+  tree_commit_subscribers: List(TreeCommitSubscriber),
+  events: List(runtime_core.ScopedTreeEvent),
+) -> Nil {
   let deferred_settlements = transport_js.new_cell([])
   list.each(events, fn(event) {
-    let #(address, event) = event
+    let #(address, selector, event) = event
     case event {
       channel.TreeCommitApplied(revision, kind, local, revertible) ->
         fan_out_tree_commit(
@@ -4754,16 +5173,29 @@ fn fan_out(
           deferred_settlements,
           tree_commit_subscribers,
           address,
+          selector,
           revision,
           kind,
           local,
           revertible,
         )
       channel.TreeCommitSettled(revision, outcome) ->
-        settle_tree_commit(cell, deferred_settlements, revision, outcome)
+        settle_tree_commit(
+          cell,
+          deferred_settlements,
+          address,
+          selector,
+          revision,
+          outcome,
+        )
       _ ->
         list.each(subscribers, fn(subscriber) {
-          case subscriber.address == address {
+          case
+            subscriber.address == address
+            && subscriber.selector == selector
+            && tree_scope_live(cell, address, selector)
+            && subscriber_registered(cell, subscriber.id)
+          {
             True ->
               observe("subscriber " <> subscriber.id <> " at " <> address, fn() {
                 subscriber.handler(event)
@@ -4784,6 +5216,7 @@ fn fan_out_tree_commit(
   deferred_settlements: Cell(List(fn() -> Nil)),
   subscribers: List(TreeCommitSubscriber),
   address: String,
+  selector: tree_types.CheckoutSelector,
   revision: fluid_ids.StableId,
   kind: tree_types.TreeCommitKind,
   local: Bool,
@@ -4807,7 +5240,13 @@ fn fan_out_tree_commit(
           |> option.to_result("tree revertible factory is no longer active"),
         )
         use #(core, id) <- result.try(
-          runtime_core.retain_tree_revertible(core, address, revision, kind)
+          runtime_core.retain_tree_revertible_on(
+            core,
+            address,
+            selector,
+            revision,
+            kind,
+          )
           |> result.map_error(string.inspect),
         )
         transport_js.set_cell(acquired, True)
@@ -4815,7 +5254,7 @@ fn fan_out_tree_commit(
           cell,
           State(..state, phase: phase_with_core(state.phase, core)),
         )
-        Ok(TreeRevertible(Runtime(cell), address, id))
+        Ok(TreeRevertible(Runtime(cell), address, selector, id))
       })
     False -> None
   }
@@ -4828,12 +5267,20 @@ fn fan_out_tree_commit(
         })
         let state = cell_get(cell)
         use _ <- result.try(
-          case state.phase, dict.get(state.tree_commit_deliveries, revision) {
+          case
+            state.phase,
+            dict.get(state.tree_commit_deliveries, #(
+              address,
+              selector,
+              revision,
+            ))
+          {
             Ready(_, _), Ok(_) | Reconnecting(_), Ok(_) -> Ok(Nil)
             _, _ -> Error("tree settlement registration is no longer active")
           },
         )
-        let callbacks = case dict.get(state.tree_commit_settlements, revision) {
+        let key = #(address, selector, revision)
+        let callbacks = case dict.get(state.tree_commit_settlements, key) {
           Ok(callbacks) -> callbacks
           Error(_) -> []
         }
@@ -4843,7 +5290,7 @@ fn fan_out_tree_commit(
             ..state,
             tree_commit_settlements: dict.insert(
               state.tree_commit_settlements,
-              revision,
+              key,
               list.append(callbacks, [callback]),
             ),
           ),
@@ -4854,7 +5301,12 @@ fn fan_out_tree_commit(
   }
   let event = TreeCommitEvent(kind, local, get_revertible, on_settled)
   list.each(subscribers, fn(subscriber) {
-    case subscriber.address == address {
+    case
+      subscriber.address == address
+      && subscriber.selector == selector
+      && tree_scope_live(cell, address, selector)
+      && tree_commit_subscriber_registered(cell, subscriber.id)
+    {
       True ->
         observe(
           "tree commit subscriber " <> subscriber.id <> " at " <> address,
@@ -4865,17 +5317,15 @@ fn fan_out_tree_commit(
   })
   transport_js.set_cell(active, False)
   let state = cell_get(cell)
-  case dict.get(state.tree_commit_deliveries, revision) {
+  let key = #(address, selector, revision)
+  case dict.get(state.tree_commit_deliveries, key) {
     Error(_) -> Nil
     Ok(AwaitingTreeCommitDelivery) ->
       cell_set(
         cell,
         State(
           ..state,
-          tree_commit_deliveries: dict.delete(
-            state.tree_commit_deliveries,
-            revision,
-          ),
+          tree_commit_deliveries: dict.delete(state.tree_commit_deliveries, key),
         ),
       )
     Ok(EarlyTreeCommitSettlement(outcome)) -> {
@@ -4883,13 +5333,17 @@ fn fan_out_tree_commit(
         cell,
         State(
           ..state,
-          tree_commit_deliveries: dict.delete(
-            state.tree_commit_deliveries,
-            revision,
-          ),
+          tree_commit_deliveries: dict.delete(state.tree_commit_deliveries, key),
         ),
       )
-      settle_tree_commit(cell, deferred_settlements, revision, outcome)
+      settle_tree_commit(
+        cell,
+        deferred_settlements,
+        address,
+        selector,
+        revision,
+        outcome,
+      )
     }
   }
 }
@@ -4898,49 +5352,59 @@ fn fan_out_tree_commit(
 fn settle_tree_commit(
   cell: Cell(State),
   deferred_settlements: Cell(List(fn() -> Nil)),
+  address: String,
+  selector: tree_types.CheckoutSelector,
   revision: fluid_ids.StableId,
   outcome: tree_types.TreeCommitOutcome,
 ) -> Nil {
   let state = cell_get(cell)
-  case dict.get(state.tree_commit_settlements, revision) {
-    Error(_) ->
-      case dict.get(state.tree_commit_deliveries, revision) {
-        Ok(AwaitingTreeCommitDelivery) ->
-          cell_set(
-            cell,
-            State(
-              ..state,
-              tree_commit_deliveries: dict.insert(
-                state.tree_commit_deliveries,
-                revision,
-                EarlyTreeCommitSettlement(outcome),
-              ),
-            ),
-          )
-        Ok(EarlyTreeCommitSettlement(_)) | Error(_) -> Nil
-      }
-    Ok(callbacks) -> {
+  let key = #(address, selector, revision)
+  case dict.get(state.tree_commit_deliveries, key) {
+    Ok(AwaitingTreeCommitDelivery) ->
       cell_set(
         cell,
         State(
           ..state,
-          tree_commit_settlements: dict.delete(
-            state.tree_commit_settlements,
-            revision,
-          ),
-          tree_commit_deliveries: dict.delete(
+          tree_commit_deliveries: dict.insert(
             state.tree_commit_deliveries,
-            revision,
+            key,
+            EarlyTreeCommitSettlement(outcome),
           ),
         ),
       )
-      list.each(callbacks, fn(callback) {
-        transport_js.set_cell(deferred_settlements, [
-          fn() { observe("tree commit settlement", fn() { callback(outcome) }) },
-          ..transport_js.get_cell(deferred_settlements)
-        ])
-      })
-    }
+    Ok(EarlyTreeCommitSettlement(_)) -> Nil
+    Error(_) ->
+      case dict.get(state.tree_commit_settlements, key) {
+        Error(_) -> Nil
+        Ok(callbacks) -> {
+          cell_set(
+            cell,
+            State(
+              ..state,
+              tree_commit_settlements: dict.delete(
+                state.tree_commit_settlements,
+                key,
+              ),
+              tree_commit_deliveries: dict.delete(
+                state.tree_commit_deliveries,
+                key,
+              ),
+            ),
+          )
+          list.each(callbacks, fn(callback) {
+            transport_js.set_cell(deferred_settlements, [
+              fn() {
+                case tree_scope_live(cell, address, selector) {
+                  True ->
+                    observe("tree commit settlement", fn() { callback(outcome) })
+                  False -> Nil
+                }
+              },
+              ..transport_js.get_cell(deferred_settlements)
+            ])
+          })
+        }
+      }
   }
 }
 
@@ -4954,11 +5418,154 @@ fn prime_tree_commit_deliveries(
     list.fold(events, state.tree_commit_deliveries, fn(deliveries, event) {
       case event.1 {
         channel.TreeCommitApplied(revision, _, True, _) ->
-          dict.insert(deliveries, revision, AwaitingTreeCommitDelivery)
+          dict.insert(
+            deliveries,
+            #(event.0, tree_types.DocumentCheckout, revision),
+            AwaitingTreeCommitDelivery,
+          )
         _ -> deliveries
       }
     })
   cell_set(cell, State(..state, tree_commit_deliveries: deliveries))
+}
+
+@target(javascript)
+fn prime_scoped_tree_commit_deliveries(
+  cell: Cell(State),
+  events: List(runtime_core.ScopedTreeEvent),
+) -> Nil {
+  let state = cell_get(cell)
+  let deliveries =
+    list.fold(events, state.tree_commit_deliveries, fn(deliveries, event) {
+      case event.2 {
+        channel.TreeCommitApplied(revision, _, True, _) ->
+          dict.insert(
+            deliveries,
+            #(event.0, event.1, revision),
+            AwaitingTreeCommitDelivery,
+          )
+        _ -> deliveries
+      }
+    })
+  cell_set(cell, State(..state, tree_commit_deliveries: deliveries))
+}
+
+@target(javascript)
+fn prime_selector_deliveries(
+  cell: Cell(State),
+  events: List(runtime_core.ScopedTreeEvent),
+  selector: tree_types.CheckoutSelector,
+) -> Nil {
+  let state = cell_get(cell)
+  let deliveries =
+    list.fold(events, state.tree_commit_deliveries, fn(deliveries, event) {
+      case event.2 {
+        channel.TreeCommitApplied(revision, _, True, _) ->
+          dict.insert(
+            deliveries,
+            #(event.0, selector, revision),
+            AwaitingTreeCommitDelivery,
+          )
+        _ -> deliveries
+      }
+    })
+  cell_set(cell, State(..state, tree_commit_deliveries: deliveries))
+}
+
+@target(javascript)
+fn release_selector_deliveries(
+  cell: Cell(State),
+  events: List(runtime_core.ScopedTreeEvent),
+  selector: tree_types.CheckoutSelector,
+) -> Nil {
+  let deferred = transport_js.new_cell([])
+  list.each(events, fn(event) {
+    case event.2 {
+      channel.TreeCommitApplied(revision, _, True, _) -> {
+        let state = cell_get(cell)
+        let key = #(event.0, selector, revision)
+        case dict.get(state.tree_commit_deliveries, key) {
+          Ok(EarlyTreeCommitSettlement(outcome)) -> {
+            cell_set(
+              cell,
+              State(
+                ..state,
+                tree_commit_deliveries: dict.delete(
+                  state.tree_commit_deliveries,
+                  key,
+                ),
+              ),
+            )
+            settle_tree_commit(
+              cell,
+              deferred,
+              event.0,
+              selector,
+              revision,
+              outcome,
+            )
+          }
+          Ok(AwaitingTreeCommitDelivery) ->
+            cell_set(
+              cell,
+              State(
+                ..state,
+                tree_commit_deliveries: dict.delete(
+                  state.tree_commit_deliveries,
+                  key,
+                ),
+              ),
+            )
+          Error(_) -> Nil
+        }
+      }
+      _ -> Nil
+    }
+  })
+  transport_js.get_cell(deferred)
+  |> list.reverse
+  |> list.each(fn(callback) { callback() })
+}
+
+@target(javascript)
+fn require_no_tree_delivery(
+  state: State,
+  address: String,
+) -> Result(Nil, String) {
+  case
+    dict.keys(state.tree_commit_deliveries)
+    |> list.any(fn(key) { key.0 == address })
+  {
+    True -> Error("tree operation is not allowed during commit delivery")
+    False -> Ok(Nil)
+  }
+}
+
+@target(javascript)
+fn tree_scope_live(
+  cell: Cell(State),
+  address: String,
+  selector: tree_types.CheckoutSelector,
+) -> Bool {
+  case core_from_phase(cell_get(cell).phase), selector {
+    None, _ -> False
+    Some(_), tree_types.DocumentCheckout -> True
+    Some(core), tree_types.LocalCheckout(_) ->
+      runtime_core.tree_branch_status(core, address, selector)
+      == runtime_core.BranchValid
+  }
+}
+
+@target(javascript)
+fn subscriber_registered(cell: Cell(State), id: String) -> Bool {
+  cell_get(cell).subscribers
+  |> list.any(fn(subscriber) { subscriber.id == id })
+}
+
+@target(javascript)
+fn tree_commit_subscriber_registered(cell: Cell(State), id: String) -> Bool {
+  cell_get(cell).tree_commit_subscribers
+  |> list.any(fn(subscriber) { subscriber.id == id })
 }
 
 @target(javascript)

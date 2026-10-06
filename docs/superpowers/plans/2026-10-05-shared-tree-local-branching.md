@@ -586,7 +586,7 @@ extend `shared_tree_runtime_js_test.gleam`, map/array facade tests, branch tests
 **Produces:** Section 3 public lifecycle functions, selector-bearing opaque
 `SharedTree`/revertible handles, and JS event delivery/cleanup.
 
-- [ ] **Step 1: Add facade RED for fork/edit/rebase/merge.**
+- [x] **Step 1: Add facade RED for fork/edit/rebase/merge.**
 
   ```text
   main = resolve existing tree
@@ -604,14 +604,14 @@ extend `shared_tree_runtime_js_test.gleam`, map/array facade tests, branch tests
   handles; verify owning-checkout rollback leaves the other edit and its
   notification intact.
 
-- [ ] **Step 2: Carry the selector through every tree runtime call.**
+- [x] **Step 2: Carry the selector through every tree runtime call.**
 
   Extend private handles without exposing numeric IDs. Validate both runtime
   identities before invoking the core. Use the existing synchronous event
   boundary and one-shot acquisition cells, now keyed by checkout. Do not
   route subscriptions with made-up address suffixes.
 
-- [ ] **Step 3: Add JS lifetime and reentrancy tests.**
+- [x] **Step 3: Add JS lifetime and reentrancy tests.**
 
   Retain main and branch handles, dispose one fork, and require main handles
   to remain valid. Test nested fork lifetime, preserved-source merge,
@@ -619,13 +619,27 @@ extend `shared_tree_runtime_js_test.gleam`, map/array facade tests, branch tests
   and queued application undo messages. A callback must not replace the state
   returned by merge/rebase with a stale cell snapshot.
 
-- [ ] **Step 4: Verify JavaScript facade regressions.**
+- [x] **Step 4: Verify JavaScript facade regressions.**
 
   ```bash
   rtk proxy gleam test --target javascript -- shared_tree_branch shared_tree_runtime_js shared_tree_array_facade shared_tree_map_facade shared_tree_creation_api shared_tree_transaction
   ```
 
   Suggested authorized commit: `feat(tree): expose JavaScript local branches`.
+
+  **Completion record (2026-10-05):** Task 6 exposes selector-bearing
+  JavaScript tree handles through the existing field, transaction,
+  subscription, settlement, and reversion APIs. The facade validates related
+  handle origins before reconciliation. Scoped runtime delivery keeps document
+  and local checkout notifications separate, and runtime shutdown or branch
+  disposal invalidates the affected local handles and registrations. The real
+  JavaScript facade test covers nested lifetime, branch-only object/map/array
+  edits with no allocation traffic, independent callback edits during rollback,
+  explicit rebase, preserved and disposing merges, source and target status,
+  one-shot factories, sequenced source settlement, local undo/redo, and close.
+  The prescribed 118 JavaScript selector tests pass. Shared-core Erlang branch
+  and transaction selectors also pass; Task 7 still owns the BEAM facade and
+  actor delivery. This is not a full M6 claim.
 
 ### Task 7: Expose matching BEAM branch handles and actor delivery
 

@@ -76,3 +76,9 @@ pub type CheckoutSelector {
   DocumentCheckout
   LocalCheckout(id: LocalCheckoutId)
 }
+
+pub type TreeBranchStatus {
+  DocumentBranch
+  BranchValid
+  BranchDisposed
+}

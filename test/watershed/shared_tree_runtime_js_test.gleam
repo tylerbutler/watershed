@@ -62,6 +62,15 @@ import watershed/wire/fluid_container
 import watershed/wire/op as wire_op
 
 @target(javascript)
+type FacadeAbort {
+  FacadeAbort
+}
+
+@target(javascript)
+@external(javascript, "./shared_tree_branch_ffi.mjs", "throwTransaction")
+fn throw_transaction(tree: watershed.SharedTree) -> Result(Nil, FacadeAbort)
+
+@target(javascript)
 fn connect_message() -> message.ConnectMessage {
   message.ConnectMessage(
     tenant_id: "default",
@@ -803,6 +812,729 @@ pub fn seeded_runtime_resolves_routed_root_before_publication_test() {
   |> expect.to_equal("reconnecting")
   runtime.diagnostics(runtime).in_flight_count |> expect.to_equal(1)
   runtime.close(runtime)
+}
+
+@target(javascript)
+pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
+  let input =
+    identifier_fixture.full_seed_input(
+      identifier_fixture.full_root(
+        identifier_fixture.point("child", "child"),
+        [],
+        [],
+        [],
+      ),
+    )
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let callbacks = transport_js.new_cell(None)
+  let submissions = transport_js.new_cell([])
+  let inline_ack = transport_js.new_cell(False)
+  let next_sequence = transport_js.new_cell(1)
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(event, payload) {
+            case event {
+              "submitOp" -> {
+                let assert Ok(dynamic) =
+                  json.parse(json.to_string(payload), decode.dynamic)
+                let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+                  frame.decode_submit_operation(dynamic)
+                transport_js.set_cell(submissions, [
+                  submitted,
+                  ..transport_js.get_cell(submissions)
+                ])
+                case transport_js.get_cell(inline_ack) {
+                  True -> {
+                    handlers.on_event(
+                      "op",
+                      frame.encode_operation_event([
+                        sequenced_submission(
+                          submitted,
+                          "reader",
+                          transport_js.get_cell(next_sequence),
+                        ),
+                      ])
+                        |> json.to_string,
+                    )
+                    transport_js.set_cell(
+                      next_sequence,
+                      transport_js.get_cell(next_sequence) + 1,
+                    )
+                  }
+                  False -> Nil
+                }
+              }
+              _ -> Nil
+            }
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let main =
+    watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
+  let parent = watershed.tree_fork(main) |> expect.to_be_ok()
+  let fork = watershed.tree_fork(parent) |> expect.to_be_ok()
+  watershed.tree_dispose_branch(parent) |> expect.to_equal(Ok(Nil))
+  watershed.tree_dispose_branch(parent) |> expect.to_equal(Ok(Nil))
+  watershed.tree_branch_status(parent)
+  |> expect.to_equal(watershed.BranchDisposed)
+  watershed.tree_branch_status(fork)
+  |> expect.to_equal(watershed.BranchValid)
+  watershed.tree_dispose_branch(main) |> expect.to_be_error()
+  watershed.tree_upgrade_schema(fork) |> expect.to_be_error()
+  let main_events = transport_js.new_cell([])
+  let fork_events = transport_js.new_cell([])
+  let _ =
+    watershed.subscribe_tree(main, fn(event) {
+      transport_js.set_cell(main_events, [
+        event,
+        ..transport_js.get_cell(main_events)
+      ])
+    })
+  let fork_subscription =
+    watershed.subscribe_tree(fork, fn(event) {
+      transport_js.set_cell(fork_events, [
+        event,
+        ..transport_js.get_cell(fork_events)
+      ])
+    })
+
+  watershed.tree_set(fork, ["child", "label"], tree_types.StringValue("fork"))
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_get(main, ["child", "label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("child"))))
+  watershed.tree_get(fork, ["child", "label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("fork"))))
+  watershed.tree_map_set(
+    fork,
+    ["byKey"],
+    "fork",
+    identifier_fixture.point("fork", "fork"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_array_insert(fork, ["left"], 0, [
+    identifier_fixture.point("array", "array"),
+  ])
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_map_get(main, ["byKey"], "fork")
+  |> expect.to_equal(Ok(None))
+  watershed.tree_array_values(main, ["left"])
+  |> expect.to_equal(Ok([]))
+  transport_js.get_cell(main_events) |> expect.to_equal([])
+  transport_js.get_cell(fork_events)
+  |> expect.to_equal([
+    tree_kernel.TreeChanged(True),
+    tree_kernel.TreeChanged(True),
+    tree_kernel.TreeChanged(True),
+  ])
+  transport_js.get_cell(submissions) |> expect.to_equal([])
+  watershed.unsubscribe(fork_subscription)
+  watershed.tree_map_set(
+    fork,
+    ["byKey"],
+    "unsubscribed",
+    identifier_fixture.point("unsubscribed", "unsubscribed"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(fork_events) |> list.length |> expect.to_equal(3)
+
+  watershed.tree_transaction(fork, [], fn(_) {
+    watershed.tree_dispose_branch(fork) |> expect.to_be_error()
+    watershed.tree_map_set(
+      main,
+      ["byKey"],
+      "main",
+      identifier_fixture.point("main", "main"),
+    )
+    |> expect.to_equal(Ok(Nil))
+    Error(FacadeAbort)
+  })
+  |> expect.to_equal(Error(watershed.Aborted(FacadeAbort)))
+  watershed.tree_map_get(main, ["byKey"], "main")
+  |> expect.to_be_ok()
+  |> expect.to_not_equal(None)
+  watershed.tree_map_get(fork, ["byKey"], "main")
+  |> expect.to_equal(Ok(None))
+  transport_js.get_cell(fork_events)
+  |> expect.to_equal([
+    tree_kernel.TreeChanged(True),
+    tree_kernel.TreeChanged(True),
+    tree_kernel.TreeChanged(True),
+  ])
+
+  watershed.tree_transaction(fork, [], fn(tree) {
+    watershed.tree_set(
+      tree,
+      ["child", "label"],
+      tree_types.StringValue("discarded-preview"),
+    )
+    |> expect.to_equal(Ok(Nil))
+    watershed.tree_map_set(
+      main,
+      ["byKey"],
+      "throw-main",
+      identifier_fixture.point("throw-main", "throw-main"),
+    )
+    |> expect.to_equal(Ok(Nil))
+    throw_transaction(tree)
+  })
+  |> expect.to_be_error()
+  watershed.tree_get(fork, ["child", "label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("fork"))))
+  watershed.tree_map_get(main, ["byKey"], "throw-main")
+  |> expect.to_be_ok()
+  |> expect.to_not_equal(None)
+  watershed.tree_transaction(fork, [], fn(_) { Ok(Nil) })
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_branch_status(fork)
+  |> expect.to_equal(watershed.BranchValid)
+  watershed.tree_transaction(fork, [], fn(tree) {
+    watershed.tree_map_set(
+      tree,
+      ["byKey"],
+      "committed-owner",
+      identifier_fixture.point("committed-owner", "committed-owner"),
+    )
+    |> expect.to_equal(Ok(Nil))
+    watershed.tree_map_set(
+      main,
+      ["byKey"],
+      "commit-main",
+      identifier_fixture.point("commit-main", "commit-main"),
+    )
+    |> expect.to_equal(Ok(Nil))
+    Ok(Nil)
+  })
+  |> expect.to_equal(Ok(Nil))
+  let sibling = watershed.tree_fork(main) |> expect.to_be_ok()
+  watershed.tree_transaction(main, [], fn(_) {
+    watershed.tree_map_set(
+      fork,
+      ["byKey"],
+      "reverse",
+      identifier_fixture.point("reverse", "reverse"),
+    )
+    |> expect.to_equal(Ok(Nil))
+    watershed.tree_map_set(
+      sibling,
+      ["byKey"],
+      "sibling",
+      identifier_fixture.point("sibling", "sibling"),
+    )
+    |> expect.to_equal(Ok(Nil))
+    Error(FacadeAbort)
+  })
+  |> expect.to_equal(Error(watershed.Aborted(FacadeAbort)))
+  watershed.tree_map_get(fork, ["byKey"], "reverse")
+  |> expect.to_be_ok()
+  |> expect.to_not_equal(None)
+  watershed.tree_map_get(sibling, ["byKey"], "sibling")
+  |> expect.to_be_ok()
+  |> expect.to_not_equal(None)
+  let pending_main = transport_js.get_cell(submissions) |> list.reverse
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event(
+      list.index_map(pending_main, fn(submitted, index) {
+        sequenced_submission(submitted, "reader", index + 1)
+      }),
+    )
+      |> json.to_string,
+  )
+  transport_js.set_cell(next_sequence, list.length(pending_main) + 1)
+  transport_js.set_cell(submissions, [])
+
+  let handles = transport_js.new_cell([])
+  let commit_kinds = transport_js.new_cell([])
+  let late_factory = transport_js.new_cell(None)
+  let settled = transport_js.new_cell([])
+  let delivery_order = transport_js.new_cell([])
+  let guarded_results = transport_js.new_cell([])
+  let guarded_callback_finished = transport_js.new_cell(0)
+  let queued_actions = transport_js.new_cell([])
+  let queued_revert = transport_js.new_cell([])
+  let queued_once = transport_js.new_cell(False)
+  runtime.set_scheduler(
+    watershed.runtime_of(document),
+    transport_js.Scheduler(
+      now_milliseconds: fn() { 0 },
+      schedule: fn(action, _) {
+        transport_js.set_cell(queued_actions, [
+          action,
+          ..transport_js.get_cell(queued_actions)
+        ])
+        fn() { Nil }
+      },
+    ),
+  )
+  let _ =
+    watershed.subscribe_tree_commits(fork, fn(event) {
+      event.local |> expect.to_equal(True)
+      transport_js.set_cell(commit_kinds, [
+        event.kind,
+        ..transport_js.get_cell(commit_kinds)
+      ])
+      let assert Some(get_revertible) = event.get_revertible
+      transport_js.set_cell(late_factory, Some(get_revertible))
+      let handle = get_revertible() |> expect.to_be_ok()
+      get_revertible() |> expect.to_be_error()
+      transport_js.set_cell(handles, [handle, ..transport_js.get_cell(handles)])
+      let assert Some(on_settled) = event.on_settled
+      on_settled(fn(outcome) {
+        transport_js.set_cell(delivery_order, [
+          "settled",
+          ..transport_js.get_cell(delivery_order)
+        ])
+        transport_js.set_cell(settled, [
+          outcome,
+          ..transport_js.get_cell(settled)
+        ])
+      })
+      |> expect.to_equal(Ok(Nil))
+    })
+  watershed.tree_set(
+    fork,
+    ["child", "label"],
+    tree_types.StringValue("branch-change"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let assert [original_handle] = transport_js.get_cell(handles)
+  let assert Some(late_factory) = transport_js.get_cell(late_factory)
+  late_factory() |> expect.to_be_error()
+  watershed.tree_revertible_status(original_handle)
+  |> expect.to_equal(watershed.RevertibleValid)
+  transport_js.get_cell(settled) |> expect.to_equal([])
+
+  watershed.tree_rebase_onto(fork, main) |> expect.to_equal(Ok(Nil))
+  let target_subscription =
+    watershed.subscribe_tree_commits(main, fn(_) {
+      transport_js.set_cell(delivery_order, [
+        "target",
+        ..transport_js.get_cell(delivery_order)
+      ])
+      transport_js.set_cell(guarded_results, [
+        #("rebase", watershed.tree_rebase_onto(fork, main)),
+        #("merge", watershed.tree_merge(main, fork, False)),
+        #(
+          "transaction",
+          watershed.tree_transaction(fork, [], fn(_) { Ok(Nil) })
+            |> result.map_error(string.inspect),
+        ),
+        #("revert", watershed.tree_revert(original_handle, False)),
+        ..transport_js.get_cell(guarded_results)
+      ])
+      case transport_js.get_cell(queued_once) {
+        True -> Nil
+        False -> {
+          transport_js.set_cell(queued_once, True)
+          runtime.schedule(
+            watershed.runtime_of(document),
+            fn() {
+              transport_js.set_cell(queued_revert, [
+                watershed.tree_revert(original_handle, True),
+                ..transport_js.get_cell(queued_revert)
+              ])
+            },
+            0,
+          )
+        }
+      }
+      transport_js.set_cell(
+        guarded_callback_finished,
+        transport_js.get_cell(guarded_callback_finished) + 1,
+      )
+    })
+  transport_js.set_cell(inline_ack, True)
+  watershed.tree_merge(main, fork, False) |> expect.to_equal(Ok(Nil))
+  transport_js.set_cell(inline_ack, False)
+  transport_js.set_cell(submissions, [])
+  transport_js.get_cell(delivery_order)
+  |> fn(order) {
+    let assert ["settled", ..targets] = order
+    targets
+    |> list.all(fn(value) { value == "target" })
+    |> expect.to_equal(True)
+  }
+  transport_js.get_cell(guarded_callback_finished)
+  |> expect.to_equal(list.length(transport_js.get_cell(guarded_results)) / 4)
+  transport_js.get_cell(guarded_callback_finished)
+  |> fn(count) { count > 0 }
+  |> expect.to_equal(True)
+  transport_js.get_cell(guarded_results)
+  |> list.each(fn(entry) { entry.1 |> expect.to_be_error() })
+  transport_js.get_cell(queued_revert) |> expect.to_equal([])
+  watershed.unsubscribe(target_subscription)
+  transport_js.get_cell(queued_actions)
+  |> list.reverse
+  |> list.each(fn(action) { action() })
+  transport_js.get_cell(queued_revert) |> expect.to_equal([Ok(Nil)])
+  watershed.tree_branch_status(fork)
+  |> expect.to_equal(watershed.BranchValid)
+  transport_js.get_cell(settled)
+  |> expect.to_equal([tree_types.FullyApplied])
+  watershed.tree_rebase_onto(fork, main) |> expect.to_equal(Ok(Nil))
+  watershed.tree_revertible_status(original_handle)
+  |> expect.to_equal(watershed.RevertibleDisposed)
+  watershed.tree_get(fork, ["child", "label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("fork"))))
+  let assert [redo_handle, _] = transport_js.get_cell(handles)
+  watershed.tree_revertible_status(original_handle)
+  |> expect.to_equal(watershed.RevertibleDisposed)
+  watershed.tree_revertible_status(redo_handle)
+  |> expect.to_equal(watershed.RevertibleValid)
+  watershed.tree_revert(redo_handle, True) |> expect.to_equal(Ok(Nil))
+  watershed.tree_get(fork, ["child", "label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("branch-change"))))
+  transport_js.get_cell(commit_kinds)
+  |> expect.to_equal([
+    tree_types.RedoCommit,
+    tree_types.UndoCommit,
+    tree_types.DefaultCommit,
+  ])
+  watershed.tree_merge(main, fork, True) |> expect.to_equal(Ok(Nil))
+  watershed.tree_branch_status(main)
+  |> expect.to_equal(watershed.DocumentBranch)
+  watershed.tree_branch_status(fork)
+  |> expect.to_equal(watershed.BranchDisposed)
+  watershed.tree_get(main, ["child", "label"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("branch-change"))))
+  watershed.tree_map_get(main, ["byKey"], "fork")
+  |> expect.to_be_ok()
+  |> expect.to_not_equal(None)
+  watershed.tree_array_values(main, ["left"])
+  |> expect.to_be_ok()
+  |> list.length
+  |> expect.to_equal(1)
+
+  let pending = transport_js.get_cell(submissions) |> list.reverse
+  let sequence = transport_js.get_cell(next_sequence)
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event(
+      list.index_map(pending, fn(submitted, index) {
+        sequenced_submission(submitted, "reader", sequence + index)
+      }),
+    )
+      |> json.to_string,
+  )
+  transport_js.set_cell(next_sequence, sequence + list.length(pending))
+  transport_js.set_cell(submissions, [])
+  transport_js.set_cell(inline_ack, True)
+  let disposed_settlements = transport_js.new_cell([])
+  let disposable = watershed.tree_fork(main) |> expect.to_be_ok()
+  let _ =
+    watershed.subscribe_tree_commits(disposable, fn(event) {
+      let assert Some(on_settled) = event.on_settled
+      on_settled(fn(_) {
+        watershed.tree_dispose_branch(disposable) |> expect.to_equal(Ok(Nil))
+        transport_js.set_cell(disposed_settlements, [
+          "dispose-first",
+          ..transport_js.get_cell(disposed_settlements)
+        ])
+      })
+      |> expect.to_equal(Ok(Nil))
+      on_settled(fn(_) {
+        transport_js.set_cell(disposed_settlements, [
+          "dispose-second",
+          ..transport_js.get_cell(disposed_settlements)
+        ])
+      })
+      |> expect.to_equal(Ok(Nil))
+    })
+  watershed.tree_map_set(
+    disposable,
+    ["byKey"],
+    "dispose-during-settlement",
+    identifier_fixture.point(
+      "dispose-during-settlement",
+      "dispose-during-settlement",
+    ),
+  )
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_merge(main, disposable, False) |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(disposed_settlements)
+  |> expect.to_equal(["dispose-first"])
+
+  let snapshot_calls = transport_js.new_cell([])
+  let snapshot = watershed.tree_fork(main) |> expect.to_be_ok()
+  let _ =
+    watershed.subscribe_tree(snapshot, fn(_) {
+      transport_js.set_cell(snapshot_calls, [
+        "snapshot-second",
+        ..transport_js.get_cell(snapshot_calls)
+      ])
+    })
+  let _ =
+    watershed.subscribe_tree(snapshot, fn(_) {
+      watershed.tree_dispose_branch(snapshot) |> expect.to_equal(Ok(Nil))
+      transport_js.set_cell(snapshot_calls, [
+        "snapshot-first",
+        ..transport_js.get_cell(snapshot_calls)
+      ])
+    })
+  watershed.tree_map_set(
+    snapshot,
+    ["byKey"],
+    "dispose-during-delivery",
+    identifier_fixture.point(
+      "dispose-during-delivery",
+      "dispose-during-delivery",
+    ),
+  )
+  |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(snapshot_calls) |> expect.to_equal(["snapshot-first"])
+
+  let unsubscribe_tree_calls = transport_js.new_cell([])
+  let unsubscribe_commit_calls = transport_js.new_cell([])
+  let unsubscription = watershed.tree_fork(main) |> expect.to_be_ok()
+  let canceled_tree =
+    watershed.subscribe_tree(unsubscription, fn(_) {
+      transport_js.set_cell(unsubscribe_tree_calls, [
+        "canceled",
+        ..transport_js.get_cell(unsubscribe_tree_calls)
+      ])
+    })
+  let _ =
+    watershed.subscribe_tree(unsubscription, fn(_) {
+      watershed.unsubscribe(canceled_tree)
+      transport_js.set_cell(unsubscribe_tree_calls, [
+        "canceling",
+        ..transport_js.get_cell(unsubscribe_tree_calls)
+      ])
+    })
+  let _ =
+    watershed.subscribe_tree(unsubscription, fn(_) {
+      transport_js.set_cell(unsubscribe_tree_calls, [
+        "other",
+        ..transport_js.get_cell(unsubscribe_tree_calls)
+      ])
+    })
+  let canceled_commit =
+    watershed.subscribe_tree_commits(unsubscription, fn(_) {
+      transport_js.set_cell(unsubscribe_commit_calls, [
+        "canceled",
+        ..transport_js.get_cell(unsubscribe_commit_calls)
+      ])
+    })
+  let _ =
+    watershed.subscribe_tree_commits(unsubscription, fn(_) {
+      watershed.unsubscribe(canceled_commit)
+      transport_js.set_cell(unsubscribe_commit_calls, [
+        "canceling",
+        ..transport_js.get_cell(unsubscribe_commit_calls)
+      ])
+    })
+  let _ =
+    watershed.subscribe_tree_commits(unsubscription, fn(_) {
+      transport_js.set_cell(unsubscribe_commit_calls, [
+        "other",
+        ..transport_js.get_cell(unsubscribe_commit_calls)
+      ])
+    })
+  watershed.tree_map_set(
+    unsubscription,
+    ["byKey"],
+    "unsubscribe-during-delivery",
+    identifier_fixture.point(
+      "unsubscribe-during-delivery",
+      "unsubscribe-during-delivery",
+    ),
+  )
+  |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(unsubscribe_tree_calls)
+  |> expect.to_equal(["canceling", "other"])
+  transport_js.get_cell(unsubscribe_commit_calls)
+  |> expect.to_equal(["canceling", "other"])
+
+  watershed.tree_dispose_branch(fork) |> expect.to_equal(Ok(Nil))
+  let live = watershed.tree_fork(main) |> expect.to_be_ok()
+  let closed_settlements = transport_js.new_cell([])
+  let closing = watershed.tree_fork(main) |> expect.to_be_ok()
+  let _ =
+    watershed.subscribe_tree_commits(closing, fn(event) {
+      let assert Some(on_settled) = event.on_settled
+      on_settled(fn(_) {
+        watershed.close(document)
+        transport_js.set_cell(closed_settlements, [
+          "close-first",
+          ..transport_js.get_cell(closed_settlements)
+        ])
+      })
+      |> expect.to_equal(Ok(Nil))
+      on_settled(fn(_) {
+        transport_js.set_cell(closed_settlements, [
+          "close-second",
+          ..transport_js.get_cell(closed_settlements)
+        ])
+      })
+      |> expect.to_equal(Ok(Nil))
+    })
+  watershed.tree_map_set(
+    closing,
+    ["byKey"],
+    "close-during-settlement",
+    identifier_fixture.point(
+      "close-during-settlement",
+      "close-during-settlement",
+    ),
+  )
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_merge(main, closing, False) |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(closed_settlements) |> expect.to_equal(["close-first"])
+
+  watershed.tree_branch_status(live)
+  |> expect.to_equal(watershed.BranchDisposed)
+}
+
+@target(javascript)
+pub fn facade_merge_invalid_inline_echo_rejects_success_delivery_test() {
+  let input =
+    identifier_fixture.full_seed_input(
+      identifier_fixture.full_root(
+        identifier_fixture.point("child", "child"),
+        [],
+        [],
+        [],
+      ),
+    )
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let callbacks = transport_js.new_cell(None)
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(event, payload) {
+            case event {
+              "submitOp" -> {
+                let assert Ok(dynamic) =
+                  json.parse(json.to_string(payload), decode.dynamic)
+                let assert Ok(frame.SubmitOperation(sender, [[submitted]])) =
+                  frame.decode_submit_operation(dynamic)
+                let assert Ok(batch) =
+                  fluid_container.decode(submitted.contents, submitted.metadata)
+                let assert [first, last] = batch.messages
+                let assert Ok(invalid) =
+                  fluid_container.encode_batch(
+                    fluid_container.DecodedBatch(batch.grouped, batch.metadata, [
+                      first,
+                      fluid_container.ContainerMessage(
+                        ..last,
+                        kind: fluid_container.ChannelOperation(
+                          fluid_container.Route("missing", "root"),
+                          json.null(),
+                        ),
+                      ),
+                    ]),
+                  )
+                handlers.on_event(
+                  "op",
+                  frame.encode_operation_event([
+                    frame.Sequenced(
+                      client_id: Some(sender),
+                      sequence_number: 1,
+                      minimum_sequence_number: 0,
+                      client_sequence_number: submitted.client_sequence_number,
+                      reference_sequence_number: submitted.reference_sequence_number,
+                      operation_type: submitted.operation_type,
+                      contents: invalid,
+                      metadata: submitted.metadata,
+                      timestamp: 0,
+                      data: None,
+                    ),
+                  ])
+                    |> json.to_string,
+                )
+              }
+              _ -> Nil
+            }
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let main =
+    watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
+  let fork = watershed.tree_fork(main) |> expect.to_be_ok()
+  let deliveries = transport_js.new_cell(0)
+  let _ =
+    watershed.subscribe_tree_commits(main, fn(_) {
+      transport_js.set_cell(deliveries, transport_js.get_cell(deliveries) + 1)
+    })
+  watershed.tree_map_set(
+    fork,
+    ["byKey"],
+    "merge-candidate",
+    identifier_fixture.point("merge-candidate", "merge-candidate"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_merge(main, fork, False) |> expect.to_be_error()
+  transport_js.get_cell(deliveries) |> expect.to_equal(0)
+  runtime.diagnostics(watershed.runtime_of(document)).phase
+  |> string.starts_with("suspended-pending-tree:")
+  |> expect.to_equal(True)
+  watershed.tree_map_get(main, ["byKey"], "merge-candidate")
+  |> expect.to_be_ok()
+  |> expect.to_not_equal(None)
+  watershed.close(document)
 }
 
 @target(javascript)

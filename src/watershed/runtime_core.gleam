@@ -3942,11 +3942,12 @@ pub fn tree_read_view_on(
   view: tree_schema.ViewSchema,
   path: tree_types.FieldPath,
 ) -> Result(Option(tree_types.TreeValue), CoreError) {
-  use state <- result.try(selected_tree_state(core, address, selector))
-  use _ <- result.try(
-    tree_schema.can_view(tree_kernel.stored_schema(state), view)
-    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
-  )
+  use state <- result.try(checked_selected_tree_state(
+    core,
+    address,
+    selector,
+    view,
+  ))
   tree_kernel.read(state, path)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -3994,11 +3995,12 @@ pub fn tree_map_get_view_on(
   path: tree_types.FieldPath,
   key: String,
 ) -> Result(Option(tree_types.TreeValue), CoreError) {
-  use state <- result.try(selected_tree_state(core, address, selector))
-  use _ <- result.try(
-    tree_schema.can_view(tree_kernel.stored_schema(state), view)
-    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
-  )
+  use state <- result.try(checked_selected_tree_state(
+    core,
+    address,
+    selector,
+    view,
+  ))
   tree_kernel.map_get(state, path, key)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -4067,11 +4069,12 @@ pub fn tree_array_get_view_on(
   path: tree_types.FieldPath,
   index: Int,
 ) -> Result(Option(tree_types.TreeValue), CoreError) {
-  use state <- result.try(selected_tree_state(core, address, selector))
-  use _ <- result.try(
-    tree_schema.can_view(tree_kernel.stored_schema(state), view)
-    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
-  )
+  use state <- result.try(checked_selected_tree_state(
+    core,
+    address,
+    selector,
+    view,
+  ))
   tree_kernel.array_get(state, path, index)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -4115,11 +4118,12 @@ pub fn tree_array_values_view_on(
   view: tree_schema.ViewSchema,
   path: tree_types.FieldPath,
 ) -> Result(List(tree_types.TreeValue), CoreError) {
-  use state <- result.try(selected_tree_state(core, address, selector))
-  use _ <- result.try(
-    tree_schema.can_view(tree_kernel.stored_schema(state), view)
-    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
-  )
+  use state <- result.try(checked_selected_tree_state(
+    core,
+    address,
+    selector,
+    view,
+  ))
   tree_kernel.array_values(state, path)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -4142,11 +4146,12 @@ pub fn tree_map_entries_view_on(
   view: tree_schema.ViewSchema,
   path: tree_types.FieldPath,
 ) -> Result(List(#(String, tree_types.TreeValue)), CoreError) {
-  use state <- result.try(selected_tree_state(core, address, selector))
-  use _ <- result.try(
-    tree_schema.can_view(tree_kernel.stored_schema(state), view)
-    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
-  )
+  use state <- result.try(checked_selected_tree_state(
+    core,
+    address,
+    selector,
+    view,
+  ))
   tree_kernel.map_entries(state, path)
   |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
 }
@@ -4272,6 +4277,28 @@ fn checked_read_tree_channel(
   use _ <- result.try(case core.active_tree_transaction {
     Some(#(active_address, tree_types.DocumentCheckout, active_view, _))
       if active_address == address && active_view != view
+    -> transaction_error(address, "tree transaction uses another view")
+    _ -> Ok(Nil)
+  })
+  use _ <- result.try(
+    tree_schema.can_view(tree_kernel.stored_schema(state), view)
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  Ok(state)
+}
+
+fn checked_selected_tree_state(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+) -> Result(tree_kernel.TreeState, CoreError) {
+  use state <- result.try(selected_tree_state(core, address, selector))
+  use _ <- result.try(case core.active_tree_transaction {
+    Some(#(active_address, active_selector, active_view, _))
+      if active_address == address
+      && active_selector == selector
+      && active_view != view
     -> transaction_error(address, "tree transaction uses another view")
     _ -> Ok(Nil)
   })
@@ -4771,6 +4798,29 @@ pub fn merge_tree(
       ))
     }
   }
+}
+
+pub fn submit_tree_edits_view_on(
+  core: Core,
+  address: String,
+  selector: tree_types.CheckoutSelector,
+  view: tree_schema.ViewSchema,
+  edits: List(tree_types.Edit),
+) -> Result(
+  #(Core, List(ScopedTreeEvent), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use _ <- result.try(case core.active_tree_transaction {
+    Some(#(active_address, _, _, _)) if active_address != address ->
+      transaction_error(address, "tree transaction uses another tree")
+    Some(#(_, active_selector, active_view, _))
+      if active_selector == selector && active_view != view
+    -> transaction_error(address, "tree transaction uses another view")
+    _ ->
+      checked_selected_tree_state(core, address, selector, view)
+      |> result.map(fn(_) { Nil })
+  })
+  submit_tree_edits_on(core, address, selector, edits)
 }
 
 pub fn submit_tree_edits_view(

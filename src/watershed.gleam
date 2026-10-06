@@ -67,6 +67,8 @@ import gleam/result
 import lattice_sequence/sequence.{After, Before}
 
 @target(javascript)
+import watershed/callback_js
+@target(javascript)
 import watershed/channel.{type ChannelEvent}
 @target(javascript)
 import watershed/claims_kernel
@@ -187,8 +189,16 @@ pub opaque type SharedTree {
   SharedTree(
     runtime: runtime.Runtime,
     address: String,
+    selector: tree_types.CheckoutSelector,
     view: tree_schema.ViewSchema,
   )
+}
+
+@target(javascript)
+pub type TreeBranchStatus {
+  DocumentBranch
+  BranchValid
+  BranchDisposed
 }
 
 @target(javascript)
@@ -556,7 +566,12 @@ pub fn resolve_tree(
 ) -> Result(SharedTree, String) {
   runtime.resolve_tree(document.runtime, value, view)
   |> result.map(fn(address) {
-    SharedTree(runtime: document.runtime, address: address, view: view)
+    SharedTree(
+      runtime: document.runtime,
+      address: address,
+      selector: tree_types.DocumentCheckout,
+      view: view,
+    )
   })
 }
 
@@ -570,7 +585,12 @@ pub fn open_tree(
 ) -> Result(SharedTree, String) {
   runtime.open_tree(document.runtime, value)
   |> result.map(fn(address) {
-    SharedTree(runtime: document.runtime, address: address, view: view)
+    SharedTree(
+      runtime: document.runtime,
+      address: address,
+      selector: tree_types.DocumentCheckout,
+      view: view,
+    )
   })
 }
 
@@ -578,7 +598,73 @@ pub fn open_tree(
 pub fn tree_compatibility(
   tree: SharedTree,
 ) -> Result(tree_schema.Compatibility, String) {
-  runtime.tree_compatibility(tree.runtime, tree.address, tree.view)
+  runtime.tree_compatibility_on(
+    tree.runtime,
+    tree.address,
+    tree.selector,
+    tree.view,
+  )
+}
+
+@target(javascript)
+pub fn tree_fork(tree: SharedTree) -> Result(SharedTree, String) {
+  runtime.tree_fork(tree.runtime, tree.address, tree.selector, tree.view)
+  |> result.map(fn(selector) { SharedTree(..tree, selector: selector) })
+}
+
+@target(javascript)
+pub fn tree_rebase_onto(
+  source: SharedTree,
+  target: SharedTree,
+) -> Result(Nil, String) {
+  use _ <- result.try(validate_related_trees(source, target))
+  runtime.tree_rebase_onto(
+    source.runtime,
+    source.address,
+    source.selector,
+    target.selector,
+  )
+}
+
+@target(javascript)
+pub fn tree_merge(
+  target: SharedTree,
+  source: SharedTree,
+  dispose_source: Bool,
+) -> Result(Nil, String) {
+  use _ <- result.try(validate_related_trees(source, target))
+  runtime.tree_merge(
+    source.runtime,
+    source.address,
+    target.selector,
+    source.selector,
+    dispose_source,
+  )
+}
+
+@target(javascript)
+pub fn tree_branch_status(tree: SharedTree) -> TreeBranchStatus {
+  case runtime.tree_branch_status(tree.runtime, tree.address, tree.selector) {
+    tree_types.DocumentBranch -> DocumentBranch
+    tree_types.BranchValid -> BranchValid
+    tree_types.BranchDisposed -> BranchDisposed
+  }
+}
+
+@target(javascript)
+pub fn tree_dispose_branch(tree: SharedTree) -> Result(Nil, String) {
+  runtime.tree_dispose_branch(tree.runtime, tree.address, tree.selector)
+}
+
+@target(javascript)
+fn validate_related_trees(
+  first: SharedTree,
+  second: SharedTree,
+) -> Result(Nil, String) {
+  case first.runtime == second.runtime && first.address == second.address {
+    True -> Ok(Nil)
+    False -> Error("tree handles do not have the same origin")
+  }
 }
 
 @target(javascript)
@@ -595,7 +681,12 @@ pub fn pending_summary_evidence(document: Document(a)) -> Result(Json, String) {
 
 @target(javascript)
 pub fn tree_upgrade_schema(tree: SharedTree) -> Result(Nil, String) {
-  runtime.tree_upgrade_schema(tree.runtime, tree.address, tree.view)
+  runtime.tree_upgrade_schema_on(
+    tree.runtime,
+    tree.address,
+    tree.selector,
+    tree.view,
+  )
 }
 
 @target(javascript)
@@ -635,19 +726,57 @@ pub fn tree_transaction(
       path
     })
   use _ <- result.try(
-    runtime.begin_tree_transaction(tree.runtime, tree.address, tree.view, paths)
+    runtime.begin_tree_transaction_on(
+      tree.runtime,
+      tree.address,
+      tree.selector,
+      tree.view,
+      paths,
+    )
     |> result.map_error(TransactionFailed),
   )
-  case callback(tree) {
-    Ok(value) ->
-      runtime.commit_tree_transaction(tree.runtime, tree.address)
+  case callback_js.capture(fn() { callback(tree) }) {
+    Ok(Ok(value)) ->
+      runtime.commit_tree_transaction_on(
+        tree.runtime,
+        tree.address,
+        tree.selector,
+      )
       |> result.map(fn(_) { value })
       |> result.map_error(TransactionFailed)
-    Error(error) ->
-      case runtime.abort_tree_transaction(tree.runtime, tree.address) {
+    Ok(Error(error)) ->
+      case
+        runtime.abort_tree_transaction_on(
+          tree.runtime,
+          tree.address,
+          tree.selector,
+        )
+      {
         Ok(_) -> Error(Aborted(error))
         Error(runtime_error) -> Error(TransactionFailed(runtime_error))
       }
+    Error(exception) -> {
+      callback_js.report("tree transaction callback: " <> exception)
+      case
+        runtime.abort_tree_transaction_on(
+          tree.runtime,
+          tree.address,
+          tree.selector,
+        )
+      {
+        Ok(_) ->
+          Error(TransactionFailed(
+            "tree transaction callback failed: " <> exception,
+          ))
+        Error(runtime_error) ->
+          Error(TransactionFailed(
+            "tree transaction callback failed: "
+            <> exception
+            <> "; transaction abort failed: "
+            <> runtime_error,
+          ))
+      }
+    }
   }
 }
 
@@ -663,7 +792,13 @@ pub fn tree_get(
   tree: SharedTree,
   path: tree_types.FieldPath,
 ) -> Result(Option(tree_types.TreeValue), String) {
-  runtime.tree_read_view(tree.runtime, tree.address, tree.view, path)
+  runtime.tree_read_view_on(
+    tree.runtime,
+    tree.address,
+    tree.selector,
+    tree.view,
+    path,
+  )
 }
 
 @target(javascript)
@@ -682,9 +817,10 @@ pub fn tree_set(
   path: tree_types.FieldPath,
   value: tree_types.TreeValue,
 ) -> Result(Nil, String) {
-  runtime.tree_edit_view(
+  runtime.tree_edit_view_on(
     tree.runtime,
     tree.address,
+    tree.selector,
     tree.view,
     tree_types.SetField(path, value),
   )
@@ -697,9 +833,10 @@ pub fn tree_clear(
   tree: SharedTree,
   path: tree_types.FieldPath,
 ) -> Result(Nil, String) {
-  runtime.tree_edit_view(
+  runtime.tree_edit_view_on(
     tree.runtime,
     tree.address,
+    tree.selector,
     tree.view,
     tree_types.ClearField(path),
   )
@@ -714,7 +851,14 @@ pub fn tree_map_get(
   path: tree_types.FieldPath,
   key: String,
 ) -> Result(Option(tree_types.TreeValue), String) {
-  runtime.tree_map_get_view(tree.runtime, tree.address, tree.view, path, key)
+  runtime.tree_map_get_view_on(
+    tree.runtime,
+    tree.address,
+    tree.selector,
+    tree.view,
+    path,
+    key,
+  )
 }
 
 @target(javascript)
@@ -726,9 +870,10 @@ pub fn tree_map_set(
   key: String,
   value: tree_types.TreeValue,
 ) -> Result(Nil, String) {
-  runtime.tree_edit_view(
+  runtime.tree_edit_view_on(
     tree.runtime,
     tree.address,
+    tree.selector,
     tree.view,
     tree_types.MapSet(path, key, value),
   )
@@ -742,9 +887,10 @@ pub fn tree_map_delete(
   path: tree_types.FieldPath,
   key: String,
 ) -> Result(Nil, String) {
-  runtime.tree_edit_view(
+  runtime.tree_edit_view_on(
     tree.runtime,
     tree.address,
+    tree.selector,
     tree.view,
     tree_types.MapDelete(path, key),
   )
@@ -766,7 +912,13 @@ pub fn tree_map_entries(
   tree: SharedTree,
   path: tree_types.FieldPath,
 ) -> Result(List(#(String, tree_types.TreeValue)), String) {
-  runtime.tree_map_entries_view(tree.runtime, tree.address, tree.view, path)
+  runtime.tree_map_entries_view_on(
+    tree.runtime,
+    tree.address,
+    tree.selector,
+    tree.view,
+    path,
+  )
 }
 
 @target(javascript)
@@ -777,9 +929,10 @@ pub fn tree_array_get(
   path: tree_types.FieldPath,
   index: Int,
 ) -> Result(Option(tree_types.TreeValue), String) {
-  runtime.tree_array_get_view(
+  runtime.tree_array_get_view_on(
     tree.runtime,
     tree.address,
+    tree.selector,
     tree.view,
     path,
     index,
@@ -792,7 +945,13 @@ pub fn tree_array_values(
   tree: SharedTree,
   path: tree_types.FieldPath,
 ) -> Result(List(tree_types.TreeValue), String) {
-  runtime.tree_array_values_view(tree.runtime, tree.address, tree.view, path)
+  runtime.tree_array_values_view_on(
+    tree.runtime,
+    tree.address,
+    tree.selector,
+    tree.view,
+    path,
+  )
 }
 
 @target(javascript)
@@ -803,9 +962,10 @@ pub fn tree_array_insert(
   index: Int,
   values: List(tree_types.TreeValue),
 ) -> Result(Nil, String) {
-  runtime.tree_edit_view(
+  runtime.tree_edit_view_on(
     tree.runtime,
     tree.address,
+    tree.selector,
     tree.view,
     tree_types.ArrayInsert(path, index, values),
   )
@@ -819,9 +979,10 @@ pub fn tree_array_remove(
   start: Int,
   end: Int,
 ) -> Result(Nil, String) {
-  runtime.tree_edit_view(
+  runtime.tree_edit_view_on(
     tree.runtime,
     tree.address,
+    tree.selector,
     tree.view,
     tree_types.ArrayRemove(path, start, end),
   )
@@ -837,9 +998,10 @@ pub fn tree_array_move(
   destination_path: tree_types.FieldPath,
   destination_gap: Int,
 ) -> Result(Nil, String) {
-  runtime.tree_edit_view(
+  runtime.tree_edit_view_on(
     tree.runtime,
     tree.address,
+    tree.selector,
     tree.view,
     tree_types.ArrayMove(
       source_path,
@@ -2191,11 +2353,19 @@ pub fn subscribe_tree(
   tree: SharedTree,
   handler: fn(tree_kernel.TreeEvent) -> Nil,
 ) -> SubscriptionToken {
-  use event <- subscribe_narrowed(tree.runtime, tree.address, handler)
-  case event {
-    channel.TreeEvent(inner) -> Some(inner)
-    _ -> None
-  }
+  SubscriptionToken(
+    runtime_token: runtime.subscribe_on(
+      tree.runtime,
+      tree.address,
+      tree.selector,
+      fn(event) {
+        case event {
+          channel.TreeEvent(inner) -> handler(inner)
+          _ -> Nil
+        }
+      },
+    ),
+  )
 }
 
 @target(javascript)
@@ -2204,9 +2374,10 @@ pub fn subscribe_tree_commits(
   handler: fn(TreeCommitEvent) -> Nil,
 ) -> SubscriptionToken {
   SubscriptionToken(
-    runtime_token: runtime.subscribe_tree_commits(
+    runtime_token: runtime.subscribe_tree_commits_on(
       tree.runtime,
       tree.address,
+      tree.selector,
       fn(event) {
         let runtime.TreeCommitEvent(kind, local, get_revertible, on_settled) =
           event
