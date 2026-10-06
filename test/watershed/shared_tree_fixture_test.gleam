@@ -1,11 +1,23 @@
+import gleam/dict
 import gleam/json
 import gleam/list
+import gleam/option.{Some}
 import gleam/string
 import startest/expect
-import watershed/json_ot.{NInt, VArray, VNumber, VObject, VString}
+import watershed/channel
+import watershed/json_ot.{
+  type JsonValue, NInt, VArray, VBool, VNumber, VObject, VString,
+}
+import watershed/runtime_core
+import watershed/tree/branch
+import watershed/tree/branch_fixture
 import watershed/tree/fixtures
+import watershed/tree/runtime_fixture
+import watershed/tree/schema as tree_schema
 import watershed/tree/transaction_fixture
+import watershed/tree/types as tree_types
 import watershed/tree/undo_fixture
+import watershed/tree_kernel
 
 const reference = "\"reference\":{\"package\":\"@fluidframework/tree\",\"version\":\"3.1.0\",\"commit\":\"c3c5bf0ecd313362e83fe8a02b7d39e7e0736960\"}"
 
@@ -548,4 +560,382 @@ pub fn shared_tree_transaction_history_observes_continuation_edit_test() {
 
   let unchanged = json.to_string(changed) == json.to_string(original)
   unchanged |> expect.to_be_false
+}
+
+pub fn local_branch_merge_matches_pinned_observations_test() {
+  let assert Ok(fixture) = fixtures.load("local-branch-merge")
+  let actual =
+    branch_fixture.run("local-branch-merge", fixture.input)
+    |> expect.to_be_ok
+  let expected =
+    branch_fixture.projection("local-branch-merge", fixture.expected)
+    |> expect.to_be_ok
+  fixtures.first_difference(actual, expected) |> expect.to_equal(Ok(Nil))
+}
+
+pub fn local_branch_isolation_matches_pinned_observations_test() {
+  let assert Ok(fixture) = fixtures.load("local-branch-isolation")
+  let actual =
+    branch_fixture.run("local-branch-isolation", fixture.input)
+    |> expect.to_be_ok
+  let expected =
+    branch_fixture.projection("local-branch-isolation", fixture.expected)
+    |> expect.to_be_ok
+  fixtures.first_difference(actual, expected) |> expect.to_equal(Ok(Nil))
+}
+
+pub fn local_branch_rebase_matches_supported_rows_test() {
+  let assert Ok(fixture) = fixtures.load("local-branch-rebase")
+  let actual =
+    branch_fixture.run("local-branch-rebase", fixture.input)
+    |> expect.to_be_ok
+  let expected =
+    branch_fixture.projection("local-branch-rebase", fixture.expected)
+    |> expect.to_be_ok
+  fixtures.first_difference(actual, expected) |> expect.to_equal(Ok(Nil))
+}
+
+pub fn local_branch_schema_source_evidence_and_native_refusal_are_required_test() {
+  let assert Ok(fixtures.Case(expected: expected, ..)) =
+    fixtures.load("local-branch-rebase")
+  let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(expected))
+  let assert Ok(VArray([first, second, third, VObject(schema)])) =
+    list.key_find(root, "observations")
+  root
+  |> list.key_set(
+    "observations",
+    VArray([
+      first,
+      second,
+      third,
+      VObject(list.filter(schema, fn(field) { field.0 != "forkHistory" })),
+    ]),
+  )
+  |> VObject
+  |> json_ot.to_json
+  |> fn(expected) { branch_fixture.projection("local-branch-rebase", expected) }
+  |> expect.to_be_error
+  root
+  |> list.key_set(
+    "observations",
+    VArray([
+      first,
+      second,
+      third,
+      VObject(list.key_set(schema, "forkHistory", VArray([]))),
+    ]),
+  )
+  |> VObject
+  |> json_ot.to_json
+  |> fn(expected) { branch_fixture.projection("local-branch-rebase", expected) }
+  |> expect.to_be_error
+  [
+    list.key_set(schema, "main", VArray([VString("wrong")])),
+    list.key_set(schema, "main", VArray([VString("C"), VString("B")])),
+    list.key_set(schema, "forkCanViewWideSchema", VBool(True)),
+    list.key_set(
+      schema,
+      "forkHistory",
+      VArray([
+        VString("not-a-revision"),
+        VString("8f95be09-8376-4ff7-8755-ccd7e8124b09"),
+        VString("8f95be09-8376-4ff7-8755-ccd7e8124b07"),
+        VString("8f95be09-8376-4ff7-8755-ccd7e8124b08"),
+      ]),
+    ),
+    list.key_set(
+      schema,
+      "forkHistory",
+      VArray([
+        VString("8f95be09-8376-4ff7-8755-ccd7e8124b09"),
+        VString("8f95be09-8376-4ff7-8755-ccd7e8124b06"),
+        VString("8f95be09-8376-4ff7-8755-ccd7e8124b07"),
+        VString("8f95be09-8376-4ff7-8755-ccd7e8124b08"),
+      ]),
+    ),
+    list.key_set(
+      schema,
+      "forkHistory",
+      VArray([
+        VString("8f95be09-8376-4ff7-8755-ccd7e8124b06"),
+        VString("8f95be09-8376-4ff7-8755-ccd7e8124b09"),
+        VString("8f95be09-8376-4ff7-8755-ccd7e8124b07"),
+      ]),
+    ),
+  ]
+  |> list.each(fn(mutated_schema) {
+    root
+    |> list.key_set(
+      "observations",
+      VArray([first, second, third, VObject(mutated_schema)]),
+    )
+    |> VObject
+    |> json_ot.to_json
+    |> fn(expected) {
+      branch_fixture.projection("local-branch-rebase", expected)
+    }
+    |> expect.to_be_error
+  })
+
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let address = "A/_C"
+  let assert Ok(channel.TreeState(state)) = dict.get(core.channels, address)
+  let assert Ok(view) =
+    tree_kernel.stored_schema(state)
+    |> tree_schema.stored_to_json
+    |> tree_schema.view_from_json
+  let assert Ok(#(core, id)) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+  let branch = tree_types.LocalCheckout(id)
+  let before_forest = core.tree_checkouts
+  let before_channels = core.channels
+  let before_compressor = core.compressor
+  let before_in_flight = core.in_flight
+  let before_publications = core.tree_publication_scopes
+  let assert Ok(before_history) =
+    runtime_core.tree_history_evidence(core, address)
+
+  runtime_core.submit_tree_upgrade_on(core, address, branch, view)
+  |> expect.to_equal(
+    Error(runtime_core.TreeOperationFailed(
+      address,
+      tree_types.UnsupportedFeature(
+        "branch schema",
+        "schema authoring on a local checkout",
+      ),
+    )),
+  )
+  core.tree_checkouts |> expect.to_equal(before_forest)
+  core.channels |> expect.to_equal(before_channels)
+  core.compressor |> expect.to_equal(before_compressor)
+  core.in_flight |> expect.to_equal(before_in_flight)
+  core.tree_publication_scopes |> expect.to_equal(before_publications)
+  runtime_core.tree_history_evidence(core, address)
+  |> expect.to_equal(Ok(before_history))
+  runtime_core.tree_branch_status(core, address, branch)
+  |> expect.to_equal(runtime_core.BranchValid)
+  let assert Ok(#(_, _)) =
+    runtime_core.rebase_tree_onto(
+      core,
+      address,
+      branch,
+      tree_types.DocumentCheckout,
+    )
+  Nil
+}
+
+pub fn local_branch_merge_rejects_actual_event_mutations_test() {
+  let assert Ok(fixture) = fixtures.load("local-branch-merge")
+  let actual =
+    branch_fixture.run("local-branch-merge", fixture.input)
+    |> expect.to_be_ok
+  let expected =
+    branch_fixture.projection("local-branch-merge", fixture.expected)
+    |> expect.to_be_ok
+
+  [
+    mutate_first_merge_event(actual, "kind", VString("Undo")),
+    mutate_first_merge_event(actual, "factory", VBool(False)),
+    mutate_first_merge_event(actual, "change", VString("changed-payload")),
+    mutate_first_merge_change(actual, "revision", VNumber(NInt(999))),
+  ]
+  |> list.each(fn(mutated) {
+    fixtures.first_difference(mutated, expected) |> expect.to_be_error
+  })
+}
+
+pub fn local_branch_native_notifications_outbound_and_document_lifetime_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let address = "A/_C"
+  let assert Ok(channel.TreeState(state)) = dict.get(core.channels, address)
+  let assert Ok(view) =
+    tree_kernel.stored_schema(state)
+    |> tree_schema.stored_to_json
+    |> tree_schema.view_from_json
+  let assert Ok(#(core, source_id)) =
+    runtime_core.fork_tree(core, address, tree_types.DocumentCheckout, view)
+  let source = tree_types.LocalCheckout(source_id)
+  let assert Ok(#(core, source_events, [])) =
+    runtime_core.submit_tree_edits_on(core, address, source, [
+      tree_types.SetField(["title"], tree_types.StringValue("native-source")),
+    ])
+  let assert [
+    #(
+      "A/_C",
+      tree_types.LocalCheckout(_),
+      channel.TreeCommitApplied(
+        source_revision,
+        tree_types.DefaultCommit,
+        True,
+        True,
+      ),
+    ),
+    ..
+  ] = source_events
+  let assert Ok(#(core, target_events, [outbound])) =
+    runtime_core.merge_tree(
+      core,
+      address,
+      tree_types.DocumentCheckout,
+      source,
+      False,
+    )
+  let assert [
+    #(
+      "A/_C",
+      tree_types.DocumentCheckout,
+      channel.TreeCommitApplied(
+        target_revision,
+        tree_types.DefaultCommit,
+        True,
+        True,
+      ),
+    ),
+    ..
+  ] = target_events
+  target_revision |> expect.to_equal(source_revision)
+  outbound.contents |> json.to_string |> string.is_empty |> expect.to_be_false
+
+  let assert Ok(forest) = dict.get(core.tree_checkouts, address)
+  let assert Ok(document) = branch.checkout(forest, tree_types.DocumentCheckout)
+  let assert Ok(#(retained, revertible)) =
+    branch.retain_revertible(
+      forest,
+      document,
+      target_revision,
+      tree_types.DefaultCommit,
+    )
+  branch.revertible_is_valid(retained, revertible) |> expect.to_be_true
+
+  let before_channels = core.channels
+  let before_checkouts = core.tree_checkouts
+  runtime_core.dispose_tree_branch(core, address, tree_types.DocumentCheckout)
+  |> expect.to_be_error
+  core.channels |> expect.to_equal(before_channels)
+  core.tree_checkouts |> expect.to_equal(before_checkouts)
+  runtime_core.tree_read(core, address, ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("native-source"))))
+}
+
+pub fn local_branch_runner_rejects_input_and_expected_mutations_test() {
+  let assert Ok(fixtures.Case(input: input, expected: expected, ..)) =
+    fixtures.load("local-branch-merge")
+  let assert Ok(VObject(input_root)) = json_ot.parse_json(json.to_string(input))
+  let _ =
+    input_root
+    |> list.key_set("scenarios", VArray([VString("unknown")]))
+    |> VObject
+    |> json_ot.to_json
+    |> fn(input) { branch_fixture.run("local-branch-merge", input) }
+    |> expect.to_be_error
+
+  let assert Ok(VObject(expected_root)) =
+    json_ot.parse_json(json.to_string(expected))
+  let assert Ok(VArray([VObject(boundaries), edge_cases])) =
+    list.key_find(expected_root, "observations")
+  let _ =
+    expected_root
+    |> list.key_set(
+      "observations",
+      VArray([
+        VObject(
+          list.filter(boundaries, fn(entry) { entry.0 != "sourceEvents" }),
+        ),
+        edge_cases,
+      ]),
+    )
+    |> VObject
+    |> json_ot.to_json
+    |> fn(expected) {
+      branch_fixture.projection("local-branch-merge", expected)
+    }
+    |> expect.to_be_error
+  Nil
+}
+
+pub fn local_branch_new_runners_reject_scenario_and_row_mutations_test() {
+  ["local-branch-isolation", "local-branch-rebase"]
+  |> list.each(fn(name) {
+    let assert Ok(fixtures.Case(input: input, expected: expected, ..)) =
+      fixtures.load(name)
+    let assert Ok(VObject(input_root)) =
+      json_ot.parse_json(json.to_string(input))
+    input_root
+    |> list.key_set("scenarios", VArray([VString("unknown")]))
+    |> VObject
+    |> json_ot.to_json
+    |> fn(input) { branch_fixture.run(name, input) }
+    |> expect.to_be_error
+
+    let assert Ok(VObject(expected_root)) =
+      json_ot.parse_json(json.to_string(expected))
+    let assert Ok(VArray([_, ..observations])) =
+      list.key_find(expected_root, "observations")
+    expected_root
+    |> list.key_set("observations", VArray(observations))
+    |> VObject
+    |> json_ot.to_json
+    |> fn(expected) { branch_fixture.projection(name, expected) }
+    |> expect.to_be_error
+  })
+}
+
+fn mutate_first_merge_event(
+  value: json.Json,
+  field: String,
+  replacement: JsonValue,
+) -> json.Json {
+  let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(value))
+  let assert Ok(VArray([VObject(boundaries), ..rest])) =
+    list.key_find(root, "observations")
+  let assert Ok(VArray([VObject(event), ..events])) =
+    list.key_find(boundaries, "events")
+  root
+  |> list.key_set(
+    "observations",
+    VArray([
+      VObject(list.key_set(
+        boundaries,
+        "events",
+        VArray([VObject(list.key_set(event, field, replacement)), ..events]),
+      )),
+      ..rest
+    ]),
+  )
+  |> VObject
+  |> json_ot.to_json
+}
+
+fn mutate_first_merge_change(
+  value: json.Json,
+  field: String,
+  replacement: JsonValue,
+) -> json.Json {
+  let assert Ok(VObject(root)) = json_ot.parse_json(json.to_string(value))
+  let assert Ok(VArray([VObject(boundaries), ..rest])) =
+    list.key_find(root, "observations")
+  let assert Ok(VArray([VObject(event), ..events])) =
+    list.key_find(boundaries, "events")
+  let assert Ok(VObject(change)) = list.key_find(event, "change")
+  root
+  |> list.key_set(
+    "observations",
+    VArray([
+      VObject(list.key_set(
+        boundaries,
+        "events",
+        VArray([
+          VObject(list.key_set(
+            event,
+            "change",
+            VObject(list.key_set(change, field, replacement)),
+          )),
+          ..events
+        ]),
+      )),
+      ..rest
+    ]),
+  )
+  |> VObject
+  |> json_ot.to_json
 }

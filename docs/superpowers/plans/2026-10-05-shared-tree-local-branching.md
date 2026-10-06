@@ -210,7 +210,7 @@ validated branch fixtures, and reviewed pure/runtime contracts.
   | Case ID | Required observations |
   | --- | --- |
   | `local-branch-isolation` | Main and nested forks; attached/detached identity; parent disposal; no branch tree submission |
-  | `local-branch-rebase` | Both edit orders, target unchanged, common revisions, optimistic main base |
+  | `local-branch-rebase` | Native: both edit orders, target unchanged, common revisions, optimistic main base, self-rebase, and atomic branch-schema refusal. Source-only: upstream schema-divergence drop behavior. |
   | `local-branch-merge` | Surviving revisions/encoded changes, event count/kind, preserved source, repeated/empty/self merges, default disposal |
   | `local-branch-transactions` | Guards, nested abort/commit, constraints, one outer commit, independent cross-checkout callback edits surviving source rollback |
   | `local-branch-undo` | Local factories, late/duplicate calls, undo/redo, merged target handles, original source handles, settlement registration/delivery |
@@ -222,7 +222,10 @@ validated branch fixtures, and reviewed pure/runtime contracts.
   revision, allocation range, event, or required row and require rejection.
   Use source-normalized semantic history plus separately retained raw messages.
   Register complete groups; do not advertise a partial projection as a complete
-  native runner.
+  native runner. The one named source-only projection exception is
+  `local-branch-rebase`'s source-only `schema-divergence` row. Native coverage
+  must validate that source row before excluding it from native comparison and
+  must separately prove atomic branch-schema refusal.
 
 - [x] **Step 4: Generate and verify deterministic source evidence.**
 
@@ -270,7 +273,7 @@ validated branch fixtures, and reviewed pure/runtime contracts.
   | [x] | Open transactions | Rebase rejects an active transaction on source or target. Merge rejects an active transaction on source or target. Fork rejects an active source transaction. The pinned implementation rejects rather than committing the transaction despite the public merge comment. | Reject active transactions atomically on every affected checkout. |
   | [x] | Node-existence constraint | When rebase finds that main replaced the guarded node, the constrained source commit remains in ancestry after the target commit. Its outcome is `NewContentOnly`: ordinary edits are suppressed, while created content and revision dependencies remain available to later commits. Source and target retain the replacement and the source title returns to `base`. | Preserve the violated commit, its revision, and its created content in local history. Apply no ordinary field effects while the constraint is violated. |
   | [x] | Cross-checkout transaction callback | Pinned upstream permits a callback running a source-fork transaction to edit main; the main edit succeeds and the source rollback does not undo it. | User-selected contract: match upstream. Each transaction owns one checkout; edits to another related live checkout commit independently. Commit and rollback preserve the other checkout's state, shared allocator advancement, events, and outbound work. No cross-checkout atomicity. |
-  | [x] | Schema divergence | A fork can author a wider schema. Rebasing it onto an old-schema target drops the fork schema change and dependent edit; the target stays unchanged and the fork's wide view becomes incompatible. | Branch schema authoring remains excluded. Reject it before mutation; do not approximate the upstream drop behavior. |
+  | [x] | Schema divergence | A fork can author a wider schema. Rebasing it onto an old-schema target drops the fork schema change and dependent edit; the target stays unchanged and the fork's wide view becomes incompatible. This row remains required source evidence only. | Branch schema authoring remains excluded. The native gate compares every supported rebase row, requires an explicit unsupported-operation result, and proves checkout lifetime, forest, history, allocator, events, and outbound state remain unchanged. It does not claim the upstream drop behavior. |
   | [x] | Allocation traffic | A branch-only Identifier insertion advances the shared compressor but processes zero messages and zero ranges. A later main insertion publishes one range (`firstGenCount: 4`, `count: 4`) with only the main tree operation. Merge publishes a second range (`firstGenCount: 8`, `count: 3`) with the branch tree operation. Interleaved IDs are unique. A rolled-back branch transaction advances serialized compressor state and does not reuse its allocation. | All checkouts share the document compressor. A branch reservation alone emits no traffic. Main and merge publication must send the required reserved ranges before their referencing tree operations. |
   | [x] | Settlement before and after merge | A branch-local commit exposes a factory but has no settlement before merge. After merge into main and sequencing, both its source registration and the target merge registration receive `FullyApplied`. | Expose registration on local commits but never report local settlement. Deliver sequencing outcomes to both live registrations after publication. |
   | [x] | Settlement registration lifetime | On both JavaScript and BEAM targets, unsubscribing after settlement registration stops future commit/change notifications but does not cancel the accepted settlement callback. Checkout disposal cancels that checkout's registrations. Runtime close cancels all registrations and queued settlement callbacks. | Keep accepted settlement registrations independent of subscriber lifetime and deliver each exactly once. Do not add a subscriber cancellation token to settlement state. |
@@ -278,6 +281,30 @@ validated branch fixtures, and reviewed pure/runtime contracts.
   | [x] | Retention release and reclamation | A live descendant and revertible retain their required history after parent disposal. Rebase advances the descendant pin. Disposing the final handle and descendant, then sequencing three main edits, reduces main history from 9 commits to 1 and advances MSN from 16 to 22. | Each descendant and revertible owns a pin. Release each pin on disposal and let trunk trimming reclaim history after the final pin disappears. |
   | [x] | Pending-main fork and normal reconnect | A fork sees an optimistic pending main edit. A normal disconnected edit reconnects, sequences once, merges once, and reloads from the merged summary. Unmerged branch content is absent from the peer summary; a merged summary reader can continue editing with a standard V7 operation. | Keep branches in-process across normal reconnect and summaries document-only. |
   | [x] | Accepted-before-drop with a live fork | The peer accepts the main edit while author inbound processing is paused. The author disconnects, resumes inbound processing under the old identity, then reconnects. The live fork retains count `23`; one merge operation gives main and peer title `accepted-before-drop` and count `23`, then disposes the source. | Drain accepted acknowledgements before reconnect changes client identity. Keep the live fork usable and publish its merge once. |
+
+  #### Deferred follow-up: checkout-local schema authoring
+
+  **Status: DEFERRED, not discarded.** The
+  `local-branch-rebase`/`schema-divergence` source evidence remains the pinned
+  starting point. The
+  [parent roadmap follow-up](2026-09-21-shared-tree.md#deferred-branch-schema-work)
+  tracks future approval and acceptance. This M6 plan does not authorize or
+  claim native support.
+
+  A future approved task must:
+
+  - author schema changes atomically on a local checkout;
+  - define rebase compatibility and drop the dependent edit when the fork
+    schema change is incompatible with the target, matching the pinned
+    observation;
+  - prove equivalent behavior through native JavaScript and BEAM facades;
+  - preserve checkout lifetime, allocator, event, settlement, and disposal
+    rules;
+  - keep branch schema state out of wire messages and summaries until merge,
+    then prove the intended publication and reload boundaries.
+
+  Keep the current explicit unsupported-operation gate until all these
+  requirements have approved executable evidence.
 
   **Stop for user review.** If evidence requires broader scope, codec changes,
   or a different allocation model, revise the design instead of implementing.
@@ -723,7 +750,9 @@ branch, history, summary, runtime, transaction, and Identifier tests.
 Register native coverage in the oracle generator only after passing it.
 
 **Consumes:** Public APIs and the complete Task 1 corpus.
-**Produces:** Full dual-target branch runner and lifecycle/persistence evidence.
+**Produces:** Full dual-target runner for the supported branch contract and
+lifecycle/persistence evidence. The pinned schema-divergence row remains
+source-only and has a separate native refusal gate.
 
 - [ ] **Step 1: Add input-only corpus runner RED.**
 
@@ -740,6 +769,11 @@ Register native coverage in the oracle generator only after passing it.
   fixture `raw` or `expected` while running native scenarios. If a semantic
   projection is necessary, normalize both sides under a reviewed contract and
   require every observation/field row, rather than selecting easy cases.
+  For `local-branch-rebase`, validate the complete source projection first,
+  including every `schema-divergence` field, then remove exactly that named row
+  from native comparison. Require `main == ["B", "C"]`, false compatibility,
+  and the four exact ordered history revisions. No generic row or field filter
+  is allowed.
 
 - [ ] **Step 2: Implement each of the eight runner groups.**
 
@@ -747,6 +781,20 @@ Register native coverage in the oracle generator only after passing it.
   encoded changes, snapshots, node IDs, allocator state, events, handles,
   transaction constraints, and source/target lifetime. Require both targets
   and all rows before updating `nativeSemanticRunners`.
+
+  Merge evidence must read kind, locality, revision, and advertised factory
+  availability from actual public `TreeCommitApplied` notifications. Exercise
+  an advertised factory by retaining a valid revertible. Observe local and
+  document-target outbound lists directly. Isolation must retain a node
+  reference before removal, read the detached node through that reference,
+  obtain refusal through the reference attachment check, and reread the
+  document after refusal. Read self-rebase history after the operation.
+
+  Rebase native parity covers every supported row. Its schema gate must call
+  branch schema authoring, require the explicit unsupported error, and prove
+  the checkout remains live while forest, history, allocator, events, and
+  outbound state remain unchanged. Mutation tests must reject a missing or
+  changed source-only schema row and a missing native refusal assertion.
 
 - [ ] **Step 3: Add recovery and retention tests incrementally.**
 

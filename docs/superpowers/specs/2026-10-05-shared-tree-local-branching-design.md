@@ -89,6 +89,13 @@ the transaction corpus. Keep exact protocol bytes as separate raw evidence.
 Native runners receive scenario inputs, not expected observations. Final-value
 equality alone does not prove branch behavior.
 
+The upstream schema-divergence observation is required source-only evidence.
+Its fork-local schema authoring and drop-on-rebase result are outside the native
+contract. Native rebase comparison includes every other row and uses one named
+projection exception for this row. The native gate separately requires the
+explicit branch-schema refusal and atomic-state proof; it must not present that
+refusal as upstream-equivalent behavior.
+
 ## 4. Architecture
 
 ### Checkout identity and ownership
@@ -189,7 +196,8 @@ or outbound work produced by another checkout during the callback.
 - Schema edits on a fork return an explicit unsupported-operation error.
   A schema change arriving on main follows the pinned rebase/merge compatibility
   behavior; reject unsupported schema reconciliation atomically rather than
-  ignoring the changed schema.
+  ignoring the changed schema. The refusal leaves checkout lifetime, forest,
+  history, allocator, events, and outbound state unchanged.
 - Disposing a checkout releases its own pins, subscriptions, and revertibles.
   Descendants keep independent ancestry pins and remain usable if supported by
   the pinned checkout contract; this is a required oracle case.
@@ -249,6 +257,34 @@ document, continue editing, and confirm that no historical fork reappears.
 Reconnect must preserve a fork made from pending main edits, reconcile those
 edits after accepted-before-drop recovery, and allow one nonduplicated merge.
 
+### Deferred future work: checkout-local schema authoring
+
+**Status: DEFERRED, not discarded.** The pinned
+`local-branch-rebase`/`schema-divergence` observation is the reference evidence
+for a future design. It shows a fork authoring a wider schema and rebase onto an
+old-schema target dropping the incompatible schema change and its dependent
+edit. The
+[parent roadmap follow-up](../plans/2026-09-21-shared-tree.md#deferred-branch-schema-work)
+tracks future approval and acceptance. The current local-branch contract
+continues to reject schema authoring before mutation.
+
+Future authorization must define and prove:
+
+1. Atomic schema authoring on a local checkout, including rollback and failure
+   behavior.
+2. Rebase compatibility and the exact rule that drops an incompatible schema
+   change and every dependent edit without changing the target.
+3. Native JavaScript and BEAM parity for authoring, rebase, events, errors, and
+   checkout lifetime.
+4. Allocator, revertible, settlement, descendant, disposal, and runtime-close
+   behavior while a branch owns a divergent schema.
+5. Wire and summary boundaries: no branch schema persistence or publication
+   before merge, explicit publication behavior at merge, and reload without a
+   historical checkout.
+
+This item is future work only. It does not weaken the current refusal gate or
+claim upstream-equivalent native behavior.
+
 ## 8. Acceptance
 
 Require named evidence for:
@@ -257,8 +293,14 @@ Require named evidence for:
    allocator correctness.
 2. Rebase and merge for object, map, array, same-array/cross-array move, and
    transaction changes, with unrelated and overlapping edits in both orders.
+   The upstream schema-divergence row remains required source-only evidence.
 3. Common-revision deduplication, preserved-source repeated merge, empty and
-   self operations, and atomic refusal cases.
+   self operations, and atomic refusal cases, including branch schema authoring
+   refusal with unchanged checkout lifetime, forest, history, allocator,
+   events, and outbound state.
+   Merge observations use public notification metadata and actual outbound
+   lists. An advertised revertible factory must produce a valid retained
+   revertible. Self-rebase history is read after rebase.
 4. Branch-local undo/redo, target merge factories, source disposal, callback
    scope, and honest settlement behavior. Independent cross-checkout callback
    edits survive the owning transaction's commit or rollback on both targets.
@@ -272,6 +314,11 @@ Require named evidence for:
    upstream/native convergence.
 9. Permanent gates rejecting missing scenarios, targets, raw artifacts, event
    observations, allocation evidence, or reload cells.
+
+Isolation evidence retains a node reference before removal, reads the detached
+node through that reference, checks attachment refusal through the reference
+API, and rereads the document after refusal and after rejected document-view
+disposal.
 10. Existing M1-M5 behavior, creation, full build, and standalone browser
     acceptance without claiming shared branches or other M7/M8 features.
 
