@@ -2795,6 +2795,14 @@ fn handle_operation(
                     tree_kernel.history_view(state).pending,
                     fn(pending) { pending.revision == commit.revision },
                   )
+                // Read the rebased pending outcome before acknowledgement trims history.
+                use commit_events <- result.try(tree_commit_events(
+                  address,
+                  state,
+                  commit,
+                  own,
+                  pending_local,
+                ))
                 use #(state, changes, compressor) <- result.try(
                   tree_runtime.receive_commit(
                     state,
@@ -2808,13 +2816,6 @@ fn handle_operation(
                     TreeOperationFailed(address, error)
                   }),
                 )
-                use commit_events <- result.try(tree_commit_events(
-                  address,
-                  state,
-                  commit,
-                  own,
-                  pending_local,
-                ))
                 Ok(
                   #(
                     Core(
@@ -3205,14 +3206,14 @@ fn tree_commit_events(
       ])
     True, False -> Ok([])
     True, True -> {
-      use sequenced <- result.try(
-        tree_kernel.history_view(state).sequenced.trunk
-        |> list.find(fn(entry) { entry.commit.revision == commit.revision })
+      use pending <- result.try(
+        tree_kernel.history_view(state).pending
+        |> list.find(fn(entry) { entry.revision == commit.revision })
         |> result.map_error(fn(_) {
           TreeOperationFailed(
             address,
             tree_types.InvalidHistory(
-              "local acknowledgement has no sequenced commit",
+              "local acknowledgement has no pending commit",
             ),
           )
         }),
@@ -3222,7 +3223,7 @@ fn tree_commit_events(
           address,
           channel.TreeCommitSettled(
             commit.revision,
-            tree_runtime.commit_outcome(sequenced.commit.change),
+            tree_runtime.commit_outcome(pending.change),
           ),
         ),
       ])
