@@ -1,9 +1,11 @@
 import gleam/dict
+import gleam/dynamic/decode
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{None, Some, to_result}
 import gleam/result
 import gleam/string
+import spillway/types as spillway_types
 import watershed/channel
 import watershed/fluid_ids
 import watershed/json_ot.{type JsonValue, VArray, VObject, VString}
@@ -22,6 +24,8 @@ import watershed/tree/schema
 import watershed/tree/shared_change
 import watershed/tree/types
 import watershed/tree_kernel
+import watershed/wire
+import watershed/wire/fluid_container
 
 const point_type = "org.watershed.shared-tree.branch.Point"
 
@@ -49,6 +53,8 @@ pub fn run(name: String, input: Json) -> Result(Json, String) {
     "local-branch-isolation" -> run_isolation()
     "local-branch-rebase" -> run_rebase()
     "local-branch-merge" -> run_merge()
+    "local-branch-transactions" -> run_transactions()
+    "local-branch-allocation" -> run_allocation()
     _ -> Error("unsupported branch fixture " <> name)
   }
 }
@@ -91,6 +97,29 @@ pub fn projection(name: String, expected: Json) -> Result(Json, String) {
           "selfDefaultDisposed", "defaultDisposed",
         ]),
       ])
+    "local-branch-transactions" ->
+      validate_projection(expected, [
+        #("outer-commit", ["value", "revisions", "events"]),
+        #("guards", [
+          "sourceGuard", "targetGuard", "sourceMergeGuard", "targetMergeGuard",
+          "forkGuard",
+        ]),
+        #("constraint", ["source", "target", "revisions"]),
+        #("cross-checkout", ["error", "changedMain"]),
+        #("abort-allocation", [
+          "stateRestored", "allocationAdvanced", "before", "after",
+        ]),
+      ])
+    "local-branch-allocation" ->
+      validate_projection(expected, [
+        #("branch-only", [
+          "messages", "allocationRanges", "reservationAdvanced", "before",
+          "after",
+        ]),
+        #("main-publication", ["allocationRanges", "messages"]),
+        #("merge-publication", ["identifiers", "allocationRanges", "messages"]),
+        #("abort-range", ["allocationAdvanced", "before", "after"]),
+      ])
     _ -> Error("unsupported branch fixture projection " <> name)
   }
 }
@@ -119,6 +148,16 @@ fn validate_input(name: String, input: Json) -> Result(Nil, String) {
       "surviving-source-revisions", "one-event-per-source-commit",
       "preserved-source-repeat", "empty-merge",
       "self-merge-preserved-and-default", "default-source-disposal",
+    ]
+    "local-branch-transactions" -> [
+      "nested-abort-and-outer-commit", "source-and-target-operation-guards",
+      "active-transaction-fork-guard", "node-in-document-constraint",
+      "cross-checkout-callback", "allocation-survives-abort",
+    ]
+    "local-branch-allocation" -> [
+      "shared-compressor", "interleaved-identifiers", "branch-only-reservation",
+      "main-triggered-publication", "aborted-range-retained",
+      "merge-range-before-tree-use",
     ]
     _ -> []
   }
@@ -788,6 +827,813 @@ fn run_merge() -> Result(Json, String) {
   )
 }
 
+fn run_transactions() -> Result(Json, String) {
+  use core <- result.try(initial_core())
+  use view <- result.try(
+    schema.view_from_string(tree_schema) |> result.map_error(string.inspect),
+  )
+  use #(core, source_id) <- result.try(
+    core_result(runtime_core.fork_tree(
+      core,
+      tree_address,
+      types.DocumentCheckout,
+      view,
+    )),
+  )
+  let source = types.LocalCheckout(source_id)
+  use core <- result.try(
+    core_result(
+      runtime_core.begin_tree_transaction_on(
+        core,
+        tree_address,
+        source,
+        view,
+        [],
+      ),
+    ),
+  )
+  use core <- result.try(core_without_output(
+    runtime_core.submit_tree_edits_on(core, tree_address, source, [
+      types.SetField(["title"], types.StringValue("outer")),
+    ]),
+    "outer transaction edit",
+  ))
+  use core <- result.try(
+    core_result(
+      runtime_core.begin_tree_transaction_on(
+        core,
+        tree_address,
+        source,
+        view,
+        [],
+      ),
+    ),
+  )
+  use core <- result.try(core_without_output(
+    runtime_core.submit_tree_edits_on(core, tree_address, source, [
+      types.SetField(["count"], types.NumberValue(99.0)),
+    ]),
+    "nested transaction edit",
+  ))
+  use core <- result.try(core_without_events(
+    runtime_core.abort_tree_transaction_on(core, tree_address, source),
+    "nested transaction abort",
+  ))
+  use core <- result.try(core_without_output(
+    runtime_core.submit_tree_edits_on(core, tree_address, source, [
+      types.SetField(["count"], types.NumberValue(3.0)),
+    ]),
+    "outer transaction edit",
+  ))
+  use #(core, outer_events) <- result.try(core_without_outbound(
+    runtime_core.commit_tree_transaction_on(core, tree_address, source),
+    "local transaction commit",
+  ))
+  use outer_value <- result.try(core_visible_json(core, source))
+  use forest <- result.try(core_forest(core))
+  use source_checkout <- try_native(branch.checkout(forest, source))
+  let outer_revisions = checkout_revisions(forest, source_checkout)
+  use compressor <- result.try(core_compressor(core))
+  use outer_events <- try_native(event_json(forest, outer_events, compressor))
+
+  use guards <- result.try(transaction_guards(view))
+  use constraint <- result.try(transaction_constraint(view))
+  use cross_checkout <- result.try(transaction_cross_checkout(view))
+  use abort_allocation <- result.try(transaction_abort_allocation(view))
+  use _ <- result.try(transaction_owner_disposal_refusal(view))
+
+  normalize_field_batches(
+    json.object([
+      #(
+        "observations",
+        fixture_codec.array([
+          json.object([
+            #("id", json.string("outer-commit")),
+            #("value", outer_value),
+            #("revisions", string_array(outer_revisions)),
+            #("events", fixture_codec.array(outer_events)),
+          ]),
+          guards,
+          constraint,
+          cross_checkout,
+          abort_allocation,
+        ]),
+      ),
+    ]),
+  )
+}
+
+fn transaction_guards(view: schema.ViewSchema) -> Result(Json, String) {
+  use source_guard <- result.try(reconcile_guard(view, True, False))
+  use target_guard <- result.try(reconcile_guard(view, False, False))
+  use source_merge_guard <- result.try(reconcile_guard(view, True, True))
+  use target_merge_guard <- result.try(reconcile_guard(view, False, True))
+  use core <- result.try(initial_core())
+  use #(core, id) <- result.try(
+    core_result(runtime_core.fork_tree(
+      core,
+      tree_address,
+      types.DocumentCheckout,
+      view,
+    )),
+  )
+  let source = types.LocalCheckout(id)
+  use core <- result.try(
+    core_result(
+      runtime_core.begin_tree_transaction_on(
+        core,
+        tree_address,
+        source,
+        view,
+        [],
+      ),
+    ),
+  )
+  use fork_guard <- result.try(require_transaction_guard(
+    runtime_core.fork_tree(core, tree_address, source, view),
+    "source checkout has an active transaction",
+    "source-active",
+  ))
+  Ok(
+    json.object([
+      #("id", json.string("guards")),
+      #("sourceGuard", json.string(source_guard)),
+      #("targetGuard", json.string(target_guard)),
+      #("sourceMergeGuard", json.string(source_merge_guard)),
+      #("targetMergeGuard", json.string(target_merge_guard)),
+      #("forkGuard", json.string(fork_guard)),
+    ]),
+  )
+}
+
+fn reconcile_guard(
+  view: schema.ViewSchema,
+  active_source: Bool,
+  merge: Bool,
+) -> Result(String, String) {
+  use core <- result.try(initial_core())
+  use #(core, source_id) <- result.try(
+    core_result(runtime_core.fork_tree(
+      core,
+      tree_address,
+      types.DocumentCheckout,
+      view,
+    )),
+  )
+  use #(core, target_id) <- result.try(
+    core_result(runtime_core.fork_tree(
+      core,
+      tree_address,
+      types.DocumentCheckout,
+      view,
+    )),
+  )
+  let source = types.LocalCheckout(source_id)
+  let target = types.LocalCheckout(target_id)
+  let active = case active_source {
+    True -> source
+    False -> target
+  }
+  use core <- result.try(
+    core_result(
+      runtime_core.begin_tree_transaction_on(
+        core,
+        tree_address,
+        active,
+        view,
+        [],
+      ),
+    ),
+  )
+  let operation = case merge {
+    True -> runtime_core.merge_tree(core, tree_address, target, source, False)
+    False ->
+      runtime_core.rebase_tree_onto(core, tree_address, source, target)
+      |> result.map(fn(value) { #(value.0, value.1, []) })
+  }
+  let token = case active_source, merge {
+    True, False -> "source-active"
+    False, False -> "target-active"
+    True, True -> "source-active"
+    False, True -> "target-active"
+  }
+  require_transaction_guard(
+    operation,
+    "affected checkout has an active transaction",
+    token,
+  )
+}
+
+fn require_transaction_guard(
+  guarded: Result(a, runtime_core.CoreError),
+  detail: String,
+  token: String,
+) -> Result(String, String) {
+  case guarded {
+    Error(runtime_core.TreeOperationFailed(
+      address,
+      types.InvalidHistory(actual),
+    ))
+      if address == tree_address && actual == detail
+    -> Ok(token)
+    Error(error) ->
+      Error(
+        "unexpected transaction guard "
+        <> string.inspect(error)
+        <> "; expected "
+        <> detail,
+      )
+    Ok(_) -> Error("transaction guard operation succeeded")
+  }
+}
+
+fn transaction_constraint(view: schema.ViewSchema) -> Result(Json, String) {
+  use core <- result.try(initial_core())
+  use #(core, source_id) <- result.try(
+    core_result(runtime_core.fork_tree(
+      core,
+      tree_address,
+      types.DocumentCheckout,
+      view,
+    )),
+  )
+  let source = types.LocalCheckout(source_id)
+  use core <- result.try(
+    core_result(
+      runtime_core.begin_tree_transaction_on(core, tree_address, source, view, [
+        ["featured"],
+      ]),
+    ),
+  )
+  use core <- result.try(core_without_output(
+    runtime_core.submit_tree_edits_on(core, tree_address, source, [
+      types.SetField(["title"], types.StringValue("constrained-change")),
+    ]),
+    "constrained transaction edit",
+  ))
+  use #(core, _) <- result.try(core_without_outbound(
+    runtime_core.commit_tree_transaction_on(core, tree_address, source),
+    "constrained local transaction commit",
+  ))
+  use #(core, _, _) <- result.try(
+    core_result(
+      runtime_core.submit_tree_edits_on(
+        core,
+        tree_address,
+        types.DocumentCheckout,
+        [types.SetField(["featured"], point("replacement"))],
+      ),
+    ),
+  )
+  use #(core, _) <- result.try(
+    core_result(runtime_core.rebase_tree_onto(
+      core,
+      tree_address,
+      source,
+      types.DocumentCheckout,
+    )),
+  )
+  use source_value <- result.try(core_visible_json(core, source))
+  use target_value <- result.try(core_visible_json(core, types.DocumentCheckout))
+  use forest <- result.try(core_forest(core))
+  use source_checkout <- try_native(branch.checkout(forest, source))
+  Ok(
+    json.object([
+      #("id", json.string("constraint")),
+      #("source", source_value),
+      #("target", target_value),
+      #("revisions", string_array(checkout_revisions(forest, source_checkout))),
+    ]),
+  )
+}
+
+fn transaction_cross_checkout(view: schema.ViewSchema) -> Result(Json, String) {
+  use changed <- result.try(cross_checkout_case(view, False, False))
+  use committed <- result.try(cross_checkout_case(view, True, False))
+  use failed <- result.try(cross_checkout_case(view, False, True))
+  use _ <- result.try(case changed && committed && failed {
+    True -> Ok(Nil)
+    False -> Error("independent main edit did not survive owner completion")
+  })
+  Ok(
+    json.object([
+      #("id", json.string("cross-checkout")),
+      #("error", json.string("")),
+      #("changedMain", json.bool(changed)),
+    ]),
+  )
+}
+
+fn cross_checkout_case(
+  view: schema.ViewSchema,
+  commit: Bool,
+  callback_error: Bool,
+) -> Result(Bool, String) {
+  use core <- result.try(initial_core())
+  use #(core, source_id) <- result.try(
+    core_result(runtime_core.fork_tree(
+      core,
+      tree_address,
+      types.DocumentCheckout,
+      view,
+    )),
+  )
+  let source = types.LocalCheckout(source_id)
+  use core <- result.try(
+    core_result(
+      runtime_core.begin_tree_transaction_on(
+        core,
+        tree_address,
+        source,
+        view,
+        [],
+      ),
+    ),
+  )
+  use #(core, main_events, main_outbound) <- result.try(
+    core_result(
+      runtime_core.submit_tree_edits_on(
+        core,
+        tree_address,
+        types.DocumentCheckout,
+        [
+          types.SetField(
+            ["title"],
+            types.StringValue(case callback_error {
+              True -> "callback-error"
+              False -> "cross-checkout"
+            }),
+          ),
+        ],
+      ),
+    ),
+  )
+  use _ <- result.try(require_outbound(main_outbound, "independent main edit"))
+  use _ <- result.try(case main_events {
+    [#(_, types.DocumentCheckout, channel.TreeCommitApplied(_, _, _, _)), ..] ->
+      Ok(Nil)
+    _ -> Error("independent main edit emitted no commit event")
+  })
+  use core <- result.try(case commit {
+    True ->
+      runtime_core.commit_tree_transaction_on(core, tree_address, source)
+      |> core_result
+      |> result.map(fn(value) { value.0 })
+    False ->
+      runtime_core.abort_tree_transaction_on(core, tree_address, source)
+      |> core_result
+      |> result.map(fn(value) { value.0 })
+  })
+  runtime_core.tree_read(core, tree_address, ["title"])
+  |> result.map_error(string.inspect)
+  |> result.map(fn(value) {
+    value
+    == Some(
+      types.StringValue(case callback_error {
+        True -> "callback-error"
+        False -> "cross-checkout"
+      }),
+    )
+  })
+}
+
+fn transaction_abort_allocation(
+  view: schema.ViewSchema,
+) -> Result(Json, String) {
+  use core <- result.try(initial_core())
+  use #(core, source_id) <- result.try(
+    core_result(runtime_core.fork_tree(
+      core,
+      tree_address,
+      types.DocumentCheckout,
+      view,
+    )),
+  )
+  let source = types.LocalCheckout(source_id)
+  use before_value <- result.try(core_visible_json(core, source))
+  use compressor <- result.try(core_compressor(core))
+  use before <- result.try(
+    fluid_ids.serialize(compressor, True) |> result.map_error(string.inspect),
+  )
+  use core <- result.try(
+    core_result(
+      runtime_core.begin_tree_transaction_on(
+        core,
+        tree_address,
+        source,
+        view,
+        [],
+      ),
+    ),
+  )
+  use core <- result.try(core_without_output(
+    runtime_core.submit_tree_edits_on(core, tree_address, source, [
+      types.ArrayInsert(["right"], 0, [point("aborted-allocation")]),
+    ]),
+    "aborted allocation edit",
+  ))
+  use core <- result.try(core_without_events(
+    runtime_core.abort_tree_transaction_on(core, tree_address, source),
+    "allocation transaction abort",
+  ))
+  use after_value <- result.try(core_visible_json(core, source))
+  use compressor <- result.try(core_compressor(core))
+  use after <- result.try(
+    fluid_ids.serialize(compressor, True) |> result.map_error(string.inspect),
+  )
+  Ok(
+    json.object([
+      #("id", json.string("abort-allocation")),
+      #(
+        "stateRestored",
+        json.bool(json.to_string(before_value) == json.to_string(after_value)),
+      ),
+      #(
+        "allocationAdvanced",
+        json.bool(json.to_string(before) != json.to_string(after)),
+      ),
+      #("before", before),
+      #("after", after),
+    ]),
+  )
+}
+
+fn transaction_owner_disposal_refusal(
+  view: schema.ViewSchema,
+) -> Result(Nil, String) {
+  use core <- result.try(initial_core())
+  use #(core, source_id) <- result.try(
+    core_result(runtime_core.fork_tree(
+      core,
+      tree_address,
+      types.DocumentCheckout,
+      view,
+    )),
+  )
+  let source = types.LocalCheckout(source_id)
+  use core <- result.try(
+    core_result(
+      runtime_core.begin_tree_transaction_on(
+        core,
+        tree_address,
+        source,
+        view,
+        [],
+      ),
+    ),
+  )
+  use _ <- result.try(require_transaction_guard(
+    runtime_core.dispose_tree_branch(core, tree_address, source),
+    "checkout has an active transaction",
+    "owner-active",
+  ))
+  use _ <- result.try(
+    case runtime_core.tree_branch_status(core, tree_address, source) {
+      runtime_core.BranchValid -> Ok(Nil)
+      _ -> Error("active transaction owner was disposed")
+    },
+  )
+  runtime_core.abort_tree_transaction_on(core, tree_address, source)
+  |> core_result
+  |> result.map(fn(_) { Nil })
+}
+
+fn run_allocation() -> Result(Json, String) {
+  use core <- result.try(initial_core())
+  use view <- result.try(
+    schema.view_from_string(tree_schema) |> result.map_error(string.inspect),
+  )
+  use #(core, source_id) <- result.try(
+    core_result(runtime_core.fork_tree(
+      core,
+      tree_address,
+      types.DocumentCheckout,
+      view,
+    )),
+  )
+  let source = types.LocalCheckout(source_id)
+  use compressor <- result.try(core_compressor(core))
+  use before_branch <- result.try(
+    fluid_ids.serialize(compressor, True) |> result.map_error(string.inspect),
+  )
+  use #(core, _, branch_outbound) <- result.try(
+    core_result(
+      runtime_core.submit_tree_edits_on(core, tree_address, source, [
+        types.ArrayInsert(["right"], 0, [point("branch-id")]),
+      ]),
+    ),
+  )
+  use _ <- result.try(require_no_outbound(
+    branch_outbound,
+    "branch-only allocation",
+  ))
+  use compressor <- result.try(core_compressor(core))
+  use after_branch <- result.try(
+    fluid_ids.serialize(compressor, True) |> result.map_error(string.inspect),
+  )
+
+  use #(core, _, main_outbound) <- result.try(
+    core_result(
+      runtime_core.submit_tree_edits_on(
+        core,
+        tree_address,
+        types.DocumentCheckout,
+        [types.ArrayInsert(["left"], 1, [point("main-id")])],
+      ),
+    ),
+  )
+  use #(main_ranges, main_messages) <- result.try(publication_json(
+    main_outbound,
+    "main publication",
+  ))
+  use _ <- result.try(reversed_publication_is_rejected(
+    main_outbound,
+    "main publication",
+  ))
+  use core <- result.try(sequence_publication(core, main_outbound))
+
+  use compressor <- result.try(core_compressor(core))
+  use before_abort <- result.try(
+    fluid_ids.serialize(compressor, True) |> result.map_error(string.inspect),
+  )
+  use core <- result.try(
+    core_result(
+      runtime_core.begin_tree_transaction_on(
+        core,
+        tree_address,
+        source,
+        view,
+        [],
+      ),
+    ),
+  )
+  use core <- result.try(core_without_output(
+    runtime_core.submit_tree_edits_on(core, tree_address, source, [
+      types.ArrayInsert(["right"], 1, [point("aborted-id")]),
+    ]),
+    "aborted range edit",
+  ))
+  use core <- result.try(core_without_events(
+    runtime_core.abort_tree_transaction_on(core, tree_address, source),
+    "range transaction abort",
+  ))
+  use compressor <- result.try(core_compressor(core))
+  use after_abort <- result.try(
+    fluid_ids.serialize(compressor, True) |> result.map_error(string.inspect),
+  )
+
+  use #(core, _, merge_outbound) <- result.try(
+    core_result(runtime_core.merge_tree(
+      core,
+      tree_address,
+      types.DocumentCheckout,
+      source,
+      True,
+    )),
+  )
+  use #(merge_ranges, merge_messages) <- result.try(publication_json(
+    merge_outbound,
+    "merge publication",
+  ))
+  use core <- result.try(sequence_publication(core, merge_outbound))
+  use identifiers <- result.try(
+    list.try_map(
+      [["left", "0", "id"], ["left", "1", "id"], ["right", "0", "id"]],
+      fn(path) {
+        use value <- result.try(
+          runtime_core.tree_read(core, tree_address, path)
+          |> result.map_error(string.inspect),
+        )
+        case value {
+          Some(types.StringValue(id)) -> Ok(id)
+          _ -> Error("published point has no Identifier")
+        }
+      },
+    ),
+  )
+  use _ <- result.try(case list.unique(identifiers) == identifiers {
+    True -> Ok(Nil)
+    False -> Error("interleaved Identifiers are not unique")
+  })
+  use _ <- result.try(singleton_publication_is_ungrouped(view))
+
+  normalize_field_batches(
+    json.object([
+      #(
+        "observations",
+        fixture_codec.array([
+          json.object([
+            #("id", json.string("branch-only")),
+            #("messages", fixture_codec.array([])),
+            #("allocationRanges", fixture_codec.array([])),
+            #(
+              "reservationAdvanced",
+              json.bool(
+                json.to_string(before_branch) != json.to_string(after_branch),
+              ),
+            ),
+            #("before", before_branch),
+            #("after", after_branch),
+          ]),
+          json.object([
+            #("id", json.string("main-publication")),
+            #("allocationRanges", fixture_codec.array(main_ranges)),
+            #("messages", fixture_codec.array(main_messages)),
+          ]),
+          json.object([
+            #("id", json.string("merge-publication")),
+            #("identifiers", string_array(identifiers)),
+            #("allocationRanges", fixture_codec.array(merge_ranges)),
+            #("messages", fixture_codec.array(merge_messages)),
+          ]),
+          json.object([
+            #("id", json.string("abort-range")),
+            #(
+              "allocationAdvanced",
+              json.bool(
+                json.to_string(before_abort) != json.to_string(after_abort),
+              ),
+            ),
+            #("before", before_abort),
+            #("after", after_abort),
+          ]),
+        ]),
+      ),
+    ]),
+  )
+}
+
+fn publication_json(
+  outbound: List(wire.OutboundOperation),
+  operation: String,
+) -> Result(#(List(Json), List(Json)), String) {
+  let assert [outbound] = outbound
+  use batch <- result.try(
+    fluid_container.decode(outbound.contents, outbound.metadata)
+    |> result.map_error(string.inspect),
+  )
+  publication_batch_json(batch, operation)
+}
+
+fn publication_batch_json(
+  batch: fluid_container.DecodedBatch,
+  operation: String,
+) -> Result(#(List(Json), List(Json)), String) {
+  case batch.messages {
+    [
+      fluid_container.ContainerMessage(
+        fluid_container.IdAllocation(range),
+        0,
+        _,
+      ),
+      fluid_container.ContainerMessage(
+        fluid_container.ChannelOperation(
+          fluid_container.Route("A", "_C"),
+          contents,
+        ),
+        1,
+        _,
+      ),
+    ] -> {
+      use range <- result.try(
+        fluid_ids.creation_range_to_json(range)
+        |> result.map_error(string.inspect),
+      )
+      Ok(#([range], [contents]))
+    }
+    _ -> Error(operation <> " did not publish one range before one tree op")
+  }
+}
+
+fn reversed_publication_is_rejected(
+  outbound: List(wire.OutboundOperation),
+  operation: String,
+) -> Result(Nil, String) {
+  let assert [outbound] = outbound
+  use batch <- result.try(
+    fluid_container.decode(outbound.contents, outbound.metadata)
+    |> result.map_error(string.inspect),
+  )
+  let reversed =
+    fluid_container.DecodedBatch(
+      ..batch,
+      messages: list.reverse(batch.messages),
+    )
+  case publication_batch_json(reversed, operation) {
+    Error(_) -> Ok(Nil)
+    Ok(_) -> Error(operation <> " accepted reversed message order")
+  }
+}
+
+fn sequence_publication(
+  core: runtime_core.Core,
+  outbound: List(wire.OutboundOperation),
+) -> Result(runtime_core.Core, String) {
+  let assert [outbound] = outbound
+  use contents <- result.try(
+    json.parse(json.to_string(outbound.contents), decode.dynamic)
+    |> result.map_error(fn(_) { "publication contents are not dynamic JSON" }),
+  )
+  use metadata <- result.try(case outbound.metadata {
+    None -> Ok(None)
+    Some(value) ->
+      json.parse(json.to_string(value), decode.dynamic)
+      |> result.map(Some)
+      |> result.map_error(fn(_) { "publication metadata is not dynamic JSON" })
+  })
+  let message =
+    spillway_types.SequencedDocumentMessage(
+      client_id: Some(core.client_id),
+      sequence_number: core.last_seen_sequence_number + 1,
+      minimum_sequence_number: core.minimum_sequence_number,
+      client_sequence_number: outbound.client_sequence_number,
+      reference_sequence_number: outbound.reference_sequence_number,
+      message_type: outbound.operation_type,
+      contents: contents,
+      metadata: metadata,
+      server_metadata: None,
+      origin: None,
+      traces: None,
+      timestamp: 0,
+      data: None,
+    )
+  use #(core, _) <- result.try(
+    core_result(runtime_core.handle_sequenced(core, message)),
+  )
+  case core.in_flight {
+    [] -> Ok(core)
+    _ -> Error("sequenced publication remains in flight")
+  }
+}
+
+fn singleton_publication_is_ungrouped(
+  view: schema.ViewSchema,
+) -> Result(Nil, String) {
+  use core <- result.try(initial_core())
+  use #(core, first_id) <- result.try(
+    core_result(runtime_core.fork_tree(
+      core,
+      tree_address,
+      types.DocumentCheckout,
+      view,
+    )),
+  )
+  let first = types.LocalCheckout(first_id)
+  use #(core, _) <- result.try(core_without_outbound(
+    runtime_core.submit_tree_edits_on(core, tree_address, first, [
+      types.SetField(["title"], types.StringValue("first")),
+    ]),
+    "first local edit",
+  ))
+  use #(core, second_id) <- result.try(
+    core_result(runtime_core.fork_tree(core, tree_address, first, view)),
+  )
+  let second = types.LocalCheckout(second_id)
+  use #(core, _) <- result.try(core_without_outbound(
+    runtime_core.submit_tree_edits_on(core, tree_address, second, [
+      types.SetField(["count"], types.NumberValue(2.0)),
+    ]),
+    "second local edit",
+  ))
+  use #(core, _, _) <- result.try(
+    core_result(runtime_core.merge_tree(
+      core,
+      tree_address,
+      types.DocumentCheckout,
+      first,
+      False,
+    )),
+  )
+  use #(_, _, outbound) <- result.try(
+    core_result(runtime_core.merge_tree(
+      core,
+      tree_address,
+      types.DocumentCheckout,
+      second,
+      False,
+    )),
+  )
+  let assert [outbound] = outbound
+  use batch <- result.try(
+    fluid_container.decode(outbound.contents, outbound.metadata)
+    |> result.map_error(string.inspect),
+  )
+  case batch {
+    fluid_container.DecodedBatch(
+      False,
+      _,
+      [
+        fluid_container.ContainerMessage(
+          fluid_container.ChannelOperation(_, _),
+          0,
+          _,
+        ),
+      ],
+    ) -> Ok(Nil)
+    _ -> Error("singleton publication without a range was grouped")
+  }
+}
+
 fn checkout_revisions(
   forest: branch.Forest,
   checkout: branch.Checkout,
@@ -882,9 +1728,14 @@ fn commit_at(
       let history.SequencedCommit(commit, _) = entry
       commit
     })
-  list.find(list.append(sequenced, view.pending), fn(commit) {
-    commit.revision == revision
-  })
+  let local = case branch.local_history(forest, checkout) {
+    Ok(history.LocalBranch(_, _, commits)) -> commits
+    Error(_) -> []
+  }
+  list.find(
+    list.append(sequenced, list.append(view.pending, local)),
+    fn(commit) { commit.revision == revision },
+  )
   |> result.map_error(fn(_) {
     types.InvalidHistory("runtime branch event has no matching commit")
   })
@@ -1167,6 +2018,15 @@ fn normalize_value(value: JsonValue) -> Result(JsonValue, String) {
       list.try_map(fields, fn(entry) {
         let #(key, value) = entry
         case key {
+          "sourceGuard" | "sourceMergeGuard" ->
+            normalize_guard(value, key, "source-active")
+            |> result.map(fn(value) { #(key, value) })
+          "targetGuard" | "targetMergeGuard" ->
+            normalize_guard(value, key, "target-active")
+            |> result.map(fn(value) { #(key, value) })
+          "forkGuard" ->
+            normalize_guard(value, key, "source-active")
+            |> result.map(fn(value) { #(key, value) })
           "editError" -> {
             let normalized = case value {
               VString("") -> VString("")
@@ -1176,24 +2036,54 @@ fn normalize_value(value: JsonValue) -> Result(JsonValue, String) {
             Ok(#(key, normalized))
           }
           "trees" -> {
-            use fields <- result.try(
-              field_batch.decode(fixture_codec_json(value))
-              |> result.map_error(string.inspect),
-            )
-            use normalized <- result.try(
-              fixture_codec.parse(
-                json.array(fields, fn(roots) {
-                  json.array(roots, fixtures.tree_value_to_json)
-                }),
-              ),
-            )
-            Ok(#(key, normalized))
+            case field_batch.decode(fixture_codec_json(value)) {
+              Ok(fields) -> {
+                use normalized <- result.try(
+                  fixture_codec.parse(
+                    json.array(fields, fn(roots) {
+                      json.array(roots, fixtures.tree_value_to_json)
+                    }),
+                  ),
+                )
+                Ok(#(key, normalized))
+              }
+              Error(types.UnsupportedFeature(
+                _,
+                "numeric identifier decoding requires an ID context",
+              )) -> Ok(#(key, value))
+              Error(error) -> Error(string.inspect(error))
+            }
           }
           _ -> normalize_value(value) |> result.map(fn(value) { #(key, value) })
         }
       })
       |> result.map(VObject)
     _ -> Ok(value)
+  }
+}
+
+fn normalize_guard(
+  value: JsonValue,
+  field: String,
+  token: String,
+) -> Result(JsonValue, String) {
+  let expected = case field {
+    "sourceGuard" ->
+      "Error: A view cannot be rebased while it has a pending transaction."
+    "targetGuard" ->
+      "Error: Views cannot be rebased onto a view that has a pending transaction."
+    "sourceMergeGuard" ->
+      "Error: Views with an open transaction cannot be merged into another view."
+    "targetMergeGuard" ->
+      "Error: Views cannot be merged into a view while it has a pending transaction."
+    "forkGuard" ->
+      "Error: A view cannot be forked while it has a pending transaction."
+    _ -> ""
+  }
+  case value {
+    VString(actual) if actual == expected || actual == token ->
+      Ok(VString(token))
+    _ -> Error("branch transaction guard differs at " <> field)
   }
 }
 
@@ -1207,6 +2097,48 @@ fn native(value: Result(a, types.TreeError)) -> Result(a, String) {
 
 fn core_result(value: Result(a, runtime_core.CoreError)) -> Result(a, String) {
   result.map_error(value, string.inspect)
+}
+
+fn core_without_output(
+  value: Result(
+    #(runtime_core.Core, List(runtime_core.ScopedTreeEvent), List(a)),
+    runtime_core.CoreError,
+  ),
+  operation: String,
+) -> Result(runtime_core.Core, String) {
+  use #(core, events, outbound) <- result.try(core_result(value))
+  case events, outbound {
+    [], [] -> Ok(core)
+    _, _ -> Error(operation <> " emitted events or outbound operations")
+  }
+}
+
+fn core_without_events(
+  value: Result(
+    #(runtime_core.Core, List(runtime_core.ScopedTreeEvent)),
+    runtime_core.CoreError,
+  ),
+  operation: String,
+) -> Result(runtime_core.Core, String) {
+  use #(core, events) <- result.try(core_result(value))
+  case events {
+    [] -> Ok(core)
+    _ -> Error(operation <> " emitted events")
+  }
+}
+
+fn core_without_outbound(
+  value: Result(
+    #(runtime_core.Core, List(runtime_core.ScopedTreeEvent), List(a)),
+    runtime_core.CoreError,
+  ),
+  operation: String,
+) -> Result(#(runtime_core.Core, List(runtime_core.ScopedTreeEvent)), String) {
+  use #(core, events, outbound) <- result.try(core_result(value))
+  case outbound {
+    [] -> Ok(#(core, events))
+    _ -> Error(operation <> " emitted outbound operations")
+  }
 }
 
 fn core_forest(core: runtime_core.Core) -> Result(branch.Forest, String) {

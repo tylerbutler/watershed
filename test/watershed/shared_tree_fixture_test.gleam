@@ -595,6 +595,28 @@ pub fn local_branch_rebase_matches_supported_rows_test() {
   fixtures.first_difference(actual, expected) |> expect.to_equal(Ok(Nil))
 }
 
+pub fn local_branch_transactions_match_pinned_observations_test() {
+  let assert Ok(fixture) = fixtures.load("local-branch-transactions")
+  let actual =
+    branch_fixture.run("local-branch-transactions", fixture.input)
+    |> expect.to_be_ok
+  let expected =
+    branch_fixture.projection("local-branch-transactions", fixture.expected)
+    |> expect.to_be_ok
+  fixtures.first_difference(actual, expected) |> expect.to_equal(Ok(Nil))
+}
+
+pub fn local_branch_allocation_matches_pinned_observations_test() {
+  let assert Ok(fixture) = fixtures.load("local-branch-allocation")
+  let actual =
+    branch_fixture.run("local-branch-allocation", fixture.input)
+    |> expect.to_be_ok
+  let expected =
+    branch_fixture.projection("local-branch-allocation", fixture.expected)
+    |> expect.to_be_ok
+  fixtures.first_difference(actual, expected) |> expect.to_equal(Ok(Nil))
+}
+
 pub fn local_branch_schema_source_evidence_and_native_refusal_are_required_test() {
   let assert Ok(fixtures.Case(expected: expected, ..)) =
     fixtures.load("local-branch-rebase")
@@ -854,7 +876,12 @@ pub fn local_branch_runner_rejects_input_and_expected_mutations_test() {
 }
 
 pub fn local_branch_new_runners_reject_scenario_and_row_mutations_test() {
-  ["local-branch-isolation", "local-branch-rebase"]
+  [
+    "local-branch-isolation",
+    "local-branch-rebase",
+    "local-branch-transactions",
+    "local-branch-allocation",
+  ]
   |> list.each(fn(name) {
     let assert Ok(fixtures.Case(input: input, expected: expected, ..)) =
       fixtures.load(name)
