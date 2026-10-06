@@ -62,6 +62,54 @@ import watershed/wire/socket
 import watershed_beam
 
 @target(erlang)
+@external(erlang, "settlement_trace", "start")
+fn start_settlement_trace(
+  runtime: process.Subject(runtime_beam.Msg),
+  timeout_milliseconds: Int,
+) -> Result(process.Pid, String)
+
+@target(erlang)
+@external(erlang, "settlement_trace", "seal")
+fn seal_settlement_trace(
+  trace: process.Pid,
+  timeout_milliseconds: Int,
+) -> Result(Nil, String)
+
+@target(erlang)
+@external(erlang, "settlement_trace", "await_idle")
+fn await_settlement_trace(
+  trace: process.Pid,
+  timeout_milliseconds: Int,
+) -> Result(Nil, String)
+
+@target(erlang)
+@external(erlang, "settlement_trace", "stop")
+fn stop_settlement_trace(
+  trace: process.Pid,
+  timeout_milliseconds: Int,
+) -> Result(Nil, String)
+
+@target(erlang)
+pub fn settlement_trace_dead_runtime_returns_error_test() {
+  let dead_runtimes = process.new_subject()
+  let owner =
+    process.spawn_unlinked(fn() {
+      let dead_runtime: process.Subject(runtime_beam.Msg) =
+        process.new_subject()
+      process.send(dead_runtimes, dead_runtime)
+    })
+  let dead_runtime = process.receive(dead_runtimes, 1000) |> expect.to_be_ok()
+  let owner_monitor = process.monitor(owner)
+  process.new_selector()
+  |> process.select_specific_monitor(owner_monitor, fn(_) { Nil })
+  |> process.selector_receive(1000)
+  |> expect.to_equal(Ok(Nil))
+  process.demonitor_process(owner_monitor)
+  start_settlement_trace(dead_runtime, 100)
+  |> expect.to_equal(Error("settlement trace runtime is not alive"))
+}
+
+@target(erlang)
 fn connect_message() -> message.ConnectMessage {
   message.ConnectMessage(
     tenant_id: "default",
@@ -1006,112 +1054,633 @@ pub fn beam_branch_registered_source_settlement_survives_unsubscribe_until_merge
 
 @target(erlang)
 pub fn beam_shutdown_cancels_captured_settlements_during_other_delivery_test() {
+  let input =
+    identifier_fixture.full_seed_input(
+      identifier_fixture.full_root(
+        identifier_fixture.point("child", "child"),
+        [],
+        [],
+        [],
+      ),
+    )
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let connections = process.new_subject()
   let submissions = process.new_subject()
-  let #(actor, callbacks, view) =
-    ready_tree_actor(fn(event, payload) {
-      case event {
-        "submitOp" -> {
-          let assert Ok(dynamic) =
-            json.parse(json.to_string(payload), decode.dynamic)
-          let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
-            frame.decode_submit_operation(dynamic)
-          process.send(submissions, submitted)
+  let assert Ok(document) =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> process.send(submissions, payload)
+          _ -> Nil
         }
-        _ -> Nil
-      }
-      Ok(Nil)
-    })
-  let source =
-    runtime_beam.tree_fork(actor, "A/_C", tree_types.DocumentCheckout, view)
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  let actor = watershed_beam.runtime_subject(document)
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  let root = watershed_beam.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let main =
+    watershed_beam.resolve_tree(document, marker, view.view)
     |> expect.to_be_ok()
-  let other =
-    runtime_beam.tree_fork(actor, "A/_C", tree_types.DocumentCheckout, view)
-    |> expect.to_be_ok()
+  let source = watershed_beam.tree_fork(main) |> expect.to_be_ok()
+  let other_scope = watershed_beam.tree_fork(main) |> expect.to_be_ok()
+  let blocked = watershed_beam.tree_fork(main) |> expect.to_be_ok()
   let registered = process.new_subject()
   let first_started = process.new_subject()
   let close_processed = process.new_subject()
+  let wait_results = process.new_subject()
   let later_started = process.new_subject()
-  let _source_token =
-    runtime_beam.subscribe_tree_commits_on(actor, "A/_C", source, fn(event) {
-      let assert runtime_beam.TreeCommitEvent(_, True, _, Some(on_settled)) =
-        event
+  let _ =
+    watershed_beam.subscribe_tree_commits(source, fn(event) {
+      let watershed_beam.TreeCommitEvent(_, local, _, on_settled) = event
       process.send(
         registered,
-        on_settled(fn(_) {
-          let close_command = process.new_subject()
-          process.send(first_started, close_command)
-          process.receive(close_command, 1000) |> expect.to_equal(Ok(Nil))
-          process.send(actor, runtime_beam.Shutdown)
-          process.send(
-            close_processed,
-            runtime_beam.tree_branch_status(actor, "A/_C", source),
-          )
+        #("source-first", local, case on_settled {
+          Some(on_settled) ->
+            on_settled(fn(_) {
+              let close_command = process.new_subject()
+              process.send(first_started, close_command)
+              process.send(wait_results, #(
+                "source-release",
+                process.receive(close_command, 1000),
+              ))
+              watershed_beam.close(document)
+              process.send(
+                close_processed,
+                watershed_beam.tree_branch_status(source),
+              )
+            })
+          None -> Error("missing source settlement registration")
         }),
       )
       process.send(
         registered,
-        on_settled(fn(_) { process.send(later_started, Nil) }),
+        #("source-later", local, case on_settled {
+          Some(on_settled) ->
+            on_settled(fn(_) { process.send(later_started, "source") })
+          None -> Error("missing source settlement registration")
+        }),
       )
     })
-  runtime_beam.tree_edit_view_on(
-    actor,
-    "A/_C",
+  let _ =
+    watershed_beam.subscribe_tree_commits(other_scope, fn(event) {
+      let watershed_beam.TreeCommitEvent(_, local, _, on_settled) = event
+      process.send(
+        registered,
+        #("other", local, case on_settled {
+          Some(on_settled) ->
+            on_settled(fn(_) { process.send(later_started, "other") })
+          None -> Error("missing other settlement registration")
+        }),
+      )
+    })
+  watershed_beam.tree_set(
     source,
-    view,
-    tree_types.SetField(["title"], tree_types.StringValue("settle")),
+    ["child", "label"],
+    tree_types.StringValue("settle"),
   )
   |> expect.to_equal(Ok(Nil))
-  process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
-  process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
-  runtime_beam.tree_merge(
-    actor,
-    "A/_C",
-    tree_types.DocumentCheckout,
-    source,
-    False,
+  process.receive(registered, 1000)
+  |> expect.to_equal(Ok(#("source-first", True, Ok(Nil))))
+  process.receive(registered, 1000)
+  |> expect.to_equal(Ok(#("source-later", True, Ok(Nil))))
+  watershed_beam.tree_merge(main, source, False) |> expect.to_equal(Ok(Nil))
+  let source_payload = process.receive(submissions, 1000) |> expect.to_be_ok()
+  watershed_beam.tree_set(
+    other_scope,
+    ["child", "label"],
+    tree_types.StringValue("other"),
   )
   |> expect.to_equal(Ok(Nil))
-  let submitted = process.receive(submissions, 1000) |> expect.to_be_ok()
+  process.receive(registered, 1000)
+  |> expect.to_equal(Ok(#("other", True, Ok(Nil))))
+  watershed_beam.tree_merge(main, other_scope, False)
+  |> expect.to_equal(Ok(Nil))
+  let other_payload = process.receive(submissions, 1000) |> expect.to_be_ok()
+  let source_dynamic =
+    json.parse(json.to_string(source_payload), decode.dynamic)
+    |> expect.to_be_ok()
+  let assert frame.SubmitOperation(client_id, [[source_submission]]) =
+    frame.decode_submit_operation(source_dynamic)
+    |> expect.to_be_ok()
+  client_id |> expect.to_equal("reader")
+  let owner = process.subject_owner(actor) |> expect.to_be_ok()
+  let owner_monitor = process.monitor(owner)
+  let settlement_trace =
+    start_settlement_trace(actor, 1000) |> expect.to_be_ok()
   callbacks.on_event(
     "op",
     frame.encode_operation_event([
-      frame.Sequenced(
-        client_id: Some("reader"),
-        sequence_number: 1,
-        minimum_sequence_number: 0,
-        client_sequence_number: 1,
-        reference_sequence_number: 0,
-        operation_type: "op",
-        contents: submitted.contents,
-        metadata: submitted.metadata,
-        timestamp: 0,
-        data: None,
-      ),
+      sequenced_submission(source_submission, client_id, 1),
     ]),
   )
   let close_command = process.receive(first_started, 1000) |> expect.to_be_ok()
+  seal_settlement_trace(settlement_trace, 1000) |> expect.to_equal(Ok(Nil))
 
   let delivery_entered = process.new_subject()
   let _other_token =
-    runtime_beam.subscribe_tree_commits_on(actor, "A/_C", other, fn(_) {
+    watershed_beam.subscribe_tree_commits(blocked, fn(_) {
       let release = process.new_subject()
       process.send(delivery_entered, release)
-      process.receive(release, 1000) |> expect.to_equal(Ok(Nil))
+      process.send(wait_results, #(
+        "blocked-release",
+        process.receive(release, 1000),
+      ))
     })
-  runtime_beam.tree_edit_view_on(
-    actor,
-    "A/_C",
-    other,
-    view,
-    tree_types.SetField(["title"], tree_types.StringValue("held")),
+  watershed_beam.tree_set(
+    blocked,
+    ["child", "label"],
+    tree_types.StringValue("held"),
   )
   |> expect.to_equal(Ok(Nil))
   let release = process.receive(delivery_entered, 1000) |> expect.to_be_ok()
   process.send(close_command, Nil)
   process.receive(close_processed, 1000)
-  |> expect.to_equal(Ok(tree_types.BranchDisposed))
+  |> expect.to_equal(Ok(watershed_beam.BranchDisposed))
+  process.receive(wait_results, 1000)
+  |> expect.to_equal(Ok(#("source-release", Ok(Nil))))
+  await_settlement_trace(settlement_trace, 1000) |> expect.to_equal(Ok(Nil))
+  process.receive(later_started, 0) |> expect.to_equal(Error(Nil))
+  stop_settlement_trace(settlement_trace, 1000) |> expect.to_equal(Ok(Nil))
   process.send(release, Nil)
-  process.receive(later_started, 100) |> expect.to_equal(Error(Nil))
+  process.receive(wait_results, 1000)
+  |> expect.to_equal(Ok(#("blocked-release", Ok(Nil))))
+  process.new_selector()
+  |> process.select_specific_monitor(owner_monitor, fn(_) { Nil })
+  |> process.selector_receive(1000)
+  |> expect.to_equal(Ok(Nil))
+  process.demonitor_process(owner_monitor)
+  let other_dynamic =
+    json.parse(json.to_string(other_payload), decode.dynamic)
+    |> expect.to_be_ok()
+  let assert frame.SubmitOperation(other_client_id, [[other_submission]]) =
+    frame.decode_submit_operation(other_dynamic)
+    |> expect.to_be_ok()
+  other_client_id |> expect.to_equal(client_id)
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(other_submission, other_client_id, 2),
+    ]),
+  )
+  process.receive(later_started, 0) |> expect.to_equal(Error(Nil))
+}
+
+@target(erlang)
+pub fn beam_facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() {
+  let input =
+    identifier_fixture.full_seed_input(
+      identifier_fixture.full_root(
+        identifier_fixture.point("child", "child"),
+        [],
+        [],
+        [],
+      ),
+    )
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let connections = process.new_subject()
+  let submissions = process.new_subject()
+  let assert Ok(document) =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+  let callbacks = process.receive(connections, 1000) |> expect.to_be_ok()
+  callbacks.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> {
+            let assert Ok(dynamic) =
+              json.parse(json.to_string(payload), decode.dynamic)
+            let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+              frame.decode_submit_operation(dynamic)
+            process.send(submissions, submitted)
+          }
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  let actor = watershed_beam.runtime_subject(document)
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  let root = watershed_beam.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let main =
+    watershed_beam.resolve_tree(document, marker, view.view)
+    |> expect.to_be_ok()
+  let source = watershed_beam.tree_fork(main) |> expect.to_be_ok()
+  let target = watershed_beam.tree_fork(main) |> expect.to_be_ok()
+  let descendant = watershed_beam.tree_fork(target) |> expect.to_be_ok()
+  let registered = process.new_subject()
+  let factories = process.new_subject()
+  let localities = process.new_subject()
+  let source_outcomes = process.new_subject()
+  let target_outcomes = process.new_subject()
+  let descendant_outcomes = process.new_subject()
+  let main_outcomes = process.new_subject()
+  let completed = process.new_subject()
+  let _ =
+    watershed_beam.subscribe_tree_commits(source, fn(event) {
+      let watershed_beam.TreeCommitEvent(_, local, factory, on_settled) = event
+      process.send(localities, #("source", local))
+      process.send(factories, case factory {
+        Some(factory) -> factory()
+        None -> Error("missing source revertible factory")
+      })
+      process.send(registered, case on_settled {
+        Some(on_settled) ->
+          on_settled(fn(outcome) { process.send(source_outcomes, outcome) })
+        None -> Error("missing source settlement registration")
+      })
+    })
+  let _ =
+    watershed_beam.subscribe_tree_commits(target, fn(event) {
+      let watershed_beam.TreeCommitEvent(_, local, _, on_settled) = event
+      process.send(localities, #("target", local))
+      process.send(registered, case on_settled {
+        Some(on_settled) ->
+          on_settled(fn(outcome) {
+            process.send(target_outcomes, #(
+              outcome,
+              watershed_beam.tree_dispose_branch(target),
+            ))
+          })
+        None -> Error("missing target settlement registration")
+      })
+      process.send(registered, case on_settled {
+        Some(on_settled) ->
+          on_settled(fn(outcome) {
+            process.send(target_outcomes, #(outcome, Ok(Nil)))
+          })
+        None -> Error("missing target settlement registration")
+      })
+    })
+  let _ =
+    watershed_beam.subscribe_tree_commits(descendant, fn(event) {
+      let watershed_beam.TreeCommitEvent(_, local, _, on_settled) = event
+      process.send(localities, #("descendant", local))
+      process.send(registered, case on_settled {
+        Some(on_settled) ->
+          on_settled(fn(outcome) { process.send(descendant_outcomes, outcome) })
+        None -> Error("missing descendant settlement registration")
+      })
+      process.send(registered, case on_settled {
+        Some(on_settled) ->
+          on_settled(fn(_) { process.send(completed, "descendant") })
+        None -> Error("missing descendant settlement completion")
+      })
+    })
+  let _ =
+    watershed_beam.subscribe_tree_commits(main, fn(event) {
+      let watershed_beam.TreeCommitEvent(_, local, factory, on_settled) = event
+      process.send(localities, #("main", local))
+      process.send(factories, case factory {
+        Some(factory) -> factory()
+        None -> Error("missing main revertible factory")
+      })
+      process.send(registered, case on_settled {
+        Some(on_settled) ->
+          on_settled(fn(outcome) { process.send(main_outcomes, outcome) })
+        None -> Error("missing main settlement registration")
+      })
+      process.send(registered, case on_settled {
+        Some(on_settled) ->
+          on_settled(fn(_) { process.send(completed, "main") })
+        None -> Error("missing main settlement completion")
+      })
+    })
+  watershed_beam.tree_set(
+    source,
+    ["child", "label"],
+    tree_types.StringValue("settled"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  process.receive(localities, 1000) |> expect.to_equal(Ok(#("source", True)))
+  process.receive(factories, 1000) |> expect.to_be_ok() |> expect.to_be_ok()
+  process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  watershed_beam.tree_merge(target, source, False) |> expect.to_equal(Ok(Nil))
+  process.receive(localities, 1000) |> expect.to_equal(Ok(#("target", True)))
+  process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  watershed_beam.tree_merge(descendant, target, False)
+  |> expect.to_equal(Ok(Nil))
+  process.receive(localities, 1000)
+  |> expect.to_equal(Ok(#("descendant", True)))
+  process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  watershed_beam.tree_merge(main, source, True) |> expect.to_equal(Ok(Nil))
+  process.receive(localities, 1000) |> expect.to_equal(Ok(#("main", True)))
+  process.receive(factories, 1000) |> expect.to_be_ok() |> expect.to_be_ok()
+  process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  process.receive(registered, 1000) |> expect.to_equal(Ok(Ok(Nil)))
+  let submitted = process.receive(submissions, 1000) |> expect.to_be_ok()
+  process.receive(source_outcomes, 0) |> expect.to_equal(Error(Nil))
+  process.receive(target_outcomes, 0) |> expect.to_equal(Error(Nil))
+  process.receive(descendant_outcomes, 0) |> expect.to_equal(Error(Nil))
+  process.receive(main_outcomes, 0) |> expect.to_equal(Error(Nil))
+  let settlement_trace =
+    start_settlement_trace(actor, 1000) |> expect.to_be_ok()
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(submitted, "reader", 1),
+    ]),
+  )
+  process.receive(target_outcomes, 1000)
+  |> expect.to_equal(Ok(#(tree_types.FullyApplied, Ok(Nil))))
+  process.receive(descendant_outcomes, 1000)
+  |> expect.to_equal(Ok(tree_types.FullyApplied))
+  process.receive(main_outcomes, 1000)
+  |> expect.to_equal(Ok(tree_types.FullyApplied))
+  let completion_one = process.receive(completed, 1000) |> expect.to_be_ok()
+  let completion_two = process.receive(completed, 1000) |> expect.to_be_ok()
+  [completion_one, completion_two]
+  |> list.contains("descendant")
+  |> expect.to_be_true()
+  [completion_one, completion_two]
+  |> list.contains("main")
+  |> expect.to_be_true()
+  watershed_beam.tree_branch_status(source)
+  |> expect.to_equal(watershed_beam.BranchDisposed)
+  watershed_beam.tree_branch_status(target)
+  |> expect.to_equal(watershed_beam.BranchDisposed)
+  watershed_beam.tree_branch_status(descendant)
+  |> expect.to_equal(watershed_beam.BranchValid)
+  seal_settlement_trace(settlement_trace, 1000) |> expect.to_equal(Ok(Nil))
+  await_settlement_trace(settlement_trace, 1000)
+  |> expect.to_equal(Ok(Nil))
+  stop_settlement_trace(settlement_trace, 1000) |> expect.to_equal(Ok(Nil))
+  process.receive(source_outcomes, 0) |> expect.to_equal(Error(Nil))
+  process.receive(target_outcomes, 0) |> expect.to_equal(Error(Nil))
+  process.receive(descendant_outcomes, 0) |> expect.to_equal(Error(Nil))
+  process.receive(main_outcomes, 0) |> expect.to_equal(Error(Nil))
+  process.receive(completed, 0) |> expect.to_equal(Error(Nil))
+  let duplicate_trace = start_settlement_trace(actor, 1000) |> expect.to_be_ok()
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(submitted, "reader", 1),
+    ]),
+  )
+  watershed_beam.tree_branch_status(descendant)
+  |> expect.to_equal(watershed_beam.BranchValid)
+  seal_settlement_trace(duplicate_trace, 1000) |> expect.to_equal(Ok(Nil))
+  await_settlement_trace(duplicate_trace, 1000)
+  |> expect.to_equal(Ok(Nil))
+  stop_settlement_trace(duplicate_trace, 1000) |> expect.to_equal(Ok(Nil))
+  process.receive(source_outcomes, 0) |> expect.to_equal(Error(Nil))
+  process.receive(target_outcomes, 0) |> expect.to_equal(Error(Nil))
+  process.receive(descendant_outcomes, 0) |> expect.to_equal(Error(Nil))
+  process.receive(main_outcomes, 0) |> expect.to_equal(Error(Nil))
+  process.receive(completed, 0) |> expect.to_equal(Error(Nil))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn beam_facade_branch_settlement_survives_unsubscribe_and_reconnect_test() {
+  let input =
+    identifier_fixture.full_seed_input(
+      identifier_fixture.full_root(
+        identifier_fixture.point("child", "child"),
+        [],
+        [],
+        [],
+      ),
+    )
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let connections = process.new_subject()
+  let submissions = process.new_subject()
+  let assert Ok(document) =
+    watershed_beam.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+  let first = process.receive(connections, 1000) |> expect.to_be_ok()
+  first.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> process.send(submissions, payload)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  first.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  let actor = watershed_beam.runtime_subject(document)
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  let root = watershed_beam.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed_beam.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let main =
+    watershed_beam.resolve_tree(document, marker, view.view)
+    |> expect.to_be_ok()
+  let source = watershed_beam.tree_fork(main) |> expect.to_be_ok()
+  let registered = process.new_subject()
+  let outcomes = process.new_subject()
+  let token =
+    watershed_beam.subscribe_tree_commits(source, fn(event) {
+      let watershed_beam.TreeCommitEvent(_, local, _, on_settled) = event
+      process.send(
+        registered,
+        #(local, case on_settled {
+          Some(on_settled) ->
+            on_settled(fn(outcome) { process.send(outcomes, outcome) })
+          None -> Error("missing reconnect settlement registration")
+        }),
+      )
+    })
+  watershed_beam.tree_set(
+    source,
+    ["child", "label"],
+    tree_types.StringValue("reconnect"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  process.receive(registered, 1000)
+  |> expect.to_equal(Ok(#(True, Ok(Nil))))
+  watershed_beam.unsubscribe(token)
+  watershed_beam.tree_merge(main, source, False) |> expect.to_equal(Ok(Nil))
+  let original_payload = process.receive(submissions, 1000) |> expect.to_be_ok()
+  let original_dynamic =
+    json.parse(json.to_string(original_payload), decode.dynamic)
+    |> expect.to_be_ok()
+  let assert frame.SubmitOperation(original_client, [[original]]) =
+    frame.decode_submit_operation(original_dynamic)
+    |> expect.to_be_ok()
+  original_client |> expect.to_equal("reader")
+  original.client_sequence_number |> expect.to_equal(1)
+  original.reference_sequence_number |> expect.to_equal(0)
+  process.receive(outcomes, 0) |> expect.to_equal(Error(Nil))
+  first.on_close("transport lost")
+  let second = process.receive(connections, 1000) |> expect.to_be_ok()
+  second.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> process.send(submissions, payload)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  second.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader-2",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["reader-2"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  second.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(1, "join", "{\"clientId\":\"reader-2\",\"detail\":{}}"),
+      membership_frame(2, "leave", "\"reader\""),
+    ]),
+  )
+  let resent_payload = process.receive(submissions, 1000) |> expect.to_be_ok()
+  let resent_dynamic =
+    json.parse(json.to_string(resent_payload), decode.dynamic)
+    |> expect.to_be_ok()
+  let assert frame.SubmitOperation(resent_client, [[resent]]) =
+    frame.decode_submit_operation(resent_dynamic)
+    |> expect.to_be_ok()
+  resent_client |> expect.to_equal("reader-2")
+  resent.client_sequence_number
+  |> expect.to_equal(original.client_sequence_number + 1)
+  resent.client_sequence_number |> expect.to_equal(2)
+  resent.reference_sequence_number |> expect.to_equal(2)
+  resent.contents |> expect.to_equal(original.contents)
+  resent.metadata |> expect.to_equal(original.metadata)
+  let original_envelope =
+    fluid_container.decode(original.contents, original.metadata)
+    |> expect.to_be_ok()
+  let resent_envelope =
+    fluid_container.decode(resent.contents, resent.metadata)
+    |> expect.to_be_ok()
+  let assert [
+    fluid_container.ContainerMessage(
+      fluid_container.IdAllocation(original_range),
+      0,
+      _,
+    ),
+    fluid_container.ContainerMessage(
+      fluid_container.ChannelOperation(fluid_container.Route("A", "_C"), _),
+      1,
+      _,
+    ),
+  ] = original_envelope.messages
+  let assert [
+    fluid_container.ContainerMessage(
+      fluid_container.IdAllocation(resent_range),
+      0,
+      _,
+    ),
+    fluid_container.ContainerMessage(
+      fluid_container.ChannelOperation(fluid_container.Route("A", "_C"), _),
+      1,
+      _,
+    ),
+  ] = resent_envelope.messages
+  resent_range |> expect.to_equal(original_range)
+  runtime_beam.client_id(actor) |> expect.to_equal(Some("reader-2"))
+  second.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(resent, resent_client, 3),
+    ]),
+  )
+  process.receive(outcomes, 1000)
+  |> expect.to_equal(Ok(tree_types.FullyApplied))
+  watershed_beam.tree_branch_status(source)
+  |> expect.to_equal(watershed_beam.BranchValid)
+  process.receive(outcomes, 100) |> expect.to_equal(Error(Nil))
+  process.receive(submissions, 100) |> expect.to_equal(Error(Nil))
+  process.send(actor, runtime_beam.Shutdown)
 }
 
 @target(erlang)

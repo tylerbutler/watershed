@@ -1379,26 +1379,65 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
 
   watershed.tree_dispose_branch(fork) |> expect.to_equal(Ok(Nil))
   let live = watershed.tree_fork(main) |> expect.to_be_ok()
+  let live_settlements = transport_js.new_cell([])
+  let live_registrations = transport_js.new_cell([])
+  let _ =
+    watershed.subscribe_tree_commits(live, fn(event) {
+      let first = case event.on_settled {
+        Some(on_settled) ->
+          on_settled(fn(outcome) {
+            watershed.close(document)
+            transport_js.set_cell(live_settlements, [
+              outcome,
+              ..transport_js.get_cell(live_settlements)
+            ])
+          })
+        None -> Error("missing live settlement registration")
+      }
+      let second = case event.on_settled {
+        Some(on_settled) ->
+          on_settled(fn(outcome) {
+            transport_js.set_cell(live_settlements, [
+              outcome,
+              ..transport_js.get_cell(live_settlements)
+            ])
+          })
+        None -> Error("missing live settlement registration")
+      }
+      transport_js.set_cell(live_registrations, [
+        #(first, second),
+        ..transport_js.get_cell(live_registrations)
+      ])
+    })
   let closed_settlements = transport_js.new_cell([])
+  let closing_registrations = transport_js.new_cell([])
   let closing = watershed.tree_fork(main) |> expect.to_be_ok()
   let _ =
     watershed.subscribe_tree_commits(closing, fn(event) {
-      let assert Some(on_settled) = event.on_settled
-      on_settled(fn(_) {
-        watershed.close(document)
-        transport_js.set_cell(closed_settlements, [
-          "close-first",
-          ..transport_js.get_cell(closed_settlements)
-        ])
-      })
-      |> expect.to_equal(Ok(Nil))
-      on_settled(fn(_) {
-        transport_js.set_cell(closed_settlements, [
-          "close-second",
-          ..transport_js.get_cell(closed_settlements)
-        ])
-      })
-      |> expect.to_equal(Ok(Nil))
+      let first = case event.on_settled {
+        Some(on_settled) ->
+          on_settled(fn(_) {
+            transport_js.set_cell(closed_settlements, [
+              "close-first",
+              ..transport_js.get_cell(closed_settlements)
+            ])
+          })
+        None -> Error("missing closing settlement registration")
+      }
+      let second = case event.on_settled {
+        Some(on_settled) ->
+          on_settled(fn(_) {
+            transport_js.set_cell(closed_settlements, [
+              "close-second",
+              ..transport_js.get_cell(closed_settlements)
+            ])
+          })
+        None -> Error("missing closing settlement registration")
+      }
+      transport_js.set_cell(closing_registrations, [
+        #(first, second),
+        ..transport_js.get_cell(closing_registrations)
+      ])
     })
   watershed.tree_map_set(
     closing,
@@ -1410,11 +1449,440 @@ pub fn shared_tree_facade_fork_edit_isolation_rebase_merge_test() {
     ),
   )
   |> expect.to_equal(Ok(Nil))
-  watershed.tree_merge(main, closing, False) |> expect.to_equal(Ok(Nil))
-  transport_js.get_cell(closed_settlements) |> expect.to_equal(["close-first"])
+  transport_js.get_cell(closing_registrations)
+  |> expect.to_equal([#(Ok(Nil), Ok(Nil))])
+  watershed.tree_merge(live, closing, False) |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(live_registrations)
+  |> expect.to_equal([#(Ok(Nil), Ok(Nil))])
+  watershed.tree_merge(main, closing, False) |> expect.to_be_error()
+  transport_js.get_cell(closed_settlements) |> expect.to_equal([])
+  transport_js.get_cell(live_settlements)
+  |> expect.to_equal([tree_types.FullyApplied])
 
   watershed.tree_branch_status(live)
   |> expect.to_equal(watershed.BranchDisposed)
+}
+
+@target(javascript)
+pub fn facade_merge_ack_disposal_cancels_only_disposed_settlement_scopes_test() {
+  let input =
+    identifier_fixture.full_seed_input(
+      identifier_fixture.full_root(
+        identifier_fixture.point("child", "child"),
+        [],
+        [],
+        [],
+      ),
+    )
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let callbacks = transport_js.new_cell(None)
+  let submissions = transport_js.new_cell([])
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(event, payload) {
+            case event {
+              "submitOp" -> {
+                let assert Ok(dynamic) =
+                  json.parse(json.to_string(payload), decode.dynamic)
+                let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
+                  frame.decode_submit_operation(dynamic)
+                transport_js.set_cell(submissions, [
+                  submitted,
+                  ..transport_js.get_cell(submissions)
+                ])
+              }
+              _ -> Nil
+            }
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(callbacks) = transport_js.get_cell(callbacks)
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let main =
+    watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
+  let source = watershed.tree_fork(main) |> expect.to_be_ok()
+  let target = watershed.tree_fork(main) |> expect.to_be_ok()
+  let descendant = watershed.tree_fork(target) |> expect.to_be_ok()
+  let source_outcomes = transport_js.new_cell([])
+  let target_outcomes = transport_js.new_cell([])
+  let descendant_outcomes = transport_js.new_cell([])
+  let main_outcomes = transport_js.new_cell([])
+  let source_factory = transport_js.new_cell([])
+  let main_factory = transport_js.new_cell([])
+  let registrations = transport_js.new_cell([])
+  let _ =
+    watershed.subscribe_tree_commits(source, fn(event) {
+      transport_js.set_cell(source_factory, [
+        case event.get_revertible {
+          Some(factory) -> factory()
+          None -> Error("missing source revertible factory")
+        },
+        ..transport_js.get_cell(source_factory)
+      ])
+      let registration = case event.on_settled {
+        Some(on_settled) ->
+          on_settled(fn(outcome) {
+            transport_js.set_cell(source_outcomes, [
+              outcome,
+              ..transport_js.get_cell(source_outcomes)
+            ])
+          })
+        None -> Error("missing source settlement registration")
+      }
+      transport_js.set_cell(registrations, [
+        #("source", registration),
+        ..transport_js.get_cell(registrations)
+      ])
+    })
+  let _ =
+    watershed.subscribe_tree_commits(target, fn(event) {
+      let first = case event.on_settled {
+        Some(on_settled) ->
+          on_settled(fn(outcome) {
+            let disposal = watershed.tree_dispose_branch(target)
+            transport_js.set_cell(target_outcomes, [
+              #(outcome, disposal),
+              ..transport_js.get_cell(target_outcomes)
+            ])
+          })
+        None -> Error("missing target settlement registration")
+      }
+      let second = case event.on_settled {
+        Some(on_settled) ->
+          on_settled(fn(outcome) {
+            transport_js.set_cell(target_outcomes, [
+              #(outcome, Ok(Nil)),
+              ..transport_js.get_cell(target_outcomes)
+            ])
+          })
+        None -> Error("missing target settlement registration")
+      }
+      transport_js.set_cell(registrations, [
+        #("target-later", second),
+        #("target-first", first),
+        ..transport_js.get_cell(registrations)
+      ])
+    })
+  let _ =
+    watershed.subscribe_tree_commits(descendant, fn(event) {
+      let registration = case event.on_settled {
+        Some(on_settled) ->
+          on_settled(fn(outcome) {
+            transport_js.set_cell(descendant_outcomes, [
+              outcome,
+              ..transport_js.get_cell(descendant_outcomes)
+            ])
+          })
+        None -> Error("missing descendant settlement registration")
+      }
+      transport_js.set_cell(registrations, [
+        #("descendant", registration),
+        ..transport_js.get_cell(registrations)
+      ])
+    })
+  let _ =
+    watershed.subscribe_tree_commits(main, fn(event) {
+      transport_js.set_cell(main_factory, [
+        case event.get_revertible {
+          Some(factory) -> factory()
+          None -> Error("missing main revertible factory")
+        },
+        ..transport_js.get_cell(main_factory)
+      ])
+      let registration = case event.on_settled {
+        Some(on_settled) ->
+          on_settled(fn(outcome) {
+            transport_js.set_cell(main_outcomes, [
+              outcome,
+              ..transport_js.get_cell(main_outcomes)
+            ])
+          })
+        None -> Error("missing main settlement registration")
+      }
+      transport_js.set_cell(registrations, [
+        #("main", registration),
+        ..transport_js.get_cell(registrations)
+      ])
+    })
+  watershed.tree_set(
+    source,
+    ["child", "label"],
+    tree_types.StringValue("settled"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  watershed.tree_merge(target, source, False) |> expect.to_equal(Ok(Nil))
+  watershed.tree_merge(descendant, target, False) |> expect.to_equal(Ok(Nil))
+  watershed.tree_merge(main, source, True) |> expect.to_equal(Ok(Nil))
+  let assert [source_factory_result] = transport_js.get_cell(source_factory)
+  source_factory_result |> expect.to_be_ok()
+  let assert [main_factory_result] = transport_js.get_cell(main_factory)
+  main_factory_result |> expect.to_be_ok()
+  transport_js.get_cell(registrations)
+  |> expect.to_equal([
+    #("main", Ok(Nil)),
+    #("descendant", Ok(Nil)),
+    #("target-later", Ok(Nil)),
+    #("target-first", Ok(Nil)),
+    #("source", Ok(Nil)),
+  ])
+  transport_js.get_cell(source_outcomes) |> expect.to_equal([])
+  transport_js.get_cell(target_outcomes) |> expect.to_equal([])
+  transport_js.get_cell(descendant_outcomes) |> expect.to_equal([])
+  transport_js.get_cell(main_outcomes) |> expect.to_equal([])
+  let assert [submitted] = transport_js.get_cell(submissions)
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(submitted, "reader", 1),
+    ])
+      |> json.to_string,
+  )
+  transport_js.get_cell(source_outcomes) |> expect.to_equal([])
+  transport_js.get_cell(target_outcomes)
+  |> expect.to_equal([#(tree_types.FullyApplied, Ok(Nil))])
+  transport_js.get_cell(descendant_outcomes)
+  |> expect.to_equal([tree_types.FullyApplied])
+  transport_js.get_cell(main_outcomes)
+  |> expect.to_equal([tree_types.FullyApplied])
+  watershed.tree_branch_status(source)
+  |> expect.to_equal(watershed.BranchDisposed)
+  watershed.tree_branch_status(target)
+  |> expect.to_equal(watershed.BranchDisposed)
+  watershed.tree_branch_status(descendant)
+  |> expect.to_equal(watershed.BranchValid)
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(submitted, "reader", 1),
+    ])
+      |> json.to_string,
+  )
+  transport_js.get_cell(target_outcomes) |> list.length |> expect.to_equal(1)
+  transport_js.get_cell(descendant_outcomes)
+  |> list.length
+  |> expect.to_equal(1)
+  transport_js.get_cell(main_outcomes) |> list.length |> expect.to_equal(1)
+  watershed.close(document)
+}
+
+@target(javascript)
+pub fn facade_branch_settlement_survives_unsubscribe_and_reconnect_test() {
+  let input =
+    identifier_fixture.full_seed_input(
+      identifier_fixture.full_root(
+        identifier_fixture.point("child", "child"),
+        [],
+        [],
+        [],
+      ),
+    )
+  let seed = runtime_core.bootstrap_seed(input) |> expect.to_be_ok()
+  let callbacks = transport_js.new_cell(None)
+  let submissions = transport_js.new_cell([])
+  let document =
+    watershed.connect_via_seed(
+      tenant: "default",
+      document: "tree",
+      user_id: "reader",
+      seed: seed,
+      transport: runtime.Transport(connect: fn(handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        runtime.TransportHandle(
+          push: fn(event, payload) {
+            case event {
+              "submitOp" ->
+                transport_js.set_cell(submissions, [
+                  payload,
+                  ..transport_js.get_cell(submissions)
+                ])
+              _ -> Nil
+            }
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+          hold: fn() { Nil },
+          resume: fn() { Nil },
+        )
+      }),
+      on_ready: fn(_) { Nil },
+    )
+  let assert Some(first) = transport_js.get_cell(callbacks)
+  first.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  let root = watershed.resolve_root(document) |> expect.to_be_ok()
+  let marker = watershed.get(root, "tree") |> expect.to_be_ok()
+  let assert [view] = input.tree_views
+  let main =
+    watershed.resolve_tree(document, marker, view.view) |> expect.to_be_ok()
+  let source = watershed.tree_fork(main) |> expect.to_be_ok()
+  let outcomes = transport_js.new_cell([])
+  let registrations = transport_js.new_cell([])
+  let token =
+    watershed.subscribe_tree_commits(source, fn(event) {
+      let registration = case event.on_settled {
+        Some(on_settled) ->
+          on_settled(fn(outcome) {
+            transport_js.set_cell(outcomes, [
+              outcome,
+              ..transport_js.get_cell(outcomes)
+            ])
+          })
+        None -> Error("missing reconnect settlement registration")
+      }
+      transport_js.set_cell(registrations, [
+        registration,
+        ..transport_js.get_cell(registrations)
+      ])
+    })
+  watershed.tree_set(
+    source,
+    ["child", "label"],
+    tree_types.StringValue("reconnect"),
+  )
+  |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(registrations) |> expect.to_equal([Ok(Nil)])
+  watershed.unsubscribe(token)
+  watershed.tree_merge(main, source, False) |> expect.to_equal(Ok(Nil))
+  let assert [original_payload] = transport_js.get_cell(submissions)
+  let original_dynamic =
+    json.parse(json.to_string(original_payload), decode.dynamic)
+    |> expect.to_be_ok()
+  let assert frame.SubmitOperation(original_client, [[original]]) =
+    frame.decode_submit_operation(original_dynamic)
+    |> expect.to_be_ok()
+  original_client |> expect.to_equal("reader")
+  original.client_sequence_number |> expect.to_equal(1)
+  original.reference_sequence_number |> expect.to_equal(0)
+  transport_js.get_cell(outcomes) |> expect.to_equal([])
+  first.on_close()
+  first.on_join()
+  first.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader-2",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["reader-2"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  first.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(1, "join", "{\"clientId\":\"reader-2\",\"detail\":{}}"),
+      membership_frame(2, "leave", "\"reader\""),
+    ])
+      |> json.to_string,
+  )
+  let assert [resent_payload, _] = transport_js.get_cell(submissions)
+  let resent_dynamic =
+    json.parse(json.to_string(resent_payload), decode.dynamic)
+    |> expect.to_be_ok()
+  let assert frame.SubmitOperation(resent_client, [[resent]]) =
+    frame.decode_submit_operation(resent_dynamic)
+    |> expect.to_be_ok()
+  resent_client |> expect.to_equal("reader-2")
+  resent.client_sequence_number
+  |> expect.to_equal(original.client_sequence_number + 1)
+  resent.client_sequence_number |> expect.to_equal(2)
+  resent.reference_sequence_number |> expect.to_equal(2)
+  resent.contents |> expect.to_equal(original.contents)
+  resent.metadata |> expect.to_equal(original.metadata)
+  let original_envelope =
+    fluid_container.decode(original.contents, original.metadata)
+    |> expect.to_be_ok()
+  let resent_envelope =
+    fluid_container.decode(resent.contents, resent.metadata)
+    |> expect.to_be_ok()
+  let assert [
+    fluid_container.ContainerMessage(
+      fluid_container.IdAllocation(original_range),
+      0,
+      _,
+    ),
+    fluid_container.ContainerMessage(
+      fluid_container.ChannelOperation(fluid_container.Route("A", "_C"), _),
+      1,
+      _,
+    ),
+  ] = original_envelope.messages
+  let assert [
+    fluid_container.ContainerMessage(
+      fluid_container.IdAllocation(resent_range),
+      0,
+      _,
+    ),
+    fluid_container.ContainerMessage(
+      fluid_container.ChannelOperation(fluid_container.Route("A", "_C"), _),
+      1,
+      _,
+    ),
+  ] = resent_envelope.messages
+  resent_range |> expect.to_equal(original_range)
+  let assert Some("reader-2") =
+    runtime.connection_observation(watershed.runtime_of(document)).client_id
+  first.on_event(
+    "op",
+    frame.encode_operation_event([
+      sequenced_submission(resent, resent_client, 3),
+    ])
+      |> json.to_string,
+  )
+  transport_js.get_cell(outcomes)
+  |> expect.to_equal([tree_types.FullyApplied])
+  transport_js.get_cell(outcomes) |> list.length |> expect.to_equal(1)
+  transport_js.get_cell(submissions) |> list.length |> expect.to_equal(2)
+  watershed.tree_branch_status(source)
+  |> expect.to_equal(watershed.BranchValid)
+  watershed.close(document)
 }
 
 @target(javascript)
